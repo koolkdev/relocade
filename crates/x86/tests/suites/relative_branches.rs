@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     compile_block_from_bytes,
@@ -249,7 +249,6 @@ fn untaken_conditions_still_fetch_the_displacement() {
             image.cpu.flags.bytes.zf = zero;
             image.data(0x3000 + (start & 0xfff), code);
             image.check_unchanged_exit(
-                Engine::Wasmtime,
                 TestModule::interpreter(),
                 &format!("incomplete branch {code:02x?}, ZF={zero}"),
                 Exit::PageFault {

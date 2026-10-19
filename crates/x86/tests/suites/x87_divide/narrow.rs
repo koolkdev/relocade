@@ -5,7 +5,7 @@ use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 use wasmparser::{Operator, Parser, Payload};
 
-fn memory_quotients(engine: Engine, frontend: Frontend) {
+fn memory_quotients(frontend: Frontend) {
     let code = [0xdc, 0x35, 0, 0x40, 0, 0]; // FDIV m64
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     assert!(Parser::new(0).parse_all(block.bytes()).any(|payload| {
@@ -78,7 +78,7 @@ fn memory_quotients(engine: Engine, frontend: Frontend) {
                     result.x87.status.c1 = u8::from(flags & C1 != 0);
                     write_value(&mut result, 0, quotient);
                     assert_eq!(
-                        engine.observe(module, &image.input(), 1),
+                        module.observe(&image.input(), 1),
                         expected(&image, &[dispatch(result)]),
                         "{numerator:x}/{denominator:x}, PC={pc}, RC={rc}, negative={negative}"
                     );
@@ -88,7 +88,7 @@ fn memory_quotients(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn loaded_denominators(engine: Engine, frontend: Frontend) {
+fn loaded_denominators(frontend: Frontend) {
     // Loading only the numerator must not establish precision for a full-width
     // divisor. Reversal also makes a loaded destination the actual denominator.
     for (prefix, opcode, destination, loaded_is_divisor) in [
@@ -137,7 +137,7 @@ fn loaded_denominators(engine: Engine, frontend: Frontend) {
             ),
         };
         assert_eq!(
-            engine.observe(module, &image.input(), steps.len()),
+            module.observe(&image.input(), steps.len()),
             expected(&image, &steps),
             "division uses the actual denominator's precision"
         );

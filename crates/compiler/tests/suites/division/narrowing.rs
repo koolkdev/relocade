@@ -1,6 +1,6 @@
 use super::operators;
 use crate::fixture::Fixture;
-use crate::wasm::{Input, Observation, TestModule, Value};
+use crate::wasm::TestModule;
 use wasm86_compiler::{Type, I1, I32, I64};
 use wasmparser::Operator;
 
@@ -178,43 +178,6 @@ fn a_returning_guard_exposes_operand_bounds_to_folding() {
                 .instantiate()
                 .call::<(i64, i64)>((stop, 0x1_0000_0000_i64, -1, i32::MIN)),
             Ok(expected)
-        );
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn narrowed_results_and_guarded_bounds_execute_in_v8() {
-    let module = bounded_division();
-    for case in CASES {
-        assert_eq!(
-            module.run_v8(&Input::call(
-                "run",
-                &[
-                    Value::I32(case.dividend as i32),
-                    Value::I32(case.divisor as i32)
-                ]
-            )),
-            Observation::returned(&[
-                Value::I64(case.quotient),
-                Value::I64(case.remainder),
-                Value::I64(case.quotient + 0x1_0000_0000)
-            ])
-        );
-    }
-    let module = guarded_division();
-    for (stop, expected) in [(0, [1, 2_147_483_647]), (1, [7, 9])] {
-        assert_eq!(
-            module.run_v8(&Input::call(
-                "run",
-                &[
-                    Value::I32(stop),
-                    Value::I64(0x1_0000_0000),
-                    Value::I32(-1),
-                    Value::I32(i32::MIN)
-                ]
-            )),
-            Observation::returned(&expected.map(Value::I64))
         );
     }
 }

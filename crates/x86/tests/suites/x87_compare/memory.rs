@@ -10,8 +10,8 @@ fn instruction(opcode: u8, pop: bool, address: u32) -> Vec<u8> {
     .concat()
 }
 
-fn memory_forms(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory_forms(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (opcode, bytes) in [
         (0xd8, 0x4000_0000_u32.to_le_bytes().to_vec()),
         (0xdc, 0x4000_0000_0000_0000_u64.to_le_bytes().to_vec()),
@@ -48,8 +48,8 @@ struct MemoryCase {
     pops: u8,
 }
 
-fn memory_operands(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory_operands(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for MemoryCase {
         opcode,
         bytes,
@@ -204,8 +204,8 @@ fn memory_operands(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn fault_ordering(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn fault_ordering(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = instruction(0xdc, true, 0x4ffc);
     let mut image = initial_image(&code);
     image.cpu.x87.tag_word |= 0xc000;

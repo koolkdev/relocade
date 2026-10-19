@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn underflow_boundaries(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn underflow_boundaries(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         let emin = format.minimum_exponent;
         let minimum = format.minimum_normal();
@@ -132,8 +132,8 @@ fn underflow_boundaries(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn overflow_boundaries(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn overflow_boundaries(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         for negative in [false, true] {
             let sign = if negative { format.sign() } else { 0 };

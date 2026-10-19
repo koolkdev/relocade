@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn stack_load(engine: Engine) {
+#[test]
+fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
     for usable_pointer in [false, true] {
         let code = [0x0f, 0xb2, 0x23, 0x51]; // LSS ESP,[EBX]; PUSH ECX.
         let mut image = Image::new(&code);
@@ -36,7 +37,6 @@ fn stack_load(engine: Engine) {
         cpu.eip = 0x1003;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -55,7 +55,6 @@ fn stack_load(engine: Engine) {
             cpu.instruction_count = 1;
         }
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code[3..],
             &image,
@@ -78,11 +77,7 @@ fn stack_load(engine: Engine) {
 }
 
 #[test]
-fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
-    stack_load(Engine::Wasmtime);
-}
-
-fn terminal_loads(engine: Engine) {
+fn all_pointer_loads_end_the_block_after_committing_both_results() {
     for (segment, opcode) in FORMS {
         let mut code = opcode.to_vec();
         code.extend([0x03, 0xf4]); // Load EAX,[EBX], followed by an unsupported byte.
@@ -134,17 +129,13 @@ fn terminal_loads(engine: Engine) {
             ),
             TestModule::interpreter(),
         ] {
-            assert_eq!(engine.observe(module, &input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), wanted);
         }
     }
 }
 
 #[test]
-fn all_pointer_loads_end_the_block_after_committing_both_results() {
-    terminal_loads(Engine::Wasmtime);
-}
-
-fn null_and_fetch_boundary(engine: Engine) {
+fn null_selector_loads_still_commit_the_offset_without_fetching_a_following_byte() {
     let mut code = vec![0x67; 12];
     code.extend([0x0f, 0xb4, 0]); // Fifteen-byte LFS EAX,[BX+SI].
     let mut image = Image::empty();
@@ -161,7 +152,6 @@ fn null_and_fetch_boundary(engine: Engine) {
     cpu.eip = 0x2000;
     cpu.instruction_count = 0;
     check_one(
-        engine,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
@@ -176,17 +166,4 @@ fn null_and_fetch_boundary(engine: Engine) {
             exit: Exit::Dispatch(cpu.eip),
         },
     );
-}
-
-#[test]
-fn null_selector_loads_still_commit_the_offset_without_fetching_a_following_byte() {
-    null_and_fetch_boundary(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_pointer_load_dispatch_and_stack_continuation() {
-    stack_load(Engine::V8);
-    terminal_loads(Engine::V8);
-    null_and_fetch_boundary(Engine::V8);
 }

@@ -13,12 +13,12 @@ fn encoding() {
     check_length(&CODE);
 }
 
-fn values(engine: Engine, frontend: Frontend) {
-    check_values(engine, frontend, CODE, fixtures::VALUES);
+fn values(frontend: Frontend) {
+    check_values(frontend, CODE, fixtures::VALUES);
 }
 
-fn exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let one = (LEAD, 0x3fff);
     let quarter = (LEAD, 0x3ffd);
     let infinity = (LEAD, 0x7fff);
@@ -75,7 +75,8 @@ fn exceptions(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn specialization(engine: Engine) {
+#[test]
+fn jit_specialization() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
@@ -86,7 +87,6 @@ fn specialization(engine: Engine) {
         write_value(&mut image.cpu, 7, x);
         write_value(&mut image.cpu, 0, (LEAD, 0x3fff));
         image.check_unchanged_exit(
-            engine,
             &module,
             "increment guard restarts before effects",
             Exit::Interpret,
@@ -95,14 +95,5 @@ fn specialization(engine: Engine) {
     check_pc_independent(CODE);
 }
 
-#[test]
-fn jit_specialization() {
-    specialization(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_jit_specialization() {
-    specialization(Engine::V8);
-}
 test_frontends!(values_and_extended_range, values);
 test_frontends!(exceptions_and_pop, exceptions);

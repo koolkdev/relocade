@@ -49,8 +49,8 @@ pub(super) fn exact_sum(
     )
 }
 
-fn precision_and_cancellation(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn precision_and_cancellation(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right) in [
         (LEADING, LEADING),
         (LEADING, u64::MAX),
@@ -99,8 +99,8 @@ fn precision_and_cancellation(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn wide_gaps(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn wide_gaps(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // These expectations are distances from 1 on the two adjacent binades.
     // In particular, subtraction at gap 65 can land on either side of the
     // midpoint below 1; blindly treating every large gap as sticky loses it.

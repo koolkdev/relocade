@@ -113,10 +113,7 @@ test_cases!(carry_changes_and_preserved_status, carry_cases());
 test_cases!(direction_changes_preserve_opaque_status, direction_cases());
 test_sequences!(pending_flags_consumers_and_publication, dependent_flags());
 
-fn interrupt_controls_fault(
-    engine: crate::support::step::Engine,
-    frontend: crate::support::execution::Frontend,
-) {
+fn interrupt_controls_fault(frontend: crate::support::execution::Frontend) {
     use crate::support::{
         execution::ImageSequences,
         machine::{Exit, Image, Step},
@@ -128,7 +125,7 @@ fn interrupt_controls_fault(
         SegmentProfile::Segmented32,
         SegmentProfile::Segmented16,
     ] {
-        let mut cases = ImageSequences::new(engine, frontend, profile);
+        let mut cases = ImageSequences::new(frontend, profile);
         for opcode in [0xfa, 0xfb] {
             let code = [0x66, 0x67, 0x64, opcode];
             for fill in [0x80, 0xff] {

@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn restored_transfers(engine: Engine, frontend: Frontend) {
+fn restored_transfers(frontend: Frontend) {
     let restore = instruction(FLAT32, true, 0x4010);
     let save = instruction(FLAT32, false, 0x4310);
     let code = [
@@ -15,7 +15,7 @@ fn restored_transfers(engine: Engine, frontend: Frontend) {
         &save,
     ]
     .concat();
-    let mut sequences = ImageSequences::new(engine, frontend, FLAT32);
+    let mut sequences = ImageSequences::new(frontend, FLAT32);
     for top in 0..8_u8 {
         let mut image = image(&code, FLAT32);
         image.data(0x8310, &[0xa5; 512]);
@@ -104,7 +104,7 @@ fn restored_transfers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn failed_restore(engine: Engine, frontend: Frontend) {
+fn failed_restore(frontend: Frontend) {
     let restore = instruction(FLAT32, true, 0x4010);
     let code = [
         &[0xf2, 0x0f, 0xd6, 0xfb][..], // MOVDQ2Q mm7, xmm3
@@ -135,7 +135,7 @@ fn failed_restore(engine: Engine, frontend: Frontend) {
     mmx_dirty.x87.tag_word = 0;
     let mut xmm_dirty = retire(mmx_dirty, 4);
     xmm_dirty.simd.xmm[3] = [0; 16];
-    ImageSequences::new(engine, frontend, FLAT32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "faulting FXRSTOR preserves earlier MMX and XMM writes",
         &code,
         &image,
@@ -151,7 +151,7 @@ fn failed_restore(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn restored_conversion_controls(engine: Engine, frontend: Frontend) {
+fn restored_conversion_controls(frontend: Frontend) {
     let restore = instruction(FLAT32, true, 0x4010);
     let code = [
         &[0x0f, 0xae, 0x15, 0x10, 0x46, 0, 0][..], // LDMXCSR [4610]
@@ -160,7 +160,7 @@ fn restored_conversion_controls(engine: Engine, frontend: Frontend) {
         &[0x0f, 0x2d, 0xf5], // CVTPS2PI mm6, xmm5
     ]
     .concat();
-    let mut sequences = ImageSequences::new(engine, frontend, FLAT32);
+    let mut sequences = ImageSequences::new(frontend, FLAT32);
     for unmasked_precision in [false, true] {
         let mut image = image(&code, FLAT32);
         image.data(0x8610, &0x7f80_u32.to_le_bytes()); // Old rounding: truncate.

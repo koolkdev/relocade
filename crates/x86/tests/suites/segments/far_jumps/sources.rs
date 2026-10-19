@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn source_spans(engine: Engine) {
+#[test]
+fn memory_pointers_read_exact_spans_and_split_offset_or_selector_fields() {
     for (word, split) in [
         (true, 4),
         (false, 6),
@@ -36,7 +37,6 @@ fn source_spans(engine: Engine) {
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             code,
             &image,
@@ -51,11 +51,7 @@ fn source_spans(engine: Engine) {
 }
 
 #[test]
-fn memory_pointers_read_exact_spans_and_split_offset_or_selector_fields() {
-    source_spans(Engine::Wasmtime);
-}
-
-fn old_address_state(engine: Engine) {
+fn indirect_jumps_resolve_the_source_using_the_old_address_and_segment_state() {
     for (segment, code, source) in [
         (Segment::Cs, &[0x2e, 0xff, 0x6d, 7][..], 0x8107), // CS:[EBP+7].
         (Segment::Ss, &[0xff, 0x6c, 0xb5, 7][..], 0x8113), // [EBP+ESI*4+7].
@@ -81,7 +77,6 @@ fn old_address_state(engine: Engine) {
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             code,
             &image,
@@ -96,11 +91,7 @@ fn old_address_state(engine: Engine) {
 }
 
 #[test]
-fn indirect_jumps_resolve_the_source_using_the_old_address_and_segment_state() {
-    old_address_state(Engine::Wasmtime);
-}
-
-fn address_boundaries(engine: Engine) {
+fn pointer_fields_continue_beyond_the_starting_16_bit_offset_and_wrap_linear_32_bits() {
     for wrap_linear in [false, true] {
         let code = [0x67, 0xff, 0x28]; // [BX+SI], dword offset.
         let mut image = Image::new(&code);
@@ -121,7 +112,6 @@ fn address_boundaries(engine: Engine) {
         cpu.eip = 0x9234_5678;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
@@ -133,17 +123,4 @@ fn address_boundaries(engine: Engine) {
             },
         );
     }
-}
-
-#[test]
-fn pointer_fields_continue_beyond_the_starting_16_bit_offset_and_wrap_linear_32_bits() {
-    address_boundaries(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_jump_memory_sources() {
-    source_spans(Engine::V8);
-    old_address_state(Engine::V8);
-    address_boundaries(Engine::V8);
 }

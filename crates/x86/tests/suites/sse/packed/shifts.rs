@@ -1,7 +1,7 @@
 use super::*;
 
-fn shifts(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn shifts(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Each half has different signs and low bits; a count never wraps at the lane width.
     for (opcode, immediate, extension, width, input, one, last, oversized) in [
         (
@@ -131,8 +131,8 @@ fn shifts(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn count_span(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
+fn count_span(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented16);
     check_m128_span(&mut checks, &[0x66, 0x0f, 0xf1, 0x36, 0x00, 0x40]);
 }
 
@@ -156,7 +156,6 @@ fn sse_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
         image.cpu.eip = 0x1ffc;
         image.data(0x3ffc, &code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "invalid memory destination is rejected before missing SIB or immediate bytes",
             Exit::Other(0x0008_000f_0000_1ffc),

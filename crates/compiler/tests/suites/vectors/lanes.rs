@@ -1,7 +1,7 @@
 use super::*;
 use wasm86_compiler::{MemoryType, VectorLane, I16, I64};
 
-fn indexed<T: VectorLane + MemoryType>(v8: bool, width: usize, replacement: u64) {
+fn indexed<T: VectorLane + MemoryType>(width: usize, replacement: u64) {
     let mut bytes = vec![0xa5; 80];
     let original: [u8; 16] = std::array::from_fn(|i| 0x80 + i as u8);
     bytes[..16].copy_from_slice(&original);
@@ -38,19 +38,20 @@ fn indexed<T: VectorLane + MemoryType>(v8: bool, width: usize, replacement: u64)
         expected[48..64].copy_from_slice(&original);
         expected[64..80].copy_from_slice(&original);
         expected[80 - width..80].copy_from_slice(&0xfeedcafe_u64.to_le_bytes()[..width]);
-        check(&module, &bytes, &expected, index, v8);
+        check(&module, &expected, index);
     }
 }
 
-fn widths(v8: bool) {
-    indexed::<I8>(v8, 1, 0x73);
-    indexed::<I16>(v8, 2, 0xfedc);
-    indexed::<I32>(v8, 4, 0xfedcba98);
-    indexed::<I64>(v8, 8, 0xfedcba9876543210);
-    narrow(v8);
+#[test]
+fn vector_runtime_lane_indices_wrap_and_preserve_other_lanes() {
+    indexed::<I8>(1, 0x73);
+    indexed::<I16>(2, 0xfedc);
+    indexed::<I32>(4, 0xfedcba98);
+    indexed::<I64>(8, 0xfedcba9876543210);
+    narrow();
 }
 
-fn narrow(v8: bool) {
+fn narrow() {
     let original: [u8; 16] = std::array::from_fn(|i| 0x80 + i as u8);
     let mut bytes = vec![0xa5; 48];
     bytes[..16].copy_from_slice(&original);
@@ -75,17 +76,6 @@ fn narrow(v8: bool) {
         expected[24 + offset..26 + offset].copy_from_slice(&0xabcd_u16.to_le_bytes());
         expected[32..34].copy_from_slice(&0xabcd_u16.to_le_bytes());
         expected[46..48].copy_from_slice(&0x1234_u16.to_le_bytes());
-        check(&module, &bytes, &expected, index, v8);
+        check(&module, &expected, index);
     }
-}
-
-#[test]
-fn vector_runtime_lane_indices_wrap_and_preserve_other_lanes() {
-    widths(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_runtime_lane_indices() {
-    widths(true);
 }

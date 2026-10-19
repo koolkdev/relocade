@@ -33,23 +33,16 @@ mod snapshots;
 
 use crate::{
     fixture::Fixture,
-    wasm::{Input, Observation, TestModule, Value},
+    wasm::{TestModule, Value},
 };
 use wasm86_compiler::{Type, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
-fn check_result(module: &TestModule, arguments: &[Value], expected: &[Value], v8: bool) {
-    if v8 {
-        assert_eq!(
-            module.run_v8(&Input::call("run", arguments)),
-            Observation::returned(expected)
-        );
-    } else {
-        assert_eq!(
-            module.instantiate().call_values("run", arguments),
-            Ok(expected.to_vec())
-        );
-    }
+fn check_result(module: &TestModule, arguments: &[Value], expected: &[Value]) {
+    assert_eq!(
+        module.instantiate().call_values("run", arguments),
+        Ok(expected.to_vec())
+    );
 }
 
 fn count(module: &TestModule, predicate: impl Fn(&Operator<'_>) -> bool) -> usize {
@@ -177,31 +170,5 @@ fn equality_facts_apply_only_in_the_proved_arm() {
     assert_eq!(count(&module, |op| matches!(op, Operator::I32Mul)), 0);
     for (input, expected) in [(7, 21), (9, 10), (-1, 0)] {
         assert_eq!(module.instantiate().call::<i32>((input,)), Ok(expected));
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_branch_facts_preserve_results_and_raw_bits() {
-    let check = repeated_check();
-    for (input, expected) in [(0, 17), (1, 7)] {
-        assert_eq!(
-            check.run_v8(&Input::call("run", &[Value::I32(input)])),
-            Observation::returned(&[Value::I32(expected)])
-        );
-    }
-    let write = conditional_write();
-    for (previous, suppress, expected) in [
-        (0xfe, 0, (101, 0xfe)),
-        (0x81, 0, (101, 0x81)),
-        (0xfe, 1, (100, 1)),
-    ] {
-        assert_eq!(
-            write.run_v8(&Input::call(
-                "run",
-                &[Value::I32(previous), Value::I32(suppress), Value::I32(100)]
-            )),
-            Observation::returned(&[Value::I32(expected.0), Value::I32(expected.1)])
-        );
     }
 }

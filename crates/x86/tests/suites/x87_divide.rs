@@ -14,7 +14,6 @@ mod specialization;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
-    step::Engine,
     x87::{
         arithmetic::{check_arithmetic, ArithmeticCase as Case},
         complete_x87, dispatch, set_control, stack_image, status, write_register_bits, write_value,
@@ -28,8 +27,8 @@ const PE: u16 = 0x20;
 const C1: u16 = 0x200;
 const PENDING: u16 = 0x8080;
 
-fn register_forms(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn register_forms(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // ST0=-6 and ST2=3 distinguish dividend, divisor and destination. TOP=7
     // exercises the destination's old physical slot across a wrapping pop.
     for (prefix, base, destination, pop, exponent) in [

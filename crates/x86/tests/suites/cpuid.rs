@@ -8,7 +8,7 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend},
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentProfile,
@@ -30,7 +30,7 @@ fn result(mut cpu: CpuState, values: [u32; 4], bytes: u32, count: u32) -> CpuSta
     cpu
 }
 
-fn forms(engine: Engine, frontend: Frontend) {
+fn forms(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for profile in [
         SegmentProfile::Flat32.into(),
@@ -72,7 +72,7 @@ fn forms(engine: Engine, frontend: Frontend) {
                 }],
             );
             assert_eq!(
-                engine.observe(module, &input, 1),
+                module.observe(&input, 1),
                 wanted,
                 "{profile:?}, {code:02x?}"
             );
@@ -81,7 +81,8 @@ fn forms(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(full_register_queries_preserve_other_state, forms);
 
-fn serialization(engine: Engine) {
+#[test]
+fn serialization_dispatches_before_modified_code() {
     // Rewrite the immediate after CPUID. Its old bytes must not execute.
     let code = [
         0xc6, 0x05, 0x0a, 0x10, 0, 0, 0x77, 0x0f, 0xa2, 0xbb, 0x11, 0, 0, 0, 0xeb, 0,
@@ -99,7 +100,7 @@ fn serialization(engine: Engine) {
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 16).unwrap());
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for module in [&block, &run] {
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
 
     let mut resumed = cpu;
@@ -121,21 +122,11 @@ fn serialization(engine: Engine) {
             },
         ],
     );
-    assert_eq!(engine.observe(&run, &input, 2), wanted);
+    assert_eq!(run.observe(&input, 2), wanted);
 }
 
 #[test]
-fn serialization_dispatches_before_modified_code() {
-    serialization(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_serialization_dispatches_before_modified_code() {
-    serialization(Engine::V8);
-}
-
-fn fetch_boundary(engine: Engine) {
+fn queries_follow_complete_fetch_and_stop_before_successor_fetch() {
     let mut image = Image::empty();
     image.cpu.eip = 0x1ffe;
     image.map(1, 0x3000, false);
@@ -151,12 +142,11 @@ fn fetch_boundary(engine: Engine) {
         }],
     );
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
-    assert_eq!(engine.observe(&run, &input, 1), wanted);
+    assert_eq!(run.observe(&input, 1), wanted);
 
     image.cpu.eip = 0x1fff;
     image.data(0x3fff, &[0x0f]);
     image.check_unchanged_exit(
-        engine,
         &run,
         "CPUID requires its second byte",
         Exit::PageFault {
@@ -167,22 +157,10 @@ fn fetch_boundary(engine: Engine) {
 
     let image = Image::new(&[0xf0, 0x0f, 0xa2]);
     image.check_unchanged_exit(
-        engine,
         TestModule::interpreter(),
         "LOCK rejects CPUID without changing state",
         Exit::Other(0x0008_00f0_0000_1000),
     );
-}
-
-#[test]
-fn queries_follow_complete_fetch_and_stop_before_successor_fetch() {
-    fetch_boundary(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_queries_follow_complete_fetch_and_stop_before_successor_fetch() {
-    fetch_boundary(Engine::V8);
 }
 
 #[test]
@@ -210,7 +188,8 @@ fn encoding_and_import_boundaries() {
     }
 }
 
-fn leaf_selection(engine: Engine) {
+#[test]
+fn leaf_selection_uses_current_full_width_eax() {
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for (leaf, wanted_values) in [
         (0, VENDOR),
@@ -236,22 +215,7 @@ fn leaf_selection(engine: Engine) {
         );
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
         for module in [&block, &run] {
-            assert_eq!(
-                engine.observe(module, &image.input(), 1),
-                wanted,
-                "leaf {leaf:#x}"
-            );
+            assert_eq!(module.observe(&image.input(), 1), wanted, "leaf {leaf:#x}");
         }
     }
-}
-
-#[test]
-fn leaf_selection_uses_current_full_width_eax() {
-    leaf_selection(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_leaf_selection_uses_current_full_width_eax() {
-    leaf_selection(Engine::V8);
 }

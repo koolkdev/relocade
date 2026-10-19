@@ -1,8 +1,8 @@
 use super::*;
 
-fn saturation(v8: bool) {
+#[test]
+fn packed_saturating_arithmetic_boundaries() {
     binary_results(
-        v8,
         0x807fff00019c64c040ff0100817e807f,
         0x7f80807f00e41cc040fffeffff01ff01,
         [
@@ -17,7 +17,6 @@ fn saturation(v8: bool) {
         },
     );
     binary_results(
-        v8,
         0x807fff00019c64c040ff0100817e807f,
         0x7f80807f00e41cc040fffeffff01ff01,
         [
@@ -32,7 +31,6 @@ fn saturation(v8: bool) {
         },
     );
     binary_results(
-        v8,
         0x4000ffff0001000080017ffe80007fff,
         0x4000fffffffefffffffe00020001ffff,
         [
@@ -47,7 +45,6 @@ fn saturation(v8: bool) {
         },
     );
     binary_results(
-        v8,
         0x4000ffff0001000080017ffe80007fff,
         0x4000fffffffefffffffe00020001ffff,
         [
@@ -61,15 +58,4 @@ fn saturation(v8: bool) {
             ]
         },
     );
-}
-
-#[test]
-fn packed_saturating_arithmetic_boundaries() {
-    saturation(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_packed_saturating_arithmetic_boundaries() {
-    saturation(true);
 }

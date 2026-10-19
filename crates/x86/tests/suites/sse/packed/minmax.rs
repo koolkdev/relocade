@@ -1,7 +1,7 @@
 use super::*;
 
-fn minmax(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn minmax(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // PMINUB: opposite signs, equality and both operand choices.
     check_binary(
         &mut checks,

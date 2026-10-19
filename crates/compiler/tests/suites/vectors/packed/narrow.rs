@@ -1,8 +1,8 @@
 use super::*;
 
-fn narrowing(v8: bool) {
+#[test]
+fn vector_narrowing_saturates_signed_inputs_and_preserves_order() {
     binary_results(
-        v8,
         0x7fff0000ffff80000080007fff80ff7f,
         0xff7eff81007e00010000ffff010000ff,
         [
@@ -17,7 +17,6 @@ fn narrowing(v8: bool) {
         },
     );
     binary_results(
-        v8,
         0x0000800000007fffffff8000ffff7fff,
         0x00010000ffffffff7fffffff80000000,
         [
@@ -31,15 +30,4 @@ fn narrowing(v8: bool) {
             ]
         },
     );
-}
-
-#[test]
-fn vector_narrowing_saturates_signed_inputs_and_preserves_order() {
-    narrowing(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_narrowing_saturates_signed_inputs_and_preserves_order() {
-    narrowing(true);
 }

@@ -27,8 +27,8 @@ fn entered(image: &Image, length: usize) -> CpuState {
     cpu
 }
 
-fn frames(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn frames(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, vector) in [
         (&[0xcd, 0][..], 0),
         (&[0xcd, 0xff][..], 0xff),
@@ -62,14 +62,14 @@ fn frames(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(word_frames_and_prefixes, frames);
 
-fn return_ip_wraps(engine: Engine, frontend: Frontend) {
+fn return_ip_wraps(frontend: Frontend) {
     let code = [0x66, 0xcc];
     let mut image = interrupt_image(&code, 3);
     image.cpu.eip = 0xfffe;
     image.map(0xf, 0x3000, false);
     image.data(0x3ffe, &code);
     let cpu = entered(&image, code.len());
-    sequences(engine, frontend).check(
+    sequences(frontend).check(
         "the saved return IP wraps after an instruction ending at the CS limit",
         &code,
         &image,
@@ -82,7 +82,7 @@ fn return_ip_wraps(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(return_ip_is_a_word, return_ip_wraps);
 
-fn stack_bounds(engine: Engine, frontend: Frontend) {
+fn stack_bounds(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for sp in 1..6 {
         let code = [0x66, 0xcc];
@@ -97,7 +97,7 @@ fn stack_bounds(engine: Engine, frontend: Frontend) {
             Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
         };
         assert_eq!(
-            engine.observe(module, &input, 1),
+            module.observe(&input, 1),
             expected(
                 &image,
                 &[Step {
@@ -122,7 +122,7 @@ fn stack_bounds(engine: Engine, frontend: Frontend) {
         image.map(page, 0x8000, true);
         let mut cpu = entered(&image, code.len());
         cpu.registers.esp = 0xabcd_0000 | (sp.wrapping_sub(6) & 0xffff);
-        sequences(engine, frontend).check(
+        sequences(frontend).check(
             "a complete frame at either stack boundary preserves the upper ESP word",
             &code,
             &image,
@@ -136,7 +136,7 @@ fn stack_bounds(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(complete_stack_capacity, stack_bounds);
 
-fn conditional_entry(engine: Engine, frontend: Frontend) {
+fn conditional_entry(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for overflow in [false, true] {
         let code = [0xce];
@@ -203,13 +203,13 @@ fn conditional_entry(engine: Engine, frontend: Frontend) {
             Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
             Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
         };
-        assert_eq!(engine.observe(module, &input, 1), wanted,
+        assert_eq!(module.observe( &input, 1), wanted,
             "INTO tests lazy OF, performs word transfers in order, and skips all entry effects when clear");
     }
 }
 test_frontends!(conditional_entry_and_mmio, conditional_entry);
 
-fn aliased_vector(engine: Engine, frontend: Frontend) {
+fn aliased_vector(frontend: Frontend) {
     let code = [0xcc];
     let mut image = interrupt_image(&code, 3);
     image.cpu.segments.ss = cache(Segment::Ss, 0);
@@ -219,7 +219,7 @@ fn aliased_vector(engine: Engine, frontend: Frontend) {
     let mut cpu = entered(&image, 1);
     cpu.segments.cs = cache(Segment::Cs, 0);
     cpu.eip = 0x1001;
-    sequences(engine, frontend).check(
+    sequences(frontend).check(
         "the return IP and CS overwrite vector 3 before the target is loaded",
         &code,
         &image,
@@ -232,7 +232,8 @@ fn aliased_vector(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(stack_aliases_vector_table, aliased_vector);
 
-fn round_trip(engine: Engine) {
+#[test]
+fn interrupt_return_round_trip() {
     let code = [0xcd, 0x21];
     let mut image = interrupt_image(&code, 0x21);
     image.data(0x7084, &[0x20, 0, 0, 0x10]);
@@ -262,11 +263,7 @@ fn round_trip(engine: Engine) {
         *flag = 1;
     }
     assert_eq!(
-        engine.observe(
-            TestModule::interpreter_with_profile(ExecutionProfile::Real16),
-            &image.input(),
-            2
-        ),
+        TestModule::interpreter_with_profile(ExecutionProfile::Real16).observe(&image.input(), 2),
         expected(
             &image,
             &[
@@ -286,18 +283,7 @@ fn round_trip(engine: Engine) {
     );
 }
 
-#[test]
-fn interrupt_return_round_trip() {
-    round_trip(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interrupt_return_round_trip() {
-    round_trip(Engine::V8);
-}
-
-fn prior_work(engine: Engine, frontend: Frontend) {
+fn prior_work(frontend: Frontend) {
     let code = [0xb8, 0x34, 0x12, 0xce];
     for (overflow, fault) in [(false, false), (true, false), (true, true)] {
         let mut image = interrupt_image(&code, 4);
@@ -322,7 +308,7 @@ fn prior_work(engine: Engine, frontend: Frontend) {
         } else {
             &[]
         };
-        sequences(engine, frontend).check(
+        sequences(frontend).check(
             "conditional transfer publishes prior work and retires only completed instructions",
             &code,
             &image,
@@ -347,14 +333,14 @@ fn prior_work(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(conditional_transfer_publication, prior_work);
 
-fn protected_modes(engine: Engine, frontend: Frontend) {
+fn protected_modes(frontend: Frontend) {
     use wasm86_x86::SegmentProfile;
     for profile in [
         SegmentProfile::Flat32,
         SegmentProfile::Segmented32,
         SegmentProfile::Segmented16,
     ] {
-        let mut cases = ImageSequences::new(engine, frontend, profile);
+        let mut cases = ImageSequences::new(frontend, profile);
         for (code, opcode) in [
             (&[0xcd, 0x21][..], 0xcd_u64),
             (&[0xcc][..], 0xcc),

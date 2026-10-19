@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn wider_values_stay_in_jit(engine: Engine) {
+fn wider_values_stay_in_jit() {
     let code = [0xd8, 0xc9];
     let module = TestModule::new(&compiler().compile_block(0x1000, &code, 1).unwrap());
     for (left, right, product, pe) in [
@@ -39,14 +39,14 @@ fn wider_values_stay_in_jit(engine: Engine) {
         result.x87.status.c1 = 0;
         write_value(&mut result, 0, product);
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)]),
             "{left:x?} * {right:x?}"
         );
     }
 }
 
-fn register_subnormal_range_does_not_raise_denormal(engine: Engine) {
+fn register_subnormal_range_does_not_raise_denormal() {
     let code = [0xdb, 0xe2, 0xd8, 0xc8, 0xd8, 0xc8]; // FNCLEX; square twice
     let module = TestModule::new(&compiler().compile_block(0x1000, &code, 3).unwrap());
     assert_native_multiply(&module);
@@ -64,12 +64,12 @@ fn register_subnormal_range_does_not_raise_denormal(engine: Engine) {
     result.x87.status = status(0x7d00); // TOP=7, existing C0/C2/C3, no exceptions or C1.
     write_value(&mut result, 7, (LEADING, 0x2f37)); // 2^-4296
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
-fn memory_operand_exceptions_still_restart(engine: Engine) {
+fn memory_operand_exceptions_still_restart() {
     let code = [0xdc, 0x0d, 0, 0x40, 0, 0];
     let compiled = compiler().compile_block(0x1000, &code, 1).unwrap();
     let module = TestModule::new(&compiled);
@@ -84,7 +84,6 @@ fn memory_operand_exceptions_still_restart(engine: Engine) {
         image.map(4, 0x8000, false);
         image.data(0x8000, &u64::to_le_bytes(bits));
         image.check_unchanged_exit(
-            engine,
             &module,
             "raw memory operand keeps its original exception",
             Exit::Interpret,
@@ -97,13 +96,13 @@ fn memory_operand_exceptions_still_restart(engine: Engine) {
         result.x87.data_selector = 0x23;
         write_value(&mut result, 0, product);
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
 }
 
-fn completed_product_survives_later_exits(engine: Engine) {
+fn completed_product_survives_later_exits() {
     for (tail, exit) in [
         (vec![0xd8, 0xca], Exit::Interpret), // infinity operand
         (
@@ -147,7 +146,7 @@ fn completed_product_survives_later_exits(engine: Engine) {
         }
         write_value(&mut result, 0, (0xc000_0000_0000_1000, 0x3fff));
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -162,17 +161,8 @@ fn completed_product_survives_later_exits(engine: Engine) {
 
 #[test]
 fn precision53_preserves_extended_values_and_exception_boundaries() {
-    wider_values_stay_in_jit(Engine::Wasmtime);
-    register_subnormal_range_does_not_raise_denormal(Engine::Wasmtime);
-    memory_operand_exceptions_still_restart(Engine::Wasmtime);
-    completed_product_survives_later_exits(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_precision53_preserves_extended_values_and_exception_boundaries() {
-    wider_values_stay_in_jit(Engine::V8);
-    register_subnormal_range_does_not_raise_denormal(Engine::V8);
-    memory_operand_exceptions_still_restart(Engine::V8);
-    completed_product_survives_later_exits(Engine::V8);
+    wider_values_stay_in_jit();
+    register_subnormal_range_does_not_raise_denormal();
+    memory_operand_exceptions_still_restart();
+    completed_product_survives_later_exits();
 }

@@ -1,24 +1,18 @@
 //! Callable entries share address lookup across execution profiles.
 
 use super::*;
-use crate::{
-    support::step::Engine, CpuState, EntryTable, ExecutionContext, ExecutionProfile, Segment,
-    Segments,
-};
-use serde::{Deserialize, Serialize};
+use crate::{CpuState, EntryTable, ExecutionContext, ExecutionProfile, Segment, Segments};
 use wasm86_compiler::{Program, Signature, Type};
 use wasm86_test_support::Module;
 
-#[derive(Serialize)]
 struct Invocation {
     cpu: Vec<u8>,
     entries: Vec<u8>,
     export: &'static str,
 }
 
-#[derive(Deserialize)]
 struct Output {
-    word: String,
+    word: u64,
     cpu: Vec<u8>,
 }
 
@@ -120,11 +114,7 @@ fn constant(result: u64) -> (Module, String) {
     (Module::new(&program.compile().unwrap()), "dispatch".into())
 }
 
-fn wasmtime(
-    dispatcher: &Module,
-    targets: &[(Module, String)],
-    cases: &[Invocation],
-) -> Vec<Output> {
+fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocation]) -> Vec<Output> {
     use ::wasmtime::{Linker, Memory, MemoryType, Ref, RefType, Store, Table, TableType};
     let engine = wasm86_test_support::engine();
     let mut store = Store::new(engine, ());
@@ -173,14 +163,15 @@ fn wasmtime(
                 .call(&mut store, ())
                 .unwrap() as u64;
             Output {
-                word: word.to_string(),
+                word,
                 cpu: cpu.data(&store)[..case.cpu.len()].to_vec(),
             }
         })
         .collect()
 }
 
-fn check_dispatch(engine: Engine) {
+#[test]
+fn callable_dispatch_resolves_functions_and_fallback() {
     for profile in [
         ExecutionProfile::Real16,
         SegmentProfile::Flat32.into(),
@@ -190,40 +181,16 @@ fn check_dispatch(engine: Engine) {
         let dispatcher = Module::new(&Compiler::new(profile).compile_dispatcher().unwrap().bytes);
         let targets = [constant(11), constant(22), constant(33)];
         let (cases, expected) = cases(profile);
-        let outputs = execute(engine, &dispatcher, &targets, &cases);
+        let outputs = execute(&dispatcher, &targets, &cases);
         assert_eq!(
-            outputs
-                .iter()
-                .map(|output| output.word.parse::<u64>().unwrap())
-                .collect::<Vec<_>>(),
+            outputs.iter().map(|output| output.word).collect::<Vec<_>>(),
             expected
         );
     }
 }
 
-fn execute(
-    engine: Engine,
-    dispatcher: &Module,
-    targets: &[(Module, String)],
-    cases: &[Invocation],
-) -> Vec<Output> {
-    match engine {
-        Engine::Wasmtime => wasmtime(dispatcher, targets, cases),
-        Engine::V8 => {
-            let mut modules = vec![dispatcher];
-            modules.extend(targets.iter().map(|(module, _)| module));
-            let names: Vec<_> = targets.iter().map(|(_, name)| name).collect();
-            wasm86_test_support::run_v8(
-                &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("tests/support/dispatch.mjs"),
-                &modules,
-                &(names, cases),
-            )
-        }
-    }
-}
-
-fn check_block_chain(engine: Engine) {
+#[test]
+fn compiled_blocks_chain_until_budget_or_missing_entry() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let dispatcher = Module::new(&compiler.compile_dispatcher().unwrap().bytes);
     let mut targets = vec![constant(11)];
@@ -252,10 +219,10 @@ fn check_block_chain(engine: Engine) {
         entries: table.to_bytes(),
         export: "dispatch",
     });
-    let outputs = execute(engine, &dispatcher, &targets, &cases);
+    let outputs = execute(&dispatcher, &targets, &cases);
     for (output, (word, count, eax, ebx)) in outputs.iter().zip([(1 << 63, 6, 2, 1), (11, 2, 1, 0)])
     {
-        assert_eq!(output.word.parse::<u64>().unwrap(), word);
+        assert_eq!(output.word, word);
         let cpu = CpuState::from_bytes(output.cpu[..CpuState::BYTE_LEN].try_into().unwrap());
         assert_eq!(
             (
@@ -267,26 +234,4 @@ fn check_block_chain(engine: Engine) {
             (0x2000, count, eax, ebx)
         );
     }
-}
-
-#[test]
-fn callable_dispatch_resolves_functions_and_fallback() {
-    check_dispatch(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_callable_dispatch_resolves_functions_and_fallback() {
-    check_dispatch(Engine::V8);
-}
-
-#[test]
-fn compiled_blocks_chain_until_budget_or_missing_entry() {
-    check_block_chain(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_compiled_blocks_chain_until_budget_or_missing_entry() {
-    check_block_chain(Engine::V8);
 }

@@ -5,7 +5,7 @@ use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
-fn native_values(engine: Engine) {
+fn native_values() {
     let code = [0xdd, 0x05, 0, 0x40, 0, 0, 0xd9, 0xf4, 0xd8, 0xc1];
     for (input, sign) in [(3.0_f64, 0), (-0.75, 0x8000)] {
         let mut image = stack_image(&code, 0, 0xffff);
@@ -39,13 +39,13 @@ fn native_values(engine: Engine) {
         write_value(&mut result, 7, (LEAD, 0x3fff | sign));
         write_value(&mut result, 6, (0xa000_0000_0000_0000, 0x4000 | sign)); // ±1.5 plus ±1
         assert_eq!(
-            engine.observe(&TestModule::new(&compiled), &image.input(), 1),
+            TestModule::new(&compiled).observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
 }
 
-fn restart(engine: Engine) {
+fn restart() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
@@ -64,7 +64,6 @@ fn restart(engine: Engine) {
         let mut image = stack_image(&CODE, 0, 0xffff);
         write_value(&mut image.cpu, 0, input);
         image.check_unchanged_exit(
-            engine,
             &block,
             "FXTRACT restarts before either slot or TOP changes",
             Exit::Interpret,
@@ -78,7 +77,7 @@ fn restart(engine: Engine) {
         write_value(&mut result, 0, exp);
         write_value(&mut result, 7, sig);
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -86,13 +85,6 @@ fn restart(engine: Engine) {
 
 #[test]
 fn native_consumers_and_precise_restart() {
-    native_values(Engine::Wasmtime);
-    restart(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_and_restart() {
-    native_values(Engine::V8);
-    restart(Engine::V8);
+    native_values();
+    restart();
 }

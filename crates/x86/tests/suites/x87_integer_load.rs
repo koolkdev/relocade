@@ -6,7 +6,7 @@ mod arithmetic;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{
         complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits,
         INDEFINITE,
@@ -92,9 +92,9 @@ fn check_conversion(checks: &mut ImageSequences, source: Source, value: (u64, u1
     );
 }
 
-fn exact_conversions(engine: Engine, frontend: Frontend) {
+fn exact_conversions(frontend: Frontend) {
     use Source::{Dword, Qword, Word};
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (source, value) in [
         (Word(0), (0, 0)),
         (Word(1), (0x8000_0000_0000_0000, 0x3fff)),
@@ -139,8 +139,8 @@ fn exact_conversions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn source_width_and_faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn source_width_and_faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (source, value) in [
         (Source::Word(i16::MIN), (0x8000_0000_0000_0000, 0xc00e)),
         (Source::Dword(i32::MIN), (0x8000_0000_0000_0000, 0xc01e)),
@@ -195,14 +195,14 @@ fn source_width_and_faults(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn stack_overflow(engine: Engine, frontend: Frontend) {
+fn stack_overflow(frontend: Frontend) {
     for source in [Source::Dword(i32::MIN), Source::Qword(i64::MIN)] {
-        check_stack_overflow(engine, frontend, source);
+        check_stack_overflow(frontend, source);
     }
 }
 
-fn check_stack_overflow(engine: Engine, frontend: Frontend, source: Source) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn check_stack_overflow(frontend: Frontend, source: Source) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let instruction = source.instruction(0x4000);
     let code = [instruction.clone(), vec![0x9b]].concat();
     let linked = TestModule::new(&compile_block_from_bytes(0x1000, &instruction, 1).unwrap())
@@ -243,7 +243,7 @@ fn check_stack_overflow(engine: Engine, frontend: Frontend, source: Source) {
         );
         if matches!(frontend, Frontend::Block) {
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(&image, &[dispatch(loaded)]),
                 "the linked interpreter completes the overflowing FILD"
             );

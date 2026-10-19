@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Input, Observation, TestModule, Value};
+use crate::wasm::TestModule;
 use wasm86_compiler::{Type, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
@@ -305,19 +305,4 @@ fn an_unused_exit_channel_can_still_supply_the_backedge() {
     });
     entry_operators(&module);
     assert_eq!(module.instantiate().call::<i32>(3).unwrap(), 9);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn conditional_backedges_execute_in_v8() {
-    assert_eq!(
-        swapped_tail().run_v8(&Input::call("run", &[Value::I32(5)])),
-        Observation::returned(&[
-            Value::I32(0),
-            Value::I32(7),
-            Value::I32(3),
-            Value::I32(3),
-            Value::I64(123)
-        ])
-    );
 }

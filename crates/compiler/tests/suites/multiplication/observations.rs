@@ -1,6 +1,6 @@
 use super::operators;
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Call, Callback, Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 use wasm86_compiler::{AtLeast, IntType, Type, I1, I16, I32, I8};
 use wasmparser::Operator;
 
@@ -96,12 +96,9 @@ where
     )
 }
 
-fn narrow_observation(case: &NarrowCase) -> Observation {
-    let memory = MemoryBytes::new("state", &case.memory);
-    Observation::returned(&case.returned.map(Value::I32))
-        .with_callbacks(&[Call::new("receive", &[Value::I32(case.returned[0])])
-            .with_memories(std::slice::from_ref(&memory))])
-        .with_memories(&[memory])
+fn narrow_callback(case: &NarrowCase) -> Call {
+    Call::new("receive", &[Value::I32(case.returned[0])])
+        .with_memories(&[MemoryBytes::new("state", &case.memory)])
 }
 
 #[test]
@@ -113,14 +110,14 @@ fn narrow_products_observe_logical_bits_after_dirty_carrier_arithmetic() {
         let module = narrow_product::<T>();
         for case in cases {
             let mut instance = module.instantiate();
-            let expected = narrow_observation(case);
+            let expected = narrow_callback(case);
             assert_eq!(
                 instance
                     .call_values("run", &case.arguments.map(Value::I32))
                     .unwrap(),
                 case.returned.map(Value::I32)
             );
-            assert_eq!(instance.callbacks(), expected.callbacks);
+            assert_eq!(instance.callbacks(), [expected]);
             assert_eq!(&instance.memory("state")[..3], case.memory);
         }
     }
@@ -191,40 +188,5 @@ fn products_preserve_both_operand_snapshots_across_branch_writes() {
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i32>((branch,)).unwrap(), expected);
         assert_eq!(&instance.memory("state")[..8], memory);
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn narrow_products_and_operand_snapshots_execute_in_v8() {
-    fn check<T: IntType>(cases: &[NarrowCase])
-    where
-        I32: AtLeast<T>,
-    {
-        let module = narrow_product::<T>();
-        for case in cases {
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &case.arguments.map(Value::I32))
-                        .with_memories(&[MemoryBytes::new("state", INITIAL)])
-                        .with_callbacks(&[Callback::new("receive", &[])])
-                ),
-                narrow_observation(case)
-            );
-        }
-    }
-    check::<I1>(BIT);
-    check::<I8>(BYTE);
-    check::<I16>(WORD);
-    let module = product_snapshot();
-    for &(branch, expected, memory) in SNAPSHOT_CASES {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[Value::I32(branch)])
-                    .with_memories(&[MemoryBytes::new("state", SNAPSHOT_INITIAL)])
-            ),
-            Observation::returned(&[Value::I32(expected)])
-                .with_memories(&[MemoryBytes::new("state", &memory)])
-        );
     }
 }

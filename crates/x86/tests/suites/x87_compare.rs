@@ -14,7 +14,6 @@ mod sequences;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_value},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -102,8 +101,8 @@ fn check_case(checks: &mut ImageSequences, name: &str, instruction: [u8; 2], cas
     );
 }
 
-fn register_forms(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn register_forms(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (code, source, pops) in [
         ([0xd8, 0xd2], 1, 0), // FCOM ST2
         ([0xd8, 0xda], 1, 1), // FCOMP ST2
@@ -143,8 +142,8 @@ fn register_forms(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exact_ordering(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exact_ordering(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right, flags) in [
         (ONE, ONE, EQUAL),
         ((LEADING + 1, 0x3fff), ONE, 0),
@@ -199,8 +198,8 @@ fn exact_ordering(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn test_against_zero(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn test_against_zero(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, flags) in [
         (ONE, 0),
         ((LEADING, 0xbfff), LESS),

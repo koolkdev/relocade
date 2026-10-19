@@ -5,7 +5,8 @@ use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
-fn native_rounding(engine: Engine) {
+#[test]
+fn loaded_values_use_native_rounding() {
     let code = [0xdd, 0x05, 0, 0x40, 0, 0, 0xd9, 0xfc]; // FLD m64; FRNDINT
     for rc in 0..4 {
         let mut observed = CpuState::default();
@@ -66,7 +67,7 @@ fn native_rounding(engine: Engine) {
             result.x87.data_selector = 0x23;
             write_value(&mut result, 7, if up { upper } else { lower });
             assert_eq!(
-                engine.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)]),
                 "native RC={rc} input={input}"
             );
@@ -74,7 +75,8 @@ fn native_rounding(engine: Engine) {
     }
 }
 
-fn restart(engine: Engine) {
+#[test]
+fn full_precision_and_rejected_operands() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
@@ -88,12 +90,7 @@ fn restart(engine: Engine) {
         let mut image = stack_image(&CODE, 0, 0xffff);
         image.cpu.x87.status.precision = 0;
         write_value(&mut image.cpu, 0, input);
-        image.check_unchanged_exit(
-            engine,
-            &block,
-            "FRNDINT restarts before effects",
-            Exit::Interpret,
-        );
+        image.check_unchanged_exit(&block, "FRNDINT restarts before effects", Exit::Interpret);
         let mut result = complete_x87(image.cpu, 2, 0x01fc);
         result.x87.status.c1 = 0;
         result.x87.status.invalid = invalid;
@@ -101,7 +98,7 @@ fn restart(engine: Engine) {
         result.x87.status.precision = precision;
         write_value(&mut result, 0, output);
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -117,23 +114,8 @@ fn restart(engine: Engine) {
         result.x87.status.c1 = u8::from(up);
         write_value(&mut result, 0, if up { (LEAD, 0x3fff) } else { (0, 0) });
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
-}
-
-#[test]
-fn loaded_values_use_native_rounding() {
-    native_rounding(Engine::Wasmtime);
-}
-#[test]
-fn full_precision_and_rejected_operands() {
-    restart(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_and_restart() {
-    native_rounding(Engine::V8);
-    restart(Engine::V8);
 }

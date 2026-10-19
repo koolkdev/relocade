@@ -1,6 +1,6 @@
 use super::operators;
 use crate::fixture::Fixture;
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{Type, I1, I16, I32, I64, I8};
 use wasmparser::Operator;
 use Value::{I32 as V32, I64 as V64};
@@ -302,48 +302,5 @@ fn a_stored_sign_extension_is_reused_before_widening_the_carrier() {
             expected
         );
         assert_eq!(&instance.memory("state")[..4], memory);
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn signed_representations_and_logical_observers_execute_in_v8() {
-    let module = extension_chains();
-    for (input, expected) in CHAINS {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[V32(*input)])),
-            Observation::returned(expected)
-        );
-    }
-    let module = signed_byte_product();
-    for (arguments, expected) in PRODUCTS {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &arguments.map(V32))),
-            Observation::returned(&expected.map(V32))
-        );
-    }
-    let module = dirty_low_bits();
-    for (input, expected) in DIRTY {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[V32(*input)])),
-            Observation::returned(&expected.map(V32))
-        );
-    }
-    let module = mixed_join_representations();
-    for (arguments, expected) in JOINS {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &arguments.map(V32))),
-            Observation::returned(expected)
-        );
-    }
-    let module = stored_sign_extension();
-    for (input, expected, memory) in SHARED {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[V32(*input)])
-                    .with_memories(&[MemoryBytes::new("state", &[0xa5; 4])])
-            ),
-            Observation::returned(expected).with_memories(&[MemoryBytes::new("state", memory)])
-        );
     }
 }

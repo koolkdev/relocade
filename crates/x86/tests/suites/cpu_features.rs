@@ -9,13 +9,13 @@ use crate::support::{
     blocks::BlockModules,
     execution::{test_frontends, Frontend},
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     BlockError, Compiler, CpuFeature, CpuModel, ExecutionProfile, SegmentProfile, Segments,
 };
 
-fn disabled_forms(engine: Engine, frontend: Frontend) {
+fn disabled_forms(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
         for (feature, forms) in [
@@ -48,7 +48,6 @@ fn disabled_forms(engine: Engine, frontend: Frontend) {
                     Frontend::Interpreter => TestModule::interpreter_with_target(target),
                 };
                 image.check_unchanged_exit(
-                    engine,
                     module,
                     "disabled capability precedes register, flag and unmapped-memory access",
                     Exit::InvalidOpcode,
@@ -64,7 +63,8 @@ fn restricted_compiler() -> Compiler {
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
 }
 
-fn prior_work(engine: Engine) {
+#[test]
+fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
     let code = [0xbb, 7, 0, 0, 0, 0x0f, 0x44, 0x03, 0x0f];
     let image = Image::new(&code);
     let mut cpu = image.cpu;
@@ -89,7 +89,7 @@ fn prior_work(engine: Engine) {
         RUN.get_or_init(|| TestModule::new(&restricted_compiler().compile_interpreter().unwrap()));
     for module in [&block, run] {
         assert_eq!(
-            engine.observe(module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             wanted,
             "{}",
             module.entry
@@ -98,17 +98,7 @@ fn prior_work(engine: Engine) {
 }
 
 #[test]
-fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
-    prior_work(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
-    prior_work(Engine::V8);
-}
-
-fn complete_fetch(engine: Engine) {
+fn interpreter_fetch_fault_precedes_disabled_feature_fault() {
     let module = TestModule::interpreter_with_target(restricted_compiler().target());
     for (code, exit) in [
         (
@@ -124,24 +114,8 @@ fn complete_fetch(engine: Engine) {
         image.cpu.eip = 0x2000 - code.len() as u32;
         image.map(1, 0x3000, false);
         image.data(0x4000 - code.len() as u32, code);
-        image.check_unchanged_exit(
-            engine,
-            module,
-            "feature admission follows complete fetch",
-            exit,
-        );
+        image.check_unchanged_exit(module, "feature admission follows complete fetch", exit);
     }
-}
-
-#[test]
-fn interpreter_fetch_fault_precedes_disabled_feature_fault() {
-    complete_fetch(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interpreter_fetch_fault_precedes_disabled_feature_fault() {
-    complete_fetch(Engine::V8);
 }
 
 #[test]

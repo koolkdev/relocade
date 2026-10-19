@@ -1,5 +1,5 @@
 use super::{inspect, Fixture};
-use crate::wasm::{Input, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I32, I64, I8};
 
 fn rejoined<T: IntType>(count: u32, low_mask: u64, high_mask: u64) -> TestModule
@@ -156,22 +156,4 @@ fn specialized_rejoining_masks_dirty_narrow_arithmetic_before_extraction() {
             expected
         );
     }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn rejoined_fields_execute_in_v8() {
-    let module = rejoined::<I64>(40, 0xff, 0x55);
-    assert_eq!(
-        module.run_v8(&Input::call("run", &[Value::I64(-1)])),
-        Observation::returned(&[Value::I64(0x5500_0000_00ff)])
-    );
-    let module = specialized_fields();
-    assert_eq!(
-        module.run_v8(&Input::call(
-            "run",
-            &[Value::I32(0x1234_5678), Value::I32(1)]
-        )),
-        Observation::returned(&[Value::I32(0x5678)])
-    );
 }

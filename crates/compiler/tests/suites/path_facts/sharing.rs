@@ -1,5 +1,4 @@
 use super::*;
-use crate::wasm::MemoryBytes;
 
 #[derive(Clone, Copy)]
 enum Flow {
@@ -279,50 +278,5 @@ fn shared_calculations_use_the_current_iteration_inputs() {
         assert_eq!(instance.call::<i32>((count, initial)), Ok(expected));
         assert_eq!(&instance.memory("state")[..4], &stored.to_le_bytes());
         assert_eq!(&instance.memory("state")[4..8], &expected.to_le_bytes());
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_shared_and_returning_paths_preserve_results() {
-    for flow in [
-        Flow::Fallthrough,
-        Flow::BlockExit,
-        Flow::Return,
-        Flow::PublishAndReturn,
-        Flow::StoreThenReturn,
-    ] {
-        let module = conditional_chain(16, flow);
-        for shift in [0, 3, 31] {
-            let expected = chain_result(0x1234_5678, shift, 16);
-            let stored = match flow {
-                Flow::StoreThenReturn | Flow::PublishAndReturn => expected,
-                Flow::Fallthrough | Flow::BlockExit if shift != 0 => expected,
-                _ => 0,
-            };
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &[Value::I32(0x1234_5678), Value::I32(shift as i32)])
-                        .with_memories(&[MemoryBytes::new("state", &[0; 4])])
-                ),
-                Observation::returned(&[Value::I32(expected as i32)])
-                    .with_memories(&[MemoryBytes::new("state", &stored.to_le_bytes())])
-            );
-        }
-    }
-    for (module, input, expected, memory) in [
-        (nested_exit(), [1, 5], 25, [25, 0, 0, 0, 0, 0, 0, 0]),
-        (nested_exit(), [0, 5], 36, [0, 0, 0, 0, 99, 0, 0, 0]),
-        (alternating_loop(), [3, 0], 0, [0; 8]),
-        (alternating_loop(), [3, 1], 1, [1, 0, 0, 0, 1, 0, 0, 0]),
-    ] {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &input.map(Value::I32))
-                    .with_memories(&[MemoryBytes::new("state", &[0; 8])])
-            ),
-            Observation::returned(&[Value::I32(expected)])
-                .with_memories(&[MemoryBytes::new("state", &memory)])
-        );
     }
 }

@@ -3,7 +3,8 @@
 use super::*;
 use wasm86_compiler::I16;
 
-fn routing(v8: bool) {
+#[test]
+fn lane_and_shuffle_folding_preserves_routed_bytes_and_narrow_scalars() {
     let mut initial = vec![0xa5; 192];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -105,7 +106,7 @@ fn routing(v8: bool) {
     for input in [0_u32, 7, 65535, 0x1234ffff, u32::MAX] {
         expected[32..36].copy_from_slice(&u32::from((input as u16).wrapping_sub(1)).to_le_bytes());
         expected[40..44].copy_from_slice(&(input >> 16).to_le_bytes());
-        check(&module, &initial, &expected, input as i32, v8);
+        check(&module, &expected, input as i32);
     }
     let mut shuffles = 0;
     for payload in wasmparser::Parser::new(0).parse_all(module.bytes()) {
@@ -121,15 +122,4 @@ fn routing(v8: bool) {
         shuffles, 3,
         "one composed shuffle and two for the three-source gather"
     );
-}
-
-#[test]
-fn lane_and_shuffle_folding_preserves_routed_bytes_and_narrow_scalars() {
-    routing(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_lane_and_shuffle_folding_preserves_routed_bytes_and_narrow_scalars() {
-    routing(true);
 }

@@ -4,7 +4,7 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{Compiler, ExecutionProfile, Segments};
 
-fn check(engine: Engine, case: ScalarCase, restart: bool, profile: ExecutionProfile) {
+fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
     let code = [0x90, 0xf2, 0x0f, 0x5a, 0xc0]; // NOP; CVTSD2SS XMM0,XMM0
     let mut image = floating_image(&code, case.controls);
     if profile == ExecutionProfile::Real16 {
@@ -42,7 +42,7 @@ fn check(engine: Engine, case: ScalarCase, restart: bool, profile: ExecutionProf
         let block = TestModule::new(&compiled);
         if restart {
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -53,10 +53,10 @@ fn check(engine: Engine, case: ScalarCase, restart: bool, profile: ExecutionProf
                 )
             );
             let linked = block.with_interpreter(TestModule::interpreter_with_profile(profile));
-            assert_eq!(engine.observe(&linked, &image.input(), 1), wanted);
+            assert_eq!(linked.observe(&image.input(), 1), wanted);
         } else {
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 wanted,
                 "source={:x}, MXCSR={:x}, observed={observed}",
                 case.source,
@@ -66,7 +66,7 @@ fn check(engine: Engine, case: ScalarCase, restart: bool, profile: ExecutionProf
     }
 }
 
-fn native(engine: Engine) {
+fn native() {
     for (source, results) in [
         (
             0x3ff0_0000_1000_0000,
@@ -80,7 +80,6 @@ fn native(engine: Engine) {
         for (rounding, result) in results.into_iter().enumerate() {
             for controls in [0x1f80, 0x1fa0, 0x0fa0] {
                 check(
-                    engine,
                     ScalarCase {
                         source,
                         result,
@@ -95,7 +94,6 @@ fn native(engine: Engine) {
     }
     // DAZ-normalized inputs are exact zeros, even with precision unmasked.
     check(
-        engine,
         ScalarCase {
             source: 1,
             result: 0,
@@ -107,7 +105,7 @@ fn native(engine: Engine) {
     );
 }
 
-fn restart(engine: Engine) {
+fn restart() {
     for (source, result, raised) in [
         (0x3810_0000_0000_0000, 0x0080_0000, 0), // minimum binary32 normal
         (0x3800_0000_0000_0000, 0x0040_0000, 0), // exact binary32 subnormal
@@ -115,7 +113,6 @@ fn restart(engine: Engine) {
         (0xfff0_008a_c000_0123, 0xffc0_0456, 1), // signaling payload
     ] {
         check(
-            engine,
             ScalarCase {
                 source,
                 result,
@@ -130,13 +127,6 @@ fn restart(engine: Engine) {
 
 #[test]
 fn scalar_narrow_native_and_restart() {
-    native(Engine::Wasmtime);
-    restart(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_scalar_narrow_native_and_restart() {
-    native(Engine::V8);
-    restart(Engine::V8);
+    native();
+    restart();
 }

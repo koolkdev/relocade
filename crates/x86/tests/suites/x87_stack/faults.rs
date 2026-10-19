@@ -3,9 +3,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn masked_stack_faults(engine: Engine, frontend: Frontend) {
+fn masked_stack_faults(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -88,9 +87,8 @@ fn masked_stack_faults(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exchange_empty_operands(engine: Engine, frontend: Frontend) {
+fn exchange_empty_operands(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -156,9 +154,8 @@ fn exchange_empty_operands(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn unmasked_stack_faults(engine: Engine, frontend: Frontend) {
+fn unmasked_stack_faults(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -208,9 +205,8 @@ fn unmasked_stack_faults(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn pending_exception_blocks_stack_operations(engine: Engine, frontend: Frontend) {
+fn pending_exception_blocks_stack_operations(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -243,9 +239,8 @@ fn pending_exception_blocks_stack_operations(engine: Engine, frontend: Frontend)
     }
 }
 
-fn live_status_controls(engine: Engine, frontend: Frontend) {
+fn live_status_controls(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );

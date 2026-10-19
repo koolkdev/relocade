@@ -3,7 +3,8 @@ use crate::floating::BinaryFormat;
 use crate::{test_step as step, CompiledModule};
 use wasm86_compiler::{Program, Signature, Type, I32, I64};
 
-fn loaded_binary64_comparison(engine: step::Engine) {
+#[test]
+fn loaded_binary64_values_compare_without_source_exceptions() {
     let mut program = Program::new();
     let function = program
         .function(
@@ -69,22 +70,12 @@ fn loaded_binary64_comparison(engine: step::Engine) {
                 guest: None,
             },
         }];
-        assert_eq!(engine.observe(&module, &input, 1).events, expected);
+        assert_eq!(module.observe(&input, 1).events, expected);
     }
 }
 
 #[test]
-fn loaded_binary64_values_compare_without_source_exceptions() {
-    loaded_binary64_comparison(step::Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_loaded_binary64_values_compare_without_source_exceptions() {
-    loaded_binary64_comparison(step::Engine::V8);
-}
-
-fn promoted_comparison(engine: step::Engine) {
+fn binary32_promotion_preserves_ordering_and_source_exceptions() {
     for memory in [false, true] {
         let mut program = Program::new();
         let function = program
@@ -149,7 +140,7 @@ fn promoted_comparison(engine: step::Engine) {
                 ..step::Input::new(&[])
             };
             assert_eq!(
-                engine.observe(&module, &input, 1).events,
+                module.observe(&input, 1).events,
                 vec![step::Event::Return {
                     outcome: step::Outcome::Returned(vec![step::Argument::I32(if memory {
                         direct
@@ -164,17 +155,6 @@ fn promoted_comparison(engine: step::Engine) {
             );
         }
     }
-}
-
-#[test]
-fn binary32_promotion_preserves_ordering_and_source_exceptions() {
-    promoted_comparison(step::Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_binary32_promotion_preserves_ordering_and_source_exceptions() {
-    promoted_comparison(step::Engine::V8);
 }
 
 #[test]

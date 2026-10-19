@@ -1,8 +1,6 @@
 use super::{budget_exhausted, exception, unsupported, ExecutionExit};
 use crate::exception::Exception;
-use crate::test_step::{
-    Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule,
-};
+use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState};
 use wasm86_compiler::{Program, Signature, Type, I32, I8};
 
@@ -60,7 +58,8 @@ fn exit_module() -> Vec<u8> {
     program.compile().unwrap()
 }
 
-fn check_host_exit_words(engine: Engine) {
+#[test]
+fn host_exit_words_in_wasmtime() {
     let bytes = exit_module();
     let cpu = CpuState::filled(0xa5).to_bytes();
     for (name, detail, address, expected) in [
@@ -115,7 +114,7 @@ fn check_host_exit_words(engine: Engine) {
             ..Input::new(&cpu)
         };
         assert_eq!(
-            engine.observe(&module, &input, 1),
+            module.observe(&input, 1),
             Observation {
                 events: vec![Event::Return {
                     outcome: Outcome::Returned(vec![Argument::I64(expected)]),
@@ -130,17 +129,6 @@ fn check_host_exit_words(engine: Engine) {
             "{name}, detail {detail:#x}, address {address:#x}"
         );
     }
-}
-
-#[test]
-fn host_exit_words_in_wasmtime() {
-    check_host_exit_words(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn host_exit_words_in_v8() {
-    check_host_exit_words(Engine::V8);
 }
 
 #[test]

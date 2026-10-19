@@ -16,7 +16,7 @@ use crate::{
     support::{
         blocks::BlockModules,
         machine::{expected, Exit, Image, Step},
-        step::{Engine, Event, SegmentResolution, TestModule},
+        step::{Event, SegmentResolution, TestModule},
     },
 };
 use wasm86_x86::{

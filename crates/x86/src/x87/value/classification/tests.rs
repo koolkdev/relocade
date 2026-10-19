@@ -194,7 +194,8 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
     }
 }
 
-fn loaded_binary_classification(engine: step::Engine) {
+#[test]
+fn loaded_binary_values_share_classification_across_exact_representations() {
     struct Case {
         source_bits: u64,
         loaded_tag: i32,
@@ -443,7 +444,7 @@ fn loaded_binary_classification(engine: step::Engine) {
                 ..step::Input::new(&[])
             };
             assert_eq!(
-                engine.observe(&module, &input, 1).events,
+                module.observe(&input, 1).events,
                 vec![step::Event::Return {
                     outcome: step::Outcome::Returned(vec![
                         step::Argument::I32(case.loaded_classes),
@@ -462,15 +463,4 @@ fn loaded_binary_classification(engine: step::Engine) {
             );
         }
     }
-}
-
-#[test]
-fn loaded_binary_values_share_classification_across_exact_representations() {
-    loaded_binary_classification(step::Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_loaded_binary_values_share_classification_across_exact_representations() {
-    loaded_binary_classification(step::Engine::V8);
 }

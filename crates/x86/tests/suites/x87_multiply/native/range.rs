@@ -2,7 +2,8 @@
 
 use super::*;
 
-fn native_extended_range(engine: Engine) {
+#[test]
+fn native_products_preserve_extended_range_and_boundary_restart() {
     // An exact multiplication by one establishes the native significand before
     // the second operation exercises the extended exponent boundaries.
     let code = [0xdc, 0x0d, 0, 0x40, 0, 0, 0xdc, 0x0d, 8, 0x40, 0, 0];
@@ -100,25 +101,14 @@ fn native_extended_range(engine: Engine) {
             dispatch(result)
         };
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(&image, &[block_exit])
         );
         if restart {
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
     }
-}
-
-#[test]
-fn native_products_preserve_extended_range_and_boundary_restart() {
-    native_extended_range(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_products_preserve_extended_range_and_boundary_restart() {
-    native_extended_range(Engine::V8);
 }

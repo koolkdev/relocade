@@ -10,7 +10,6 @@ mod integer;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_value, INDEFINITE},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -121,8 +120,8 @@ fn check_case(checks: &mut ImageSequences, name: &str, case: Case) {
     );
 }
 
-fn real_memory_forms(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn real_memory_forms(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for source in [
         Source::Single(0x4040_0000),
         Source::Double(0x4008_0000_0000_0000),
@@ -202,8 +201,8 @@ fn real_memory_forms(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn source_exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn source_exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for source in [
         Source::Single(0x7f80_0000),
         Source::Double(0x7ff0_0000_0000_0000),
@@ -329,8 +328,8 @@ fn source_exceptions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn stack_fault_priority(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn stack_fault_priority(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for source in [Source::Single(1), Source::Double(0x7ff0_0000_0000_0001)] {
         for control in [0x037f, 0x037e, 0x037d] {
             check_case(

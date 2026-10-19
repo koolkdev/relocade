@@ -130,42 +130,6 @@ fn guarded_reuse_observes_current_loop_operands() {
     }
 }
 
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_guarded_values_preserve_conditions_and_loop_iterations() {
-    for (module, cases) in [
-        (
-            guarded_divisions(false),
-            vec![(vec![0, 0, 12, 0], 0), (vec![1, 0, 12, 3], 8)],
-        ),
-        (
-            guarded_divisions(true),
-            vec![
-                (vec![0, 0, 12, 0], 0),
-                (vec![0, 1, 12, 3], 4),
-                (vec![1, 1, 12, 3], 12),
-            ],
-        ),
-        (
-            masked_guards(),
-            vec![(vec![0x100, 12, 3], 4), (vec![1, 12, 0], 0)],
-        ),
-        (guarded_loop(), vec![(vec![0], 0), (vec![9], 14)]),
-    ] {
-        for (arguments, expected) in cases {
-            assert_eq!(
-                module.run_v8(&Input::call(
-                    "run",
-                    &arguments.into_iter().map(Value::I32).collect::<Vec<_>>()
-                )),
-                Observation::returned(&[Value::I32(expected)])
-            );
-        }
-    }
-    check_converging_recipes(true);
-    check_rewritten_predicate(true);
-}
-
 fn converging_recipes() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 12]);
@@ -187,7 +151,8 @@ fn converging_recipes() -> TestModule {
     )
 }
 
-fn check_converging_recipes(v8: bool) {
+#[test]
+fn distinct_recipes_share_the_residual_proved_by_their_guards() {
     let module = converging_recipes();
     assert_eq!(count(&module, |op| matches!(op, Operator::I32Mul)), 2);
     for (active, other, expected) in [
@@ -197,29 +162,15 @@ fn check_converging_recipes(v8: bool) {
         (1, 1, [15, 15, 15]),
     ] {
         let expected: Vec<_> = expected.into_iter().flat_map(i32::to_le_bytes).collect();
-        if v8 {
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &[active, other, 5, 3].map(Value::I32))
-                        .with_memories(&[MemoryBytes::new("state", &[0; 12])])
-                ),
-                Observation::returned(&[Value::I32(17)])
-                    .with_memories(&[MemoryBytes::new("state", &expected)])
-            );
-        } else {
-            let mut instance = module.instantiate();
-            assert_eq!(instance.call::<i32>((active, other, 5, 3)), Ok(17));
-            assert_eq!(&instance.memory("state")[..12], expected);
-        }
+
+        let mut instance = module.instantiate();
+        assert_eq!(instance.call::<i32>((active, other, 5, 3)), Ok(17));
+        assert_eq!(&instance.memory("state")[..12], expected);
     }
 }
 
 #[test]
-fn distinct_recipes_share_the_residual_proved_by_their_guards() {
-    check_converging_recipes(false);
-}
-
-fn check_rewritten_predicate(v8: bool) {
+fn rewritten_predicates_fold_before_joined_value_reuse() {
     let initial: Vec<_> = [17_i32, 19]
         .into_iter()
         .flat_map(i32::to_le_bytes)
@@ -265,26 +216,11 @@ fn check_rewritten_predicate(v8: bool) {
             ([1, 0, -1], 11, [0, 0x7fff]),
         ] {
             let expected: Vec<_> = stores.into_iter().flat_map(i32::to_le_bytes).collect();
-            if v8 {
-                assert_eq!(
-                    module.run_v8(
-                        &Input::call("run", &arguments.map(Value::I32))
-                            .with_memories(&[MemoryBytes::new("state", &initial)])
-                    ),
-                    Observation::returned(&[Value::I32(result)])
-                        .with_memories(&[MemoryBytes::new("state", &expected)])
-                );
-            } else {
-                let [active, invalid, input] = arguments;
-                let mut instance = module.instantiate();
-                assert_eq!(instance.call::<i32>((active, invalid, input)), Ok(result));
-                assert_eq!(&instance.memory("state")[..8], expected);
-            }
+
+            let [active, invalid, input] = arguments;
+            let mut instance = module.instantiate();
+            assert_eq!(instance.call::<i32>((active, invalid, input)), Ok(result));
+            assert_eq!(&instance.memory("state")[..8], expected);
         }
     }
-}
-
-#[test]
-fn rewritten_predicates_fold_before_joined_value_reuse() {
-    check_rewritten_predicate(false);
 }

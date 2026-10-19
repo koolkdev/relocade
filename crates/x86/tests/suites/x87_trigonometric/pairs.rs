@@ -3,15 +3,15 @@
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
 use wasm86_x86::{Compiler, SegmentProfile};
 const LEAD: u64 = 1 << 63;
 
-fn exceptions_for(engine: Engine, frontend: Frontend, opcode: u8) {
+fn exceptions_for(frontend: Frontend, opcode: u8) {
     let code = [0xd9, opcode];
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (input, output, invalid) in [
         ((LEAD, 0x7fff), INDEFINITE, true),
         ((42, 0x3fff), INDEFINITE, true),
@@ -108,8 +108,8 @@ fn exceptions_for(engine: Engine, frontend: Frontend, opcode: u8) {
     }
 }
 
-fn stack_and_range_for(engine: Engine, frontend: Frontend, opcode: u8) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn stack_and_range_for(frontend: Frontend, opcode: u8) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for empty in [false, true] {
         for full in [false, true] {
             for masked in [false, true] {
@@ -160,7 +160,7 @@ fn stack_and_range_for(engine: Engine, frontend: Frontend, opcode: u8) {
     }
 }
 
-fn specialization_for(engine: Engine, opcode: u8) {
+fn specialization_for(opcode: u8) {
     let code = [0xd9, opcode];
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &code, 1)
@@ -179,7 +179,6 @@ fn specialization_for(engine: Engine, opcode: u8) {
             write_value(&mut image.cpu, 7, (LEAD, 0x3fff));
         }
         image.check_unchanged_exit(
-            engine,
             &TestModule::new(&compiled),
             "restart precedes both writes and TOP",
             Exit::Interpret,
@@ -212,33 +211,27 @@ fn specialization_for(engine: Engine, opcode: u8) {
     result.x87.status.c2 = 0;
     write_value(&mut result, 7, (LEAD, 0x3fff));
     assert_eq!(
-        engine.observe(&TestModule::new(&compiled), &image.input(), 1),
+        TestModule::new(&compiled).observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
-fn exceptions(engine: Engine, frontend: Frontend) {
+fn exceptions(frontend: Frontend) {
     for opcode in [0xfb, 0xf2] {
-        exceptions_for(engine, frontend, opcode);
+        exceptions_for(frontend, opcode);
     }
 }
-fn stack_and_range(engine: Engine, frontend: Frontend) {
+fn stack_and_range(frontend: Frontend) {
     for opcode in [0xfb, 0xf2] {
-        stack_and_range_for(engine, frontend, opcode);
+        stack_and_range_for(frontend, opcode);
     }
 }
 #[test]
 fn jit_specialization() {
     for opcode in [0xfb, 0xf2] {
-        specialization_for(Engine::Wasmtime, opcode);
+        specialization_for(opcode);
     }
 }
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_jit_specialization() {
-    for opcode in [0xfb, 0xf2] {
-        specialization_for(Engine::V8, opcode);
-    }
-}
+
 test_frontends!(operand_exceptions, exceptions);
 test_frontends!(stack_and_range_effects, stack_and_range);

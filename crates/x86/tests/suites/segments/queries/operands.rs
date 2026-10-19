@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn registers(engine: Engine) {
+#[test]
+fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
     let mut tables = DescriptorTables::default();
     tables.insert(
         0x27,
@@ -52,7 +53,6 @@ fn registers(engine: Engine) {
                 cpu.registers[destination] = value;
             }
             check_one(
-                engine,
                 profile,
                 code,
                 &image,
@@ -68,11 +68,7 @@ fn registers(engine: Engine) {
 }
 
 #[test]
-fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
-    registers(Engine::Wasmtime);
-}
-
-fn memory_sources(engine: Engine) {
+fn memory_selectors_are_words_and_honor_overrides_and_split_pages() {
     let mut tables = DescriptorTables::default();
     tables.insert(0xf327, descriptor(0, SegmentDefaultSize::Bits32));
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
@@ -94,7 +90,6 @@ fn memory_sources(engine: Engine) {
                 value
             };
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -122,7 +117,6 @@ fn memory_sources(engine: Engine) {
         let mut cpu = completed(&image, code.len(), true);
         cpu.registers.eax = value;
         check_one(
-            engine,
             profile,
             &code,
             &image,
@@ -137,11 +131,7 @@ fn memory_sources(engine: Engine) {
 }
 
 #[test]
-fn memory_selectors_are_words_and_honor_overrides_and_split_pages() {
-    memory_sources(Engine::Wasmtime);
-}
-
-fn source_faults(engine: Engine) {
+fn source_faults_leave_destination_and_pending_flags_intact_before_any_query() {
     for opcode in [2, 3] {
         for stack in [false, true] {
             let code = if stack {
@@ -178,7 +168,6 @@ fn source_faults(engine: Engine) {
                     }
                 };
                 check_one(
-                    engine,
                     profile,
                     &code,
                     &image,
@@ -192,17 +181,4 @@ fn source_faults(engine: Engine) {
             }
         }
     }
-}
-
-#[test]
-fn source_faults_leave_destination_and_pending_flags_intact_before_any_query() {
-    source_faults(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_queries_registers_memory_and_source_faults() {
-    registers(Engine::V8);
-    memory_sources(Engine::V8);
-    source_faults(Engine::V8);
 }

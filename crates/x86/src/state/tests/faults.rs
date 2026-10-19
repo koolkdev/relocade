@@ -1,9 +1,7 @@
 use super::super::{Cpu, State};
 use crate::exception::Exception;
 use crate::flags::Flag;
-use crate::test_step::{
-    Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule,
-};
+use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Gpr32};
 use wasm86_compiler::{Program, Signature, Type, I1, I32};
 
@@ -51,7 +49,8 @@ fn conditional_fault(completed: u32) -> CompiledModule {
     }
 }
 
-fn check_fault_publication(engine: Engine) {
+#[test]
+fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
     let mut initial = CpuState {
         eip: 0x1000,
         instruction_count: u64::MAX,
@@ -86,7 +85,7 @@ fn check_fault_publication(engine: Engine) {
                 ..Input::new(&initial.to_bytes())
             };
             assert_eq!(
-                engine.observe(&module, &input, 1),
+                module.observe(&input, 1),
                 Observation {
                     events: vec![Event::Return {
                         outcome: Outcome::Returned(vec![Argument::I64(result)]),
@@ -102,15 +101,4 @@ fn check_fault_publication(engine: Engine) {
             );
         }
     }
-}
-
-#[test]
-fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
-    check_fault_publication(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn faults_publish_their_boundary_and_preserve_the_continuation_in_v8() {
-    check_fault_publication(Engine::V8);
 }

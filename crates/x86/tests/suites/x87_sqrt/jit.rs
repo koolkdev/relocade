@@ -23,7 +23,7 @@ fn native_shape(compiled: &CompiledModule) {
     assert_eq!(roots, 1);
 }
 
-fn native_values(engine: Engine) {
+fn native_values() {
     let code = [
         0xdd, 0x05, 0, 0x40, 0, 0, // FLD m64
         0xd9, 0xfa, // FSQRT
@@ -86,7 +86,7 @@ fn native_values(engine: Engine) {
                 result.x87.data_offset = 0x4008;
             }
             assert_eq!(
-                engine.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -101,7 +101,7 @@ fn native_values(engine: Engine) {
     }
 }
 
-fn extended_native_range(engine: Engine) {
+fn extended_native_range() {
     let code = [0xd9, 0xe8, 0xd9, 0xfd, 0xd9, 0xfa, 0xd8, 0xc0];
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);
@@ -138,7 +138,7 @@ fn extended_native_range(engine: Engine) {
             }
             write_value(&mut result, 7, root);
             assert_eq!(
-                engine.observe(&TestModule::new(&compiled), &image.input(), 1),
+                TestModule::new(&compiled).observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)]),
                 "scale={scale}, instructions={instructions}"
             );
@@ -146,7 +146,7 @@ fn extended_native_range(engine: Engine) {
     }
 }
 
-fn restart(engine: Engine) {
+fn restart() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
@@ -168,12 +168,7 @@ fn restart(engine: Engine) {
         if let Some(input) = input {
             write_value(&mut image.cpu, 0, input);
         }
-        image.check_unchanged_exit(
-            engine,
-            &block,
-            "FSQRT restarts before effects",
-            Exit::Interpret,
-        );
+        image.check_unchanged_exit(&block, "FSQRT restarts before effects", Exit::Interpret);
         let mut result = complete_x87(image.cpu, 2, 0x01fa);
         result.x87.status.c1 = 0;
         result.x87.status.invalid = invalid;
@@ -181,7 +176,7 @@ fn restart(engine: Engine) {
         result.x87.status.stack_fault = u8::from(input.is_none());
         write_value(&mut result, 0, output);
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -199,7 +194,7 @@ fn restart(engine: Engine) {
             result.x87.status.c1 = u8::from(increment);
             write_value(&mut result, 0, output);
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
@@ -208,15 +203,7 @@ fn restart(engine: Engine) {
 
 #[test]
 fn native_views_and_full_precision_restart() {
-    native_values(Engine::Wasmtime);
-    extended_native_range(Engine::Wasmtime);
-    restart(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_and_restart() {
-    native_values(Engine::V8);
-    extended_native_range(Engine::V8);
-    restart(Engine::V8);
+    native_values();
+    extended_native_range();
+    restart();
 }

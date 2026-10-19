@@ -4,7 +4,6 @@ use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
-    step::Engine,
     x87::{stack_image, write_register_bits},
 };
 use wasm86_x86::{ExecutionProfile, SegmentProfile, Segments};
@@ -18,8 +17,8 @@ const FORMS: &[(&[u8], usize, bool)] = &[
     (&[0x0f, 0xc3, 0x30], 4, false), // [eax], esi
 ];
 
-fn stores(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn stores(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for &(code, bytes, mmx) in FORMS {
         let offsets: &[u32] = if bytes == 16 {
             &[0x4ff0]
@@ -64,8 +63,8 @@ fn stores(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for &(code, bytes, mmx) in FORMS {
         for writable in [false, true] {
             let mut image = stack_image(code, 5, 0xaaaa);
@@ -120,8 +119,8 @@ fn faults(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn real_mode(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, ExecutionProfile::Real16);
+fn real_mode(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, ExecutionProfile::Real16);
     for &(form, bytes, mmx) in FORMS {
         // The address override chooses EAX, but MOVNTI remains a dword store
         // under a 16-bit code default, and P66 still selects the XMM variant.

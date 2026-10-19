@@ -208,7 +208,7 @@ const CASES: &[DirectionCase] = &[
     },
 ];
 
-fn directions(engine: Engine) {
+fn directions() {
     for wide in [false, true] {
         for packed in [false, true] {
             for opcode in [0x58, 0x5c, 0x59, 0x5e, 0x51] {
@@ -282,7 +282,7 @@ fn directions(engine: Engine) {
                                 },
                             };
                             assert_eq!(
-                                engine.observe(&module, &image.input(), 1),
+                                module.observe( &image.input(), 1),
                                 expected(&image, &[step]),
                                 "opcode={opcode:x}, wide={wide}, packed={packed}, MXCSR={:x}, left={:x?}, right={:x?}",
                                 image.cpu.simd.mxcsr, case.left, case.right
@@ -295,7 +295,7 @@ fn directions(engine: Engine) {
     }
 }
 
-fn zeros(engine: Engine) {
+fn zeros() {
     for wide in [false, true] {
         for opcode in [0x58, 0x5c] {
             let code = encoding(prefix(wide, true), opcode, 0xc1);
@@ -347,7 +347,7 @@ fn zeros(engine: Engine) {
                             );
                         }
                         assert_eq!(
-                            engine.observe(&module, &image.input(), 1),
+                            module.observe(&image.input(), 1),
                             expected(&image, &[dispatch(cpu)])
                         );
                     }
@@ -357,7 +357,7 @@ fn zeros(engine: Engine) {
     }
 }
 
-fn restart(engine: Engine) {
+fn restart() {
     let code = [0x90, 0xf3, 0x0f, 0x59, 0xc1]; // NOP; MULSS
     let mut image = floating_image(&code, 0x3f80);
     lane(&mut image.cpu.simd.xmm[0], false, 0, MIN_NORMAL[0]);
@@ -369,7 +369,7 @@ fn restart(engine: Engine) {
     let module = TestModule::new(&compiled);
     let prior = retire(image.cpu, 1);
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -383,12 +383,12 @@ fn restart(engine: Engine) {
     lane(&mut cpu.simd.xmm[0], false, 0, 0x0040_0000);
     let linked = module.with_interpreter(TestModule::interpreter());
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(cpu)])
     );
 }
 
-fn generic_blocks_restart_for_directed_rounding(engine: Engine) {
+fn generic_blocks_restart_for_directed_rounding() {
     for wide in [false, true] {
         for packed in [false, true] {
             let lanes = if wide { 2 } else { 4 };
@@ -409,7 +409,7 @@ fn generic_blocks_restart_for_directed_rounding(engine: Engine) {
                     .compile_block(0x1000, &code, 1)
                     .unwrap();
                 assert_eq!(
-                    engine.observe(&TestModule::new(&generic), &image.input(), 1),
+                    TestModule::new(&generic).observe(&image.input(), 1),
                     expected(
                         &image,
                         &[Step {
@@ -426,17 +426,8 @@ fn generic_blocks_restart_for_directed_rounding(engine: Engine) {
 
 #[test]
 fn native_directed_arithmetic() {
-    directions(Engine::Wasmtime);
-    zeros(Engine::Wasmtime);
-    restart(Engine::Wasmtime);
-    generic_blocks_restart_for_directed_rounding(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_directed_arithmetic() {
-    directions(Engine::V8);
-    zeros(Engine::V8);
-    restart(Engine::V8);
-    generic_blocks_restart_for_directed_rounding(Engine::V8);
+    directions();
+    zeros();
+    restart();
+    generic_blocks_restart_for_directed_rounding();
 }

@@ -2,7 +2,7 @@ use super::data;
 use crate::support::{
     cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly},
     machine::{Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     compile_block_from_bytes, BlockError,
@@ -68,7 +68,8 @@ test_cases!(
     ]
 );
 
-fn check_prefix_scope(engine: Engine) {
+#[test]
+fn segment_overrides_end_with_their_instruction() {
     use crate::support::machine::expected;
     let code = [0x64, 0x8b, 0x03, 0x8b, 0x0b];
     let mut image = Image::new(&code);
@@ -96,12 +97,12 @@ fn check_prefix_scope(engine: Engine) {
         exit: Exit::Dispatch(0x1005),
     };
     assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 2),
+        TestModule::interpreter().observe(&image.input(), 2),
         expected(&image, &[first, second])
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -111,17 +112,6 @@ fn check_prefix_scope(engine: Engine) {
             }]
         )
     );
-}
-
-#[test]
-fn segment_overrides_end_with_their_instruction() {
-    check_prefix_scope(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_segment_overrides_end_with_their_instruction() {
-    check_prefix_scope(Engine::V8);
 }
 
 #[test]
@@ -169,7 +159,6 @@ fn segment_prefixes_count_toward_fetch_and_length_boundaries() {
         image.map(1, 0x3000, false);
         image.data(0x3000 + (start & 0xfff), &code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "prefix fault keeps the instruction start",
             exit,

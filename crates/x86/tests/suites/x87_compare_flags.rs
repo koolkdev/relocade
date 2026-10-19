@@ -6,7 +6,6 @@ mod jit;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -56,8 +55,8 @@ fn completed(mut cpu: CpuState, opcode: u16, flags: u8, exceptions: u16, pops: u
     cpu
 }
 
-fn register_forms(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn register_forms(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (instruction, pops) in [
         ([0xdb, 0xf2], 0), // FCOMI ST2
         ([0xdf, 0xf2], 1), // FCOMIP ST2
@@ -98,8 +97,8 @@ fn register_forms(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (instruction, pops, unordered) in [
         ([0xdb, 0xf1], 0, false),
         ([0xdf, 0xf1], 1, false),
@@ -171,11 +170,11 @@ fn exceptions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn live_flags(engine: Engine, frontend: Frontend) {
+fn live_flags(frontend: Frontend) {
     let code = [
         0xdb, 0xe9, 0x0f, 0x92, 0xc3, 0x0f, 0x94, 0xc1, 0x0f, 0x9a, 0xc2,
     ];
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, flags, below, equal, unordered) in [
         ((LEADING, 0x4000), 0, 0, 0, 0),
         ((LEADING, 0xbfff), 1, 1, 0, 0),
@@ -207,8 +206,8 @@ fn live_flags(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn stored_flags_and_pending(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn stored_flags_and_pending(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for pending in [false, true] {
         let code = [0xdf, 0xf1];
         let mut image = initial_image(&code);

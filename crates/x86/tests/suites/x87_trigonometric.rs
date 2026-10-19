@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
 use wasm86_x86::{Compiler, CpuState, SegmentProfile};
@@ -23,8 +23,8 @@ fn encoding() {
     }
 }
 
-fn values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for reference in values::VALUES {
         for negative in [false, true] {
             let input = (
@@ -58,8 +58,8 @@ fn values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0xfe, 0xff] {
         let code = [0xd9, opcode];
         for (input, output, invalid, range) in [
@@ -184,7 +184,8 @@ fn exceptions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn specialization(engine: Engine) {
+#[test]
+fn jit_specialization() {
     for opcode in [0xfe, 0xff] {
         let code = [0xd9, opcode];
         let compiler = Compiler::new(SegmentProfile::Flat32);
@@ -201,7 +202,6 @@ fn specialization(engine: Engine) {
                 write_value(&mut image.cpu, 7, input);
             }
             image.check_unchanged_exit(
-                engine,
                 &TestModule::new(&compiled),
                 "restart precedes result and C2",
                 Exit::Interpret,
@@ -214,11 +214,9 @@ fn specialization(engine: Engine) {
         result.x87.status.c1 = 0;
         result.x87.status.c2 = 1;
         assert_eq!(
-            engine.observe(
-                &TestModule::new(&compiled).with_interpreter(TestModule::interpreter()),
-                &image.input(),
-                1
-            ),
+            TestModule::new(&compiled)
+                .with_interpreter(TestModule::interpreter())
+                .observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
         let mut modules = Vec::new();
@@ -237,14 +235,5 @@ fn specialization(engine: Engine) {
     }
 }
 
-#[test]
-fn jit_specialization() {
-    specialization(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_jit_specialization() {
-    specialization(Engine::V8);
-}
 test_frontends!(values_and_reduction, values);
 test_frontends!(exceptions_and_range, exceptions);

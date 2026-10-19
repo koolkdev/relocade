@@ -1,11 +1,8 @@
 use super::{test_frontends, Frontend, ImageSequences};
-use crate::support::{
-    machine::{Exit, Image, Step},
-    step::Engine,
-};
+use crate::support::machine::{Exit, Image, Step};
 use wasm86_x86::{ExecutionProfile, SegmentProfile};
 
-fn overlapping_prefix_writes(engine: Engine, frontend: Frontend) {
+fn overlapping_prefix_writes(frontend: Frontend) {
     // MOV dword [4000],44332211; MOV word [4001],6655; NOP.
     let code = [
         0xc7, 0x05, 0, 0x40, 0, 0, 0x11, 0x22, 0x33, 0x44, 0x66, 0xc7, 0x05, 1, 0x40, 0, 0, 0x55,
@@ -24,7 +21,6 @@ fn overlapping_prefix_writes(engine: Engine, frontend: Frontend) {
     last.eip = 0x1014;
     last.instruction_count = 2;
     ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     )

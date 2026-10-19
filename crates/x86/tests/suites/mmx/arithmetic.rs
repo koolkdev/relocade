@@ -1,7 +1,7 @@
 use super::*;
 
-fn arithmetic(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn arithmetic(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Carries, borrows, signed extrema and distinct adjacent lanes.
     for (add, sub, left, right, sum, difference) in [
         (
@@ -46,8 +46,8 @@ fn arithmetic(engine: Engine, frontend: Frontend) {
 
 test_frontends!(mmx_packed_arithmetic, arithmetic);
 
-fn quadwords(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn quadwords(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right, sum, difference) in [
         (u64::MAX, 1, 0, u64::MAX - 1),
         (0, 1, 1, u64::MAX),

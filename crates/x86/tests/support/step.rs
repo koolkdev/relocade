@@ -3,12 +3,10 @@ mod tests;
 
 use std::{
     collections::HashMap,
-    path::Path,
     sync::{Mutex, OnceLock},
 };
 
 use crate::{Compiler, ExecutionProfile, ExecutionTarget, SegmentProfile};
-use serde::{Deserialize, Serialize};
 use wasm86_test_support::Module;
 pub(crate) use wasm86_test_support::{Outcome, Value as Argument};
 
@@ -16,7 +14,6 @@ mod segments;
 mod wasmtime;
 pub(crate) use segments::{SegmentQuery, SegmentResolution};
 
-#[derive(Serialize)]
 pub(crate) struct Input {
     pub(crate) cpu: Vec<u8>,
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
@@ -32,7 +29,6 @@ pub(crate) struct Input {
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
     pub(crate) segment_queries: Vec<SegmentQuery>,
     pub(crate) patches_before_calls: Vec<CallPatches>,
-    #[serde(with = "wasm86_test_support::decimal_i64")]
     pub(crate) dispatch_return: i64,
 }
 
@@ -60,14 +56,14 @@ impl Input {
 }
 
 /// Device changes applied after the corresponding MMIO transfer completes.
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default)]
 pub(crate) struct MmioUpdate {
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
     pub(crate) map: Vec<(u32, Vec<u8>)>,
 }
 
 /// Host memory edits applied immediately before an entry invocation.
-#[derive(Default, Serialize)]
+#[derive(Default)]
 pub(crate) struct CallPatches {
     pub(crate) cpu: Vec<(u32, Vec<u8>)>,
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
@@ -83,14 +79,13 @@ impl CallPatches {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Snapshot {
     pub(crate) cpu: Vec<u8>,
     pub(crate) guest: Option<Vec<(u32, u8)>>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Event {
     PortRead {
         port: u32,
@@ -128,32 +123,12 @@ pub(crate) enum Event {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Observation {
     pub(crate) events: Vec<Event>,
     pub(crate) guest_unchanged: bool,
     /// True only if machine memory is unchanged at every observed boundary.
     pub(crate) machine_unchanged: bool,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Engine {
-    Wasmtime,
-    V8,
-}
-
-impl Engine {
-    pub(crate) fn observe(
-        self,
-        module: &TestModule,
-        input: &Input,
-        invocations: usize,
-    ) -> Observation {
-        match self {
-            Self::Wasmtime => module.observe(input, invocations),
-            Self::V8 => module.observe_v8(input, invocations),
-        }
-    }
 }
 
 pub(crate) struct TestModule {
@@ -209,43 +184,6 @@ impl TestModule {
         assert_eq!(self.target, interpreter.target);
         self.interpreter = Some(interpreter);
         self
-    }
-
-    pub(crate) fn observe_v8(&self, input: &Input, invocations: usize) -> Observation {
-        #[derive(Serialize)]
-        struct Request<'a> {
-            entry: &'a str,
-            interpreter_entry: Option<&'a str>,
-            profile: Option<&'static str>,
-            invocations: usize,
-            instruction_target_offset: u32,
-            input: &'a Input,
-        }
-        let modules = std::iter::once(&self.module)
-            .chain(self.interpreter.map(|interpreter| &interpreter.module))
-            .collect::<Vec<_>>();
-        wasm86_test_support::run_v8(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/execute-step.mjs"),
-            &modules,
-            &Request {
-                entry: &self.entry,
-                interpreter_entry: self
-                    .interpreter
-                    .map(|interpreter| interpreter.entry.as_str()),
-                profile: self.target.map(|target| match target.profile {
-                    ExecutionProfile::Protected(SegmentProfile::Flat32) => "flat32",
-                    ExecutionProfile::Protected(SegmentProfile::Segmented32) => "segmented32",
-                    ExecutionProfile::Protected(SegmentProfile::Segmented16) => "segmented16",
-                    ExecutionProfile::Real16 => "real16",
-                }),
-                invocations,
-                instruction_target_offset: std::mem::offset_of!(
-                    crate::ExecutionContext,
-                    instruction_target
-                ) as u32,
-                input,
-            },
-        )
     }
 
     fn check_profile(&self, bytes: &[u8]) {

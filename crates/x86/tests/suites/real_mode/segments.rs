@@ -1,7 +1,7 @@
 use super::*;
 
-fn loads(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn loads(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (segment, modrm, value) in [
         (Segment::Es, 0xc0, 0),
         (Segment::Ss, 0xd0, 3),
@@ -46,8 +46,8 @@ fn loads(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(segment_loads, loads);
 
-fn stack_and_pointers(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn stack_and_pointers(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     let code = [0x17]; // POP SS
     let mut image = image(&code);
     image.cpu.segments.ss = cache(Segment::Ss, 0x300);

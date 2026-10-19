@@ -5,11 +5,12 @@ use crate::support::{
         Permissions::{ReadOnly, ReadWrite},
     },
     machine::{Exit, Image},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32};
 
-fn incomplete_prefix_fetches(engine: Engine) {
+#[test]
+fn prefix_order_preserves_the_next_required_fetch() {
     for code in [&[0xf3][..], &[0xf3, 0x67], &[0x67, 0xf3], &[0x67]] {
         let origin = 0x2000 - code.len() as u32;
         assert_eq!(
@@ -25,7 +26,6 @@ fn incomplete_prefix_fetches(engine: Engine) {
         image.cpu.registers.ecx = 0;
         image.data(0x3000 + (origin & 0xfff), code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("incomplete prefix order {code:02x?}"),
             Exit::PageFault {
@@ -37,17 +37,7 @@ fn incomplete_prefix_fetches(engine: Engine) {
 }
 
 #[test]
-fn prefix_order_preserves_the_next_required_fetch() {
-    incomplete_prefix_fetches(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_prefix_order_preserves_the_next_required_fetch() {
-    incomplete_prefix_fetches(Engine::V8);
-}
-
-fn unsupported_prefixed_register_exchanges(engine: Engine) {
+fn prefix_selection_does_not_extend_pause_to_other_register_exchanges() {
     // PAUSE occupies only F3 90. Other F2/F3 exchange encodings remain outside
     // the supported set, and neither frontend may fall back to the bare form.
     for (prefix, first_opcode) in [(0xf2, 0x90), (0xf3, 0x91)] {
@@ -65,7 +55,6 @@ fn unsupported_prefixed_register_exchanges(engine: Engine) {
             image.map(1, 0x3000, false);
             image.data(0x3ffe, &code);
             image.check_unchanged_exit(
-                engine,
                 TestModule::interpreter(),
                 &format!("prefix rejection without fetching a successor: {code:02x?}"),
                 Exit::Other(match prefix {
@@ -76,17 +65,6 @@ fn unsupported_prefixed_register_exchanges(engine: Engine) {
             );
         }
     }
-}
-
-#[test]
-fn prefix_selection_does_not_extend_pause_to_other_register_exchanges() {
-    unsupported_prefixed_register_exchanges(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_prefix_selection_does_not_extend_pause_to_other_register_exchanges() {
-    unsupported_prefixed_register_exchanges(Engine::V8);
 }
 
 test_cases!(

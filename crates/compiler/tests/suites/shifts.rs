@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -311,37 +311,6 @@ fn computed_counts_keep_their_memory_snapshot_across_branch_writes() {
         assert_eq!(
             &instance.memory("state")[..6],
             &[stored, 0, 0, 0, 0xa5, 0x5a]
-        );
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn computed_right_shifts_and_count_snapshots_execute_in_v8() {
-    let module = count_snapshot();
-    for (branch, expected, stored) in [(1, 0xc1, 8), (0, 0x40, 32)] {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[Value::I32(branch), Value::I32(0x1234_0080)])
-                    .with_memories(&[MemoryBytes::new("state", &[1, 0, 0, 0, 0xa5, 0x5a])]),
-            ),
-            Observation::returned(&[Value::I32(expected)])
-                .with_memories(&[MemoryBytes::new("state", &[stored, 0, 0, 0, 0xa5, 0x5a])]),
-        );
-    }
-    let module = Fixture::new().expression(&[Type::I64, Type::I32], |body| {
-        body.parameter::<I64>(0)
-            .unwrap()
-            .signed()
-            .shr(body.parameter::<I32>(1).unwrap())
-    });
-    for (count, expected) in [(32, -2147483648i64), (63, -1), (64, i64::MIN + 1)] {
-        assert_eq!(
-            module.run_v8(&Input::call(
-                "run",
-                &[Value::I64(i64::MIN + 1), Value::I32(count)]
-            )),
-            Observation::returned(&[Value::I64(expected)]),
         );
     }
 }

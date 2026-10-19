@@ -7,7 +7,7 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile, Segments};
 
-fn common_inputs(engine: Engine) {
+fn common_inputs() {
     let code = [0x0f, 0x2e, 0xc1]; // UCOMISS XMM0,XMM1
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for (left, right, mxcsr, flags) in [
@@ -22,7 +22,7 @@ fn common_inputs(engine: Engine) {
         let mut cpu = retire(image.cpu, code.len());
         comparison_flags(&mut cpu, flags);
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[dispatch(cpu)])
         );
     }
@@ -40,7 +40,7 @@ fn common_inputs(engine: Engine) {
     lane(&mut cpu.simd.xmm[0], false, 0, 0);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(&image, &[dispatch(cpu)])
     );
 
@@ -52,12 +52,12 @@ fn common_inputs(engine: Engine) {
     lane(&mut cpu.simd.xmm[0], true, 0, NEG_ZERO[1]);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(&image, &[dispatch(cpu)])
     );
 }
 
-fn precise_restart(engine: Engine, profile: ExecutionProfile) {
+fn precise_restart(profile: ExecutionProfile) {
     for instruction in [
         &[0x0f, 0x2f, 0xc1][..],       // COMISS
         &[0x0f, 0xc2, 0xc1, 0][..],    // CMPPS EQ
@@ -99,7 +99,7 @@ fn precise_restart(engine: Engine, profile: ExecutionProfile) {
             prefix.flags.status_source.left = 0;
             prefix.flags.status_source.right = 1;
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -129,7 +129,7 @@ fn precise_restart(engine: Engine, profile: ExecutionProfile) {
                 }
             }
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -148,7 +148,7 @@ fn precise_restart(engine: Engine, profile: ExecutionProfile) {
     }
 }
 
-fn real_mode_ram(engine: Engine) {
+fn real_mode_ram() {
     let code = [0x0f, 0x2f, 0x06, 0, 0x20]; // COMISS XMM0,[2000]
     let compiled = Compiler::new(ExecutionProfile::Real16)
         .compile_block(0x1000, &code, 1)
@@ -193,29 +193,20 @@ fn real_mode_ram(engine: Engine) {
                 exit: Exit::Interpret,
             };
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(&image, &[restart])
             );
         } else {
-            assert_eq!(engine.observe(&block, &image.input(), 1), wanted);
+            assert_eq!(block.observe(&image.input(), 1), wanted);
         }
-        assert_eq!(engine.observe(&linked, &image.input(), 1), wanted);
+        assert_eq!(linked.observe(&image.input(), 1), wanted);
     }
 }
 
 #[test]
 fn sse_jit_specialization() {
-    common_inputs(Engine::Wasmtime);
-    precise_restart(Engine::Wasmtime, SegmentProfile::Flat32.into());
-    precise_restart(Engine::Wasmtime, ExecutionProfile::Real16);
-    real_mode_ram(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_sse_jit_specialization() {
-    common_inputs(Engine::V8);
-    precise_restart(Engine::V8, SegmentProfile::Flat32.into());
-    precise_restart(Engine::V8, ExecutionProfile::Real16);
-    real_mode_ram(Engine::V8);
+    common_inputs();
+    precise_restart(SegmentProfile::Flat32.into());
+    precise_restart(ExecutionProfile::Real16);
+    real_mode_ram();
 }

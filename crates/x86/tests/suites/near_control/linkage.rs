@@ -1,6 +1,6 @@
 use crate::support::{
     machine::{self, Exit, Image, Step},
-    step::{Engine, Event, Observation, TestModule},
+    step::{Event, Observation, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, CpuState};
 
@@ -20,7 +20,8 @@ fn image_after_execution(image: &Image, observation: &Observation) -> Image {
     after
 }
 
-fn check_call_return_linkage(engine: Engine) {
+#[test]
+fn calls_return_through_the_saved_link_in_wasmtime() {
     for (origin, call, ret, return_address, stack, physical_slot, returned) in [
         (
             0x1000,
@@ -75,31 +76,20 @@ fn check_call_return_linkage(engine: Engine) {
         };
         let steps = [first, last];
         assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 2),
+            TestModule::interpreter().observe(&image.input(), 2),
             machine::expected(&image, &steps),
             "interpreted CALL/RET from {origin:08x}",
         );
 
         let call_block = compile_block_from_bytes(origin, call, u32::MAX).unwrap();
-        let called = engine.observe(&TestModule::new(&call_block), &image.input(), 1);
+        let called = TestModule::new(&call_block).observe(&image.input(), 1);
         assert_eq!(called, machine::expected(&image, &steps[..1]));
         let after_call = image_after_execution(&image, &called);
         let ret_block = compile_block_from_bytes(0x1010, ret, u32::MAX).unwrap();
         assert_eq!(
-            engine.observe(&TestModule::new(&ret_block), &after_call.input(), 1),
+            TestModule::new(&ret_block).observe(&after_call.input(), 1),
             machine::expected(&after_call, &steps[1..]),
             "compiled CALL/RET from {origin:08x}",
         );
     }
-}
-
-#[test]
-fn calls_return_through_the_saved_link_in_wasmtime() {
-    check_call_return_linkage(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn calls_return_through_the_saved_link_in_v8() {
-    check_call_return_linkage(Engine::V8);
 }

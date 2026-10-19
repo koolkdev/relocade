@@ -4,7 +4,7 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 
-fn live_arithmetic(engine: Engine) {
+fn live_arithmetic() {
     // A multiplication feeds cancellation, then addition feeds multiplication.
     // This checks the zero/normal facts across the shared numerical interface.
     let code = [0xd8, 0xc9, 0xd8, 0xe2, 0xd8, 0xc1, 0xd8, 0xc9];
@@ -25,12 +25,12 @@ fn live_arithmetic(engine: Engine) {
         write_value(&mut result, 0, bits);
     }
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
-fn restart_state(engine: Engine) {
+fn restart_state() {
     let code = [0xd8, 0xc9, 0xde, 0xc2];
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
     let block = TestModule::new(&compiled);
@@ -45,7 +45,7 @@ fn restart_state(engine: Engine) {
     first.x87.status.precision = 1;
     first.x87.status.c1 = 1;
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -60,25 +60,19 @@ fn restart_state(engine: Engine) {
     second.x87.status.c1 = 0;
     second.x87.tag_word |= 3;
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(second)])
     );
 }
 
 #[test]
 fn normal_zero_values_and_restart_state() {
-    live_arithmetic(Engine::Wasmtime);
-    restart_state(Engine::Wasmtime);
+    live_arithmetic();
+    restart_state();
 }
 
 #[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_normal_zero_values_and_restart_state() {
-    live_arithmetic(Engine::V8);
-    restart_state(Engine::V8);
-}
-
-fn admitted_controls(engine: Engine) {
+fn admitted_sums_keep_controls_dynamic() {
     use crate::support::x87::{set_control, status};
     let code = [0xde, 0xc1];
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
@@ -137,7 +131,7 @@ fn admitted_controls(engine: Engine) {
                                 },
                         );
                         assert_eq!(
-                            engine.observe(&module, &image.input(), 1),
+                            module.observe(&image.input(), 1),
                             expected(&image, &[dispatch(result)]),
                             "admitted sum stays compiled: PC={pc}, RC={rc}, masked={masked}"
                         );
@@ -146,15 +140,4 @@ fn admitted_controls(engine: Engine) {
             }
         }
     }
-}
-
-#[test]
-fn admitted_sums_keep_controls_dynamic() {
-    admitted_controls(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_admitted_sums_keep_controls_dynamic() {
-    admitted_controls(Engine::V8);
 }

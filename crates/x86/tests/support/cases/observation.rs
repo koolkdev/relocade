@@ -4,10 +4,9 @@ use std::sync::OnceLock;
 use wasm86_x86::CpuState;
 
 use super::{expectations::check_flag_values, ExpectedFlags, FlagExpectation, Flags};
-use crate::support::step::{Argument, CallPatches, Engine, Event, Input, Outcome, TestModule};
+use crate::support::step::{Argument, CallPatches, Event, Input, Outcome, TestModule};
 
 pub(in crate::support) struct FlagObservations {
-    engine: Engine,
     records: Vec<CpuState>,
     checks: Vec<Check>,
 }
@@ -20,9 +19,8 @@ struct Check {
 }
 
 impl FlagObservations {
-    pub(in crate::support) fn new(engine: Engine) -> Self {
+    pub(in crate::support) fn new() -> Self {
         Self {
-            engine,
             records: Vec::new(),
             checks: Vec::new(),
         }
@@ -108,7 +106,7 @@ impl FlagObservations {
             .iter()
             .map(|cpu| CallPatches::cpu(vec![(0, cpu.to_bytes().to_vec())]))
             .collect();
-        let observation = self.engine.observe(module, &input, self.records.len());
+        let observation = module.observe(&input, self.records.len());
         assert!(observation.guest_unchanged && observation.machine_unchanged);
         assert_eq!(observation.events.len(), self.records.len());
         let values = self

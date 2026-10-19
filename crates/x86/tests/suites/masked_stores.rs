@@ -9,7 +9,6 @@ use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{stack_image, write_register_bits},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -61,8 +60,8 @@ fn retired(mut cpu: CpuState, length: usize, bytes: usize) -> CpuState {
     cpu
 }
 
-fn payloads(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn payloads(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for bytes in [8, 16] {
         let code = code(bytes);
         for (mask, result) in [
@@ -114,8 +113,8 @@ fn payloads(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for bytes in [8, 16] {
         let code = code(bytes);
         for mask in [

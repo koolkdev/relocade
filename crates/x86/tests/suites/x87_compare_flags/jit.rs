@@ -15,7 +15,8 @@ fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16), opcode: u16) -> Cp
     cpu
 }
 
-fn native_values(engine: Engine) {
+#[test]
+fn native_and_extended_ordering() {
     for (load, values) in [
         (
             0xdd_u8,
@@ -55,11 +56,11 @@ fn native_values(engine: Engine) {
             let left = loaded(right, 0x4000, value, (u16::from(load & 7) << 8) | 0x05);
             let result = completed(left, 0x07e9, flags, 0, 1);
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
             assert_eq!(
-                engine.observe(TestModule::interpreter(), &image.input(), 3),
+                TestModule::interpreter().observe(&image.input(), 3),
                 expected(&image, &[dispatch(right), dispatch(left), dispatch(result)])
             );
         }
@@ -79,13 +80,14 @@ fn native_values(engine: Engine) {
         let result = completed(image.cpu, 0x03e9, flags, 0, 0);
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
 }
 
-fn restart_after_integer_compare(engine: Engine) {
+#[test]
+fn operand_exception_restart() {
     let code = [0x39, 0xc8, 0xdf, 0xf1]; // CMP EAX, ECX; FCOMIP ST1
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
     let block = TestModule::new(&compiled);
@@ -107,7 +109,7 @@ fn restart_after_integer_compare(engine: Engine) {
             prefix.flags.status_source.left = 0;
             prefix.flags.status_source.right = 1;
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -125,28 +127,9 @@ fn restart_after_integer_compare(engine: Engine) {
                 u8::from(masked),
             );
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
     }
-}
-
-#[test]
-fn native_and_extended_ordering() {
-    native_values(Engine::Wasmtime);
-}
-#[test]
-fn operand_exception_restart() {
-    restart_after_integer_compare(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_and_extended_ordering() {
-    native_values(Engine::V8);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_operand_exception_restart() {
-    restart_after_integer_compare(Engine::V8);
 }

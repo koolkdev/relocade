@@ -7,7 +7,7 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{complete_x87, dispatch, real80, set_control, stack_image, write_value, INDEFINITE},
 };
 use wasm86_x86::{Compiler, CpuState, SegmentProfile};
@@ -20,8 +20,8 @@ fn encoding() {
     check_length(&CODE);
 }
 
-fn values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for &values::Reference {
         input,
         lower,
@@ -60,9 +60,9 @@ fn values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn infinities(engine: Engine, frontend: Frontend) {
+fn infinities(frontend: Frontend) {
     let code = [0xd9, 0xf0, 0x9b];
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (input, output) in [
         ((LEAD, 0xffff), (LEAD, 0xbfff)),
         ((LEAD, 0x7fff), (LEAD, 0x7fff)),
@@ -88,9 +88,9 @@ fn infinities(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exceptions(engine: Engine, frontend: Frontend) {
+fn exceptions(frontend: Frontend) {
     let code = [0xd9, 0xf0, 0x9b];
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (input, output, flag) in [
         (None, INDEFINITE, 1_u16),
         (Some((42, 0x3fff)), INDEFINITE, 1),
@@ -163,7 +163,8 @@ fn exceptions(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn specialization(engine: Engine) {
+#[test]
+fn jit_specialization() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let compiled = compiler.compile_block(0x1000, &CODE, 1).unwrap();
     let module = TestModule::new(&compiled);
@@ -181,7 +182,7 @@ fn specialization(engine: Engine) {
             write_value(&mut image.cpu, 2, input);
         }
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -224,7 +225,7 @@ fn specialization(engine: Engine) {
     prefix.x87.data_selector = 0x23;
     write_value(&mut prefix, 7, (LEAD, 1));
     assert_eq!(
-        engine.observe(&TestModule::new(&compiled), &image.input(), 1),
+        TestModule::new(&compiled).observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -240,24 +241,11 @@ fn specialization(engine: Engine) {
     result.x87.status.c1 = 1;
     write_value(&mut result, 7, (0x58b9_0bfb_e8e7_bcd6, 0));
     assert_eq!(
-        engine.observe(
-            &TestModule::new(&compiled).with_interpreter(TestModule::interpreter()),
-            &image.input(),
-            1,
-        ),
+        TestModule::new(&compiled)
+            .with_interpreter(TestModule::interpreter())
+            .observe(&image.input(), 1,),
         expected(&image, &[dispatch(result)]),
     );
-}
-
-#[test]
-fn jit_specialization() {
-    specialization(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_jit_specialization() {
-    specialization(Engine::V8);
 }
 
 test_frontends!(rounding_and_extended_range, values);

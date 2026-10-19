@@ -3,8 +3,8 @@ use super::*;
 const LEFT: u64 = 0xf0ff_00aa_55cc_3381;
 const RIGHT: u64 = 0x0f0f_f055_aa33_f080;
 
-fn logical(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn logical(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (opcode, result, self_result) in [
         (0xdb, 0x000f_0000_0000_3080, LEFT),
         (0xdf, 0x0f00_f055_aa33_c000, 0),

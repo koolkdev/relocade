@@ -20,7 +20,8 @@ fn native_module(code: &[u8], count: u32) -> TestModule {
     module
 }
 
-fn rounding_and_zero(engine: Engine) {
+#[test]
+fn native_sums_preserve_rounding_and_signed_zero() {
     for (operation, negate_left, negate_right, pop) in [
         ([0xd8, 0xc1], false, false, false),
         ([0xd8, 0xe1], false, true, false),
@@ -125,7 +126,7 @@ fn rounding_and_zero(engine: Engine) {
                                 result.x87.tag_word |= 0xc000;
                             }
                             assert_eq!(
-                            engine.observe(&module, &image.input(), 1),
+                            module.observe( &image.input(), 1),
                             expected(&image, &[dispatch(result)]),
                             "operation={operation:x?} left={left_value:x?} right={right_value:x?}"
                         );
@@ -137,7 +138,8 @@ fn rounding_and_zero(engine: Engine) {
     }
 }
 
-fn range_and_restart(engine: Engine) {
+#[test]
+fn native_sums_preserve_extended_range_and_restart() {
     // Multiplication by a loaded one establishes PC53 for both wide-exponent registers.
     for (opcode, left, right, sum, flags, restart) in [
         (
@@ -218,20 +220,18 @@ fn range_and_restart(engine: Engine) {
         } else {
             dispatch(result)
         };
-        assert_eq!(
-            engine.observe(&module, &image.input(), 1),
-            expected(&image, &[step])
-        );
+        assert_eq!(module.observe(&image.input(), 1), expected(&image, &[step]));
         if restart {
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
     }
 }
 
-fn precision_exception(engine: Engine) {
+#[test]
+fn native_sums_commit_unmasked_precision() {
     let code = [0xdc, 0x0d, 0, 0x40, 0, 0, 0xdc, 0x05, 8, 0x40, 0, 0];
     let module = native_module(&code, 2);
     for (input, sum, c1) in [(LEADING, LEADING, 0), (LEADING + 2048, LEADING + 4096, 1)] {
@@ -252,37 +252,8 @@ fn precision_exception(engine: Engine) {
         result.x87.status.c1 = c1;
         write_value(&mut result, 0, (sum, 0x3fff));
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
-}
-
-#[test]
-fn native_sums_preserve_rounding_and_signed_zero() {
-    rounding_and_zero(Engine::Wasmtime);
-}
-#[test]
-fn native_sums_preserve_extended_range_and_restart() {
-    range_and_restart(Engine::Wasmtime);
-}
-#[test]
-fn native_sums_commit_unmasked_precision() {
-    precision_exception(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_sums_preserve_rounding_and_signed_zero() {
-    rounding_and_zero(Engine::V8);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_sums_preserve_extended_range_and_restart() {
-    range_and_restart(Engine::V8);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_sums_commit_unmasked_precision() {
-    precision_exception(Engine::V8);
 }

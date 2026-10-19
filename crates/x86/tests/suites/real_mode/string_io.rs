@@ -5,7 +5,7 @@ use crate::support::{
     step::{Event, TestModule},
 };
 
-fn transfers(engine: Engine, frontend: Frontend) {
+fn transfers(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for (code, width, input_port, repeat, backward, address32) in [
         (&[0x6c][..], 1, true, false, false, false),
@@ -92,12 +92,12 @@ fn transfers(engine: Engine, frontend: Frontend) {
             }],
         );
         wanted.events.splice(0..0, events);
-        assert_eq!(engine.observe(module, &input, 1), wanted, "{code:02x?}");
+        assert_eq!(module.observe(&input, 1), wanted, "{code:02x?}");
     }
 }
 test_frontends!(string_port_transfers, transfers);
 
-fn faults(engine: Engine, frontend: Frontend) {
+fn faults(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for input_port in [false, true] {
         for count in [0, 3] {
@@ -154,13 +154,13 @@ fn faults(engine: Engine, frontend: Frontend) {
                 }],
             );
             wanted.events.splice(0..0, events);
-            assert_eq!(engine.observe(module, &input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), wanted);
         }
     }
 }
 test_frontends!(string_port_progress_and_faults, faults);
 
-fn segments_and_mmio(engine: Engine, frontend: Frontend) {
+fn segments_and_mmio(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for input_port in [false, true] {
         let code = [0x64, if input_port { 0x6d } else { 0x6f }];
@@ -224,7 +224,7 @@ fn segments_and_mmio(engine: Engine, frontend: Frontend) {
             Frontend::Block => blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16),
             Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
         };
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
     // A 16-bit index wraps between complete elements, preserving its high word.
     let code = [0xf3, 0x6d];
@@ -265,11 +265,11 @@ fn segments_and_mmio(engine: Engine, frontend: Frontend) {
         Frontend::Block => blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16),
         Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
     };
-    assert_eq!(engine.observe(module, &input, 1), wanted);
+    assert_eq!(module.observe(&input, 1), wanted);
 }
 test_frontends!(string_port_segments_and_mmio, segments_and_mmio);
 
-fn privilege(engine: Engine, frontend: Frontend) {
+fn privilege(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     let profile = ExecutionProfile::Protected(wasm86_x86::SegmentProfile::Flat32);
     for opcode in [0x6d, 0x6f] {
@@ -283,7 +283,6 @@ fn privilege(engine: Engine, frontend: Frontend) {
                 Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
             };
             image.check_unchanged_exit(
-                engine,
                 module,
                 "I/O privilege is checked even when REP count is zero",
                 Exit::GeneralProtection { error: 0 },

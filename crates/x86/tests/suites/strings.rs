@@ -11,7 +11,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     compile_block_from_bytes, BlockError, CpuState, Gpr32::*, StoredFlags, StoredStatusSource,
@@ -279,7 +279,6 @@ fn unsupported_string_forms_reject_even_with_zero_count() {
         let mut image = Image::new(&code);
         image.cpu.registers.ecx = 0;
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "unsupported string form precedes count and operand access",
             Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),

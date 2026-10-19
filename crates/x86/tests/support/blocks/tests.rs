@@ -74,10 +74,7 @@ fn admission_checks_only_instructions_inside_the_compilation_boundary() {
 
 #[test]
 fn cached_blocks_keep_their_cpu_model() {
-    use crate::support::{
-        machine::{expected, Exit, Image, Step},
-        step::Engine,
-    };
+    use crate::support::machine::{expected, Exit, Image, Step};
     use wasm86_x86::{Compiler, CpuFeature, CpuModel};
 
     let code = [0x0f, 0x44, 0xc3]; // CMOVE EAX, EBX
@@ -100,7 +97,7 @@ fn cached_blocks_keep_their_cpu_model() {
             Exit::InvalidOpcode
         };
         assert_eq!(
-            Engine::Wasmtime.observe(module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {

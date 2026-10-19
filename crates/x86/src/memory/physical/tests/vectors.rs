@@ -41,7 +41,8 @@ fn module(write: bool) -> TestModule {
     })
 }
 
-fn rerouting(engine: Engine) {
+#[test]
+fn vector_halves_observe_mmio_rerouting() {
     for write in [false, true] {
         let mut input = input();
         input.mmio_pages = vec![(1, 0x3000)];
@@ -58,7 +59,7 @@ fn rerouting(engine: Engine) {
             map: vec![(2 * 8, vec![1, 0, 0, 0, 0, 0x70, 0, 0])],
             ..MmioUpdate::default()
         }];
-        let observed = engine.observe(&module(write), &input, 1);
+        let observed = module(write).observe(&input, 1);
         assert_eq!(observed.events.len(), 2);
         assert_eq!(
             observed.events[0],
@@ -98,15 +99,4 @@ fn rerouting(engine: Engine) {
         };
         assert_eq!(snapshot.guest, Some(expected));
     }
-}
-
-#[test]
-fn vector_halves_observe_mmio_rerouting() {
-    rerouting(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_halves_observe_mmio_rerouting() {
-    rerouting(Engine::V8);
 }

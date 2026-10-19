@@ -1,7 +1,7 @@
 use super::*;
 
-fn registers(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn registers(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for index in [0, 1, 2, 3, 4, 5, 6, 7, 0xf9, 0xff] {
         let code = [0x66, 0x0f, 0xc5, 0xc6, index, 0x66, 0x0f, 0xc4, 0xf1, index]; // eax,xmm6; xmm6,ecx
         let mut image = image(&code);
@@ -23,8 +23,8 @@ fn registers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = [0x66, 0x0f, 0xc4, 0x30, 0xff]; // xmm6,[eax],7
     let mut image = image(&code);
     image.cpu.registers.eax = 0x4ffe;
@@ -57,8 +57,8 @@ fn memory(engine: Engine, frontend: Frontend) {
 test_frontends!(sse_word_registers, registers);
 test_frontends!(sse_word_memory, memory);
 
-fn segmented(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
+fn segmented(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented16);
     for mmx in [false, true] {
         let mut code = if mmx { vec![] } else { vec![0x66] };
         code.extend_from_slice(&[0x0f, 0xc5, 0xc7, 0xff]);

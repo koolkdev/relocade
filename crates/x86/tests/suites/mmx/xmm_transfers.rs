@@ -1,7 +1,7 @@
 use super::*;
 
-fn transfers(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn transfers(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (destination, source) in [(0, 7), (7, 0), (2, 2)] {
         for prefix in [0xf3, 0xf2] {
             let code = [prefix, 0x0f, 0xd6, 0xc0 | destination << 3 | source];

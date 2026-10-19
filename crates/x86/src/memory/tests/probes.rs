@@ -1,5 +1,4 @@
 use super::*;
-use crate::test_step::Engine;
 
 fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     let mut program = Program::new();
@@ -38,7 +37,8 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     })
 }
 
-fn check_probes(engine: Engine) {
+#[test]
+fn probes_report_permissions_and_contiguity_without_transferring_guest_bytes() {
     for intent in [
         Intent::Read,
         Intent::Write,
@@ -98,7 +98,7 @@ fn check_probes(engine: Engine) {
                     .entry(constant_bytes)
                     .or_insert_with(|| probe_module(constant_bytes, intent));
                 assert_eq!(
-                    engine.observe(module, &input, 1),
+                    module.observe( &input, 1),
                     Observation {
                         events: vec![Event::Return {
                             outcome: Outcome::Returned(vec![
@@ -120,17 +120,6 @@ fn check_probes(engine: Engine) {
             }
         }
     }
-}
-
-#[test]
-fn probes_report_permissions_and_contiguity_without_transferring_guest_bytes() {
-    check_probes(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_probes_report_permissions_and_contiguity_without_transferring_guest_bytes() {
-    check_probes(Engine::V8);
 }
 
 #[test]

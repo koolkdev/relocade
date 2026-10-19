@@ -4,8 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 
-fn double_pop_continuation(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn double_pop_continuation(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (suppressed, code) in [
         (false, vec![0xde, 0xd9, 0xd9, 0xe4]), // FCOMPP; FTST
         (true, vec![0xde, 0xd9, 0xdb, 0xe2, 0xd9, 0xe4]), // FCOMPP; FNCLEX; FTST
@@ -47,7 +47,7 @@ fn double_pop_continuation(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn double_pop_across_mmx(engine: Engine, frontend: Frontend) {
+fn double_pop_across_mmx(frontend: Frontend) {
     let code = [
         0xde, 0xd9, // FCOMPP
         0xdf, 0xe0, // FNSTSW AX
@@ -79,13 +79,13 @@ fn double_pop_across_mmx(engine: Engine, frontend: Frontend) {
         Frontend::Block => {
             let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 4).unwrap());
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(&image, &[dispatch(compared_again)]),
                 "double pop and MMX TOP reset complete in the same compiled block"
             );
         }
         Frontend::Interpreter => {
-            let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+            let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
             checks.check(
                 "double pop preserves the physical payload and comparison sees MMX TOP reset",
                 &code,
@@ -101,8 +101,8 @@ fn double_pop_across_mmx(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn loaded_value_provenance(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn loaded_value_provenance(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (source, value, load_flags) in [
         (1_u32, (LEADING, 0x3f6a), 2),
         (0x7f80_0001, (0xc000_0100_0000_0000, 0x7fff), 1),
@@ -132,8 +132,8 @@ fn loaded_value_provenance(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn pending_register_exception(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn pending_register_exception(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for code in [[0xd8, 0xd1], [0xda, 0xe9], [0xd9, 0xe4]] {
         let mut image = initial_image(&code);
         image.cpu.x87.status.invalid = 1;
@@ -152,7 +152,7 @@ fn pending_register_exception(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn status_drives_integer_conditions(engine: Engine, frontend: Frontend) {
+fn status_drives_integer_conditions(frontend: Frontend) {
     let code = [
         0xda, 0xe9, // FUCOMPP
         0xdf, 0xe0, // FNSTSW AX
@@ -161,7 +161,7 @@ fn status_drives_integer_conditions(engine: Engine, frontend: Frontend) {
         0x0f, 0x94, 0xc1, // SETE CL
         0x0f, 0x9a, 0xc2, // SETP DL
     ];
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, relation, below, equal, unordered) in [
         ((LEADING, 0x4000), 0, 0, 0, 0),
         ((LEADING, 0xbfff), LESS, 1, 0, 0),

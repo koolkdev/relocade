@@ -2,7 +2,8 @@
 use super::*;
 use wasm86_compiler::I64;
 
-fn constant_comparison(v8: bool) {
+#[test]
+fn inequality_guard_eliminates_the_opposite_equality() {
     let module = Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
         let input = body.parameter::<I32>(0)?;
         body.if_(input.ne(32767), |arm| {
@@ -12,11 +13,12 @@ fn constant_comparison(v8: bool) {
     });
     assert_eq!(count(&module, |op| matches!(op, Operator::Select)), 0);
     for (input, expected) in [(0, 11), (32767, 13), (-1, 11)] {
-        check_result(&module, &[Value::I32(input)], &[Value::I32(expected)], v8);
+        check_result(&module, &[Value::I32(input)], &[Value::I32(expected)]);
     }
 }
 
-fn opposite_comparisons(v8: bool) {
+#[test]
+fn both_edges_prove_opposite_comparisons_including_swapped_equality() {
     for kind in 0..6 {
         let module = Fixture::new().function(&[Type::I64; 2], &[Type::I32], |mut body| {
             let left = body.parameter::<I64>(0)?;
@@ -64,13 +66,13 @@ fn opposite_comparisons(v8: bool) {
                 &module,
                 &[Value::I64(left), Value::I64(right)],
                 &[Value::I32(if truth { 11 } else { 13 })],
-                v8,
             );
         }
     }
 }
 
-fn comparison_boundaries(v8: bool) {
+#[test]
+fn comparison_facts_respect_width_signedness_and_bypassed_guards() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I32, Type::I1],
         &[Type::I32; 2],
@@ -118,31 +120,7 @@ fn comparison_boundaries(v8: bool) {
                 &module,
                 &[Value::I32(left), Value::I32(right), Value::I32(enabled)],
                 &expected.map(Value::I32),
-                v8,
             );
         }
     }
-}
-
-#[test]
-fn inequality_guard_eliminates_the_opposite_equality() {
-    constant_comparison(false);
-}
-
-#[test]
-fn both_edges_prove_opposite_comparisons_including_swapped_equality() {
-    opposite_comparisons(false);
-}
-
-#[test]
-fn comparison_facts_respect_width_signedness_and_bypassed_guards() {
-    comparison_boundaries(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_comparison_facts_preserve_results_and_boundaries() {
-    constant_comparison(true);
-    opposite_comparisons(true);
-    comparison_boundaries(true);
 }

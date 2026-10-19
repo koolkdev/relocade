@@ -2,11 +2,12 @@ use super::code;
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{ExecutionProfile, SegmentDefaultSize, SegmentProfile, StoredSegment};
 
-fn valid_prefix_then_fetch_fault(engine: Engine) {
+#[test]
+fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
     let mut blocks = BlockModules::default();
     for (size, profile, modrm) in [
         (
@@ -40,7 +41,7 @@ fn valid_prefix_then_fetch_fault(engine: Engine) {
         cpu.eip = 0x1002;
         cpu.instruction_count = 0;
         assert_eq!(
-            engine.observe(block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -56,11 +57,7 @@ fn valid_prefix_then_fetch_fault(engine: Engine) {
         // report #GP before the unusable SS can cause an operand fault.
         image.cpu = cpu;
         assert_eq!(
-            engine.observe(
-                TestModule::interpreter_with_profile(profile),
-                &image.input(),
-                1
-            ),
+            TestModule::interpreter_with_profile(profile).observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -72,15 +69,4 @@ fn valid_prefix_then_fetch_fault(engine: Engine) {
             "{profile:?} interpreter fallback preserves prefix progress",
         );
     }
-}
-
-#[test]
-fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
-    valid_prefix_then_fetch_fault(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
-    valid_prefix_then_fetch_fault(Engine::V8);
 }

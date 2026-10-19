@@ -20,8 +20,8 @@ fn source_bytes(opcode: u8, value: i32) -> Vec<u8> {
     }
 }
 
-fn forms_and_exact_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn forms_and_exact_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (opcode, integer, left, relation) in [
         (0xde, -32768, (LEADING, 0xc00e), EQUAL),
         (0xde, 32767, (0xfffe_0000_0000_0000, 0x400d), EQUAL),
@@ -60,8 +60,8 @@ fn forms_and_exact_values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn operand_exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn operand_exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0xde, 0xda] {
         for (left, empty, exception, relation) in [
             (QNAN, false, 1, UNORDERED),
@@ -120,7 +120,7 @@ fn operand_exceptions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory_faults(engine: Engine, frontend: Frontend) {
+fn memory_faults(frontend: Frontend) {
     let code = instruction(0xda, true, 0x4ffe);
     let mut image = initial_image(&code);
     write_value(&mut image.cpu, 7, QNAN);
@@ -128,7 +128,7 @@ fn memory_faults(engine: Engine, frontend: Frontend) {
     set_control(&mut image.cpu.x87.control, 0x037e);
     image.map(4, 0x8000, false);
     image.data(0x8ffe, &[0, 0]);
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     checks.check(
         "complete integer span faults before comparison effects",
         &code,
@@ -173,7 +173,8 @@ fn memory_faults(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn compiled_continuation_and_restart(engine: Engine) {
+#[test]
+fn compiled_sequence_and_restart() {
     // FICOMP's pop and saved memory pointer feed a following EFLAGS comparison.
     let code = [instruction(0xda, true, 0x4000), vec![0xdb, 0xf1]].concat();
     let mut image = initial_image(&code);
@@ -197,11 +198,11 @@ fn compiled_continuation_and_restart(engine: Engine) {
     final_cpu.flags.bytes.of = 0;
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(&image, &[dispatch(final_cpu)])
     );
     assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 2),
+        TestModule::interpreter().observe(&image.input(), 2),
         expected(&image, &[dispatch(first), dispatch(final_cpu)])
     );
 
@@ -226,7 +227,7 @@ fn compiled_continuation_and_restart(engine: Engine) {
         let mut prefix = complete_x87(image.cpu, 2, 0x02c1);
         write_value(&mut prefix, 7, SNAN);
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -250,7 +251,7 @@ fn compiled_continuation_and_restart(engine: Engine) {
         result.x87.data_offset = 0x4000;
         result.x87.data_selector = 0x23;
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -259,15 +260,6 @@ fn compiled_continuation_and_restart(engine: Engine) {
 test_frontends!(forms, forms_and_exact_values);
 test_frontends!(exceptions, operand_exceptions);
 test_frontends!(memory, memory_faults);
-#[test]
-fn compiled_sequence_and_restart() {
-    compiled_continuation_and_restart(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_compiled_sequence_and_restart() {
-    compiled_continuation_and_restart(Engine::V8);
-}
 
 #[test]
 fn complete_encodings() {

@@ -1,6 +1,6 @@
 use crate::{
     memory::{Intent, Memory},
-    test_step::{Argument, Engine, Event, Input, Outcome, TestModule},
+    test_step::{Argument, Event, Input, Outcome, TestModule},
     CompiledModule, ExecutionProfile,
 };
 use wasm86_compiler::{Program, Signature, Type, I16, I32};
@@ -53,7 +53,8 @@ fn transfers(fill: bool) -> TestModule {
     })
 }
 
-fn check_transfers(engine: Engine) {
+#[test]
+fn physical_bulk_transfers_require_proven_backing() {
     for fill in [false, true] {
         let module = transfers(fill);
         for (destination, source, bytes, allowed) in [
@@ -78,7 +79,7 @@ fn check_transfers(engine: Engine) {
                 Argument::I32(source),
                 Argument::I32(bytes),
             ];
-            let observed = engine.observe(&module, &input, 1);
+            let observed = module.observe(&input, 1);
             let [Event::Return { outcome, snapshot }] = observed.events.as_slice() else {
                 panic!("a direct-range proof must not invoke a device");
             };
@@ -105,15 +106,4 @@ fn check_transfers(engine: Engine) {
             assert_eq!(snapshot.guest, Some(expected));
         }
     }
-}
-
-#[test]
-fn physical_bulk_transfers_require_proven_backing() {
-    check_transfers(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_physical_bulk_transfers_require_proven_backing() {
-    check_transfers(Engine::V8);
 }

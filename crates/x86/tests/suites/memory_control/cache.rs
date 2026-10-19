@@ -12,8 +12,8 @@ fn retired(mut cpu: wasm86_x86::CpuState, length: usize) -> wasm86_x86::CpuState
     cpu
 }
 
-fn prefetch(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented32);
+fn prefetch(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented32);
     for hint in 0..4 {
         let code = [0x64, 0x66, 0x0f, 0x18, hint << 3];
         let mut image = Image::new(&code);
@@ -34,9 +34,9 @@ fn prefetch(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn flush(engine: Engine, frontend: Frontend) {
+fn flush(frontend: Frontend) {
     let code = [0x0f, 0xae, 0x38]; // CLFLUSH [eax]
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for present in [false, true] {
         let mut image = Image::new(&code);
         image.cpu.registers.eax = 0x4fff;
@@ -95,8 +95,8 @@ fn flush(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn segment_permissions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented32);
+fn segment_permissions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented32);
     for (cache, limit, allowed) in [
         (
             StoredSegment {
@@ -167,7 +167,7 @@ fn segment_permissions(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn physical_addresses(engine: Engine, frontend: Frontend) {
+fn physical_addresses(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for flush in [false, true] {
         let code = [
@@ -208,7 +208,7 @@ fn physical_addresses(engine: Engine, frontend: Frontend) {
                 }
             };
             assert_eq!(
-                engine.observe(module, &input, 1),
+                module.observe(&input, 1),
                 wanted,
                 "cache operations must not call MMIO"
             );
@@ -239,12 +239,12 @@ fn cache_instruction_encodings() {
     check_unsupported_at_page_end(&[0x66, 0x0f, 0xae, 0x38], 0x0f);
 }
 
-fn prefetch_fetch_fault(engine: Engine) {
+#[test]
+fn prefetch_requires_complete_instruction_fetch() {
     let mut image = Image::new(&[]);
     image.cpu.eip = 0x1ffc;
     image.data(0x3ffc, &[0x0f, 0x18, 0x84, 0x8d]);
     image.check_unchanged_exit(
-        engine,
         TestModule::interpreter(),
         "a non-faulting prefetch still fetches its complete displacement",
         Exit::PageFault {
@@ -252,14 +252,4 @@ fn prefetch_fetch_fault(engine: Engine) {
             error: 16,
         },
     );
-}
-
-#[test]
-fn prefetch_requires_complete_instruction_fetch() {
-    prefetch_fetch_fault(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_prefetch_requires_complete_instruction_fetch() {
-    prefetch_fetch_fault(Engine::V8);
 }

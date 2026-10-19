@@ -1,11 +1,12 @@
 use super::data;
 use crate::support::{
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 
-fn check_progress(engine: Engine) {
+#[test]
+fn segment_fault_publishes_prior_arithmetic_store_and_count() {
     // MOV EAX,1; ADD EAX,1; MOV [EBX],EAX; MOV ECX,FS:[EDX].
     let code = [
         0xb8, 1, 0, 0, 0, 0x83, 0xc0, 1, 0x89, 0x03, 0x64, 0x8b, 0x0a,
@@ -51,12 +52,12 @@ fn check_progress(engine: Engine) {
         exit: Exit::GeneralProtection { error: 0 },
     };
     assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 4),
+        TestModule::interpreter().observe(&image.input(), 4),
         expected(&image, &[first, second, third, fourth])
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 4).unwrap());
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -69,17 +70,7 @@ fn check_progress(engine: Engine) {
 }
 
 #[test]
-fn segment_fault_publishes_prior_arithmetic_store_and_count() {
-    check_progress(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn segment_fault_publishes_prior_progress_in_v8() {
-    check_progress(Engine::V8);
-}
-
-fn code_boundaries(engine: Engine) {
+fn cs_faults_preserve_the_correct_instruction_boundary() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
         SegmentProfile::Segmented32,
     ));
@@ -94,7 +85,7 @@ fn code_boundaries(engine: Engine) {
         cpu.eip += bytes.len() as u32;
         cpu.instruction_count = 0;
         assert_eq!(
-            engine.observe(module, &image.input(), 2),
+            module.observe(&image.input(), 2),
             expected(
                 &image,
                 &[
@@ -139,7 +130,7 @@ fn code_boundaries(engine: Engine) {
             &[]
         };
         assert_eq!(
-            engine.observe(module, &image.input(), 2),
+            module.observe(&image.input(), 2),
             expected(
                 &image,
                 &[
@@ -183,7 +174,7 @@ fn code_boundaries(engine: Engine) {
     cpu.flags.status_source.left = 1;
     cpu.flags.status_source.right = 1;
     assert_eq!(
-        engine.observe(module, &image.input(), 3),
+        module.observe(&image.input(), 3),
         expected(
             &image,
             &[
@@ -201,15 +192,4 @@ fn code_boundaries(engine: Engine) {
             ]
         )
     );
-}
-
-#[test]
-fn cs_faults_preserve_the_correct_instruction_boundary() {
-    code_boundaries(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_cs_faults_preserve_the_correct_instruction_boundary() {
-    code_boundaries(Engine::V8);
 }

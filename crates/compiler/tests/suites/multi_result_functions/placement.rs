@@ -199,28 +199,3 @@ fn a_pure_invocation_needed_in_only_one_arm_stays_on_that_control_path() {
     assert_eq!(module.instantiate().call::<i32>(0).unwrap(), 7);
     assert!(module.instantiate().call::<i32>(1).is_err());
 }
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn multi_result_snapshot_groups_execute_across_writes_and_branches_in_v8() {
-    assert_eq!(
-        snapshots(0, true)
-            .run_v8(&Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &INITIAL)])),
-        Observation::returned(&[7, 11, 9, 11].map(Value::I32)).with_memories(&[MemoryBytes::new(
-            "state",
-            &[9, 0, 0, 0, 11, 0, 0, 0, 0, 0, 0, 0, 0xa5, 0x5a]
-        ),])
-    );
-    for (choose, returned, offset, value) in [(1, 7, 0, 99_u32), (0, 11, 4, 88)] {
-        let mut expected = INITIAL;
-        expected[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-        assert_eq!(
-            sibling_uses().run_v8(
-                &Input::call("run", &[Value::I32(choose)])
-                    .with_memories(&[MemoryBytes::new("state", &INITIAL)])
-            ),
-            Observation::returned(&[Value::I32(returned)])
-                .with_memories(&[MemoryBytes::new("state", &expected)])
-        );
-    }
-}

@@ -9,8 +9,8 @@ fn mmx_image(code: &[u8], controls: u32) -> Image {
     image
 }
 
-fn from_integer(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn from_integer(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for memory in [false, true] {
             let code = encoding(prefix(wide, true), 0x2a, if memory { 0x00 } else { 0xc1 });
@@ -70,8 +70,8 @@ fn from_integer(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn to_integer(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn to_integer(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for truncate in [false, true] {
             let code = encoding(prefix(wide, true), if truncate { 0x2c } else { 0x2d }, 0xc1);
@@ -126,8 +126,8 @@ fn to_integer(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory_and_pending(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory_and_pending(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (wide, opcode) in [
         (false, 0x2a),
         (true, 0x2a),

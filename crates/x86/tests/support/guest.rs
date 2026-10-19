@@ -11,7 +11,7 @@ pub(crate) use super::machine::Exit;
 
 use super::{
     machine::Image,
-    step::{Argument, Engine, Event, Outcome, Snapshot, TestModule},
+    step::{Argument, Event, Outcome, Snapshot, TestModule},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -196,16 +196,11 @@ impl Machine {
         }
     }
 
-    pub(crate) fn run(&self, module: &TestModule, engine: Engine) -> Execution {
-        self.run_many(module, engine, 1).pop().unwrap()
+    pub(crate) fn run(&self, module: &TestModule) -> Execution {
+        self.run_many(module, 1).pop().unwrap()
     }
 
-    pub(crate) fn run_many(
-        &self,
-        module: &TestModule,
-        engine: Engine,
-        invocations: usize,
-    ) -> Vec<Execution> {
+    pub(crate) fn run_many(&self, module: &TestModule, invocations: usize) -> Vec<Execution> {
         assert!(invocations > 0, "execution needs at least one invocation");
         let code = self.code_at_eip();
         assert_eq!(
@@ -215,7 +210,7 @@ impl Machine {
         );
         let mut input = self.image.input();
         input.cpu = self.cpu.to_bytes().to_vec();
-        let observation = engine.observe(module, &input, invocations);
+        let observation = module.observe(&input, invocations);
         let initial = self.state();
         let state = |snapshot: &Snapshot| {
             let mut state = initial.clone();

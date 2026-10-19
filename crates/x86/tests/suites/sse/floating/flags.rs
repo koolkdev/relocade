@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn relations(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn relations(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for quiet in [false, true] {
             let code = encoding(
@@ -70,8 +70,8 @@ fn relations(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         let code = encoding(if wide { &[0x66] } else { &[] }, 0x2f, 0x00);
         let width = if wide { 8 } else { 4 };

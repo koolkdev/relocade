@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Call, Callback, Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 use wasm86_compiler::{Type, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -324,86 +324,4 @@ fn unit_blocks_and_result_arms_accept_fallthrough() {
     inspect(&module);
     assert_eq!(module.instantiate().call::<i32>(0).unwrap(), 11);
     assert_eq!(module.instantiate().call::<i32>(1).unwrap(), 0);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn typed_blocks_execute_shared_exits_and_result_projection_in_v8() {
-    let module = shared_exits();
-    for (arguments, result, memory) in [
-        ([0, 1, 0, 20], 227, [7, 0, 0, 0, 0, 0, 0, 0]),
-        ([1, 0, 0, 20], 227, [7, 0, 0, 0, 0, 0, 0, 0]),
-        ([1, 1, 0, 20], 127, [11, 0, 0, 0, 1, 0, 0, 0]),
-        ([0, 1, 1, 20], 20, [7, 0, 0, 0, 0x0d, 0xf0, 0, 0]),
-        (
-            [1, 1, 1, 20],
-            4_294_971_412,
-            [11, 0, 0, 0, 0x0d, 0xf0, 0, 0],
-        ),
-    ] {
-        let input =
-            Input::call("run", &arguments.map(Value::I32)).with_memories(&[MemoryBytes::new(
-                "state",
-                &[7, 0, 0, 0, 0xa5, 0xa5, 0xa5, 0xa5],
-            )]);
-        assert_eq!(
-            module.run_v8(&input),
-            Observation::returned(&[Value::I64(result)])
-                .with_memories(&[MemoryBytes::new("state", &memory)])
-        );
-    }
-    for observe in [true, false] {
-        let module = projected_results(observe);
-        for condition in [0, 1] {
-            let input = Input::call("run", &[Value::I32(condition)])
-                .with_memories(&[MemoryBytes::new("state", &[0xa5, 0x5a])])
-                .with_callbacks(&[Callback::new("receive", &[Value::I32(23)])]);
-            let result = if !observe {
-                17
-            } else if condition == 0 {
-                9
-            } else {
-                6
-            };
-            let memory = if condition == 0 {
-                [0xa5, 0x5a]
-            } else {
-                [1, 0x5a]
-            };
-            let mut expected = Observation::returned(&[Value::I32(result)])
-                .with_memories(&[MemoryBytes::new("state", &memory)]);
-            if condition != 0 {
-                expected = expected.with_callbacks(&[Call::new("receive", &[Value::I32(9)])
-                    .with_memories(&[MemoryBytes::new("state", &[1, 0x5a])])]);
-            }
-            assert_eq!(module.run_v8(&input), expected);
-        }
-    }
-    let module = unused_pure_call();
-    assert_eq!(
-        module.run_v8(
-            &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &[0xa5, 0x5a])])
-        ),
-        Observation::returned(&[Value::I32(7)])
-            .with_memories(&[MemoryBytes::new("state", &[1, 0x5a])])
-    );
-    let module = nested_results();
-    for (condition, result) in [(1, 2_147_483_648), (0, -9_223_372_036_854_775_801)] {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I32(condition)])),
-            Observation::returned(&[Value::I64(result)])
-        );
-    }
-    for keys in [[2, 3, 5], [0, 0x8000_0000, u32::MAX]] {
-        let module = switch_exits(&keys);
-        for (selector, result) in [(keys[1], 1011), (19, 1023)] {
-            assert_eq!(
-                module.run_v8(&Input::call(
-                    "run",
-                    &[Value::I32(selector as i32), Value::I32(1)]
-                )),
-                Observation::returned(&[Value::I64(result)])
-            );
-        }
-    }
 }

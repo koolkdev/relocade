@@ -3,7 +3,8 @@
 use super::*;
 use wasm86_compiler::V64;
 
-fn identities(v8: bool) {
+#[test]
+fn packed_identities_remove_calculations_and_preserve_both_vector_widths() {
     let mut initial = vec![0xa5; 352];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
@@ -114,17 +115,6 @@ fn identities(v8: bool) {
         }
     }
     for count in [0, 1, 31, -1] {
-        check(&module, &initial, &expected, count, v8);
+        check(&module, &expected, count);
     }
-}
-
-#[test]
-fn packed_identities_remove_calculations_and_preserve_both_vector_widths() {
-    identities(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_packed_identities_remove_calculations_and_preserve_both_vector_widths() {
-    identities(true);
 }

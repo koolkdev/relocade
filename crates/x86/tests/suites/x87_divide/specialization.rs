@@ -4,7 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{compile_block_from_bytes, Compiler, CpuState};
 
-fn controls(engine: Engine) {
+#[test]
+fn admitted_quotients_use_dynamic_and_observed_modes() {
     let code = [0xde, 0xf9];
     let dynamic = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for (pc, precision) in [(0, 24), (1, 64), (2, 53), (3, 64)] {
@@ -49,7 +50,7 @@ fn controls(engine: Engine) {
                     result.x87.tag_word |= 0xc000;
                     result.x87.status = status(0x4500 | flags | if masked { 0 } else { PENDING });
                     for block in [&dynamic, &specialized] {
-                        assert_eq!(engine.observe(block, &image.input(), 1), expected(&image, &[dispatch(result)]),
+                        assert_eq!(block.observe( &image.input(), 1), expected(&image, &[dispatch(result)]),
                             "division stays in the JIT: PC={pc} RC={rc} negative={negative} masked={masked}");
                     }
                 }
@@ -58,7 +59,8 @@ fn controls(engine: Engine) {
     }
 }
 
-fn zeros_and_restart(engine: Engine) {
+#[test]
+fn zeros_and_rejected_divisors_preserve_restart_state() {
     let code = [0xd8, 0xf1];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for numerator_sign in [0, 0x8000] {
@@ -70,7 +72,7 @@ fn zeros_and_restart(engine: Engine) {
             result.x87.status.c1 = 0;
             write_value(&mut result, 0, (0, numerator_sign ^ denominator_sign));
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
@@ -94,7 +96,7 @@ fn zeros_and_restart(engine: Engine) {
         first.x87.status.c1 = 1;
         write_value(&mut first, 0, (0xc000_0000_0000_0002, 0x3fff));
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -114,25 +116,8 @@ fn zeros_and_restart(engine: Engine) {
             divided.x87.status.busy = 1;
         }
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(divided)])
         );
     }
-}
-
-#[test]
-fn admitted_quotients_use_dynamic_and_observed_modes() {
-    controls(Engine::Wasmtime);
-}
-
-#[test]
-fn zeros_and_rejected_divisors_preserve_restart_state() {
-    zeros_and_restart(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_division_specialization_preserves_modes_and_restart() {
-    controls(Engine::V8);
-    zeros_and_restart(Engine::V8);
 }

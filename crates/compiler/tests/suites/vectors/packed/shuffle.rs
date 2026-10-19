@@ -1,8 +1,8 @@
 use super::*;
 
-fn shuffle(v8: bool) {
+#[test]
+fn vector_byte_shuffle_selects_both_inputs() {
     binary_results(
-        v8,
         LEFT,
         RIGHT,
         [
@@ -25,17 +25,7 @@ fn shuffle(v8: bool) {
 }
 
 #[test]
-fn vector_byte_shuffle_selects_both_inputs() {
-    shuffle(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_byte_shuffle_selects_both_inputs() {
-    shuffle(true);
-}
-
-fn runtime_indices(v8: bool) {
+fn vector_byte_shuffle_runtime_indices_and_zero_fill() {
     let indices = [
         0, 15, 16, 31, 32, 33, 47, 48, 127, 128, 239, 240, 254, 255, 5, 20,
     ];
@@ -65,27 +55,16 @@ fn runtime_indices(v8: bool) {
     for offset in [48, 64, 80] {
         expected[offset..offset + 16].copy_from_slice(&result);
     }
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
 #[test]
-fn vector_byte_shuffle_runtime_indices_and_zero_fill() {
-    runtime_indices(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_byte_shuffle_runtime_indices_and_zero_fill() {
-    runtime_indices(true);
-}
-
-fn swizzle_union(v8: bool) {
+fn vector_swizzle_union_preserves_overlapping_bits_and_zero_fill() {
     let even: [u8; 16] = std::array::from_fn(|i| if i % 2 == 0 { i as u8 } else { 255 });
     let odd: [u8; 16] = std::array::from_fn(|i| if i % 2 == 1 { i as u8 } else { 255 });
     let mut gap = odd;
     gap[15] = 255;
     binary_results(
-        v8,
         LEFT,
         RIGHT,
         [
@@ -103,15 +82,4 @@ fn swizzle_union(v8: bool) {
             ]
         },
     );
-}
-
-#[test]
-fn vector_swizzle_union_preserves_overlapping_bits_and_zero_fill() {
-    swizzle_union(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_swizzle_union_preserves_overlapping_bits_and_zero_fill() {
-    swizzle_union(true);
 }

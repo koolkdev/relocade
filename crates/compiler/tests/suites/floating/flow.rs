@@ -1,9 +1,9 @@
 //! Floating encodings survive ordinary memory, calls and control-flow values.
 
 use super::*;
-use crate::wasm::MemoryBytes;
 
-fn transport(v8: bool) {
+#[test]
+fn floating_transport_preserves_zero_signs_and_nan_payloads() {
     let module = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I64; 5], |body| {
         let bits = body.parameter::<I64>(0)?;
         let choose = body.parameter::<I1>(1)?;
@@ -40,7 +40,6 @@ fn transport(v8: bool) {
             &constants,
             &[],
             &[bits, bits ^ SIGN, bits & !SIGN].map(|bits| Value::I64(bits as i64)),
-            v8,
         );
         for choose in [0, 1] {
             let expected = [
@@ -54,13 +53,13 @@ fn transport(v8: bool) {
                 &module,
                 &[Value::I64(bits as i64), Value::I32(choose)],
                 &expected.map(|bits| Value::I64(bits as i64)),
-                v8,
             );
         }
     }
 }
 
-fn mixed_calls_and_loops(v8: bool) {
+#[test]
+fn mixed_scalar_calls_joins_and_backedges_keep_their_carriers() {
     let mut fixture = Fixture::new();
     let helper = fixture
         .program
@@ -120,18 +119,17 @@ fn mixed_calls_and_loops(v8: bool) {
                 &module,
                 &[Value::I64(bits as i64), Value::I32(count)],
                 &expected.map(|bits| Value::I64(bits as i64)),
-                v8,
             );
         }
     }
 }
 
-fn memory_snapshots(v8: bool) {
+#[test]
+fn floating_loads_keep_their_snapshot_across_integer_stores() {
     let original = 0xfff0_0000_0000_0042_u64;
     let replacement = SIGN;
     let mut bytes = vec![0xa5; 24];
     bytes[3..11].copy_from_slice(&original.to_le_bytes());
-    let input = Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &bytes)]);
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
     let module = fixture.function(&[], &[Type::I64; 2], |mut body| {
@@ -144,31 +142,10 @@ fn memory_snapshots(v8: bool) {
     bytes[3..11].copy_from_slice(&replacement.to_le_bytes());
     bytes[11..19].copy_from_slice(&original.to_le_bytes());
     let expected = [Value::I64(original as i64), Value::I64(replacement as i64)];
-    if v8 {
-        assert_eq!(
-            module.run_v8(&input),
-            Observation::returned(&expected).with_memories(&[MemoryBytes::new("state", &bytes)])
-        );
-    } else {
-        let mut instance = module.instantiate();
-        assert_eq!(instance.call_values("run", &[]).unwrap(), expected);
-        assert_eq!(&instance.memory("state")[..bytes.len()], bytes);
-    }
-}
 
-#[test]
-fn floating_transport_preserves_zero_signs_and_nan_payloads() {
-    transport(false);
-}
-
-#[test]
-fn mixed_scalar_calls_joins_and_backedges_keep_their_carriers() {
-    mixed_calls_and_loops(false);
-}
-
-#[test]
-fn floating_loads_keep_their_snapshot_across_integer_stores() {
-    memory_snapshots(false);
+    let mut instance = module.instantiate();
+    assert_eq!(instance.call_values("run", &[]).unwrap(), expected);
+    assert_eq!(&instance.memory("state")[..bytes.len()], bytes);
 }
 
 #[test]
@@ -190,12 +167,4 @@ fn floating_function_boundaries_accept_native_host_values() {
         .call::<(f64, i64, i32)>((7_i32, 1.25_f64, 0x100000001_i64))
         .unwrap();
     assert_eq!(result, (1.75, 0x100000002, 9));
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_floating_transport_calls_control_and_memory() {
-    transport(true);
-    mixed_calls_and_loops(true);
-    memory_snapshots(true);
 }

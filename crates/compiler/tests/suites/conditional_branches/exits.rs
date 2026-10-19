@@ -1,6 +1,6 @@
 use super::entry_operators;
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Call, Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{Call, TestModule, Value};
 use wasm86_compiler::{Type, I1, I32, I8};
 
 fn different_tail_arguments(trap_on_taken: bool) -> TestModule {
@@ -358,64 +358,6 @@ fn conditional_yields_use_the_direct_result_arm_destination() {
         assert_eq!(
             module.instantiate().call::<i32>((outer, early)),
             Ok(expected)
-        );
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn conditional_exit_edges_execute_in_v8() {
-    for (choose, expected) in [(0, 11), (1, 7)] {
-        assert_eq!(
-            dead_conditional_result().run_v8(&Input::call("run", &[Value::I32(choose)])),
-            Observation::returned(&[Value::I32(expected)])
-        );
-    }
-    assert_eq!(
-        reversed_backedge().run_v8(&Input::call("run", &[Value::I32(3)])),
-        Observation::returned(&[Value::I32(0), Value::I32(9)])
-    );
-    assert_eq!(
-        conditional_result(false, 4).run_v8(&Input::call("run", &[Value::I32(0)]).with_memories(
-            &[MemoryBytes::new(
-                "state",
-                &[7, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a]
-            )]
-        )),
-        Observation::returned(&[Value::I32(109)]).with_memories(&[MemoryBytes::new(
-            "state",
-            &[7, 0, 0, 0, 9, 0, 0, 0, 0xa5, 0x5a]
-        )])
-    );
-    for (trap_on_taken, choose, expected) in [(false, 1, 7), (true, 0, 107)] {
-        assert_eq!(
-            different_tail_arguments(trap_on_taken)
-                .run_v8(&Input::call("run", &[Value::I32(choose)])),
-            Observation::returned(&[Value::I32(expected)])
-        );
-    }
-    for (count, expected) in [(0, 2), (4, 14)] {
-        assert_eq!(
-            carried_call_result().run_v8(&Input::call("run", &[Value::I32(count)])),
-            Observation::returned(&[Value::I32(expected)])
-        );
-    }
-    assert_eq!(
-        tail_writes().run_v8(
-            &Input::call("run", &[Value::I32(2)])
-                .with_memories(&[MemoryBytes::new("state", &[7, 0, 0, 0])])
-        ),
-        Observation::returned(&[Value::I32(121)])
-            .with_memories(&[MemoryBytes::new("state", &[100, 0, 0, 0])])
-    );
-    for keys in [[2, 3], [2, 0x8000_0000]] {
-        assert_eq!(
-            conditional_switch_case(&keys).run_v8(
-                &Input::call("run", &[Value::I32(2), Value::I32(0)])
-                    .with_memories(&[MemoryBytes::new("state", &[0, 0, 0, 0])])
-            ),
-            Observation::returned(&[Value::I32(107)])
-                .with_memories(&[MemoryBytes::new("state", &[0, 0, 0, 0])])
         );
     }
 }

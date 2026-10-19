@@ -59,7 +59,7 @@ fn repeated_pc53_sign_operations_fold_before_emission() {
     }
 }
 
-fn pc53_arithmetic(engine: Engine) {
+fn pc53_arithmetic() {
     for (consumer, operation, positive_result, negative_result) in [
         (
             0x05,
@@ -140,7 +140,7 @@ fn pc53_arithmetic(engine: Engine) {
                 };
                 write_value(&mut result, 7, value);
                 assert_eq!(
-                    engine.observe(&module, &image.input(), 1),
+                    module.observe(&image.input(), 1),
                     expected(&image, &[dispatch(result)]),
                     "{operation}, sign opcode={sign_opcode:x}, input={input}"
                 );
@@ -149,7 +149,7 @@ fn pc53_arithmetic(engine: Engine) {
     }
 }
 
-fn pc53_extended_range(engine: Engine) {
+fn pc53_extended_range() {
     for opcode in [0xe0, 0xe1] {
         let code = [
             0xdc, 0x0d, 0, 0x40, 0, 0, // FMUL m64 by one establishes PC53
@@ -178,7 +178,7 @@ fn pc53_extended_range(engine: Engine) {
             result.x87.data_selector = 0x23;
             write_value(&mut result, 0, (0xc000_0000_0000_0000, exponent - 1));
             assert_eq!(
-                engine.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)]),
                 "sign opcode={opcode:x}, exponent={exponent:x}"
             );
@@ -186,8 +186,8 @@ fn pc53_extended_range(engine: Engine) {
     }
 }
 
-fn binary_load_store(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn binary_load_store(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (load, input, extended) in [
         (0xd9, 0xbf80_0000_u64, (0x8000_0000_0000_0000, 0x3fff)),
         (0xdd, 0x8000_0000_0000_0000, (0, 0)),
@@ -238,15 +238,8 @@ fn binary_load_store(engine: Engine, frontend: Frontend) {
 
 #[test]
 fn sign_changes_retain_native_pc53_arithmetic() {
-    pc53_arithmetic(Engine::Wasmtime);
-    pc53_extended_range(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_sign_changes_retain_native_pc53_arithmetic() {
-    pc53_arithmetic(Engine::V8);
-    pc53_extended_range(Engine::V8);
+    pc53_arithmetic();
+    pc53_extended_range();
 }
 
 test_frontends!(binary_round_trips, binary_load_store);

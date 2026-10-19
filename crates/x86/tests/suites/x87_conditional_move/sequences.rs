@@ -4,9 +4,9 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 
-fn stack_continuation(engine: Engine, frontend: Frontend) {
+fn stack_continuation(frontend: Frontend) {
     let code = [0xda, 0xc1, 0xdd, 0xd2]; // FCMOVB ST1; FST ST2
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for taken in [false, true] {
         let mut image = initial_image(&code);
         image.cpu.flags.bytes.cf = u8::from(taken);
@@ -25,9 +25,9 @@ fn stack_continuation(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn live_integer_flags(engine: Engine, frontend: Frontend) {
+fn live_integer_flags(frontend: Frontend) {
     let code = [0x39, 0xc8, 0xda, 0xd1]; // CMP EAX, ECX; FCMOVBE ST1
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right, taken) in [(0, 1, true), (1, 1, true), (2, 1, false)] {
         let mut image = initial_image(&code);
         image.cpu.registers.eax = left;
@@ -51,7 +51,8 @@ fn live_integer_flags(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn native_maximum(engine: Engine) {
+#[test]
+fn native_compare_move_store() {
     // Retained binary64 values survive conditional selection and conversion back.
     let code = [
         0xdd, 0x05, 8, 0x40, 0, 0, 0xdd, 0x05, 0, 0x40, 0, 0, 0xdb, 0xe9, 0xda, 0xc1, 0xdd, 0x1d,
@@ -127,11 +128,11 @@ fn native_maximum(engine: Engine) {
             exit: Exit::Dispatch(cpu.eip),
         });
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &steps[4..])
         );
         assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 5),
+            TestModule::interpreter().observe(&image.input(), 5),
             expected(&image, &steps)
         );
         assert_eq!(
@@ -143,17 +144,9 @@ fn native_maximum(engine: Engine) {
 
 test_frontends!(continuation, stack_continuation);
 test_frontends!(integer_flags, live_integer_flags);
-#[test]
-fn native_compare_move_store() {
-    native_maximum(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_compare_move_store() {
-    native_maximum(Engine::V8);
-}
 
-fn restart_after_integer_compare(engine: Engine) {
+#[test]
+fn empty_operand_restart() {
     let code = [0x39, 0xc8, 0xda, 0xc1];
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
     let block = TestModule::new(&compiled);
@@ -175,7 +168,7 @@ fn restart_after_integer_compare(engine: Engine) {
             prefix.flags.status_source.left = 2;
             prefix.flags.status_source.right = 1;
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -196,19 +189,9 @@ fn restart_after_integer_compare(engine: Engine) {
                 result.x87.status.busy = 1;
             }
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
     }
-}
-
-#[test]
-fn empty_operand_restart() {
-    restart_after_integer_compare(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_empty_operand_restart() {
-    restart_after_integer_compare(Engine::V8);
 }

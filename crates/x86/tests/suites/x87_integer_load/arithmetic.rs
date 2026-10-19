@@ -4,7 +4,8 @@ use super::*;
 use wasm86_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
-fn integer_products(engine: Engine) {
+#[test]
+fn first_product_uses_exact_integer_load() {
     use Source::{Dword, Qword, Word};
     for (source, product, precision, incremented) in [
         (Word(0), (0, 0), 0, 0),
@@ -74,21 +75,10 @@ fn integer_products(engine: Engine) {
                 ),
             );
             assert_eq!(
-                engine.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)]),
                 "FILD {source:?}, negative factor {negative_factor}"
             );
         }
     }
-}
-
-#[test]
-fn first_product_uses_exact_integer_load() {
-    integer_products(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_first_product_uses_exact_integer_load() {
-    integer_products(Engine::V8);
 }

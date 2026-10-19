@@ -7,7 +7,7 @@ use crate::support::{
     },
     encoding::check_length,
     machine::{Exit, Image},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*};
 
@@ -157,7 +157,6 @@ fn invalid_groups_reject_before_fetching_an_address_or_immediate() {
         image.cpu.eip = 0x1ffe;
         image.data(0x3ffe, &[opcode, modrm]);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             module,
             "invalid MOV group",
             Exit::Other((8 << 48) | ((opcode as u64) << 32) | 0x1ffe),

@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -352,68 +352,4 @@ fn logical_conversions_preserve_the_observed_sign_and_the_original_read_width() 
         module.instantiate().call_values("run", &[]).unwrap(),
         CONVERT_RESULT
     );
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn signed_load_widths_sharing_and_logical_conversions_execute_in_v8() {
-    let module = signed_reads();
-    for (address, expected) in SIGNED_CASES {
-        let memories = [
-            MemoryBytes::new("address", &[0; 4]),
-            MemoryBytes::new("state", SIGNED_BYTES),
-        ];
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I32(*address)]).with_memories(&memories)),
-            Observation::returned(expected).with_memories(&memories)
-        );
-    }
-    for (module, initial, expected, memory) in [
-        (
-            repeated_signed_value(),
-            SHARED_BYTES,
-            &[Value::I32(-4)][..],
-            SHARED_AFTER,
-        ),
-        (
-            converted_read_signs(),
-            CONVERT_BYTES,
-            CONVERT_RESULT,
-            CONVERT_BYTES,
-        ),
-    ] {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", initial)])
-            ),
-            Observation::returned(expected).with_memories(&[MemoryBytes::new("state", memory)])
-        );
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn signed_read_snapshots_execute_in_v8_across_stores_calls_and_branches() {
-    for (module, initial, expected, memory) in [
-        (mixed_snapshot(), MIXED_BYTES, MIXED_RESULT, MIXED_AFTER),
-        (snapshot_across_call(), CALL_BYTES, CALL_RESULT, CALL_AFTER),
-    ] {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", initial)])
-            ),
-            Observation::returned(expected).with_memories(&[MemoryBytes::new("state", memory)])
-        );
-    }
-    let module = snapshot_across_branches();
-    for (condition, memory) in BRANCH_CASES {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[Value::I32(*condition)])
-                    .with_memories(&[MemoryBytes::new("state", BRANCH_BYTES)])
-            ),
-            Observation::returned(&[Value::I64(-128)])
-                .with_memories(&[MemoryBytes::new("state", memory)])
-        );
-    }
 }

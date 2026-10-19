@@ -7,8 +7,8 @@ const READ_THROUGH_MMX: [u8; 21] = [
     0x40, 0, 0,
 ];
 
-fn transitions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn transitions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // FLD ST0; FSTP ST0; MOVQ mm1,mm7; EMMS; FILD dword [0x4000].
     let code = [
         0xd9, 0xc0, 0xdd, 0xd8, 0x0f, 0x6f, 0xcf, 0x0f, 0x77, 0xdb, 0x05, 0, 0x40, 0, 0,
@@ -130,8 +130,8 @@ fn transitions(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn suppressed_write(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn suppressed_write(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // A suppressed load must not become visible when FNCLEX allows MMX to continue.
     let code = [
         0xd9, 0xc0, 0xdd, 0xd8, 0xdd, 0x05, 0, 0x40, 0, 0, 0xdb, 0xe2, 0x0f, 0x6f, 0xcf,

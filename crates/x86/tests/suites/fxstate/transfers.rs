@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn split_pages(engine: Engine, frontend: Frontend) {
+fn split_pages(frontend: Frontend) {
     for restore in [false, true] {
         let code = instruction(FLAT32, restore, 0x4f70);
         let mut image = image(&code, FLAT32);
@@ -33,7 +33,7 @@ fn split_pages(engine: Engine, frontend: Frontend) {
         } else {
             vec![(0x8f70, &bytes[..144]), (0xc000, &bytes[144..])]
         };
-        ImageSequences::new(engine, frontend, FLAT32).check(
+        ImageSequences::new(frontend, FLAT32).check(
             "FXSR transfers an image across noncontiguous physical frames",
             &code,
             &image,
@@ -46,7 +46,7 @@ fn split_pages(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn address_override(engine: Engine, frontend: Frontend) {
+fn address_override(frontend: Frontend) {
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented16);
     for restore in [false, true] {
         let code = [&[0x67][..], &instruction(FLAT32, restore, 0x14010)].concat();
@@ -82,7 +82,7 @@ fn address_override(engine: Engine, frontend: Frontend) {
         } else {
             vec![(0x8010, bytes.as_slice())]
         };
-        ImageSequences::new(engine, frontend, profile).check(
+        ImageSequences::new(frontend, profile).check(
             "FXSR address override changes addressing while pointer fields remain 16-bit",
             &code,
             &image,

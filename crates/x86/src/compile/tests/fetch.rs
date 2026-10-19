@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use crate::{
     support::{
         machine::{expected, Exit, Image, Step},
-        step::{Engine, TestModule},
+        step::TestModule,
     },
     Compiler, ExecutionProfile, SegmentProfile, Segments,
 };
@@ -21,7 +21,8 @@ fn block(
     )
 }
 
-fn valid_spans(engine: Engine) {
+#[test]
+fn valid_fetch_spans() {
     for profile in [SegmentProfile::Segmented16, SegmentProfile::Segmented32] {
         // MOV AX/EAX,AX/EAX; the unsupported suffix is outside the instruction limit.
         let code = [0x89, 0xc0, 0xff];
@@ -39,7 +40,7 @@ fn valid_spans(engine: Engine) {
             after.eip = 0x1002;
             after.instruction_count = 18;
             assert_eq!(
-                engine.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -62,7 +63,7 @@ fn valid_spans(engine: Engine) {
     let mut after = image.cpu;
     after.instruction_count = 18;
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -88,7 +89,7 @@ fn valid_spans(engine: Engine) {
     after.eip = 3;
     after.instruction_count = 18;
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -99,15 +100,11 @@ fn valid_spans(engine: Engine) {
         ),
     );
     image.cpu.segments.cs.limit = u32::MAX - 1;
-    image.check_unchanged_exit(
-        engine,
-        &module,
-        "finite limit rejects offset wrap",
-        Exit::Interpret,
-    );
+    image.check_unchanged_exit(&module, "finite limit rejects offset wrap", Exit::Interpret);
 }
 
-fn denied_spans(engine: Engine) {
+#[test]
+fn denied_fetch_spans() {
     let code = [0x89, 0xc0];
     for profile in [SegmentProfile::Segmented16, SegmentProfile::Segmented32] {
         let mut image = Image::new(&code);
@@ -122,7 +119,7 @@ fn denied_spans(engine: Engine) {
             image.cpu.segments.cs.limit = limit;
             image.cpu.segments.cs.usable = usable;
             image.cpu.segments.cs.executable = executable;
-            image.check_unchanged_exit(engine, &module, case, Exit::Interpret);
+            image.check_unchanged_exit(&module, case, Exit::Interpret);
         }
     }
 
@@ -132,7 +129,6 @@ fn denied_spans(engine: Engine) {
     image.cpu.instruction_count = 17;
     image.cpu.segments.cs.limit = 0x1001;
     image.check_unchanged_exit(
-        engine,
         &block(&image, &code, 1, SegmentProfile::Segmented32),
         "branch destination remains an architectural check",
         Exit::GeneralProtection { error: 0 },
@@ -155,7 +151,7 @@ fn denied_spans(engine: Engine) {
             after.instruction_count = 18;
         }
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -169,7 +165,8 @@ fn denied_spans(engine: Engine) {
     }
 }
 
-fn precise_fallback(engine: Engine) {
+#[test]
+fn fetch_fallback_preserves_execution_and_fault_order() {
     static INTERPRETER: OnceLock<TestModule> = OnceLock::new();
     let interpreter = INTERPRETER.get_or_init(|| {
         TestModule::new(
@@ -188,18 +185,13 @@ fn precise_fallback(engine: Engine) {
     image.cpu.segments.cs.limit = 0x100a;
     image.map(2, 0x4000, true);
     let module = block(&image, &code, 2, SegmentProfile::Segmented32);
-    image.check_unchanged_exit(
-        engine,
-        &module,
-        "handoff precedes the store",
-        Exit::Interpret,
-    );
+    image.check_unchanged_exit(&module, "handoff precedes the store", Exit::Interpret);
     let module = module.with_interpreter(interpreter);
     let mut after = image.cpu;
     after.eip = 0x1007;
     after.instruction_count = 42;
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -217,7 +209,6 @@ fn precise_fallback(engine: Engine) {
     image.cpu.segments.cs.limit = 0x1005;
     let module = block(&image, &code, 2, SegmentProfile::Segmented32).with_interpreter(interpreter);
     image.check_unchanged_exit(
-        engine,
         &module,
         "data fault precedes later CS failure",
         Exit::PageFault {
@@ -236,7 +227,6 @@ fn precise_fallback(engine: Engine) {
     image.data(0x3ffe, &code[..2]);
     let module = block(&image, &code, 1, SegmentProfile::Segmented32).with_interpreter(interpreter);
     image.check_unchanged_exit(
-        engine,
         &module,
         "fetch page fault precedes later CS failure",
         Exit::PageFault {
@@ -244,37 +234,4 @@ fn precise_fallback(engine: Engine) {
             error: 0x10,
         },
     );
-}
-
-#[test]
-fn valid_fetch_spans() {
-    valid_spans(Engine::Wasmtime);
-}
-
-#[test]
-fn denied_fetch_spans() {
-    denied_spans(Engine::Wasmtime);
-}
-
-#[test]
-fn fetch_fallback_preserves_execution_and_fault_order() {
-    precise_fallback(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_valid_fetch_spans() {
-    valid_spans(Engine::V8);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_denied_fetch_spans() {
-    denied_spans(Engine::V8);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_fetch_fallback_preserves_execution_and_fault_order() {
-    precise_fallback(Engine::V8);
 }

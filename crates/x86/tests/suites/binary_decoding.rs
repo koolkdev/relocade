@@ -12,9 +12,10 @@ use crate::support::cases::{
 use crate::support::machine;
 use crate::support::step;
 use machine::{check, Exit, Image, Step};
-use step::{Engine, TestModule};
+use step::TestModule;
 
-fn population_count_is_unsupported(engine: Engine) {
+#[test]
+fn population_count_has_no_supported_encoding() {
     use wasm86_x86::{Compiler, ExecutionProfile, SegmentProfile, Segments};
 
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
@@ -36,7 +37,6 @@ fn population_count_is_unsupported(engine: Engine) {
                 image.cpu.segments = Segments::real_mode();
             }
             image.check_unchanged_exit(
-                engine,
                 interpreter,
                 "post-P4 POPCNT has no executable form",
                 Exit::Other(0x0008_00f3_0000_1000),
@@ -46,17 +46,7 @@ fn population_count_is_unsupported(engine: Engine) {
 }
 
 #[test]
-fn population_count_has_no_supported_encoding() {
-    population_count_is_unsupported(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_population_count_has_no_supported_encoding() {
-    population_count_is_unsupported(Engine::V8);
-}
-
-fn unsupported_sse3_stores(engine: Engine) {
+fn sse3_integer_stores_are_unsupported() {
     use wasm86_x86::{Compiler, SegmentProfile};
 
     for opcode in [0xdf, 0xdb, 0xdd] {
@@ -74,23 +64,11 @@ fn unsupported_sse3_stores(engine: Engine) {
         let mut image = Image::new(&code);
         image.cpu.x87.status.error_summary = 1;
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             "SSE3 stores are unsupported before destination access or x87 effects",
             Exit::Other(0x0008_0000_0000_1000 | (u64::from(opcode) << 32)),
         );
     }
-}
-
-#[test]
-fn sse3_integer_stores_are_unsupported() {
-    unsupported_sse3_stores(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_sse3_integer_stores_are_unsupported() {
-    unsupported_sse3_stores(Engine::V8);
 }
 
 #[test]

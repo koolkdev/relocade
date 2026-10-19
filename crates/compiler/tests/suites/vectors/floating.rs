@@ -19,7 +19,6 @@ fn qwords(lanes: [u64; 2]) -> u128 {
 }
 
 fn case(
-    v8: bool,
     left: u128,
     right: u128,
     expected: &[u128],
@@ -60,7 +59,7 @@ fn case(
             wanted[offset..offset + 16].copy_from_slice(&bits.to_le_bytes());
         }
     }
-    check(&module, &bytes, &wanted, 0, v8);
+    check(&module, &wanted, 0);
 }
 
 // Wasm permits arithmetic NaN payload choices. Normalize only those results;
@@ -85,9 +84,8 @@ fn canonical_nan(mut vector: Val<V128>, wide: bool) -> Val<V128> {
     vector
 }
 
-fn arithmetic(v8: bool) {
+fn arithmetic() {
     case(
-        v8,
         words([0x3fc0_0000, 0x8000_0000, 0x0080_0000, 0x3f80_0000]),
         words([0x4000_0000, 0x8000_0000, 0x3f00_0000, 0x3380_0000]),
         &[
@@ -129,7 +127,7 @@ fn arithmetic(v8: bool) {
             ],
         ),
     ] {
-        case(v8, qwords(a), qwords(b), &expected.map(qwords), |a, b| {
+        case(qwords(a), qwords(b), &expected.map(qwords), |a, b| {
             [
                 a.f64x2().add(b),
                 a.f64x2().sub(b),
@@ -142,9 +140,8 @@ fn arithmetic(v8: bool) {
     }
 }
 
-fn rounding(v8: bool) {
+fn rounding() {
     case(
-        v8,
         words([0x4020_0000, 0xc020_0000, 0xbe80_0000, 0x7f80_0042]),
         0,
         &[
@@ -165,14 +162,12 @@ fn rounding(v8: bool) {
         },
     );
     case(
-        v8,
         words([0x4080_0000, 0x4000_0000, 0x8000_0000, 0xbf80_0000]),
         0,
         &[words([0x4000_0000, 0x3fb5_04f3, 0x8000_0000, 0x7fc0_0000])],
         |a, _| vec![canonical_nan(a.f32x4().sqrt(), false)],
     );
     case(
-        v8,
         qwords([0x4004_0000_0000_0000, 0xbfd0_0000_0000_0000]),
         0,
         &[
@@ -191,7 +186,6 @@ fn rounding(v8: bool) {
         },
     );
     case(
-        v8,
         qwords([0x4000_0000_0000_0000, 0x8000_0000_0000_0000]),
         0,
         &[qwords([0x3ff6_a09e_667f_3bcd, 0x8000_0000_0000_0000])],
@@ -199,10 +193,9 @@ fn rounding(v8: bool) {
     );
 }
 
-fn comparisons_and_signs(v8: bool) {
+fn comparisons_and_signs() {
     let yes = u32::MAX;
     case(
-        v8,
         words([0, 0x7f80_0042, 0xc000_0000, 0x7f80_0000]),
         words([0x8000_0000, 0x3f80_0000, 0xbf80_0000, 0x7f80_0000]),
         &[
@@ -227,7 +220,6 @@ fn comparisons_and_signs(v8: bool) {
         },
     );
     case(
-        v8,
         qwords([0, 0x7ff0_0000_0000_0042]),
         qwords([0x8000_0000_0000_0000, 0x3ff0_0000_0000_0000]),
         &[
@@ -252,7 +244,6 @@ fn comparisons_and_signs(v8: bool) {
         },
     );
     case(
-        v8,
         words([0xff80_0042, 0x7fc0_0042, 0x8000_0000, 0xbf80_0000]),
         0,
         &[
@@ -262,7 +253,6 @@ fn comparisons_and_signs(v8: bool) {
         |a, _| vec![a.f32x4().abs(), a.f32x4().neg()],
     );
     case(
-        v8,
         qwords([0xfff0_0000_0000_0042, 0x8000_0000_0000_0000]),
         0,
         &[
@@ -275,15 +265,7 @@ fn comparisons_and_signs(v8: bool) {
 
 #[test]
 fn floating_vector_arithmetic_rounding_and_masks() {
-    arithmetic(false);
-    rounding(false);
-    comparisons_and_signs(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_floating_vector_arithmetic_rounding_and_masks() {
-    arithmetic(true);
-    rounding(true);
-    comparisons_and_signs(true);
+    arithmetic();
+    rounding();
+    comparisons_and_signs();
 }

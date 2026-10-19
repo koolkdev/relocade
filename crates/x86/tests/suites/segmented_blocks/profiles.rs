@@ -1,6 +1,6 @@
 use crate::support::{
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockError, ExecutionProfile,
@@ -102,7 +102,8 @@ fn snapshot_field_bounds_follow_the_selected_code_defaults() {
     }
 }
 
-fn runtime_stack_attributes(engine: Engine) {
+#[test]
+fn a_segmented_block_reads_stack_attributes_at_each_entry() {
     let bytes = [0x50, 0x5b];
     let compiled = compile_block_from_bytes_with_profile(
         0x1000,
@@ -129,7 +130,7 @@ fn runtime_stack_attributes(engine: Engine) {
         cpu.eip = 0x1002;
         cpu.instruction_count = 1;
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -141,15 +142,4 @@ fn runtime_stack_attributes(engine: Engine) {
             "SS.B={big}",
         );
     }
-}
-
-#[test]
-fn a_segmented_block_reads_stack_attributes_at_each_entry() {
-    runtime_stack_attributes(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_a_segmented_block_reads_stack_attributes_at_each_entry() {
-    runtime_stack_attributes(Engine::V8);
 }

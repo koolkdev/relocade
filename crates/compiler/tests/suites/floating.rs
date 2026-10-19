@@ -10,25 +10,18 @@ mod rounding;
 mod validation;
 
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Input, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{Type, Val, F64, I1, I32, I64};
 
 const SIGN: u64 = 1 << 63;
 const INFINITY: u64 = 0x7ff0_0000_0000_0000;
 const NAN: u64 = 0x7ff8_0000_0000_0000;
 
-fn check(module: &TestModule, arguments: &[Value], expected: &[Value], v8: bool) {
-    if v8 {
-        assert_eq!(
-            module.run_v8(&Input::call("run", arguments)),
-            Observation::returned(expected)
-        );
-    } else {
-        assert_eq!(
-            module.instantiate().call_values("run", arguments).unwrap(),
-            expected
-        );
-    }
+fn check(module: &TestModule, arguments: &[Value], expected: &[Value]) {
+    assert_eq!(
+        module.instantiate().call_values("run", arguments).unwrap(),
+        expected
+    );
 }
 
 // Arithmetic NaN payloads are engine choices; transport tests compare exact bits.
@@ -40,7 +33,7 @@ fn observed_bits(value: Val<F64>) -> Val<I64> {
         .select(NAN, bits)
 }
 
-fn arithmetic(v8: bool) {
+fn arithmetic() {
     let runtime = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 4], |body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         let b = Val::<F64>::from_bits(body.parameter::<I64>(1)?);
@@ -89,7 +82,6 @@ fn arithmetic(v8: bool) {
             &runtime,
             &[Value::I64(a as i64), Value::I64(b as i64)],
             &expected,
-            v8,
         );
         for admitted in [false, true] {
             let constants = Fixture::new().function(&[], &[Type::I64; 4], |body| {
@@ -102,12 +94,12 @@ fn arithmetic(v8: bool) {
                 };
                 body.return_([a.add(&b), a.sub(&b), a.mul(&b), a.div(&b)].map(observed_bits))
             });
-            check(&constants, &[], &expected, v8);
+            check(&constants, &[], &expected);
         }
     }
 }
 
-fn rounding_and_order(v8: bool) {
+fn rounding_and_order() {
     let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 4], |body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         let b = Val::<F64>::from_bits(body.parameter::<I64>(1)?);
@@ -155,12 +147,12 @@ fn rounding_and_order(v8: bool) {
             &module,
             &[Value::I64(a as i64), Value::I64(b as i64)],
             &expected.map(|bits| Value::I64(bits as i64)),
-            v8,
         );
     }
 }
 
-fn comparisons(v8: bool) {
+#[test]
+fn floating_comparisons_do_not_acquire_integer_identities_or_bit_equality() {
     let module = Fixture::new().function(&[Type::I64; 2], &[Type::I1; 9], |body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         let b = Val::<F64>::from_bits(body.parameter::<I64>(1)?);
@@ -196,7 +188,6 @@ fn comparisons(v8: bool) {
             &module,
             &[Value::I64(a as i64), Value::I64(b as i64)],
             &expected.map(Value::I32),
-            v8,
         );
         let constants = Fixture::new().function(&[], &[Type::I1; 9], |body| {
             let a = Val::<F64>::from_bits(a);
@@ -213,7 +204,7 @@ fn comparisons(v8: bool) {
                 a.lt(&b).eq(false),
             ])
         });
-        check(&constants, &[], &expected.map(Value::I32), v8);
+        check(&constants, &[], &expected.map(Value::I32));
     }
     let guarded = Fixture::new().function(&[Type::I64; 2], &[Type::I64], |mut body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
@@ -228,31 +219,16 @@ fn comparisons(v8: bool) {
         &guarded,
         &[Value::I64(0), Value::I64(SIGN as i64)],
         &[Value::I64(SIGN as i64)],
-        v8,
     );
     check(
         &guarded,
         &[Value::I64(NAN as i64), Value::I64(0)],
         &[Value::I64(0)],
-        v8,
     );
 }
 
 #[test]
 fn binary64_arithmetic_preserves_rounding_zeros_and_nan_semantics() {
-    arithmetic(false);
-    rounding_and_order(false);
-}
-
-#[test]
-fn floating_comparisons_do_not_acquire_integer_identities_or_bit_equality() {
-    comparisons(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_binary64_arithmetic_and_comparisons() {
-    arithmetic(true);
-    rounding_and_order(true);
-    comparisons(true);
+    arithmetic();
+    rounding_and_order();
 }

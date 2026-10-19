@@ -12,7 +12,6 @@ mod transfers;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits},
 };
 use wasm86_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};

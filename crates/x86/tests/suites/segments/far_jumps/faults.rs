@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn source_faults(engine: Engine) {
+#[test]
+fn the_complete_source_span_is_checked_before_paging_and_selector_resolution() {
     for stack_source in [false, true] {
         for word in [false, true] {
             for (limit, first_present, exit) in [
@@ -63,7 +64,6 @@ fn source_faults(engine: Engine) {
                     if word { &[0, 2][..] } else { &[0, 2, 0, 0] },
                 );
                 check_one(
-                    engine,
                     ExecutionProfile::Protected(SegmentProfile::Segmented32),
                     &code,
                     &image,
@@ -80,11 +80,7 @@ fn source_faults(engine: Engine) {
 }
 
 #[test]
-fn the_complete_source_span_is_checked_before_paging_and_selector_resolution() {
-    source_faults(Engine::Wasmtime);
-}
-
-fn descriptor_faults(engine: Engine) {
+fn descriptor_type_privilege_and_presence_faults_precede_the_new_target_limit() {
     let code_descriptor = descriptor(0x9000, 0x10, SegmentDefaultSize::Bits32);
     for (selector, slot, exit) in [
         (3, None, Exit::GeneralProtection { error: 0 }),
@@ -135,7 +131,6 @@ fn descriptor_faults(engine: Engine) {
                 tables.insert(selector, slot);
             }
             check_one(
-                engine,
                 ExecutionProfile::Protected(SegmentProfile::Flat32),
                 &code,
                 &image,
@@ -151,11 +146,7 @@ fn descriptor_faults(engine: Engine) {
 }
 
 #[test]
-fn descriptor_type_privilege_and_presence_faults_precede_the_new_target_limit() {
-    descriptor_faults(Engine::Wasmtime);
-}
-
-fn earlier_progress(engine: Engine) {
+fn failed_jumps_publish_earlier_register_flag_memory_and_retirement_progress() {
     for present in [false, true] {
         // ADD EAX,1; MOV [EBX],EAX; JMP FAR [EBX]. Target 2 exceeds limit 1.
         let code = [0x83, 0xc0, 1, 0x89, 0x03, 0xff, 0x2b];
@@ -211,7 +202,7 @@ fn earlier_progress(engine: Engine) {
         };
         let mut wanted = expected(&image, &[first, second, fault()]);
         wanted.events.insert(4, event.clone());
-        assert_eq!(engine.observe(TestModule::interpreter(), &input, 3), wanted);
+        assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
         let mut blocks = BlockModules::default();
         let block = blocks.get(
             &image.cpu,
@@ -221,19 +212,6 @@ fn earlier_progress(engine: Engine) {
         );
         let mut wanted = expected(&image, &[fault()]);
         wanted.events.insert(0, event);
-        assert_eq!(engine.observe(block, &input, 1), wanted);
+        assert_eq!(block.observe(&input, 1), wanted);
     }
-}
-
-#[test]
-fn failed_jumps_publish_earlier_register_flag_memory_and_retirement_progress() {
-    earlier_progress(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_jump_faults_and_restart() {
-    source_faults(Engine::V8);
-    descriptor_faults(Engine::V8);
-    earlier_progress(Engine::V8);
 }

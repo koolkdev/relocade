@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::TestModule;
 use wasm86_compiler::{Type, Val, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -46,19 +46,6 @@ fn shared_counts_keep_their_input_snapshot_across_a_store() {
         }
     }
     assert_eq!((loads, counts), (1, [1; 3]));
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn shared_counts_keep_their_input_snapshot_in_v8() {
-    let module = count_snapshot();
-    assert_eq!(
-        module.run_v8(
-            &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &[0x10, 0, 0, 0])])
-        ),
-        Observation::returned(&[Value::I32(2), Value::I32(54), Value::I32(8)])
-            .with_memories(&[MemoryBytes::new("state", &[0; 4])])
-    );
 }
 
 #[test]

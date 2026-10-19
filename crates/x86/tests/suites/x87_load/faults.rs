@@ -3,9 +3,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn stack_overflow_precedes_operand_exceptions(engine: Engine, frontend: Frontend) {
+fn stack_overflow_precedes_operand_exceptions(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -58,9 +57,8 @@ fn stack_overflow_precedes_operand_exceptions(engine: Engine, frontend: Frontend
     }
 }
 
-fn unmasked_operand_exceptions(engine: Engine, frontend: Frontend) {
+fn unmasked_operand_exceptions(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -119,9 +117,8 @@ fn unmasked_operand_exceptions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn operand_fault_ordering(engine: Engine, frontend: Frontend) {
+fn operand_fault_ordering(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -166,9 +163,8 @@ fn operand_fault_ordering(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn operand_size_prefix_keeps_source_width(engine: Engine, frontend: Frontend) {
+fn operand_size_prefix_keeps_source_width(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );

@@ -93,9 +93,8 @@ fn block_with_alternative_continuations() -> TestModule {
     )
 }
 
-fn check_alternative_continuations(v8: bool) {
-    use crate::wasm::{Input, Observation};
-
+#[test]
+fn alternative_continuations_preserve_results_and_effects() {
     let module = block_with_alternative_continuations();
     for (arguments, result, memory) in [
         ([0, 0, 0, 9], 17, [0; 12]),
@@ -103,36 +102,14 @@ fn check_alternative_continuations(v8: bool) {
         ([1, 1, 0, 9], 14, [0, 0, 0, 0, 14, 0, 0, 0, 0, 0, 0, 0]),
         ([1, 0, 1, 9], 14, [0, 0, 0, 0, 0, 0, 0, 0, 14, 0, 0, 0]),
     ] {
-        if v8 {
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &arguments.map(Value::I32))
-                        .with_memories(&[MemoryBytes::new("state", &[0; 12])])
-                ),
-                Observation::returned(&[Value::I32(result)])
-                    .with_memories(&[MemoryBytes::new("state", &memory)])
-            );
-        } else {
-            let mut instance = module.instantiate();
-            let [continue_to_arms, first_arm, use_in_block, input] = arguments;
-            assert_eq!(
-                instance.call::<i32>((continue_to_arms, first_arm, use_in_block, input)),
-                Ok(result)
-            );
-            assert_eq!(&instance.memory("state")[..12], memory);
-        }
+        let mut instance = module.instantiate();
+        let [continue_to_arms, first_arm, use_in_block, input] = arguments;
+        assert_eq!(
+            instance.call::<i32>((continue_to_arms, first_arm, use_in_block, input)),
+            Ok(result)
+        );
+        assert_eq!(&instance.memory("state")[..12], memory);
     }
-}
-
-#[test]
-fn alternative_continuations_preserve_results_and_effects() {
-    check_alternative_continuations(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn alternative_continuations_preserve_results_and_effects_in_v8() {
-    check_alternative_continuations(true);
 }
 
 #[test]

@@ -35,7 +35,7 @@ fn payloads(cpu: &CpuState, order: [usize; 8]) -> Vec<u8> {
         .collect()
 }
 
-fn save_formats(engine: Engine, frontend: Frontend) {
+fn save_formats(frontend: Frontend) {
     for format in Format::ALL {
         let code = instruction(format, false, 0x4001);
         let mut image = format.image(&code);
@@ -56,7 +56,7 @@ fn save_formats(engine: Engine, frontend: Frontend) {
         bytes.extend(payloads(&image.cpu, [5, 6, 7, 0, 1, 2, 3, 4]));
         let mut cpu = retire(image.cpu, code.len());
         initialize(&mut cpu);
-        ImageSequences::new(engine, frontend, format.profile()).check(
+        ImageSequences::new(frontend, format.profile()).check(
             &format!("FNSAVE {format:?} saves even empty and noncanonical payloads before reset"),
             &code,
             &image,
@@ -69,7 +69,7 @@ fn save_formats(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn restore_formats(engine: Engine, frontend: Frontend) {
+fn restore_formats(frontend: Frontend) {
     for format in Format::ALL {
         let restore = instruction(format, true, 0x4001);
         let code = [restore.as_slice(), &[0x9b]].concat();
@@ -88,7 +88,7 @@ fn restore_formats(engine: Engine, frontend: Frontend) {
         set_control(&mut loaded.x87.control, 0x035f);
         loaded.x87.status = status(0xa8a0);
         loaded.x87.tag_word = 0xea91;
-        ImageSequences::new(engine, frontend, format.profile()).check(
+        ImageSequences::new(frontend, format.profile()).check(
             &format!(
                 "FRSTOR {format:?} maps ST payloads to physical registers and defers exceptions"
             ),
@@ -106,7 +106,7 @@ fn restore_formats(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn saved_suppressed_push(engine: Engine, frontend: Frontend) {
+fn saved_suppressed_push(frontend: Frontend) {
     let format = Format {
         real: false,
         wide: true,
@@ -131,7 +131,7 @@ fn saved_suppressed_push(engine: Engine, frontend: Frontend) {
     bytes.extend(payloads(&image.cpu, [1, 2, 3, 4, 5, 6, 7, 0]));
     let mut saved = retire(faulted, save.len());
     initialize(&mut saved);
-    ImageSequences::new(engine, frontend, format.profile()).check(
+    ImageSequences::new(frontend, format.profile()).check(
         "FNSAVE uses actual TOP after a suppressed push without waiting",
         &code,
         &image,
@@ -146,7 +146,7 @@ fn saved_suppressed_push(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn saved_mmx_tags(engine: Engine, frontend: Frontend) {
+fn saved_mmx_tags(frontend: Frontend) {
     let format = Format {
         real: false,
         wide: true,
@@ -171,7 +171,7 @@ fn saved_mmx_tags(engine: Engine, frontend: Frontend) {
     bytes.extend(payloads(&mmx, [0, 1, 2, 3, 4, 5, 6, 7]));
     let mut saved = retire(mmx, save.len());
     initialize(&mut saved);
-    ImageSequences::new(engine, frontend, format.profile()).check(
+    ImageSequences::new(frontend, format.profile()).check(
         "FNSAVE classifies MMX payloads in the saved image before initializing the FPU",
         &code,
         &image,
@@ -186,7 +186,7 @@ fn saved_mmx_tags(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn restore_then_pop(engine: Engine, frontend: Frontend) {
+fn restore_then_pop(frontend: Frontend) {
     let format = Format {
         real: false,
         wide: true,
@@ -230,7 +230,7 @@ fn restore_then_pop(engine: Engine, frontend: Frontend) {
     popped.x87.data_selector = 0x23;
     popped.x87.status = status(0);
     popped.x87.tag_word = 0xc030;
-    ImageSequences::new(engine, frontend, format.profile()).check(
+    ImageSequences::new(frontend, format.profile()).check(
         "FRSTOR replaces earlier writes including empty payloads before a following pop",
         &code,
         &image,
@@ -246,7 +246,7 @@ fn restore_then_pop(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn access_boundaries(engine: Engine, frontend: Frontend) {
+fn access_boundaries(frontend: Frontend) {
     for format in Format::ALL.into_iter().filter(|format| !format.real) {
         let length = if format.wide { 108 } else { 94 };
         for load in [false, true] {
@@ -256,7 +256,7 @@ fn access_boundaries(engine: Engine, frontend: Frontend) {
                 set_control(&mut image.cpu.x87.control, 0x037e);
                 image.cpu.x87.status = status(0x8081);
             }
-            ImageSequences::new(engine, frontend, format.profile()).check(
+            ImageSequences::new(frontend, format.profile()).check(
                 "the last register byte faults before save/reset or restore effects",
                 &code,
                 &image,
@@ -299,7 +299,7 @@ fn access_boundaries(engine: Engine, frontend: Frontend) {
                 (0x8011_2233_4455_6600 + index as u64, 0x3fff + index as u16),
             );
         }
-        ImageSequences::new(engine, frontend, format.profile()).check(
+        ImageSequences::new(frontend, format.profile()).check(
             "FRSTOR reads a register split between noncontiguous backing pages",
             &code,
             &image,

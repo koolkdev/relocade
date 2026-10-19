@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    test_step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
+    test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
     CpuState, SegmentDefaultSize, StoredSegment,
 };
 
@@ -34,7 +34,8 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     })
 }
 
-fn dynamic_spans(engine: Engine) {
+#[test]
+fn runtime_segment_spans_check_limits_and_wrap() {
     let module = probe(SegmentProfile::Segmented32.into(), Segment::Fs);
     use SegmentDefaultSize::{Bits16, Bits32};
     for (down, size, limit, cases) in [
@@ -94,7 +95,7 @@ fn dynamic_spans(engine: Engine) {
                 ..Input::new(&cpu)
             };
             assert_eq!(
-                engine.observe(&module, &input, 1),
+                module.observe(&input, 1),
                 Observation {
                     events: vec![Event::Return {
                         outcome: Outcome::Returned(vec![
@@ -116,17 +117,7 @@ fn dynamic_spans(engine: Engine) {
 }
 
 #[test]
-fn runtime_segment_spans_check_limits_and_wrap() {
-    dynamic_spans(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_runtime_segment_spans_check_limits_and_wrap() {
-    dynamic_spans(Engine::V8);
-}
-
-fn real_mode_spans(engine: Engine) {
+fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
     let module = probe(crate::ExecutionProfile::Real16, Segment::Cs);
     let mut cpu = CpuState {
         segments: crate::Segments::real_mode(),
@@ -151,7 +142,7 @@ fn real_mode_spans(engine: Engine) {
             ..Input::new(&cpu)
         };
         assert_eq!(
-            engine.observe(&module, &input, 1),
+            module.observe(&input, 1),
             Observation {
                 events: vec![Event::Return {
                     outcome: Outcome::Returned(vec![
@@ -169,15 +160,4 @@ fn real_mode_spans(engine: Engine) {
             "offset {offset:x}, bytes {bytes}"
         );
     }
-}
-
-#[test]
-fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
-    real_mode_spans(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
-    real_mode_spans(Engine::V8);
 }

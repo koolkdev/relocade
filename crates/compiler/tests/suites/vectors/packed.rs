@@ -22,24 +22,22 @@ mod shuffle;
 use super::*;
 use wasm86_compiler::{MemoryType, VectorLane, VectorType, I16, I64, V64};
 
-fn arithmetic<T: VectorLane>(v8: bool, left: u128, right: u128, sum: u128, difference: u128) {
-    binary_results(v8, left, right, [sum, difference], |left, right| {
+fn arithmetic<T: VectorLane>(left: u128, right: u128, sum: u128, difference: u128) {
+    binary_results(left, right, [sum, difference], |left, right| {
         [left.add_lanes::<T>(&right), left.sub_lanes::<T>(right)]
     });
 }
 
 fn binary_results<const N: usize>(
-    v8: bool,
     left: u128,
     right: u128,
     results: [u128; N],
     operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; N],
 ) {
-    binary_width_results::<V128, N>(v8, left, right, results, operations);
+    binary_width_results::<V128, N>(left, right, results, operations);
 }
 
 fn binary_width_results<V: VectorType + MemoryType, const N: usize>(
-    v8: bool,
     left: u128,
     right: u128,
     results: [u128; N],
@@ -74,33 +72,29 @@ fn binary_width_results<V: VectorType + MemoryType, const N: usize>(
         expected[32 + index * width..32 + (index + 1) * width]
             .copy_from_slice(&result.to_le_bytes()[..width]);
     }
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
-fn arithmetic_widths(v8: bool) {
+fn arithmetic_widths() {
     arithmetic::<I8>(
-        v8,
         0xf0debc9a78563412_ff01fe1000807fff,
         0x1123ff12087f80ff_ffff03f001ff0101,
         0x0101bbac80d5b411_fe000100017f8000,
         0xdfbbbd8870d7b413_0002fb20ff817efe,
     );
     arithmetic::<I16>(
-        v8,
         0x0001ff00abcd1234_000080007fffffff,
         0xffff01ff5432fedc_0001ffff00010001,
         0x000000ffffff1110_00017fff80000000,
         0x0002fd01579b1358_ffff80017ffefffe,
     );
     arithmetic::<I32>(
-        v8,
         0x0000000080000000_7fffffffffffffff,
         0x00000001ffffffff_0000000100000001,
         0x000000017fffffff_8000000000000000,
         0xffffffff80000001_7ffffffefffffffe,
     );
     arithmetic::<I64>(
-        v8,
         0x8000000000000000_ffffffffffffffff,
         0xffffffffffffffff_0000000000000001,
         0x7fffffffffffffff_0000000000000000,
@@ -108,7 +102,7 @@ fn arithmetic_widths(v8: bool) {
     );
 }
 
-fn narrow_lanes(v8: bool) {
+fn narrow_lanes() {
     const VECTOR: u128 = 0xffeeddcc_bbaa9988_77665544_33221180;
     let mut bytes = vec![0xa5; 96];
     bytes[..16].copy_from_slice(&VECTOR.to_le_bytes());
@@ -164,18 +158,11 @@ fn narrow_lanes(v8: bool) {
     expected[64..80].copy_from_slice(&[
         0xff, 0, 0, 0, 0xee, 0xff, 0, 0, 0xff, 0, 0, 0, 0xee, 0xff, 0, 0,
     ]);
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
 #[test]
 fn packed_arithmetic_and_narrow_lane_views() {
-    arithmetic_widths(false);
-    narrow_lanes(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_packed_arithmetic_and_narrow_lane_views() {
-    arithmetic_widths(true);
-    narrow_lanes(true);
+    arithmetic_widths();
+    narrow_lanes();
 }

@@ -10,7 +10,6 @@ mod memory;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
-    step::Engine,
     x87::{
         complete_x87 as complete, dispatch, real80, register_bits, set_control,
         stack_image as initial_image, status, write_register_bits, INDEFINITE,
@@ -18,9 +17,8 @@ use crate::support::{
 };
 use wasm86_x86::{ExecutionProfile, SegmentProfile, StoredX87Status};
 
-fn register_moves(engine: Engine, frontend: Frontend) {
+fn register_moves(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -115,9 +113,8 @@ fn register_moves(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn raw_register_copies(engine: Engine, frontend: Frontend) {
+fn raw_register_copies(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -166,9 +163,8 @@ fn raw_register_copies(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn stack_controls(engine: Engine, frontend: Frontend) {
+fn stack_controls(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );

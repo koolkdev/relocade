@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn disabled_extensions(engine: Engine, frontend: Frontend) {
+fn disabled_extensions(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for (feature, forms) in [
         (
@@ -79,7 +79,6 @@ fn disabled_extensions(engine: Engine, frontend: Frontend) {
                 Frontend::Interpreter => TestModule::interpreter_with_target(target),
             };
             image.check_unchanged_exit(
-                engine,
                 module,
                 &format!("disabled {feature:?}: {instruction:02x?}"),
                 Exit::InvalidOpcode,

@@ -1,7 +1,7 @@
 use super::*;
 
-fn packing(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn packing(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Adjacent saturation boundaries and signed inputs protect both source order and clamps.
     for (opcode, left, right, result) in [
         (

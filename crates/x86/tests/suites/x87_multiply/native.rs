@@ -23,7 +23,7 @@ fn compiler() -> Compiler {
     Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
 }
 
-fn rounding_and_forms(engine: Engine) {
+fn rounding_and_forms() {
     for (operation, destination, pop) in [
         ([0xd8, 0xc9], 7, false),
         ([0xdc, 0xc9], 0, false),
@@ -93,7 +93,7 @@ fn rounding_and_forms(engine: Engine) {
                     result.x87.tag_word |= 0xc000;
                 }
                 assert_eq!(
-                    engine.observe(&module, &image.input(), 1),
+                    module.observe(&image.input(), 1),
                     expected(&image, &[dispatch(result)])
                 );
             }
@@ -101,7 +101,7 @@ fn rounding_and_forms(engine: Engine) {
     }
 }
 
-fn signed_zeros(engine: Engine) {
+fn signed_zeros() {
     let code = [
         0xdd, 0x05, 0, 0x40, 0, 0, 0xdd, 0x05, 8, 0x40, 0, 0, 0xd8, 0xc9,
     ];
@@ -132,7 +132,7 @@ fn signed_zeros(engine: Engine) {
                 write_value(&mut result, 0, (right.0, right.1 | right_sign));
                 write_value(&mut result, 7, (0, left_sign ^ right_sign));
                 assert_eq!(
-                    engine.observe(&module, &image.input(), 1),
+                    module.observe(&image.input(), 1),
                     expected(&image, &[dispatch(result)])
                 );
             }
@@ -140,7 +140,7 @@ fn signed_zeros(engine: Engine) {
     }
 }
 
-fn live_load_multiply_store(engine: Engine) {
+fn live_load_multiply_store() {
     for (load, memory_mul, input) in [
         (0xd9, 0xd8, vec![0, 0, 0xc0, 0x3f]), // binary32: 1.5
         (0xdd, 0xdc, 0x3ff8_0000_0000_0000_u64.to_le_bytes().to_vec()),
@@ -166,7 +166,7 @@ fn live_load_multiply_store(engine: Engine) {
         // Popping empties the slot but retains its final 5.0625 payload.
         write_register_bits(&mut result, 7, (0xa200_0000_0000_0000, 0x4001));
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -181,15 +181,7 @@ fn live_load_multiply_store(engine: Engine) {
 
 #[test]
 fn binary64_products_preserve_rounding_forms_and_live_values() {
-    rounding_and_forms(Engine::Wasmtime);
-    signed_zeros(Engine::Wasmtime);
-    live_load_multiply_store(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_binary64_products_preserve_rounding_forms_and_live_values() {
-    rounding_and_forms(Engine::V8);
-    signed_zeros(Engine::V8);
-    live_load_multiply_store(Engine::V8);
+    rounding_and_forms();
+    signed_zeros();
+    live_load_multiply_store();
 }

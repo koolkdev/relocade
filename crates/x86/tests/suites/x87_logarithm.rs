@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{
         arithmetic::{check_arithmetic, ArithmeticCase},
         complete_x87, dispatch, stack_image, write_value, INDEFINITE,
@@ -25,17 +25,12 @@ fn encoding() {
     check_length(&CODE);
 }
 
-fn values(engine: Engine, frontend: Frontend) {
-    check_values(engine, frontend, CODE, values::VALUES);
+fn values(frontend: Frontend) {
+    check_values(frontend, CODE, values::VALUES);
 }
 
-fn check_values(
-    engine: Engine,
-    frontend: Frontend,
-    code: [u8; 2],
-    references: &[values::Reference],
-) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn check_values(frontend: Frontend, code: [u8; 2], references: &[values::Reference]) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for reference in references {
         let values::Reference {
             y,
@@ -74,8 +69,8 @@ fn check_values(
     }
 }
 
-fn exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let one = (LEAD, 0x3fff);
     let infinity = (LEAD, 0x7fff);
     let qnan = (0xc000_0000_0000_0042, 0xffff);
@@ -167,7 +162,8 @@ fn exceptions(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn specialization(engine: Engine) {
+#[test]
+fn jit_specialization() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let compiled = compiler.compile_block(0x1000, &CODE, 1).unwrap();
     let module = TestModule::new(&compiled);
@@ -177,7 +173,6 @@ fn specialization(engine: Engine) {
     write_value(&mut image.cpu, 7, (0, 0));
     write_value(&mut image.cpu, 0, (LEAD, 0x3fff));
     image.check_unchanged_exit(
-        engine,
         &module,
         "zero log argument restarts before the pop",
         Exit::Interpret,
@@ -189,7 +184,7 @@ fn specialization(engine: Engine) {
     result.x87.tag_word |= 0xc000;
     write_value(&mut result, 0, (LEAD, 0xffff));
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
     check_pc_independent(CODE);
@@ -211,14 +206,5 @@ fn check_pc_independent(code: [u8; 2]) {
     assert!(modules.windows(2).all(|pair| pair[0] == pair[1]));
 }
 
-#[test]
-fn jit_specialization() {
-    specialization(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_jit_specialization() {
-    specialization(Engine::V8);
-}
 test_frontends!(values_and_cancellation, values);
 test_frontends!(exceptions_and_pop, exceptions);

@@ -144,7 +144,8 @@ fn absorbed_updates<T: IntType>() -> TestModule {
     })
 }
 
-fn absorbed_results(v8: bool) {
+#[test]
+fn known_bits_absorb_updates_in_either_operand_order() {
     for (ty, module) in [
         (Type::I32, absorbed_updates::<I32>()),
         (Type::I64, absorbed_updates::<I64>()),
@@ -175,22 +176,10 @@ fn absorbed_results(v8: bool) {
                     &module,
                     &[value(previous), value(input)],
                     &[value(expected); 4],
-                    v8,
                 );
             }
         }
     }
-}
-
-#[test]
-fn known_bits_absorb_updates_in_either_operand_order() {
-    absorbed_results(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_known_bits_absorb_updates_in_either_operand_order() {
-    absorbed_results(true);
 }
 
 #[test]

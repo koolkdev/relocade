@@ -4,8 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{Compiler, ExecutionProfile, Segments};
 
-fn lane_effects(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn lane_effects(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (narrow, sources, results, controls, raised) in [
         (
             false,
@@ -79,7 +79,7 @@ fn lane_effects(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn native_narrow(engine: Engine) {
+fn native_narrow() {
     // Both signs, ties, exact values and directed neighbors at the range edges.
     for (source, results, raised) in [
         (
@@ -114,17 +114,17 @@ fn native_narrow(engine: Engine) {
                     results[rc as usize],
                     results[negative_rc as usize] | 0x8000_0000,
                 ];
-                check_native(engine, image, result, raised, false);
+                check_native(image, result, raised, false);
             }
         }
     }
     let mut image = floating_image(&[0x66, 0x0f, 0x5a, 0xc1], 0x1fc0);
     lane(&mut image.cpu.simd.xmm[1], true, 0, 1);
     lane(&mut image.cpu.simd.xmm[1], true, 1, 0x8000_0000_0000_0001);
-    check_native(engine, image, [0, 0x8000_0000], 0, false);
+    check_native(image, [0, 0x8000_0000], 0, false);
 }
 
-fn restart_narrow(engine: Engine) {
+fn restart_narrow() {
     for (source, result, raised) in [
         (0x3810_0000_0000_0000, 0x0080_0000, 0),
         (0x47ef_ffff_e000_0000, 0x7f7f_ffff, 0),
@@ -135,11 +135,11 @@ fn restart_narrow(engine: Engine) {
         let mut image = floating_image(&[0x90, 0x66, 0x0f, 0x5a, 0xc1], 0x1f80);
         lane(&mut image.cpu.simd.xmm[1], true, 0, source);
         lane(&mut image.cpu.simd.xmm[1], true, 1, ONE[1]);
-        check_native(engine, image, [result, ONE[0] as u32], raised, true);
+        check_native(image, [result, ONE[0] as u32], raised, true);
     }
 }
 
-fn check_native(engine: Engine, mut image: Image, result: [u32; 2], raised: u32, restart: bool) {
+fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) {
     let code: &[u8] = if restart {
         &[0x90, 0x66, 0x0f, 0x5a, 0xc1]
     } else {
@@ -190,7 +190,7 @@ fn check_native(engine: Engine, mut image: Image, result: [u32; 2], raised: u32,
             let block = TestModule::new(&compiled);
             if restart {
                 assert_eq!(
-                    engine.observe(&block, &image.input(), 1),
+                    block.observe(&image.input(), 1),
                     expected(
                         &image,
                         &[Step {
@@ -201,10 +201,10 @@ fn check_native(engine: Engine, mut image: Image, result: [u32; 2], raised: u32,
                     )
                 );
                 let linked = block.with_interpreter(TestModule::interpreter_with_profile(profile));
-                assert_eq!(engine.observe(&linked, &image.input(), 1), wanted);
+                assert_eq!(linked.observe(&image.input(), 1), wanted);
             } else {
                 assert_eq!(
-                    engine.observe(&block, &image.input(), 1),
+                    block.observe(&image.input(), 1),
                     wanted,
                     "source={:x?}, MXCSR={:x}, observed={observed}",
                     image.cpu.simd.xmm[1],
@@ -215,8 +215,8 @@ fn check_native(engine: Engine, mut image: Image, result: [u32; 2], raised: u32,
     }
 }
 
-fn widen_encodings(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn widen_encodings(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = [0x0f, 0x5a, 0xc1];
     for (sources, results, controls, raised) in [
         (
@@ -262,7 +262,7 @@ fn widen_encodings(engine: Engine, frontend: Frontend) {
 test_frontends!(sse_float_width_packed, lane_effects);
 test_frontends!(sse_float_widen_encodings, widen_encodings);
 
-fn native_widen(engine: Engine) {
+fn native_widen() {
     let code = [0x90, 0x0f, 0x5a, 0xc1];
     for (source, controls, result, raised, restart) in [
         (0x3fc0_0000, 0x1f80, 0x3ff8_0000_0000_0000, 0, false),
@@ -291,7 +291,7 @@ fn native_widen(engine: Engine) {
             let block = TestModule::new(&compiled);
             if restart {
                 assert_eq!(
-                    engine.observe(&block, &image.input(), 1),
+                    block.observe(&image.input(), 1),
                     expected(
                         &image,
                         &[Step {
@@ -302,9 +302,9 @@ fn native_widen(engine: Engine) {
                     )
                 );
                 let linked = block.with_interpreter(TestModule::interpreter());
-                assert_eq!(engine.observe(&linked, &image.input(), 1), wanted);
+                assert_eq!(linked.observe(&image.input(), 1), wanted);
             } else {
-                assert_eq!(engine.observe(&block, &image.input(), 1), wanted);
+                assert_eq!(block.observe(&image.input(), 1), wanted);
             }
         }
     }
@@ -312,15 +312,7 @@ fn native_widen(engine: Engine) {
 
 #[test]
 fn packed_width_native_and_restart() {
-    native_narrow(Engine::Wasmtime);
-    restart_narrow(Engine::Wasmtime);
-    native_widen(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_packed_width_native_and_restart() {
-    native_narrow(Engine::V8);
-    restart_narrow(Engine::V8);
-    native_widen(Engine::V8);
+    native_narrow();
+    restart_narrow();
+    native_widen();
 }

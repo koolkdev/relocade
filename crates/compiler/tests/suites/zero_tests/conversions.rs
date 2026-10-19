@@ -1,5 +1,4 @@
 use super::{Fixture, Operator, Parser, Payload, TestModule, Type, I1, I32, I64, I8};
-use crate::wasm::{Input, Observation, Value};
 
 fn preserves_zero() -> TestModule {
     Fixture::new().function(&[Type::I64], &[Type::I1; 3], |body| {
@@ -71,16 +70,4 @@ fn specialization_can_prove_a_carrier_conversion_preserves_zero() {
         1
     );
     assert_eq!(module.instantiate().call::<i32>((255_i64, 1)).unwrap(), 0);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn zero_preserving_conversions_execute_in_v8() {
-    let module = preserves_zero();
-    for (input, expected) in [(255, [0, 1, 1]), (-1, [1, 0, 1])] {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I64(input)])),
-            Observation::returned(&expected.map(Value::I32))
-        );
-    }
 }

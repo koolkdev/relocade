@@ -1,11 +1,11 @@
-//! Independently selectable frontends, with the same cases in both engines.
+//! Independently selectable compiled and interpreter frontends.
 
 use wasm86_x86::{CpuState, ExecutionProfile};
 
 use super::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
-    step::{Engine, Event, TestModule},
+    step::{Event, TestModule},
 };
 
 #[cfg(test)]
@@ -23,20 +23,14 @@ pub(crate) enum Frontend {
 /// exit or stops at a handoff, checking the complete independently authored
 /// prefix state. Linked interpreter completion is covered by integration tests.
 pub(crate) struct ImageSequences {
-    engine: Engine,
     frontend: Frontend,
     profile: ExecutionProfile,
     blocks: BlockModules,
 }
 
 impl ImageSequences {
-    pub(crate) fn new(
-        engine: Engine,
-        frontend: Frontend,
-        profile: impl Into<ExecutionProfile>,
-    ) -> Self {
+    pub(crate) fn new(frontend: Frontend, profile: impl Into<ExecutionProfile>) -> Self {
         Self {
-            engine,
             frontend,
             profile: profile.into(),
             blocks: BlockModules::default(),
@@ -67,7 +61,7 @@ impl ImageSequences {
                 steps.len(),
             ),
         };
-        let actual = self.engine.observe(module, &image.input(), invocations);
+        let actual = module.observe(&image.input(), invocations);
         if let (Frontend::Block, Some(Event::Interpret { snapshot })) =
             (self.frontend, actual.events.first())
         {
@@ -104,37 +98,25 @@ impl ImageSequences {
 macro_rules! test_frontends {
     ($group:ident, $cases:expr, $check:path) => {
         $crate::support::execution::test_frontends!(@tests $group,
-            |engine, frontend| $check(&($cases), engine, frontend));
+            |frontend| $check(&($cases), frontend));
     };
     ($group:ident, $check:path) => {
         $crate::support::execution::test_frontends!(@tests $group,
-            |engine, frontend| $check(engine, frontend));
+            |frontend| $check(frontend));
     };
     (@tests $group:ident, $run:expr) => {
         mod $group {
             use super::*;
-            use $crate::support::{execution::Frontend, step::Engine};
+            use $crate::support::execution::Frontend;
 
             #[test]
             fn block() {
-                ($run)(Engine::Wasmtime, Frontend::Block);
+                ($run)(Frontend::Block);
             }
 
             #[test]
             fn interpreter() {
-                ($run)(Engine::Wasmtime, Frontend::Interpreter);
-            }
-
-            #[test]
-            #[ignore = "requires Node.js; run the explicit V8 lane"]
-            fn v8_block() {
-                ($run)(Engine::V8, Frontend::Block);
-            }
-
-            #[test]
-            #[ignore = "requires Node.js; run the explicit V8 lane"]
-            fn v8_interpreter() {
-                ($run)(Engine::V8, Frontend::Interpreter);
+                ($run)(Frontend::Interpreter);
             }
         }
     };

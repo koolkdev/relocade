@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::alu::OperandUpdate;
-use crate::test_step::{CallPatches, Engine};
+use crate::test_step::CallPatches;
 
 fn write_then_read() -> TestModule {
     let mut program = Program::new();
@@ -39,15 +39,9 @@ fn write_then_read() -> TestModule {
     })
 }
 
-fn check_sequence(
-    engine: Engine,
-    module: &TestModule,
-    input: &Input,
-    result: u64,
-    changes: Vec<(u32, u8)>,
-) {
+fn check_sequence(module: &TestModule, input: &Input, result: u64, changes: Vec<(u32, u8)>) {
     assert_eq!(
-        engine.observe(module, input, 1),
+        module.observe(input, 1),
         Observation {
             events: vec![Event::Return {
                 outcome: Outcome::Returned(vec![Argument::I64(result as i64)]),
@@ -65,7 +59,8 @@ fn check_sequence(
     );
 }
 
-fn consecutive_accesses(engine: Engine) {
+#[test]
+fn consecutive_spans_preserve_aliases_boundaries_and_fault_progress() {
     let module = write_then_read();
     // Distinct linear pages alias the same frame. The later read must observe
     // the write, including when the first span has scattered or wrapping backing.
@@ -101,11 +96,12 @@ fn consecutive_accesses(engine: Engine) {
                     .collect::<Vec<_>>()
             })
             .collect();
-        check_sequence(engine, &module, &input, expected, changes);
+        check_sequence(&module, &input, expected, changes);
     }
 }
 
-fn same_address_updates(engine: Engine) {
+#[test]
+fn narrower_updates_keep_their_width_and_require_write_permissions() {
     for first_write in [false, true] {
         let mut program = Program::new();
         let memory = Memory::declare(
@@ -194,12 +190,13 @@ fn same_address_updates(engine: Engine) {
                 observe_guest: true,
                 ..Input::new(&CpuState::filled(0xa5).to_bytes())
             };
-            check_sequence(engine, &module, &input, result, changes);
+            check_sequence(&module, &input, result, changes);
         }
     }
 }
 
-fn page_changes_and_reentry(engine: Engine) {
+#[test]
+fn later_pages_and_new_entries_use_current_mappings() {
     let mut program = Program::new();
     let memory = Memory::declare(
         &mut program,
@@ -270,7 +267,7 @@ fn page_changes_and_reentry(engine: Engine) {
         ..Input::new(&CpuState::filled(0xa5).to_bytes())
     };
     assert_eq!(
-        engine.observe(&module, &input, 3),
+        module.observe(&input, 3),
         Observation {
             events: [0x66u64, 0xee, 0x0004_0000_0000_5000]
                 .into_iter()
@@ -287,37 +284,4 @@ fn page_changes_and_reentry(engine: Engine) {
             machine_unchanged: false,
         }
     );
-}
-
-#[test]
-fn consecutive_spans_preserve_aliases_boundaries_and_fault_progress() {
-    consecutive_accesses(Engine::Wasmtime);
-}
-
-#[test]
-fn narrower_updates_keep_their_width_and_require_write_permissions() {
-    same_address_updates(Engine::Wasmtime);
-}
-
-#[test]
-fn later_pages_and_new_entries_use_current_mappings() {
-    page_changes_and_reentry(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_consecutive_spans_preserve_aliases_boundaries_and_fault_progress() {
-    consecutive_accesses(Engine::V8);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_narrower_updates_keep_their_width_and_require_write_permissions() {
-    same_address_updates(Engine::V8);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_later_pages_and_new_entries_use_current_mappings() {
-    page_changes_and_reentry(Engine::V8);
 }

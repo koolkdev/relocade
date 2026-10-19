@@ -37,8 +37,8 @@ fn check_conversion(checks: &mut ImageSequences, bcd: [u8; 10], value: (u64, u16
     );
 }
 
-fn exact_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exact_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (bcd, value) in [
         ([0; 10], (0, 0)),
         ([0, 0, 0, 0, 0, 0, 0, 0, 0, 0x7f], (0, 0)),
@@ -78,8 +78,8 @@ fn exact_values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory_span(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory_span(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = [vec![0x66], instruction(0x4ff6)].concat();
     let mut image = image(&code, 0, 0xffff);
     image.map(4, 0x8000, false);
@@ -142,10 +142,10 @@ fn memory_span(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn stack_overflow(engine: Engine, frontend: Frontend) {
+fn stack_overflow(frontend: Frontend) {
     let load = instruction(0x4001);
     let code = [load.as_slice(), &[0x9b]].concat();
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let linked = TestModule::new(&compile_block_from_bytes(0x1000, &load, 1).unwrap())
         .with_interpreter(TestModule::interpreter());
     for masked in [false, true] {
@@ -185,7 +185,7 @@ fn stack_overflow(engine: Engine, frontend: Frontend) {
         );
         if matches!(frontend, Frontend::Block) {
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(&image, &[dispatch(loaded)]),
                 "the linked interpreter completes a restarted FBLD"
             );

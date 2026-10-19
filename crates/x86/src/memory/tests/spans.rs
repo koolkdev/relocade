@@ -1,5 +1,4 @@
 use super::*;
-use crate::test_step::Engine;
 
 fn field_module() -> TestModule {
     let mut program = Program::new();
@@ -50,7 +49,8 @@ fn field_module() -> TestModule {
     })
 }
 
-fn fields(engine: Engine) {
+#[test]
+fn checked_spans_locate_mixed_width_fields_across_frames_and_linear_wrap() {
     let module = field_module();
     for linear in [
         0x4000u32,
@@ -86,7 +86,7 @@ fn fields(engine: Engine) {
                 physical + 5
             };
             assert_eq!(
-                engine.observe(&module, &input, 1),
+                module.observe(&input, 1),
                 Observation {
                     events: vec![Event::Return {
                         outcome: Outcome::Returned(vec![Argument::I64(1)]),
@@ -102,17 +102,6 @@ fn fields(engine: Engine) {
             );
         }
     }
-}
-
-#[test]
-fn checked_spans_locate_mixed_width_fields_across_frames_and_linear_wrap() {
-    fields(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_checked_spans_with_mixed_width_fields() {
-    fields(Engine::V8);
 }
 
 const WIDE_FIELDS: [u8; 10] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa];
@@ -209,16 +198,10 @@ fn wide_input(linear: u32, next_frame: u32, permissions: [u32; 2]) -> Input {
     input
 }
 
-fn check_wide_fields(
-    engine: Engine,
-    module: &TestModule,
-    input: &Input,
-    result: u64,
-    changes: Vec<(u32, u8)>,
-) {
+fn check_wide_fields(module: &TestModule, input: &Input, result: u64, changes: Vec<(u32, u8)>) {
     let guest_unchanged = changes.is_empty();
     assert_eq!(
-        engine.observe(module, input, 1),
+        module.observe(input, 1),
         Observation {
             events: vec![Event::Return {
                 outcome: Outcome::Returned(vec![Argument::I64(result as i64)]),
@@ -236,7 +219,8 @@ fn check_wide_fields(
     );
 }
 
-fn wide_fields(engine: Engine) {
+#[test]
+fn ten_byte_spans_transfer_qword_and_word_fields_after_complete_checks() {
     let [read, write] = wide_field_modules();
     let starts = [0x4000u32, 0x4001, 0x4ff6]
         .into_iter()
@@ -245,7 +229,7 @@ fn wide_fields(engine: Engine) {
     for linear in starts {
         for next_frame in [0x9000, 0xa000] {
             let input = wide_input(linear, next_frame, [3, 3]);
-            check_wide_fields(engine, &read, &input, 1, Vec::new());
+            check_wide_fields(&read, &input, 1, Vec::new());
             let split = (0x1000 - (linear & 0xfff)).min(10);
             let changes = REPLACEMENT_FIELDS
                 .into_iter()
@@ -260,7 +244,7 @@ fn wide_fields(engine: Engine) {
                     (physical, byte)
                 })
                 .collect();
-            check_wide_fields(engine, &write, &input, 1, changes);
+            check_wide_fields(&write, &input, 1, changes);
         }
     }
     // The final word can occupy a different page even when the qword fits in
@@ -278,7 +262,6 @@ fn wide_fields(engine: Engine) {
             let input = wide_input(linear, 0xa000, permissions);
             let result = 0x0004_0000_0000_0000 | (error_code << 32) | u64::from(address);
             check_wide_fields(
-                engine,
                 if write_access { &write } else { &read },
                 &input,
                 result,
@@ -286,15 +269,4 @@ fn wide_fields(engine: Engine) {
             );
         }
     }
-}
-
-#[test]
-fn ten_byte_spans_transfer_qword_and_word_fields_after_complete_checks() {
-    wide_fields(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_ten_byte_spans_transfer_qword_and_word_fields_after_complete_checks() {
-    wide_fields(Engine::V8);
 }

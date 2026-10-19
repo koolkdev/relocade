@@ -1,7 +1,7 @@
 use super::*;
 
-fn addressing(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn addressing(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, ds, page, offset) in [
         (&[0xa1, 0x20, 0][..], 0x1234, 0x12, 0x360),
         (&[0xa1, 0x20, 0][..], 0xffff, 0x100, 0x10),
@@ -69,8 +69,8 @@ fn addressing(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(segment_addressing, addressing);
 
-fn denied_accesses(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn denied_accesses(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, exit) in [
         (
             &[0xa1, 0xff, 0xff][..],
@@ -101,8 +101,8 @@ fn denied_accesses(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(access_faults, denied_accesses);
 
-fn stack_edges(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn stack_edges(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for code in [&[0x60][..], &[0x66, 0x60][..]] {
         for sp in [7, 9, 11, 13, 15] {
             let mut image = image(code);
@@ -141,8 +141,8 @@ fn stack_edges(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(stack_boundaries, stack_edges);
 
-fn physical_policy(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn physical_policy(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     let code = [0xa3, 0xff, 0x2f];
     let mut rom = image(&code);
     rom.map(2, 0x8000, true);
@@ -201,7 +201,7 @@ fn physical_policy(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(physical_bus_policy, physical_policy);
 
-fn repeated_copy_remapping(engine: Engine, frontend: Frontend) {
+fn repeated_copy_remapping(frontend: Frontend) {
     use crate::support::{
         machine::expected,
         step::{Event, MmioUpdate, TestModule},
@@ -260,6 +260,6 @@ fn repeated_copy_remapping(engine: Engine, frontend: Frontend) {
             bytes: 1,
         },
     );
-    assert_eq!(engine.observe(module, &input, 1), wanted);
+    assert_eq!(module.observe(&input, 1), wanted);
 }
 test_frontends!(repeated_copy_uses_live_mappings, repeated_copy_remapping);

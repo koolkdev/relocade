@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn round_trip(engine: Engine) {
+#[test]
+fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
     for word in [false, true] {
         let call = immediate(word, 0x200, 0x27);
         let return_code = ret(!word, None); // Callee CS.D=0, match the CALL operand size.
@@ -28,7 +29,6 @@ fn round_trip(engine: Engine) {
         let saved = pointer(word, 0x1000 + call.len() as u32, 0x1b);
         let saved_address = if word { 0x8004 } else { 0x8000 };
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &call,
             &image,
@@ -46,7 +46,6 @@ fn round_trip(engine: Engine) {
         cpu.registers.esp = 0x9008;
         cpu.instruction_count = 1;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &return_code,
             &image,
@@ -61,11 +60,7 @@ fn round_trip(engine: Engine) {
 }
 
 #[test]
-fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
-    round_trip(Engine::Wasmtime);
-}
-
-fn return_frame_width(engine: Engine) {
+fn return_operand_size_selects_the_frame_layout_independently_of_the_caller() {
     for word in [false, true] {
         let code = ret(word, None);
         let mut image = image_with_stack(&code, 0x9000);
@@ -78,7 +73,6 @@ fn return_frame_width(engine: Engine) {
         };
         image.data(0x8000, saved);
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -95,11 +89,7 @@ fn return_frame_width(engine: Engine) {
 }
 
 #[test]
-fn return_operand_size_selects_the_frame_layout_independently_of_the_caller() {
-    return_frame_width(Engine::Wasmtime);
-}
-
-fn saved_fallthrough(engine: Engine) {
+fn call_saves_the_complete_fallthrough_at_operand_width() {
     for word in [false, true] {
         let code = immediate(word, 0x200, 0x27);
         let mut image = image_with_stack(&[], 0x9008);
@@ -119,7 +109,6 @@ fn saved_fallthrough(engine: Engine) {
             &[(0x8000, &[3, 0, 0x35, 0x12, 0x1b, 0])]
         };
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -134,11 +123,7 @@ fn saved_fallthrough(engine: Engine) {
 }
 
 #[test]
-fn call_saves_the_complete_fallthrough_at_operand_width() {
-    saved_fallthrough(Engine::Wasmtime);
-}
-
-fn dispatch_boundary(engine: Engine) {
+fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch() {
     for returning in [false, true] {
         let instruction = if returning {
             ret(false, None)
@@ -191,7 +176,7 @@ fn dispatch_boundary(engine: Engine) {
                 SegmentProfile::Segmented32,
             )),
         ] {
-            assert_eq!(engine.observe(module, &input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), wanted);
         }
         // The transfer has retired even though no page backs its destination.
         image.cpu = cpu;
@@ -199,13 +184,10 @@ fn dispatch_boundary(engine: Engine) {
             image.data(0x8000, &saved);
         }
         assert_eq!(
-            engine.observe(
-                TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-                    SegmentProfile::Segmented32
-                )),
-                &image.input(),
-                1
-            ),
+            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+                SegmentProfile::Segmented32
+            ))
+            .observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -219,18 +201,4 @@ fn dispatch_boundary(engine: Engine) {
             )
         );
     }
-}
-
-#[test]
-fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch() {
-    dispatch_boundary(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_call_return_dispatch_and_round_trip() {
-    round_trip(Engine::V8);
-    return_frame_width(Engine::V8);
-    saved_fallthrough(Engine::V8);
-    dispatch_boundary(Engine::V8);
 }

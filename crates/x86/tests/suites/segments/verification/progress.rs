@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn lazy_flags(engine: Engine) {
+#[test]
+fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
     let mut tables = DescriptorTables::default();
     tables.insert(
         0x27,
@@ -29,7 +30,6 @@ fn lazy_flags(engine: Engine) {
         cpu.flags.bytes.sf = 1;
         cpu.flags.bytes.of = 1;
         check_one(
-            engine,
             profile,
             &code,
             &image,
@@ -44,11 +44,7 @@ fn lazy_flags(engine: Engine) {
 }
 
 #[test]
-fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
-    lazy_flags(Engine::Wasmtime);
-}
-
-fn continuing_block(engine: Engine) {
+fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented16);
     // VERR AX; SETZ DL; VERW AX; SETZ BL.
     let code = [
@@ -98,7 +94,7 @@ fn continuing_block(engine: Engine) {
         .events
         .insert(5, Event::QuerySegmentDescriptor { selector: 0x27 });
     assert_eq!(
-        engine.observe(TestModule::interpreter_with_profile(profile), &input, 4),
+        TestModule::interpreter_with_profile(profile).observe(&input, 4),
         wanted
     );
     let mut blocks = BlockModules::default();
@@ -110,15 +106,11 @@ fn continuing_block(engine: Engine) {
     wanted
         .events
         .insert(1, Event::QuerySegmentDescriptor { selector: 0x27 });
-    assert_eq!(engine.observe(block, &input, 1), wanted);
+    assert_eq!(block.observe(&input, 1), wanted);
 }
 
 #[test]
-fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() {
-    continuing_block(Engine::Wasmtime);
-}
-
-fn table_changes(engine: Engine) {
+fn the_same_entry_observes_table_edits_while_the_loaded_cache_stays_unchanged() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let code = [0x0f, 0x00, 0xe8]; // VERW AX.
     let mut image = image(&code, profile);
@@ -163,17 +155,13 @@ fn table_changes(engine: Engine) {
             .events
             .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
         for module in [block, TestModule::interpreter()] {
-            assert_eq!(engine.observe(module, &input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), wanted);
         }
     }
 }
 
 #[test]
-fn the_same_entry_observes_table_edits_while_the_loaded_cache_stays_unchanged() {
-    table_changes(Engine::Wasmtime);
-}
-
-fn later_fault(engine: Engine) {
+fn a_later_fault_preserves_completed_verification_and_its_retirement() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     // VERR AX; MOV ECX,[EBX] (unmapped).
     let code = [0x0f, 0x00, 0xe0, 0x8b, 0x0b];
@@ -207,26 +195,12 @@ fn later_fault(engine: Engine) {
     wanted
         .events
         .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
-    assert_eq!(engine.observe(TestModule::interpreter(), &input, 2), wanted);
+    assert_eq!(TestModule::interpreter().observe(&input, 2), wanted);
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 2, profile);
     let mut wanted = expected(&image, &[fault()]);
     wanted
         .events
         .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
-    assert_eq!(engine.observe(block, &input, 1), wanted);
-}
-
-#[test]
-fn a_later_fault_preserves_completed_verification_and_its_retirement() {
-    later_fault(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_verification_flags_continuation_table_changes_and_restart() {
-    lazy_flags(Engine::V8);
-    continuing_block(Engine::V8);
-    table_changes(Engine::V8);
-    later_fault(Engine::V8);
+    assert_eq!(block.observe(&input, 1), wanted);
 }

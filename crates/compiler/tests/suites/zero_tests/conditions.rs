@@ -401,31 +401,3 @@ fn numeric_predicates_control_both_switch_forms() {
         assert_eq!(instance.call::<i32>((0,)).unwrap(), 29);
     }
 }
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_conditions_preserve_numeric_values_and_memory_snapshots() {
-    use crate::wasm::{Input, MemoryBytes, Observation};
-
-    let module = shared_numeric_condition();
-    for (input, result, memory) in [
-        (8, 102_i64, [1, 0xa5, 0xa5, 0xa5, 0x11, 0, 0, 0]),
-        (0, 200, [0, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5]),
-    ] {
-        let input = Input::call("run", &[Value::I32(input)])
-            .with_memories(&[MemoryBytes::new("state", &[0xa5; 8])]);
-        assert_eq!(
-            module.run_v8(&input),
-            Observation::returned(&[Value::I64(result)])
-                .with_memories(&[MemoryBytes::new("state", &memory)]),
-        );
-    }
-
-    let module = condition_snapshot(8);
-    let input = Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &[8, 0, 0, 0])]);
-    assert_eq!(
-        module.run_v8(&input),
-        Observation::returned(&[Value::I32(17)])
-            .with_memories(&[MemoryBytes::new("state", &[0, 0, 0, 0])]),
-    );
-}

@@ -1,7 +1,7 @@
 use super::*;
 use wasm86_x86::{Compiler, CpuFeature, CpuModel};
 
-fn configured_features(engine: Engine, frontend: Frontend) {
+fn configured_features(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for (feature, instruction, features) in [
         (
@@ -62,7 +62,7 @@ fn configured_features(engine: Engine, frontend: Frontend) {
             };
             let cpu = result(image.cpu, values, 2, 1);
             assert_eq!(
-                engine.observe(module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -80,7 +80,6 @@ fn configured_features(engine: Engine, frontend: Frontend) {
             Frontend::Interpreter => TestModule::interpreter_with_target(target),
         };
         image.check_unchanged_exit(
-            engine,
             module,
             "the disabled capability rejects execution",
             Exit::InvalidOpcode,
@@ -111,7 +110,7 @@ fn configured_features(engine: Engine, frontend: Frontend) {
     };
     let cpu = result(image.cpu, [0x601, 0, 0, 0], 2, 1);
     assert_eq!(
-        engine.observe(module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {

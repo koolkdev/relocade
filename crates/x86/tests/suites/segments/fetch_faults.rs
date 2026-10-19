@@ -1,11 +1,12 @@
 use super::code;
 use crate::support::{
     machine::{Exit, Image},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{ExecutionProfile, SegmentProfile};
 
-fn fault_order(engine: Engine) {
+#[test]
+fn required_bytes_preserve_cs_page_and_length_fault_order() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
         SegmentProfile::Segmented32,
     ));
@@ -65,12 +66,7 @@ fn fault_order(engine: Engine) {
         image.cpu.segments.cs = code(0x8000, limit);
         image.map(8, 0x3000, false);
         image.data(0x3000 + eip, &bytes);
-        image.check_unchanged_exit(
-            engine,
-            module,
-            &format!("{bytes:02x?}, CS limit {limit:x}"),
-            fault,
-        );
+        image.check_unchanged_exit(module, &format!("{bytes:02x?}, CS limit {limit:x}"), fault);
     }
     // Even with no code page, invalid CS permissions win at the first byte.
     for (usable, executable) in [(0, 1), (1, 0)] {
@@ -79,7 +75,6 @@ fn fault_order(engine: Engine) {
         image.cpu.segments.cs.usable = usable;
         image.cpu.segments.cs.executable = executable;
         image.check_unchanged_exit(
-            engine,
             module,
             &format!("CS usable={usable}, executable={executable}"),
             Exit::GeneralProtection { error: 0 },
@@ -92,7 +87,6 @@ fn fault_order(engine: Engine) {
     image.map(0xfffff, 0x3000, false);
     image.data(0x3fff, &[0xb8]);
     image.check_unchanged_exit(
-        engine,
         module,
         "instruction fetch wraps its linear address",
         Exit::PageFault {
@@ -103,17 +97,7 @@ fn fault_order(engine: Engine) {
 }
 
 #[test]
-fn required_bytes_preserve_cs_page_and_length_fault_order() {
-    fault_order(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_required_bytes_preserve_cs_page_and_length_fault_order() {
-    fault_order(Engine::V8);
-}
-
-fn invalid_instruction_spans(engine: Engine) {
+fn required_instruction_spans_exceed_cs_limit() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
         SegmentProfile::Segmented32,
     ));
@@ -129,21 +113,9 @@ fn invalid_instruction_spans(engine: Engine) {
         image.map(9, 0x3000, false);
         image.data(0x3000, &bytes);
         image.check_unchanged_exit(
-            engine,
             module,
             &format!("required final instruction byte exceeds CS: {bytes:02x?}"),
             Exit::GeneralProtection { error: 0 },
         );
     }
-}
-
-#[test]
-fn required_instruction_spans_exceed_cs_limit() {
-    invalid_instruction_spans(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_required_instruction_spans_exceed_cs_limit() {
-    invalid_instruction_spans(Engine::V8);
 }

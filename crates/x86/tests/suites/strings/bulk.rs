@@ -167,7 +167,8 @@ test_cases!(complete_ranges_and_patterns, long_transfers());
 test_cases!(unavailable_ranges_preserve_element_semantics, fallbacks());
 test_sequences!(constant_count_and_successor_state, constant_counts());
 
-fn check_patterned_completion(engine: super::Engine) {
+#[test]
+fn patterned_stos_completes_in_the_jit_with_a_short_final_prefix_copy() {
     use crate::support::{
         guest::{Exit, Machine},
         step::TestModule,
@@ -206,24 +207,13 @@ fn check_patterned_completion(engine: super::Engine) {
             expected.cpu.eip = 0x1000 + code.len() as u32;
             expected.cpu.instruction_count = expected.cpu.instruction_count.wrapping_add(1);
             expected.memory.write(0x4ffb, &pattern.repeat(5));
-            let actual = machine.run(&block, engine);
+            let actual = machine.run(&block);
             assert_eq!(actual.state, expected);
             assert_eq!(actual.exit, Exit::Dispatch(expected.cpu.eip));
             assert_eq!(actual.dispatches, [(expected.cpu.eip, expected)]);
             assert!(actual.machine_unchanged);
         }
     }
-}
-
-#[test]
-fn patterned_stos_completes_in_the_jit_with_a_short_final_prefix_copy() {
-    check_patterned_completion(super::Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_patterned_stos_completes_in_the_jit_with_a_short_final_prefix_copy() {
-    check_patterned_completion(super::Engine::V8);
 }
 
 #[test]

@@ -1,20 +1,15 @@
 //! Executes one-instruction cases through the applicable entry profiles.
 
 use super::{expectations, observation::FlagObservations, InstructionCase};
-use crate::support::{
-    blocks::BlockModules,
-    execution::Frontend,
-    guest::Exit,
-    step::{Engine, TestModule},
-};
+use crate::support::{blocks::BlockModules, execution::Frontend, guest::Exit, step::TestModule};
 
-pub(crate) fn check(cases: &[InstructionCase], engine: Engine, frontend: Frontend) {
+pub(crate) fn check(cases: &[InstructionCase], frontend: Frontend) {
     assert!(
         !cases.is_empty(),
         "an instruction case group must not be empty"
     );
     let mut blocks = BlockModules::default();
-    let mut flags = FlagObservations::new(engine);
+    let mut flags = FlagObservations::new();
     for case in cases {
         expectations::validate(case);
         let machine = case.initial.machine(&case.code);
@@ -24,7 +19,7 @@ pub(crate) fn check(cases: &[InstructionCase], engine: Engine, frontend: Fronten
                 flags.initial(
                     initial.cpu,
                     values,
-                    format!("{} [{engine:?}, initial stored flags]", case.name),
+                    format!("{} [initial stored flags]", case.name),
                 );
             }
         }
@@ -33,8 +28,8 @@ pub(crate) fn check(cases: &[InstructionCase], engine: Engine, frontend: Fronten
                 Frontend::Block => blocks.get(&initial.cpu, &case.code, 1, profile),
                 Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
             };
-            let context = format!("{} [{engine:?}, {profile:?} {frontend:?}]", case.name);
-            let execution = machine.run(module, engine);
+            let context = format!("{} [{profile:?} {frontend:?}]", case.name);
+            let execution = machine.run(module);
             if execution.exit == Exit::Interpret {
                 assert!(matches!(frontend, Frontend::Block));
                 expectations::check_handoff(

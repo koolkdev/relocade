@@ -7,7 +7,6 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
-    step::Engine,
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_value, INDEFINITE},
 };
 use wasm86_x86::SegmentProfile;
@@ -19,8 +18,8 @@ fn encodings() {
     }
 }
 
-fn raw_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn raw_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0xe0, 0xe1] {
         let code = [0xd9, opcode];
         for (name, significand, exponent) in [
@@ -55,8 +54,8 @@ fn raw_values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn empty_stack(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn empty_stack(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0xe0, 0xe1] {
         let code = [0xd9, opcode, 0xdf, 0xe0, 0x9b]; // sign; FNSTSW AX; FWAIT
         for masked in [false, true] {
@@ -97,8 +96,8 @@ fn empty_stack(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn pending_exception(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn pending_exception(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0xe0, 0xe1] {
         let code = [0xd9, opcode];
         let mut image = stack_image(&code, 0, 0xfffc);
@@ -117,8 +116,8 @@ fn pending_exception(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn continued_sign_changes(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn continued_sign_changes(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = [0xd9, 0xe0, 0xd9, 0xe1, 0xd9, 0xe0, 0xa1, 0, 0x50, 0, 0];
     for empty in [false, true] {
         let mut image = stack_image(&code, 0, 0xffff);

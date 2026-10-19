@@ -1,8 +1,8 @@
 use super::*;
 use wasm86_x86::FlagBytes;
 
-fn push_images(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn push_images(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, width) in [(&[0x9c][..], 2), (&[0x66, 0x9c][..], 4)] {
         for (if_, iopl, image_bits) in [
             (0x80, 0xfc, 0x0024_4597_u32),
@@ -36,8 +36,8 @@ fn push_images(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(push_flag_images, push_images);
 
-fn pop_images(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn pop_images(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, width) in [(&[0x9d][..], 2), (&[0x66, 0x9d][..], 4)] {
         for (image_bits, if_, iopl, other) in [
             (0xffdb_8028_u32, 0, 0, 0),
@@ -86,8 +86,8 @@ fn pop_images(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(pop_flag_images, pop_images);
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn faults(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, sp) in [
         (&[0x9c][..], 1),
         (&[0x66, 0x9c][..], 3),
@@ -115,7 +115,7 @@ fn faults(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(stack_bounds, faults);
 
-fn histories(engine: Engine, frontend: Frontend) {
+fn histories(frontend: Frontend) {
     // POPFD, POPF, PUSHFD, then a fault: the word transfer preserves AC/ID,
     // later image reads see the new IF/IOPL, and the fault publishes those writes.
     let code = [0x66, 0x9d, 0x9d, 0x66, 0x67, 0x9c, 0x67, 0xa1, 0, 0, 1, 0];
@@ -164,7 +164,7 @@ fn histories(engine: Engine, frontend: Frontend) {
     pushed.eip += 3;
     pushed.instruction_count += 1;
     pushed.registers.esp = 0xabcd_2002;
-    sequences(engine, frontend).check(
+    sequences(frontend).check(
         "mode-aware flag images compose across word/dword transfers and a later fault",
         &code,
         &image,
@@ -194,8 +194,8 @@ fn histories(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(flag_transfer_histories, histories);
 
-fn interrupt_controls(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn interrupt_controls(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (opcode, result) in [(0xfa, 0), (0xfb, 1)] {
         for fill in [0x80, 0xff] {
             let code = [0x66, 0x67, 0x64, opcode];
@@ -218,7 +218,7 @@ fn interrupt_controls(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(direct_interrupt_flag_controls, interrupt_controls);
 
-fn interrupt_histories(engine: Engine, frontend: Frontend) {
+fn interrupt_histories(frontend: Frontend) {
     // Both writes are visible immediately to PUSHF. The final fault publishes
     // the latest IF and keeps the pending arithmetic flags unchanged.
     let code = [0xfb, 0x9c, 0xfa, 0x9c, 0x67, 0xa1, 0, 0, 1, 0];
@@ -244,7 +244,7 @@ fn interrupt_histories(engine: Engine, frontend: Frontend) {
     pushed_clear.eip += 1;
     pushed_clear.instruction_count += 1;
     pushed_clear.registers.esp = 0xabcd_2000;
-    sequences(engine, frontend).check(
+    sequences(frontend).check(
         "STI/CLI feed PUSHF and survive a later fault in the same entry",
         &code,
         &image,

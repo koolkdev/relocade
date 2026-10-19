@@ -1,7 +1,7 @@
 use super::*;
 
-fn masks(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn masks(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, opcode, bits, expected) in [
         (
             &[0x66][..],
@@ -47,7 +47,6 @@ fn sse_masks_reject_memory_sources() {
         image.cpu.eip = address;
         image.data(address + 0x2000, code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "register-only mask is rejected before fetching a missing SIB byte",
             Exit::Other(0x0008_000f_0000_0000 | u64::from(address)),

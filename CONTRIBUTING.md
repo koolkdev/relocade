@@ -7,7 +7,7 @@ Repository conventions and review requirements are in [AGENTS.md](AGENTS.md).
 
 ## Build and test
 
-The ordinary suite runs generated Wasm in Wasmtime and needs no Node.js:
+The compiler and x86 correctness suites run generated Wasm in Wasmtime:
 
 ```sh
 cargo test --workspace --locked
@@ -25,30 +25,33 @@ cargo test -p wasm86-x86 --lib --locked decimal_adjust -- --skip interpreter
 Case and sequence groups expose separate `block` and `interpreter` tests. The
 block checks compile only the supplied instructions; interpreter checks generate
 the complete instruction set for each required segment profile. Omit the skip to
-exercise both, and run the ordinary workspace suite before review. Explicit
+exercise both. Leave the full workspace suite to CI by default. Explicit
 runtime-fetch tests can also require an interpreter; their test names should say so.
 
 The test profile optimizes runtime Wasm generation and engine compilation while
 retaining debug assertions and overflow checks. Measure test execution separately
 from Cargo rebuilds, especially after changing the profile or dependencies.
 
-Ignored engine tests use Node.js 24 on `PATH` and run V8 with TurboFan. Select the
-affected suite for a focused check, for example:
+Browser integration tests exercise the production web backend: live CPU and
+memory access, callbacks, scalar carriers and module linking. They run separately
+from compiler and instruction correctness tests.
+
+Install Chrome and a matching ChromeDriver, then run:
 
 ```sh
-cargo test -p wasm86-x86 --lib --locked -- --ignored segments::pointers
-cargo test -p wasm86-compiler --test integration --locked -- --ignored constant_control
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+CHROMEDRIVER=/path/to/chromedriver \
+cargo test -p wasm86-runtime-web --target wasm32-unknown-unknown --tests --locked
 ```
 
-Use `--skip interpreter` with a case-based V8 suite for a focused block check too.
-V8 uses up to four workers per test process, bounded by available CPUs. A module
-stays on one worker and is compiled once. Both engine hosts create fresh instances,
-memories and callback state for each observation.
+CI configures Chrome's binary path through `WASM_BINDGEN_TEST_WEBDRIVER_JSON`;
+see [.github/workflows/tests.yml](.github/workflows/tests.yml) for that setup.
 
-`cargo test --workspace --locked -- --ignored` runs the full V8 lane when needed.
 Compare generated Wasm bytes before timing a change; measure changed output with
-representative V8 workloads and matching execution boundaries. Wasmtime results
-establish correctness, not V8 performance.
+representative browser workloads and matching execution boundaries. Wasmtime
+correctness results do not establish browser performance.
 
 ## Adding an instruction
 
@@ -154,7 +157,7 @@ An `InstructionCase` states encoding bytes, initial state and expected changes.
 Register its case list with `test_cases!`; `SequenceCase` and `test_sequences!`
 cover several instructions with a checkpoint after each one. These run through
 snapshot and interpreter entries, ordinarily with flat and segmented profiles,
-in Wasmtime and the explicit V8 lane. The x86 suites live in the library test
+in Wasmtime. The x86 suites live in the library test
 target so they can observe private state readers without adding public APIs.
 
 Keep a family's tests proportional to its distinct behavior:

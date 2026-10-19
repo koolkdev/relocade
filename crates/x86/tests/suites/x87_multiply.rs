@@ -12,7 +12,6 @@ mod specialization;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
-    step::Engine,
     x87::{
         arithmetic::{check_arithmetic, ArithmeticCase as Case},
         complete_x87, dispatch, set_control, stack_image, status, write_register_bits, write_value,
@@ -26,8 +25,8 @@ const PE: u16 = 0x20;
 const C1: u16 = 0x200;
 const PENDING: u16 = 0x8080;
 
-fn register_forms(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn register_forms(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (code, top, other, destination, pop, result) in [
         (
             [0xd8, 0xca],
@@ -70,8 +69,8 @@ fn register_forms(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn live_products(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn live_products(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Loading exact binary32 values, multiplying in registers, then storing a
     // binary64 result exercises the same value across representation boundaries.
     let code = [
@@ -115,8 +114,8 @@ fn live_products(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn freed_product_stack_fault(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn freed_product_stack_fault(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // FMUL establishes a normal value. FFREE changes occupancy without changing
     // its payload; FST must replace both its value and classification on fault.
     let code = [

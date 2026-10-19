@@ -19,8 +19,8 @@ fn loaded(mut cpu: CpuState, format: Format, bits: (u64, u16), tag: u16) -> CpuS
     cpu
 }
 
-fn same_width_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn same_width_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         let code = [
             load(format, 0x4000),
@@ -127,7 +127,7 @@ fn same_width_values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn register_movement(engine: Engine, frontend: Frontend) {
+fn register_movement(frontend: Frontend) {
     let [single, double] = FORMATS;
     let code = [
         load(single, 0x4000),
@@ -166,7 +166,7 @@ fn register_movement(engine: Engine, frontend: Frontend) {
     stored_copy.x87.data_offset = 0x4030;
     stored_copy.x87.status.top = 1;
     stored_copy.x87.tag_word = 0xffff;
-    ImageSequences::new(engine, frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
         "mixed-width loaded values survive exchange, register copy and pop",
         &code,
         &image,
@@ -194,8 +194,8 @@ fn register_movement(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn loaded_values_at_faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn loaded_values_at_faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         let code = [load(format, 0x4000), format.instruction(0x5000, true)].concat();
         let mut image = stack_image(&code, 0, 0xffff);
@@ -284,8 +284,8 @@ fn loaded_values_at_faults(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn cleared_suppressed_load(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn cleared_suppressed_load(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         let code = [
             load(format, 0x4000),
@@ -334,8 +334,8 @@ fn cleared_suppressed_load(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn suppressed_reuse_keeps_empty_payload(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn suppressed_reuse_keeps_empty_payload(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         let code = [
             load(format, 0x4000),

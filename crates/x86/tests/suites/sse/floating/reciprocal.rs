@@ -45,7 +45,7 @@ fn assert_reciprocal_square_root(source: u32, result: u32) {
     );
 }
 
-fn accuracy(engine: Engine, frontend: Frontend, opcode: u8, check: fn(u32, u32)) {
+fn accuracy(frontend: Frontend, opcode: u8, check: fn(u32, u32)) {
     for packed in [false, true] {
         let code = encoding(prefix(false, packed), opcode, 0xc1);
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
@@ -73,7 +73,7 @@ fn accuracy(engine: Engine, frontend: Frontend, opcode: u8, check: fn(u32, u32))
             for (index, &bits) in values.iter().enumerate() {
                 lane(&mut image.cpu.simd.xmm[1], false, index, u64::from(bits));
             }
-            let actual = engine.observe(module, &image.input(), 1);
+            let actual = module.observe(&image.input(), 1);
             let snapshot = actual
                 .events
                 .iter()
@@ -98,9 +98,8 @@ fn accuracy(engine: Engine, frontend: Frontend, opcode: u8, check: fn(u32, u32))
     }
 }
 
-fn reciprocal_special(engine: Engine, frontend: Frontend) {
+fn reciprocal_special(frontend: Frontend) {
     special(
-        engine,
         frontend,
         0x53,
         &[
@@ -122,9 +121,8 @@ fn reciprocal_special(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn reciprocal_square_root_special(engine: Engine, frontend: Frontend) {
+fn reciprocal_square_root_special(frontend: Frontend) {
     special(
-        engine,
         frontend,
         0x52,
         &[
@@ -147,7 +145,7 @@ fn reciprocal_square_root_special(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn special(engine: Engine, frontend: Frontend, opcode: u8, cases: &[(u32, u32)]) {
+fn special(frontend: Frontend, opcode: u8, cases: &[(u32, u32)]) {
     for packed in [false, true] {
         let code = encoding(prefix(false, packed), opcode, 0xc1);
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
@@ -172,7 +170,7 @@ fn special(engine: Engine, frontend: Frontend, opcode: u8, cases: &[(u32, u32)])
                     let mut cpu = retire(image.cpu, code.len());
                     cpu.simd.xmm[0] = result;
                     assert_eq!(
-                        engine.observe(module, &image.input(), 1),
+                        module.observe(&image.input(), 1),
                         expected(&image, &[dispatch(cpu)])
                     );
                 }
@@ -191,13 +189,13 @@ fn special(engine: Engine, frontend: Frontend, opcode: u8, cases: &[(u32, u32)])
         Frontend::Interpreter => TestModule::interpreter(),
     };
     assert_eq!(
-        engine.observe(module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(&image, &[dispatch(cpu)])
     );
 }
 
-fn memory(engine: Engine, frontend: Frontend, opcode: u8) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend, opcode: u8) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for packed in [false, true] {
         let code = encoding(prefix(false, packed), opcode, 0x00);
         let width = if packed { 16 } else { 4 };
@@ -236,23 +234,22 @@ fn memory(engine: Engine, frontend: Frontend, opcode: u8) {
     }
 }
 
-test_frontends!(@tests sse_reciprocal_accuracy, |engine, frontend| accuracy(
-    engine,
+test_frontends!(@tests sse_reciprocal_accuracy, |frontend| accuracy(
     frontend,
     0x53,
     assert_reciprocal
 ));
 test_frontends!(sse_reciprocal_special_and_controls, reciprocal_special);
-test_frontends!(@tests sse_reciprocal_memory, |engine, frontend| memory(
-    engine, frontend, 0x53
+test_frontends!(@tests sse_reciprocal_memory, |frontend| memory(
+    frontend, 0x53
 ));
-test_frontends!(@tests sse_reciprocal_square_root_accuracy, |engine, frontend| {
-    accuracy(engine, frontend, 0x52, assert_reciprocal_square_root)
+test_frontends!(@tests sse_reciprocal_square_root_accuracy, |frontend| {
+    accuracy(frontend, 0x52, assert_reciprocal_square_root)
 });
 test_frontends!(
     sse_reciprocal_square_root_special_and_controls,
     reciprocal_square_root_special
 );
 test_frontends!(@tests sse_reciprocal_square_root_memory,
-    |engine, frontend| memory(engine, frontend, 0x52)
+    |frontend| memory(frontend, 0x52)
 );

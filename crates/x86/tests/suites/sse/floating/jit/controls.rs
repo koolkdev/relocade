@@ -11,7 +11,7 @@ fn block(code: &[u8], count: u32, profile: ExecutionProfile, observed: &CpuState
     )
 }
 
-fn matching_controls(engine: Engine) {
+fn matching_controls() {
     // Two inexact ADDSS instructions exercise both initial status variation and
     // the new PE set by the first instruction before the second control check.
     let code = [0xf3, 0x0f, 0x58, 0xc1].repeat(2);
@@ -31,7 +31,7 @@ fn matching_controls(engine: Engine) {
                 if rounding == 2 { 0x3f80_0002 } else { ONE[0] },
             );
             assert_eq!(
-                engine.observe(&compiled, &image.input(), 1),
+                compiled.observe(&image.input(), 1),
                 expected(&image, &[dispatch(cpu)]),
                 "RC {rounding}, live status/reserved bits {old_flags:x}"
             );
@@ -45,7 +45,7 @@ fn matching_controls(engine: Engine) {
     lane(&mut image.cpu.simd.xmm[1], false, 0, 1);
     let compiled = block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
     assert_eq!(
-        engine.observe(&compiled, &image.input(), 1),
+        compiled.observe(&image.input(), 1),
         expected(&image, &[dispatch(retire(image.cpu, code.len()))])
     );
 
@@ -57,7 +57,7 @@ fn matching_controls(engine: Engine) {
     let mut cpu = image.cpu;
     cpu.simd.mxcsr |= 0x20;
     assert_eq!(
-        engine.observe(&compiled, &image.input(), 1),
+        compiled.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -69,7 +69,7 @@ fn matching_controls(engine: Engine) {
     );
 }
 
-fn changed_controls(engine: Engine) {
+fn changed_controls() {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
         let compare = if profile == ExecutionProfile::Real16 {
             &[0x66, 0x39, 0xc8][..]
@@ -96,7 +96,7 @@ fn changed_controls(engine: Engine) {
             prefix.flags.status_source.left = 0;
             prefix.flags.status_source.right = 1;
             assert_eq!(
-                engine.observe(&compiled, &image.input(), 1),
+                compiled.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -110,14 +110,14 @@ fn changed_controls(engine: Engine) {
             let mut cpu = retire(prefix, add.len());
             lane(&mut cpu.simd.xmm[0], false, 0, 0x4040_0000); // 3.0, exact under all controls.
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(&image, &[dispatch(cpu)])
             );
         }
     }
 }
 
-fn loaded_controls(engine: Engine) {
+fn loaded_controls() {
     // Establish observed facts and PE, load a runtime value that replaces both,
     // then convert a value whose result distinguishes nearest from round-up.
     let add = [0xf3, 0x0f, 0x58, 0xc1];
@@ -150,17 +150,17 @@ fn loaded_controls(engine: Engine) {
             dispatch(cpu)
         };
         assert_eq!(
-            engine.observe(&compiled, &image.input(), 1),
+            compiled.observe(&image.input(), 1),
             expected(&image, &[direct])
         );
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(cpu)])
         );
     }
 }
 
-fn mismatch_before_mmio(engine: Engine) {
+fn mismatch_before_mmio() {
     use crate::support::step::Event;
 
     let code = [0xf3, 0x0f, 0x58, 0x06, 0, 0x20]; // ADDSS XMM0,[2000] in real mode.
@@ -177,7 +177,7 @@ fn mismatch_before_mmio(engine: Engine) {
     input.mmio_pages = vec![(2, 0x8000)];
     input.observe_mmio = true;
     assert_eq!(
-        engine.observe(&compiled, &input, 1),
+        compiled.observe(&input, 1),
         expected(
             &image,
             &[Step {
@@ -199,10 +199,10 @@ fn mismatch_before_mmio(engine: Engine) {
             bytes: 4,
         },
     );
-    assert_eq!(engine.observe(&linked, &input, 1), wanted);
+    assert_eq!(linked.observe(&input, 1), wanted);
 }
 
-fn flush_to_zero(engine: Engine) {
+fn flush_to_zero() {
     let code = [0xf3, 0x0f, 0x59, 0xc1]; // MULSS: minimum normal * 0.5
     for (controls, result, flags) in [(0x1f80, 0x0040_0000, 0), (0x9f80, 0, 0x30)] {
         let mut image = floating_image(&code, controls);
@@ -222,24 +222,23 @@ fn flush_to_zero(engine: Engine) {
             exit: Exit::Interpret,
         };
         assert_eq!(
-            engine.observe(&compiled, &image.input(), 1),
+            compiled.observe(&image.input(), 1),
             expected(&image, &[direct])
         );
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(cpu)])
         );
     }
 }
 
-fn mmx_admission(engine: Engine) {
+fn mmx_admission() {
     let code = [0x0f, 0x2d, 0xc1]; // CVTPS2PI MM0,XMM1
     let mut image = floating_image(&code, 0x1f80);
     image.cpu.x87.status = crate::support::x87::status(0);
     let compiled = block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
     image.cpu.simd.mxcsr = 0x5f80;
     image.check_unchanged_exit(
-        engine,
         &compiled,
         "control mismatch precedes MMX destination and environment changes",
         Exit::Interpret,
@@ -247,7 +246,6 @@ fn mmx_admission(engine: Engine) {
     image.cpu.x87.status.error_summary = 1;
     image.cpu.x87.status.busy = 1;
     image.check_unchanged_exit(
-        engine,
         &compiled,
         "pending x87 exception precedes the new MXCSR guard",
         Exit::FloatingPoint,
@@ -256,21 +254,10 @@ fn mmx_admission(engine: Engine) {
 
 #[test]
 fn observed_mxcsr_controls_preserve_status_and_restart() {
-    matching_controls(Engine::Wasmtime);
-    changed_controls(Engine::Wasmtime);
-    loaded_controls(Engine::Wasmtime);
-    mismatch_before_mmio(Engine::Wasmtime);
-    flush_to_zero(Engine::Wasmtime);
-    mmx_admission(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_observed_mxcsr_controls_preserve_status_and_restart() {
-    matching_controls(Engine::V8);
-    changed_controls(Engine::V8);
-    loaded_controls(Engine::V8);
-    mismatch_before_mmio(Engine::V8);
-    flush_to_zero(Engine::V8);
-    mmx_admission(Engine::V8);
+    matching_controls();
+    changed_controls();
+    loaded_controls();
+    mismatch_before_mmio();
+    flush_to_zero();
+    mmx_admission();
 }

@@ -25,7 +25,8 @@ fn correlated_fields(independent: bool) -> TestModule {
     )
 }
 
-fn check_correlated_fields(v8: bool) {
+#[test]
+fn predicates_correlate_fields_selected_by_the_same_condition() {
     for independent in [false, true] {
         let module = correlated_fields(independent);
         if !independent {
@@ -50,19 +51,7 @@ fn check_correlated_fields(v8: bool) {
                     Value::I64(exponent),
                 ],
                 &[Value::I32(i32::from(expected))],
-                v8,
             );
         }
     }
-}
-
-#[test]
-fn predicates_correlate_fields_selected_by_the_same_condition() {
-    check_correlated_fields(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_predicates_correlate_fields_selected_by_the_same_condition() {
-    check_correlated_fields(true);
 }

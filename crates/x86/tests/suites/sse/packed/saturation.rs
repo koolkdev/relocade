@@ -1,7 +1,7 @@
 use super::*;
 
-fn saturation(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn saturation(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Exact bounds and overflows in both directions differ between signed and unsigned lanes.
     for (opcode, left, right, result) in [
         (

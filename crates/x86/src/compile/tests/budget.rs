@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use crate::{
     support::{
         execution::{test_frontends, Frontend},
-        step::{Argument, CallPatches, Engine, Event, Input, Outcome, Snapshot, TestModule},
+        step::{Argument, CallPatches, Event, Input, Outcome, Snapshot, TestModule},
     },
     Compiler, CpuState, ExecutionContext, ExecutionExit, SegmentProfile,
 };
@@ -20,7 +20,6 @@ fn interpreter() -> &'static TestModule {
 }
 
 fn execute(
-    engine: Engine,
     frontend: Frontend,
     code: &[u8],
     instructions: u32,
@@ -53,7 +52,7 @@ fn execute(
         }
         Frontend::Interpreter => interpreter(),
     };
-    let observation = engine.observe(module, &input, 1);
+    let observation = module.observe(&input, 1);
     assert!(observation.machine_unchanged);
     let Some(Event::Return {
         outcome: Outcome::Returned(values),
@@ -83,13 +82,12 @@ fn initial(count: u64) -> CpuState {
     }
 }
 
-fn conditional_boundary(engine: Engine, frontend: Frontend) {
+fn conditional_boundary(frontend: Frontend) {
     for taken in [false, true] {
         for target in [41, 43, 44] {
             let mut cpu = initial(40);
             cpu.registers.eax = if taken { u32::MAX - 1 } else { 0 };
-            let (word, after, _) =
-                execute(engine, frontend, &[0x40, 0x40, 0x74, 8], 3, cpu, target);
+            let (word, after, _) = execute(frontend, &[0x40, 0x40, 0x74, 8], 3, cpu, target);
             assert_eq!(after.instruction_count, 43);
             assert_eq!(after.eip, if taken { 0x100c } else { 0x1004 });
             assert_eq!(
@@ -101,10 +99,10 @@ fn conditional_boundary(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(conditional_branches, conditional_boundary);
 
-fn long_block(engine: Engine, frontend: Frontend) {
+fn long_block(frontend: Frontend) {
     let mut code = vec![0x90; 1024];
     code.extend([0xeb, 0]);
-    let (word, cpu, _) = execute(engine, frontend, &code, 1025, initial(0), 1);
+    let (word, cpu, _) = execute(frontend, &code, 1025, initial(0), 1);
     assert_eq!(
         ExecutionExit::from_bits(word),
         Some(ExecutionExit::BudgetExhausted)
@@ -114,10 +112,10 @@ fn long_block(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(long_straight_line_block, long_block);
 
-fn memory_continuations(engine: Engine, frontend: Frontend) {
+fn memory_continuations(frontend: Frontend) {
     let mut code = [0x66, 0x8b, 0x05, 0, 0x20, 0, 0].repeat(40);
     code.extend([0xeb, 0]);
-    let (word, cpu, _) = execute(engine, frontend, &code, 41, initial(0), 1);
+    let (word, cpu, _) = execute(frontend, &code, 41, initial(0), 1);
     assert_eq!(
         ExecutionExit::from_bits(word),
         Some(ExecutionExit::BudgetExhausted)
@@ -128,15 +126,8 @@ fn memory_continuations(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(memory_decoder_continuations, memory_continuations);
 
-fn fault_before_boundary(engine: Engine, frontend: Frontend) {
-    let (word, cpu, _) = execute(
-        engine,
-        frontend,
-        &[0x40, 0x40, 0xf7, 0xf1],
-        3,
-        initial(0),
-        1,
-    );
+fn fault_before_boundary(frontend: Frontend) {
+    let (word, cpu, _) = execute(frontend, &[0x40, 0x40, 0xf7, 0xf1], 3, initial(0), 1);
     assert_eq!(
         ExecutionExit::from_bits(word),
         Some(ExecutionExit::Exception(crate::Exception::DivideError))
@@ -147,7 +138,7 @@ fn fault_before_boundary(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(fault_keeps_its_exit, fault_before_boundary);
 
-fn unsigned_target(engine: Engine, frontend: Frontend) {
+fn unsigned_target(frontend: Frontend) {
     for (count, target, exhausted) in [
         (0, u64::MAX, false),
         (0, 1 << 63, false),
@@ -156,14 +147,7 @@ fn unsigned_target(engine: Engine, frontend: Frontend) {
         (u64::MAX - 4, u64::MAX, false),
         (u64::MAX - 3, u64::MAX, true),
     ] {
-        let (word, cpu, _) = execute(
-            engine,
-            frontend,
-            &[0x90, 0x90, 0xeb, 0],
-            3,
-            initial(count),
-            target,
-        );
+        let (word, cpu, _) = execute(frontend, &[0x90, 0x90, 0xeb, 0], 3, initial(count), target);
         assert_eq!(cpu.instruction_count, count + 3);
         assert_eq!(cpu.eip, 0x1004);
         assert_eq!(
@@ -174,12 +158,12 @@ fn unsigned_target(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(unsigned_instruction_targets, unsigned_target);
 
-fn rep_then_boundary(engine: Engine, frontend: Frontend) {
+fn rep_then_boundary(frontend: Frontend) {
     let mut cpu = initial(0);
     cpu.registers.esi = 0x2000;
     cpu.registers.edi = 0x3000;
     cpu.registers.ecx = 4;
-    let (word, cpu, snapshot) = execute(engine, frontend, &[0xf3, 0xa4, 0x40, 0xeb, 0], 3, cpu, 1);
+    let (word, cpu, snapshot) = execute(frontend, &[0xf3, 0xa4, 0x40, 0xeb, 0], 3, cpu, 1);
     assert_eq!(
         ExecutionExit::from_bits(word),
         Some(ExecutionExit::BudgetExhausted)

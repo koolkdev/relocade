@@ -1,7 +1,7 @@
 use super::*;
 
-fn product(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn product(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for rc in 0..4 {
         for (left, right, result, raised) in [
             (TWO, NEG_TWO, [0xc080_0000, 0xc010_0000_0000_0000], 0),
@@ -46,8 +46,8 @@ fn product(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exceptional(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exceptional(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right, result, raised, controls) in [
         (INFINITY, ZERO, INDEFINITE, 1, 0x1f80),
         (NEG_INFINITY, NEG_ONE, INFINITY, 0, 0x1f80),

@@ -1,7 +1,7 @@
 use super::*;
 
-fn unpack(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn unpack(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (opcode, result, self_result) in [
         (0x60, 0xbb44aa3300229911, 0x4444333322221111),
         (0x61, 0xbbaa443300992211, 0x4433443322112211),
@@ -31,8 +31,8 @@ fn unpack(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn unpack_memory_width(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn unpack_memory_width(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (opcode, result) in [
         (0x60, 0xbb44_aa33_0022_9911),
         (0x61, 0xbbaa_4433_0099_2211),

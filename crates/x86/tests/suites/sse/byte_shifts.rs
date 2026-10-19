@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn shifts(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn shifts(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let source: [u8; 16] = std::array::from_fn(|byte| 0x80 + byte as u8);
     for left in [false, true] {
         for count in [0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 127, 128, 240, 241, 255] {

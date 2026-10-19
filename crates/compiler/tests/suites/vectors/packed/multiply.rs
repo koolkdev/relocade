@@ -1,22 +1,20 @@
 use super::*;
 
-fn multiplication(v8: bool) {
+#[test]
+fn vector_products_preserve_signed_widths_and_pair_order() {
     binary_results(
-        v8,
         0x000080007fffffff7fff8000ffff1234,
         0xffffffffffff00027fff800000022345,
         [0x000080008001fffe00010000fffe0404],
         |left, right| [left.mul_lanes::<I16>(right)],
     );
     binary_results(
-        v8,
         0x80000000ffffffff7fffffff00010000,
         0xffffffff000000028000000000010000,
         [0x80000000fffffffe8000000000000000],
         |left, right| [left.mul_lanes::<I32>(right)],
     );
     binary_results(
-        v8,
         0x8000000000000000ffffffffffffffff,
         0xffffffffffffffff0000000000000002,
         [0x8000000000000000fffffffffffffffe],
@@ -25,7 +23,6 @@ fn multiplication(v8: bool) {
 
     // Low and high widening select different halves, including signed boundary values.
     binary_results(
-        v8,
         0x807f0100fffe827e7f80feff01020081,
         0x80ff7f0200feff017fff03fffe007f80,
         [
@@ -40,7 +37,6 @@ fn multiplication(v8: bool) {
         },
     );
     binary_results(
-        v8,
         0x80007fff0000fffe7fff8000ffff1234,
         0xffff0002000100037fff800000022345,
         [
@@ -55,7 +51,6 @@ fn multiplication(v8: bool) {
         },
     );
     binary_results(
-        v8,
         0xffffffff80000000800000007fffffff,
         0x7fffffff80000000ffffffff80000000,
         [
@@ -72,7 +67,6 @@ fn multiplication(v8: bool) {
 
     // Low to high: all-minimum overflow, cancellation, negative and positive sums.
     binary_results(
-        v8,
         0x7fff7fff80007fff0001ffff80008000,
         0x7fff7fff7fff80000001000180008000,
         [0x7ffe0002800100000000000080000000],
@@ -81,20 +75,9 @@ fn multiplication(v8: bool) {
 }
 
 #[test]
-fn vector_products_preserve_signed_widths_and_pair_order() {
-    multiplication(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_products_preserve_signed_widths_and_pair_order() {
-    multiplication(true);
-}
-
-fn unsigned_multiplication(v8: bool) {
+fn vector_unsigned_products_preserve_full_precision_and_half_selection() {
     // The narrow input keeps dirty upper carrier bits, which must not participate.
     binary_results(
-        v8,
         0x01ff03fe010080ff01ff03fe010080ff,
         0xfffe01ff8007fffffffe01ff8007ffff,
         [
@@ -111,7 +94,6 @@ fn unsigned_multiplication(v8: bool) {
         },
     );
     binary_results(
-        v8,
         0x0001ffff0003fffe000100008000ffff,
         0xfffffffe0001ffff80000007ffffffff,
         [
@@ -129,7 +111,6 @@ fn unsigned_multiplication(v8: bool) {
         },
     );
     binary_results(
-        v8,
         0x000000010000000080000000ffffffff,
         0x8000000000000007ffffffffffffffff,
         [
@@ -146,14 +127,4 @@ fn unsigned_multiplication(v8: bool) {
             ]
         },
     );
-}
-
-#[test]
-fn vector_unsigned_products_preserve_full_precision_and_half_selection() {
-    unsigned_multiplication(false);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_unsigned_products_preserve_full_precision_and_half_selection() {
-    unsigned_multiplication(true);
 }

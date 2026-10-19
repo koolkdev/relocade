@@ -5,14 +5,15 @@ mod linked;
 
 use crate::support::{
     machine::{expected, Exit, Step},
-    step::{Argument, Engine, Event, Outcome, TestModule},
+    step::{Argument, Event, Outcome, TestModule},
     x87::stack_image,
 };
 use wasm86_x86::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, CpuState, SegmentProfile,
 };
 
-fn guard_admission(engine: Engine) {
+#[test]
+fn load_guards_admit_common_values_and_reject_exceptional_pushes() {
     // Literal encodings cover normal, signed zeros, infinity, quiet/signaling
     // NaNs and subnormal values. The final case occupies the push destination.
     let single = [
@@ -55,7 +56,7 @@ fn guard_admission(engine: Engine) {
             let mut image = stack_image(&code, 0, tags);
             image.map(4, 0x8000, false);
             image.data(0x8000, &bits.to_le_bytes()[..width]);
-            let actual = engine.observe(&module, &image.input(), 1);
+            let actual = module.observe(&image.input(), 1);
             if handoff {
                 assert_eq!(
                     actual,
@@ -85,7 +86,8 @@ fn guard_admission(engine: Engine) {
     }
 }
 
-fn faults_before_handoff(engine: Engine) {
+#[test]
+fn pending_segment_and_page_faults_precede_interpreter_handoff() {
     let code = [0xd9, 0x05, 0, 0x40, 0, 0];
     let module = TestModule::new(
         &compile_block_from_bytes_with_profile(0x1000, &code, 1, SegmentProfile::Segmented32)
@@ -108,7 +110,7 @@ fn faults_before_handoff(engine: Engine) {
         if segment_denied {
             image.cpu.segments.ds.limit = 0x3fff;
         }
-        image.check_unchanged_exit(engine, &module, "fault before guard", exit);
+        image.check_unchanged_exit(&module, "fault before guard", exit);
     }
 }
 
@@ -131,21 +133,4 @@ fn only_guarded_jit_entries_require_the_interpreter_import() {
     assert!(!imports_interpreter(&plain.bytes));
     assert!(!imports_interpreter(TestModule::interpreter().bytes()));
     assert!(!imports_interpreter(linked::interpreter_run().bytes()));
-}
-
-#[test]
-fn load_guards_admit_common_values_and_reject_exceptional_pushes() {
-    guard_admission(Engine::Wasmtime);
-}
-
-#[test]
-fn pending_segment_and_page_faults_precede_interpreter_handoff() {
-    faults_before_handoff(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_handoff_boundaries() {
-    guard_admission(Engine::V8);
-    faults_before_handoff(Engine::V8);
 }

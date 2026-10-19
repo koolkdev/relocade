@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn packed_moves(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn packed_moves(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, load_opcode, store_opcode, offset) in [
         (&[][..], 0x28, 0x29, 0),
         (&[0x66][..], 0x28, 0x29, 0),
@@ -56,8 +56,8 @@ fn packed_moves(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn aligned_faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn aligned_faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, opcodes) in [
         (&[][..], [0x28, 0x29]),
         (&[0x66][..], [0x28, 0x29]),
@@ -81,8 +81,8 @@ fn aligned_faults(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn scalar_registers(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn scalar_registers(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, bytes) in [(0xf3, 4), (0xf2, 8)] {
         let code = [
             prefix, 0x0f, 0x10, 0xe1, prefix, 0x0f, 0x11, 0xe7, prefix, 0x0f, 0x10, 0xff,
@@ -104,8 +104,8 @@ fn scalar_registers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn scalar_memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn scalar_memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, bytes) in [(0xf3, 4), (0xf2, 8)] {
         // The following pages are unmapped, so an oversized access must fault.
         let code = [prefix, 0x0f, 0x10, 0x30, prefix, 0x0f, 0x11, 0x31];
@@ -162,8 +162,8 @@ fn scalar_memory(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn scalar_faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn scalar_faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for prefix in [0xf3, 0xf2] {
         for opcode in [0x10, 0x11] {
             let code = [prefix, 0x0f, opcode, 0x00];

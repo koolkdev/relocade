@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn nan_policy(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn nan_policy(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (instruction, pops, accepts_quiet_nan) in [
         ([0xd8, 0xd1], 0, false),
         ([0xd8, 0xd9], 1, false),
@@ -64,8 +64,8 @@ fn nan_policy(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn denormals(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn denormals(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right, relation) in [
         ((1, 0), (0, 0), 0),
         ((0, 0), (1, 0), LESS),
@@ -118,8 +118,8 @@ fn denormals(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn empty_operands(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn empty_operands(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for empty in [1, 2, 3] {
         for control in [0x037f, 0x037e, 0x037d] {
             check_case(
@@ -158,8 +158,8 @@ fn empty_operands(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn quiet_nan_with_unmasked_denormal(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn quiet_nan_with_unmasked_denormal(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     check_case(
         &mut checks,
         "quiet NaN suppresses denormal evidence with both exceptions unmasked",

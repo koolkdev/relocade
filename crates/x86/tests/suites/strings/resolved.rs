@@ -4,7 +4,7 @@ use super::{flags, record};
 use crate::support::{
     cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly},
     guest::{Exit, Machine, Mapping, Permissions::ReadWrite},
-    step::{Argument, Engine, Event, Input, Outcome, TestModule},
+    step::{Argument, Event, Input, Outcome, TestModule},
 };
 use wasm86_x86::{compile_block_from_bytes, Gpr32::*};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef};
@@ -52,7 +52,8 @@ fn long_reads() -> Vec<Case> {
 
 test_cases!(complete_ranges_cover_repeated_reads, long_reads());
 
-fn check_handoff_completion(engine: Engine) {
+#[test]
+fn failed_range_preflight_completes_through_the_linked_interpreter() {
     let code = [0xf3, 0xac];
     let linked = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap())
         .with_interpreter(TestModule::interpreter());
@@ -68,7 +69,7 @@ fn check_handoff_completion(engine: Engine) {
     expected.cpu.registers.eax = 0xaabb_cc34;
     expected.cpu.registers.ecx = 1;
     expected.cpu.registers.esi = 0x5000;
-    let actual = machine.run(&linked, engine);
+    let actual = machine.run(&linked);
     assert_eq!(actual.state, expected);
     assert_eq!(
         actual.exit,
@@ -80,7 +81,8 @@ fn check_handoff_completion(engine: Engine) {
     assert!(actual.machine_unchanged && actual.dispatches.is_empty());
 }
 
-fn check_direct_completion(engine: Engine) {
+#[test]
+fn contiguous_ranges_complete_in_the_jit_without_handoff() {
     let code = [0xf3, 0xad];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for backward in [false, true] {
@@ -95,7 +97,7 @@ fn check_direct_completion(engine: Engine) {
         expected.cpu.registers.esi = if backward { 0x4ffa } else { 0x6006 };
         expected.cpu.eip = 0x1002;
         expected.cpu.instruction_count = expected.cpu.instruction_count.wrapping_add(1);
-        let actual = machine.run(&block, engine);
+        let actual = machine.run(&block);
         assert_eq!(actual.state, expected);
         assert_eq!(actual.exit, Exit::Dispatch(0x1002));
         assert_eq!(actual.dispatches, [(0x1002, expected)]);
@@ -104,17 +106,7 @@ fn check_direct_completion(engine: Engine) {
 }
 
 #[test]
-fn contiguous_ranges_complete_in_the_jit_without_handoff() {
-    check_direct_completion(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_contiguous_ranges_complete_in_the_jit_without_handoff() {
-    check_direct_completion(Engine::V8);
-}
-
-fn check_direct_writes_and_comparison(engine: Engine) {
+fn resolved_writes_preserve_alias_order_and_comparisons_stop_early_in_the_jit() {
     let code = [0xf3, 0xa4];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     let mut machine = Machine::with_mappings(
@@ -146,7 +138,7 @@ fn check_direct_writes_and_comparison(engine: Engine) {
     expected.cpu.instruction_count = expected.cpu.instruction_count.wrapping_add(1);
     // Scalar forward copying observes earlier writes through the alias.
     expected.memory.write(0x7001, &[1; 5]);
-    let actual = machine.run(&block, engine);
+    let actual = machine.run(&block);
     assert_eq!(actual.state, expected);
     assert_eq!(actual.exit, Exit::Dispatch(0x1002));
 
@@ -164,7 +156,7 @@ fn check_direct_writes_and_comparison(engine: Engine) {
     expected.cpu.eip = 0x1002;
     expected.cpu.instruction_count = expected.cpu.instruction_count.wrapping_add(1);
     expected.memory.write(0x4ffe, &[0xab; 4100]);
-    let actual = machine.run(&block, engine);
+    let actual = machine.run(&block);
     assert_eq!(actual.state, expected);
     assert_eq!(actual.exit, Exit::Dispatch(0x1002));
 
@@ -176,13 +168,13 @@ fn check_direct_writes_and_comparison(engine: Engine) {
     machine.cpu.registers.ecx = 4;
     machine.cpu.registers.edi = 0x4000;
     machine.memory(0x4000, &[2, 2, 7, 2], ReadOnly);
-    let actual = machine.run(&block, engine);
+    let actual = machine.run(&block);
     assert_eq!(actual.exit, Exit::Dispatch(0x1002));
     assert_eq!(actual.state.cpu.registers.ecx, 1);
     assert_eq!(actual.state.cpu.registers.edi, 0x4003);
     let cpu = actual.state.cpu.to_bytes().to_vec();
     let observer = TestModule::new(&crate::state::compile_flag_observer().unwrap());
-    let observation = engine.observe(&observer, &Input::new(&cpu), 1);
+    let observation = observer.observe(&Input::new(&cpu), 1);
     let [Event::Return {
         outcome: Outcome::Returned(values),
         snapshot,
@@ -192,17 +184,6 @@ fn check_direct_writes_and_comparison(engine: Engine) {
     };
     assert_eq!(values, &[0, 1, 0, 1, 0, 0].map(Argument::I32));
     assert_eq!(snapshot.cpu, cpu);
-}
-
-#[test]
-fn resolved_writes_preserve_alias_order_and_comparisons_stop_early_in_the_jit() {
-    check_direct_writes_and_comparison(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_resolved_writes_preserve_alias_order_and_comparisons_stop_early_in_the_jit() {
-    check_direct_writes_and_comparison(Engine::V8);
 }
 
 #[test]
@@ -218,21 +199,10 @@ fn failed_preflight_publishes_prior_instructions_at_the_rep_entry() {
     expected.cpu.registers.ecx = 3;
     expected.cpu.eip = 0x1005;
     expected.cpu.instruction_count = expected.cpu.instruction_count.wrapping_add(1);
-    let actual = machine.run(&block, Engine::Wasmtime);
+    let actual = machine.run(&block);
     assert_eq!(actual.state, expected);
     assert_eq!(actual.exit, Exit::Interpret);
     assert!(actual.machine_unchanged && actual.dispatches.is_empty());
-}
-
-#[test]
-fn failed_range_preflight_completes_through_the_linked_interpreter() {
-    check_handoff_completion(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_failed_range_preflight_completes_through_the_linked_interpreter() {
-    check_handoff_completion(Engine::V8);
 }
 
 #[test]

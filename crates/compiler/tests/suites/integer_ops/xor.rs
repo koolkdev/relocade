@@ -1,7 +1,7 @@
 //! XOR folding cancels values and combines masks without narrowing their carriers.
 
 use super::*;
-use crate::wasm::{Input, Observation, TestModule};
+use crate::wasm::TestModule;
 use wasm86_compiler::{IntType, I1};
 
 fn xor_count(module: &TestModule) -> usize {
@@ -27,7 +27,8 @@ fn specialized<T: IntType>() -> TestModule {
     })
 }
 
-fn specialized_results(v8: bool) {
+#[test]
+fn path_specialization_cancels_and_combines_xor_masks() {
     for (ty, module) in [
         (Type::I32, specialized::<I32>()),
         (Type::I64, specialized::<I64>()),
@@ -45,17 +46,11 @@ fn specialized_results(v8: bool) {
                 };
                 let args = [value(input), Value::I32(choice)];
                 let expected = [value(if choice == 1 { input } else { combined })];
-                if v8 {
-                    assert_eq!(
-                        module.run_v8(&Input::call("run", &args)),
-                        Observation::returned(&expected)
-                    );
-                } else {
-                    assert_eq!(
-                        module.instantiate().call_values("run", &args).unwrap(),
-                        expected
-                    );
-                }
+
+                assert_eq!(
+                    module.instantiate().call_values("run", &args).unwrap(),
+                    expected
+                );
             }
         }
     }
@@ -86,7 +81,8 @@ fn carrier_boundaries() -> TestModule {
     })
 }
 
-fn carrier_results(v8: bool) {
+#[test]
+fn xor_folding_preserves_narrow_and_changed_carriers() {
     let module = narrow_carriers();
     assert_eq!(xor_count(&module), 0);
     for (input, mask, unsigned, signed) in [
@@ -97,17 +93,11 @@ fn carrier_results(v8: bool) {
     ] {
         let args = [Value::I32(input), Value::I32(mask)];
         let expected = [Value::I32(unsigned), Value::I64(signed)];
-        if v8 {
-            assert_eq!(
-                module.run_v8(&Input::call("run", &args)),
-                Observation::returned(&expected)
-            );
-        } else {
-            assert_eq!(
-                module.instantiate().call_values("run", &args).unwrap(),
-                expected
-            );
-        }
+
+        assert_eq!(
+            module.instantiate().call_values("run", &args).unwrap(),
+            expected
+        );
     }
     let module = carrier_boundaries();
     for (input, first, second) in [
@@ -121,33 +111,10 @@ fn carrier_results(v8: bool) {
     ] {
         let args = [Value::I64(input as i64)];
         let expected = [Value::I64(first as i64), Value::I64(second as i64)];
-        if v8 {
-            assert_eq!(
-                module.run_v8(&Input::call("run", &args)),
-                Observation::returned(&expected)
-            );
-        } else {
-            assert_eq!(
-                module.instantiate().call_values("run", &args).unwrap(),
-                expected
-            );
-        }
+
+        assert_eq!(
+            module.instantiate().call_values("run", &args).unwrap(),
+            expected
+        );
     }
-}
-
-#[test]
-fn path_specialization_cancels_and_combines_xor_masks() {
-    specialized_results(false);
-}
-
-#[test]
-fn xor_folding_preserves_narrow_and_changed_carriers() {
-    carrier_results(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn folded_xor_executes_in_v8() {
-    specialized_results(true);
-    carrier_results(true);
 }

@@ -345,39 +345,3 @@ fn every_wide_result_retains_operand_visibility_after_folding() {
         body.return_(())
     });
 }
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn wide_products_and_loop_temporaries_execute_in_v8() {
-    for signed in [false, true] {
-        for order in [&[0, 1][..], &[1, 0], &[0], &[0, 0], &[1]] {
-            let module = product(Program::new(), signed, order);
-            for (left, right) in [
-                (u64::MAX, u64::MAX),
-                (1 << 63, 2),
-                (0xffff_ffff, 0x1_ffff_ffff),
-            ] {
-                let halves = expected(left, right, signed);
-                assert_eq!(
-                    module.run_v8(&Input::call(
-                        "run",
-                        &[Value::I64(left as i64), Value::I64(right as i64)]
-                    )),
-                    Observation::returned(
-                        &order
-                            .iter()
-                            .map(|&index| Value::I64(halves[index]))
-                            .collect::<Vec<_>>()
-                    )
-                );
-            }
-        }
-    }
-    for keep_high in [false, true] {
-        assert_eq!(
-            iterated_products(keep_high)
-                .run_v8(&Input::call("run", &[Value::I32(2), Value::I64(3)])),
-            Observation::returned(&[Value::I64(3), Value::I64(if keep_high { -2 } else { 0 })])
-        );
-    }
-}

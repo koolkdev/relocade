@@ -11,8 +11,8 @@ fn conversion_code(wide: bool, truncate: bool, modrm: u8) -> Vec<u8> {
     encoding(&[prefix], if wide { 0xe6 } else { 0x5b }, modrm)
 }
 
-fn lanes(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn lanes(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for truncate in [false, true] {
             let code = conversion_code(wide, truncate, 0xc0); // XMM0,XMM0
@@ -53,8 +53,8 @@ fn lanes(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         let code = conversion_code(wide, false, 0xc1);
         for (mxcsr, raised, fault) in [
@@ -105,8 +105,8 @@ fn exceptions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         let code = conversion_code(wide, true, 0x00);
         for (address, fault) in [
@@ -150,8 +150,8 @@ test_frontends!(sse_packed_integer_lanes, lanes);
 test_frontends!(sse_packed_integer_exceptions, exceptions);
 test_frontends!(sse_packed_integer_memory, memory);
 
-fn boundaries(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn boundaries(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for truncate in [false, true] {
         let code = conversion_code(true, truncate, 0xc1);
         for rc in 0..4 {

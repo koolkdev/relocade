@@ -1,8 +1,9 @@
-use super::{CallPatches, Engine, Input, TestModule};
+use super::{CallPatches, Input, TestModule};
 use crate::SegmentProfile;
 use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32};
 
-fn check_transient_machine_write(engine: Engine) {
+#[test]
+fn machine_changes_are_observed_before_a_later_call_restores_them() {
     let mut program = Program::new();
     let machine = program.import_memory(MemoryImport {
         module: "wasm86".into(),
@@ -30,23 +31,13 @@ fn check_transient_machine_write(engine: Engine) {
         bytes: program.compile().unwrap(),
         entry: "toggle".into(),
     });
-    let observation = engine.observe(&module, &Input::new(&[]), 2);
+    let observation = module.observe(&Input::new(&[]), 2);
     // Two toggles restore the initial bytes, but the first return changed them.
     assert!(!observation.machine_unchanged);
 }
 
 #[test]
-fn machine_changes_are_observed_before_a_later_call_restores_them() {
-    check_transient_machine_write(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_observes_machine_changes_before_a_later_call_restores_them() {
-    check_transient_machine_write(Engine::V8);
-}
-
-fn check_host_memory_edits(engine: Engine) {
+fn host_edits_are_observed_without_module_memory_imports() {
     use super::{Argument, Event, Observation, Outcome, Snapshot};
 
     let mut program = Program::new();
@@ -82,7 +73,7 @@ fn check_host_memory_edits(engine: Engine) {
         ..Input::new(&[0])
     };
     assert_eq!(
-        engine.observe(&module, &input, 2),
+        module.observe(&input, 2),
         Observation {
             events: [vec![(7, 41)], vec![]]
                 .into_iter()
@@ -101,17 +92,7 @@ fn check_host_memory_edits(engine: Engine) {
 }
 
 #[test]
-fn host_edits_are_observed_without_module_memory_imports() {
-    check_host_memory_edits(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_observes_host_edits_without_module_memory_imports() {
-    check_host_memory_edits(Engine::V8);
-}
-
-fn check_entry_contexts(engine: Engine) {
+fn profile_admission_uses_patched_contexts_for_actual_calls() {
     use super::{Argument, Event, Observation, Outcome, Snapshot};
     use crate::{compile_block_from_bytes, CpuState, ExecutionProfile, Segments};
 
@@ -150,7 +131,7 @@ fn check_entry_contexts(engine: Engine) {
         guest: None,
     };
     assert_eq!(
-        engine.observe(&module, &input, 1),
+        module.observe(&input, 1),
         Observation {
             events: vec![
                 Event::Dispatch {
@@ -165,17 +146,6 @@ fn check_entry_contexts(engine: Engine) {
             machine_unchanged: true,
         }
     );
-}
-
-#[test]
-fn profile_admission_uses_patched_contexts_for_actual_calls() {
-    check_entry_contexts(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_profile_admission_uses_actual_entry_contexts() {
-    check_entry_contexts(Engine::V8);
 }
 
 #[test]

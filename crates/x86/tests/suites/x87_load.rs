@@ -6,7 +6,6 @@ mod faults;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{
         complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits,
         INDEFINITE,
@@ -98,9 +97,8 @@ fn check_conversion(checks: &mut ImageSequences, case: Conversion, control: u16)
     );
 }
 
-fn exact_conversions(engine: Engine, frontend: Frontend) {
+fn exact_conversions(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -348,9 +346,8 @@ fn exact_conversions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn precision_controls_do_not_round_loads(engine: Engine, frontend: Frontend) {
+fn precision_controls_do_not_round_loads(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );

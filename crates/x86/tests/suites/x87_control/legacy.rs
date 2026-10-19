@@ -10,8 +10,8 @@ fn encoding() {
     }
 }
 
-fn no_effect(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn no_effect(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0xe0, 0xe1, 0xe4] {
         let code = [0xdb, opcode, 0x9b];
         let mut image = initial_image(&code);
@@ -41,8 +41,8 @@ fn no_effect(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn wait_prefix(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn wait_prefix(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0xe0, 0xe1, 0xe4] {
         let code = [0x9b, 0xdb, opcode];
         let mut image = initial_image(&code);
@@ -67,7 +67,7 @@ fn wait_prefix(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn tracked_state(engine: Engine, frontend: Frontend) {
+fn tracked_state(frontend: Frontend) {
     let code = [0xd9, 0xe8, 0xdb, 0xe0, 0xdb, 0xe1, 0xdb, 0xe4, 0xd8, 0xc0]; // FLD1; controls; FADD ST0,ST0
     let mut image = stack_image(&code, 0, 0xffff);
     image.cpu.x87.status.precision = 0;
@@ -80,7 +80,7 @@ fn tracked_state(engine: Engine, frontend: Frontend) {
     let third = retire(second, 2);
     let mut added = complete_x87(third, 2, 0x00c0);
     write_value(&mut added, 7, (1 << 63, 0x4000));
-    ImageSequences::new(engine, frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
         "tracked arithmetic crosses obsolete controls unchanged",
         &code,
         &image,

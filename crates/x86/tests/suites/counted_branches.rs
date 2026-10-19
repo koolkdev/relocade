@@ -8,7 +8,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     compile_block_from_bytes, CpuState,
@@ -247,7 +247,8 @@ fn forms_consume_one_displacement_and_end_the_block() {
     }
 }
 
-fn missing_displacement(engine: Engine) {
+#[test]
+fn missing_displacement_precedes_the_counter_change() {
     for opcode in OPCODES {
         for BranchInput {
             count, zero_flag, ..
@@ -260,7 +261,6 @@ fn missing_displacement(engine: Engine) {
             image.cpu.flags.bytes.zf = u8::from(zero_flag);
             image.data(0x3fff, &[opcode]);
             image.check_unchanged_exit(
-                engine,
                 TestModule::interpreter(),
                 &format!("missing displacement for {opcode:02x}, ECX={count}, ZF={zero_flag}"),
                 Exit::PageFault {
@@ -270,17 +270,6 @@ fn missing_displacement(engine: Engine) {
             );
         }
     }
-}
-
-#[test]
-fn missing_displacement_precedes_the_counter_change() {
-    missing_displacement(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn missing_displacement_precedes_the_counter_change_in_v8() {
-    missing_displacement(Engine::V8);
 }
 
 test_cases!(counts_and_conditions_without_successor_fetch, count_cases());

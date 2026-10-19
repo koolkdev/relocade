@@ -24,7 +24,6 @@ mod string_io;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
 };
 use wasm86_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
 
@@ -50,6 +49,6 @@ fn retired(image: &Image, bytes: usize) -> CpuState {
     cpu
 }
 
-fn sequences(engine: Engine, frontend: Frontend) -> ImageSequences {
-    ImageSequences::new(engine, frontend, ExecutionProfile::Real16)
+fn sequences(frontend: Frontend) -> ImageSequences {
+    ImageSequences::new(frontend, ExecutionProfile::Real16)
 }

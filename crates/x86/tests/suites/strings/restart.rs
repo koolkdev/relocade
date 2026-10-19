@@ -6,11 +6,11 @@ use crate::support::{
         Exit, Machine,
         Permissions::{ReadOnly, ReadWrite},
     },
-    step::{Argument, Engine, Event, Input, Outcome, TestModule},
+    step::{Argument, Event, Input, Outcome, TestModule},
 };
 use wasm86_x86::compile_block_from_bytes;
 
-fn restart_after_source_page_repair(engine: Engine, opcode: u8) {
+fn restart_after_source_page_repair(opcode: u8) {
     let code = [0xf3, opcode];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap())
         .with_interpreter(TestModule::interpreter());
@@ -25,7 +25,7 @@ fn restart_after_source_page_repair(engine: Engine, opcode: u8) {
         machine.memory(0x4ffe, &[0x12, 0x34], ReadOnly);
         machine.memory(0x7000, &[0xa5; 4], ReadWrite);
         let initial = machine.state();
-        let fault = machine.run(module, engine);
+        let fault = machine.run(module);
         let mut expected = initial;
         expected.cpu.registers.ecx = 2;
         expected.cpu.registers.esi = 0x5000;
@@ -62,7 +62,7 @@ fn restart_after_source_page_repair(engine: Engine, opcode: u8) {
         } else {
             completed.cpu.registers.eax = 0xaabb_cc78;
         }
-        let actual = machine.run(module, engine);
+        let actual = machine.run(module);
         assert_eq!(actual.state, completed);
         assert_eq!(actual.exit, Exit::Dispatch(0x1002));
         assert_eq!(actual.dispatches, [(0x1002, completed)]);
@@ -70,7 +70,8 @@ fn restart_after_source_page_repair(engine: Engine, opcode: u8) {
     }
 }
 
-fn restart_comparisons_after_page_repair(engine: Engine) {
+#[test]
+fn repaired_comparison_resumes_with_remaining_count() {
     let observer = TestModule::new(&crate::state::compile_flag_observer().unwrap());
     for (opcode, prefix) in [(0xa6, 0xf3), (0xae, 0xf2)] {
         let code = [prefix, opcode];
@@ -88,7 +89,7 @@ fn restart_comparisons_after_page_repair(engine: Engine) {
             machine.memory(0x4000, &[5; 4], ReadOnly);
             machine.memory(0x7ffe, &[if prefix == 0xf3 { 5 } else { 3 }; 2], ReadOnly);
             let initial = machine.state();
-            let fault = machine.run(module, engine);
+            let fault = machine.run(module);
             let mut expected = initial;
             expected.cpu.registers.ecx = 2;
             expected.cpu.registers.edi = 0x8000;
@@ -122,9 +123,9 @@ fn restart_comparisons_after_page_repair(engine: Engine) {
             }
             expected.cpu.eip = 0x1002;
             expected.cpu.instruction_count = 18;
-            let actual = machine.run(module, engine);
+            let actual = machine.run(module);
             let cpu_bytes = actual.state.cpu.to_bytes();
-            let observed = engine.observe(&observer, &Input::new(&cpu_bytes), 1);
+            let observed = observer.observe(&Input::new(&cpu_bytes), 1);
             let Event::Return {
                 outcome: Outcome::Returned(values),
                 snapshot,
@@ -167,25 +168,6 @@ fn restart_comparisons_after_page_repair(engine: Engine) {
 #[test]
 fn repaired_transfer_resumes_after_completed_elements() {
     for opcode in [0xa4, 0xac] {
-        restart_after_source_page_repair(Engine::Wasmtime, opcode);
+        restart_after_source_page_repair(opcode);
     }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn repaired_transfer_resumes_after_completed_elements_v8() {
-    for opcode in [0xa4, 0xac] {
-        restart_after_source_page_repair(Engine::V8, opcode);
-    }
-}
-
-#[test]
-fn repaired_comparison_resumes_with_remaining_count() {
-    restart_comparisons_after_page_repair(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn repaired_comparison_resumes_with_remaining_count_v8() {
-    restart_comparisons_after_page_repair(Engine::V8);
 }

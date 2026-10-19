@@ -1,7 +1,7 @@
 //! Partial observations may discard work only inside an unshared vector chain.
 
 use super::*;
-use crate::wasm::{Call, Callback};
+use crate::wasm::Call;
 use wasm86_compiler::{I16, I64, V64};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -16,7 +16,7 @@ fn operations(bytes: &[u8]) -> Vec<Operator<'_>> {
         .collect()
 }
 
-fn discarded_and_shared(v8: bool) {
+fn discarded_and_shared() {
     let mut initial = vec![0xa5; 80];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -82,12 +82,12 @@ fn discarded_and_shared(v8: bool) {
                 .copy_from_slice(&(LEFT as u32).wrapping_add(RIGHT as u32).to_le_bytes());
             expected[52..54]
                 .copy_from_slice(&(LEFT as u16).wrapping_sub(RIGHT as u16).to_le_bytes());
-            check(&module, &initial, &expected, input as i32, v8);
+            check(&module, &expected, input as i32);
         }
     }
 }
 
-fn lane_dependencies(v8: bool) {
+fn lane_dependencies() {
     let mut initial = vec![0xa5; 64];
     initial[..8].copy_from_slice(&0x1200_u64.to_le_bytes());
     for case in 0..7 {
@@ -136,12 +136,12 @@ fn lane_dependencies(v8: bool) {
             };
             let mut expected = initial.clone();
             expected[16] = result;
-            check(&module, &initial, &expected, i32::from(input), v8);
+            check(&module, &expected, i32::from(input));
         }
     }
 }
 
-fn surviving_wide_product(v8: bool) {
+fn surviving_wide_product() {
     let initial = LEFT.to_le_bytes();
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
@@ -164,25 +164,15 @@ fn surviving_wide_product(v8: bool) {
             Value::I32((LEFT as u32).wrapping_add(1) as i32),
             Value::I64(input.saturating_sub(1) as i64),
         ];
-        if v8 {
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &arguments)
-                        .with_memories(&[MemoryBytes::new("state", &initial)])
-                ),
-                Observation::returned(&expected)
-                    .with_memories(&[MemoryBytes::new("state", &initial)])
-            );
-        } else {
-            assert_eq!(
-                module.instantiate().call_values("run", &arguments).unwrap(),
-                expected
-            );
-        }
+
+        assert_eq!(
+            module.instantiate().call_values("run", &arguments).unwrap(),
+            expected
+        );
     }
 }
 
-fn retired_boolean_keeps_numeric_mask(v8: bool) {
+fn retired_boolean_keeps_numeric_mask() {
     let mut initial = vec![0xa5; 32];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
@@ -204,11 +194,12 @@ fn retired_boolean_keeps_numeric_mask(v8: bool) {
         let mut expected = initial.clone();
         expected[16..20].copy_from_slice(&(input as u32 & 255).to_le_bytes());
         expected[20] = (LEFT as u8).wrapping_add(1);
-        check(&module, &initial, &expected, input, v8);
+        check(&module, &expected, input);
     }
 }
 
-fn shuffled_observation(v8: bool) {
+#[test]
+fn partial_shuffle_observations_retain_only_contributing_replacements() {
     let mut initial = vec![0xa5; 40];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -247,11 +238,12 @@ fn shuffled_observation(v8: bool) {
         let right = input.wrapping_add(1).to_le_bytes();
         let mut expected = initial.clone();
         expected[32..36].copy_from_slice(&[0x10 ^ 5, right[0] ^ 6, left[2] ^ 7, 0xaa ^ 8]);
-        check(&module, &initial, &expected, input as i32, v8);
+        check(&module, &expected, input as i32);
     }
 }
 
-fn discarded_replacement_effects(v8: bool) {
+#[test]
+fn discarded_replacements_keep_loads_calls_and_effect_order() {
     let mut initial = vec![0xa5; 32];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
@@ -292,60 +284,17 @@ fn discarded_replacement_effects(v8: bool) {
     let calls = [Call::new("produce", &[]).with_memories(&[MemoryBytes::new("state", &snapshot)])];
     let mut expected = snapshot;
     expected[20..24].copy_from_slice(&(LEFT as u32).wrapping_add(1).to_le_bytes());
-    if v8 {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[])
-                    .with_memories(&[MemoryBytes::new("state", &initial)])
-                    .with_callbacks(&[Callback::new("produce", &[Value::I32(7)])])
-            ),
-            Observation::returned(&[])
-                .with_callbacks(&calls)
-                .with_memories(&[MemoryBytes::new("state", &expected)])
-        );
-    } else {
-        let mut instance = module.instantiate();
-        instance.call::<()>(()).unwrap();
-        assert_eq!(instance.callbacks(), calls);
-        assert_eq!(&instance.memory("state")[..expected.len()], expected);
-    }
-}
 
-#[test]
-fn partial_shuffle_observations_retain_only_contributing_replacements() {
-    shuffled_observation(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_partial_shuffle_observations_retain_only_contributing_replacements() {
-    shuffled_observation(true);
-}
-
-#[test]
-fn discarded_replacements_keep_loads_calls_and_effect_order() {
-    discarded_replacement_effects(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_discarded_replacements_keep_loads_calls_and_effect_order() {
-    discarded_replacement_effects(true);
+    let mut instance = module.instantiate();
+    instance.call::<()>(()).unwrap();
+    assert_eq!(instance.callbacks(), calls);
+    assert_eq!(&instance.memory("state")[..expected.len()], expected);
 }
 
 #[test]
 fn partial_vector_observations_preserve_sharing_dependencies_and_other_results() {
-    discarded_and_shared(false);
-    lane_dependencies(false);
-    surviving_wide_product(false);
-    retired_boolean_keeps_numeric_mask(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_partial_vector_observations_preserve_sharing_dependencies_and_other_results() {
-    discarded_and_shared(true);
-    lane_dependencies(true);
-    surviving_wide_product(true);
-    retired_boolean_keeps_numeric_mask(true);
+    discarded_and_shared();
+    lane_dependencies();
+    surviving_wide_product();
+    retired_boolean_keeps_numeric_mask();
 }

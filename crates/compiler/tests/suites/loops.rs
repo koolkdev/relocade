@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::TestModule;
 use wasm86_compiler::{BuildError, Type, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -299,55 +299,6 @@ fn loop_inputs_and_labels_cannot_escape_and_failed_builds_leave_parent_usable() 
         })
         .unwrap();
     validate(&fixture.finish(function));
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn typed_loops_execute_in_v8() {
-    let module = entry_reads_used_on_backedges();
-    assert_eq!(
-        module.run_v8(
-            &Input::call("run", &[Value::I32(3)]).with_memories(&[MemoryBytes::new(
-                "state",
-                &[7, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a, 0, 0]
-            )])
-        ),
-        Observation::returned(&[Value::I32(78)]).with_memories(&[MemoryBytes::new(
-            "state",
-            &[10, 0, 0, 0, 41, 0, 0, 0, 78, 0, 0, 0]
-        )])
-    );
-    let module = swaps();
-    for (count, expected) in [
-        (0, [Value::I64(100), Value::I32(3), Value::I32(7)]),
-        (5, [Value::I64(123), Value::I32(7), Value::I32(3)]),
-    ] {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I32(count)])),
-            Observation::returned(&expected)
-        );
-    }
-    let module = nested_labels();
-    for (count, expected) in [(1, 2), (4, 120)] {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I32(count)])),
-            Observation::returned(&[Value::I32(expected)])
-        );
-    }
-    let module = snapshots();
-    assert_eq!(
-        module.run_v8(
-            &Input::call("run", &[Value::I32(3)])
-                .with_memories(&[MemoryBytes::new("state", &[7, 0, 0, 0, 0xa5, 0x5a])])
-        ),
-        Observation::returned(&[Value::I32(31)])
-            .with_memories(&[MemoryBytes::new("state", &[10, 0, 0, 0, 0xa5, 0x5a])])
-    );
-    let module = narrow_values();
-    assert_eq!(
-        module.run_v8(&Input::call("run", &[Value::I32(3)])),
-        Observation::returned(&[Value::I32(1), Value::I32(1)])
-    );
 }
 
 fn guarded_invariant_reads() -> TestModule {
