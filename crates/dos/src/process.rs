@@ -4,6 +4,7 @@ use crate::memory;
 use wasm86_machine::{MachineStorage, Memory};
 use wasm86_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
 
+pub(crate) const COMMAND_TAIL_OFFSET: u16 = 0x80;
 pub(crate) const PSP_BYTES: usize = 0x100;
 pub(crate) const PSP_PARAGRAPHS: u16 = 0x10;
 
@@ -23,7 +24,7 @@ pub(crate) fn allocate(
     // PSP:0016 is the parent's PSP segment. The root process is its own parent.
     psp[0x16..0x18].copy_from_slice(&segment.to_le_bytes());
     // PSP:0080 is the command-tail length (zero); 0081 holds its trailing CR.
-    psp[0x81] = b'\r';
+    psp[usize::from(COMMAND_TAIL_OFFSET) + 1] = b'\r';
     memory
         .write(u32::from(segment) * memory::PARAGRAPH_BYTES, &psp)
         .expect("process PSP");

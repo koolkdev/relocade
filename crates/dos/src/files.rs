@@ -2,7 +2,11 @@
 
 use crate::error::DosError;
 use crate::{path, MountError};
-use std::io::ErrorKind;
+use std::{collections::BTreeMap, io::ErrorKind};
+
+mod search;
+mod short_name;
+pub(crate) use search::FIND_DATA_BYTES;
 use wasm86_vfs::{File, MemoryFileSystem};
 
 // A DOS process starts with 20 handles, including its five standard devices.
@@ -23,6 +27,8 @@ pub enum FileAccess {
 pub(crate) struct Files {
     filesystem: MemoryFileSystem,
     current_directory: String,
+    attributes: BTreeMap<String, u8>,
+    search_directories: Vec<String>,
     handles: [Option<OpenHandle>; HANDLE_COUNT],
 }
 
@@ -82,6 +88,7 @@ impl Files {
             .replace_file(&path, contents)
             .map_err(|_| MountError::InvalidPath)?;
         file.set_read_only(access == FileAccess::ReadOnly);
+        self.attributes.insert(path, ARCHIVE_ATTRIBUTE as u8);
         Ok(())
     }
 
@@ -112,7 +119,7 @@ impl Files {
     }
 
     pub(crate) fn create(&mut self, path: &[u8], attributes: u16) -> Result<u16, DosError> {
-        // Direct file access only enforces read-only; the other file flags are accepted.
+        // DOS owns hidden/system/archive flags; VFS enforces read-only opens.
         if attributes
             & !(READ_ONLY_ATTRIBUTE | HIDDEN_ATTRIBUTE | SYSTEM_ATTRIBUTE | ARCHIVE_ATTRIBUTE)
             != 0
@@ -140,6 +147,8 @@ impl Files {
         file.set_len(0)
             .expect("truncating a writable file does not allocate");
         file.set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
+        self.attributes
+            .insert(path, (attributes | ARCHIVE_ATTRIBUTE) as u8);
         Ok(handle)
     }
 
@@ -249,6 +258,7 @@ impl Files {
 
     pub(crate) fn reset_handles(&mut self) {
         self.close_all();
+        self.search_directories.clear();
         for (slot, device) in self.handles.iter_mut().zip([
             OpenHandle::ConsoleInput,
             OpenHandle::ConsoleOutput,
