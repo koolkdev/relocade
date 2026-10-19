@@ -272,15 +272,21 @@ impl Files {
             .get_mut(usize::from(handle))
             .and_then(Option::take)
             .ok_or(DosError::InvalidHandle)?;
-        self.close_handle(open);
+        self.commit_handle(open);
         Ok(())
     }
 
-    fn close_handle(&mut self, handle: OpenHandle) {
+    pub(crate) fn commit(&mut self, handle: u16) -> Result<(), DosError> {
+        let open = self.handle(handle)?.clone();
+        self.commit_handle(open);
+        Ok(())
+    }
+
+    fn commit_handle(&mut self, handle: OpenHandle) {
         let OpenHandle::File(open) = handle else {
             return;
         };
-        // DOS supports duplicate-then-close to flush an open file's metadata.
+        // VFS writes are immediate; commit and close publish DOS archive metadata.
         let open = open.borrow();
         // The host may have replaced this path while the old file was still open.
         if open.written
@@ -314,7 +320,7 @@ impl Files {
             .get_mut(usize::from(destination))
             .ok_or(DosError::InvalidHandle)?;
         if let Some(replaced) = slot.replace(open) {
-            self.close_handle(replaced);
+            self.commit_handle(replaced);
         }
         Ok(())
     }
@@ -365,7 +371,7 @@ impl Files {
 
     pub(crate) fn close_all(&mut self) {
         for handle in std::mem::take(&mut self.handles).into_iter().flatten() {
-            self.close_handle(handle);
+            self.commit_handle(handle);
         }
     }
 

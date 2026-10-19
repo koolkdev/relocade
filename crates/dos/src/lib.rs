@@ -26,6 +26,7 @@
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! AH=43h queries or changes read-only, hidden, system and archive attributes.
 //! Closing a written file handle restores the archive attribute.
+//! AH=68h/6Ah commits that metadata while preserving the open handle and its cursor.
 //! AH=41h deletes files after read-only and open-handle checks.
 //! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
 //! AH=09h string output follows the current stdout handle, just like AH=40h.
