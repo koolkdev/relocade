@@ -58,6 +58,7 @@ impl std::error::Error for MountError {}
 pub enum LoadError {
     EmptyImage,
     ImageTooLarge,
+    CommandTailTooLong,
     InvalidMzHeader,
     InvalidRelocation,
     InsufficientMemory,
@@ -69,6 +70,7 @@ impl fmt::Display for LoadError {
         match self {
             Self::EmptyImage => f.write_str("COM image is empty"),
             Self::ImageTooLarge => f.write_str("COM image exceeds 65,278 bytes"),
+            Self::CommandTailTooLong => f.write_str("DOS command tail exceeds 126 bytes"),
             Self::InvalidMzHeader => f.write_str("invalid or truncated DOS MZ executable"),
             Self::InvalidRelocation => f.write_str("invalid MZ relocation table or target"),
             Self::InsufficientMemory => {
