@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler", "crates/x86", "crates/test-support", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/runtime-web", "crates/dos"]
-default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/dos"]
+members = ["crates/compiler", "crates/x86", "crates/test-support", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/runtime-web", "crates/vfs", "crates/dos"]
+default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/vfs", "crates/dos"]
 
 [workspace.package]
 version = "0.0.0"

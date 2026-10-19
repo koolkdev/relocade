@@ -1,10 +1,9 @@
 //! DOS path resolution and the current program's open file handles.
 
 use crate::error::DosError;
-use crate::filesystem::{File, FileSystem};
-use crate::{FileAccess, MountError};
-use std::cell::RefCell;
-use std::rc::Rc;
+use crate::MountError;
+use std::io::ErrorKind;
+use wasm86_vfs::{File, MemoryFileSystem};
 
 // A DOS process starts with 20 handles, including its five standard devices.
 const HANDLE_COUNT: usize = 20;
@@ -14,9 +13,16 @@ const HIDDEN_ATTRIBUTE: u16 = 0x02;
 const SYSTEM_ATTRIBUTE: u16 = 0x04;
 const ARCHIVE_ATTRIBUTE: u16 = 0x20;
 
+/// Whether a host-supplied file may be opened for writing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FileAccess {
+    ReadOnly,
+    ReadWrite,
+}
+
 #[derive(Default)]
 pub(crate) struct Files {
-    filesystem: FileSystem,
+    filesystem: MemoryFileSystem,
     handles: [Option<OpenHandle>; HANDLE_COUNT],
 }
 
@@ -29,7 +35,7 @@ enum OpenHandle {
 }
 
 struct OpenFile {
-    file: Rc<RefCell<File>>,
+    file: File,
     position: u32,
     readable: bool,
     writable: bool,
@@ -49,12 +55,19 @@ impl Files {
         if contents.len() > u32::MAX as usize {
             return Err(MountError::FileTooLarge);
         }
-        self.filesystem.mount(path, contents, access);
+        self.filesystem
+            .create_dir_all(parent_path(&path))
+            .map_err(|_| MountError::InvalidPath)?;
+        let file = self
+            .filesystem
+            .replace_file(&path, contents)
+            .map_err(|_| MountError::InvalidPath)?;
+        file.set_read_only(access == FileAccess::ReadOnly);
         Ok(())
     }
 
     pub(crate) fn read_file(&self, path: &str) -> Option<Vec<u8>> {
-        self.filesystem.read_file(&normalize_path(path.as_bytes())?)
+        self.filesystem.read(&normalize_path(path.as_bytes())?).ok()
     }
 
     pub(crate) fn open(&mut self, path: &[u8], mode: u8) -> Result<u16, DosError> {
@@ -62,17 +75,19 @@ impl Files {
             return Err(DosError::InvalidAccess);
         }
         let path = normalize_path(path).ok_or(DosError::PathNotFound)?;
-        let file = self.filesystem.file(&path).ok_or_else(|| {
-            if self.filesystem.parent_exists(&path) {
-                DosError::FileNotFound
-            } else {
-                DosError::PathNotFound
-            }
-        })?;
-        if mode & 3 != 0 && file.borrow().access == FileAccess::ReadOnly {
-            return Err(DosError::AccessDenied);
+        let file = if mode & 3 == 0 {
+            self.filesystem.open(&path)
+        } else {
+            self.filesystem.open_read_write(&path)
         }
-        self.open_file(Rc::clone(file), mode)
+        .map_err(|error| match error.kind() {
+            ErrorKind::NotFound if self.filesystem.is_dir(parent_path(&path)) => {
+                DosError::FileNotFound
+            }
+            ErrorKind::NotFound | ErrorKind::NotADirectory => DosError::PathNotFound,
+            _ => DosError::AccessDenied,
+        })?;
+        self.open_file(file, mode)
     }
 
     pub(crate) fn create(&mut self, path: &[u8], attributes: u16) -> Result<u16, DosError> {
@@ -84,37 +99,30 @@ impl Files {
             return Err(DosError::AccessDenied);
         }
         let path = normalize_path(path).ok_or(DosError::PathNotFound)?;
-        if !self.filesystem.parent_exists(&path) {
+        if !self.filesystem.is_dir(parent_path(&path)) {
             return Err(DosError::PathNotFound);
         }
-        if self.filesystem.is_directory(&path) {
-            return Err(DosError::AccessDenied);
-        }
-        let file =
-            self.filesystem.file(&path).cloned().unwrap_or_else(|| {
-                Rc::new(RefCell::new(File::new(Vec::new(), FileAccess::ReadWrite)))
-            });
-        if file.borrow().access == FileAccess::ReadOnly {
-            return Err(DosError::AccessDenied);
-        }
-        // Check sharing and reserve a handle before changing the file or namespace.
-        let handle = self.open_file(Rc::clone(&file), 2)?;
-        {
-            let mut storage = file.borrow_mut();
-            storage
-                .set_len(0)
-                .expect("shrinking a file does not allocate");
-            storage.access = if attributes & READ_ONLY_ATTRIBUTE != 0 {
-                FileAccess::ReadOnly
-            } else {
-                FileAccess::ReadWrite
-            };
-        }
-        self.filesystem.insert(path, file);
+        let file = match self.filesystem.open_read_write(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                // Check capacity before publishing a new file. It cannot share
+                // identity with an existing handle, so sharing checks will pass.
+                self.vacant_handle()?;
+                self.filesystem
+                    .create_new(&path)
+                    .map_err(|_| DosError::AccessDenied)?
+            }
+            Err(_) => return Err(DosError::AccessDenied),
+        };
+        // Existing files are truncated only after sharing and capacity checks.
+        let handle = self.open_file(file.clone(), 2)?;
+        file.set_len(0)
+            .expect("truncating a writable file does not allocate");
+        file.set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
         Ok(handle)
     }
 
-    fn open_file(&mut self, file: Rc<RefCell<File>>, mode: u8) -> Result<u16, DosError> {
+    fn open_file(&mut self, file: File, mode: u8) -> Result<u16, DosError> {
         let entry = OpenFile {
             file,
             position: 0,
@@ -124,12 +132,12 @@ impl Files {
             deny_write: matches!(mode & 0x70, 0x10 | 0x20),
             compatibility: mode & 0x70 == 0,
         };
-        let read_only = entry.file.borrow().access == FileAccess::ReadOnly;
+        let read_only = entry.file.is_read_only();
         if self.handles.iter().flatten().any(|handle| {
             let OpenHandle::File(open) = handle else {
                 return false;
             };
-            Rc::ptr_eq(&open.file, &entry.file)
+            open.file.same_file(&entry.file)
                 && ((entry.readable && open.deny_read)
                     || (entry.writable && open.deny_write)
                     // New deny-read/write modes exempt this process's existing accesses.
@@ -140,14 +148,16 @@ impl Files {
         }) {
             return Err(DosError::AccessDenied);
         }
-        let (handle, slot) = self
-            .handles
-            .iter_mut()
-            .enumerate()
-            .find(|(_, entry)| entry.is_none())
-            .ok_or(DosError::TooManyOpenFiles)?;
-        *slot = Some(OpenHandle::File(entry));
+        let handle = self.vacant_handle()?;
+        self.handles[handle] = Some(OpenHandle::File(entry));
         Ok(handle as u16)
+    }
+
+    fn vacant_handle(&self) -> Result<usize, DosError> {
+        self.handles
+            .iter()
+            .position(Option::is_none)
+            .ok_or(DosError::TooManyOpenFiles)
     }
 
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
@@ -155,7 +165,10 @@ impl Files {
         if !open.readable {
             return Err(DosError::AccessDenied);
         }
-        let count = open.file.borrow().read_at(open.position, buffer);
+        let count = open
+            .file
+            .read_at(buffer, u64::from(open.position))
+            .map_err(|_| DosError::AccessDenied)?;
         open.position += count as u32;
         Ok(count)
     }
@@ -165,16 +178,21 @@ impl Files {
         if !open.writable {
             return Err(DosError::AccessDenied);
         }
-        let mut storage = open.file.borrow_mut();
         if bytes.is_empty() {
             // DOS AH=40h with CX=0 sets the file length at the current position.
-            storage
-                .set_len(open.position)
+            open.file
+                .set_len(u64::from(open.position))
                 .map_err(|_| DosError::AccessDenied)?;
             return Ok(0);
         }
-        let count = storage
-            .write_at(open.position, bytes)
+        // DOS cursors and file sizes remain 32-bit even though VFS offsets are u64.
+        let count = u32::try_from(bytes.len()).map_err(|_| DosError::AccessDenied)?;
+        open.position
+            .checked_add(count)
+            .ok_or(DosError::AccessDenied)?;
+        let count = open
+            .file
+            .write_at(bytes, u64::from(open.position))
             .map_err(|_| DosError::AccessDenied)?;
         open.position += count as u32;
         Ok(count)
@@ -185,7 +203,7 @@ impl Files {
         let base = match origin {
             0 => 0,
             1 => open.position,
-            2 => open.file.borrow().len(),
+            2 => open.file.len() as u32,
             _ => return Err(DosError::InvalidFunction),
         };
         // Absolute offsets use all 32 bits; relative offsets wrap as DOS ADD/ADC does.
@@ -236,6 +254,10 @@ impl Files {
             None => Err(DosError::InvalidHandle),
         }
     }
+}
+
+fn parent_path(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(parent, _)| parent)
 }
 
 // C: is the only drive and its current directory is the root. Mounted names use
