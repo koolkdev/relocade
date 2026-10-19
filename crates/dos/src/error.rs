@@ -15,6 +15,7 @@ pub(crate) enum DosError {
     InvalidAccess,
     InvalidDrive,
     NoMoreFiles,
+    LongFilenameNotSupported,
 }
 
 impl DosError {
@@ -32,6 +33,7 @@ impl DosError {
             Self::InvalidAccess => 12,
             Self::InvalidDrive => 15,
             Self::NoMoreFiles => 18,
+            Self::LongFilenameNotSupported => 0x7100,
         }
     }
 }

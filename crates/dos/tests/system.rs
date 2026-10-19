@@ -1,0 +1,99 @@
+mod common;
+
+use common::{error, service, SERVICE_PROGRAM};
+use wasm86_x86::{ExecutionExit, Segment, StoredSegment};
+
+#[cfg(target_arch = "wasm32")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+async fn check_system_services() {
+    let mut dos = common::dos().await;
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    error(&service(&mut dos, 0x3e00, 0xffff, 0, 0), 6); // Set carry.
+    let cpu = service(&mut dos, 0x3000, 0x1234, 0x5678, 0x9abc);
+    assert_eq!(cpu.registers.eax as u16, 5);
+    assert_eq!(cpu.registers.ebx as u16, 0xff00);
+    assert_eq!(cpu.registers.ecx as u16, 0);
+    assert_eq!(cpu.registers.edx as u16, 0x9abc);
+    assert_eq!(cpu.flags.eflags() & 1, 1); // Version and vector services preserve flags.
+    let cpu = service(&mut dos, 0x3001, 0xffff, 0xffff, 0);
+    assert_eq!(cpu.registers.eax as u16, 5);
+    assert_eq!(cpu.registers.ebx as u16, 0);
+
+    // A non-normalized pointer survives a set/get round trip exactly.
+    dos.runtime()
+        .machine()
+        .cpu()
+        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x1234))
+        .unwrap();
+    let cpu = service(&mut dos, 0x25ff, 0, 0, 0xfedc);
+    assert_eq!(cpu.flags.eflags() & 1, 1);
+    let mut vector = [0; 4];
+    dos.runtime()
+        .machine()
+        .memory()
+        .read(0x3fc, &mut vector)
+        .unwrap();
+    assert_eq!(vector, [0xdc, 0xfe, 0x34, 0x12]);
+    let cpu = service(&mut dos, 0x35ff, 0, 0, 0);
+    assert_eq!(cpu.registers.ebx as u16, 0xfedc);
+    assert_eq!(cpu.segments[Segment::Es].selector, 0x1234);
+    assert_eq!(cpu.flags.eflags() & 1, 1);
+
+    // Querying DOS's vector returns the address used by normal guest dispatch.
+    let cpu = service(&mut dos, 0x3521, 0, 0, 0);
+    assert_eq!(cpu.segments[Segment::Es].selector, 0xf000);
+    assert_eq!(cpu.registers.ebx as u16, 0x110);
+    error(&service(&mut dos, 0x71a0, 0, 0, 0), 0x7100);
+    error(&service(&mut dos, 0x714e, 0, 0, 0), 0x7100);
+    assert_eq!(dos.exit_status(), None); // Unsupported LFN calls return to the guest.
+}
+
+async fn check_guest_interrupt_vector() {
+    let mut dos = common::dos().await;
+    let mut program = vec![
+        0xb8, 0x60, 0x25, // MOV AX,2560: install INT 60h
+        0xba, 0x20, 1, // MOV DX,0120: handler within CS=DS
+        0xcd, 0x21, // Set the vector through DOS.
+        0x31, 0xc0, // XOR AX,AX
+        0xcd, 0x60, // Invoke the guest handler through the IVT.
+        0xa3, 0, 3, // MOV [0300],AX
+        0xb8, 0, 0x4c, 0xcd, 0x21, // Exit 0.
+    ];
+    program.resize(0x20, 0);
+    program.extend_from_slice(&[0xb8, 0x34, 0x12, 0xcf]); // MOV AX,1234; IRET
+    dos.load_com(&program, Default::default()).unwrap();
+    assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    let mut result = [0; 2];
+    dos.runtime()
+        .machine()
+        .memory()
+        .read(0x10300, &mut result)
+        .unwrap();
+    assert_eq!(result, [0x34, 0x12]);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn dos_reports_version_vectors_and_absent_lfn_services() {
+    pollster::block_on(check_system_services());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn dos_reports_version_vectors_and_absent_lfn_services() {
+    check_system_services().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn dos_installs_a_guest_interrupt_handler() {
+    pollster::block_on(check_guest_interrupt_vector());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn dos_installs_a_guest_interrupt_handler() {
+    check_guest_interrupt_vector().await;
+}
