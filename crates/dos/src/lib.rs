@@ -8,6 +8,7 @@
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
+//! AH=3Ch creates or truncates files in existing directories.
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`]. The host chooses the Wasm backend and controls execution through

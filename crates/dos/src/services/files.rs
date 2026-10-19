@@ -4,6 +4,14 @@ use std::ops::ControlFlow;
 use wasm86_runtime::HostCall;
 use wasm86_x86::Segment;
 
+/// AH=3Ch: create or truncate the path at DS:DX with CX's attributes; return AX.
+pub(super) fn create(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let attributes = call.cpu().cx();
+    let result = read_path(call).and_then(|path| call.state_mut().files.create(&path, attributes));
+    let result = result.map(|handle| call.cpu().set_ax(handle));
+    return_result(call, result)
+}
+
 /// AH=3Dh: open the NUL-terminated path at DS:DX using AL's access mode.
 pub(super) fn open(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let mode = call.cpu().al();
