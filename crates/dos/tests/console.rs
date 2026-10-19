@@ -7,7 +7,8 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn check_handle_output() {
     let mut dos = common::dos().await;
-    dos.load_com(&[0xcd, 0x21, 0xeb, 0xfe]).unwrap(); // INT 21h; JMP $
+    dos.load_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
+        .unwrap(); // INT 21h; JMP $
     dos.runtime()
         .machine()
         .memory()

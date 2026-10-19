@@ -50,7 +50,7 @@ async fn check_searches() {
     }
     dos.mount_file("BOUNDARY/ABCDEFGH.DAT", vec![], FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM).unwrap();
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     let cpu = service(&mut dos, 0x2f00, 0, 0, 0);
     assert_eq!(cpu.segments[Segment::Es].selector, 0x1000);
     assert_eq!(cpu.registers.ebx as u16, 0x80);
@@ -117,7 +117,7 @@ async fn check_searches() {
         .unwrap();
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
     assert_eq!(found_name(&dta(&mut dos, 0x10600)), "AB.DAT");
-    dos.load_com(SERVICE_PROGRAM).unwrap();
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     let cpu = service(&mut dos, 0x2f00, 0, 0, 0);
     assert_eq!(cpu.segments[Segment::Es].selector, 0x1000);
     assert_eq!(cpu.registers.ebx as u16, 0x80);
@@ -127,7 +127,7 @@ async fn check_attributes() {
     let mut dos = common::dos().await;
     dos.mount_file("NORMAL.DAT", b"abc".to_vec(), FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM).unwrap();
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     for (name, attributes) in [
         (b"HIDDEN.DAT".as_slice(), 2),
         (b"SYSTEM.DAT", 4),
@@ -198,7 +198,7 @@ async fn check_discovery_program() {
     program.extend_from_slice(b"DATA\0");
     program.resize(0x90, 0);
     program.extend_from_slice(b"*.DAT\0");
-    dos.load_com(&program).unwrap();
+    dos.load_com(&program, Default::default()).unwrap();
     assert_eq!(dos.runtime().run(500).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(dos.take_output(), b"first\nsecond\n");

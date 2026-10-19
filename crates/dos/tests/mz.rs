@@ -51,7 +51,7 @@ async fn check_mz_execution() {
     let mut dos = common::dos().await;
     let mut file = executable();
     file.extend_from_slice(b"not part of the load module");
-    dos.load_mz(&file).unwrap();
+    dos.load_mz(&file, Default::default()).unwrap();
     {
         let mut machine = dos.runtime().machine();
         let cpu = machine.cpu().snapshot();
@@ -83,7 +83,7 @@ async fn check_mz_execution() {
     for (maximum, expected_end) in [(0x10, 0x1035_u16), (0xffff, 0xa000)] {
         let mut file = executable();
         set_word(&mut file, 0x0c, maximum);
-        dos.load_mz(&file).unwrap();
+        dos.load_mz(&file, Default::default()).unwrap();
         let mut end = [0; 2];
         dos.runtime()
             .machine()
@@ -98,7 +98,7 @@ async fn check_mz_execution() {
     let mut file = executable();
     file.resize(512, 0);
     set_word(&mut file, 0x02, 0);
-    dos.load_mz(&file).unwrap();
+    dos.load_mz(&file, Default::default()).unwrap();
     let mut end = [0; 2];
     dos.runtime()
         .machine()
@@ -114,7 +114,7 @@ async fn check_mz_execution() {
     set_word(&mut file, 0x0c, 0);
     set_word(&mut file, 0x0e, 0);
     set_word(&mut file, 0x10, 0x12);
-    dos.load_mz(&file).unwrap();
+    dos.load_mz(&file, Default::default()).unwrap();
     let cpu = dos.runtime().machine().cpu().snapshot();
     assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffc);
     assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ffb);
@@ -126,11 +126,14 @@ async fn check_mz_execution() {
 async fn check_invalid_mz() {
     let mut dos = common::dos().await;
     // Leave output and an exit status in the current process before failed loads.
-    dos.load_com(&[
-        0xba, 0x0c, 1, 0xb4, 9, 0xcd, 0x21, // Print DS:010C.
-        0xb8, 3, 0x4c, 0xcd, 0x21, // Exit 3.
-        b'X', b'$',
-    ])
+    dos.load_com(
+        &[
+            0xba, 0x0c, 1, 0xb4, 9, 0xcd, 0x21, // Print DS:010C.
+            0xb8, 3, 0x4c, 0xcd, 0x21, // Exit 3.
+            b'X', b'$',
+        ],
+        Default::default(),
+    )
     .unwrap();
     assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
     let saved_cpu = dos.runtime().machine().cpu().snapshot();
@@ -143,7 +146,10 @@ async fn check_invalid_mz() {
     let file = executable();
     // All short inputs and a truncated load module must be rejected.
     for length in 0..file.len() {
-        assert!(dos.load_mz(&file[..length]).is_err(), "length {length}");
+        assert!(
+            dos.load_mz(&file[..length], Default::default()).is_err(),
+            "length {length}"
+        );
     }
     for (offset, value, error) in [
         (0x00, 0, LoadError::InvalidMzHeader),      // Bad signature.
@@ -160,7 +166,7 @@ async fn check_invalid_mz() {
         let mut invalid = file.clone();
         set_word(&mut invalid, offset, value);
         assert_eq!(
-            dos.load_mz(&invalid),
+            dos.load_mz(&invalid, Default::default()),
             Err(error),
             "header offset {offset:x}"
         );

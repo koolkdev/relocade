@@ -1,4 +1,4 @@
-use crate::{memory, process, LoadError};
+use crate::{memory, process, LoadError, LoadOptions};
 use wasm86_machine::Machine;
 
 // One segment holds the PSP, COM image and stack.
@@ -6,14 +6,20 @@ const SEGMENT_SIZE: u32 = 64 * 1024;
 // Reserve the final word for IP=0: a near RET reaches the PSP's INT 20h.
 const STACK_OFFSET: u16 = (SEGMENT_SIZE - 2) as u16;
 
-pub(crate) fn load(machine: &mut Machine<'_>, image: &[u8]) -> Result<u16, LoadError> {
+pub(crate) fn load(
+    machine: &mut Machine<'_>,
+    image: &[u8],
+    options: &LoadOptions<'_>,
+) -> Result<u16, LoadError> {
     if image.is_empty() {
         return Err(LoadError::EmptyImage);
     }
     if image.len() > usize::from(STACK_OFFSET) - process::PSP_BYTES {
         return Err(LoadError::ImageTooLarge);
     }
-    let psp_segment = process::allocate(&mut machine.memory(), memory::AVAILABLE_PARAGRAPHS);
+    options.validate()?;
+    let psp_segment =
+        process::allocate(&mut machine.memory(), memory::AVAILABLE_PARAGRAPHS, options);
     let psp_address = u32::from(psp_segment) * memory::PARAGRAPH_BYTES;
 
     // Clear the rest of the first segment, including the zero return word at SS:SP.

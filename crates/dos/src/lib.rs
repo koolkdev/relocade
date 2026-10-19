@@ -1,6 +1,6 @@
 //! A minimal DOS environment for one real-mode COM or MZ program.
 //!
-//! COM programs start at PSP:0100 with an empty command tail. They receive the
+//! COM programs start at PSP:0100. They receive the
 //! available conventional memory; the image and initial stack use its first 64 KiB.
 //! MZ executables use their header's memory request, relocation table and CS:IP/SS:SP.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
@@ -15,7 +15,8 @@
 //! Search dates are initially fixed at 1980-01-01; long-name aliases are not generated.
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
-//! or [`Dos::load_mz`]. The host chooses the Wasm backend and controls execution through
+//! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
+//! The host chooses the Wasm backend and controls execution through
 //! [`Dos::runtime`]. Create the backend with its `with_state` constructor and
 //! [`DosState::default()`].
 //!
@@ -24,7 +25,7 @@
 //! # where B: wasm86_runtime::RuntimeBackend<State = wasm86_dos::DosState>
 //! # {
 //! let mut dos = wasm86_dos::Dos::new(backend).await?;
-//! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21])?;
+//! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
 //! assert_eq!(dos.runtime().run(u64::MAX)?, wasm86_x86::ExecutionExit::HostReturn);
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
 //! let output: Vec<u8> = dos.take_output();
@@ -39,6 +40,7 @@ mod error;
 mod files;
 mod interrupt;
 mod kernel;
+mod load;
 mod memory;
 mod mz;
 mod path;
@@ -48,6 +50,7 @@ mod services;
 pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use kernel::DosState;
+pub use load::LoadOptions;
 use wasm86_runtime::{Runtime, RuntimeBackend};
 
 /// A DOS environment and its runtime, with space for one loaded program.
@@ -67,19 +70,19 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
 
     /// Loads a COM image of 1..=65,278 bytes and initializes its PSP, stack and CPU.
     /// Replaces the process allocation and clears prior output and exit status.
-    /// Invalid images leave the existing program and its state unchanged.
-    pub fn load_com(&mut self, image: &[u8]) -> Result<(), LoadError> {
-        let psp_segment = com::load(&mut self.runtime.machine(), image)?;
+    /// Invalid images or options leave the existing program and its state unchanged.
+    pub fn load_com(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
+        let psp_segment = com::load(&mut self.runtime.machine(), image, &options)?;
         self.runtime.state_mut().reset_process(psp_segment);
         Ok(())
     }
 
     /// Loads a DOS MZ executable, applies relocations and initializes its PSP and CPU.
     /// Replaces the root process and clears prior output and exit status.
-    /// Invalid images leave the existing program and its state unchanged.
+    /// Invalid images or options leave the existing program and its state unchanged.
     /// Overlay loading is not supported.
-    pub fn load_mz(&mut self, image: &[u8]) -> Result<(), LoadError> {
-        let psp_segment = mz::load(&mut self.runtime.machine(), image)?;
+    pub fn load_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
+        let psp_segment = mz::load(&mut self.runtime.machine(), image, &options)?;
         self.runtime.state_mut().reset_process(psp_segment);
         Ok(())
     }

@@ -34,7 +34,7 @@ async fn check_directory_paths() {
         dos.mount_file(path, data.to_vec(), FileAccess::ReadOnly)
             .unwrap();
     }
-    dos.load_com(SERVICE_PROGRAM).unwrap();
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(current_directory(&mut dos, 0), b"");
     success(&path_service(&mut dos, b"c:\\data/nested", 0x3b00, 0));
     assert_eq!(current_directory(&mut dos, 3), b"DATA\\NESTED");
@@ -73,7 +73,7 @@ async fn check_directory_paths() {
     }
     assert_eq!(current_directory(&mut dos, 0), b"DATA\\NESTED");
     // Current directories belong to the DOS environment, not to an open program.
-    dos.load_com(SERVICE_PROGRAM).unwrap();
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(current_directory(&mut dos, 0), b"DATA\\NESTED");
     success(&path_service(&mut dos, b"..", 0x3b00, 0));
     assert_eq!(current_directory(&mut dos, 0), b"DATA");
@@ -86,7 +86,7 @@ async fn check_directory_paths() {
 
 async fn check_drive_services() {
     let mut dos = common::dos().await;
-    dos.load_com(SERVICE_PROGRAM).unwrap();
+    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     // Drive selection/query preserve CF. AH=47h reports absent drives through CF/AX.
     error(&service(&mut dos, 0x4700, 0, 0, 4), 15);
     let cpu = service(&mut dos, 0x1900, 0, 0, 0);

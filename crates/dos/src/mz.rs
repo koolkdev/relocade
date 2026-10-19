@@ -1,6 +1,6 @@
 //! DOS MZ headers, relocation and entry state.
 
-use crate::{memory, process, LoadError};
+use crate::{memory, process, LoadError, LoadOptions};
 use wasm86_machine::Machine;
 use wasm86_x86::{Segment, StoredSegment};
 
@@ -71,8 +71,13 @@ impl<'a> Image<'a> {
     }
 }
 
-pub(crate) fn load(machine: &mut Machine<'_>, file: &[u8]) -> Result<u16, LoadError> {
+pub(crate) fn load(
+    machine: &mut Machine<'_>,
+    file: &[u8],
+    options: &LoadOptions<'_>,
+) -> Result<u16, LoadError> {
     let image = Image::parse(file)?;
+    options.validate()?;
     let module_paragraphs = image
         .module
         .len()
@@ -91,7 +96,7 @@ pub(crate) fn load(machine: &mut Machine<'_>, file: &[u8]) -> Result<u16, LoadEr
     } as u16;
 
     // All file and allocation checks precede replacing the current process.
-    let psp_segment = process::allocate(&mut machine.memory(), paragraphs);
+    let psp_segment = process::allocate(&mut machine.memory(), paragraphs, options);
     let load_segment = if load_high {
         psp_segment + paragraphs - module_paragraphs as u16
     } else {

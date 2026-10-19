@@ -1,6 +1,6 @@
 //! Initialization shared by the COM and MZ loaders.
 
-use crate::memory;
+use crate::{memory, LoadOptions};
 use wasm86_machine::{MachineStorage, Memory};
 use wasm86_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
 
@@ -12,6 +12,7 @@ pub(crate) const PSP_PARAGRAPHS: u16 = 0x10;
 pub(crate) fn allocate(
     memory: &mut Memory<'_, impl MachineStorage + ?Sized>,
     paragraphs: u16,
+    options: &LoadOptions<'_>,
 ) -> u16 {
     memory::reset(memory);
     let segment = memory::allocate(memory, paragraphs, memory::FIRST_SEGMENT)
@@ -23,8 +24,12 @@ pub(crate) fn allocate(
     psp[2..4].copy_from_slice(&(segment + paragraphs).to_le_bytes());
     // PSP:0016 is the parent's PSP segment. The root process is its own parent.
     psp[0x16..0x18].copy_from_slice(&segment.to_le_bytes());
-    // PSP:0080 is the command-tail length (zero); 0081 holds its trailing CR.
-    psp[usize::from(COMMAND_TAIL_OFFSET) + 1] = b'\r';
+    // PSP:0080 holds the byte count; the tail and its CR follow at 0081.
+    let tail_offset = usize::from(COMMAND_TAIL_OFFSET);
+    psp[tail_offset] = options.command_tail.len() as u8;
+    let tail_end = tail_offset + 1 + options.command_tail.len();
+    psp[tail_offset + 1..tail_end].copy_from_slice(options.command_tail);
+    psp[tail_end] = b'\r';
     memory
         .write(u32::from(segment) * memory::PARAGRAPH_BYTES, &psp)
         .expect("process PSP");

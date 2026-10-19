@@ -18,7 +18,7 @@ const HELLO: &[u8] = &[
 
 async fn check_hello() {
     let mut dos = common::dos().await;
-    dos.load_com(HELLO).unwrap();
+    dos.load_com(HELLO, Default::default()).unwrap();
     {
         let mut machine = dos.runtime().machine();
         for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
@@ -61,7 +61,7 @@ async fn check_com_bounds_and_return() {
     image[0] = 0xc3; // RET pops the initial zero word and reaches PSP's INT 20h.
     image[0xfefd] = 0x41;
     let mut dos = common::dos().await;
-    dos.load_com(&image).unwrap();
+    dos.load_com(&image, Default::default()).unwrap();
     let mut end = [0; 3];
     dos.runtime()
         .machine()
@@ -72,13 +72,19 @@ async fn check_com_bounds_and_return() {
     assert_eq!(dos.runtime().run(10).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(dos.runtime().machine().cpu().instruction_count(), 2);
-    assert_eq!(dos.load_com(&[]), Err(LoadError::EmptyImage));
+    assert_eq!(
+        dos.load_com(&[], Default::default()),
+        Err(LoadError::EmptyImage)
+    );
     image.push(0x90);
-    assert_eq!(dos.load_com(&image), Err(LoadError::ImageTooLarge));
+    assert_eq!(
+        dos.load_com(&image, Default::default()),
+        Err(LoadError::ImageTooLarge)
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
 
     // Another program reuses the prepared environment and replaces its allocation.
-    dos.load_com(&[0xc3]).unwrap();
+    dos.load_com(&[0xc3], Default::default()).unwrap();
     assert_eq!(dos.exit_status(), None);
     dos.runtime()
         .machine()
@@ -92,7 +98,8 @@ async fn check_com_bounds_and_return() {
 
 async fn check_unsupported_service() {
     let mut dos = common::dos().await;
-    dos.load_com(&[0xb4, 0x30, 0xcd, 0x21]).unwrap();
+    dos.load_com(&[0xb4, 0x30, 0xcd, 0x21], Default::default())
+        .unwrap();
     assert_eq!(dos.runtime().run(10).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(
         dos.exit_status(),
@@ -141,7 +148,7 @@ async fn check_unterminated_string() {
         0xb4, 9, 0xcd, 0x21, // Print DS:DX
     ];
     let mut dos = common::dos().await;
-    dos.load_com(&image).unwrap();
+    dos.load_com(&image, Default::default()).unwrap();
     dos.runtime()
         .machine()
         .memory()
