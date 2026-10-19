@@ -119,6 +119,42 @@ fn handles_preserve_identity_and_access_across_changes() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn removing_a_file_preserves_open_handles_and_allows_reusing_its_name() {
+    let mut fs = MemoryFileSystem::new();
+    fs.create_dir_all("DATA").unwrap();
+    let writer = fs.replace_file("DATA/FILE", b"old".to_vec()).unwrap();
+    let reader = fs.open("DATA/FILE").unwrap();
+    writer.set_read_only(true);
+    fs.remove_file("DATA/FILE").unwrap();
+    assert_eq!(
+        fs.open("DATA/FILE").unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert!(fs.read_dir("DATA").unwrap().next().is_none());
+
+    let replacement = fs.replace_file("DATA/FILE", b"new".to_vec()).unwrap();
+    assert!(!writer.same_file(&replacement));
+    writer.write_at(b"!", 0).unwrap();
+    let mut bytes = [0; 3];
+    assert_eq!(reader.read_at(&mut bytes, 0).unwrap(), 3);
+    assert_eq!(&bytes, b"!ld");
+    assert_eq!(fs.read("DATA/FILE").unwrap(), b"new");
+
+    for (path, expected) in [
+        ("", ErrorKind::IsADirectory),
+        ("DATA", ErrorKind::IsADirectory),
+        ("MISSING", ErrorKind::NotFound),
+        ("MISSING/FILE", ErrorKind::NotFound),
+        ("DATA/FILE/CHILD", ErrorKind::NotADirectory),
+        ("DATA/../FILE", ErrorKind::InvalidInput),
+    ] {
+        assert_eq!(fs.remove_file(path).unwrap_err().kind(), expected);
+    }
+    assert_eq!(fs.read("DATA/FILE").unwrap(), b"new");
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn positioned_io_zero_fills_and_checks_64_bit_ranges() {
     let mut fs = MemoryFileSystem::new();
     let file = fs.create_new("DATA").unwrap();

@@ -12,7 +12,7 @@ use std::{
 mod attributes;
 mod search;
 mod short_name;
-use relocade_vfs::{File, MemoryFileSystem};
+use relocade_vfs::{File, MemoryFileSystem, Metadata};
 pub(crate) use search::FIND_DATA_BYTES;
 
 // A DOS process starts with 20 handles, including its five standard devices.
@@ -35,7 +35,7 @@ pub(crate) struct Files {
     filesystem: MemoryFileSystem,
     current_directory: String,
     attributes: BTreeMap<String, u8>,
-    search_directories: Vec<String>,
+    search_directories: Vec<search::SearchDirectory>,
     handles: [Option<OpenHandle>; HANDLE_COUNT],
     output: Vec<u8>,
 }
@@ -108,6 +108,24 @@ impl Files {
         self.filesystem
             .read(&path::file_path(path.as_bytes(), "")?)
             .ok()
+    }
+
+    pub(crate) fn delete(&mut self, path: &[u8]) -> Result<(), DosError> {
+        let path = path::file_path(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        let metadata = self.metadata(&path)?;
+        if metadata.is_dir() || metadata.is_read_only() {
+            return Err(DosError::AccessDenied);
+        }
+        let file = self.filesystem.open(&path).expect("existing file");
+        // DOS sharing keeps an open file's name alive until its last handle closes.
+        if self.handles.iter().flatten().any(|handle| {
+            matches!(handle, OpenHandle::File(open) if open.borrow().file.same_file(&file))
+        }) {
+            return Err(DosError::AccessDenied);
+        }
+        self.filesystem.remove_file(&path).expect("existing file");
+        self.attributes.remove(&path);
+        Ok(())
     }
 
     pub(crate) fn open(&mut self, path: &[u8], mode: u8) -> Result<u16, DosError> {
@@ -363,6 +381,16 @@ impl Files {
         for handle in std::mem::take(&mut self.handles).into_iter().flatten() {
             self.close_handle(handle);
         }
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, DosError> {
+        self.filesystem.metadata(path).map_err(|_| {
+            if self.filesystem.is_dir(path::parent(path)) {
+                DosError::FileNotFound
+            } else {
+                DosError::PathNotFound
+            }
+        })
     }
 
     fn handle(&self, handle: u16) -> Result<&OpenHandle, DosError> {

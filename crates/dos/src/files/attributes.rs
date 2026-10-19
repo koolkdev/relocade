@@ -37,16 +37,6 @@ impl Files {
         Ok(())
     }
 
-    pub(super) fn metadata(&self, path: &str) -> Result<Metadata, DosError> {
-        self.filesystem.metadata(path).map_err(|_| {
-            if self.filesystem.is_dir(path::parent(path)) {
-                DosError::FileNotFound
-            } else {
-                DosError::PathNotFound
-            }
-        })
-    }
-
     pub(super) fn entry_attributes(&self, path: &str, metadata: &Metadata) -> u8 {
         let attributes = self.attributes.get(path).copied().unwrap_or_else(|| {
             if metadata.is_dir() {

@@ -29,6 +29,7 @@ const OPEN_HANDLE: u8 = 0x3d;
 const CLOSE_HANDLE: u8 = 0x3e;
 const READ_HANDLE: u8 = 0x3f;
 const WRITE_HANDLE: u8 = 0x40;
+const DELETE_FILE: u8 = 0x41;
 const SEEK_HANDLE: u8 = 0x42;
 const FILE_ATTRIBUTES: u8 = 0x43;
 const IOCTL: u8 = 0x44;
@@ -60,6 +61,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         CLOSE_HANDLE => files::close(call),
         READ_HANDLE => files::read(call),
         WRITE_HANDLE => files::write(call),
+        DELETE_FILE => files::delete(call),
         SEEK_HANDLE => files::seek(call),
         FILE_ATTRIBUTES => files::attributes(call),
         IOCTL => ioctl::ioctl(call),
