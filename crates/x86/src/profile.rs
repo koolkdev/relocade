@@ -41,6 +41,12 @@ pub enum ExecutionProfile {
 }
 
 impl ExecutionProfile {
+    /// Fixed CR0 low-word assumptions: MP, ET and NE set; EM and TS clear.
+    /// PE follows the execution mode. All remaining low-word bits are reserved.
+    pub(crate) fn machine_status_word(self) -> u16 {
+        0x32 | u16::from(matches!(self, Self::Protected(_)))
+    }
+
     pub(crate) fn code_default_size(self) -> SegmentDefaultSize {
         match self {
             Self::Protected(profile) => profile.code_default_size(),

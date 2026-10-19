@@ -27,6 +27,7 @@ mod shifts;
 mod sse;
 mod stack;
 mod strings;
+mod system;
 mod undefined;
 mod x87;
 
@@ -47,6 +48,7 @@ pub(crate) fn opcode_forms(map: OpcodeMap) -> impl Iterator<Item = &'static Form
         .chain(no_ops::forms())
         .chain(ports::forms())
         .chain(processor::forms())
+        .chain(system::forms())
         .chain(alu::forms())
         .chain(adjust::forms())
         .chain(multiply::forms())
