@@ -1,13 +1,12 @@
 //! DOS path resolution and the current program's open file handles.
 
 use crate::error::DosError;
-use crate::MountError;
+use crate::{path, MountError};
 use std::io::ErrorKind;
 use wasm86_vfs::{File, MemoryFileSystem};
 
 // A DOS process starts with 20 handles, including its five standard devices.
 const HANDLE_COUNT: usize = 20;
-pub(crate) const MAX_PATH_BYTES: usize = 128; // Includes the terminating NUL.
 const READ_ONLY_ATTRIBUTE: u16 = 0x01;
 const HIDDEN_ATTRIBUTE: u16 = 0x02;
 const SYSTEM_ATTRIBUTE: u16 = 0x04;
@@ -23,6 +22,7 @@ pub enum FileAccess {
 #[derive(Default)]
 pub(crate) struct Files {
     filesystem: MemoryFileSystem,
+    current_directory: String,
     handles: [Option<OpenHandle>; HANDLE_COUNT],
 }
 
@@ -45,18 +45,37 @@ struct OpenFile {
 }
 
 impl Files {
+    pub(crate) fn change_directory(&mut self, path: &[u8]) -> Result<(), DosError> {
+        let directory =
+            path::resolve(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        // AH=47h's caller supplies a 64-byte buffer, including the terminator.
+        if directory.len() >= 64 || !self.filesystem.is_dir(&directory) {
+            return Err(DosError::PathNotFound);
+        }
+        self.current_directory = directory;
+        Ok(())
+    }
+
+    pub(crate) fn current_directory(&self, drive: u8) -> Result<&str, DosError> {
+        // AH=47h uses 0 for the default drive and 1-based explicit drive numbers.
+        match drive {
+            0 | 3 => Ok(&self.current_directory),
+            _ => Err(DosError::InvalidDrive),
+        }
+    }
+
     pub(crate) fn mount(
         &mut self,
         path: &str,
         contents: Vec<u8>,
         access: FileAccess,
     ) -> Result<(), MountError> {
-        let path = normalize_path(path.as_bytes()).ok_or(MountError::InvalidPath)?;
+        let path = path::file_path(path.as_bytes(), "").ok_or(MountError::InvalidPath)?;
         if contents.len() > u32::MAX as usize {
             return Err(MountError::FileTooLarge);
         }
         self.filesystem
-            .create_dir_all(parent_path(&path))
+            .create_dir_all(path::parent(&path))
             .map_err(|_| MountError::InvalidPath)?;
         let file = self
             .filesystem
@@ -67,21 +86,23 @@ impl Files {
     }
 
     pub(crate) fn read_file(&self, path: &str) -> Option<Vec<u8>> {
-        self.filesystem.read(&normalize_path(path.as_bytes())?).ok()
+        self.filesystem
+            .read(&path::file_path(path.as_bytes(), "")?)
+            .ok()
     }
 
     pub(crate) fn open(&mut self, path: &[u8], mode: u8) -> Result<u16, DosError> {
         if mode & 0x0f > 2 || (mode >> 4) & 7 > 4 {
             return Err(DosError::InvalidAccess);
         }
-        let path = normalize_path(path).ok_or(DosError::PathNotFound)?;
+        let path = path::file_path(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
         let file = if mode & 3 == 0 {
             self.filesystem.open(&path)
         } else {
             self.filesystem.open_read_write(&path)
         }
         .map_err(|error| match error.kind() {
-            ErrorKind::NotFound if self.filesystem.is_dir(parent_path(&path)) => {
+            ErrorKind::NotFound if self.filesystem.is_dir(path::parent(&path)) => {
                 DosError::FileNotFound
             }
             ErrorKind::NotFound | ErrorKind::NotADirectory => DosError::PathNotFound,
@@ -98,8 +119,8 @@ impl Files {
         {
             return Err(DosError::AccessDenied);
         }
-        let path = normalize_path(path).ok_or(DosError::PathNotFound)?;
-        if !self.filesystem.is_dir(parent_path(&path)) {
+        let path = path::file_path(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        if !self.filesystem.is_dir(path::parent(&path)) {
             return Err(DosError::PathNotFound);
         }
         let file = match self.filesystem.open_read_write(&path) {
@@ -254,49 +275,4 @@ impl Files {
             None => Err(DosError::InvalidHandle),
         }
     }
-}
-
-fn parent_path(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(parent, _)| parent)
-}
-
-// C: is the only drive and its current directory is the root. Mounted names use
-// ASCII case-insensitive matching, with either slash accepted as a separator.
-fn normalize_path(path: &[u8]) -> Option<String> {
-    if path.is_empty() || path.len() >= MAX_PATH_BYTES || !path.is_ascii() {
-        return None;
-    }
-    let path = std::str::from_utf8(path).ok()?;
-    let path = if path.as_bytes().get(1) == Some(&b':') {
-        if !path.as_bytes()[0].eq_ignore_ascii_case(&b'C') {
-            return None;
-        }
-        &path[2..]
-    } else {
-        path
-    };
-    if matches!(path.rsplit(['\\', '/']).next()?, "" | "." | "..") {
-        return None;
-    }
-    let mut components = Vec::new();
-    for component in path.split(['\\', '/']) {
-        match component {
-            "" | "." => continue,
-            ".." => {
-                components.pop()?;
-            }
-            _ => {
-                if component.bytes().any(|byte| {
-                    byte < 0x20 || matches!(byte, b':' | b'"' | b'<' | b'>' | b'|' | b'*' | b'?')
-                }) {
-                    return None;
-                }
-                components.push(component);
-            }
-        }
-    }
-    if components.is_empty() {
-        return None;
-    }
-    Some(components.join("/").to_ascii_uppercase())
 }

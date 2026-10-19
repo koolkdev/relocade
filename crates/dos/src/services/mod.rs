@@ -1,6 +1,7 @@
 //! DOS interrupt dispatch and service handlers.
 
 mod console;
+mod directories;
 mod files;
 mod memory;
 
@@ -9,6 +10,10 @@ use std::ops::ControlFlow;
 use wasm86_runtime::HostCall;
 
 const WRITE_STRING: u8 = 0x09;
+const SELECT_DRIVE: u8 = 0x0e;
+const GET_DRIVE: u8 = 0x19;
+const CHANGE_DIRECTORY: u8 = 0x3b;
+const GET_DIRECTORY: u8 = 0x47;
 const CREATE_HANDLE: u8 = 0x3c;
 const OPEN_HANDLE: u8 = 0x3d;
 const CLOSE_HANDLE: u8 = 0x3e;
@@ -24,6 +29,10 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     match call.cpu().ah() {
         WRITE_STRING => console::write_string(call),
+        SELECT_DRIVE => directories::select_drive(call),
+        GET_DRIVE => directories::get_drive(call),
+        CHANGE_DIRECTORY => directories::change_directory(call),
+        GET_DIRECTORY => directories::get_directory(call),
         CREATE_HANDLE => files::create(call),
         OPEN_HANDLE => files::open(call),
         CLOSE_HANDLE => files::close(call),

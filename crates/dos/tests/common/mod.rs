@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use wasm86_dos::{Dos, DosState};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -11,4 +13,47 @@ pub async fn dos() -> Dos<Backend<DosState>> {
     #[cfg(target_arch = "wasm32")]
     let backend = Backend::with_state(DosState::default());
     Dos::new(backend).await.unwrap()
+}
+
+use wasm86_x86::{CpuState, ExecutionExit};
+
+// INT 21h followed by JMP $ lets each host assertion inspect the IRET result.
+pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
+
+pub fn service(dos: &mut Dos<Backend<DosState>>, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
+    {
+        let mut machine = dos.runtime().machine();
+        let mut cpu = machine.cpu();
+        cpu.set_eip(0x100);
+        cpu.set_ax(ax);
+        cpu.set_bx(bx);
+        cpu.set_cx(cx);
+        cpu.set_dx(dx);
+    }
+    assert_eq!(
+        dos.runtime().run(10).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    dos.runtime().machine().cpu().snapshot()
+}
+
+pub fn path_service(dos: &mut Dos<Backend<DosState>>, path: &[u8], ax: u16, cx: u16) -> CpuState {
+    let mut terminated = path.to_vec();
+    terminated.push(0);
+    dos.runtime()
+        .machine()
+        .memory()
+        .write(0x10300, &terminated)
+        .unwrap();
+    service(dos, ax, 0, cx, 0x300)
+}
+
+pub fn success(cpu: &CpuState) -> u16 {
+    assert_eq!(cpu.flags.eflags() & 1, 0);
+    cpu.registers.eax as u16
+}
+
+pub fn error(cpu: &CpuState, code: u16) {
+    assert_eq!(cpu.flags.eflags() & 1, 1);
+    assert_eq!(cpu.registers.eax as u16, code);
 }
