@@ -17,6 +17,14 @@ pub fn engine() -> &'static Engine {
     static ENGINE: OnceLock<Engine> = OnceLock::new();
     ENGINE.get_or_init(|| {
         let mut config = Config::new();
+        match wasmtime::Cache::from_file(None) {
+            Ok(cache) => {
+                config.cache(Some(cache));
+            }
+            Err(error) => {
+                eprintln!("Wasmtime test cache unavailable; continuing uncached: {error}")
+            }
+        }
         // Winch avoids optimizing short-lived test modules. Its AArch64 backend
         // does not support the shared memories used by these tests.
         #[cfg(target_arch = "x86_64")]
