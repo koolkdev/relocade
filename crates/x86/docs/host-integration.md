@@ -111,10 +111,12 @@ as unsigned values and assume the instruction counter does not wrap.
 A successful block checks the target using the count it just published. Reaching
 or exceeding it returns an encoded `ExecutionExit::BudgetExhausted` before
 dispatch or fetching the successor.
-Interpreter `run` checks only after a block-ending instruction, on either outcome
+By default, interpreter `run` checks only after a block-ending instruction, on either outcome
 of a conditional branch. Ordinary instruction retirement, decoder restarts and
 optimization handoffs do not introduce budget checkpoints. Faults and unsupported
 instructions retain their own exit reasons and precise retirement counts.
+With `with_dispatch_boundaries`, reaching a registered callable entry also ends
+an interpreted block and checks its budget.
 
 This is an instruction allowance, not an exact stopping point. A block can exceed
 the target; interpreter straight-line execution and REP work have no fixed bound.
@@ -125,9 +127,9 @@ fixed overshoot or elapsed-time guarantee.
 
 `Compiler::compile_dispatcher()` generates a module that resolves execution addresses to
 ordinary `() -> i64` functions in the imported `relocade.executionFunctions` table. Slot 0
-is reserved, slot 1 holds a compatible interpreter, and subsequent slots hold installed
-module exports. All functions share CPU, guest and mapping memories. The dispatcher has
-no target-kind tag or host-service import.
+holds the optional profiler, slot 1 holds a raw compatible interpreter, and subsequent
+slots hold installed module exports. All functions share CPU, guest and mapping
+memories. The dispatcher has no target-kind tag or host-service import.
 
 Bind the module's `dispatch() -> i64` and `interpret() -> i64` exports as the
 corresponding imports of execution modules. Both use the published CPU state.
@@ -145,16 +147,39 @@ fetches. Lookup itself does not validate CS permissions or limits. Registering a
 does not establish its snapshot validity: the embedding must uphold its original EIP,
 profile, code-byte and mapping requirements. Every registered entry must be an execution
 boundary; larger blocks must not run across another entry. Registration changes
-therefore require updating any affected compiled blocks or links. Use the step
-interpreter when every interpreted instruction boundary must consult this table; these
-transfers remain inside Wasm.
+therefore require updating any affected compiled blocks or links.
+`Compiler::with_dispatch_boundaries()` checks this table after every completed
+interpreted instruction, including the direct decode cycle. A hit ends the block
+and checks its budget; a miss continues the existing decode cycle. Initial raw
+interpreter entry bypasses lookup so a failed compiled guard makes progress.
+These transfers remain inside Wasm.
+
+`Compiler::with_hotness_tracking()` routes dispatch misses to slot 0 and adds a
+`profile() -> i64` export to the interpreter module. Install that export in slot 0
+and its raw `run` export in slot 1. Guard handoffs always use slot 1; compiled
+local links and interpreter continuation cycles do not count as dispatch misses.
+The profiler imports `relocade.hotness` (one Wasm page). Initialize its image with
+`HotnessTable::new(threshold).as_bytes()`; `None` disables profiling. The runtime
+starts with profiling disabled and exposes `set_hot_threshold` and `take_hot_request`.
+
+The image contains 256 direct-mapped counters keyed by the full CS.base/EIP pair,
+a threshold and one pending request. Colliding identities replace the previous
+counter. On threshold, the profiler publishes a `HotEntry` and returns
+`CompileRequest` before fetching or executing the instruction. No host callback
+runs for cold counting. `HotnessTable::take_request` clears the pending request;
+write the resulting image back while stopped. A 1,024-visit cooldown after each
+request allows declined or unsupported code to make progress before reconsideration.
+The pending slot holds the most recent request if the host continues execution
+without taking it. Profiling is a scheduling hint; compilation must still
+validate captured bytes and preserve the caller's absolute instruction target.
 
 Copy `EntryTable::to_bytes()` at offset zero in `executionEntries`, growing memory
 first. The serialized data is a u32 mask followed by eight-byte address/slot rows, with
 zero slots marking empty rows. The table uses open addressing and is at most half full.
-Replace mappings only outside execution. The function table must already contain every
-published slot. Removing an address only changes lookup; the embedding owns
-function-slot and code lifetimes.
+Publish new mappings only outside execution. A watched slow write may retire
+entries after abandoning the compiled activation, before changing code bytes.
+The function table must already contain every published slot. Removing an address
+only changes lookup; the embedding owns function-slot and code lifetimes.
 
 ## Interpreter handoff
 
@@ -373,6 +398,7 @@ have a maximum no larger than that and enough initial capacity for all backing.
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 | `executionEntries` | 1 | Execution-address table. |
+| `hotness` | 1 | Optional interpreter-entry counters and pending request. |
 
 Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
@@ -1035,7 +1061,8 @@ exception vector numbers:
 
 Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
 `Exception`, an unsupported-instruction diagnostic, `BudgetExhausted`, or a
-`HostReturn` or `Deferred` requested by a host-call function. The embedding owns
+`CompileRequest` from the profiler, or a `HostReturn` or `Deferred` requested by
+a host-call function. The embedding owns
 the reason for a host return. Deferred work is awaited by the runtime after the
 guest call returns. Unknown tags and nonzero reserved fields return `None`.
 Host-defined values returned by `dispatch` or `interpret` must be distinguished
@@ -1056,6 +1083,7 @@ that callback's contract. A matching exit word alone does not establish its sour
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
 | SIMD floating-point exception | 512 | Zero | Zero |
+| Compilation request | 4096 | Zero | Zero |
 | Deferred host call | 8192 | Zero | Zero |
 | Host return | 16384 | Zero | Zero |
 | Instruction budget exhausted | 32768 | Zero | Zero |

@@ -240,3 +240,17 @@ fn host_return_has_no_payload() {
         0x0008_00f3_89ab_cdef
     );
 }
+
+#[test]
+fn compilation_request_has_no_payload() {
+    assert_eq!(
+        ExecutionExit::CompileRequest.to_bits(),
+        0x1000_0000_0000_0000
+    );
+    assert_eq!(
+        ExecutionExit::from_bits(0x1000_0000_0000_0000),
+        Some(ExecutionExit::CompileRequest)
+    );
+    assert_eq!(ExecutionExit::from_bits(0x1000_0000_0000_0001), None);
+    assert_eq!(ExecutionExit::from_bits(0x1000_0001_0000_0000), None);
+}

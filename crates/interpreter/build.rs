@@ -14,7 +14,9 @@ fn main() {
             ("", Compiler::new(profile)),
             (
                 "-runtime",
-                Compiler::new(profile).with_dispatch_boundaries(),
+                Compiler::new(profile)
+                    .with_dispatch_boundaries()
+                    .with_hotness_tracking(),
             ),
         ] {
             let module = compiler

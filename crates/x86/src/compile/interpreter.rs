@@ -146,6 +146,10 @@ impl Compiler {
                 decoder.enter(body, &single_step)
             })?;
             export.symbol().export(&mut program, wrapper)?;
+            if self.profile_hotness && matches!(export, InterpreterEntry::Run) {
+                let profiler = super::hotness::profile_entry(&mut program, &cpu, profile, wrapper)?;
+                crate::abi::PROFILE.export(&mut program, profiler)?;
+            }
         }
         Ok(CompiledModule {
             bytes: program.compile()?,

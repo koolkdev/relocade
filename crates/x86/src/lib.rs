@@ -63,6 +63,7 @@ use std::fmt;
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
     compile_interpreter_step, BlockEntry, BlockSnapshot, CompiledBlocks, Compiler, EntryTable,
+    HotEntry, HotnessTable,
 };
 pub use exception::{Exception, ExceptionVector};
 pub use memory::{page_table, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};

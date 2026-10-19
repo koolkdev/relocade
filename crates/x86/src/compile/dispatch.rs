@@ -37,7 +37,8 @@ impl Dispatch {
 
 impl Compiler {
     /// Compiles uniform address dispatch through `relocade.executionFunctions`.
-    /// A hit tail-calls its slot; a miss tail-calls slot one. The generated code
+    /// A hit tail-calls its slot; a miss uses slot one, or slot zero when hotness
+    /// tracking is configured. The generated code
     /// has no entry-kind branch, host-call import or instruction decoder.
     /// The embedding maintains the execution profile. Each destination owns its
     /// entry checks; lookup does not check instruction bytes or CS permissions.
@@ -49,7 +50,17 @@ impl Compiler {
             let eip = cpu.read_eip(&mut body)?;
             let mut segments = SegmentReads::new(&cpu, self.target.profile);
             let base = segments.base(&mut body, &Segment::Cs.into())?;
-            dispatch.lookup(body, &base.add(eip))
+            let fallback = if self.profile_hotness {
+                EntryTable::PROFILER_SLOT
+            } else {
+                EntryTable::INTERPRETER_SLOT
+            };
+            dispatch.lookup_or(
+                body,
+                &base.add(eip),
+                |hit, slot| dispatch.enter(hit, slot),
+                |miss| dispatch.enter(miss, fallback),
+            )
         })?;
         crate::abi::DISPATCH.export(&mut program, transfer)?;
         let interpret = program.function(crate::abi::INTERPRET.signature(), |body| {

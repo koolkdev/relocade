@@ -31,7 +31,8 @@ pub fn module(profile: ExecutionProfile) -> &'static [u8] {
 
 /// Returns the runtime variant, which checks registered entries between instructions.
 /// In addition to the ordinary interpreter imports, the host provides the shared
-/// execution-entry memory and function table. Both `step` and `run` share the decoder.
+/// execution-entry memory, function table and hotness memory. The `profile` export
+/// counts dispatch misses before entering `run`; `step` and `run` share the decoder.
 pub fn runtime_module(profile: ExecutionProfile) -> &'static [u8] {
     include_module!(profile, "-runtime")
 }
