@@ -5,6 +5,7 @@ mod directories;
 mod files;
 mod memory;
 mod search;
+mod system;
 
 use crate::{DosState, ServiceError};
 use std::ops::ControlFlow;
@@ -13,6 +14,9 @@ use wasm86_runtime::HostCall;
 const WRITE_STRING: u8 = 0x09;
 const SELECT_DRIVE: u8 = 0x0e;
 const GET_DRIVE: u8 = 0x19;
+const SET_VECTOR: u8 = 0x25;
+const GET_VERSION: u8 = 0x30;
+const GET_VECTOR: u8 = 0x35;
 const CHANGE_DIRECTORY: u8 = 0x3b;
 const GET_DIRECTORY: u8 = 0x47;
 const SET_DTA: u8 = 0x1a;
@@ -29,6 +33,7 @@ const ALLOCATE_MEMORY: u8 = 0x48;
 const FREE_MEMORY: u8 = 0x49;
 const RESIZE_MEMORY: u8 = 0x4a;
 const TERMINATE_PROCESS: u8 = 0x4c;
+const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
 pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
@@ -36,6 +41,9 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         WRITE_STRING => console::write_string(call),
         SELECT_DRIVE => directories::select_drive(call),
         GET_DRIVE => directories::get_drive(call),
+        SET_VECTOR => system::set_vector(call),
+        GET_VERSION => system::version(call),
+        GET_VECTOR => system::get_vector(call),
         CHANGE_DIRECTORY => directories::change_directory(call),
         GET_DIRECTORY => directories::get_directory(call),
         SET_DTA => search::set_dta(call),
@@ -52,6 +60,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         FREE_MEMORY => memory::free(call),
         RESIZE_MEMORY => memory::resize(call),
         TERMINATE_PROCESS => terminate_process(call),
+        LONG_FILENAME => files::long_filename(call),
         function => return_to_host(call, Err(ServiceError::UnsupportedFunction(function))),
     }
 }

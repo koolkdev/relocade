@@ -15,6 +15,8 @@
 //! Guest relative paths use that directory, which persists across program loads.
 //! AH=1Ah/2Fh select/query the DTA; AH=4Eh/4Fh find matching 8.3 names.
 //! Search dates are initially fixed at 1980-01-01; long-name aliases are not generated.
+//! AH=30h reports DOS 5.00; AH=25h/35h set/query the real interrupt vector table.
+//! AH=71h reports long-filename services unavailable, allowing 8.3 fallback.
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].

@@ -4,6 +4,11 @@ use std::ops::ControlFlow;
 use wasm86_runtime::HostCall;
 use wasm86_x86::Segment;
 
+/// AH=71h: report that long-filename services are absent so callers can use 8.3.
+pub(super) fn long_filename(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    return_result(call, Err(DosError::LongFilenameNotSupported))
+}
+
 /// AH=3Ch: create or truncate the path at DS:DX with CX's attributes; return AX.
 pub(super) fn create(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let attributes = call.cpu().cx();

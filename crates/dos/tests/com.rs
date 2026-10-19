@@ -98,12 +98,12 @@ async fn check_com_bounds_and_return() {
 
 async fn check_unsupported_service() {
     let mut dos = common::dos().await;
-    dos.load_com(&[0xb4, 0x30, 0xcd, 0x21], Default::default())
+    dos.load_com(&[0xb4, 0xfe, 0xcd, 0x21], Default::default())
         .unwrap();
     assert_eq!(dos.runtime().run(10).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(
         dos.exit_status(),
-        Some(Err(ServiceError::UnsupportedFunction(0x30)))
+        Some(Err(ServiceError::UnsupportedFunction(0xfe)))
     );
 }
 
