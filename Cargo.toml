@@ -18,3 +18,7 @@ wasmtime = { version = "=50.0.0-rc.1", default-features = false, features = ["cr
 # but optimize that work, including the Wasmtime compiler dependencies.
 [profile.test]
 opt-level = 1
+
+# Interpreter fixtures spend most of their generation time in compiler passes.
+[profile.test.package.relocade-compiler]
+opt-level = 3
