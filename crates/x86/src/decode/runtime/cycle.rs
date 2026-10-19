@@ -19,10 +19,11 @@ impl RuntimeDecoder<'_> {
         cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
         entry: Func,
+        before_next_instruction: &impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError>,
         complete_instruction: &impl Fn(
             BlockBuilder<'_>,
             DecodedInstruction<Val<I32>, Val<I32>>,
-            Option<&DecodeContinuation>,
+            &DecodeContinuation,
         ) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let fetch = cursor.fetch.clone();
@@ -44,12 +45,13 @@ impl RuntimeDecoder<'_> {
                     InstructionDecoder {
                         decoder: self,
                         complete_instruction: |body: BlockBuilder<'_>, instruction| {
-                            complete_instruction(body, instruction, Some(&continuation))
+                            complete_instruction(body, instruction, &continuation)
                         },
                         memory_continuation: None,
                     }
                     .decode_direct(body, cursor, &opcode)
                 })?;
+                before_next_instruction(&mut iteration)?;
                 // Each completed instruction publishes before this shared fetch.
                 // A helper transfer leaves the activation and discards its cache.
                 let start = fetch.eip(&mut iteration)?;
@@ -60,7 +62,7 @@ impl RuntimeDecoder<'_> {
                     Some(&mut cache),
                 )?;
                 iteration.if_(&direct.unavailable, |fallback| {
-                    fallback.tail_call(entry, &[])
+                    Self::resume(fallback, entry)
                 })?;
                 let mut cursor = RuntimeCursor::new(
                     &iteration,

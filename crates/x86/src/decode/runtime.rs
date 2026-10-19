@@ -6,7 +6,9 @@ mod handlers;
 mod operands;
 mod selectors;
 
-use relocade_compiler::{BlockBuilder, BuildError, Func, Label, Program, Val, I1, I32, I8};
+use relocade_compiler::{
+    BlockBuilder, BuildError, Func, Label, Program, Signature, Type, Val, I1, I32, I8,
+};
 
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},
@@ -34,7 +36,7 @@ pub(crate) enum DecodeContinuation {
 impl DecodeContinuation {
     pub(crate) fn resume(&self, body: BlockBuilder<'_>) -> Result<(), BuildError> {
         match self {
-            Self::Entry(function) => body.tail_call(*function, &[]),
+            Self::Entry(function) => RuntimeDecoder::resume(body, *function),
             Self::Cycle(label) => body.branch(label, ()),
         }
     }
@@ -43,6 +45,7 @@ impl DecodeContinuation {
 /// Declares runtime decoding entries and builds their instruction paths.
 pub(crate) struct RuntimeDecoder<'memory> {
     fetch: InstructionFetch<'memory>,
+    entry: Func,
     default_size: SegmentDefaultSize,
     opcode_handlers: DecodeHandlers,
     primary_modrm_memory_handlers: DecodeHandlers,
@@ -62,15 +65,23 @@ impl<'memory> RuntimeDecoder<'memory> {
         program: &mut Program,
         fetch: InstructionFetch<'memory>,
         default_size: SegmentDefaultSize,
-        loop_entry: Option<Func>,
+        before_next_instruction: impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError>,
         complete_instruction: impl Fn(
             BlockBuilder<'_>,
             DecodedInstruction<Val<I32>, Val<I32>>,
-            Option<&DecodeContinuation>,
+            &DecodeContinuation,
         ) -> Result<(), BuildError>,
     ) -> Result<Self, BuildError> {
+        let signature = Signature {
+            parameters: vec![Type::I1],
+            results: vec![Type::I64],
+        };
+        let entry = program.declare(signature.clone());
+        let exact = program.declare(signature.clone());
+        let completed = program.declare(signature);
         let decoder = Self {
             fetch,
+            entry,
             default_size,
             opcode_handlers: DecodeHandlers::declare(
                 program,
@@ -82,28 +93,28 @@ impl<'memory> RuntimeDecoder<'memory> {
                 program,
                 DecodePoint::MemoryOperand(OpcodeMap::Primary),
                 default_size,
-                loop_entry.is_none(),
+                false,
             ),
             extended_modrm_memory_handlers: DecodeHandlers::declare(
                 program,
                 DecodePoint::MemoryOperand(OpcodeMap::Extended),
                 default_size,
-                loop_entry.is_none(),
+                false,
             ),
         };
-        let continuation = loop_entry.map(DecodeContinuation::Entry);
+        let continuation = DecodeContinuation::Entry(completed);
         for handlers in [
             &decoder.primary_modrm_memory_handlers,
             &decoder.extended_modrm_memory_handlers,
         ] {
             handlers.define(program, &decoder.fetch, |body, cursor, state| {
-                let form_index = body.parameter::<I32>(1)?;
-                let modrm = body.parameter::<I8>(2)?;
+                let form_index = body.parameter::<I32>(2)?;
+                let modrm = body.parameter::<I8>(3)?;
                 InstructionDecoder {
                     decoder: &decoder,
                     memory_continuation: None,
                     complete_instruction: |body: BlockBuilder<'_>, instruction| {
-                        complete_instruction(body, instruction, continuation.as_ref())
+                        complete_instruction(body, instruction, &continuation)
                     },
                 }
                 .decode_memory_operands(body, cursor, state, &form_index, &modrm)
@@ -112,30 +123,75 @@ impl<'memory> RuntimeDecoder<'memory> {
         decoder
             .opcode_handlers
             .define(program, &decoder.fetch, |body, cursor, state| {
-                let opcode = body.parameter::<I8>(1)?;
-                if let Some(entry) = loop_entry.filter(|_| cursor.physical_start().is_some()) {
-                    decoder.decode_cycle(body, cursor, &opcode, entry, &complete_instruction)
+                let opcode = body.parameter::<I8>(2)?;
+                if cursor.physical_start().is_some() {
+                    decoder.decode_cycle(
+                        body,
+                        cursor,
+                        &opcode,
+                        entry,
+                        &before_next_instruction,
+                        &complete_instruction,
+                    )
                 } else {
                     InstructionDecoder {
                         decoder: &decoder,
                         memory_continuation: None,
                         complete_instruction: |body: BlockBuilder<'_>, instruction| {
-                            complete_instruction(body, instruction, continuation.as_ref())
+                            complete_instruction(body, instruction, &continuation)
                         },
                     }
                     .decode_opcode(body, cursor, state, &opcode)
                 }
             })?;
+        for (function, after_instruction) in [(entry, false), (completed, true)] {
+            program.define(function, |mut body| {
+                if after_instruction {
+                    before_next_instruction(&mut body)?;
+                }
+                decoder.start(body, exact)
+            })?;
+        }
+        program.define(exact, |mut body| {
+            let fetch = decoder.fetch.clone();
+            let start = fetch.eip(&mut body)?;
+            decoder.decode(body, fetch, &start, None)
+        })?;
         Ok(decoder)
     }
 
-    /// Starts a generated function with no cached CS reads.
-    pub(crate) fn fetch(&self) -> InstructionFetch<'memory> {
-        self.fetch.clone()
+    /// Every private decoder entry carries the execution policy in parameter zero.
+    /// Keeping it in the activation makes nested host calls independent.
+    pub(crate) fn single_step(body: &BlockBuilder<'_>) -> Result<Val<I1>, BuildError> {
+        body.parameter::<I1>(0)
+    }
+
+    fn resume(body: BlockBuilder<'_>, entry: Func) -> Result<(), BuildError> {
+        let single_step = Self::single_step(&body)?;
+        body.tail_call(entry, &[(&single_step).into()])
+    }
+
+    /// Public exports choose a policy; decoder continuations retain it privately.
+    pub(crate) fn enter(
+        &self,
+        body: BlockBuilder<'_>,
+        single_step: &Val<I1>,
+    ) -> Result<(), BuildError> {
+        body.tail_call(self.entry, &[single_step.into()])
+    }
+
+    /// Both initial entry and helper completion fetch directly, avoiding a second
+    /// tail call on prefixed instructions. Exact fallback retains the policy.
+    fn start(&self, mut body: BlockBuilder<'_>, exact: Func) -> Result<(), BuildError> {
+        let mut fetch = self.fetch.clone();
+        let start = fetch.eip(&mut body)?;
+        let direct = fetch.direct_window(&mut body, &start)?;
+        body.if_(&direct.unavailable, |body| Self::resume(body, exact))?;
+        self.decode(body, fetch, &start, Some(&direct.physical))
     }
 
     /// `physical_start` supplies the proven contiguous instruction window.
-    pub(crate) fn decode(
+    fn decode(
         &self,
         mut body: BlockBuilder<'_>,
         fetch: InstructionFetch<'memory>,

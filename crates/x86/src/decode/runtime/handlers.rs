@@ -1,5 +1,7 @@
 //! Decoder entry signatures and transport of cursor progress and semantic state.
-use relocade_compiler::{Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, I32};
+use relocade_compiler::{
+    Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, I1, I32,
+};
 
 use crate::{
     decode::DecodeState,
@@ -73,7 +75,7 @@ impl DecodeHandlers {
         direct_entry: bool,
     ) -> Self {
         let default_prefixes = PrefixState::new(default_size);
-        let mut parameters = vec![Type::I32];
+        let mut parameters = vec![Type::I1, Type::I32];
         parameters.extend_from_slice(point.field_types());
         let checked = program.declare(Signature {
             parameters: parameters.clone(),
@@ -140,8 +142,8 @@ impl DecodeHandlers {
         for (function, entry) in entries {
             program.define(function, |body| {
                 let fetch = fetch.clone();
-                let instruction_eip = body.parameter::<I32>(0)?;
-                let position_parameter = self.point.field_types().len() as u32 + 1;
+                let instruction_eip = body.parameter::<I32>(1)?;
+                let position_parameter = self.point.field_types().len() as u32 + 2;
                 let (cursor, prefixes) = match entry {
                     Entry::Resumed(entry) => {
                         let cursor = RuntimeCursor::resume(
@@ -179,6 +181,7 @@ impl DecodeHandlers {
         Ok(())
     }
 
+    /// All entries carry the single-step flag first, followed by instruction EIP.
     /// Opcode entries receive a byte; memory entries receive a validated form
     /// index and ModRM. Cursor progress and optional prefix arguments follow
     /// these decoded fields.
@@ -189,7 +192,8 @@ impl DecodeHandlers {
         state: DecodeState,
         fields: &[Argument],
     ) -> Result<(), BuildError> {
-        let mut arguments = vec![cursor.instruction_eip().into()];
+        let single_step = body.parameter::<I1>(0)?;
+        let mut arguments = vec![(&single_step).into(), cursor.instruction_eip().into()];
         arguments.extend_from_slice(fields);
         let target = if cursor.fixed_offset() == Some(self.point.consumed()) {
             match cursor.physical_start() {

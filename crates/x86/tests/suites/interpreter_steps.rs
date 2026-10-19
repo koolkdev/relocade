@@ -38,7 +38,7 @@ fn interpreter_step_exposes_host_abis() {
     let mut memories = Vec::new();
     let mut functions = Vec::new();
     let mut imports = Vec::new();
-    let mut exported = None;
+    let mut exported = Vec::new();
     for payload in Parser::new(0).parse_all(module.bytes()) {
         match payload.unwrap() {
             Payload::TypeSection(section) => {
@@ -70,8 +70,7 @@ fn interpreter_step_exposes_host_abis() {
                 for export in section {
                     let export = export.unwrap();
                     assert_eq!(export.kind, ExternalKind::Func);
-                    assert_eq!(export.name, "step");
-                    assert!(exported.replace(export.index).is_none());
+                    exported.push((export.name.to_owned(), export.index));
                 }
             }
             _ => {}
@@ -102,11 +101,20 @@ fn interpreter_step_exposes_host_abis() {
             ),
         ]
     );
-    let entry = exported.unwrap() as usize - imports.len();
     assert_eq!(
-        types[functions[entry] as usize],
-        (vec![], vec![ValType::I64])
+        exported
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["run", "step"]
     );
+    for (_, index) in exported {
+        let entry = index as usize - imports.len();
+        assert_eq!(
+            types[functions[entry] as usize],
+            (vec![], vec![ValType::I64])
+        );
+    }
 }
 
 #[rustfmt::skip]

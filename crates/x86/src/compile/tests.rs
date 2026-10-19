@@ -39,6 +39,7 @@ fn interpreter_code_keeps_the_profile_without_specializing_cpu_features_or_obser
     let compiler = Compiler::new(profile)
         .with_cpu_model(model)
         .specialize_on_cpu(&observed);
+    let mut shared_bytes = None;
     for (name, ordinary, configured) in [
         (
             "run",
@@ -54,6 +55,11 @@ fn interpreter_code_keeps_the_profile_without_specializing_cpu_features_or_obser
         assert_eq!(configured.entry, name);
         assert_eq!(configured.execution_target, Some(compiler.target()));
         assert!(ordinary.bytes == configured.bytes, "{name}");
+        if let Some(bytes) = &shared_bytes {
+            assert!(*bytes == ordinary.bytes, "step and run share one module");
+        } else {
+            shared_bytes = Some(ordinary.bytes);
+        }
     }
 }
 
