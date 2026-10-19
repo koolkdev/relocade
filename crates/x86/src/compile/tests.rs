@@ -1,3 +1,4 @@
+mod branch_hints;
 mod budget;
 mod dispatch;
 mod fetch;

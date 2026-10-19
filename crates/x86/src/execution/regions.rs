@@ -1,6 +1,8 @@
 //! Nested execution inherits a restart boundary and returns values or dispatches.
 
-use wasm86_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1, I32};
+use wasm86_compiler::{
+    Arguments, BlockBuilder, BranchCondition, BuildError, Results, Val, I1, I32,
+};
 
 use super::ExecutionBuilder;
 
@@ -10,15 +12,15 @@ impl<'module> ExecutionBuilder<'_, 'module> {
     /// continues unchanged. Faults inside the arm retain the entry boundary.
     pub(crate) fn dispatch_if(
         &mut self,
-        condition: impl Into<Val<I1>>,
+        condition: impl Into<BranchCondition>,
         transfer: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<Val<I32>, BuildError>,
     ) -> Result<(), BuildError> {
         let nested = self.nested_builder();
         self.body.if_(condition, |body| {
             let mut arm = nested(body);
-            arm.eip = transfer(&mut arm)?;
+            let target = transfer(&mut arm)?;
             arm.completed += 1;
-            arm.dispatch()
+            arm.dispatch(target.into())
         })
     }
 
@@ -92,7 +94,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
     /// register definitions do not merge into the parent and stores persist.
     pub(crate) fn if_value<R: Results>(
         &mut self,
-        condition: impl Into<Val<I1>>,
+        condition: impl Into<BranchCondition>,
         then_build: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<R::Values, BuildError>,
         else_build: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<R::Values, BuildError>,
     ) -> Result<R::Values, BuildError>

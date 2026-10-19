@@ -1,7 +1,10 @@
 //! Jumps, calls and returns select the next execution entry.
 
 use super::*;
-use crate::register::{Gpr32, RegisterType};
+use crate::{
+    execution::Successor,
+    register::{Gpr32, RegisterType},
+};
 
 instruction_families! {
     JMP_RELATIVE {
@@ -84,7 +87,7 @@ fn jump_relative<T: RegisterType>(
     displacement: Input<I32>,
     condition: Option<Condition>,
     fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<Successor, BuildError>
 where
     I32: AtLeast<T>,
 {
@@ -93,9 +96,9 @@ where
     match condition {
         Some(condition) => {
             let taken = execution.condition(condition)?;
-            execution.branch(taken, target, fallthrough)
+            execution.branch(taken, target, fallthrough, execution.jcc_hint())
         }
-        None => execution.jump(target),
+        None => execution.jump(target).map(Into::into),
     }
 }
 
@@ -115,14 +118,14 @@ fn jump_if_count_zero<T: RegisterType>(
     displacement: Input<I32>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<Successor, BuildError>
 where
     I32: AtLeast<T>,
 {
     let displacement = displacement.read(execution)?;
     let count = execution.read_address_register(Gpr32::Ecx)?;
     let target = relative_target::<T>(&fallthrough, displacement);
-    execution.branch(count.eq(0), target, fallthrough)
+    execution.branch(count.eq(0), target, fallthrough, None)
 }
 
 fn loop_relative<T: RegisterType>(
@@ -131,7 +134,7 @@ fn loop_relative<T: RegisterType>(
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
     loop_condition: Option<Condition>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<Successor, BuildError>
 where
     I32: AtLeast<T>,
 {
@@ -144,9 +147,9 @@ where
         taken = taken.and(execution.condition(condition)?);
     }
     let target = relative_target::<T>(&fallthrough, displacement);
-    let next_eip = execution.branch(taken, target, fallthrough)?;
+    let successor = execution.branch(taken, target, fallthrough, None)?;
     execution.write_address_register(Gpr32::Ecx, count)?;
-    Ok(next_eip)
+    Ok(successor)
 }
 
 fn call_relative<T: RegisterType>(

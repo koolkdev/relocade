@@ -1,19 +1,19 @@
 //! Callable instruction shapes shared by decoding and lowering.
 //!
 //! Every operand shape receives the bound condition and fallthrough EIP, and returns
-//! the successor EIP. Family declaration adapters complete ordinary bodies with fallthrough.
+//! the successor edges. Family declaration adapters complete ordinary bodies with fallthrough.
 
 use wasm86_compiler::{BuildError, Val, I32};
 
 use super::{Location, Operand, OperandSize};
-use crate::execution::ExecutionBuilder;
+use crate::execution::{ExecutionBuilder, Successor};
 use crate::flags::Condition;
 
 pub(super) type NullaryHandler = for<'body, 'module> fn(
     execution: &mut ExecutionBuilder<'body, 'module>,
     condition: Option<Condition>,
     fallthrough_eip: Val<I32>,
-) -> Result<Val<I32>, BuildError>;
+) -> Result<Successor, BuildError>;
 
 pub(super) type BinaryHandler = for<'body, 'module> fn(
     execution: &mut ExecutionBuilder<'body, 'module>,
@@ -21,14 +21,14 @@ pub(super) type BinaryHandler = for<'body, 'module> fn(
     right: Operand<Val<I32>>,
     condition: Option<Condition>,
     fallthrough_eip: Val<I32>,
-) -> Result<Val<I32>, BuildError>;
+) -> Result<Successor, BuildError>;
 
 pub(super) type UnaryHandler = for<'body, 'module> fn(
     execution: &mut ExecutionBuilder<'body, 'module>,
     operand: Operand<Val<I32>>,
     condition: Option<Condition>,
     fallthrough_eip: Val<I32>,
-) -> Result<Val<I32>, BuildError>;
+) -> Result<Successor, BuildError>;
 
 pub(super) type TernaryHandler = for<'body, 'module> fn(
     execution: &mut ExecutionBuilder<'body, 'module>,
@@ -37,7 +37,7 @@ pub(super) type TernaryHandler = for<'body, 'module> fn(
     second_source: Operand<Val<I32>>,
     condition: Option<Condition>,
     fallthrough_eip: Val<I32>,
-) -> Result<Val<I32>, BuildError>;
+) -> Result<Successor, BuildError>;
 
 /// Declaration adapters supply these functions before their field bindings are paired.
 #[derive(Clone, Copy)]

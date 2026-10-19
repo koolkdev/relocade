@@ -54,6 +54,36 @@ fn condition_cases() -> Vec<Case> {
 
 test_cases!(conditions_across_short_and_near_forms, condition_cases());
 
+fn hinted_conditions() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for prefix in [0x2e, 0x3e] {
+        for taken in [false, true] {
+            for (code, fallthrough, target) in [
+                (vec![prefix, 0x74, 5], 0x1003, 0x1008),
+                (vec![prefix, 0x0f, 0x84, 5, 0, 0, 0], 0x1007, 0x100c),
+                (vec![prefix, 0x66, 0x0f, 0x84, 5, 0], 0x1006, 0x100b),
+            ] {
+                cases.push(
+                    Case::new(
+                        format!("hinted JZ {code:02x?}, taken={taken}"),
+                        &code,
+                        Flags::all(taken),
+                        Flags::all(Preserved),
+                    )
+                    .preserve_flag_record()
+                    .dispatch(if taken { target } else { fallthrough }),
+                );
+            }
+        }
+    }
+    cases
+}
+
+test_cases!(
+    branch_hint_prefixes_preserve_both_outcomes,
+    hinted_conditions()
+);
+
 #[rustfmt::skip]
 fn pending_conditions() -> Vec<Sequence> {
     struct Producer {

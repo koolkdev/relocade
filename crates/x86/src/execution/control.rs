@@ -4,11 +4,11 @@ mod far;
 
 pub(crate) use far::CodeTarget;
 
-use wasm86_compiler::{BuildError, Val, I1, I32};
+use wasm86_compiler::{BranchHint, BuildError, Val, I1, I32};
 
-use crate::{exception::Exception, memory::Intent, segment::Segment};
+use crate::{exception::Exception, instruction::SegmentOverride, memory::Intent, segment::Segment};
 
-use super::ExecutionBuilder;
+use super::{ExecutionBuilder, Successor};
 
 impl ExecutionBuilder<'_, '_> {
     /// Checks a snapshot block's complete encoding before any guest effects.
@@ -41,9 +41,25 @@ impl ExecutionBuilder<'_, '_> {
         taken: Val<I1>,
         target: Val<I32>,
         fallthrough: Val<I32>,
-    ) -> Result<Val<I32>, BuildError> {
+        hint: Option<BranchHint>,
+    ) -> Result<Successor, BuildError> {
         self.check_code_target(&target, Some(&taken))?;
-        Ok(taken.select(target, fallthrough))
+        Ok(Successor::Conditional {
+            condition: taken,
+            hint,
+            taken: target,
+            fallthrough,
+        })
+    }
+
+    /// Pentium 4 Jcc prefixes predict the taken edge. A runtime-carried prefix
+    /// cannot choose static Wasm metadata; its prediction may be ignored.
+    pub(crate) fn jcc_hint(&self) -> Option<BranchHint> {
+        match self.segment_override {
+            SegmentOverride::Fixed(Segment::Cs) => Some(BranchHint::Unlikely),
+            SegmentOverride::Fixed(Segment::Ds) => Some(BranchHint::Likely),
+            _ => None,
+        }
     }
 
     fn check_code_target(

@@ -49,7 +49,7 @@ fn overflow_interrupt(
         ExecutionProfile::Protected(_) => execution.unsupported(0xce)?,
         ExecutionProfile::Real16 => {
             let overflow = execution.read_flag(Flag::OF)?;
-            execution.dispatch_if(overflow, |taken| {
+            execution.dispatch_if(overflow.unlikely(), |taken| {
                 enter_interrupt(taken, 4.into(), fallthrough.clone())
             })?;
         }

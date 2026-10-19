@@ -33,7 +33,7 @@ macro_rules! declaration_handlers {
     };
 }
 
-// All bodies receive typed operands. Transfers return the successor EIP;
+// All bodies receive typed operands. Transfers return successor edges;
 // ordinary bodies complete with fallthrough. Effects can appear in any order.
 macro_rules! declaration_adapter {
     ([control_transfer $(, $effect:ident)*] $($row:tt)*) => {
@@ -81,10 +81,11 @@ macro_rules! declaration_adapter {
 macro_rules! declaration_result {
     ([control_transfer] $pattern:tt $call:tt $width:tt $execution:ident, $condition:ident, $fallthrough:ident; $($operand:expr),*) => {
         declaration_invoke!($call $width; $execution $(, $operand)*, $condition, $fallthrough)
+            .map(Into::into)
     };
     ([] $pattern:tt $call:tt $width:tt $execution:ident, $condition:ident, $fallthrough:ident; $($operand:expr),*) => {{
         declaration_call!($pattern $call $width $execution, $condition; $($operand),*)?;
-        Ok($fallthrough)
+        Ok($fallthrough.into())
     }};
 }
 

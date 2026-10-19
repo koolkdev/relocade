@@ -40,10 +40,10 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
                 }
                 let (nop, _) =
                     crate::decode::snapshot(&[0x90], 0x1000, SegmentDefaultSize::Bits32).unwrap();
-                execution.execute(nop)?;
+                let successor = execution.execute(nop)?;
                 execution.record_simd_exceptions(&exceptions)?;
                 execution.write_xmm(RegisterCode::from_code(0), 0_u128.into())?;
-                execution.complete(|body, _| body.return_(7))
+                execution.complete(successor, |body, _| body.return_(7))
             },
         )
         .unwrap();
