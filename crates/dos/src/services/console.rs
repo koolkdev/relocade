@@ -25,16 +25,9 @@ pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<()>
     return_to_host(call, Err(ServiceError::UnterminatedString))
 }
 
-/// AH=40h: write CX bytes from DS:DX to handle BX; return the count in AX.
-/// Handles 1 (stdout) and 2 (stderr) share the buffered console output.
-pub(super) fn write_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
-    let count = call.cpu().cx();
-    let address = call.cpu().segment(Segment::Ds).base + u32::from(call.cpu().dx());
-    let mut bytes = vec![0; usize::from(count)];
-    call.memory()
-        .read(address, &mut bytes)
-        .expect("real-mode buffer");
-    call.state_mut().output.extend_from_slice(&bytes);
-    call.cpu().set_ax(count);
+/// Writes to a console output handle append to the shared output buffer.
+pub(super) fn write_handle(call: &mut HostCall<'_, DosState>, bytes: &[u8]) -> ControlFlow<()> {
+    call.state_mut().output.extend_from_slice(bytes);
+    call.cpu().set_ax(bytes.len() as u16);
     return_result(call, Ok(()))
 }

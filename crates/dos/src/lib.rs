@@ -7,7 +7,7 @@
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
-//! [`Dos::mount_file`] supplies read-only files for AH=3Dh/3Eh/3Fh open/close/read.
+//! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`]. The host chooses the Wasm backend and controls execution through
@@ -32,6 +32,7 @@
 mod com;
 mod error;
 mod files;
+mod filesystem;
 mod interrupt;
 mod kernel;
 mod memory;
@@ -40,6 +41,7 @@ mod process;
 mod services;
 
 pub use error::{LoadError, MountError, ServiceError};
+pub use filesystem::FileAccess;
 pub use kernel::DosState;
 use wasm86_runtime::{Runtime, RuntimeBackend};
 
@@ -77,11 +79,23 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
         Ok(())
     }
 
-    /// Mounts read-only bytes at an ASCII path on C:. Paths are case-insensitive;
-    /// relative paths start at the drive root. Files persist across program loads.
+    /// Mounts bytes at an ASCII path on C: with explicit read/write access.
+    /// Paths are case-insensitive; relative paths start at the drive root.
+    /// Files persist across program loads.
     /// Replacing a mounted path leaves existing open handles on the previous bytes.
-    pub fn mount_file(&mut self, path: &str, contents: Vec<u8>) -> Result<(), MountError> {
-        self.runtime.state_mut().files.mount(path, contents)
+    pub fn mount_file(
+        &mut self,
+        path: &str,
+        contents: Vec<u8>,
+        access: FileAccess,
+    ) -> Result<(), MountError> {
+        self.runtime.state_mut().files.mount(path, contents, access)
+    }
+
+    /// Copies a file's current contents for the host to save or export.
+    /// Returns None for invalid paths or files that do not exist.
+    pub fn read_file(&self, path: &str) -> Option<Vec<u8>> {
+        self.runtime.state().files.read_file(path)
     }
 
     pub fn runtime(&mut self) -> &mut Runtime<B> {
