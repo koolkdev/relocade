@@ -20,6 +20,10 @@ where
     let allocation = allocation.read(execution)?;
     let nesting = nesting.read(execution)?;
     let level = nesting.unsigned().extend::<I32>().and(31);
+    if execution.profile() == ExecutionProfile::Real16 {
+        // Nested frames can read bytes written by earlier pushes.
+        execution.if_can_fallback(|jit| jit.guard(level.eq(0)))?;
+    }
     let old_frame = TypedLocation::<I32>::register(Gpr32::Ebp).read(execution)?;
     let pointer = execution.stack_pointer()?;
     let saved = pointer.clone().push_frame(execution, T::BYTES, T::BYTES)?;

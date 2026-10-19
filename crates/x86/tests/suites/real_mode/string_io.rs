@@ -6,7 +6,7 @@ use crate::support::{
 };
 
 fn transfers(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     for (code, width, input_port, repeat, backward, address32) in [
         (&[0x6c][..], 1, true, false, false, false),
         (&[0x6d][..], 2, true, false, true, false),
@@ -98,7 +98,7 @@ fn transfers(frontend: Frontend) {
 test_frontends!(string_port_transfers, transfers);
 
 fn faults(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     for input_port in [false, true] {
         for count in [0, 3] {
             // Address-size 32 lets the first word complete at FFFE; the second
@@ -161,7 +161,7 @@ fn faults(frontend: Frontend) {
 test_frontends!(string_port_progress_and_faults, faults);
 
 fn segments_and_mmio(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     for input_port in [false, true] {
         let code = [0x64, if input_port { 0x6d } else { 0x6f }];
         let mut image = image(&code);
@@ -270,7 +270,7 @@ fn segments_and_mmio(frontend: Frontend) {
 test_frontends!(string_port_segments_and_mmio, segments_and_mmio);
 
 fn privilege(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     let profile = ExecutionProfile::Protected(relocade_x86::SegmentProfile::Flat32);
     for opcode in [0x6d, 0x6f] {
         for count in [0, 1] {

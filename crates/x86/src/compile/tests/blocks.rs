@@ -288,6 +288,21 @@ fn shared_memory_helpers() {
             image.data(0x4fff, &[0x11]);
             image.data(0x6000, &[0x22, 0x33, 0x44]);
             let mut after = image.cpu;
+            if profile == ExecutionProfile::Real16 {
+                // Split physical operands now restart in the interpreter.
+                assert_eq!(
+                    module.observe(&image.input(), 1),
+                    expected(
+                        &image,
+                        &[Step {
+                            cpu: after,
+                            ram: &[],
+                            exit: Exit::Interpret
+                        }]
+                    )
+                );
+                continue;
+            }
             after.registers.eax = 0x4433_2211;
             after.eip += code.len() as u32;
             after.instruction_count = 42;

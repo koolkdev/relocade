@@ -9,6 +9,7 @@ pub(super) fn input_elements<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
+    execution.guard_stable_memory()?;
     let port = TypedLocation::<I16>::register(Gpr32::Edx).read(execution)?;
     let stride = element_stride::<T>(execution)?;
     repetition.execute::<T, 1>(
@@ -33,6 +34,7 @@ pub(super) fn output_elements<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
+    execution.guard_stable_memory()?;
     let port = TypedLocation::<I16>::register(Gpr32::Edx).read(execution)?;
     let stride = element_stride::<T>(execution)?;
     repetition.execute::<T, 1>(

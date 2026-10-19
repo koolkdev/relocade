@@ -114,13 +114,14 @@ impl ExecutionBuilder<'_, '_> {
     /// Non-faulting preflight. Zero count skips all operand checks. Oversized or
     /// wrapping offset spans, denied permissions and scattered backing need the
     /// checked interpreter loop to determine actual progress and fault priority.
-    /// Memory models with live mappings keep per-element resolution in both frontends.
+    /// Compiled physical transfers require a direct window before any effects;
+    /// runtime decoding retains live per-element resolution.
     pub(crate) fn resolve_strings<T: RegisterType, const N: usize>(
         &mut self,
         operands: &[StringOperand; N],
         count: &Val<I32>,
     ) -> Result<Option<ResolvedStrings<N>>, BuildError> {
-        if !self.memory.memory().has_stable_mappings() {
+        if !self.memory.memory().has_stable_mappings() && !self.can_fallback {
             return Ok(None);
         }
         let bytes = count.mul(T::BYTES);
@@ -163,23 +164,16 @@ impl ExecutionBuilder<'_, '_> {
                                 &bytes,
                                 operand.intent,
                             )?;
-                            let (direct, address) = checks.if_value::<(I1, I32)>(
-                                segment.denied.unwrap_or(false.into()),
-                                |denied| denied.yield_((false, 0)),
-                                |mut paging| {
-                                    let access = memory.resolve_access(
-                                        &mut paging,
-                                        &segment.linear,
-                                        &bytes,
-                                        operand.intent,
-                                        None,
-                                        None,
-                                    )?;
-                                    paging.yield_((access.unavailable.eq(false), access.physical))
-                                },
+                            let direct = memory.check_direct_access(
+                                &mut checks,
+                                &segment.linear,
+                                &bytes,
+                                operand.intent,
+                                segment.denied,
+                                None,
                             )?;
-                            available = available.and(direct);
-                            physical.push(address);
+                            available = available.and(direct.unavailable.eq(false));
+                            physical.push(direct.physical);
                         }
                         let physical: [Val<I32>; N] =
                             physical.try_into().unwrap_or_else(|_| unreachable!());

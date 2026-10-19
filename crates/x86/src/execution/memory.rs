@@ -84,6 +84,54 @@ impl MemoryOperand<'_> {
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
+    /// Instructions with partial effects before later accesses cannot restart
+    /// safely on live physical routing. Keep those paths in runtime decoding.
+    pub(crate) fn guard_stable_memory(&mut self) -> Result<(), BuildError> {
+        self.if_can_fallback(|jit| jit.guard(jit.memory.memory().has_stable_mappings()))?;
+        Ok(())
+    }
+
+    /// Architectural permission checks also serve address-only operations, which
+    /// never need a transferable physical backing or an interpreter handoff.
+    fn check_linear_address(
+        &mut self,
+        linear: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<Access, BuildError> {
+        self.memory.resolve(
+            &mut self.body,
+            linear,
+            bytes,
+            intent,
+            |fault_body, exception| {
+                self.state
+                    .fault(fault_body, &self.eip, self.completed, exception)
+            },
+        )
+    }
+
+    pub(super) fn resolve_access(
+        &mut self,
+        linear: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<Access, BuildError> {
+        let mut access = self.check_linear_address(linear, bytes, intent)?;
+        let memory = self.memory.memory();
+        if !memory.has_stable_mappings() {
+            self.if_can_fallback(|jit| {
+                let direct =
+                    memory.check_direct_access(&mut jit.body, linear, bytes, intent, None, None)?;
+                jit.guard(direct.unavailable.eq(false))?;
+                access.physical = direct.physical;
+                access.unavailable = false.into();
+                Ok(())
+            })?;
+        }
+        Ok(access)
+    }
+
     /// Wasm's full fence supplies the ordering required by all three x86 fences.
     /// Its stronger ordering also keeps accesses in generated helpers on their
     /// respective sides of the instruction.
@@ -97,7 +145,9 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         &mut self,
         address: MemoryAddress<Val<I32>>,
     ) -> Result<(), BuildError> {
-        self.memory_operand(address, 1, Intent::ReadOrExecute, &[])?;
+        let offset = address::resolve(&mut self.body, &mut self.state, address.offset, &[])?;
+        let linear = self.translate(&address.segment, &offset, 1, Intent::ReadOrExecute)?;
+        self.check_linear_address(&linear, 1, Intent::ReadOrExecute)?;
         self.memory_fence();
         Ok(())
     }

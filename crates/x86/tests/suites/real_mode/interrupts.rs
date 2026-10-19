@@ -83,7 +83,7 @@ fn return_ip_wraps(frontend: Frontend) {
 test_frontends!(return_ip_is_a_word, return_ip_wraps);
 
 fn stack_bounds(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     for sp in 1..6 {
         let code = [0x66, 0xcc];
         let mut image = interrupt_image(&code, 3);
@@ -137,7 +137,7 @@ fn stack_bounds(frontend: Frontend) {
 test_frontends!(complete_stack_capacity, stack_bounds);
 
 fn conditional_entry(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     for overflow in [false, true] {
         let code = [0xce];
         let mut image = interrupt_image(&code, 4);
