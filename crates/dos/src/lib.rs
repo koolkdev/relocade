@@ -20,6 +20,8 @@
 //! AH=30h reports DOS 5.00; AH=25h/35h set/query the real interrupt vector table.
 //! AH=71h reports long-filename services unavailable, allowing 8.3 fallback.
 //! AH=42h seeks within those files relative to their start, current position or end.
+//! AH=43h queries or changes read-only, hidden, system and archive attributes.
+//! Closing a written file handle restores the archive attribute.
 //! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
 //! AH=09h string output follows the current stdout handle, just like AH=40h.
 //! AX=4400h reports file/device information for the object behind a handle.
@@ -99,7 +101,8 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
         Ok(())
     }
 
-    /// Mounts bytes at an ASCII path on C: with explicit read/write access.
+    /// Mounts bytes at an ASCII path on C: with an initial read-only attribute.
+    /// DOS AH=43h may change that attribute; existing handles keep their access rights.
     /// Paths are case-insensitive; relative paths start at the drive root.
     /// Files persist across program loads.
     /// Replacing a mounted path leaves existing open handles on the previous bytes.
