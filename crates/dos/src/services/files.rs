@@ -39,18 +39,27 @@ pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_result(call, result)
 }
 
-/// AH=40h: stdout/stderr accept output; mounted files are read-only.
+/// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
 pub(super) fn write(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let handle = call.cpu().bx();
-    if call.state().files.is_console_output(handle) {
-        return console::write_handle(call);
+    let cpu = call.cpu();
+    let count = usize::from(cpu.cx());
+    let address = cpu.segment(Segment::Ds).base + u32::from(cpu.dx());
+    let mut bytes = vec![0; count];
+    if count != 0 {
+        call.memory()
+            .read(address, &mut bytes)
+            .expect("real-mode buffer");
     }
-    let error = if call.state().files.is_open(handle) {
-        DosError::AccessDenied
-    } else {
-        DosError::InvalidHandle
-    };
-    return_result(call, Err(error))
+    if call.state().files.is_console_output(handle) {
+        return console::write_handle(call, &bytes);
+    }
+    let result = call
+        .state_mut()
+        .files
+        .write(handle, &bytes)
+        .map(|count| call.cpu().set_ax(count as u16));
+    return_result(call, result)
 }
 
 /// AH=42h: seek BX by CX:DX from AL's origin; return DX:AX.

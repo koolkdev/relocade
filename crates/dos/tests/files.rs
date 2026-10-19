@@ -1,7 +1,7 @@
 mod common;
 
 use common::Backend;
-use wasm86_dos::{Dos, DosState, MountError};
+use wasm86_dos::{Dos, DosState, FileAccess, MountError};
 use wasm86_x86::{CpuState, ExecutionExit};
 
 #[cfg(target_arch = "wasm32")]
@@ -9,8 +9,12 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn check_file_program() {
     let mut dos = common::dos().await;
-    dos.mount_file(r"C:\DATA\HELLO.TXT", b"file\r\n".to_vec())
-        .unwrap();
+    dos.mount_file(
+        r"C:\DATA\HELLO.TXT",
+        b"file\r\n".to_vec(),
+        FileAccess::ReadOnly,
+    )
+    .unwrap();
     let mut program = vec![
         0xb8, 0, 0x3d, // MOV AX,3D00: open read-only
         0xba, 0x40, 1, // MOV DX,0140: pathname
@@ -94,9 +98,13 @@ fn buffer(dos: &mut Dos<Backend<DosState>>) -> [u8; 8] {
 async fn check_handles() {
     let mut dos = common::dos().await;
     for path in ["", "C:\\", r"D:\X.BIN", "X?.BIN", "X\0.BIN", "é.bin"] {
-        assert_eq!(dos.mount_file(path, vec![]), Err(MountError::InvalidPath));
+        assert_eq!(
+            dos.mount_file(path, vec![], FileAccess::ReadOnly),
+            Err(MountError::InvalidPath)
+        );
     }
-    dos.mount_file("X.BIN", b"abcd".to_vec()).unwrap();
+    dos.mount_file("X.BIN", b"abcd".to_vec(), FileAccess::ReadOnly)
+        .unwrap();
     dos.load_com(SERVICE_PROGRAM).unwrap();
     error(&open(&mut dos, b"MISSING.BIN", 0), 2);
     error(&open(&mut dos, b"MISSING/X.BIN", 0), 3);
@@ -125,7 +133,8 @@ async fn check_handles() {
     error(&service(&mut dos, 0x3f00, 5, 0, 0x200), 6);
     assert_eq!(success(&open(&mut dos, b"X.BIN", 0)), 5); // Reuse a closed slot.
 
-    dos.mount_file("X.BIN", b"new".to_vec()).unwrap();
+    dos.mount_file("X.BIN", b"new".to_vec(), FileAccess::ReadOnly)
+        .unwrap();
     assert_eq!(success(&service(&mut dos, 0x3f00, 6, 8, 0x200)), 3);
     assert_eq!(&buffer(&mut dos)[..3], b"bcd"); // An existing handle keeps its bytes.
     assert_eq!(success(&open(&mut dos, b"X.BIN", 0)), 7);
@@ -150,7 +159,8 @@ async fn check_handles() {
 
 async fn check_standard_handles() {
     let mut dos = common::dos().await;
-    dos.mount_file("X.BIN", b"file".to_vec()).unwrap();
+    dos.mount_file("X.BIN", b"file".to_vec(), FileAccess::ReadOnly)
+        .unwrap();
     dos.load_com(SERVICE_PROGRAM).unwrap();
 
     success(&service(&mut dos, 0x3e00, 1, 0, 0)); // Close stdout.
@@ -206,12 +216,103 @@ fn position(cpu: &CpuState) -> u32 {
     u32::from(success(cpu)) | ((cpu.registers.edx & 0xffff) << 16)
 }
 
+fn write(dos: &mut Dos<Backend<DosState>>, handle: u16, bytes: &[u8]) -> CpuState {
+    dos.runtime()
+        .machine()
+        .memory()
+        .write(0x10200, bytes)
+        .unwrap();
+    service(dos, 0x4000, handle, bytes.len() as u16, 0x200)
+}
+
+async fn check_writes() {
+    let mut dos = common::dos().await;
+    dos.mount_file("SAVE.BIN", b"abcdef".to_vec(), FileAccess::ReadWrite)
+        .unwrap();
+    assert_eq!(dos.read_file("MISSING.BIN"), None);
+    assert_eq!(dos.read_file("D:\\SAVE.BIN"), None);
+    dos.load_com(SERVICE_PROGRAM).unwrap();
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x42)), 5); // Read/write, deny none.
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x40)), 6); // Read only.
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x41)), 7); // Write only.
+    assert_eq!(success(&write(&mut dos, 5, b"XY")), 2);
+    assert_eq!(dos.read_file("save.bin").unwrap(), b"XYcdef");
+    assert_eq!(success(&service(&mut dos, 0x3f00, 6, 2, 0x200)), 2);
+    assert_eq!(&buffer(&mut dos)[..2], b"XY"); // Already-open reader sees the write.
+    assert_eq!(position(&seek(&mut dos, 5, 1, 0)), 2); // Its cursor remains independent.
+    error(&service(&mut dos, 0x3f00, 7, 1, 0x200), 5);
+    error(&write(&mut dos, 6, b"!"), 5);
+    error(&write(&mut dos, 6, b""), 5); // Read-only handles cannot truncate.
+    assert_eq!(success(&write(&mut dos, 7, b"Z")), 1);
+
+    assert_eq!(position(&seek(&mut dos, 5, 0, 8)), 8);
+    assert_eq!(success(&write(&mut dos, 5, b"Q")), 1);
+    assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYcdef\0\0Q");
+    assert_eq!(position(&seek(&mut dos, 5, 0, 3)), 3);
+    assert_eq!(success(&write(&mut dos, 5, b"")), 0);
+    assert_eq!(position(&seek(&mut dos, 5, 1, 0)), 3);
+    assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYc");
+    assert_eq!(success(&service(&mut dos, 0x3f00, 6, 4, 0x200)), 1);
+    assert_eq!(buffer(&mut dos)[0], b'c');
+    assert_eq!(position(&seek(&mut dos, 5, 0, 6)), 6);
+    assert_eq!(success(&write(&mut dos, 5, b"")), 0);
+    assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYc\0\0\0");
+
+    assert_eq!(position(&seek(&mut dos, 5, 0, 0)), 0);
+    assert_eq!(position(&seek(&mut dos, 5, 1, -1)), u32::MAX);
+    error(&write(&mut dos, 5, b"!"), 5);
+    assert_eq!(position(&seek(&mut dos, 5, 0, i32::MAX)), 0x7fff_ffff);
+    assert_eq!(position(&seek(&mut dos, 5, 1, i32::MAX)), 0xffff_fffe);
+    error(&write(&mut dos, 5, b"XX"), 5); // The resulting size cannot fit in 32 bits.
+    assert_eq!(position(&seek(&mut dos, 5, 1, 0)), 0xffff_fffe);
+    assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYc\0\0\0");
+    for handle in 5..=7 {
+        success(&service(&mut dos, 0x3e00, handle, 0, 0));
+    }
+
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x22)), 5); // Deny other writes.
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x40)), 6);
+    error(&open(&mut dos, b"SAVE.BIN", 0x41), 5);
+    success(&service(&mut dos, 0x3e00, 6, 0, 0));
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x31)), 5); // Deny other reads.
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x41)), 6);
+    error(&open(&mut dos, b"SAVE.BIN", 0x40), 5);
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x21)), 7); // Same-process existing writers are allowed.
+    error(&open(&mut dos, b"SAVE.BIN", 0x41), 5); // Later writers are denied.
+    success(&service(&mut dos, 0x3e00, 7, 0, 0));
+    success(&service(&mut dos, 0x3e00, 6, 0, 0));
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
+
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x40)), 5);
+    error(&open(&mut dos, b"SAVE.BIN", 0x10), 5); // Deny-both includes this process.
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x30)), 6); // Existing reader is allowed.
+    error(&open(&mut dos, b"SAVE.BIN", 0x40), 5); // Later readers are denied.
+    success(&service(&mut dos, 0x3e00, 6, 0, 0));
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
+
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 2)), 5); // Compatibility mode.
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 1)), 6); // Same process may reopen.
+    error(&open(&mut dos, b"SAVE.BIN", 0x40), 5); // Cannot mix with explicit sharing.
+    success(&service(&mut dos, 0x3e00, 6, 0, 0));
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
+    assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x42)), 5);
+    error(&open(&mut dos, b"SAVE.BIN", 0), 5);
+
+    dos.load_com(&[0xb8, 0, 0x4c, 0xcd, 0x21]).unwrap();
+    assert_eq!(dos.runtime().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYc\0\0\0");
+    dos.load_com(SERVICE_PROGRAM).unwrap();
+    error(&write(&mut dos, 5, b"!"), 6); // Prior program's handles have closed.
+}
+
 async fn check_seek() {
     let mut dos = common::dos().await;
     let mut contents = vec![0; 0x10008];
     contents[..4].copy_from_slice(b"head");
     contents[0x10000..].copy_from_slice(b"taildata");
-    dos.mount_file("RECORDS.BIN", contents).unwrap();
+    dos.mount_file("RECORDS.BIN", contents, FileAccess::ReadOnly)
+        .unwrap();
     dos.load_com(SERVICE_PROGRAM).unwrap();
     assert_eq!(success(&open(&mut dos, b"RECORDS.BIN", 0)), 5);
     assert_eq!(success(&open(&mut dos, b"RECORDS.BIN", 0)), 6);
@@ -292,4 +393,16 @@ fn seeking_selects_records_and_reports_file_positions() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn seeking_selects_records_and_reports_file_positions() {
     check_seek().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn writable_files_share_contents_and_preserve_access_rules() {
+    pollster::block_on(check_writes());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn writable_files_share_contents_and_preserve_access_rules() {
+    check_writes().await;
 }
