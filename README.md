@@ -46,7 +46,14 @@ Both contracts are included in the x86 crate's generated API documentation.
 
 The ordinary tests execute Wasm in Wasmtime and do not require Node.js.
 
+Prepare external test fixtures with Python 3.11+ before compiling tests. The
+[manifest](test-assets.toml) pins upstream ZIP archives by SHA-256. The preparation
+script verifies and caches complete archives in `target/test-assets`, then extracts
+the listed files. Run it again when the manifest changes; cached preparation and
+tests work offline. Native and browser CI run the same preparation step.
+
 ```sh
+python3 tools/fetch-test-assets.py
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo fmt --all -- --check

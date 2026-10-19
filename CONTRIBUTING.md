@@ -10,6 +10,7 @@ Repository conventions and review requirements are in [AGENTS.md](AGENTS.md).
 The ordinary suite runs generated Wasm in Wasmtime and needs no Node.js:
 
 ```sh
+python3 tools/fetch-test-assets.py  # Python 3.11+, caches external fixtures for offline tests
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo fmt --all -- --check

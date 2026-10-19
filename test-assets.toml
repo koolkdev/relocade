@@ -1,0 +1,14 @@
+# Fetch with: python3 tools/fetch-test-assets.py
+# File names under directory map to exact ZIP members. The complete upstream
+# archive is also cached, including any source code and license notices.
+
+[[assets]]
+name = "freedos-find"
+version = "3.0b LFN (rev A), FreeDOS package 2022-02-17.0"
+url = "https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/repositories/1.3/base/find.zip"
+sha256 = "0cefc8f61bcaf2fdf1ecaac8c991adef3dc958cb6966b0ad5be1519079d96f9c"
+directory = "crates/dos/tests/fixtures/freedos-find"
+
+[assets.files]
+"FIND.COM" = "BIN/FIND.COM"
+"SOURCES.ZIP" = "SOURCE/FIND/SOURCES.ZIP"
