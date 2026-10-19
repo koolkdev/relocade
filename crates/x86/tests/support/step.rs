@@ -1,15 +1,13 @@
 #[cfg(test)]
 mod tests;
 
-use std::{
-    collections::HashMap,
-    sync::{Mutex, OnceLock},
-};
+use std::sync::Arc;
 
-use crate::{Compiler, ExecutionProfile, ExecutionTarget, SegmentProfile};
+use crate::ExecutionTarget;
 use relocade_test_support::Module;
 pub(crate) use relocade_test_support::{Outcome, Value as Argument};
 
+mod interpreter;
 mod segments;
 mod wasmtime;
 pub(crate) use segments::{SegmentQuery, SegmentResolution};
@@ -132,72 +130,24 @@ pub(crate) struct Observation {
 }
 
 pub(crate) struct TestModule {
-    module: Module,
+    module: Arc<Module>,
     pub(crate) entry: String,
     target: Option<ExecutionTarget>,
     interpreter: Option<&'static TestModule>,
 }
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-enum InterpreterEntry {
-    Step,
-    Run,
-}
-
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
         Self {
-            module: Module::new(&module.bytes),
+            module: Arc::new(Module::new(&module.bytes)),
             entry: module.entry.clone(),
             target: module.execution_target,
             interpreter: None,
         }
     }
 
-    pub(crate) fn interpreter() -> &'static Self {
-        Self::interpreter_with_profile(ExecutionProfile::Protected(SegmentProfile::Flat32))
-    }
-
     pub(crate) fn bytes(&self) -> &[u8] {
         self.module.bytes()
-    }
-
-    pub(crate) fn interpreter_with_profile(profile: impl Into<ExecutionProfile>) -> &'static Self {
-        Self::interpreter_with_target(Compiler::new(profile).target())
-    }
-
-    pub(crate) fn interpreter_with_target(target: ExecutionTarget) -> &'static Self {
-        Self::cached_interpreter(target, InterpreterEntry::Step)
-    }
-
-    pub(crate) fn interpreter_run_with_profile(
-        profile: impl Into<ExecutionProfile>,
-    ) -> &'static Self {
-        Self::interpreter_run_with_target(Compiler::new(profile).target())
-    }
-
-    pub(crate) fn interpreter_run_with_target(target: ExecutionTarget) -> &'static Self {
-        Self::cached_interpreter(target, InterpreterEntry::Run)
-    }
-
-    fn cached_interpreter(target: ExecutionTarget, entry: InterpreterEntry) -> &'static Self {
-        static MODULES: OnceLock<
-            Mutex<HashMap<(ExecutionTarget, InterpreterEntry), &'static OnceLock<TestModule>>>,
-        > = OnceLock::new();
-        let cell = *MODULES
-            .get_or_init(Mutex::default)
-            .lock()
-            .unwrap()
-            .entry((target, entry))
-            .or_insert_with(|| Box::leak(Box::new(OnceLock::new())));
-        cell.get_or_init(|| {
-            let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
-            let module = match entry {
-                InterpreterEntry::Step => compiler.compile_interpreter_step(),
-                InterpreterEntry::Run => compiler.compile_interpreter(),
-            };
-            Self::new(&module.unwrap())
-        })
     }
 
     /// Link the interpreter directly; unlinked fixtures stop at the handoff callback.

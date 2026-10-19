@@ -173,3 +173,28 @@ fn interpreter_links_require_the_same_cpu_model() {
         }
     }
 }
+
+#[test]
+fn interpreter_code_is_shared_across_models_but_not_entry_kinds_or_profiles() {
+    use crate::{Compiler, CpuFeature, CpuModel};
+    use std::sync::Arc;
+
+    let default = Compiler::new(SegmentProfile::Flat32).target();
+    let disabled = Compiler::new(SegmentProfile::Flat32)
+        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
+        .target();
+    let step = TestModule::interpreter_with_target(default);
+    let restricted_step = TestModule::interpreter_with_target(disabled);
+    let run = TestModule::interpreter_run_with_target(default);
+    let restricted_run = TestModule::interpreter_run_with_target(disabled);
+    let segmented = TestModule::interpreter_with_profile(SegmentProfile::Segmented16);
+
+    assert!(Arc::ptr_eq(&step.module, &restricted_step.module));
+    assert!(Arc::ptr_eq(&run.module, &restricted_run.module));
+    assert!(!Arc::ptr_eq(&step.module, &run.module));
+    assert!(!Arc::ptr_eq(&step.module, &segmented.module));
+    assert_eq!(restricted_step.target, Some(disabled));
+    assert_eq!(restricted_run.target, Some(disabled));
+    assert_eq!(step.entry, "step");
+    assert_eq!(run.entry, "run");
+}
