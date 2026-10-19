@@ -76,6 +76,19 @@ impl MemoryFileSystem {
         }
     }
 
+    /// Creates one directory. Its parents must exist and its path must not exist.
+    pub fn create_dir(&mut self, path: &str) -> io::Result<()> {
+        validate_path(path)?;
+        self.require_parents(path)?;
+        match self.entries.entry(path.to_owned()) {
+            Entry::Occupied(_) => Err(ErrorKind::AlreadyExists.into()),
+            Entry::Vacant(entry) => {
+                entry.insert(Node::Directory);
+                Ok(())
+            }
+        }
+    }
+
     /// Creates a directory and any missing parents; existing directories succeed.
     pub fn create_dir_all(&mut self, path: &str) -> io::Result<()> {
         validate_path(path)?;
@@ -88,12 +101,14 @@ impl MemoryFileSystem {
                 directory.push('/');
             }
             directory.push_str(component);
-            match self.entries.entry(directory.clone()) {
-                Entry::Vacant(entry) => {
-                    entry.insert(Node::Directory);
+            match self.create_dir(&directory) {
+                Ok(()) => {}
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    if !self.is_dir(&directory) {
+                        return Err(ErrorKind::NotADirectory.into());
+                    }
                 }
-                Entry::Occupied(entry) if matches!(entry.get(), Node::Directory) => {}
-                Entry::Occupied(_) => return Err(ErrorKind::NotADirectory.into()),
+                Err(error) => return Err(error),
             }
         }
         Ok(())
@@ -154,6 +169,18 @@ impl MemoryFileSystem {
             Some(Node::File(_)) => {}
             Some(Node::Directory) => return Err(ErrorKind::IsADirectory.into()),
             None => return Err(ErrorKind::NotFound.into()),
+        }
+        self.entries.remove(path);
+        Ok(())
+    }
+
+    /// Removes an empty directory. The root directory cannot be removed.
+    pub fn remove_dir(&mut self, path: &str) -> io::Result<()> {
+        if path.is_empty() {
+            return Err(ErrorKind::PermissionDenied.into());
+        }
+        if self.read_dir(path)?.next().is_some() {
+            return Err(ErrorKind::DirectoryNotEmpty.into());
         }
         self.entries.remove(path);
         Ok(())

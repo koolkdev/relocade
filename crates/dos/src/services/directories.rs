@@ -19,6 +19,18 @@ pub(super) fn get_drive(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_from_interrupt(call)
 }
 
+/// AH=39h: create the directory at DS:DX; its parent must already exist.
+pub(super) fn create_directory(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let result = read_path(call).and_then(|path| call.state_mut().files.create_directory(&path));
+    return_result(call, result)
+}
+
+/// AH=3Ah: remove the empty directory at DS:DX, excluding root and current.
+pub(super) fn remove_directory(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let result = read_path(call).and_then(|path| call.state_mut().files.remove_directory(&path));
+    return_result(call, result)
+}
+
 /// AH=3Bh: change to the NUL-terminated directory at DS:DX.
 pub(super) fn change_directory(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let result = read_path(call).and_then(|path| call.state_mut().files.change_directory(&path));

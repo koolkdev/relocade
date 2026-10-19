@@ -6,6 +6,65 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn creating_one_directory_requires_existing_parents_and_a_new_name() {
+    let mut fs = MemoryFileSystem::new();
+    assert_eq!(
+        fs.create_dir("DATA/SAVE").unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert!(!fs.is_dir("DATA"));
+    fs.create_dir("DATA").unwrap();
+    fs.create_dir("DATA/SAVE").unwrap();
+    fs.replace_file("DATA/FILE", b"keep".to_vec()).unwrap();
+    for (path, expected) in [
+        ("", ErrorKind::AlreadyExists),
+        ("DATA", ErrorKind::AlreadyExists),
+        ("DATA/FILE", ErrorKind::AlreadyExists),
+        ("DATA/FILE/CHILD", ErrorKind::NotADirectory),
+        ("DATA/MISSING/CHILD", ErrorKind::NotFound),
+        ("DATA/../CHILD", ErrorKind::InvalidInput),
+    ] {
+        assert_eq!(fs.create_dir(path).unwrap_err().kind(), expected);
+    }
+    assert!(!fs.is_dir("DATA/MISSING"));
+    assert_eq!(fs.read("DATA/FILE").unwrap(), b"keep");
+    fs.create_dir_all("DATA/SAVE/NESTED").unwrap();
+    fs.create_dir_all("DATA/SAVE/NESTED").unwrap();
+    assert!(fs.is_dir("DATA/SAVE/NESTED"));
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn removing_directories_requires_an_empty_non_root_directory() {
+    let mut fs = MemoryFileSystem::new();
+    fs.create_dir_all("DATA/SAVE").unwrap();
+    fs.create_dir_all("DATABASE").unwrap();
+    fs.replace_file("DATA/SAVE/FILE", b"keep".to_vec()).unwrap();
+    for (path, expected) in [
+        ("", ErrorKind::PermissionDenied),
+        ("DATA", ErrorKind::DirectoryNotEmpty),
+        ("DATA/SAVE", ErrorKind::DirectoryNotEmpty),
+        ("DATA/SAVE/FILE", ErrorKind::NotADirectory),
+        ("DATA/SAVE/FILE/CHILD", ErrorKind::NotADirectory),
+        ("MISSING", ErrorKind::NotFound),
+        ("MISSING/CHILD", ErrorKind::NotFound),
+        ("DATA/./SAVE", ErrorKind::InvalidInput),
+    ] {
+        assert_eq!(fs.remove_dir(path).unwrap_err().kind(), expected);
+    }
+    assert_eq!(fs.read("DATA/SAVE/FILE").unwrap(), b"keep");
+    fs.remove_file("DATA/SAVE/FILE").unwrap();
+    fs.remove_dir("DATA/SAVE").unwrap();
+    fs.remove_dir("DATA").unwrap();
+    assert!(!fs.is_dir("DATA"));
+    assert!(fs.is_dir("DATABASE")); // A common prefix is not a child.
+    assert!(fs.is_dir(""));
+    fs.create_dir("DATA").unwrap();
+    assert!(fs.read_dir("DATA").unwrap().next().is_none());
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn listings_return_immediate_children_with_metadata() {
     let mut fs = MemoryFileSystem::new();
     fs.create_dir_all("DATA/EMPTY").unwrap();

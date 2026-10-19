@@ -10,6 +10,7 @@ use std::{
 };
 
 mod attributes;
+mod directories;
 mod search;
 mod short_name;
 use relocade_vfs::{File, MemoryFileSystem, Metadata};
@@ -63,25 +64,6 @@ struct OpenFile {
 }
 
 impl Files {
-    pub(crate) fn change_directory(&mut self, path: &[u8]) -> Result<(), DosError> {
-        let directory =
-            path::resolve(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
-        // AH=47h's caller supplies a 64-byte buffer, including the terminator.
-        if directory.len() >= 64 || !self.filesystem.is_dir(&directory) {
-            return Err(DosError::PathNotFound);
-        }
-        self.current_directory = directory;
-        Ok(())
-    }
-
-    pub(crate) fn current_directory(&self, drive: u8) -> Result<&str, DosError> {
-        // AH=47h uses 0 for the default drive and 1-based explicit drive numbers.
-        match drive {
-            0 | 3 => Ok(&self.current_directory),
-            _ => Err(DosError::InvalidDrive),
-        }
-    }
-
     pub(crate) fn mount(
         &mut self,
         path: &str,

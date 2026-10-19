@@ -14,6 +14,7 @@ pub(crate) enum DosError {
     InvalidMemoryBlock,
     InvalidAccess,
     InvalidDrive,
+    CurrentDirectory,
     NoMoreFiles,
     LongFilenameNotSupported,
 }
@@ -32,6 +33,7 @@ impl DosError {
             Self::InvalidMemoryBlock => 9,
             Self::InvalidAccess => 12,
             Self::InvalidDrive => 15,
+            Self::CurrentDirectory => 16,
             Self::NoMoreFiles => 18,
             Self::LongFilenameNotSupported => 0x7100,
         }
