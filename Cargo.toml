@@ -12,7 +12,7 @@ publish = false
 [workspace.dependencies]
 wasm86-test-support = { path = "crates/test-support" }
 wasm-encoder = { version = "=0.254.0", default-features = false }
-wasmtime = { version = "=30.0.2", default-features = false, features = ["cranelift", "runtime", "std", "threads"] }
+wasmtime = { version = "=50.0.0-rc.1", default-features = false, features = ["cranelift", "runtime", "std", "threads"] }
 
 # Tests construct and compile Wasm at runtime. Keep assertions and debug info,
 # but optimize that work, including the Wasmtime compiler dependencies.

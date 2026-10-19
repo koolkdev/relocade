@@ -31,9 +31,9 @@ host_function!(A: a, B: b, C: c);
 host_function!(A: a, B: b, C: c, D: d);
 
 /// A callback's scoped access to the store and its memories.
-pub struct Caller<'a, T>(wasmtime::Caller<'a, T>);
+pub struct Caller<'a, T: 'static>(wasmtime::Caller<'a, T>);
 
-impl<T> WasmCaller for Caller<'_, T> {
+impl<T: 'static> WasmCaller for Caller<'_, T> {
     type State = T;
 
     fn state(&self) -> &T {
@@ -45,7 +45,7 @@ impl<T> WasmCaller for Caller<'_, T> {
     }
 }
 
-impl<T> WasmMemoryAccess for Caller<'_, T> {
+impl<T: 'static> WasmMemoryAccess for Caller<'_, T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
