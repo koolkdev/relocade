@@ -1,9 +1,7 @@
 //! Segment instructions read, adjust and load selectors and query descriptors.
 
 use super::*;
-use crate::{
-    address::MemoryAddress, flags::Flag, instruction::Location, register::RegisterType, Segment,
-};
+use crate::{address::MemoryAddress, flags::Flag, register::RegisterType, Segment};
 
 instruction_families! {
     ARPL {
@@ -166,13 +164,7 @@ where
     I32: AtLeast<T>,
 {
     let selector = execution.read_segment_selector(segment)?;
-    match destination.into_location() {
-        Location::Memory(address) => execution.write::<I16>(Location::Memory(address), selector),
-        register => execution.write::<T>(
-            register,
-            selector.unsigned().extend::<I32>().truncate::<T>(),
-        ),
-    }
+    destination.write_word(execution, selector)
 }
 
 fn load_selector(
