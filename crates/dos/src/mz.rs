@@ -77,28 +77,28 @@ pub(crate) fn load(
     options: &LoadOptions<'_>,
 ) -> Result<u16, LoadError> {
     let image = Image::parse(file)?;
-    options.validate()?;
     let module_paragraphs = image
         .module
         .len()
         .div_ceil(memory::PARAGRAPH_BYTES as usize);
     let base_paragraphs = usize::from(process::PSP_PARAGRAPHS) + module_paragraphs;
-    let available = usize::from(memory::AVAILABLE_PARAGRAPHS);
-    if base_paragraphs + usize::from(image.min_extra) > available {
-        return Err(LoadError::InsufficientMemory);
-    }
     let load_high = image.min_extra == 0 && image.max_extra == 0;
-    let paragraphs = if load_high {
-        available
+    let maximum = if load_high {
+        usize::from(memory::AVAILABLE_PARAGRAPHS)
     } else {
-        // A maximum below the minimum still grants the required minimum.
-        (base_paragraphs + usize::from(image.max_extra.max(image.min_extra))).min(available)
-    } as u16;
+        base_paragraphs + usize::from(image.max_extra)
+    };
 
     // All file and allocation checks precede replacing the current process.
-    let psp_segment = process::allocate(&mut machine.memory(), paragraphs, options);
+    let allocation = process::allocate(
+        &mut machine.memory(),
+        base_paragraphs + usize::from(image.min_extra),
+        maximum,
+        options,
+    )?;
+    let psp_segment = allocation.segment;
     let load_segment = if load_high {
-        psp_segment + paragraphs - module_paragraphs as u16
+        psp_segment + allocation.paragraphs - module_paragraphs as u16
     } else {
         psp_segment + process::PSP_PARAGRAPHS
     };

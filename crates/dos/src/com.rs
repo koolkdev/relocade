@@ -17,9 +17,13 @@ pub(crate) fn load(
     if image.len() > usize::from(STACK_OFFSET) - process::PSP_BYTES {
         return Err(LoadError::ImageTooLarge);
     }
-    options.validate()?;
-    let psp_segment =
-        process::allocate(&mut machine.memory(), memory::AVAILABLE_PARAGRAPHS, options);
+    let allocation = process::allocate(
+        &mut machine.memory(),
+        (SEGMENT_SIZE / memory::PARAGRAPH_BYTES) as usize,
+        usize::from(memory::AVAILABLE_PARAGRAPHS),
+        options,
+    )?;
+    let psp_segment = allocation.segment;
     let psp_address = u32::from(psp_segment) * memory::PARAGRAPH_BYTES;
 
     // Clear the rest of the first segment, including the zero return word at SS:SP.

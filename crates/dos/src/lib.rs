@@ -3,6 +3,8 @@
 //! COM programs start at PSP:0100. They receive the
 //! available conventional memory; the image and initial stack use its first 64 KiB.
 //! MZ executables use their header's memory request, relocation table and CS:IP/SS:SP.
+//! Both formats receive a separate environment block through PSP:002C, containing
+//! the supplied variables and executable path. Its storage comes from conventional RAM.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.

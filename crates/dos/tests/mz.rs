@@ -80,7 +80,7 @@ async fn check_mz_execution() {
     assert_eq!(dos.take_output(), b"MZ\r\n");
 
     // A requested maximum below the minimum uses the minimum; FFFF uses the arena.
-    for (maximum, expected_end) in [(0x10, 0x1035_u16), (0xffff, 0xa000)] {
+    for (maximum, expected_end) in [(0x10, 0x1035_u16), (0xffff, 0x9ffe)] {
         let mut file = executable();
         set_word(&mut file, 0x0c, maximum);
         dos.load_mz(&file, Default::default()).unwrap();
@@ -116,8 +116,8 @@ async fn check_mz_execution() {
     set_word(&mut file, 0x10, 0x12);
     dos.load_mz(&file, Default::default()).unwrap();
     let cpu = dos.runtime().machine().cpu().snapshot();
-    assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffc);
-    assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ffb);
+    assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffa);
+    assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ff9);
     assert_eq!(cpu.segments[Segment::Ds].selector, 0x1000);
     assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(255))); // AH=48h reports no space.
