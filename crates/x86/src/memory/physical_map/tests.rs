@@ -286,3 +286,55 @@ fn a20_defaults_to_disabled_and_toggling_preserves_mappings() {
     map.set_a20_enabled(false);
     assert_eq!(map.to_bytes(), disabled);
 }
+#[test]
+fn code_watch_marks_all_writable_backing_aliases() {
+    let mut map = super::PhysicalMemoryMap::new([
+        (
+            0..=0xfff,
+            super::PhysicalMapping::Ram {
+                backing_offset: 0x3000,
+            },
+        ),
+        (
+            0x2000..=0x2fff,
+            super::PhysicalMapping::Ram {
+                backing_offset: 0x3000,
+            },
+        ),
+        (
+            0x4000..=0x4fff,
+            super::PhysicalMapping::Rom {
+                backing_offset: 0x3000,
+            },
+        ),
+        (
+            0x100000..=0x100fff,
+            super::PhysicalMapping::Ram {
+                backing_offset: 0x3000,
+            },
+        ),
+    ])
+    .unwrap();
+    let original = map.to_bytes();
+    map.set_code_watched(0x3123, true);
+    let watched = map.to_bytes();
+    for page in [0, 2, 256] {
+        assert_eq!(
+            &watched[page * 8..page * 8 + 4],
+            &(1 | super::PhysicalMemoryMap::CODE_WATCH).to_le_bytes()
+        );
+        assert_eq!(
+            &watched[page * 8 + 4..page * 8 + 8],
+            &0x3000_u32.to_le_bytes()
+        );
+    }
+    assert_eq!(&watched[4 * 8..4 * 8 + 8], &original[4 * 8..4 * 8 + 8]);
+    assert_eq!(
+        map.get(0x100123),
+        super::PhysicalMapping::Ram {
+            backing_offset: 0x3123
+        }
+    );
+    map.set_code_watched(0x3000, false);
+    assert_eq!(map.to_bytes(), original);
+}

@@ -6,6 +6,7 @@ use relocade_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
 mod generated;
 mod routing;
 mod vectors;
+mod watched;
 
 use crate::{
     alu::OperandUpdate,

@@ -22,6 +22,7 @@ pub(crate) struct Input {
     pub(crate) mmio_pages: Vec<(u32, u32)>,
     pub(crate) mmio_updates: Vec<MmioUpdate>,
     pub(crate) observe_mmio: bool,
+    pub(crate) watched_backing_pages: Vec<u32>,
     pub(crate) port_reads: Vec<u32>,
     pub(crate) arguments: Vec<Argument>,
     pub(crate) observe_guest: bool,
@@ -43,6 +44,7 @@ impl Input {
             mmio_pages: Vec::new(),
             mmio_updates: Vec::new(),
             observe_mmio: false,
+            watched_backing_pages: Vec::new(),
             port_reads: Vec::new(),
             arguments: Vec::new(),
             observe_guest: false,
@@ -86,6 +88,10 @@ pub(crate) struct Snapshot {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Event {
+    CodeWrite {
+        backing: u32,
+        value: Vec<u8>,
+    },
     PortRead {
         port: u32,
         bytes: u32,
