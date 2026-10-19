@@ -36,7 +36,7 @@ mod host;
 pub use host::Caller;
 
 /// One store for modules and their shared imports. Runtime owns execution policy.
-pub struct WasmtimeBackend<T = ()> {
+pub struct WasmtimeBackend<T: 'static = ()> {
     store: Store<T>,
 }
 
@@ -177,7 +177,7 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
     }
 }
 
-impl<T> WasmMemoryAccess for WasmtimeBackend<T> {
+impl<T: 'static> WasmMemoryAccess for WasmtimeBackend<T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {

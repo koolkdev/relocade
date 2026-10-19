@@ -17,11 +17,16 @@ pub fn engine() -> &'static Engine {
     static ENGINE: OnceLock<Engine> = OnceLock::new();
     ENGINE.get_or_init(|| {
         let mut config = Config::new();
+        // Winch avoids optimizing short-lived test modules. Its AArch64 backend
+        // does not support the shared memories used by these tests.
+        #[cfg(target_arch = "x86_64")]
+        config.strategy(wasmtime::Strategy::Winch);
         config
             .wasm_multi_memory(true)
             .wasm_tail_call(true)
             .wasm_wide_arithmetic(true)
-            .wasm_threads(true);
+            .wasm_threads(true)
+            .shared_memory(true);
         Engine::new(&config).expect("the test Wasm features must be supported")
     })
 }
