@@ -1,6 +1,6 @@
 mod common;
 
-use common::Backend;
+use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use wasm86_dos::{Dos, DosState, FileAccess, MountError};
 use wasm86_x86::{CpuState, ExecutionExit};
 
@@ -44,53 +44,12 @@ async fn check_file_program() {
     }
 }
 
-// INT 21h followed by JMP $ lets each host assertion inspect the IRET result.
-const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
-
-fn service(dos: &mut Dos<Backend<DosState>>, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
-    {
-        let mut machine = dos.runtime().machine();
-        let mut cpu = machine.cpu();
-        cpu.set_eip(0x100);
-        cpu.set_ax(ax);
-        cpu.set_bx(bx);
-        cpu.set_cx(cx);
-        cpu.set_dx(dx);
-    }
-    assert_eq!(
-        dos.runtime().run(10).unwrap(),
-        ExecutionExit::BudgetExhausted
-    );
-    dos.runtime().machine().cpu().snapshot()
-}
-
 fn open(dos: &mut Dos<Backend<DosState>>, path: &[u8], mode: u8) -> CpuState {
     path_service(dos, path, 0x3d00 | u16::from(mode), 0)
 }
 
 fn create(dos: &mut Dos<Backend<DosState>>, path: &[u8], attributes: u16) -> CpuState {
     path_service(dos, path, 0x3c00, attributes)
-}
-
-fn path_service(dos: &mut Dos<Backend<DosState>>, path: &[u8], ax: u16, cx: u16) -> CpuState {
-    let mut terminated = path.to_vec();
-    terminated.push(0);
-    dos.runtime()
-        .machine()
-        .memory()
-        .write(0x10300, &terminated)
-        .unwrap();
-    service(dos, ax, 0, cx, 0x300)
-}
-
-fn success(cpu: &CpuState) -> u16 {
-    assert_eq!(cpu.flags.eflags() & 1, 0);
-    cpu.registers.eax as u16
-}
-
-fn error(cpu: &CpuState, code: u16) {
-    assert_eq!(cpu.flags.eflags() & 1, 1);
-    assert_eq!(cpu.registers.eax as u16, code);
 }
 
 fn buffer(dos: &mut Dos<Backend<DosState>>) -> [u8; 8] {

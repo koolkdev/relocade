@@ -13,6 +13,7 @@ pub(crate) enum DosError {
     InsufficientMemory { available: u16 },
     InvalidMemoryBlock,
     InvalidAccess,
+    InvalidDrive,
 }
 
 impl DosError {
@@ -28,6 +29,7 @@ impl DosError {
             Self::InsufficientMemory { .. } => 8,
             Self::InvalidMemoryBlock => 9,
             Self::InvalidAccess => 12,
+            Self::InvalidDrive => 15,
         }
     }
 }

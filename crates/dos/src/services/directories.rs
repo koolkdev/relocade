@@ -1,0 +1,48 @@
+use super::files::read_path;
+use crate::{
+    interrupt::{return_from_interrupt, return_result},
+    DosState,
+};
+use std::ops::ControlFlow;
+use wasm86_runtime::HostCall;
+use wasm86_x86::Segment;
+
+const DRIVE_C: u8 = 2; // AH=0Eh/19h number drives from zero.
+
+/// AH=0Eh: select DL's drive; report the drive-letter range in AL.
+pub(super) fn select_drive(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    // C: is the only mounted drive. Selecting an absent drive leaves it current.
+    call.cpu().set_al(DRIVE_C + 1);
+    return_from_interrupt(call)
+}
+
+/// AH=19h: return the current drive in AL.
+pub(super) fn get_drive(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    call.cpu().set_al(DRIVE_C);
+    return_from_interrupt(call)
+}
+
+/// AH=3Bh: change to the NUL-terminated directory at DS:DX.
+pub(super) fn change_directory(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let result = read_path(call).and_then(|path| call.state_mut().files.change_directory(&path));
+    return_result(call, result)
+}
+
+/// AH=47h: write DL's current directory to DS:SI, without a drive or leading slash.
+pub(super) fn get_directory(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let cpu = call.cpu();
+    let drive = cpu.dl();
+    let address = cpu.segment(Segment::Ds).base + u32::from(cpu.si());
+    let result = call.state().files.current_directory(drive).map(|path| {
+        let mut bytes = path.replace('/', "\\").into_bytes();
+        bytes.push(0);
+        bytes
+    });
+    let result = result.map(|bytes| {
+        call.memory()
+            .write(address, &bytes)
+            .expect("real-mode directory buffer");
+        call.cpu().set_ax(0x0100);
+    });
+    return_result(call, result)
+}

@@ -1,5 +1,5 @@
 use super::console;
-use crate::{error::DosError, files::MAX_PATH_BYTES, interrupt::return_result, DosState};
+use crate::{error::DosError, interrupt::return_result, path::MAX_PATH_BYTES, DosState};
 use std::ops::ControlFlow;
 use wasm86_runtime::HostCall;
 use wasm86_x86::Segment;
@@ -87,7 +87,7 @@ pub(super) fn seek(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_result(call, result)
 }
 
-fn read_path(call: &mut HostCall<'_, DosState>) -> Result<Vec<u8>, DosError> {
+pub(super) fn read_path(call: &mut HostCall<'_, DosState>) -> Result<Vec<u8>, DosError> {
     let cpu = call.cpu();
     let base = cpu.segment(Segment::Ds).base;
     let offset = cpu.dx();
