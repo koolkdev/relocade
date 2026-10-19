@@ -33,6 +33,14 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache compiled Wasm test modules
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/wasmtime
+          key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Run workspace tests
         run: cargo test --workspace --locked
 

@@ -32,6 +32,18 @@ The test profile optimizes runtime Wasm generation and engine compilation while
 retaining debug assertions and overflow checks. Measure test execution separately
 from Cargo rebuilds, especially after changing the profile or dependencies.
 
+Compiler and x86 tests reuse Wasmtime's on-disk compilation cache across runs.
+It uses Wasmtime's standard configuration and cache directory (on Linux,
+`~/.config/wasmtime/config.toml` and `~/.cache/wasmtime`, respecting XDG overrides).
+See [Wasmtime cache configuration](https://docs.wasmtime.dev/cli-cache.html) to
+change the location or size limits. If the cache cannot be initialized, tests
+print a diagnostic and continue uncached. CI restores this directory separately
+from the Rust build cache. Cache entries are matched to Wasm contents and engine
+configuration; this cache does not skip generation of Wasm bytes or reuse guest
+state. To measure cold compilation on Linux, point `XDG_CACHE_HOME` and
+`XDG_CONFIG_HOME` at new empty directories so a local configuration cannot select
+an existing cache.
+
 Browser integration tests exercise the production web backend: live CPU and
 memory access, callbacks, scalar carriers and module linking. They run separately
 from compiler and instruction correctness tests.
