@@ -10,7 +10,7 @@ relocade-compiler = { path = "../compiler" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 relocade-runtime = { path = "../runtime" }
-wasmtime.workspace = true
+wasmtime = { workspace = true, features = ["cache"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"

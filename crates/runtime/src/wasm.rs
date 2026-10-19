@@ -76,6 +76,12 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
 
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
 
+    /// Compiles an embedded asset that may be retained and reused across runtimes.
+    /// Dynamic guest modules should use `compile` instead.
+    fn compile_shared(&self, bytes: &'static [u8]) -> impl Future<Output = Result<Self::Module>> {
+        self.compile(bytes)
+    }
+
     /// Allocates zeroed memory with the supplied page limits.
     fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Self::Memory>;
 

@@ -122,7 +122,8 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             host_imports,
             host_call_incomplete: false,
         };
-        let instance = runtime.instantiate(interpreter, &[]).await?;
+        let module = runtime.storage.access.compile_shared(interpreter).await?;
+        let instance = runtime.instantiate_module(&module, &[]).await?;
         let backend = &mut runtime.storage.access;
         let function = backend.function(&instance, abi::RUN)?;
         backend.set_table_function(
@@ -155,8 +156,16 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         bytes: &[u8],
         additional: &[Import<'_, B>],
     ) -> Result<B::Instance> {
+        let module = self.storage.access.compile(bytes).await?;
+        self.instantiate_module(&module, additional).await
+    }
+
+    async fn instantiate_module(
+        &mut self,
+        module: &B::Module,
+        additional: &[Import<'_, B>],
+    ) -> Result<B::Instance> {
         let backend = &mut self.storage.access;
-        let module = backend.compile(bytes).await?;
         let mut imports = vec![
             backend.bind(abi::EXECUTION_CONTEXT, &self.storage.context),
             backend.bind(abi::GUEST, &self.storage.guest),
@@ -168,7 +177,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         ];
         imports.extend(self.host_imports.iter().cloned());
         imports.extend(additional.iter().cloned());
-        backend.instantiate(&module, &imports).await
+        backend.instantiate(module, &imports).await
     }
 
     /// Borrows the stopped machine. CPU and memory writes take effect immediately.
