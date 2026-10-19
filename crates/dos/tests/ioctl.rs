@@ -18,13 +18,13 @@ async fn check_device_information() {
         .unwrap();
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     dos.runtime().machine().cpu().set_eflags(0x0a57);
-    // CON is a character device with input/output attributes and no input EOF.
+    // CON includes both the driver and handle device bits, input/output, and no input EOF.
     for handle in 0..=2 {
-        assert_eq!(information(&mut dos, handle), 0x00c3);
+        assert_eq!(information(&mut dos, handle), 0x80c3);
     }
     assert_eq!(dos.runtime().machine().cpu().eflags(), 0x0a56);
     for handle in [3, 4] {
-        assert_eq!(information(&mut dos, handle), 0x00c0); // AUX and PRN.
+        assert_eq!(information(&mut dos, handle), 0x80c0); // AUX and PRN.
     }
     error(&service(&mut dos, 0x4400, 5, 0, 0), 6);
     error(&service(&mut dos, 0x4400, u16::MAX, 0, 0), 6);
@@ -50,7 +50,7 @@ async fn check_device_information() {
     success(&service(&mut dos, 0x4600, 5, 1, 0));
     assert_eq!(information(&mut dos, 1), 0x0002); // Redirected stdout is a file.
     success(&service(&mut dos, 0x4600, 2, 1, 0));
-    assert_eq!(information(&mut dos, 1), 0x00c3); // Restored stdout is a device.
+    assert_eq!(information(&mut dos, 1), 0x80c3); // Restored stdout is a device.
     success(&service(&mut dos, 0x3e00, 1, 0, 0));
     error(&service(&mut dos, 0x4400, 1, 0, 0), 6);
 

@@ -290,7 +290,8 @@ impl Files {
     pub(crate) fn device_information(&self, handle: u16) -> Result<u16, DosError> {
         const DRIVE_C: u16 = 2;
         const FILE_NOT_WRITTEN: u16 = 1 << 6;
-        const CHARACTER_DEVICE: u16 = 1 << 7;
+        // Bit 7 identifies a device handle; DH includes the character-driver attribute.
+        const CHARACTER_DEVICE: u16 = (1 << 15) | (1 << 7);
         const INPUT_NOT_EOF: u16 = 1 << 6;
         const STANDARD_INPUT: u16 = 1;
         const STANDARD_OUTPUT: u16 = 2;
