@@ -3,8 +3,6 @@
 #[path = "cpu_features/extensions.rs"]
 mod extensions;
 
-use std::sync::OnceLock;
-
 use crate::support::{
     blocks::BlockModules,
     execution::{test_frontends, Frontend},
@@ -84,9 +82,7 @@ fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
             .compile_block(0x1000, &code, 8)
             .unwrap(),
     );
-    static RUN: OnceLock<TestModule> = OnceLock::new();
-    let run =
-        RUN.get_or_init(|| TestModule::new(&restricted_compiler().compile_interpreter().unwrap()));
+    let run = TestModule::interpreter_run_with_target(restricted_compiler().target());
     for module in [&block, run] {
         assert_eq!(
             module.observe(&image.input(), 1),

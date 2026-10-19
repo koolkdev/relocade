@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use crate::{
     support::{
         execution::{test_frontends, Frontend},
@@ -9,14 +7,7 @@ use crate::{
 };
 
 fn interpreter() -> &'static TestModule {
-    static MODULE: OnceLock<TestModule> = OnceLock::new();
-    MODULE.get_or_init(|| {
-        TestModule::new(
-            &Compiler::new(SegmentProfile::Flat32)
-                .compile_interpreter()
-                .unwrap(),
-        )
-    })
+    TestModule::interpreter_run_with_profile(SegmentProfile::Flat32)
 }
 
 fn execute(

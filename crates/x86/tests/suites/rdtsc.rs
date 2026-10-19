@@ -7,10 +7,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{CallPatches, TestModule},
 };
-use wasm86_x86::{
-    compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentProfile,
-    Segments,
-};
+use wasm86_x86::{compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile, Segments};
 
 fn timestamp_result(mut cpu: CpuState, eax: u32, edx: u32, bytes: u32) -> CpuState {
     cpu.registers.eax = eax;
@@ -130,8 +127,8 @@ fn repeated_reads_include_pending_retirement_without_ending_execution() {
         }],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 20).unwrap());
-    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
-    for module in [&block, &run] {
+    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    for module in [&block, run] {
         assert_eq!(module.observe(&input, 1), wanted);
     }
 
@@ -156,7 +153,7 @@ fn repeated_reads_include_pending_retirement_without_ending_execution() {
         }],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 20).unwrap());
-    for module in [&block, &run] {
+    for module in [&block, run] {
         assert_eq!(module.observe(&input, 1), wanted);
     }
 }
@@ -180,15 +177,15 @@ fn counter_reads_and_faults_keep_instruction_order() {
         }],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
-    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
-    for module in [&block, &run] {
+    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    for module in [&block, run] {
         assert_eq!(module.observe(&input, 1), wanted);
     }
 
     let code = [0x8b, 0x1d, 0, 0x40, 0, 0, 0x0f, 0x31];
     let image = Image::new(&code);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
-    for module in [&block, &run] {
+    for module in [&block, run] {
         image.check_unchanged_exit(
             module,
             "a prior fault prevents the counter read",
@@ -220,7 +217,7 @@ fn interpreter_reads_only_after_complete_supported_encoding() {
     image.cpu.instruction_count = 0x1234_5678_9abc_def0;
     let input = image.input();
     let cpu = timestamp_result(image.cpu, 0x9abc_def0, 0x1234_5678, 2);
-    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
+    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
     let wanted = expected(
         &image,
         &[Step {
@@ -295,8 +292,8 @@ fn counter_continues_across_entries_and_reads_full_width_restores() {
     });
     let wanted = expected(&image, &steps);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
-    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
-    for module in [&block, &run] {
+    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    for module in [&block, run] {
         assert_eq!(module.observe(&input, 3), wanted);
     }
 }
@@ -330,8 +327,8 @@ fn rep_contributes_one_retirement_to_the_counter() {
         }],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
-    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
-    for module in [&block, &run] {
+    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    for module in [&block, run] {
         assert_eq!(module.observe(&image.input(), 1), wanted);
     }
 }

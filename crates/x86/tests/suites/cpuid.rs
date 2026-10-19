@@ -10,10 +10,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use wasm86_x86::{
-    compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentProfile,
-    Segments,
-};
+use wasm86_x86::{compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile, Segments};
 
 const VENDOR: [u32; 4] = [1, 0x6f6c_6552, 0x5550_4320, 0x6564_6163];
 const FEATURES: [u32; 4] = [0x601, 0x800, 0, 0x0788_8111];
@@ -98,8 +95,8 @@ fn serialization_dispatches_before_modified_code() {
     };
     let wanted = expected(&image, &[first]);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 16).unwrap());
-    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
-    for module in [&block, &run] {
+    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    for module in [&block, run] {
         assert_eq!(module.observe(&input, 1), wanted);
     }
 
@@ -141,13 +138,13 @@ fn queries_follow_complete_fetch_and_stop_before_successor_fetch() {
             exit: Exit::Dispatch(cpu.eip),
         }],
     );
-    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
+    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
     assert_eq!(run.observe(&input, 1), wanted);
 
     image.cpu.eip = 0x1fff;
     image.data(0x3fff, &[0x0f]);
     image.check_unchanged_exit(
-        &run,
+        run,
         "CPUID requires its second byte",
         Exit::PageFault {
             address: 0x2000,
@@ -190,7 +187,7 @@ fn encoding_and_import_boundaries() {
 
 #[test]
 fn leaf_selection_uses_current_full_width_eax() {
-    let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
+    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
     for (leaf, wanted_values) in [
         (0, VENDOR),
         (1, FEATURES),
@@ -214,7 +211,7 @@ fn leaf_selection_uses_current_full_width_eax() {
             }],
         );
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
-        for module in [&block, &run] {
+        for module in [&block, run] {
             assert_eq!(module.observe(&image.input(), 1), wanted, "leaf {leaf:#x}");
         }
     }
