@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Call, Callback, Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 
 use wasm86_compiler::{BuildError, Program, Type, Val, I1, I32, I64, I8};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, Validator};
@@ -652,26 +652,5 @@ fn call_arguments_preserve_their_snapshot_across_an_overlapping_store() {
     assert_eq!(
         &instance.memory("state")[..10],
         &[1, 0, 0, 0, 2, 0, 0, 0, 0xa5, 0x5a]
-    );
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 smoke tests"]
-fn v8_imported_calls_preserve_order_and_i64_values() {
-    let module = ordered_imports();
-    let input = Input::call("run", &[Value::I32(i32::MAX), Value::I64(i64::MAX)])
-        .with_callbacks(&[Callback::new("receive", &[Value::I64(i64::MAX)])]);
-    let arguments = [
-        Value::I32(i32::MIN),
-        Value::I64(i64::MIN),
-        Value::I32(i32::MIN),
-        Value::I64(i64::MIN),
-    ];
-    assert_eq!(
-        module.run_v8(&input),
-        Observation::returned(&[Value::I64(-2)]).with_callbacks(&[
-            Call::new("receive", &arguments),
-            Call::new("receive", &arguments),
-        ]),
     );
 }

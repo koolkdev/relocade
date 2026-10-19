@@ -11,7 +11,7 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{set_control, status},
 };
 use wasm86_x86::{
@@ -63,9 +63,8 @@ fn initialized(mut cpu: CpuState) -> CpuState {
     cpu
 }
 
-fn reset_and_clear(engine: Engine, frontend: Frontend) {
+fn reset_and_clear(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -100,9 +99,8 @@ fn reset_and_clear(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn no_wait_stores(engine: Engine, frontend: Frontend) {
+fn no_wait_stores(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -152,9 +150,8 @@ fn no_wait_stores(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn status_field_packing(engine: Engine, frontend: Frontend) {
+fn status_field_packing(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -212,9 +209,8 @@ fn status_field_packing(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn load_control_and_pending(engine: Engine, frontend: Frontend) {
+fn load_control_and_pending(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -351,9 +347,8 @@ fn load_control_and_pending(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn waiting_boundaries(engine: Engine, frontend: Frontend) {
+fn waiting_boundaries(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -380,11 +375,11 @@ fn waiting_boundaries(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn repeated_delivery(engine: Engine) {
+fn repeated_delivery() {
     let mut image = initial_image(&[0x9b]);
     pending(&mut image);
     assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 2),
+        TestModule::interpreter().observe(&image.input(), 2),
         expected(
             &image,
             &[
@@ -404,9 +399,8 @@ fn repeated_delivery(engine: Engine) {
     );
 }
 
-fn memory_faults(engine: Engine, frontend: Frontend) {
+fn memory_faults(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -444,7 +438,6 @@ fn memory_faults(engine: Engine, frontend: Frontend) {
     let mut image = initial_image(&code);
     image.cpu.segments.ds.limit = 0x4000;
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
     );
@@ -460,7 +453,7 @@ fn memory_faults(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn rejected_forms(engine: Engine) {
+fn rejected_forms() {
     for code in [
         &[0xd9, 0xef][..], // FLDCW's /5 is memory-only; D9 EF is unassigned.
         &[0xdd, 0xf8][..],
@@ -482,7 +475,6 @@ fn rejected_forms(engine: Engine) {
         image.cpu.eip = origin;
         image.data(0x4000 - code.len() as u32, code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("unselected x87 form {code:02x?}"),
             Exit::Other(0x0008_0000_0000_0000 | u64::from(code[0]) << 32 | u64::from(origin)),
@@ -511,12 +503,12 @@ test_frontends!(
 
 #[test]
 fn repeated_delivery_retains_the_pending_exception() {
-    repeated_delivery(Engine::Wasmtime);
+    repeated_delivery();
 }
 
 #[test]
 fn controls_reject_other_modrm_forms_and_lock_prefixes() {
-    rejected_forms(Engine::Wasmtime);
+    rejected_forms();
 }
 
 #[test]
@@ -539,11 +531,4 @@ fn controls_consume_exact_encodings_and_wait_has_its_own_length() {
             .unwrap()
             .bytes,
     );
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_repeated_delivery_and_rejected_forms() {
-    repeated_delivery(Engine::V8);
-    rejected_forms(Engine::V8);
 }

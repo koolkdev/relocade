@@ -3,9 +3,9 @@
 use super::*;
 use wasm86_x86::{ExecutionProfile, Segments};
 
-fn addressing(engine: Engine, frontend: Frontend) {
+fn addressing(frontend: Frontend) {
     for profile in [SegmentProfile::Segmented32.into(), ExecutionProfile::Real16] {
-        let mut checks = ImageSequences::new(engine, frontend, profile);
+        let mut checks = ImageSequences::new(frontend, profile);
         for bytes in [8, 16] {
             for fs in [false, true] {
                 let mut prefixes = vec![];
@@ -45,7 +45,7 @@ fn addressing(engine: Engine, frontend: Frontend) {
         }
     }
 
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented32);
     for bytes in [8, 16] {
         for ss in [false, true] {
             let code = [if ss { vec![0x36] } else { vec![] }, code(bytes)].concat();

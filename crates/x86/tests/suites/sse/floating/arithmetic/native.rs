@@ -12,7 +12,7 @@ struct NativeCase {
     raised: u32,
 }
 
-fn check(engine: Engine, cases: &[NativeCase], restart: bool) {
+fn check(cases: &[NativeCase], restart: bool) {
     for profile in [ExecutionProfile::Real16, SegmentProfile::Flat32.into()] {
         for wide in [false, true] {
             for packed in [false, true] {
@@ -96,7 +96,7 @@ fn check(engine: Engine, cases: &[NativeCase], restart: bool) {
                             let block = TestModule::new(&compiled);
                             if restart {
                                 assert_eq!(
-                                    engine.observe(&block, &image.input(), 1),
+                                    block.observe(&image.input(), 1),
                                     expected(
                                         &image,
                                         &[Step {
@@ -109,10 +109,10 @@ fn check(engine: Engine, cases: &[NativeCase], restart: bool) {
                                 let linked = block.with_interpreter(
                                     TestModule::interpreter_with_profile(profile),
                                 );
-                                assert_eq!(engine.observe(&linked, &image.input(), 1), wanted);
+                                assert_eq!(linked.observe(&image.input(), 1), wanted);
                             } else {
                                 assert_eq!(
-                                    engine.observe(&block, &image.input(), 1),
+                                    block.observe( &image.input(), 1),
                                     wanted,
                                     "native {:x}, wide={wide}, packed={packed}, MXCSR={controls:x}, observed={observed}",
                                     case.opcode
@@ -126,9 +126,8 @@ fn check(engine: Engine, cases: &[NativeCase], restart: bool) {
     }
 }
 
-fn precision(engine: Engine) {
+fn precision() {
     check(
-        engine,
         &[
             NativeCase {
                 opcode: 0x58,
@@ -240,10 +239,9 @@ fn precision(engine: Engine) {
     );
 }
 
-fn restart(engine: Engine) {
+fn restart() {
     // All controls used by check retain these results; DAZ does not participate.
     check(
-        engine,
         &[
             NativeCase {
                 opcode: 0x58,
@@ -294,13 +292,6 @@ fn restart(engine: Engine) {
 
 #[test]
 fn native_precision_and_restart() {
-    precision(Engine::Wasmtime);
-    restart(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_precision_and_restart() {
-    precision(Engine::V8);
-    restart(Engine::V8);
+    precision();
+    restart();
 }

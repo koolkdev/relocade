@@ -1,5 +1,4 @@
 use super::*;
-use crate::test_step::Engine;
 
 fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
     let mut program = Program::new();
@@ -40,9 +39,9 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
     })
 }
 
-fn expect_resolution(engine: Engine, module: &TestModule, input: &Input, expected: u64) {
+fn expect_resolution(module: &TestModule, input: &Input, expected: u64) {
     assert_eq!(
-        engine.observe(module, input, 1),
+        module.observe(input, 1),
         Observation {
             events: vec![Event::Return {
                 outcome: Outcome::Returned(vec![Argument::I64(expected as i64)]),
@@ -59,7 +58,7 @@ fn expect_resolution(engine: Engine, module: &TestModule, input: &Input, expecte
     );
 }
 
-fn first_denial(engine: Engine) {
+fn first_denial() {
     for intent in [
         Intent::Read,
         Intent::Write,
@@ -100,14 +99,14 @@ fn first_denial(engine: Engine) {
                         let page = ((start >> 12) + offset as u32) & 0xfffff;
                         input.machine.push((page * 4, entry.to_le_bytes().to_vec()));
                     }
-                    expect_resolution(engine, &module, &input, expected);
+                    expect_resolution(&module, &input, expected);
                 }
             }
         }
     }
 }
 
-fn nearly_full_address_space(engine: Engine) {
+fn nearly_full_address_space() {
     let module = checked_range(Intent::Read, None);
     // All linear pages alias valid backing. Leave page 3 absent so a span can
     // stop immediately before it, or report it after traversing the address wrap.
@@ -125,34 +124,22 @@ fn nearly_full_address_space(engine: Engine) {
         (0x4001, 0xffff_f000, 0x0004_0000_0000_3000),
     ] {
         input.arguments = vec![Argument::I32(start as i32), Argument::I32(bytes as i32)];
-        expect_resolution(engine, &module, &input, expected);
+        expect_resolution(&module, &input, expected);
     }
     // The largest representable span can revisit its starting page after wrap.
     input.machine[0].1[12..16].copy_from_slice(&0x8003u32.to_le_bytes());
     for start in [0x4000, 0x4001, 0x4fff] {
         input.arguments = vec![Argument::I32(start), Argument::I32(-1)];
-        expect_resolution(engine, &module, &input, 7);
+        expect_resolution(&module, &input, 7);
     }
 }
 
 #[test]
 fn faulting_ranges_report_the_first_denied_page_even_after_linear_wrap() {
-    first_denial(Engine::Wasmtime);
+    first_denial();
 }
 
 #[test]
 fn ranges_near_four_gib_count_every_page_without_overflow() {
-    nearly_full_address_space(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_faulting_ranges_report_the_first_denied_page_even_after_linear_wrap() {
-    first_denial(Engine::V8);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_ranges_near_four_gib_count_every_page_without_overflow() {
-    nearly_full_address_space(Engine::V8);
+    nearly_full_address_space();
 }

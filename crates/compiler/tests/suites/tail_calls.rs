@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Call, Callback, Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 
 use wasm86_compiler::{
     BuildError, FunctionImport, Program, Signature, Type, I1, I16, I32, I64, I8,
@@ -449,22 +449,4 @@ fn imported_and_defined_tail_targets_use_their_own_bindings_at_runtime() {
             .with_memories(&[MemoryBytes::new("state", &[7, 0, 0, 0])])]
     );
     assert_eq!(&instance.memory("state")[..4], &[7, 0, 0, 0]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 smoke tests"]
-fn v8_tail_calls_publish_memory_and_normalize_shared_arguments() {
-    let module = shared_arguments(true, true, 17);
-    let input = Input::call("run", &[Value::I32(255)])
-        .with_memories(&[MemoryBytes::new("state", &[0xff, 0xa5, 0x5a])])
-        .with_callbacks(&[Callback::new("receive", &[Value::I64(17)])]);
-    assert_eq!(
-        module.run_v8(&input),
-        Observation::returned(&[Value::I64(17)])
-            .with_callbacks(&[
-                Call::new("receive", &[Value::I32(0), Value::I32(1), Value::I32(0)])
-                    .with_memories(&[MemoryBytes::new("state", &[0, 0xa5, 0x5a])]),
-            ])
-            .with_memories(&[MemoryBytes::new("state", &[0, 0xa5, 0x5a])]),
-    );
 }

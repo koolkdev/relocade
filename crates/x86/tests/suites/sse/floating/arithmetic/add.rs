@@ -1,7 +1,7 @@
 use super::*;
 
-fn rounding(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn rounding(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for rc in 0..4 {
         let controls = 0x1f80 | rc << 13;
         for (opcode, left, right, result, raised) in [
@@ -74,8 +74,8 @@ fn rounding(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn special(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn special(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     Case {
         left: TWO,
         right: ONE,
@@ -139,8 +139,8 @@ fn special(engine: Engine, frontend: Frontend) {
     .check(&mut checks, 0x5c);
 }
 
-fn packed_priority(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn packed_priority(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = encoding(&[], 0x58, 0xc1);
     for (controls, raised) in [(0x1f80, 33), (0x1f00, 1), (0x0f80, 33)] {
         let mut image = floating_image(&code, controls);
@@ -176,8 +176,8 @@ fn packed_priority(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for packed in [false, true] {
             let code = encoding(prefix(wide, packed), 0x58, 0x00);

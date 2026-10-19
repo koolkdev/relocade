@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn call_widths(engine: Engine) {
+fn call_widths() {
     // Each immediate/indirect form covers the four operand-width/SS.B combinations.
     for (profile, code, word, stack_big) in [
         (
@@ -110,7 +110,6 @@ fn call_widths(engine: Engine) {
         cpu.instruction_count = 0;
         let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
         check_one(
-            engine,
             profile,
             code,
             &image,
@@ -126,10 +125,10 @@ fn call_widths(engine: Engine) {
 
 #[test]
 fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
-    call_widths(Engine::Wasmtime);
+    call_widths();
 }
 
-fn return_widths(engine: Engine) {
+fn return_widths() {
     for (profile, operand_override, word, stack_big) in [
         (
             ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -187,7 +186,6 @@ fn return_widths(engine: Engine) {
             };
             cpu.instruction_count = 0;
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -204,10 +202,10 @@ fn return_widths(engine: Engine) {
 
 #[test]
 fn return_forms_pop_two_slots_and_discard_unsigned_cleanup_without_accessing_it() {
-    return_widths(Engine::Wasmtime);
+    return_widths();
 }
 
-fn frame_boundaries(engine: Engine) {
+fn frame_boundaries() {
     // Capacity covers both complete slots, while the unused selector padding is
     // excluded from paging. Fields remain consecutive across a 16-bit boundary.
     for returning in [false, true] {
@@ -298,7 +296,6 @@ fn frame_boundaries(engine: Engine) {
                 vec![]
             };
             check_one(
-                engine,
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
@@ -315,13 +312,5 @@ fn frame_boundaries(engine: Engine) {
 
 #[test]
 fn complete_frame_capacity_and_selector_transfer_extent_are_distinct() {
-    frame_boundaries(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_call_return_frames_and_widths() {
-    call_widths(Engine::V8);
-    return_widths(Engine::V8);
-    frame_boundaries(Engine::V8);
+    frame_boundaries();
 }

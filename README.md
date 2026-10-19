@@ -20,7 +20,7 @@ that subset. The project is under development; the crates are not published.
 | --- | --- |
 | [wasm86-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [wasm86-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
-| [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime and V8 test support. |
+| [wasm86-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
 
@@ -44,7 +44,8 @@ Both contracts are included in the x86 crate's generated API documentation.
 
 ## Build and test
 
-The ordinary tests execute Wasm in Wasmtime and do not require Node.js.
+Compiler and x86 correctness tests execute Wasm in Wasmtime. Browser integration
+tests exercise the web runtime in Chrome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```sh
 cargo test --workspace --locked
@@ -56,5 +57,5 @@ cargo doc --workspace --no-deps --locked
 Open `target/doc/wasm86_x86/index.html` or
 `target/doc/wasm86_compiler/index.html` for API contracts and examples.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers adding instructions, writing tests and
-running the optional Node.js 24 / V8 lane. Exact supported encodings live with
+running the browser integration suite. Exact supported encodings live with
 [their instruction definitions](crates/x86/src/instruction/definitions).

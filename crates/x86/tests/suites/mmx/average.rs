@@ -1,7 +1,7 @@
 use super::*;
 
-fn average(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn average(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Maximum sums, odd sums, equal operands and zeros.
     check_binary(
         &mut checks,

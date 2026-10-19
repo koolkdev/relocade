@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn selector_widths(engine: Engine) {
+fn selector_widths() {
     // Every fixed form appears once; shared stack tests own the full size matrix.
     for (push, forms) in [(true, &PUSH[..]), (false, &POP[..])] {
         for (index, &(segment, opcode)) in forms.iter().enumerate() {
@@ -56,7 +56,6 @@ fn selector_widths(engine: Engine) {
             if push {
                 cpu.registers.esp -= slot;
                 check_one(
-                    engine,
                     profile,
                     &code,
                     &image,
@@ -85,7 +84,6 @@ fn selector_widths(engine: Engine) {
                     ..StoredSegment::flat_data32(0)
                 };
                 check_one(
-                    engine,
                     profile,
                     &code,
                     &image,
@@ -103,10 +101,10 @@ fn selector_widths(engine: Engine) {
 
 #[test]
 fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
-    selector_widths(Engine::Wasmtime);
+    selector_widths();
 }
 
-fn unread_slot_bytes(engine: Engine) {
+fn unread_slot_bytes() {
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
@@ -148,7 +146,6 @@ fn unread_slot_bytes(engine: Engine) {
                 vec![SegmentResolution::new(&tables, Segment::Ds, 0xf327)]
             };
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -169,10 +166,10 @@ fn unread_slot_bytes(engine: Engine) {
 
 #[test]
 fn a_dword_slot_does_not_access_its_third_or_fourth_byte() {
-    unread_slot_bytes(Engine::Wasmtime);
+    unread_slot_bytes();
 }
 
-fn split_selector(engine: Engine) {
+fn split_selector() {
     for push in [false, true] {
         let code = [0x0f, if push { 0xa8 } else { 0xa9 }]; // PUSH/POP GS.
         let mut image = Image::new(&code);
@@ -201,7 +198,6 @@ fn split_selector(engine: Engine) {
             vec![SegmentResolution::new(&tables, Segment::Gs, 0xf327)]
         };
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -221,13 +217,5 @@ fn split_selector(engine: Engine) {
 
 #[test]
 fn selector_words_can_cross_discontiguous_physical_pages() {
-    split_selector(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_segment_stack_widths_and_access_spans() {
-    selector_widths(Engine::V8);
-    unread_slot_bytes(Engine::V8);
-    split_selector(Engine::V8);
+    split_selector();
 }

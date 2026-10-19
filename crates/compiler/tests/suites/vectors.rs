@@ -25,30 +25,22 @@ mod width;
 
 use crate::{
     fixture::{signature, Fixture},
-    wasm::{Input, MemoryBytes, Observation, TestModule, Value},
+    wasm::{MemoryBytes, TestModule, Value},
 };
 use wasm86_compiler::{Argument, BuildError, Program, Type, Val, F64, I1, I32, I8, V128};
 
 const LEFT: u128 = 0x01234567_89abcdef_fedcba98_76543210;
 const RIGHT: u128 = 0xf0f00f0f_55aaaa55_3333cccc_00ffff00;
 
-fn check(module: &TestModule, initial: &[u8], expected: &[u8], count: i32, v8: bool) {
+fn check(module: &TestModule, expected: &[u8], count: i32) {
     let arguments = [Value::I32(count)];
-    if v8 {
-        let input =
-            Input::call("run", &arguments).with_memories(&[MemoryBytes::new("state", initial)]);
-        assert_eq!(
-            module.run_v8(&input),
-            Observation::returned(&[]).with_memories(&[MemoryBytes::new("state", expected)])
-        );
-    } else {
-        let mut instance = module.instantiate();
-        assert_eq!(instance.call_values("run", &arguments).unwrap(), []);
-        assert_eq!(&instance.memory("state")[..expected.len()], expected);
-    }
+
+    let mut instance = module.instantiate();
+    assert_eq!(instance.call_values("run", &arguments).unwrap(), []);
+    assert_eq!(&instance.memory("state")[..expected.len()], expected);
 }
 
-fn bitwise(v8: bool) {
+fn bitwise() {
     let mut bytes = vec![0xa5; 160];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
     bytes[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -91,11 +83,11 @@ fn bitwise(v8: bool) {
         {
             expected[32 + index * 16..48 + index * 16].copy_from_slice(&value.to_le_bytes());
         }
-        check(&module, &bytes, &expected, count, v8);
+        check(&module, &expected, count);
     }
 }
 
-fn calls_and_control(v8: bool) {
+fn calls_and_control() {
     let bytes = vec![0xa5; 48];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
@@ -141,11 +133,11 @@ fn calls_and_control(v8: bool) {
         expected[..16].copy_from_slice(&pair[0].to_le_bytes());
         expected[16..32].copy_from_slice(&pair[1].to_le_bytes());
         expected[32..].fill(if count == 0 { 0 } else { 0xff });
-        check(&module, &bytes, &expected, count, v8);
+        check(&module, &expected, count);
     }
 }
 
-fn small_vector_literals(v8: bool) {
+fn small_vector_literals() {
     let masks = [0, 1, 0xff, u128::from(u64::MAX), u128::MAX];
     let mut bytes = vec![0xa5; 16 + masks.len() * 3 * 16];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
@@ -173,15 +165,15 @@ fn small_vector_literals(v8: bool) {
             expected[offset..offset + 16].copy_from_slice(&result.to_le_bytes());
         }
     }
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
 #[test]
 fn vector_literals_with_zero_upper_bits_keep_vector_semantics() {
-    small_vector_literals(false);
+    small_vector_literals();
 }
 
-fn mixed_literal_encodings(v8: bool) {
+fn mixed_literal_encodings() {
     const NAN: u64 = 0x7ff8_0000_0000_0042;
     let bytes = vec![0xa5; 40];
     let mut fixture = Fixture::new();
@@ -227,15 +219,15 @@ fn mixed_literal_encodings(v8: bool) {
     expected[16..24].copy_from_slice(&NAN.to_le_bytes());
     expected[24..32].copy_from_slice(&0x8000_0000_0000_0000_u64.to_le_bytes());
     expected[32] = 1;
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
 #[test]
 fn mixed_literal_calls_preserve_narrow_values_float_bits_and_vector_bits() {
-    mixed_literal_encodings(false);
+    mixed_literal_encodings();
 }
 
-fn overlapping_memory(v8: bool) {
+fn overlapping_memory() {
     let mut bytes = vec![0xa5; 64];
     bytes[3..19].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
@@ -252,22 +244,22 @@ fn overlapping_memory(v8: bool) {
     expected[7..11].copy_from_slice(&0x11223344_u32.to_le_bytes());
     expected[27..43].copy_from_slice(&LEFT.to_le_bytes());
     expected.copy_within(3..19, 45);
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
 #[test]
 fn bitwise_operations_preserve_all_128_bits() {
-    bitwise(false);
+    bitwise();
 }
 
 #[test]
 fn vector_calls_selections_and_loop_backedges() {
-    calls_and_control(false);
+    calls_and_control();
 }
 
 #[test]
 fn vector_loads_keep_snapshots_across_overlapping_scalar_stores() {
-    overlapping_memory(false);
+    overlapping_memory();
 }
 
 #[test]
@@ -287,18 +279,7 @@ fn vector_literals_require_vector_signatures() {
     }
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vectors_bitwise_control_and_memory() {
-    bitwise(true);
-    calls_and_control(true);
-    overlapping_memory(true);
-    mixed_literal_encodings(true);
-    small_vector_literals(true);
-    lanes(true);
-}
-
-fn lanes(v8: bool) {
+fn lanes() {
     use wasm86_compiler::I64;
     let mut bytes = vec![0xa5; 240];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
@@ -347,10 +328,10 @@ fn lanes(v8: bool) {
     expected[176..184].copy_from_slice(&0x88776655_44332211_u64.to_le_bytes());
     expected[192..196].copy_from_slice(&LEFT.to_le_bytes()[12..]);
     expected[200..208].copy_from_slice(&LEFT.to_le_bytes()[8..]);
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
 #[test]
 fn vector_lanes_preserve_other_bits_and_use_low_byte_first_order() {
-    lanes(false);
+    lanes();
 }

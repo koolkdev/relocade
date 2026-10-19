@@ -1,7 +1,7 @@
 //! Store selection observes exact low bytes without changing shared conversions.
 use super::*;
 
-fn conversions(v8: bool) {
+fn conversions() {
     let initial = [0xa5; 32];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
@@ -48,33 +48,17 @@ fn conversions(v8: bool) {
         expected[19..21].copy_from_slice(&signed_word.to_le_bytes());
         expected[23] = low;
         let returned = [Value::I32(input as i32), Value::I32(i32::from(low))];
-        if v8 {
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &[Value::I64(input)])
-                        .with_memories(&[MemoryBytes::new("state", &initial)])
-                ),
-                Observation::returned(&returned)
-                    .with_memories(&[MemoryBytes::new("state", &expected)])
-            );
-        } else {
-            let mut instance = module.instantiate();
-            assert_eq!(
-                instance.call_values("run", &[Value::I64(input)]).unwrap(),
-                returned
-            );
-            assert_eq!(&instance.memory("state")[..32], expected);
-        }
+
+        let mut instance = module.instantiate();
+        assert_eq!(
+            instance.call_values("run", &[Value::I64(input)]).unwrap(),
+            returned
+        );
+        assert_eq!(&instance.memory("state")[..32], expected);
     }
 }
 
 #[test]
 fn scalar_stores_absorb_only_unobserved_conversion_bits() {
-    conversions(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_scalar_stores_absorb_only_unobserved_conversion_bits() {
-    conversions(true);
+    conversions();
 }

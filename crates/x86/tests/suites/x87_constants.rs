@@ -3,7 +3,7 @@
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
 use wasm86_x86::{Compiler, SegmentProfile};
@@ -66,8 +66,8 @@ const CONSTANTS: &[(u8, [u64; 4], u16)] = &[
     (0xee, [0; 4], 0),
 ];
 
-fn rounded_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn rounded_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for &(opcode, significands, exponent) in CONSTANTS {
         let code = [0xd9, opcode, 0x9b];
         for pc in [0, 2, 3] {
@@ -97,8 +97,8 @@ fn rounded_values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn stack_and_pending_exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn stack_and_pending_exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0xeb, 0xee] {
         let code = [0xd9, opcode, 0x9b];
         for masked in [false, true] {
@@ -160,7 +160,7 @@ fn stack_and_pending_exceptions(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn changed_rounding_control(engine: Engine, frontend: Frontend) {
+fn changed_rounding_control(frontend: Frontend) {
     let code = [
         0xd9, 0x2d, 0, 0x40, 0, 0, 0xd9, 0xeb, 0xd9, 0x2d, 2, 0x40, 0, 0, 0xd9, 0xeb,
     ];
@@ -183,7 +183,7 @@ fn changed_rounding_control(engine: Engine, frontend: Frontend) {
     let mut up = complete_x87(control_up, 2, 0x01eb);
     up.x87.status.top = 6;
     write_value(&mut up, 6, (0xc90f_daa2_2168_c235, 0x4000));
-    ImageSequences::new(engine, frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
         "each constant load consumes the current rounding control",
         &code,
         &image,
@@ -196,7 +196,7 @@ fn changed_rounding_control(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn exact_constants_keep_native_arithmetic(engine: Engine) {
+fn exact_constants_keep_native_arithmetic() {
     // 1 -> -1 -> -1 + 3 -> 0 + 2. Both exact constants keep native significands.
     let code = [
         0xd9, 0xe8, 0xd9, 0xe0, 0xda, 0x05, 0, 0x40, 0, 0, 0xd9, 0xee, 0xde, 0xc1,
@@ -227,7 +227,7 @@ fn exact_constants_keep_native_arithmetic(engine: Engine) {
     cpu.x87.tag_word |= 3 << 12;
     write_value(&mut cpu, 7, (0x8000_0000_0000_0000, 0x4000));
     assert_eq!(
-        engine.observe(&TestModule::new(&compiled), &image.input(), 1),
+        TestModule::new(&compiled).observe(&image.input(), 1),
         expected(&image, &[dispatch(cpu)])
     );
 }
@@ -244,10 +244,5 @@ test_frontends!(faults, stack_and_pending_exceptions);
 test_frontends!(control_changes, changed_rounding_control);
 #[test]
 fn native_constant_sequence() {
-    exact_constants_keep_native_arithmetic(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_constant_sequence() {
-    exact_constants_keep_native_arithmetic(Engine::V8);
+    exact_constants_keep_native_arithmetic();
 }

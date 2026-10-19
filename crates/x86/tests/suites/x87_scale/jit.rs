@@ -5,7 +5,7 @@ use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
-fn native_significand(engine: Engine) {
+fn native_significand() {
     let code = [
         0xd9, 0xe8, // FLD1: scale by one
         0xdd, 0x05, 0, 0x40, 0, 0, // FLD m64
@@ -39,12 +39,12 @@ fn native_significand(engine: Engine) {
     write_value(&mut result, 7, (LEAD, 0x3fff));
     write_value(&mut result, 6, (0x9000_0000_0000_0000, 0x4001)); // 1.5 * 2 + 1.5 = 4.5
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
-fn restart(engine: Engine) {
+fn restart() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
@@ -59,19 +59,14 @@ fn restart(engine: Engine) {
         image.cpu.x87.status.precision = 0;
         write_value(&mut image.cpu, 0, left);
         write_value(&mut image.cpu, 1, right);
-        image.check_unchanged_exit(
-            engine,
-            &block,
-            "FSCALE restarts before effects",
-            Exit::Interpret,
-        );
+        image.check_unchanged_exit(&block, "FSCALE restarts before effects", Exit::Interpret);
         let mut result = complete_x87(image.cpu, 2, 0x01fd);
         result.x87.status.overflow = u8::from(flags & 8 != 0);
         result.x87.status.precision = u8::from(flags & 32 != 0);
         result.x87.status.c1 = u8::from(flags & 512 != 0);
         write_value(&mut result, 0, output);
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -82,15 +77,15 @@ fn restart(engine: Engine) {
     let mut result = complete_x87(image.cpu, 2, 0x01fd);
     result.x87.status.c1 = 0;
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
 #[test]
 fn preserves_native_precision_and_checks_range() {
-    native_significand(Engine::Wasmtime);
-    restart(Engine::Wasmtime);
+    native_significand();
+    restart();
 }
 
 #[test]
@@ -111,16 +106,9 @@ fn exact_scales_do_not_guard_observed_precision_or_rounding() {
             result.x87.status.c1 = 0;
             write_value(&mut result, 0, (LEAD + 1, 0x4000));
             assert_eq!(
-                Engine::Wasmtime.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
     }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_and_restart() {
-    native_significand(Engine::V8);
-    restart(Engine::V8);
 }

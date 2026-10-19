@@ -15,7 +15,7 @@ fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16), opcode: u16) -> Cp
     cpu
 }
 
-fn native_values(engine: Engine) {
+fn native_values() {
     // Each native encoding has an independently specified extended snapshot.
     let values = [
         (0x3ff0_0000_0000_0000_u64, ONE),
@@ -88,19 +88,19 @@ fn native_values(engine: Engine) {
             }
             steps.push(dispatch(cpu));
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(&image, &[dispatch(cpu)]),
                 "native comparison stays compiled: memory={memory}, {left} versus {right}"
             );
             assert_eq!(
-                engine.observe(TestModule::interpreter(), &image.input(), count as usize),
+                TestModule::interpreter().observe(&image.input(), count as usize),
                 expected(&image, &steps)
             );
         }
     }
 }
 
-fn restart_after_load(engine: Engine) {
+fn restart_after_load() {
     for (compare, quiet_nan, signaling_nan) in [
         (
             0xdc_u8,
@@ -131,7 +131,7 @@ fn restart_after_load(engine: Engine) {
                 image.data(0x8008, &source.to_le_bytes());
                 let first = loaded(image.cpu, 0x4000, ONE, 0x0505);
                 assert_eq!(
-                    engine.observe(&block, &image.input(), 1),
+                    block.observe(&image.input(), 1),
                     expected(
                         &image,
                         &[Step {
@@ -146,7 +146,7 @@ fn restart_after_load(engine: Engine) {
                 let mut result = completed(first, 6, opcode, flags, u8::from(masked));
                 result.x87.data_offset = 0x4008;
                 assert_eq!(
-                    engine.observe(&linked, &image.input(), 1),
+                    linked.observe(&image.input(), 1),
                     expected(&image, &[dispatch(result)]),
                     "interpreter completes the excluded operand response"
                 );
@@ -155,7 +155,7 @@ fn restart_after_load(engine: Engine) {
     }
 }
 
-fn wide_values_stay_compiled(engine: Engine) {
+fn wide_values_stay_compiled() {
     for (code, left, right, flags) in [
         ([0xd8, 0xd1], (LEADING + 1, 0x3fff), ONE, 0),
         ([0xd8, 0xd1], (LEADING, 1), (LEADING, 0x7ffe), LESS),
@@ -170,7 +170,7 @@ fn wide_values_stay_compiled(engine: Engine) {
         let result = completed(image.cpu, 2, opcode, flags, 0);
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -178,29 +178,16 @@ fn wide_values_stay_compiled(engine: Engine) {
 
 #[test]
 fn native_and_extended_ordering() {
-    native_values(Engine::Wasmtime);
-    wide_values_stay_compiled(Engine::Wasmtime);
+    native_values();
+    wide_values_stay_compiled();
 }
 
 #[test]
 fn operand_exception_restart() {
-    restart_after_load(Engine::Wasmtime);
+    restart_after_load();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_and_extended_ordering() {
-    native_values(Engine::V8);
-    wide_values_stay_compiled(Engine::V8);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_operand_exception_restart() {
-    restart_after_load(Engine::V8);
-}
-
-fn promoted_inputs(engine: Engine) {
+fn promoted_inputs() {
     // Source bits, the independently specified loaded value, and the final
     // relation cover exact promotion, integer limits, signed zero and wide FILD.
     for (load, modrm, source, value, compare, right, flags) in [
@@ -312,12 +299,12 @@ fn promoted_inputs(engine: Engine) {
         }
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)]),
             "compiled {code:02x?}"
         );
         assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 2),
+            TestModule::interpreter().observe(&image.input(), 2),
             expected(&image, &[dispatch(first), dispatch(result)]),
             "interpreted {code:02x?}"
         );
@@ -326,16 +313,10 @@ fn promoted_inputs(engine: Engine) {
 
 #[test]
 fn binary32_and_integer_comparisons_stay_compiled() {
-    promoted_inputs(Engine::Wasmtime);
+    promoted_inputs();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_binary32_and_integer_comparisons_stay_compiled() {
-    promoted_inputs(Engine::V8);
-}
-
-fn signed_integer_comparison(engine: Engine) {
+fn signed_integer_comparison() {
     for (operation, input, before, after, flags) in [
         (0xe0_u8, 1_i32, ONE, (LEADING, 0xbfff), LESS),
         (0xe1, -1, (LEADING, 0xbfff), ONE, 0),
@@ -353,11 +334,11 @@ fn signed_integer_comparison(engine: Engine) {
         let result = completed(changed, 2, 0x01e4, flags, 0);
         let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
         assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 3),
+            TestModule::interpreter().observe(&image.input(), 3),
             expected(
                 &image,
                 &[dispatch(first), dispatch(changed), dispatch(result)]
@@ -368,11 +349,5 @@ fn signed_integer_comparison(engine: Engine) {
 
 #[test]
 fn sign_changes_update_native_integer_comparisons() {
-    signed_integer_comparison(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_sign_changes_update_native_integer_comparisons() {
-    signed_integer_comparison(Engine::V8);
+    signed_integer_comparison();
 }

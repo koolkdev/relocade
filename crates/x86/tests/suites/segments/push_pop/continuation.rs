@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn changed_stack_width(engine: Engine) {
+fn changed_stack_width() {
     for old_big in [false, true] {
         let code = [0x17, 0x51]; // POP SS; PUSH ECX.
         let mut image = Image::new(&code);
@@ -46,7 +46,6 @@ fn changed_stack_width(engine: Engine) {
         cpu.eip = 0x1001;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
@@ -62,7 +61,6 @@ fn changed_stack_width(engine: Engine) {
         cpu.eip = 0x1002;
         cpu.instruction_count = 1;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code[1..],
             &image,
@@ -78,10 +76,10 @@ fn changed_stack_width(engine: Engine) {
 
 #[test]
 fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() {
-    changed_stack_width(Engine::Wasmtime);
+    changed_stack_width();
 }
 
-fn terminal_pops(engine: Engine) {
+fn terminal_pops() {
     for (segment, opcode) in POP {
         let mut code = opcode.to_vec();
         code.push(0xf4); // Unsupported next byte must remain undecoded.
@@ -131,17 +129,17 @@ fn terminal_pops(engine: Engine) {
             ),
             TestModule::interpreter(),
         ] {
-            assert_eq!(engine.observe(module, &input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), wanted);
         }
     }
 }
 
 #[test]
 fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
-    terminal_pops(Engine::Wasmtime);
+    terminal_pops();
 }
 
-fn stack_roundtrip(engine: Engine) {
+fn stack_roundtrip() {
     // PUSH DS can continue into POP ES. Only the POP resolves a descriptor.
     let code = [0x1e, 0x07];
     let mut image = Image::new(&code);
@@ -181,7 +179,7 @@ fn stack_roundtrip(engine: Engine) {
     };
     let mut wanted = expected(&image, &[first, last()]);
     wanted.events.insert(2, event.clone());
-    assert_eq!(engine.observe(TestModule::interpreter(), &input, 2), wanted);
+    assert_eq!(TestModule::interpreter().observe(&input, 2), wanted);
     let mut blocks = BlockModules::default();
     let block = blocks.get(
         &image.cpu,
@@ -191,18 +189,10 @@ fn stack_roundtrip(engine: Engine) {
     );
     let mut wanted = expected(&image, &[last()]);
     wanted.events.insert(0, event);
-    assert_eq!(engine.observe(block, &input, 1), wanted);
+    assert_eq!(block.observe(&input, 1), wanted);
 }
 
 #[test]
 fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
-    stack_roundtrip(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_segment_stack_dispatch_and_continuation() {
-    changed_stack_width(Engine::V8);
-    terminal_pops(Engine::V8);
-    stack_roundtrip(Engine::V8);
+    stack_roundtrip();
 }

@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn layouts(engine: Engine, frontend: Frontend) {
+fn layouts(frontend: Frontend) {
     for profile in PROFILES {
         let restore = instruction(profile, true, 0x4010);
         let code = [restore.as_slice(), &[0x9b]].concat();
@@ -62,7 +62,7 @@ fn layouts(engine: Engine, frontend: Frontend) {
         );
         image.data(0x8010, &bytes);
         image.map(4, 0x8000, false);
-        ImageSequences::new(engine, frontend, profile).check(
+        ImageSequences::new(frontend, profile).check(
             &format!("FXRSTOR {profile:?} restores physical tags, logical payloads and SIMD state"),
             &code,
             &image,
@@ -78,7 +78,7 @@ fn layouts(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn mmx_tags_and_pending(engine: Engine, frontend: Frontend) {
+fn mmx_tags_and_pending(frontend: Frontend) {
     for (control, input_status, output_status, occupied, tags) in [
         (0x037f, 0x8081_u16, 0x0001, 0xff, 0xaaaa),
         (0x037e, 0x0001, 0x8081, 0xff, 0xaaaa),
@@ -122,7 +122,7 @@ fn mmx_tags_and_pending(engine: Engine, frontend: Frontend) {
                 exit: Exit::FloatingPoint,
             }
         };
-        ImageSequences::new(engine, frontend, FLAT32).check(
+        ImageSequences::new(frontend, FLAT32).check(
             "FXRSTOR classifies occupied MMX payloads as special and recomputes ES/B",
             &code,
             &image,
@@ -131,7 +131,7 @@ fn mmx_tags_and_pending(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn restore_then_pop(engine: Engine, frontend: Frontend) {
+fn restore_then_pop(frontend: Frontend) {
     let restore = instruction(FLAT32, true, 0x4010);
     let code = [
         &[0xd9, 0xe8][..],         // FLD1
@@ -185,7 +185,7 @@ fn restore_then_pop(engine: Engine, frontend: Frontend) {
     popped.x87.status = status(0);
     popped.x87.tag_word = 0xc300;
     let zero = real80((0, 0x8000));
-    ImageSequences::new(engine, frontend, FLAT32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "FXRSTOR replaces retained values and empty payloads before a following pop",
         &code,
         &image,
@@ -202,7 +202,7 @@ fn restore_then_pop(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn invalid_mxcsr(engine: Engine, frontend: Frontend) {
+fn invalid_mxcsr(frontend: Frontend) {
     for mxcsr in [0x0001_1f80, 0x8000_1f80] {
         let restore = instruction(FLAT32, true, 0x4010);
         let code = [&[0xd9, 0xe8][..], &[0x66, 0x0f, 0xef, 0xdb], &restore].concat();
@@ -221,7 +221,7 @@ fn invalid_mxcsr(engine: Engine, frontend: Frontend) {
         write_register_bits(&mut pushed, 2, (0x8000_0000_0000_0000, 0x3fff));
         let mut dirty = retire(pushed, 4);
         dirty.simd.xmm[3] = [0; 16];
-        ImageSequences::new(engine, frontend, FLAT32).check(
+        ImageSequences::new(frontend, FLAT32).check(
             "invalid MXCSR preserves earlier x87/XMM writes without partially restoring state",
             &code,
             &image,
@@ -238,7 +238,7 @@ fn invalid_mxcsr(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
+fn faults(frontend: Frontend) {
     for (profile, address, exit) in [
         (FLAT32, 0x4011, Exit::GeneralProtection { error: 0 }),
         (
@@ -267,7 +267,7 @@ fn faults(engine: Engine, frontend: Frontend) {
         }
         set_control(&mut image.cpu.x87.control, 0x037e);
         image.cpu.x87.status = status(0xa881);
-        ImageSequences::new(engine, frontend, profile).check(
+        ImageSequences::new(frontend, profile).check(
             "FXRSTOR checks alignment and the complete span before MXCSR or state writes",
             &code,
             &image,
@@ -286,7 +286,7 @@ test_frontends!(fxrstor_then_pop, restore_then_pop);
 test_frontends!(fxrstor_invalid_mxcsr, invalid_mxcsr);
 test_frontends!(fxrstor_faults, faults);
 
-fn observed_mxcsr(engine: Engine) {
+fn observed_mxcsr() {
     use crate::support::{machine::expected, step::TestModule};
     use wasm86_x86::Compiler;
 
@@ -345,11 +345,11 @@ fn observed_mxcsr(engine: Engine) {
             dispatch(cpu)
         };
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[direct])
         );
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(cpu)])
         );
     }
@@ -357,13 +357,7 @@ fn observed_mxcsr(engine: Engine) {
 
 #[test]
 fn fxrstor_replaces_observed_mxcsr_before_following_conversion() {
-    observed_mxcsr(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_fxrstor_replaces_observed_mxcsr_before_following_conversion() {
-    observed_mxcsr(Engine::V8);
+    observed_mxcsr();
 }
 
 #[test]

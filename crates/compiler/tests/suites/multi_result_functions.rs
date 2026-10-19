@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Call, Callback, Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 use wasm86_compiler::{
     BuildError, Func, FunctionImport, Mem, Program, Type, Val, I1, I16, I32, I64, I8,
 };

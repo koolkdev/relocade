@@ -11,7 +11,6 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::Exit,
-    step::Engine,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -31,10 +30,10 @@ fn encoding() {
     check_length(&[0xd9, 0xf5]);
 }
 
-fn finite_values(&opcode: &u8, engine: Engine, frontend: Frontend) {
+fn finite_values(&opcode: &u8, frontend: Frontend) {
     let code = [0xd9, opcode];
     let fop = 0x0100 | u16::from(opcode);
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Dividing 2*q + 0.5 by 2 exercises every quotient condition-code pattern.
     let dividends = [
         (LEAD, 0x3ffe),
@@ -102,10 +101,10 @@ fn finite_values(&opcode: &u8, engine: Engine, frontend: Frontend) {
     }
 }
 
-fn controls(&opcode: &u8, engine: Engine, frontend: Frontend) {
+fn controls(&opcode: &u8, frontend: Frontend) {
     let code = [0xd9, opcode];
     let fop = 0x0100 | u16::from(opcode);
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for pc in 0..4 {
         for rc in 0..4 {
             let mut image = stack_image(&code, 0, 0xffff);
@@ -126,10 +125,10 @@ fn controls(&opcode: &u8, engine: Engine, frontend: Frontend) {
     }
 }
 
-fn partial_reductions(&opcode: &u8, engine: Engine, frontend: Frontend) {
+fn partial_reductions(&opcode: &u8, frontend: Frontend) {
     let code = [0xd9, opcode];
     let fop = 0x0100 | u16::from(opcode);
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = code.repeat(3);
     let mut image = stack_image(&code, 0, 0xffff);
     write_value(&mut image.cpu, 0, (LEAD, 0x405f)); // 2^96

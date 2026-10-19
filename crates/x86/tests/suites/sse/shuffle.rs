@@ -1,7 +1,7 @@
 use super::*;
 
-fn integer(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn integer(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let source: [u8; 16] = std::array::from_fn(|i| 0x80 + i as u8);
     for (prefix, width, first) in [(0x66, 4, 0), (0xf2, 2, 0), (0xf3, 2, 4)] {
         for control in [0x00, 0x55, 0xff, 0xe4, 0x1b, 0x93] {
@@ -36,8 +36,8 @@ fn integer(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for prefix in [0x66, 0xf2, 0xf3] {
         let code = [prefix, 0x0f, 0x70, 0x30, 0];
         for (address, exit) in [

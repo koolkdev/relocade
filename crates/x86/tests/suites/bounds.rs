@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, StoredSegment};
 
@@ -139,7 +139,6 @@ fn register_operands_are_rejected_without_a_successor_fetch() {
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "BOUND requires a memory pair",
             Exit::Other(0x0008_0062_0000_0000 | u64::from(start)),

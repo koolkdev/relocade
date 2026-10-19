@@ -4,7 +4,7 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 
-fn dynamic_controls(engine: Engine) {
+fn dynamic_controls() {
     let code = [0xde, 0xc9];
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     // (1 + 2^-63) * 1.5 lies halfway between two extended values,
@@ -52,7 +52,7 @@ fn dynamic_controls(engine: Engine) {
                             | if masked { 0 } else { PENDING },
                     );
                     assert_eq!(
-                        engine.observe(&module, &image.input(), 1),
+                        module.observe( &image.input(), 1),
                         expected(&image, &[dispatch(result)]),
                         "normal FMULP stays in the JIT: PC={pc} RC={rc} negative={negative} masked={masked}"
                     );
@@ -69,13 +69,13 @@ fn dynamic_controls(engine: Engine) {
         result.x87.status.c1 = 0;
         result.x87.tag_word |= 0xc000;
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
 }
 
-fn signed_zero_products(engine: Engine) {
+fn signed_zero_products() {
     let code = [0xde, 0xc9];
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for (left, right) in [
@@ -104,7 +104,7 @@ fn signed_zero_products(engine: Engine) {
                             product.x87.status.c1 = 0;
                             product.x87.tag_word |= 0xc000;
                             assert_eq!(
-                                engine.observe(&module, &image.input(), 1),
+                                module.observe( &image.input(), 1),
                                 expected(&image, &[dispatch(product)]),
                                 "zero FMULP stays in the JIT: {left:x?} * {right:x?}, signs={left_sign:x}/{right_sign:x} PC={pc} RC={rc} masked={masked}"
                             );
@@ -123,14 +123,14 @@ fn signed_zero_products(engine: Engine) {
         product.x87.status.c1 = 0;
         product.x87.tag_word |= 0xc000;
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(&image, &[dispatch(product)]),
             "zero times a normal value at exponent {exponent:x} is still exact"
         );
     }
 }
 
-fn rejected_products(engine: Engine) {
+fn rejected_products() {
     let code = [0xde, 0xc9];
     let compiled = compile_block_from_bytes(0x1000, &code, 1).unwrap();
     let block = TestModule::new(&compiled);
@@ -189,18 +189,13 @@ fn rejected_products(engine: Engine) {
         image.cpu.x87.status.precision = 0;
         write_value(&mut image.cpu, 0, left);
         write_value(&mut image.cpu, 7, right);
-        image.check_unchanged_exit(
-            engine,
-            &block,
-            "restart before rejected FMULP",
-            Exit::Interpret,
-        );
+        image.check_unchanged_exit(&block, "restart before rejected FMULP", Exit::Interpret);
         let mut product = complete_x87(image.cpu, 2, 0x06c9);
         write_value(&mut product, 0, result);
         product.x87.tag_word |= 0xc000;
         product.x87.status = status(0x4500 | flags);
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(product)]),
             "the interpreter completes rejected operands {left:x?} * {right:x?}"
         );
@@ -210,7 +205,6 @@ fn rejected_products(engine: Engine) {
     write_register_bits(&mut image.cpu, 0, (0, 0));
     write_value(&mut image.cpu, 7, one);
     image.check_unchanged_exit(
-        engine,
         &block,
         "empty destination restarts before pop",
         Exit::Interpret,
@@ -220,7 +214,7 @@ fn rejected_products(engine: Engine) {
     product.x87.tag_word |= 0xc000;
     product.x87.status = status(0x4561);
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(product)])
     );
 
@@ -229,21 +223,16 @@ fn rejected_products(engine: Engine) {
     set_control(&mut image.cpu.x87.control, 0x037d);
     write_value(&mut image.cpu, 0, (0, 0x8000));
     write_value(&mut image.cpu, 7, (1, 0));
-    image.check_unchanged_exit(
-        engine,
-        &block,
-        "denormal operand still restarts",
-        Exit::Interpret,
-    );
+    image.check_unchanged_exit(&block, "denormal operand still restarts", Exit::Interpret);
     let mut product = complete_x87(image.cpu, 2, 0x06c9);
     product.x87.status = status(0xfda2);
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(product)])
     );
 }
 
-fn live_zero_products(engine: Engine) {
+fn live_zero_products() {
     // A rounded normal result becomes -0, then either +0 or an invalid product.
     let code = [0xd8, 0xc9, 0xd8, 0xca, 0xd8, 0xcb];
     let compiled = compile_block_from_bytes(0x1000, &code, 3).unwrap();
@@ -271,7 +260,7 @@ fn live_zero_products(engine: Engine) {
         let mut third = complete_x87(second, 2, 0x00cb);
         if infinity {
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -287,19 +276,19 @@ fn live_zero_products(engine: Engine) {
         } else {
             write_value(&mut third, 0, (0, 0));
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(&image, &[dispatch(third)]),
                 "normal and zero products stay live in one JIT block"
             );
         }
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(third)])
         );
     }
 }
 
-fn prior_rounding_survives_handoff(engine: Engine) {
+fn prior_rounding_survives_handoff() {
     // The second multiply is rejected without overwriting the first one's C1,
     // sticky PE, result, metadata, EIP or completed-instruction count.
     let code = [0xd8, 0xc9, 0xde, 0xca];
@@ -316,7 +305,7 @@ fn prior_rounding_survives_handoff(engine: Engine) {
     first.x87.status.c1 = 1;
     write_value(&mut first, 0, (0xc000_0000_0000_0002, 0x3fff));
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -332,42 +321,32 @@ fn prior_rounding_survives_handoff(engine: Engine) {
     second.x87.status.c1 = 0;
     second.x87.tag_word |= 3;
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(second)])
     );
 }
 
 #[test]
 fn normal_products_keep_all_controls_dynamic() {
-    dynamic_controls(Engine::Wasmtime);
+    dynamic_controls();
 }
 
 #[test]
 fn signed_zero_products_keep_all_controls_dynamic() {
-    signed_zero_products(Engine::Wasmtime);
+    signed_zero_products();
 }
 
 #[test]
 fn live_zero_products_preserve_rounding_and_handoff_state() {
-    live_zero_products(Engine::Wasmtime);
+    live_zero_products();
 }
 
 #[test]
 fn rejected_products_restart_and_complete_in_the_interpreter() {
-    rejected_products(Engine::Wasmtime);
+    rejected_products();
 }
 
 #[test]
 fn handoff_preserves_the_previous_rounding_state() {
-    prior_rounding_survives_handoff(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_arithmetic_specialization_preserves_controls_and_restart_state() {
-    dynamic_controls(Engine::V8);
-    signed_zero_products(Engine::V8);
-    live_zero_products(Engine::V8);
-    rejected_products(Engine::V8);
-    prior_rounding_survives_handoff(Engine::V8);
+    prior_rounding_survives_handoff();
 }

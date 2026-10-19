@@ -9,7 +9,7 @@ mod shape;
 
 use crate::support::{
     machine::{expected, Exit, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
 use wasm86_x86::{Compiler, CpuState, SegmentProfile};
@@ -35,7 +35,7 @@ fn masked_precision_compiler(pc: u8, rc: u8) -> Compiler {
     Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
 }
 
-fn arithmetic_modes(engine: Engine) {
+fn arithmetic_modes() {
     for pc in 0..4 {
         let unit = match pc {
             0 => 1 << 40,
@@ -85,7 +85,7 @@ fn arithmetic_modes(engine: Engine) {
                     result.x87.status.c1 = u8::from(incremented);
                     write_value(&mut result, 0, (significand, 0x3fff | sign));
                     assert_eq!(
-                        engine.observe(&block, &image.input(), 1),
+                        block.observe(&image.input(), 1),
                         expected(&image, &[dispatch(result)]),
                         "PC={pc}, RC={rc}, multiply={multiply}, negative={negative}"
                     );
@@ -102,14 +102,14 @@ fn arithmetic_modes(engine: Engine) {
             result.x87.status.c1 = 0;
             write_value(&mut result, 0, (0, if rc == 1 { 0x8000 } else { 0 }));
             assert_eq!(
-                engine.observe(&block, &image.input(), 1),
+                block.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
     }
 }
 
-fn converted_stores_use_only_rounding(engine: Engine) {
+fn converted_stores_use_only_rounding() {
     let code = [0xd9, 0x15, 0, 0x40, 0, 0, 0xdb, 0x15, 4, 0x40, 0, 0];
     for rc in 0..4 {
         let block = TestModule::new(
@@ -132,7 +132,7 @@ fn converted_stores_use_only_rounding(engine: Engine) {
         let real = (0x3fc0_0000_u32 + u32::from(rc == 2)).to_le_bytes();
         let integer = if rc == 0 || rc == 2 { 2_i32 } else { 1 }.to_le_bytes();
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -145,7 +145,7 @@ fn converted_stores_use_only_rounding(engine: Engine) {
     }
 }
 
-fn memory_arithmetic_uses_observed_modes(engine: Engine) {
+fn memory_arithmetic_uses_observed_modes() {
     let code = [0xd8, 0x05, 0, 0x40, 0, 0]; // FADD m32
     let block = TestModule::new(
         &masked_precision_compiler(0, 2)
@@ -166,12 +166,12 @@ fn memory_arithmetic_uses_observed_modes(engine: Engine) {
     result.x87.status.c1 = 1;
     write_value(&mut result, 0, (LEADING + (1 << 40), 0x3fff)); // PC24: 1 + 2^-23
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
-fn mismatch_restarts_at_the_consumer(engine: Engine) {
+fn mismatch_restarts_at_the_consumer() {
     let code = [0xb8, 7, 0, 0, 0, 0xd8, 0xc9];
     let compiled = compiler(3, 0).compile_block(0x1000, &code, 2).unwrap();
     let block = TestModule::new(&compiled);
@@ -187,7 +187,7 @@ fn mismatch_restarts_at_the_consumer(engine: Engine) {
         restart.instruction_count = restart.instruction_count.wrapping_add(1);
         restart.registers.eax = 7;
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -200,7 +200,7 @@ fn mismatch_restarts_at_the_consumer(engine: Engine) {
         let mut result = complete_x87(restart, 2, 0x00c9);
         result.x87.status.c1 = 0;
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -208,17 +208,8 @@ fn mismatch_restarts_at_the_consumer(engine: Engine) {
 
 #[test]
 fn observed_modes_preserve_arithmetic_stores_and_restart() {
-    arithmetic_modes(Engine::Wasmtime);
-    converted_stores_use_only_rounding(Engine::Wasmtime);
-    memory_arithmetic_uses_observed_modes(Engine::Wasmtime);
-    mismatch_restarts_at_the_consumer(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_observed_modes_preserve_arithmetic_stores_and_restart() {
-    arithmetic_modes(Engine::V8);
-    converted_stores_use_only_rounding(Engine::V8);
-    memory_arithmetic_uses_observed_modes(Engine::V8);
-    mismatch_restarts_at_the_consumer(Engine::V8);
+    arithmetic_modes();
+    converted_stores_use_only_rounding();
+    memory_arithmetic_uses_observed_modes();
+    mismatch_restarts_at_the_consumer();
 }

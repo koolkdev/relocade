@@ -1,7 +1,7 @@
 use super::*;
 
-fn arithmetic(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn arithmetic(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Carries and borrows stop at every lane boundary, including bit 64.
     for (add, sub, left, right, sum, difference) in [
         (

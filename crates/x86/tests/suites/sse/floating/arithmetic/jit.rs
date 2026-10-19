@@ -4,7 +4,7 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{Compiler, ExecutionProfile, Segments};
 
-fn compiled(engine: Engine) {
+fn compiled() {
     for (opcode, cases) in [
         (
             0x58,
@@ -78,7 +78,7 @@ fn compiled(engine: Engine) {
                 );
                 if restart {
                     assert_eq!(
-                        engine.observe(&block, &image.input(), 1),
+                        block.observe(&image.input(), 1),
                         expected(
                             &image,
                             &[Step {
@@ -89,9 +89,9 @@ fn compiled(engine: Engine) {
                         )
                     );
                 } else {
-                    assert_eq!(engine.observe(&block, &image.input(), 1), wanted);
+                    assert_eq!(block.observe(&image.input(), 1), wanted);
                 }
-                assert_eq!(engine.observe(&linked, &image.input(), 1), wanted);
+                assert_eq!(linked.observe(&image.input(), 1), wanted);
             }
         }
     }
@@ -99,10 +99,5 @@ fn compiled(engine: Engine) {
 
 #[test]
 fn sse_arithmetic_compiled_and_restart() {
-    compiled(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_sse_arithmetic_compiled_and_restart() {
-    compiled(Engine::V8);
+    compiled();
 }

@@ -4,8 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{Compiler, ExecutionProfile, Segments};
 
-fn conversions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn conversions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         let mut cases = vec![
             (ZERO, [0; 4], [0; 4]),
@@ -103,8 +103,8 @@ fn conversions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         let code = encoding(prefix(wide, false), 0x2c, 0x08); // ECX,[EAX]
         let width = if wide { 8 } else { 4 };
@@ -143,7 +143,7 @@ fn memory(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn compiled_precision(engine: Engine) {
+fn compiled_precision() {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
         let code = [0xf3, 0x0f, 0x2d, 0xc1]; // CVTSS2SI EAX,XMM1
         let module = TestModule::new(
@@ -168,7 +168,7 @@ fn compiled_precision(engine: Engine) {
                 cpu.registers.eax = 2;
             }
             assert_eq!(
-                engine.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -191,11 +191,5 @@ test_frontends!(sse_scalar_integer_memory, memory);
 
 #[test]
 fn sse_scalar_integer_precision_stays_compiled() {
-    compiled_precision(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_sse_scalar_integer_precision_stays_compiled() {
-    compiled_precision(Engine::V8);
+    compiled_precision();
 }

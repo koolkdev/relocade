@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn widths_and_profiles(engine: Engine) {
+fn widths_and_profiles() {
     for (profile, code, word) in [
         (
             ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -58,7 +58,6 @@ fn widths_and_profiles(engine: Engine) {
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.instruction_count = 0;
         check_one(
-            engine,
             profile,
             code,
             &image,
@@ -74,10 +73,10 @@ fn widths_and_profiles(engine: Engine) {
 
 #[test]
 fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
-    widths_and_profiles(Engine::Wasmtime);
+    widths_and_profiles();
 }
 
-fn accepted_descriptors(engine: Engine) {
+fn accepted_descriptors() {
     // One GDT execute-only descriptor and a conforming descriptor at LDT index zero.
     for (selector, visible_selector, readable, conforming, dpl) in [
         (0x18, 0x1b, false, false, PrivilegeLevel::Ring3),
@@ -110,7 +109,6 @@ fn accepted_descriptors(engine: Engine) {
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -126,10 +124,10 @@ fn accepted_descriptors(engine: Engine) {
 
 #[test]
 fn execute_only_and_conforming_code_accept_table_selection_and_normalize_cs_rpl() {
-    accepted_descriptors(Engine::Wasmtime);
+    accepted_descriptors();
 }
 
-fn target_limits(engine: Engine) {
+fn target_limits() {
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
@@ -164,7 +162,6 @@ fn target_limits(engine: Engine) {
                 Exit::GeneralProtection { error: 0 }
             };
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -181,13 +178,5 @@ fn target_limits(engine: Engine) {
 
 #[test]
 fn the_new_inclusive_code_limit_applies_even_when_the_incoming_profile_is_flat() {
-    target_limits(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_jump_targets_widths_and_descriptors() {
-    widths_and_profiles(Engine::V8);
-    accepted_descriptors(Engine::V8);
-    target_limits(Engine::V8);
+    target_limits();
 }

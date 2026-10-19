@@ -7,7 +7,7 @@ use crate::support::{
 use std::sync::OnceLock;
 use wasm86_x86::compile_interpreter;
 
-fn availability(engine: Engine, frontend: Frontend) {
+fn availability(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for (code, exit) in [
         (&[0x63, 0x07][..], Exit::InvalidOpcode),
@@ -22,17 +22,12 @@ fn availability(engine: Engine, frontend: Frontend) {
             Frontend::Block => blocks.get(&image.cpu, code, 8, ExecutionProfile::Real16),
             Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
         };
-        image.check_unchanged_exit(
-            engine,
-            module,
-            "mode rejection precedes operands and stack",
-            exit,
-        );
+        image.check_unchanged_exit(module, "mode rejection precedes operands and stack", exit);
     }
 }
 test_frontends!(mode_availability, availability);
 
-fn fetches(engine: Engine) {
+fn fetches() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
     for (start, code, exit) in [
         (0x2000, &[][..], Exit::Other(0x0008_00ff_0000_2000)),
@@ -45,7 +40,6 @@ fn fetches(engine: Engine) {
             image.data(0x3000 + (start & 0xfff), code);
         }
         image.check_unchanged_exit(
-            engine,
             module,
             "exact fetch checks CS and reads mapped bytes or physical holes",
             exit,
@@ -58,7 +52,7 @@ fn fetches(engine: Engine) {
     let mut cpu = retired(&crossing, 3);
     cpu.registers.eax = 0x1111_ffff;
     assert_eq!(
-        engine.observe(module, &crossing.input(), 1),
+        module.observe(&crossing.input(), 1),
         expected(
             &crossing,
             &[Step {
@@ -73,7 +67,7 @@ fn fetches(engine: Engine) {
     cpu.eip = 0x1234;
     cpu.segments.cs = cache(Segment::Cs, 0xffff);
     assert_eq!(
-        engine.observe(module, &image.input(), 2),
+        module.observe(&image.input(), 2),
         expected(
             &image,
             &[
@@ -99,7 +93,7 @@ fn fetches(engine: Engine) {
     image.data(0x8010, &[0x90]);
     let cpu = retired(&image, 1);
     assert_eq!(
-        engine.observe(module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -111,7 +105,7 @@ fn fetches(engine: Engine) {
     );
 }
 
-fn segment_fetch_bounds(engine: Engine) {
+fn segment_fetch_bounds() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
     for eip in [0x10000, 0x8000_0000, u32::MAX] {
         let mut image = image(&[]);
@@ -121,7 +115,7 @@ fn segment_fetch_bounds(engine: Engine) {
         input.mmio_pages = vec![(0, 0x8000)];
         input.observe_mmio = true;
         assert_eq!(
-            engine.observe(module, &input, 1),
+            module.observe(&input, 1),
             expected(
                 &image,
                 &[Step {
@@ -142,7 +136,7 @@ fn segment_fetch_bounds(engine: Engine) {
     let mut input = image.input();
     input.observe_mmio = true;
     assert_eq!(
-        engine.observe(module, &input, 1),
+        module.observe(&input, 1),
         expected(
             &image,
             &[Step {
@@ -154,7 +148,7 @@ fn segment_fetch_bounds(engine: Engine) {
     );
 }
 
-fn a20_fetch(engine: Engine, frontend: Frontend) {
+fn a20_fetch(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for enabled in [false, true] {
         let mut image = image(&[]);
@@ -179,7 +173,7 @@ fn a20_fetch(engine: Engine, frontend: Frontend) {
         let mut cpu = retired(&image, 3);
         cpu.registers.eax = 0x1111_0000 | if enabled { 0x5678 } else { 0x1234 };
         assert_eq!(
-            engine.observe(module, &input, 1),
+            module.observe(&input, 1),
             expected(
                 &image,
                 &[Step {
@@ -198,7 +192,7 @@ fn run_module() -> &'static TestModule {
     RUN.get_or_init(|| TestModule::new(&compile_interpreter(ExecutionProfile::Real16).unwrap()))
 }
 
-fn runs(engine: Engine) {
+fn runs() {
     let module = run_module();
     for (code, exit, next) in [
         (
@@ -221,7 +215,7 @@ fn runs(engine: Engine) {
             cpu.instruction_count = 1;
         }
         assert_eq!(
-            engine.observe(module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -238,7 +232,7 @@ fn runs(engine: Engine) {
     cpu.registers.eax = 0x1111_ffff;
     cpu.instruction_count = 2;
     assert_eq!(
-        engine.observe(module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -250,7 +244,7 @@ fn runs(engine: Engine) {
     );
 }
 
-fn fetch_callbacks(engine: Engine, mmio: bool) {
+fn fetch_callbacks(mmio: bool) {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
     for (code, start, fetched, exit) in [
         (&[0x90][..], 0x1000, 1, Exit::Dispatch(0x1001)),
@@ -285,7 +279,7 @@ fn fetch_callbacks(engine: Engine, mmio: bool) {
             input.mmio_pages.push((start >> 12, 0x3000));
         }
         input.observe_mmio = true;
-        let mut observed = engine.observe(module, &input, 1);
+        let mut observed = module.observe(&input, 1);
         let transfers: Vec<_> = (0..if mmio { fetched } else { 0 })
             .map(|offset| Event::MmioRead {
                 address: start + offset,
@@ -323,7 +317,7 @@ fn fetch_callbacks(engine: Engine, mmio: bool) {
     }
 }
 
-fn live_fetch(engine: Engine) {
+fn live_fetch() {
     let mut last_byte = image(&[]);
     last_byte.cpu.eip = 0x1fff;
     last_byte.data(0x3fff, &[0x90]);
@@ -331,11 +325,7 @@ fn live_fetch(engine: Engine) {
     input.mmio_pages = vec![(2, 0x8000)];
     input.observe_mmio = true;
     assert_eq!(
-        engine.observe(
-            TestModule::interpreter_with_profile(ExecutionProfile::Real16),
-            &input,
-            1
-        ),
+        TestModule::interpreter_with_profile(ExecutionProfile::Real16).observe(&input, 1),
         expected(
             &last_byte,
             &[Step {
@@ -374,26 +364,15 @@ fn live_fetch(engine: Engine) {
             value: vec![0x11],
         },
     );
-    assert_eq!(engine.observe(run_module(), &input, 1), wanted);
+    assert_eq!(run_module().observe(&input, 1), wanted);
 }
 
 #[test]
 fn interpreter_fetch_and_run_boundaries() {
-    fetches(Engine::Wasmtime);
-    segment_fetch_bounds(Engine::Wasmtime);
-    runs(Engine::Wasmtime);
-    fetch_callbacks(Engine::Wasmtime, false);
-    fetch_callbacks(Engine::Wasmtime, true);
-    live_fetch(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interpreter_fetch_and_run_boundaries() {
-    fetches(Engine::V8);
-    segment_fetch_bounds(Engine::V8);
-    runs(Engine::V8);
-    fetch_callbacks(Engine::V8, false);
-    fetch_callbacks(Engine::V8, true);
-    live_fetch(Engine::V8);
+    fetches();
+    segment_fetch_bounds();
+    runs();
+    fetch_callbacks(false);
+    fetch_callbacks(true);
+    live_fetch();
 }

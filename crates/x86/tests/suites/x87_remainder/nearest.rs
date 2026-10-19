@@ -4,8 +4,8 @@ use super::*;
 
 const CODE: [u8; 2] = [0xd9, 0xf5];
 
-fn ties_and_signs(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn ties_and_signs(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let three_halves = 0xc000_0000_0000_0000;
     for (left, right, output, quotient) in [
         ((three_halves, 0x4000), (LEAD, 0x4000), (LEAD, 0xbfff), 2), // 3 / 2
@@ -68,8 +68,8 @@ fn ties_and_signs(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exact_integer_reference(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exact_integer_reference(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let mut seed = 0x1ac3_072b_f865_e429_u64;
     let mut random = || {
         seed ^= seed << 13;
@@ -119,8 +119,8 @@ fn exact_integer_reference(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn negative_tiny_result(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn negative_tiny_result(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for unmasked in [false, true] {
         let mut image = stack_image(&CODE, 0, 0xffff);
         set_control(

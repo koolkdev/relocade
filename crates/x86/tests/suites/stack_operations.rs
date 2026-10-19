@@ -8,7 +8,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*, StoredSegment};
 
@@ -186,7 +186,6 @@ fn unsupported_group_extensions_precede_address_fetch() {
         image.cpu.eip = 0x1ffe;
         image.data(0x3ffe, &code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "unsupported stack extension does not fetch its missing SIB",
             Exit::Other(0x0008_0000_0000_1ffe | (u64::from(opcode) << 32)),

@@ -3,12 +3,12 @@
 use super::*;
 use wasm86_x86::SegmentDefaultSize;
 
-fn dword_registers(engine: Engine, frontend: Frontend) {
+fn dword_registers(frontend: Frontend) {
     for (profile, default_size) in [
         (SegmentProfile::Flat32, SegmentDefaultSize::Bits32),
         (SegmentProfile::Segmented16, SegmentDefaultSize::Bits16),
     ] {
-        let mut checks = ImageSequences::new(engine, frontend, profile);
+        let mut checks = ImageSequences::new(frontend, profile);
         let code = [
             0x66, 0x0f, 0x6e, 0xf1, // xmm6, ecx
             0x66, 0x0f, 0x7e, 0xf7, // edi, xmm6
@@ -36,8 +36,8 @@ fn dword_registers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn quadword_registers(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn quadword_registers(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, opcode, modrm, destination, source) in [
         (0xf3, 0x7e, 0xf1, 6, 1),
         (0x66, 0xd6, 0xf1, 1, 6),
@@ -58,8 +58,8 @@ fn quadword_registers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (load_prefix, load_opcode, store_opcode, bytes) in
         [(0x66, 0x6e, 0x7e, 4), (0xf3, 0x7e, 0xd6, 8)]
     {
@@ -105,8 +105,8 @@ fn memory(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, opcode, store) in [
         (0x66, 0x6e, false),
         (0x66, 0x7e, true),

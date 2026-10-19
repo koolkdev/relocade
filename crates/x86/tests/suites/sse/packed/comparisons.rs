@@ -1,7 +1,7 @@
 use super::*;
 
-fn comparisons(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn comparisons(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Equality, signed extrema and opposite signs differ in both halves.
     for (equal, greater, left, right, equal_mask, greater_mask) in [
         (

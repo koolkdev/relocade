@@ -3,7 +3,7 @@
 use super::*;
 use wasm86_compiler::I64;
 
-fn identities(v8: bool) {
+fn identities() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I1, Type::I1],
         &[Type::I32; 7],
@@ -46,19 +46,17 @@ fn identities(v8: bool) {
                 &module,
                 &[Value::I32(input), Value::I32(1), Value::I32(other)],
                 &[input, input, 1, 0, input, input, 1].map(Value::I32),
-                v8,
             );
             check_result(
                 &module,
                 &[Value::I32(input), Value::I32(0), Value::I32(other)],
                 &[Value::I32(0); 7],
-                v8,
             );
         }
     }
 }
 
-fn exposed_constants(v8: bool) {
+fn exposed_constants() {
     let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32; 7], |mut body| {
         let input = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
@@ -95,13 +93,11 @@ fn exposed_constants(v8: bool) {
             &module,
             &[Value::I32(input), Value::I32(1)],
             &[364, -128, 128, 0, 7, 1, 1].map(Value::I32),
-            v8,
         );
         check_result(
             &module,
             &[Value::I32(input), Value::I32(0)],
             &[Value::I32(0); 7],
-            v8,
         );
     }
 
@@ -129,30 +125,21 @@ fn exposed_constants(v8: bool) {
             &wide,
             &[Value::I64(input), Value::I32(1)],
             &[Value::I64(-2), Value::I64(input), Value::I64(input)],
-            v8,
         );
         check_result(
             &wide,
             &[Value::I64(input), Value::I32(0)],
             &[Value::I64(0); 3],
-            v8,
         );
     }
 }
 
 #[test]
 fn operand_replacement_reuses_arithmetic_comparison_and_selection_folds() {
-    identities(false);
+    identities();
 }
 
 #[test]
 fn algebraic_folds_feed_constant_evaluation_at_both_carrier_widths() {
-    exposed_constants(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_specialized_operations_preserve_results_and_widths() {
-    identities(true);
-    exposed_constants(true);
+    exposed_constants();
 }

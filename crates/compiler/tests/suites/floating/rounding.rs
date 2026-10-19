@@ -13,7 +13,7 @@ fn operations(value: Val<F64>) -> [Val<I64>; 5] {
     .map(observed_bits)
 }
 
-fn rounding(v8: bool) {
+fn rounding() {
     let runtime = Fixture::new().function(&[Type::I64], &[Type::I64; 5], |body| {
         let value = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         body.return_(operations(value))
@@ -107,25 +107,19 @@ fn rounding(v8: bool) {
         ),
     ] {
         let expected = expected.map(|bits| Value::I64(bits as i64));
-        check(&runtime, &[Value::I64(input as i64)], &expected, v8);
+        check(&runtime, &[Value::I64(input as i64)], &expected);
         for admitted in [false, true] {
             let constant = Fixture::new().function(&[], &[Type::I64; 5], |body| {
                 let value = Val::<F64>::from_bits(input);
                 let value = if admitted { body.value(value)? } else { value };
                 body.return_(operations(value))
             });
-            check(&constant, &[], &expected, v8);
+            check(&constant, &[], &expected);
         }
     }
 }
 
 #[test]
 fn integral_rounding_and_square_root_preserve_ieee_boundaries() {
-    rounding(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_integral_rounding_and_square_root() {
-    rounding(true);
+    rounding();
 }

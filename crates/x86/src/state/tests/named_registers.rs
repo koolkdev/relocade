@@ -1,8 +1,6 @@
 use super::super::{Cpu, State};
 use crate::register::{NamedRegister, Register, RegisterCode, RegisterOperand, RegisterType};
-use crate::test_step::{
-    Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule,
-};
+use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Gpr32, Registers};
 use wasm86_compiler::{Program, Signature, Type, I1, I16, I32, I64, I8};
 
@@ -29,7 +27,6 @@ fn initial_cpu() -> CpuState {
 }
 
 fn assert_result(
-    engine: Engine,
     module: &TestModule,
     initial: &CpuState,
     arguments: &[i32],
@@ -41,7 +38,7 @@ fn assert_result(
         ..Input::new(&initial.to_bytes())
     };
     assert_eq!(
-        engine.observe(module, &input, 1),
+        module.observe(&input, 1),
         Observation {
             events: vec![Event::Return {
                 outcome: Outcome::Returned(vec![Argument::I64(result)]),
@@ -96,7 +93,7 @@ fn named_views<T: RegisterType>() -> CompiledModule {
     }
 }
 
-fn check_named_views(engine: Engine) {
+fn check_named_views() {
     let initial = initial_cpu();
     for (compiled, registers) in [
         (
@@ -145,26 +142,13 @@ fn check_named_views(engine: Engine) {
             instruction_count: 1,
             ..initial
         };
-        assert_result(
-            engine,
-            &TestModule::new(&compiled),
-            &initial,
-            &[],
-            &expected,
-            7,
-        );
+        assert_result(&TestModule::new(&compiled), &initial, &[], &expected, 7);
     }
 }
 
 #[test]
 fn named_views_preserve_parent_identity_in_wasmtime() {
-    check_named_views(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn named_views_preserve_parent_identity_in_v8() {
-    check_named_views(Engine::V8);
+    check_named_views();
 }
 
 fn mixed_byte_views() -> CompiledModule {
@@ -231,7 +215,7 @@ fn mixed_byte_views() -> CompiledModule {
     }
 }
 
-fn check_mixed_byte_views(engine: Engine) {
+fn check_mixed_byte_views() {
     let initial = initial_cpu();
     let module = TestModule::new(&mixed_byte_views());
     for (code, parent, value, before) in [
@@ -252,7 +236,6 @@ fn check_mixed_byte_views(engine: Engine) {
         expected.eip = 0x1009;
         expected.instruction_count = 1;
         assert_result(
-            engine,
             &module,
             &initial,
             &[code, 0],
@@ -265,16 +248,10 @@ fn check_mixed_byte_views(engine: Engine) {
     expected.registers.esp = 0x5566_779a;
     expected.eip = 0x1005;
     expected.instruction_count = 0;
-    assert_result(engine, &module, &initial, &[4, 1], &expected, 7);
+    assert_result(&module, &initial, &[4, 1], &expected, 7);
 }
 
 #[test]
 fn named_and_encoded_byte_views_synchronize_in_wasmtime() {
-    check_mixed_byte_views(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn named_and_encoded_byte_views_synchronize_in_v8() {
-    check_mixed_byte_views(Engine::V8);
+    check_mixed_byte_views();
 }

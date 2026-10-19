@@ -13,14 +13,14 @@ use super::{
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Step},
-    step::{Engine, Event, SegmentQuery, TestModule},
+    step::{Event, SegmentQuery, TestModule},
 };
 use crate::{
     CpuState, DescriptorTables, ExecutionProfile, Gpr32, Segment, SegmentDefaultSize,
     SegmentDescriptor, SegmentDescriptorKind, SegmentProfile,
 };
 
-fn descriptor_results(engine: Engine) {
+fn descriptor_results() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let mut tables = DescriptorTables::default();
     let writable = descriptor(0, SegmentDefaultSize::Bits32);
@@ -55,7 +55,6 @@ fn descriptor_results(engine: Engine) {
             image.cpu.flags.bytes.zf = u8::from(!result);
             let cpu = completed(&image, code.len(), result);
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -72,11 +71,5 @@ fn descriptor_results(engine: Engine) {
 
 #[test]
 fn verification_reports_rights_in_zf_without_loading_or_faulting_for_a_selector() {
-    descriptor_results(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_verification_reports_rights_in_zf_without_loading_or_faulting_for_a_selector() {
-    descriptor_results(Engine::V8);
+    descriptor_results();
 }

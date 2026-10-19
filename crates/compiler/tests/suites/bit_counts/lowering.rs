@@ -1,6 +1,6 @@
 //! Compound counts expose shared primitives while retaining path and width contracts.
 use crate::fixture::Fixture;
-use crate::wasm::{Input, Observation, TestModule, Value};
+use crate::wasm::TestModule;
 use wasm86_compiler::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -203,22 +203,5 @@ fn common_count_primitives_can_remove_a_control_flow_edge() {
     let mut instance = module.instantiate();
     for input in [0, 1, 128, 255] {
         assert_eq!(instance.call::<i32>((input,)).unwrap(), 7);
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn shared_count_primitives_preserve_zero_and_high_bit_cases_in_v8() {
-    let module = shared_counts::<I8>(8);
-    for (input, expected) in [
-        (0, [8, 32, 8, 8]),
-        (1, [7, 31, 0, 0]),
-        (128, [0, 24, 7, 7]),
-        (255, [0, 24, 0, 0]),
-    ] {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I32(input)])),
-            Observation::returned(&expected.map(Value::I32))
-        );
     }
 }

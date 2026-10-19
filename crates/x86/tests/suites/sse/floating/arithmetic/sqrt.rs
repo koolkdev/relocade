@@ -1,7 +1,7 @@
 use super::*;
 
-fn rounding(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn rounding(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for rc in 0..4 {
         let controls = 0x1f80 | rc << 13;
         let root_two = [
@@ -38,8 +38,8 @@ fn rounding(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn special(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn special(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for controls in [0x1f80, 0x1f00] {
         for (right, result, raised) in [
             (ZERO, ZERO, 0),

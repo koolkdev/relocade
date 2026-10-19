@@ -11,7 +11,7 @@ use crate::support::{
         Permissions::{ReadOnly, ReadWrite},
     },
     machine::{Exit, Image},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, StoredSegment};
 
@@ -333,7 +333,7 @@ fn atomic_boundaries() -> Vec<Case> {
 
 test_cases!(atomic_operand_boundaries, atomic_boundaries());
 
-fn rejected_forms(engine: Engine) {
+fn rejected_forms() {
     for code in [
         &[0xf0, 0x90][..],
         &[0xf0, 0x8b],
@@ -361,7 +361,6 @@ fn rejected_forms(engine: Engine) {
         image.map(1, 0x3000, false);
         image.data(0x4000 - code.len() as u32, code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("rejected form stops before unused fields: {code:02x?}"),
             Exit::Other(0x0008_0000_0000_0000 | u64::from(diagnostic) << 32 | u64::from(origin)),
@@ -369,7 +368,7 @@ fn rejected_forms(engine: Engine) {
     }
 }
 
-fn required_fields(engine: Engine) {
+fn required_fields() {
     for code in [
         &[0xf0][..],
         &[0xf0, 0x01],
@@ -392,7 +391,6 @@ fn required_fields(engine: Engine) {
         image.map(1, 0x3000, false);
         image.data(0x4000 - code.len() as u32, code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("LOCK requires its next field: {code:02x?}"),
             Exit::PageFault {
@@ -417,7 +415,6 @@ fn required_fields(engine: Engine) {
         image.map(1, 0x3000, false);
         image.data(0x3ff1, &code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("LOCK field exceeds fifteen bytes: {suffix:02x?}"),
             Exit::GeneralProtection { error: 0 },
@@ -427,22 +424,10 @@ fn required_fields(engine: Engine) {
 
 #[test]
 fn unavailable_lock_forms_reject_before_unused_operand_fields() {
-    rejected_forms(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_unavailable_lock_forms_reject_before_unused_operand_fields() {
-    rejected_forms(Engine::V8);
+    rejected_forms();
 }
 
 #[test]
 fn lock_prefixes_preserve_required_fetch_and_length_boundaries() {
-    required_fields(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_lock_prefixes_preserve_required_fetch_and_length_boundaries() {
-    required_fields(Engine::V8);
+    required_fields();
 }

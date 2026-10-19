@@ -4,7 +4,7 @@ use super::selector_cases::code_defaults;
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Image, Step},
-    step::{Engine, Event, SegmentQuery, TestModule},
+    step::{Event, SegmentQuery, TestModule},
 };
 use crate::{CpuState, ExecutionProfile};
 
@@ -30,7 +30,6 @@ pub(super) fn completed(image: &Image, len: usize, zf: bool) -> CpuState {
 }
 
 pub(super) fn check_one(
-    engine: Engine,
     profile: ExecutionProfile,
     code: &[u8],
     image: &Image,
@@ -52,7 +51,7 @@ pub(super) fn check_one(
     }
     for module in [block, TestModule::interpreter_with_profile(profile)] {
         assert_eq!(
-            engine.observe(module, &input, 1),
+            module.observe(&input, 1),
             wanted,
             "{} {profile:?} {code:02x?}",
             module.entry

@@ -3,9 +3,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn control_field_packing(engine: Engine, frontend: Frontend) {
+fn control_field_packing(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -62,9 +61,8 @@ fn control_field_packing(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn load_control_fields(engine: Engine, frontend: Frontend) {
+fn load_control_fields(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );

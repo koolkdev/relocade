@@ -10,7 +10,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{Gpr32::*, Segment, StoredSegment};
 
@@ -152,7 +152,7 @@ fn complete_encodings_require_every_byte_and_no_successor() {
     }
 }
 
-fn missing_encoding_bytes(engine: Engine) {
+fn missing_encoding_bytes() {
     for code in [
         &[0x0f, 0x1f][..],
         &[0x0f, 0x1f, 0x04],
@@ -165,7 +165,6 @@ fn missing_encoding_bytes(engine: Engine) {
         image.map(1, 0x3000, false);
         image.data(0x4000 - code.len() as u32, code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("unused address fields still need instruction bytes: {code:02x?}"),
             Exit::PageFault {
@@ -178,13 +177,7 @@ fn missing_encoding_bytes(engine: Engine) {
 
 #[test]
 fn interpreter_fetches_unused_modrm_sib_and_displacement_bytes() {
-    missing_encoding_bytes(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interpreter_fetches_unused_modrm_sib_and_displacement_bytes() {
-    missing_encoding_bytes(Engine::V8);
+    missing_encoding_bytes();
 }
 
 test_cases!(

@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::*, StoredStatusSource};
 
@@ -214,7 +214,6 @@ fn unsupported_ba_extensions_precede_address_or_immediate_fetches() {
         image.cpu.eip = 0x1ffd;
         image.data(0x3ffd, &code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "unsupported BA extension needs no further bytes",
             Exit::Other(0x0008_000f_0000_1ffd),

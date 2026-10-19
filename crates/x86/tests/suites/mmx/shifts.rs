@@ -1,7 +1,7 @@
 use super::*;
 
-fn shifts(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn shifts(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // opcode, immediate opcode/extension, lane width, input, shifts by 1 and width-1.
     for (opcode, immediate, extension, width, input, one, last, oversized) in [
         (
@@ -125,8 +125,8 @@ fn shifts(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn shift_faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn shift_faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = [0x0f, 0xf1, 0x38]; // Even a zero destination must read all eight count bytes.
     let mut image = image(&code);
     write_register_bits(&mut image.cpu, 7, (0, 0x1234));
@@ -175,7 +175,6 @@ fn mmx_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
         image.cpu.eip = 0x1ffd;
         image.data(0x3ffd, &code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "memory form is rejected before missing SIB or immediate bytes",
             Exit::Other(0x0008_000f_0000_1ffd),

@@ -1,19 +1,17 @@
 use crate::{
     fixture::Fixture,
-    wasm::{Input, Observation, TestModule, Value},
+    wasm::{TestModule, Value},
 };
 use wasm86_compiler::{AtLeast, IntType, Type, I1, I16, I32, I64, I8};
 
-fn check_result(module: &TestModule, input: Value, expected: &[Value], v8: bool) {
-    let actual = if v8 {
-        module.run_v8(&Input::call("run", &[input]))
-    } else {
-        Observation::returned(&module.instantiate().call_values("run", &[input]).unwrap())
-    };
-    assert_eq!(actual, Observation::returned(expected));
+fn check_result(module: &TestModule, input: Value, expected: &[Value]) {
+    assert_eq!(
+        module.instantiate().call_values("run", &[input]).unwrap(),
+        expected
+    );
 }
 
-fn narrow<T: IntType>(cases: &[(i32, i64, i64)], v8: bool)
+fn narrow<T: IntType>(cases: &[(i32, i64, i64)])
 where
     I64: AtLeast<T>,
 {
@@ -29,19 +27,15 @@ where
             &module,
             Value::I32(input),
             &[Value::I64(unsigned), Value::I64(signed)],
-            v8,
         );
     }
 }
 
-fn check_offsets(v8: bool) {
-    narrow::<I1>(&[(0, 1, -1), (1, 0, 0)], v8);
-    narrow::<I8>(&[(0, 1, 1), (127, 128, -128), (255, 0, 0)], v8);
-    narrow::<I16>(&[(0, 1, 1), (32767, 32768, -32768), (65535, 0, 0)], v8);
-    narrow::<I32>(
-        &[(0, 1, 1), (2147483647, 2147483648, -2147483648), (-1, 0, 0)],
-        v8,
-    );
+fn check_offsets() {
+    narrow::<I1>(&[(0, 1, -1), (1, 0, 0)]);
+    narrow::<I8>(&[(0, 1, 1), (127, 128, -128), (255, 0, 0)]);
+    narrow::<I16>(&[(0, 1, 1), (32767, 32768, -32768), (65535, 0, 0)]);
+    narrow::<I32>(&[(0, 1, 1), (2147483647, 2147483648, -2147483648), (-1, 0, 0)]);
     let wide = Fixture::new().expression(&[Type::I64], |body| {
         body.parameter::<I64>(0)
             .unwrap()
@@ -55,7 +49,7 @@ fn check_offsets(v8: bool) {
         (i64::MAX, i64::MIN),
         (i64::MIN, i64::MIN + 1),
     ] {
-        check_result(&wide, Value::I64(input), &[Value::I64(expected)], v8);
+        check_result(&wide, Value::I64(input), &[Value::I64(expected)]);
     }
     let widened = Fixture::new().expression(&[Type::I8], |body| {
         body.parameter::<I8>(0)
@@ -66,19 +60,19 @@ fn check_offsets(v8: bool) {
             .add(255)
     });
     for (input, expected) in [(0, 256), (127, 383), (255, 255)] {
-        check_result(&widened, Value::I32(input), &[Value::I32(expected)], v8);
+        check_result(&widened, Value::I32(input), &[Value::I32(expected)]);
     }
     let masked = Fixture::new().expression(&[Type::I32], |body| {
         body.parameter::<I32>(0).unwrap().add(4).and(255).sub(4)
     });
     for (input, expected) in [(0, 0), (252, -4), (253, -3), (255, -1)] {
-        check_result(&masked, Value::I32(input), &[Value::I32(expected)], v8);
+        check_result(&masked, Value::I32(input), &[Value::I32(expected)]);
     }
-    check_masked_offsets(v8);
-    check_mask_widths(v8);
+    check_masked_offsets();
+    check_mask_widths();
 }
 
-fn check_mask_widths(v8: bool) {
+fn check_mask_widths() {
     let module = Fixture::new().function(&[Type::I64], &[Type::I64; 6], |body| {
         let input = body.parameter::<I64>(0)?;
         body.return_([
@@ -114,11 +108,11 @@ fn check_mask_widths(v8: bool) {
             ],
         ),
     ] {
-        check_result(&module, Value::I64(input), &expected.map(Value::I64), v8);
+        check_result(&module, Value::I64(input), &expected.map(Value::I64));
     }
 }
 
-fn check_masked_offsets(v8: bool) {
+fn check_masked_offsets() {
     let module = Fixture::new().function(&[Type::I32], &[Type::I32; 6], |body| {
         let input = body.parameter::<I32>(0)?;
         body.return_([
@@ -155,7 +149,7 @@ fn check_masked_offsets(v8: bool) {
         (i32::MAX, [7, 2, 2, 129, 256, 7]),
         (-1, [7, 2, 2, 129, 256, 7]),
     ] {
-        check_result(&module, Value::I32(input), &expected.map(Value::I32), v8);
+        check_result(&module, Value::I32(input), &expected.map(Value::I32));
     }
     let wide = Fixture::new().expression(&[Type::I64], |body| {
         body.parameter::<I64>(0)
@@ -172,17 +166,11 @@ fn check_masked_offsets(v8: bool) {
         (i64::MIN + 5, 5),
         (i64::MAX, i64::MAX),
     ] {
-        check_result(&wide, Value::I64(input), &[Value::I64(expected)], v8);
+        check_result(&wide, Value::I64(input), &[Value::I64(expected)]);
     }
 }
 
 #[test]
 fn constant_offsets_wrap_at_logical_width_and_stop_at_observation_boundaries() {
-    check_offsets(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_constant_offsets_wrap_at_logical_width_and_stop_at_observation_boundaries() {
-    check_offsets(true);
+    check_offsets();
 }

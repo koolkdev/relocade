@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn selection(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn selection(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let cases = [
         (ONE, TWO, ONE, TWO, false),
         (NEG_ONE, NEG_TWO, NEG_TWO, NEG_ONE, false),
@@ -82,8 +82,8 @@ fn selection(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn denormals(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn denormals(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // DAZ makes these input pairs equal zeros; the right operand wins either operation.
     for (left, right, min, max, daz_result) in [
         (NEG_DENORMAL, ZERO, NEG_DENORMAL, ZERO, ZERO),
@@ -138,8 +138,8 @@ fn denormals(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn nan_denormal(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn nan_denormal(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for maximum in [false, true] {
         let code = encoding(&[0xf3], if maximum { 0x5f } else { 0x5d }, 0xc1);
         for (mxcsr, bits) in [(0x1f80, NEG_DENORMAL[0]), (0x1fc0, NEG_ZERO[0])] {
@@ -159,8 +159,8 @@ fn nan_denormal(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for packed in [false, true] {
             for maximum in [false, true] {
@@ -201,8 +201,8 @@ fn memory(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn packed_denormals(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn packed_denormals(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for maximum in [false, true] {
             let code = encoding(prefix(wide, true), if maximum { 0x5f } else { 0x5d }, 0xc1);

@@ -7,7 +7,7 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit},
-    step::{Engine, TestModule},
+    step::TestModule,
     x87::{
         arithmetic::{check_arithmetic, ArithmeticCase},
         complete_x87, dispatch, stack_image, write_value, INDEFINITE,
@@ -23,8 +23,8 @@ fn encoding() {
     check_length(&CODE);
 }
 
-fn values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for &values::Reference {
         y,
         x,
@@ -62,8 +62,8 @@ fn values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn axes(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn axes(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let pi = (0xc90f_daa2_2168_c235, 0x4000);
     let half_pi = (pi.0, 0x3fff);
     let quarter_pi = (pi.0, 0x3ffe);
@@ -167,7 +167,7 @@ fn axes(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn specialization(engine: Engine) {
+fn specialization() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
@@ -177,7 +177,6 @@ fn specialization(engine: Engine) {
     write_value(&mut image.cpu, 7, (LEAD, 0x3fff));
     write_value(&mut image.cpu, 0, (1, 0));
     image.check_unchanged_exit(
-        engine,
         &module,
         "tiny angle restarts before the pop",
         Exit::Interpret,
@@ -191,11 +190,9 @@ fn specialization(engine: Engine) {
     result.x87.tag_word |= 0xc000;
     write_value(&mut result, 0, (1, 0));
     assert_eq!(
-        engine.observe(
-            &TestModule::new(&compiled).with_interpreter(TestModule::interpreter()),
-            &image.input(),
-            1
-        ),
+        TestModule::new(&compiled)
+            .with_interpreter(TestModule::interpreter())
+            .observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
     let mut bytes = Vec::new();
@@ -215,12 +212,8 @@ fn specialization(engine: Engine) {
 
 #[test]
 fn jit_specialization() {
-    specialization(Engine::Wasmtime);
+    specialization();
 }
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_jit_specialization() {
-    specialization(Engine::V8);
-}
+
 test_frontends!(values_and_rounding, values);
 test_frontends!(axes_and_exceptions, axes);

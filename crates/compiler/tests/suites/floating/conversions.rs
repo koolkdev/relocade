@@ -3,7 +3,7 @@
 use super::*;
 use wasm86_compiler::{I16, I8};
 
-fn promotion(v8: bool) {
+fn promotion() {
     let runtime = Fixture::new().expression(&[Type::I32], |body| {
         observed_bits(Val::<F64>::from_binary32_bits(
             body.parameter::<I32>(0).unwrap(),
@@ -24,15 +24,15 @@ fn promotion(v8: bool) {
         (0xff80_0001, NAN),
     ] {
         let expected = [Value::I64(expected as i64)];
-        check(&runtime, &[Value::I32(source as i32)], &expected, v8);
+        check(&runtime, &[Value::I32(source as i32)], &expected);
         let constant = Fixture::new().expression(&[], |_| {
             observed_bits(Val::<F64>::from_binary32_bits(source))
         });
-        check(&constant, &[], &expected, v8);
+        check(&constant, &[], &expected);
     }
 }
 
-fn demotion(v8: bool) {
+fn demotion() {
     let observed = |value: Val<F64>| {
         let bits = value.to_binary32_bits();
         bits.and(0x7fff_ffff)
@@ -65,13 +65,13 @@ fn demotion(v8: bool) {
         (0xfff0_0000_0000_0001, 0x7fc0_0000),
     ] {
         let expected = [Value::I32(expected as i32)];
-        check(&runtime, &[Value::I64(source as i64)], &expected, v8);
+        check(&runtime, &[Value::I64(source as i64)], &expected);
         let constant = Fixture::new().expression(&[], |_| observed(Val::<F64>::from_bits(source)));
-        check(&constant, &[], &expected, v8);
+        check(&constant, &[], &expected);
     }
 }
 
-fn narrow_integers(v8: bool) {
+fn narrow_integers() {
     let build = |input: Val<I32>| {
         let bit = input.truncate::<I1>().add(1);
         let byte = input.truncate::<I8>().add(1);
@@ -99,14 +99,14 @@ fn narrow_integers(v8: bool) {
         (0x8000_0000, [-1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
     ] {
         let expected = expected.map(|value: f64| Value::I64(value.to_bits() as i64));
-        check(&runtime, &[Value::I32(source as i32)], &expected, v8);
+        check(&runtime, &[Value::I32(source as i32)], &expected);
         for admitted in [false, true] {
             let constant = Fixture::new().function(&[], &[Type::I64; 6], |body| {
                 let value = Val::<I32>::from(source);
                 let value = if admitted { body.value(value)? } else { value };
                 body.return_(build(value))
             });
-            check(&constant, &[], &expected, v8);
+            check(&constant, &[], &expected);
         }
     }
     let guarded = Fixture::new().function(&[Type::I32], &[Type::I64; 2], |mut body| {
@@ -125,17 +125,11 @@ fn narrow_integers(v8: bool) {
             Value::I64(0xc060_0000_0000_0000_u64 as i64),
             Value::I64(0x4060_0000_0000_0000),
         ],
-        v8,
     );
-    check(
-        &guarded,
-        &[Value::I32(-1)],
-        &[Value::I64(0), Value::I64(0)],
-        v8,
-    );
+    check(&guarded, &[Value::I32(-1)], &[Value::I64(0), Value::I64(0)]);
 }
 
-fn wide_integers(v8: bool) {
+fn wide_integers() {
     let build = |input: Val<I64>| {
         let word = input.truncate::<I32>();
         [
@@ -212,15 +206,15 @@ fn wide_integers(v8: bool) {
         ),
     ] {
         let expected = expected.map(|bits| Value::I64(bits as i64));
-        check(&runtime, &[Value::I64(source as i64)], &expected, v8);
+        check(&runtime, &[Value::I64(source as i64)], &expected);
         let constant = Fixture::new().function(&[], &[Type::I64; 4], |body| {
             body.return_(build(source.into()))
         });
-        check(&constant, &[], &expected, v8);
+        check(&constant, &[], &expected);
     }
 }
 
-fn saturating_integers(v8: bool) {
+fn saturating_integers() {
     let runtime = Fixture::new().function(&[Type::I64], &[Type::I32], |body| {
         let value = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         body.return_(value.trunc_saturating_i32())
@@ -244,45 +238,35 @@ fn saturating_integers(v8: bool) {
         (0xfff0_0000_0000_0001, 0),
     ] {
         let expected = [Value::I32(expected)];
-        check(&runtime, &[Value::I64(bits as i64)], &expected, v8);
+        check(&runtime, &[Value::I64(bits as i64)], &expected);
         for admitted in [false, true] {
             let constant = Fixture::new().function(&[], &[Type::I32], |body| {
                 let value = Val::<F64>::from_bits(bits);
                 let value = if admitted { body.value(value)? } else { value };
                 body.return_(value.trunc_saturating_i32())
             });
-            check(&constant, &[], &expected, v8);
+            check(&constant, &[], &expected);
         }
     }
 }
 
 #[test]
 fn floating_integer_conversion_saturates_without_trapping() {
-    saturating_integers(false);
+    saturating_integers();
 }
 
 #[test]
 fn binary32_promotion_preserves_values_and_defers_nan_payloads() {
-    promotion(false);
+    promotion();
 }
 
 #[test]
 fn binary32_demotion_rounds_ties_and_preserves_gradual_underflow() {
-    demotion(false);
+    demotion();
 }
 
 #[test]
 fn integer_conversions_observe_logical_width_and_nearest_even_rounding() {
-    narrow_integers(false);
-    wide_integers(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_numeric_conversions() {
-    promotion(true);
-    demotion(true);
-    narrow_integers(true);
-    wide_integers(true);
-    saturating_integers(true);
+    narrow_integers();
+    wide_integers();
 }

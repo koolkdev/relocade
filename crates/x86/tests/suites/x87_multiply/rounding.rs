@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn precision_and_rounding(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn precision_and_rounding(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right) in [
         (LEADING, LEADING),
         (LEADING + 1, LEADING + 1),
@@ -60,8 +60,8 @@ fn precision_and_rounding(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exponent_range(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exponent_range(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (pc, precision) in [(0, 24), (2, 53), (3, 64)] {
         for negative in [false, true] {
             let sign = if negative { 0x8000 } else { 0 };

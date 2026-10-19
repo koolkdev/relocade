@@ -11,7 +11,7 @@ use super::selector_cases::{check_one, code_defaults, code_descriptor as descrip
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
-    step::{Engine, Event, SegmentResolution, TestModule},
+    step::{Event, SegmentResolution, TestModule},
 };
 use crate::{
     CpuState, DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
@@ -70,7 +70,7 @@ fn cleared_flags(mut cpu: CpuState, word: bool) -> CpuState {
     cpu
 }
 
-fn widths(engine: Engine) {
+fn widths() {
     for (profile, code, word, stack_big) in [
         (
             ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -138,7 +138,6 @@ fn widths(engine: Engine) {
         cpu.registers.esp = if word { 0xabcd_9006 } else { 0xabcd_900c };
         cpu.instruction_count = 0;
         check_one(
-            engine,
             profile,
             code,
             &image,
@@ -154,10 +153,10 @@ fn widths(engine: Engine) {
 
 #[test]
 fn operand_width_stack_width_and_new_code_defaults_are_independent() {
-    widths(Engine::Wasmtime);
+    widths();
 }
 
-fn flag_images(engine: Engine) {
+fn flag_images() {
     // stack_flags owns exhaustive architectural bit positions. These images check
     // IRET's pending-status replacement, ignored bits and partial-width restore.
     for (word, bits) in [
@@ -192,7 +191,6 @@ fn flag_images(engine: Engine) {
         cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
         cpu.instruction_count = 0;
         check_one(
-            engine,
             profile,
             &code,
             &image,
@@ -208,10 +206,10 @@ fn flag_images(engine: Engine) {
 
 #[test]
 fn flag_images_replace_pending_status_and_word_preserves_high_flags() {
-    flag_images(Engine::Wasmtime);
+    flag_images();
 }
 
-fn frame_boundaries(engine: Engine) {
+fn frame_boundaries() {
     for (word, start, limit, stack_big, accepted, next_esp) in [
         (true, 0xfffau32, 0xffff, false, true, 0xbeef_0000),
         (false, 0xfff4, 0xffff, false, true, 0xbeef_0000),
@@ -258,7 +256,6 @@ fn frame_boundaries(engine: Engine) {
             Exit::StackFault { error: 0 }
         };
         check_one(
-            engine,
             profile,
             &code,
             &image,
@@ -274,13 +271,5 @@ fn frame_boundaries(engine: Engine) {
 
 #[test]
 fn frames_are_consecutive_and_only_pointer_adjustment_wraps_at_stack_width() {
-    frame_boundaries(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interrupt_return_widths_flags_and_frames() {
-    widths(Engine::V8);
-    flag_images(Engine::V8);
-    frame_boundaries(Engine::V8);
+    frame_boundaries();
 }

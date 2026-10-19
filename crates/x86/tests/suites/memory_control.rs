@@ -7,14 +7,13 @@ use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
 };
 use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile, Segments};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
-fn fences(engine: Engine, frontend: Frontend) {
+fn fences(frontend: Frontend) {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
-        let mut checks = ImageSequences::new(engine, frontend, profile);
+        let mut checks = ImageSequences::new(frontend, profile);
         for modrm in 0xe8..=0xff {
             let code = [0x0f, 0xae, modrm];
             let mut image = Image::new(&code);

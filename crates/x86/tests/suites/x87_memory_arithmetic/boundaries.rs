@@ -4,8 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 
-fn fault_ordering(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn fault_ordering(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for source in [
         Source::Single(0x7f80_0001),
         Source::Double(0x7ff0_0000_0000_0001),
@@ -46,8 +46,8 @@ fn fault_ordering(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn source_width(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn source_width(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for source in [
         Source::Single(0x3f80_0000),
         Source::Double(0x3ff0_0000_0000_0000),
@@ -73,7 +73,7 @@ fn source_width(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn live_values(engine: Engine) {
+fn live_values() {
     let three32 = Source::Single(0x4040_0000);
     let three64 = Source::Double(0x4008_0000_0000_0000);
     let minus_zero = Source::Single(0x8000_0000);
@@ -108,12 +108,12 @@ fn live_values(engine: Engine) {
         write_value(&mut result, 3, value);
     }
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
-fn restart_state(engine: Engine) {
+fn restart_state() {
     let three = Source::Single(0x4040_0000);
     let denormal = Source::Single(1);
     let code = [
@@ -129,7 +129,7 @@ fn restart_state(engine: Engine) {
     let mut first = completed_memory(image.cpu, three, 0);
     write_value(&mut first, 3, (LEADING, 0x3fff));
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -144,13 +144,13 @@ fn restart_state(engine: Engine) {
     second.x87.status.denormal = 1;
     write_value(&mut second, 3, (LEADING, 0x3f6a));
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(second)])
     );
 }
 
-fn loaded_denormal_is_an_ordinary_register(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn loaded_denormal_is_an_ordinary_register(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // FLD consumes the narrow source's #D evidence. After FNCLEX, FMUL uses
     // the normal binary80 value and must not raise #D again.
     let code = [0xd9, 0x05, 0, 0x40, 0, 0, 0xdb, 0xe2, 0xd8, 0xc8];
@@ -183,13 +183,6 @@ test_frontends!(load_provenance, loaded_denormal_is_an_ordinary_register);
 
 #[test]
 fn memory_values_and_restart_state() {
-    live_values(Engine::Wasmtime);
-    restart_state(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_memory_values_and_restart_state() {
-    live_values(Engine::V8);
-    restart_state(Engine::V8);
+    live_values();
+    restart_state();
 }

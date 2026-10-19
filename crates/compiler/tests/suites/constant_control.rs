@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Call, Callback, Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 use wasm86_compiler::{FunctionImport, MemoryImport, Type, Val, I1, I32};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -285,38 +285,4 @@ fn enclosing_results_are_validated_before_their_only_authored_edge_is_removed() 
     });
     assert_no_conditional(&module);
     assert_eq!(module.instantiate().call::<i32>(()), Ok(7));
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn folded_constants_preserve_effects_results_and_backedges_in_v8() {
-    assert_eq!(
-        removed_effects().run_v8(
-            &Input::call("run", &[Value::I32(91)])
-                .with_memories(&[MemoryBytes::new("state", &[7, 0, 0, 0])])
-                .with_callbacks(&[Callback::new("live", &[Value::I32(23)])])
-        ),
-        Observation::returned(&[Value::I32(30), Value::I32(11)])
-            .with_memories(&[MemoryBytes::new("state", &[11, 0, 0, 0])])
-            .with_callbacks(&[Call::new("live", &[Value::I32(7)])
-                .with_memories(&[MemoryBytes::new("state", &[11, 0, 0, 0])])])
-    );
-    for taken in [false, true] {
-        assert_eq!(
-            outward_exit(taken).run_v8(
-                &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &[0; 4])])
-            ),
-            Observation::returned(&[Value::I32(if taken { 7 } else { 11 })]).with_memories(&[
-                MemoryBytes::new("state", &[if taken { 0 } else { 3 }, 0, 0, 0])
-            ])
-        );
-    }
-    assert_eq!(
-        unconditional_backedge().run_v8(
-            &Input::call("run", &[Value::I32(3)])
-                .with_memories(&[MemoryBytes::new("state", &[0; 4])])
-        ),
-        Observation::returned(&[Value::I32(21)])
-            .with_memories(&[MemoryBytes::new("state", &[0; 4])])
-    );
 }

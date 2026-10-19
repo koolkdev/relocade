@@ -7,7 +7,6 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::Exit,
-    step::Engine,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
 use wasm86_x86::SegmentProfile;
@@ -20,8 +19,8 @@ fn encoding() {
     check_length(&CODE);
 }
 
-fn finite_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn finite_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (scale, delta) in [
         ((0, 0), 0),
         ((LEAD, 0x3ffe), 0),
@@ -59,8 +58,8 @@ fn finite_values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn ranges(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn ranges(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Input, scale, truncated masked result, masked increment, adjusted result,
     // range flag, masked inexactness, and whether adjustment itself saturates.
     for (input, scale, lower, upper, adjusted, flag, inexact, massive) in [
@@ -225,8 +224,8 @@ fn ranges(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn specials(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn specials(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right, output, flags) in [
         ((LEAD, 0x3fff), (LEAD, 0x7fff), (LEAD, 0x7fff), 0),
         ((LEAD, 0xbfff), (LEAD, 0xffff), (0, 0x8000), 0),

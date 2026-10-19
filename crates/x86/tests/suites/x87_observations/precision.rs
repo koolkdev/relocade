@@ -1,7 +1,7 @@
 //! A masked, already-set precision flag needs no repeated exception bookkeeping.
 use super::*;
 
-fn matched_arithmetic(engine: Engine) {
+fn matched_arithmetic() {
     let code = [0xd8, 0xc9].repeat(8);
     for (pc, rc, significand, c1) in [(3, 0, LEADING + 9, 0), (2, 2, LEADING + (8 << 11), 1)] {
         let block = TestModule::new(
@@ -24,7 +24,7 @@ fn matched_arithmetic(engine: Engine) {
         result.x87.status.c1 = c1;
         write_value(&mut result, 0, (significand, 0x3fff));
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -44,13 +44,13 @@ fn matched_arithmetic(engine: Engine) {
         result.x87.status.c1 = 0;
         write_value(&mut result, 0, bits);
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
 }
 
-fn mismatch_restarts_before_arithmetic(engine: Engine) {
+fn mismatch_restarts_before_arithmetic() {
     let code = [0xb8, 7, 0, 0, 0, 0xd8, 0xc9]; // MOV; FMUL
     let compiled = masked_precision_compiler(3, 0)
         .compile_block(0x1000, &code, 2)
@@ -68,7 +68,7 @@ fn mismatch_restarts_before_arithmetic(engine: Engine) {
         restart.instruction_count = restart.instruction_count.wrapping_add(1);
         restart.registers.eax = 7;
         assert_eq!(
-            engine.observe(&block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -87,13 +87,13 @@ fn mismatch_restarts_before_arithmetic(engine: Engine) {
             result.x87.status.busy = 1;
         }
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
 }
 
-fn clearing_precision_invalidates_the_guard(engine: Engine) {
+fn clearing_precision_invalidates_the_guard() {
     let code = [0xd8, 0xc9, 0xdb, 0xe2, 0xd8, 0xc9]; // FMUL; FNCLEX; FMUL
     let compiled = masked_precision_compiler(3, 0)
         .compile_block(0x1000, &code, 3)
@@ -110,7 +110,7 @@ fn clearing_precision_invalidates_the_guard(engine: Engine) {
     restart.instruction_count = restart.instruction_count.wrapping_add(1);
     restart.x87.status.precision = 0;
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -124,12 +124,12 @@ fn clearing_precision_invalidates_the_guard(engine: Engine) {
     result.x87.status.precision = 1;
     write_value(&mut result, 0, (LEADING + 3, 0x3fff));
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
-fn faults_precede_precision_mismatch(engine: Engine) {
+fn faults_precede_precision_mismatch() {
     let code = [0xd8, 0xc9, 0xd9, 0x2d, 0, 0x40, 0, 0, 0xd8, 0xc9];
     let block = TestModule::new(
         &masked_precision_compiler(3, 0)
@@ -149,7 +149,7 @@ fn faults_precede_precision_mismatch(engine: Engine) {
     pending.x87.status.error_summary = 1;
     pending.x87.status.busy = 1;
     assert_eq!(
-        engine.observe(&block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -169,7 +169,6 @@ fn faults_precede_precision_mismatch(engine: Engine) {
     let mut image = stack_image(&code, 0, 0xfffc);
     image.cpu.x87.status.precision = 0;
     image.check_unchanged_exit(
-        engine,
         &block,
         "source fault before PE mismatch",
         Exit::PageFault {
@@ -182,7 +181,6 @@ fn faults_precede_precision_mismatch(engine: Engine) {
     image.cpu.x87.status.error_summary = 1;
     image.cpu.x87.status.busy = 1;
     image.check_unchanged_exit(
-        engine,
         &block,
         "pending exception before source and PM checks",
         Exit::FloatingPoint,
@@ -191,17 +189,8 @@ fn faults_precede_precision_mismatch(engine: Engine) {
 
 #[test]
 fn masked_precision_observations_preserve_status_and_restart() {
-    matched_arithmetic(Engine::Wasmtime);
-    mismatch_restarts_before_arithmetic(Engine::Wasmtime);
-    clearing_precision_invalidates_the_guard(Engine::Wasmtime);
-    faults_precede_precision_mismatch(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_masked_precision_observations_preserve_status_and_restart() {
-    matched_arithmetic(Engine::V8);
-    mismatch_restarts_before_arithmetic(Engine::V8);
-    clearing_precision_invalidates_the_guard(Engine::V8);
-    faults_precede_precision_mismatch(Engine::V8);
+    matched_arithmetic();
+    mismatch_restarts_before_arithmetic();
+    clearing_precision_invalidates_the_guard();
+    faults_precede_precision_mismatch();
 }

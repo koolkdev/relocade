@@ -10,7 +10,7 @@ fn immediate_forms_require_complete_offset_and_selector_fields() {
     }
 }
 
-fn complete_fields(engine: Engine) {
+fn complete_fields() {
     for (word, split) in [(false, 4), (true, 6)] {
         let code = [vec![0x67], immediate(word, 0x5678, 0x27)].concat();
         let mut image = Image::empty();
@@ -27,7 +27,6 @@ fn complete_fields(engine: Engine) {
         cpu.eip = 0x5678;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
@@ -43,10 +42,10 @@ fn complete_fields(engine: Engine) {
 
 #[test]
 fn both_immediate_fields_cross_code_pages_and_ignore_the_address_size_prefix() {
-    complete_fields(Engine::Wasmtime);
+    complete_fields();
 }
 
-fn missing_fields(engine: Engine) {
+fn missing_fields() {
     for (word, available) in [(false, 3), (true, 5)] {
         let code = immediate(word, 0x9234_5678, 0xf327);
         let start = 0x2000 - available as u32;
@@ -74,7 +73,6 @@ fn missing_fields(engine: Engine) {
                 }
             };
             image.check_unchanged_exit(
-                engine,
                 TestModule::interpreter_with_profile(ExecutionProfile::Protected(
                     SegmentProfile::Segmented32,
                 )),
@@ -87,10 +85,10 @@ fn missing_fields(engine: Engine) {
 
 #[test]
 fn partial_offsets_and_selectors_keep_instruction_fetch_faults_in_byte_order() {
-    missing_fields(Engine::Wasmtime);
+    missing_fields();
 }
 
-fn length_boundary(engine: Engine) {
+fn length_boundary() {
     for word in [false, true] {
         let suffix = immediate(word, 0x5678, 0x27);
         for length in [15, 16] {
@@ -105,7 +103,6 @@ fn length_boundary(engine: Engine) {
                     Some(BlockError::InstructionTooLong { address: 0x1ff1 })
                 );
                 image.check_unchanged_exit(
-                    engine,
                     TestModule::interpreter(),
                     &format!("far JMP exceeds fifteen bytes, word={word}"),
                     Exit::GeneralProtection { error: 0 },
@@ -118,7 +115,6 @@ fn length_boundary(engine: Engine) {
                 cpu.eip = 0x5678;
                 cpu.instruction_count = 0;
                 check_one(
-                    engine,
                     ExecutionProfile::Protected(SegmentProfile::Flat32),
                     &code,
                     &image,
@@ -136,10 +132,10 @@ fn length_boundary(engine: Engine) {
 
 #[test]
 fn a_fifteen_byte_jump_completes_without_fetching_a_sixteenth_byte() {
-    length_boundary(Engine::Wasmtime);
+    length_boundary();
 }
 
-fn register_modes(engine: Engine) {
+fn register_modes() {
     let code = [0xff, 0xef];
     let mut image = Image::empty();
     image.cpu.eip = 0x1ffe;
@@ -153,7 +149,6 @@ fn register_modes(engine: Engine) {
         })
     );
     image.check_unchanged_exit(
-        engine,
         TestModule::interpreter(),
         "far JMP rejects a register operand",
         Exit::Other(0x0008_00ff_0000_1ffe),
@@ -162,14 +157,5 @@ fn register_modes(engine: Engine) {
 
 #[test]
 fn ff_group_five_rejects_register_mode_before_source_access() {
-    register_modes(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_jump_instruction_fetch_and_invalid_forms() {
-    complete_fields(Engine::V8);
-    missing_fields(Engine::V8);
-    length_boundary(Engine::V8);
-    register_modes(Engine::V8);
+    register_modes();
 }

@@ -5,7 +5,7 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend},
     machine::{expected, Exit, Image, Step},
-    step::{CallPatches, Engine, TestModule},
+    step::{CallPatches, TestModule},
 };
 use wasm86_x86::{
     compile_block_from_bytes, compile_interpreter, CpuState, ExecutionProfile, SegmentProfile,
@@ -20,7 +20,7 @@ fn timestamp_result(mut cpu: CpuState, eax: u32, edx: u32, bytes: u32) -> CpuSta
     cpu
 }
 
-fn transfers(engine: Engine, frontend: Frontend) {
+fn transfers(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     let plain = &[0x0f, 0x31][..];
     let prefixed = &[0x66, 0x67, 0x64, 0x0f, 0x31][..];
@@ -97,7 +97,7 @@ fn transfers(engine: Engine, frontend: Frontend) {
             }],
         );
         assert_eq!(
-            engine.observe(module, &input, 1),
+            module.observe(&input, 1),
             wanted,
             "{profile:?}, {counter:#018x}"
         );
@@ -105,7 +105,7 @@ fn transfers(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(full_width_counter_and_preserved_state, transfers);
 
-fn ordering(engine: Engine) {
+fn ordering() {
     // The first result is dead. The second is copied out before the third read.
     let code = [
         0x0f, 0x31, 0xb8, 0, 0, 0, 0, 0x0f, 0x31, 0x89, 0xc1, 0x89, 0xd3, 0x0f, 0x31, 0xeb, 0,
@@ -131,7 +131,7 @@ fn ordering(engine: Engine) {
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 20).unwrap());
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for module in [&block, &run] {
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
 
     // RDTSC continues to CPUID, which consumes its EAX and ends the entry.
@@ -156,22 +156,16 @@ fn ordering(engine: Engine) {
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 20).unwrap());
     for module in [&block, &run] {
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
 }
 
 #[test]
 fn repeated_reads_include_pending_retirement_without_ending_execution() {
-    ordering(Engine::Wasmtime);
+    ordering();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_repeated_reads_include_pending_retirement_without_ending_execution() {
-    ordering(Engine::V8);
-}
-
-fn fault_order(engine: Engine) {
+fn fault_order() {
     let code = [0x0f, 0x31, 0x8b, 0x1d, 0, 0x40, 0, 0];
     let mut image = Image::new(&code);
     image.cpu.instruction_count = 0x1234_5678_9abc_def0;
@@ -191,7 +185,7 @@ fn fault_order(engine: Engine) {
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for module in [&block, &run] {
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
 
     let code = [0x8b, 0x1d, 0, 0x40, 0, 0, 0x0f, 0x31];
@@ -199,7 +193,6 @@ fn fault_order(engine: Engine) {
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
     for module in [&block, &run] {
         image.check_unchanged_exit(
-            engine,
             module,
             "a prior fault prevents the counter read",
             Exit::PageFault {
@@ -212,22 +205,15 @@ fn fault_order(engine: Engine) {
 
 #[test]
 fn counter_reads_and_faults_keep_instruction_order() {
-    fault_order(Engine::Wasmtime);
+    fault_order();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_counter_reads_and_faults_keep_instruction_order() {
-    fault_order(Engine::V8);
-}
-
-fn fetch_boundary(engine: Engine) {
+fn fetch_boundary() {
     let mut image = Image::empty();
     image.cpu.eip = 0x1fff;
     image.map(1, 0x3000, false);
     image.data(0x3fff, &[0x0f]);
     image.check_unchanged_exit(
-        engine,
         TestModule::interpreter(),
         "RDTSC needs its second byte",
         Exit::PageFault {
@@ -253,11 +239,10 @@ fn fetch_boundary(engine: Engine) {
             },
         }],
     );
-    assert_eq!(engine.observe(&run, &input, 1), wanted);
+    assert_eq!(run.observe(&input, 1), wanted);
 
     let image = Image::new(&[0xf0, 0x0f, 0x31]);
     image.check_unchanged_exit(
-        engine,
         TestModule::interpreter(),
         "LOCK rejects before reading the counter",
         Exit::Other(0x0008_00f0_0000_1000),
@@ -266,13 +251,7 @@ fn fetch_boundary(engine: Engine) {
 
 #[test]
 fn interpreter_reads_only_after_complete_supported_encoding() {
-    fetch_boundary(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interpreter_reads_only_after_complete_supported_encoding() {
-    fetch_boundary(Engine::V8);
+    fetch_boundary();
 }
 
 #[test]
@@ -295,7 +274,7 @@ fn encoding_and_imports() {
     }
 }
 
-fn continuity(engine: Engine) {
+fn continuity() {
     // Each entry reads once, then branches back to the same address.
     let code = [0x0f, 0x31, 0xeb, 0xfc];
     let mut image = Image::new(&code);
@@ -329,22 +308,16 @@ fn continuity(engine: Engine) {
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for module in [&block, &run] {
-        assert_eq!(engine.observe(module, &input, 3), wanted);
+        assert_eq!(module.observe(&input, 3), wanted);
     }
 }
 
 #[test]
 fn counter_continues_across_entries_and_reads_full_width_restores() {
-    continuity(Engine::Wasmtime);
+    continuity();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_counter_continues_across_entries_and_reads_full_width_restores() {
-    continuity(Engine::V8);
-}
-
-fn repeated_instruction(engine: Engine) {
+fn repeated_instruction() {
     let code = [0xf3, 0xa4, 0x0f, 0x31, 0xeb, 0];
     let mut image = Image::new(&code);
     image.cpu.instruction_count = 100;
@@ -374,17 +347,11 @@ fn repeated_instruction(engine: Engine) {
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for module in [&block, &run] {
-        assert_eq!(engine.observe(module, &image.input(), 1), wanted);
+        assert_eq!(module.observe(&image.input(), 1), wanted);
     }
 }
 
 #[test]
 fn rep_contributes_one_retirement_to_the_counter() {
-    repeated_instruction(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_rep_contributes_one_retirement_to_the_counter() {
-    repeated_instruction(Engine::V8);
+    repeated_instruction();
 }

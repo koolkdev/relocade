@@ -2,7 +2,6 @@
 
 mod module;
 mod shared_memory;
-mod v8;
 mod value;
 
 use std::sync::OnceLock;
@@ -10,8 +9,7 @@ use wasmtime::{Config, Engine};
 
 pub use module::Module;
 pub use shared_memory::SharedBytes;
-pub use v8::run_v8;
-pub use value::{decimal_i64, Outcome, Value};
+pub use value::{Outcome, Value};
 
 /// Share engine configuration and compilation resources within a test process.
 /// Hosts create a fresh store and instance for each independent case.

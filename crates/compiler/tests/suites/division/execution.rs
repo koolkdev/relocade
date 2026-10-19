@@ -1,6 +1,6 @@
 use super::{input, operators, Kind, KINDS};
 use crate::fixture::Fixture;
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::Operator;
 
@@ -228,60 +228,4 @@ fn caller_checks_precede_shared_quotient_consumers_and_remainder() {
     }
     check::<I32>(i32::MIN.into(), 0x8000_0000);
     check::<I64>(0x8000_0000_0000_0000_u64.into(), 0x8000_0000_0000_0000);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn caller_checks_narrow_observations_and_operand_snapshots_execute_in_v8() {
-    let module = checked_signed::<I32>(i32::MIN.into());
-    for &(left, right, rejected, quotient, remainder) in CHECKED_CASES {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I32(left), Value::I32(right)])),
-            Observation::returned(&[
-                Value::I32(i32::from(rejected)),
-                Value::I32(quotient),
-                Value::I32(remainder)
-            ])
-        );
-    }
-    assert_eq!(
-        checked_signed::<I64>(0x8000_0000_0000_0000_u64.into())
-            .run_v8(&Input::call("run", &[Value::I64(i64::MIN), Value::I64(-1)])),
-        Observation::returned(&[Value::I32(1), Value::I64(0), Value::I64(0)])
-    );
-    assert_eq!(
-        signed_remainder::<I64>()
-            .run_v8(&Input::call("run", &[Value::I64(i64::MIN), Value::I64(-1)])),
-        Observation::returned(&[Value::I64(0)])
-    );
-    for (module, arguments, expected) in [
-        (
-            narrow::<I1>(),
-            [0x1234_0002, 0x1234_0000],
-            [1, -1, 0, 0, 1, 0],
-        ),
-        (
-            narrow::<I8>(),
-            [0x1234_00fa, 0x1234_0002],
-            [254, -2, 255, -1, 83, 0],
-        ),
-        (
-            narrow::<I16>(),
-            [0x1234_fffa, 0x1234_0002],
-            [65534, -2, 65535, -1, 21843, 0],
-        ),
-    ] {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &arguments.map(Value::I32))),
-            Observation::returned(&expected.map(Value::I32))
-        );
-    }
-    assert_eq!(
-        snapshot().run_v8(
-            &Input::call("run", &[Value::I32(1)])
-                .with_memories(&[MemoryBytes::new("state", &[21, 0, 0, 0, 4, 0, 0, 0])])
-        ),
-        Observation::returned(&[Value::I32(10)])
-            .with_memories(&[MemoryBytes::new("state", &[99, 0, 0, 0, 9, 0, 0, 0])])
-    );
 }

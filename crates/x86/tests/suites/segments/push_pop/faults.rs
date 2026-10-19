@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn access_faults(engine: Engine) {
+fn access_faults() {
     for push in [false, true] {
         for (limit, second_page, exit) in [
             (0xfff, None, Exit::StackFault { error: 0 }),
@@ -37,7 +37,6 @@ fn access_faults(engine: Engine) {
             }
             // No resolver response: faults must precede the host call and every write.
             check_one(
-                engine,
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
@@ -54,10 +53,10 @@ fn access_faults(engine: Engine) {
 
 #[test]
 fn selector_access_faults_preserve_esp_cache_and_both_halves_of_split_stores() {
-    access_faults(Engine::Wasmtime);
+    access_faults();
 }
 
-fn resolution_faults(engine: Engine) {
+fn resolution_faults() {
     for (segment, opcode, selector, nonpresent, exit) in [
         (
             Segment::Ds,
@@ -104,7 +103,6 @@ fn resolution_faults(engine: Engine) {
             );
         }
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -120,10 +118,10 @@ fn resolution_faults(engine: Engine) {
 
 #[test]
 fn a_failed_pop_resolution_does_not_commit_the_stack_advance() {
-    resolution_faults(Engine::Wasmtime);
+    resolution_faults();
 }
 
-fn earlier_progress(engine: Engine) {
+fn earlier_progress() {
     // ADD EAX,1; MOV [EBX],EAX; POP SS (non-present).
     let code = [0x83, 0xc0, 1, 0x89, 0x03, 0x17];
     let mut image = Image::new(&code);
@@ -175,7 +173,7 @@ fn earlier_progress(engine: Engine) {
     };
     let mut wanted = expected(&image, &[first, second, fault()]);
     wanted.events.insert(4, event.clone());
-    assert_eq!(engine.observe(TestModule::interpreter(), &input, 3), wanted);
+    assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
     let mut blocks = BlockModules::default();
     let block = blocks.get(
         &image.cpu,
@@ -185,15 +183,15 @@ fn earlier_progress(engine: Engine) {
     );
     let mut wanted = expected(&image, &[fault()]);
     wanted.events.insert(0, event);
-    assert_eq!(engine.observe(block, &input, 1), wanted);
+    assert_eq!(block.observe(&input, 1), wanted);
 }
 
 #[test]
 fn a_pop_fault_publishes_earlier_register_flags_store_and_retirement_progress() {
-    earlier_progress(Engine::Wasmtime);
+    earlier_progress();
 }
 
-fn opcode_fetch(engine: Engine) {
+fn opcode_fetch() {
     for prefixes in [0, 13, 14] {
         let mut code = vec![0x66; prefixes];
         code.push(0x0f);
@@ -210,7 +208,6 @@ fn opcode_fetch(engine: Engine) {
             }
         };
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("segment stack opcode fetch with {prefixes} prefixes"),
             exit,
@@ -232,7 +229,6 @@ fn opcode_fetch(engine: Engine) {
     cpu.eip = 0x2000;
     cpu.instruction_count = 0;
     check_one(
-        engine,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
@@ -251,14 +247,5 @@ fn opcode_fetch(engine: Engine) {
 
 #[test]
 fn extended_segment_opcodes_obey_fetch_fault_and_instruction_length_boundaries() {
-    opcode_fetch(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_segment_stack_fault_ordering_and_restart() {
-    access_faults(Engine::V8);
-    resolution_faults(Engine::V8);
-    earlier_progress(Engine::V8);
-    opcode_fetch(Engine::V8);
+    opcode_fetch();
 }

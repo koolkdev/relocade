@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn aliased_sources(engine: Engine) {
+fn aliased_sources() {
     for word in [false, true] {
         for override_fs in [false, true] {
             // The default-SS pointer occupies the cells that CALL will overwrite.
@@ -31,7 +31,6 @@ fn aliased_sources(engine: Engine) {
             cpu.instruction_count = 0;
             let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
             check_one(
-                engine,
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
@@ -48,10 +47,10 @@ fn aliased_sources(engine: Engine) {
 
 #[test]
 fn indirect_calls_read_entry_esp_and_source_bytes_before_pushing_through_ss() {
-    aliased_sources(Engine::Wasmtime);
+    aliased_sources();
 }
 
-fn source_faults(engine: Engine) {
+fn source_faults() {
     for word in [false, true] {
         for (stack_source, limit, mapped, exit) in [
             (false, 0xfff, false, Exit::GeneralProtection { error: 0 }),
@@ -95,7 +94,6 @@ fn source_faults(engine: Engine) {
                 image.map(4, 0x8000, false);
             }
             check_one(
-                engine,
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
@@ -112,10 +110,10 @@ fn source_faults(engine: Engine) {
 
 #[test]
 fn the_whole_indirect_pointer_faults_before_resolution_or_return_frame_access() {
-    source_faults(Engine::Wasmtime);
+    source_faults();
 }
 
-fn overrides_on_return(engine: Engine) {
+fn overrides_on_return() {
     // An unusable FS and address override do not redirect implicit stack accesses.
     let code = [0x64, 0x67, 0xcb];
     let mut image = image_with_stack(&code, 0x9000);
@@ -127,7 +125,6 @@ fn overrides_on_return(engine: Engine) {
     cpu.registers.esp = 0x9008;
     cpu.instruction_count = 0;
     check_one(
-        engine,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
@@ -142,13 +139,5 @@ fn overrides_on_return(engine: Engine) {
 
 #[test]
 fn return_ignores_address_and_segment_overrides_for_its_stack() {
-    overrides_on_return(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_call_sources_and_return_prefixes() {
-    aliased_sources(Engine::V8);
-    source_faults(Engine::V8);
-    overrides_on_return(Engine::V8);
+    overrides_on_return();
 }

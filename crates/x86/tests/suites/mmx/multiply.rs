@@ -1,7 +1,7 @@
 use super::*;
 
-fn multiplication(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn multiplication(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (opcode, left, right, result) in [
         (
             0xd5,
@@ -64,8 +64,8 @@ fn multiplication(engine: Engine, frontend: Frontend) {
 
 test_frontends!(mmx_word_products_and_pair_sums, multiplication);
 
-fn unsigned_products(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn unsigned_products(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     check_binary(
         &mut checks,
         0xe4,

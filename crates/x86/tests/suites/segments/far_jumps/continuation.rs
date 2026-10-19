@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn new_code_defaults(engine: Engine) {
+fn new_code_defaults() {
     for next_word in [false, true] {
         let code = immediate(false, 0x200, 0x1b); // Reload the currently visible selector.
         let mut image = Image::new(&code);
@@ -46,7 +46,6 @@ fn new_code_defaults(engine: Engine) {
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -63,7 +62,6 @@ fn new_code_defaults(engine: Engine) {
         cpu.eip += next_code.len() as u32;
         cpu.instruction_count = 1;
         check_one(
-            engine,
             if next_word {
                 ExecutionProfile::Protected(SegmentProfile::Segmented16)
             } else {
@@ -83,10 +81,10 @@ fn new_code_defaults(engine: Engine) {
 
 #[test]
 fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
-    new_code_defaults(Engine::Wasmtime);
+    new_code_defaults();
 }
 
-fn destination_paging(engine: Engine) {
+fn destination_paging() {
     let code = immediate(false, 0x200, 0x27);
     let mut image = Image::new(&code);
     let mut tables = DescriptorTables::default();
@@ -96,7 +94,6 @@ fn destination_paging(engine: Engine) {
     cpu.eip = 0x200;
     cpu.instruction_count = 0;
     check_one(
-        engine,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
@@ -109,13 +106,10 @@ fn destination_paging(engine: Engine) {
     );
     image.cpu = cpu;
     assert_eq!(
-        engine.observe(
-            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-                SegmentProfile::Segmented32
-            )),
-            &image.input(),
-            1
-        ),
+        TestModule::interpreter_with_profile(ExecutionProfile::Protected(
+            SegmentProfile::Segmented32
+        ))
+        .observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -132,10 +126,10 @@ fn destination_paging(engine: Engine) {
 
 #[test]
 fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
-    destination_paging(Engine::Wasmtime);
+    destination_paging();
 }
 
-fn terminal_jump(engine: Engine) {
+fn terminal_jump() {
     for indirect in [false, true] {
         let mut code = if indirect {
             vec![0xff, 0x2b]
@@ -186,20 +180,12 @@ fn terminal_jump(engine: Engine) {
                 SegmentProfile::Segmented32,
             )),
         ] {
-            assert_eq!(engine.observe(module, &input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), wanted);
         }
     }
 }
 
 #[test]
 fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
-    terminal_jump(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_jump_dispatch_and_continuation() {
-    new_code_defaults(Engine::V8);
-    destination_paging(Engine::V8);
-    terminal_jump(Engine::V8);
+    terminal_jump();
 }

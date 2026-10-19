@@ -1,5 +1,5 @@
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::TestModule;
 use wasm86_compiler::{Type, I32};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -18,37 +18,19 @@ fn transfers() -> TestModule {
     })
 }
 
-fn check_transfers(v8: bool) {
+fn check_transfers() {
     let module = transfers();
     let expected = &[0xa5, 0xa5, 1, 1, 2, 3, 4, 5, 6, 0x34, 0x34, 0xa5];
-    if v8 {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I32(6)]).with_memories(&[
-                MemoryBytes::new("destination", &[0xa5; 12]),
-                MemoryBytes::new("source", &[1, 2, 3, 4, 5, 6]),
-            ])),
-            Observation::returned(&[Value::I32(0xa5a5_a5a5u32 as i32)]).with_memories(&[
-                MemoryBytes::new("destination", expected),
-                MemoryBytes::new("source", &[1, 2, 3, 4, 5, 6]),
-            ])
-        );
-    } else {
-        let mut instance = module.instantiate();
-        assert_eq!(instance.call::<i32>((6,)).unwrap(), 0xa5a5_a5a5u32 as i32);
-        assert_eq!(&instance.memory("destination")[..12], expected);
-        assert_eq!(&instance.memory("source")[..6], &[1, 2, 3, 4, 5, 6]);
-    }
+
+    let mut instance = module.instantiate();
+    assert_eq!(instance.call::<i32>((6,)).unwrap(), 0xa5a5_a5a5u32 as i32);
+    assert_eq!(&instance.memory("destination")[..12], expected);
+    assert_eq!(&instance.memory("source")[..6], &[1, 2, 3, 4, 5, 6]);
 }
 
 #[test]
 fn bulk_transfers_preserve_snapshots_overlap_and_byte_fill() {
-    check_transfers(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_bulk_transfers_preserve_snapshots_overlap_and_byte_fill() {
-    check_transfers(true);
+    check_transfers();
 }
 
 #[test]
@@ -101,7 +83,7 @@ fn calls_summarize_bulk_writes_and_keep_reader_snapshots() {
     assert_eq!(&instance.memory("memory")[..8], &[0, 0, 0, 0, 9, 0, 0, 0]);
 }
 
-fn check_relative_snapshots(v8: bool) {
+fn check_relative_snapshots() {
     let initial = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
     for (offset, order) in [(2, ["load", "fill"]), (4, ["fill", "load"])] {
         let mut fixture = Fixture::new();
@@ -130,33 +112,17 @@ fn check_relative_snapshots(v8: bool) {
             let before = i32::from_le_bytes(initial[start..start + 4].try_into().unwrap());
             let mut expected = initial.to_vec();
             expected[base as usize..base as usize + 4].fill(0);
-            if v8 {
-                assert_eq!(
-                    module.run_v8(
-                        &Input::call("run", &[Value::I32(base)])
-                            .with_memories(&[MemoryBytes::new("memory", initial)])
-                    ),
-                    Observation::returned(&[Value::I32(before)])
-                        .with_memories(&[MemoryBytes::new("memory", &expected)])
-                );
-            } else {
-                let mut instance = module.instantiate();
-                assert_eq!(instance.call::<i32>(base).unwrap(), before);
-                assert_eq!(&instance.memory("memory")[..initial.len()], &expected);
-            }
+
+            let mut instance = module.instantiate();
+            assert_eq!(instance.call::<i32>(base).unwrap(), before);
+            assert_eq!(&instance.memory("memory")[..initial.len()], &expected);
         }
     }
 }
 
 #[test]
 fn relative_bulk_writes_preserve_overlapping_snapshots_and_allow_disjoint_reads() {
-    check_relative_snapshots(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_relative_bulk_writes_preserve_snapshots_and_allow_disjoint_reads() {
-    check_relative_snapshots(true);
+    check_relative_snapshots();
 }
 
 #[test]

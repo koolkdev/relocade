@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use crate::wasm::{Input, Observation, Value};
+use crate::wasm::Value;
 use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -181,27 +181,4 @@ fn narrow_counts_share_normalization_of_dirty_carrier_bits() {
         (0x4000_0000, 1, 15, 0),
         (0x4000_7fff, 1, 0, 15),
     ]);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn logical_zero_after_narrow_overflow_and_wide_counts_execute_in_v8() {
-    let module = Fixture::new().function(&[Type::I32], &[Type::I16; 3], |body| {
-        let input = body.parameter::<I32>(0)?.truncate::<I16>().add(1);
-        body.return_((input.popcnt(), input.clz(), input.ctz()))
-    });
-    assert_eq!(
-        module.run_v8(&Input::call("run", &[Value::I32(0x1234_ffff)])),
-        Observation::returned(&[Value::I32(0), Value::I32(16), Value::I32(16)])
-    );
-    let module = Fixture::new().function(&[Type::I64], &[Type::I64; 3], |body| {
-        let input = body.parameter::<I64>(0)?;
-        body.return_((input.popcnt(), input.clz(), input.ctz()))
-    });
-    for &(input, ones, leading, trailing) in QWORD {
-        assert_eq!(
-            module.run_v8(&Input::call("run", &[Value::I64(input as i64)])),
-            Observation::returned(&[ones, leading, trailing].map(carrier::<I64>))
-        );
-    }
 }

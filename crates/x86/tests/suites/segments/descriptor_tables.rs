@@ -1,14 +1,13 @@
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
 };
 use wasm86_x86::{
     DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
     SegmentDescriptorKind, SegmentLimit, SegmentProfile,
 };
 
-fn loaded_cache_lifetime(engine: Engine, frontend: Frontend) {
+fn loaded_cache_lifetime(frontend: Frontend) {
     let code = [0x64, 0x8b, 0x03]; // MOV EAX,FS:[EBX].
     let mut tables = DescriptorTables::default();
     let descriptor = SegmentDescriptor::new(
@@ -39,7 +38,7 @@ fn loaded_cache_lifetime(engine: Engine, frontend: Frontend) {
     image.data(0x8200, &[0x44, 0x33, 0x22, 0x11]);
     image.data(0x9200, &[0x88, 0x77, 0x66, 0x55]);
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
-    let mut sequences = ImageSequences::new(engine, frontend, profile);
+    let mut sequences = ImageSequences::new(frontend, profile);
     for (fs, value) in [(old, 0x1122_3344), (reloaded, 0x5566_7788)] {
         image.cpu.segments.fs = fs;
         let mut cpu = image.cpu;

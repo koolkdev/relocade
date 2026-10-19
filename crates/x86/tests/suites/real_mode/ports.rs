@@ -6,7 +6,7 @@ use crate::support::{
 };
 use wasm86_x86::{compile_interpreter, SegmentProfile};
 
-fn scalar(engine: Engine, frontend: Frontend) {
+fn scalar(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for (code, width, immediate, output) in [
         (&[0xe4, 0x92][..], 1, true, false),
@@ -57,12 +57,12 @@ fn scalar(engine: Engine, frontend: Frontend) {
             }],
         );
         wanted.events.insert(0, event);
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
 }
 test_frontends!(scalar_port_transfers, scalar);
 
-fn boundaries(engine: Engine) {
+fn boundaries() {
     let run = TestModule::new(&compile_interpreter(ExecutionProfile::Real16).unwrap());
     let code = [0xe4, 0x92, 0xb8, 0, 0];
     let image = image(&code);
@@ -89,7 +89,7 @@ fn boundaries(engine: Engine) {
     let block = blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16);
     for module in [&run, block] {
         assert_eq!(
-            engine.observe(module, &input, 1),
+            module.observe(&input, 1),
             wanted,
             "port read stays observable and ends execution before the overwrite"
         );
@@ -111,7 +111,6 @@ fn boundaries(engine: Engine) {
             let block = blocks.get(&image.cpu, code, 8, profile);
             for module in [block, TestModule::interpreter_with_profile(profile)] {
                 image.check_unchanged_exit(
-                    engine,
                     module,
                     "fixed user profiles deny I/O",
                     Exit::GeneralProtection { error: 0 },
@@ -122,7 +121,6 @@ fn boundaries(engine: Engine) {
     for code in [&[0xf0, 0xec][..], &[0xf0, 0xe6, 0x92][..]] {
         let image = super::image(code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter_with_profile(ExecutionProfile::Real16),
             "LOCK port I/O follows the shared unsupported-encoding path",
             Exit::Other(0x0008_00f0_0000_1000),
@@ -131,10 +129,5 @@ fn boundaries(engine: Engine) {
 }
 #[test]
 fn port_boundaries() {
-    boundaries(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_port_boundaries() {
-    boundaries(Engine::V8);
+    boundaries();
 }

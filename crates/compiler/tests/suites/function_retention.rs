@@ -1,7 +1,7 @@
 //! Only functions reachable from exports after specialization belong in the module.
 
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Input, Observation, TestModule, Value};
+use crate::wasm::TestModule;
 use wasm86_compiler::{FunctionImport, MemoryImport, Type, I1, I32};
 use wasmparser::{Parser, Payload};
 
@@ -70,15 +70,4 @@ fn removed_helpers_do_not_retain_functions_or_imports() {
     assert_eq!(functions, 1);
     assert_eq!(module.instantiate().call::<i32>(1), Ok(7));
     assert_eq!(module.instantiate().call::<i32>(0), Ok(0));
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn removed_helpers_need_no_host_imports_in_v8() {
-    for (condition, expected) in [(0, 0), (1, 7)] {
-        assert_eq!(
-            removed_helpers().run_v8(&Input::call("run", &[Value::I32(condition)])),
-            Observation::returned(&[Value::I32(expected)])
-        );
-    }
 }

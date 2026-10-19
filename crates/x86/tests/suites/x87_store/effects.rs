@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn memory_guards(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory_guards(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         let address = 0x5001 - format.bytes as u32;
         let code = format.instruction(address, true);
@@ -90,8 +90,8 @@ fn memory_guards(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn cleared_store_can_retry(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn cleared_store_can_retry(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         let code = [
             format.instruction(0x4000, true),
@@ -119,13 +119,13 @@ fn cleared_store_can_retry(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn stores_preserve_loaded_value_and_sticky_precision(engine: Engine, frontend: Frontend) {
+fn stores_preserve_loaded_value_and_sticky_precision(frontend: Frontend) {
     let code = [
         0xdd, 0x05, 0x00, 0x40, 0, 0, // FLD m64
         0xd9, 0x15, 0x20, 0x40, 0, 0, // FST m32
         0xdd, 0x1d, 0x28, 0x40, 0, 0, // FSTP m64
     ];
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let mut image = stack_image(&code, 0, 0xffff);
     image.cpu.x87.status.precision = 0;
     image.map(4, 0x8000, true);
@@ -165,8 +165,8 @@ fn stores_preserve_loaded_value_and_sticky_precision(engine: Engine, frontend: F
     );
 }
 
-fn suppressed_range_preserves_sticky_precision(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn suppressed_range_preserves_sticky_precision(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         let code = format.instruction(0x4000, true);
         let mut case = StoreCase::masked((TOP, format.maximum_exponent + 1), 0, 0);

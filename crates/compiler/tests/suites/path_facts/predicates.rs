@@ -12,7 +12,7 @@ fn excluded_interval() -> TestModule {
     })
 }
 
-fn check_interval(v8: bool) {
+fn check_interval() {
     let module = excluded_interval();
     assert_eq!(count(&module, |op| matches!(op, Operator::I64Clz)), 0);
     for (input, expected) in [
@@ -24,17 +24,11 @@ fn check_interval(v8: bool) {
         (i64::MAX, 42),
         (-1, 42),
     ] {
-        check_result(&module, &[Value::I64(input)], &[Value::I64(expected)], v8);
+        check_result(&module, &[Value::I64(input)], &[Value::I64(expected)]);
     }
 }
 
 #[test]
 fn a_later_operand_fact_removes_an_excluded_fallback_after_rewriting() {
-    check_interval(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_a_later_operand_fact_removes_an_excluded_fallback_after_rewriting() {
-    check_interval(true);
+    check_interval();
 }

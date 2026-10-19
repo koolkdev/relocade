@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn lazy_flags(engine: Engine) {
+fn lazy_flags() {
     let mut tables = DescriptorTables::default();
     tables.insert(0x27, descriptor(0, SegmentDefaultSize::Bits32));
     for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
@@ -24,7 +24,6 @@ fn lazy_flags(engine: Engine) {
             cpu.flags.bytes.sf = 1;
             cpu.flags.bytes.of = 1;
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -41,10 +40,10 @@ fn lazy_flags(engine: Engine) {
 
 #[test]
 fn successful_and_failed_queries_change_only_zf_among_pending_arithmetic_flags() {
-    lazy_flags(Engine::Wasmtime);
+    lazy_flags();
 }
 
-fn continuation_and_fault_publication(engine: Engine) {
+fn continuation_and_fault_publication() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     // LAR ECX,AX; SETZ DL; VERR AX; SETZ BL; LSL ESI,DI; MOV ECX,[EBP].
     let code = [
@@ -112,7 +111,7 @@ fn continuation_and_fault_publication(engine: Engine) {
             .events
             .insert(index, Event::QuerySegmentDescriptor { selector });
     }
-    assert_eq!(engine.observe(TestModule::interpreter(), &input, 6), wanted);
+    assert_eq!(TestModule::interpreter().observe(&input, 6), wanted);
 
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 6, profile);
@@ -122,15 +121,15 @@ fn continuation_and_fault_publication(engine: Engine) {
             .events
             .insert(index, Event::QuerySegmentDescriptor { selector });
     }
-    assert_eq!(engine.observe(block, &input, 1), wanted);
+    assert_eq!(block.observe(&input, 1), wanted);
 }
 
 #[test]
 fn descriptor_queries_continue_in_one_block_and_a_later_fault_keeps_their_results() {
-    continuation_and_fault_publication(Engine::Wasmtime);
+    continuation_and_fault_publication();
 }
 
-fn table_changes(engine: Engine) {
+fn table_changes() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     for opcode in [2, 3] {
         let code = [0x0f, opcode, 0xc8];
@@ -180,7 +179,7 @@ fn table_changes(engine: Engine) {
                 .events
                 .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
             for module in [block, TestModule::interpreter()] {
-                assert_eq!(engine.observe(module, &input, 1), wanted);
+                assert_eq!(module.observe(&input, 1), wanted);
             }
         }
     }
@@ -188,13 +187,5 @@ fn table_changes(engine: Engine) {
 
 #[test]
 fn current_table_rights_and_limits_are_observed_without_changing_loaded_caches() {
-    table_changes(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_queries_flags_table_changes_and_fault_publication() {
-    lazy_flags(Engine::V8);
-    continuation_and_fault_publication(Engine::V8);
-    table_changes(Engine::V8);
+    table_changes();
 }

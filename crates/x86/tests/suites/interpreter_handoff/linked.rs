@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use crate::support::{
     machine::{expected, Exit, Step},
-    step::{Argument, Engine, Event, Outcome, TestModule},
+    step::{Argument, Event, Outcome, TestModule},
     x87::{complete_x87, stack_image, write_register_bits},
 };
 use wasm86_x86::{compile_block_from_bytes, compile_interpreter, CpuState, SegmentProfile};
@@ -26,7 +26,7 @@ fn subnormal_loaded(cpu: CpuState) -> CpuState {
     cpu
 }
 
-fn published_prefix_and_step(engine: Engine) {
+fn published_prefix_and_step() {
     let code = [
         0x8d, 0x40, 1, // LEA EAX,[EAX+1]
         0xa3, 0, 0x40, 0, 0, // MOV [0x4000],EAX
@@ -64,15 +64,11 @@ fn published_prefix_and_step(engine: Engine) {
             unreachable!()
         };
         *outcome = Outcome::Returned(vec![Argument::I64(input.dispatch_return)]);
-        assert_eq!(
-            engine.observe(&module, &input, 1),
-            wanted,
-            "linked {linked}"
-        );
+        assert_eq!(module.observe(&input, 1), wanted, "linked {linked}");
     }
 }
 
-fn run_to_branch_or_fault(engine: Engine) {
+fn run_to_branch_or_fault() {
     let code = [
         0xd9, 0x05, 0, 0x40, 0, 0, // Only FLD belongs to the compiled snapshot.
         0xd9, 0x1d, 0, 0x50, 0, 0, // FSTP dword [0x5000]
@@ -104,7 +100,7 @@ fn run_to_branch_or_fault(engine: Engine) {
         let bits = 1_u32.to_le_bytes();
         let written = [(0x9000, &bits[..])];
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -120,22 +116,15 @@ fn run_to_branch_or_fault(engine: Engine) {
 
 #[test]
 fn handoff_publishes_prefix_and_interpreter_step_restarts_once() {
-    published_prefix_and_step(Engine::Wasmtime);
+    published_prefix_and_step();
 }
 
 #[test]
 fn interpreter_run_passes_snapshot_limit_and_stops_at_branch_or_fault() {
-    run_to_branch_or_fault(Engine::Wasmtime);
+    run_to_branch_or_fault();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_linked_interpreter_handoff() {
-    published_prefix_and_step(Engine::V8);
-    run_to_branch_or_fault(Engine::V8);
-}
-
-fn timestamp_after_handoff(engine: Engine) {
+fn timestamp_after_handoff() {
     let code = [
         0x90, // The JIT retires this prefix before its FLD specialization fails.
         0xd9, 0x05, 0, 0x40, 0, 0, 0x0f, 0x31, 0xeb, 0,
@@ -155,7 +144,7 @@ fn timestamp_after_handoff(engine: Engine) {
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 4).unwrap())
         .with_interpreter(interpreter_run());
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -169,11 +158,5 @@ fn timestamp_after_handoff(engine: Engine) {
 
 #[test]
 fn timestamp_includes_retirement_across_interpreter_handoff() {
-    timestamp_after_handoff(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_timestamp_includes_retirement_across_interpreter_handoff() {
-    timestamp_after_handoff(Engine::V8);
+    timestamp_after_handoff();
 }

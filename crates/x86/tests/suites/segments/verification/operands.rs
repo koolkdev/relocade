@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn registers(engine: Engine) {
+fn registers() {
     let mut tables = DescriptorTables::default();
     tables.insert(0xffff, descriptor(0, SegmentDefaultSize::Bits16));
     for (profile, code, source) in [
@@ -30,7 +30,6 @@ fn registers(engine: Engine) {
         image.cpu.registers[source] = 0xabcd_ffff;
         let cpu = completed(&image, code.len(), true);
         check_one(
-            engine,
             profile,
             code,
             &image,
@@ -46,10 +45,10 @@ fn registers(engine: Engine) {
 
 #[test]
 fn register_forms_use_low_words_in_both_code_sizes_with_or_without_overrides() {
-    registers(Engine::Wasmtime);
+    registers();
 }
 
-fn memory_sources(engine: Engine) {
+fn memory_sources() {
     let mut tables = DescriptorTables::default();
     tables.insert(0xf327, descriptor(0, SegmentDefaultSize::Bits32));
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
@@ -65,7 +64,6 @@ fn memory_sources(engine: Engine) {
             // A widened read would touch the unmapped next page.
             let cpu = completed(&image, code.len(), true);
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -92,7 +90,6 @@ fn memory_sources(engine: Engine) {
         image.data(0xa000, &[0xf3]);
         let cpu = completed(&image, code.len(), true);
         check_one(
-            engine,
             profile,
             &code,
             &image,
@@ -108,10 +105,10 @@ fn memory_sources(engine: Engine) {
 
 #[test]
 fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrides() {
-    memory_sources(Engine::Wasmtime);
+    memory_sources();
 }
 
-fn source_faults(engine: Engine) {
+fn source_faults() {
     for (code, stack) in [
         (vec![0x0f, 0x00, 0x23], false),
         (vec![0x0f, 0x00, 0x2c, 0x24], true),
@@ -143,7 +140,6 @@ fn source_faults(engine: Engine) {
             };
             // No scripted query proves that neither the host nor ZF was touched.
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -160,13 +156,5 @@ fn source_faults(engine: Engine) {
 
 #[test]
 fn source_segment_and_page_faults_precede_permission_queries_and_flag_changes() {
-    source_faults(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_verification_operands_and_source_faults() {
-    registers(Engine::V8);
-    memory_sources(Engine::V8);
-    source_faults(Engine::V8);
+    source_faults();
 }

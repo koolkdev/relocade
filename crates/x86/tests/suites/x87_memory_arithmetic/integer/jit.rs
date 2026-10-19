@@ -5,7 +5,7 @@ use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
-fn native_arithmetic(engine: Engine) {
+fn native_arithmetic() {
     for source in [Source::Integer16(-3), Source::Integer32(-3)] {
         for (extension, result, operation) in [
             (0, (0xc000_0000_0000_0000, 0x4000), "add"),
@@ -54,7 +54,7 @@ fn native_arithmetic(engine: Engine) {
             let mut cpu = completed_memory(loaded, source, extension);
             write_value(&mut cpu, 7, result);
             assert_eq!(
-                engine.observe(&TestModule::new(&compiled), &image.input(), 1),
+                TestModule::new(&compiled).observe(&image.input(), 1),
                 expected(&image, &[dispatch(cpu)]),
                 "native extension {extension}, {source:?}"
             );
@@ -62,7 +62,7 @@ fn native_arithmetic(engine: Engine) {
     }
 }
 
-fn restart_after_load(engine: Engine) {
+fn restart_after_load() {
     let source = Source::Integer32(0);
     let code = [
         vec![0xdd, 0x05, 8, 0x40, 0, 0],
@@ -87,7 +87,7 @@ fn restart_after_load(engine: Engine) {
         loaded.x87.data_selector = 0x23;
         write_value(&mut loaded, 7, (LEADING, 0x3fff));
         assert_eq!(
-            engine.observe(&TestModule::new(&compiled), &image.input(), 1),
+            TestModule::new(&compiled).observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -107,7 +107,7 @@ fn restart_after_load(engine: Engine) {
         }
         let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -115,19 +115,9 @@ fn restart_after_load(engine: Engine) {
 
 #[test]
 fn integer_sources_reach_native_operations() {
-    native_arithmetic(Engine::Wasmtime);
+    native_arithmetic();
 }
 #[test]
 fn operand_exception_restarts_after_the_completed_load() {
-    restart_after_load(Engine::Wasmtime);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_integer_sources_reach_native_operations() {
-    native_arithmetic(Engine::V8);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_operand_exception_restarts_after_the_completed_load() {
-    restart_after_load(Engine::V8);
+    restart_after_load();
 }

@@ -8,7 +8,7 @@ use crate::support::{
 };
 use wasm86_x86::{ExecutionProfile, Segments};
 
-fn mmio(engine: Engine, frontend: Frontend) {
+fn mmio(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for bytes in [8, 16] {
         for (empty, remap) in [(true, false), (false, false), (false, true)] {
@@ -64,7 +64,7 @@ fn mmio(engine: Engine, frontend: Frontend) {
                 }
             };
             assert_eq!(
-                engine.observe(module, &input, 1),
+                module.observe(&input, 1),
                 wanted,
                 "MASKMOV width={bytes}, empty={empty}, remap={remap}"
             );

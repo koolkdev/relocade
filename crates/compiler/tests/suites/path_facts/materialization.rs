@@ -2,7 +2,7 @@
 use super::*;
 use wasm86_compiler::I16;
 
-fn guarded_masks(v8: bool) {
+fn guarded_masks() {
     let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
         let invalid = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?.or(0x8000);
@@ -27,13 +27,12 @@ fn guarded_masks(v8: bool) {
                 &module,
                 &[Value::I32(invalid), Value::I32(input)],
                 &[Value::I32(expected)],
-                v8,
             );
         }
     }
 }
 
-fn computed_inputs(v8: bool) {
+fn computed_inputs() {
     let module = Fixture::new().function(
         &[Type::I1, Type::I1, Type::I32, Type::I32],
         &[Type::I32],
@@ -74,14 +73,13 @@ fn computed_inputs(v8: bool) {
                         Value::I32(factor),
                     ],
                     &[Value::I32(expected)],
-                    v8,
                 );
             }
         }
     }
 }
 
-fn switched_byte(v8: bool) {
+fn switched_byte() {
     let module = Fixture::new().function(
         &[Type::I1, Type::I32],
         &[Type::I32, Type::I32],
@@ -121,7 +119,6 @@ fn switched_byte(v8: bool) {
                 &module,
                 &[Value::I32(mode), Value::I32(input)],
                 &expected.map(Value::I32),
-                v8,
             );
         }
     }
@@ -129,23 +126,15 @@ fn switched_byte(v8: bool) {
 
 #[test]
 fn masks_exposed_by_specialization_reuse_the_guarded_value() {
-    guarded_masks(false);
+    guarded_masks();
 }
 
 #[test]
 fn computed_inputs_survive_specialization_in_later_guards() {
-    computed_inputs(false);
+    computed_inputs();
 }
 
 #[test]
 fn switch_facts_preserve_wider_sources_of_specialized_bytes() {
-    switched_byte(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_materialized_values_preserve_branch_results() {
-    guarded_masks(true);
-    computed_inputs(true);
-    switched_byte(true);
+    switched_byte();
 }

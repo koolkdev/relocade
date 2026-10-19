@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn predicates(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn predicates(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Bits enumerate the predicates that are true, independently of NaN signaling.
     for (left, right, truths) in [
         (ONE, TWO, 0b1001_0110),
@@ -64,8 +64,8 @@ fn predicates(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for packed in [false, true] {
             let mut code = encoding(prefix(wide, packed), 0xc2, 0xc1);
@@ -134,8 +134,8 @@ fn exceptions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for wide in [false, true] {
         for packed in [false, true] {
             let mut code = encoding(prefix(wide, packed), 0xc2, 0x00);
@@ -188,8 +188,8 @@ fn memory(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn mixed_lanes(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn mixed_lanes(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = [0x0f, 0xc2, 0xc1, 2]; // CMPPS LE: less, greater, equal, unordered.
     let mut image = floating_image(&code, 0x1f80);
     for (index, (left, right)) in [(ONE, TWO), (TWO, ONE), (NEG_ZERO, ZERO), (QNAN, ONE)]

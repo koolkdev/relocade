@@ -40,7 +40,6 @@ mod xmm_transfers;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{dispatch, stack_image, write_register_bits},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -57,8 +56,8 @@ fn complete(mut cpu: CpuState, bytes: u32) -> CpuState {
     cpu
 }
 
-fn registers(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn registers(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for source in 0..8 {
         let destination = (source + 3) & 7;
         for opcode in [0x6f, 0x7f] {
@@ -108,8 +107,8 @@ fn registers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (load, store, width, value) in [
         (0x6e, 0x7e, 4, 0x89ab_cdef_u64),
         (0x6f, 0x7f, 8, 0x0123_4567_89ab_cdef),
@@ -162,8 +161,8 @@ fn memory(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn segmented(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
+fn segmented(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented16);
     let code = [0x0f, 0x6e, 0x06, 0xfc, 0x4f];
     let mut image = image(&code);
     image.cpu.segments.cs.big = 0;

@@ -1,15 +1,12 @@
-use std::path::Path;
-
-use serde::{Deserialize, Serialize};
 use wasmtime::{
     AsContext, ExternType, Func, Linker, Memory, MemoryType, Store, Val, ValType, WasmParams,
     WasmResults,
 };
 
 pub use wasm86_test_support::Value;
-use wasm86_test_support::{engine, Module, Outcome, SharedBytes};
+use wasm86_test_support::{engine, Module, SharedBytes};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryBytes {
     pub name: String,
     pub bytes: Vec<u8>,
@@ -24,7 +21,7 @@ impl MemoryBytes {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct Callback {
     name: String,
     results: Vec<Value>,
@@ -39,7 +36,7 @@ impl Callback {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Call {
     pub name: String,
     pub arguments: Vec<Value>,
@@ -57,62 +54,6 @@ impl Call {
 
     pub fn with_memories(mut self, memories: &[MemoryBytes]) -> Self {
         self.memories = memories.into();
-        self
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Observation {
-    pub outcome: Outcome,
-    pub callbacks: Vec<Call>,
-    pub memories: Vec<MemoryBytes>,
-}
-
-impl Observation {
-    pub fn returned(values: &[Value]) -> Self {
-        Self {
-            outcome: Outcome::Returned(values.into()),
-            callbacks: vec![],
-            memories: vec![],
-        }
-    }
-
-    pub fn with_callbacks(mut self, callbacks: &[Call]) -> Self {
-        self.callbacks = callbacks.into();
-        self
-    }
-
-    pub fn with_memories(mut self, memories: &[MemoryBytes]) -> Self {
-        self.memories = memories.into();
-        self
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct Input {
-    entry: String,
-    arguments: Vec<Value>,
-    memories: Vec<MemoryBytes>,
-    callbacks: Vec<Callback>,
-}
-
-impl Input {
-    pub fn call(entry: &str, arguments: &[Value]) -> Self {
-        Self {
-            entry: entry.into(),
-            arguments: arguments.into(),
-            memories: vec![],
-            callbacks: vec![],
-        }
-    }
-
-    pub fn with_memories(mut self, memories: &[MemoryBytes]) -> Self {
-        self.memories = memories.into();
-        self
-    }
-
-    pub fn with_callbacks(mut self, callbacks: &[Callback]) -> Self {
-        self.callbacks = callbacks.into();
         self
     }
 }
@@ -142,47 +83,6 @@ impl TestModule {
 
     pub fn bytes(&self) -> &[u8] {
         self.module.bytes()
-    }
-
-    pub fn run_v8(&self, input: &Input) -> Observation {
-        #[derive(Serialize)]
-        struct MemoryDescriptor<'a> {
-            name: &'a str,
-            initial: u64,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            maximum: Option<u64>,
-            shared: bool,
-        }
-        #[derive(Serialize)]
-        struct V8Input<'a> {
-            #[serde(flatten)]
-            call: &'a Input,
-            memory_imports: Vec<MemoryDescriptor<'a>>,
-        }
-        let mut memory_imports = Vec::new();
-        for payload in wasmparser::Parser::new(0).parse_all(self.bytes()) {
-            if let wasmparser::Payload::ImportSection(imports) = payload.unwrap() {
-                for import in imports {
-                    let import = import.unwrap();
-                    if let wasmparser::TypeRef::Memory(memory) = import.ty {
-                        memory_imports.push(MemoryDescriptor {
-                            name: import.name,
-                            initial: memory.initial,
-                            maximum: memory.maximum,
-                            shared: memory.shared,
-                        });
-                    }
-                }
-            }
-        }
-        wasm86_test_support::run_v8(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/execute.mjs"),
-            &[&self.module],
-            &V8Input {
-                call: input,
-                memory_imports,
-            },
-        )
     }
 
     pub fn instantiate(&self) -> Instance {

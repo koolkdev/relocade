@@ -1,13 +1,13 @@
 use super::*;
 use crate::test_step::{MmioUpdate, Observation};
 
-fn transfer(engine: Engine, input: &Input, entry: &str) -> Observation {
+fn transfer(input: &Input, entry: &str) -> Observation {
     let module = TestModule::new(&CompiledModule {
         bytes: transfers().to_vec(),
         entry: entry.into(),
         execution_target: None,
     });
-    engine.observe(&module, input, 1)
+    module.observe(input, 1)
 }
 
 fn value(observation: &Observation) -> i64 {
@@ -24,7 +24,7 @@ fn value(observation: &Observation) -> i64 {
     value
 }
 
-fn mixed(engine: Engine) {
+fn mixed() {
     for mmio_first in [false, true] {
         for first_bytes in [1, 3, 5, 7] {
             let address = 0x2000 - first_bytes;
@@ -35,7 +35,7 @@ fn mixed(engine: Engine) {
             ];
             input.mmio_pages = vec![if mmio_first { (1, 0x3000) } else { (2, 0x5000) }];
             input.arguments = vec![Argument::I32(address as i32)];
-            let read = transfer(engine, &input, "read64");
+            let read = transfer(&input, "read64");
             assert_eq!(value(&read), 0x0807_0605_0403_0201);
             assert_eq!(read.events.len(), 2);
             assert_eq!(
@@ -53,7 +53,7 @@ fn mixed(engine: Engine) {
             input
                 .arguments
                 .push(Argument::I64(i64::from_le_bytes(bytes)));
-            let write = transfer(engine, &input, "write64");
+            let write = transfer(&input, "write64");
             assert_eq!(write.events.len(), 2);
             assert_eq!(
                 write.events[0],
@@ -89,7 +89,7 @@ fn mixed(engine: Engine) {
     }
 }
 
-fn backing_and_holes(engine: Engine) {
+fn backing_and_holes() {
     for address in [0x1801, 0x9fff, 0xafff, 0xb000] {
         let mut input = input();
         input
@@ -97,7 +97,7 @@ fn backing_and_holes(engine: Engine) {
             .push((0x3801, vec![0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11]));
         input.guest.push((0x5fff, vec![0x42]));
         input.arguments = vec![Argument::I32(address)];
-        let read = transfer(engine, &input, "read64");
+        let read = transfer(&input, "read64");
         assert_eq!(
             read.events.len(),
             1,
@@ -114,7 +114,7 @@ fn backing_and_holes(engine: Engine) {
         input
             .arguments
             .push(Argument::I64(0x8877_6655_4433_2211u64 as i64));
-        let write = transfer(engine, &input, "write64");
+        let write = transfer(&input, "write64");
         assert_eq!(write.events.len(), 1);
         assert_eq!(write.guest_unchanged, address != 0x1801);
     }
@@ -123,7 +123,7 @@ fn backing_and_holes(engine: Engine) {
     input.physical_pages.clear();
     input.mmio_pages = vec![(2, 0x5000)];
     input.arguments = vec![Argument::I32(0x1fff)];
-    let read = transfer(engine, &input, "read32");
+    let read = transfer(&input, "read32");
     assert_eq!(value(&read), 0x5566_77ff);
     assert_eq!(
         read.events[0],
@@ -134,7 +134,7 @@ fn backing_and_holes(engine: Engine) {
     );
 }
 
-fn remapping(engine: Engine) {
+fn remapping() {
     for write in [false, true] {
         let mut input = input();
         input.mmio_pages = vec![(1, 0x3000)];
@@ -155,7 +155,7 @@ fn remapping(engine: Engine) {
         if write {
             input.arguments.push(Argument::I32(0x4433_2211));
         }
-        let observed = transfer(engine, &input, if write { "write32" } else { "read32" });
+        let observed = transfer(&input, if write { "write32" } else { "read32" });
         assert_eq!(observed.events.len(), 2);
         assert_eq!(value(&observed), if write { 7 } else { 0x4433_2288 });
         let Event::Return { snapshot, .. } = observed.events.last().unwrap() else {
@@ -225,22 +225,19 @@ fn remapping(engine: Engine) {
         guest: vec![(0x5000, vec![0x42])],
         ..MmioUpdate::default()
     }];
-    let observed = engine.observe(&module, &input, 1);
+    let observed = module.observe(&input, 1);
     assert_eq!(value(&observed), 0x7742);
     assert_eq!(observed.events.len(), 2);
 }
 
-fn last_real_mode_page(engine: Engine) {
+fn last_real_mode_page() {
     let mut input = input();
     input.physical_pages = vec![(0x10f, 0x3000, true)];
     input.guest = vec![(0x3fe8, vec![0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11])];
     input.arguments = vec![Argument::I32(0x10ffe8)];
-    assert_eq!(
-        value(&transfer(engine, &input, "read64")),
-        0x1122_3344_5566_7788
-    );
+    assert_eq!(value(&transfer(&input, "read64")), 0x1122_3344_5566_7788);
     input.mmio_pages = vec![(0x10f, 0x3000)];
-    let observed = transfer(engine, &input, "read64");
+    let observed = transfer(&input, "read64");
     assert_eq!(value(&observed), 0x1122_3344_5566_7788);
     assert_eq!(observed.events.len(), 2);
     assert_eq!(
@@ -252,7 +249,7 @@ fn last_real_mode_page(engine: Engine) {
     );
 }
 
-fn a20(engine: Engine) {
+fn a20() {
     for enabled in [false, true] {
         for mmio in [false, true] {
             let mut input = input();
@@ -267,7 +264,7 @@ fn a20(engine: Engine) {
                 input.mmio_pages = vec![(0xff, 0x3000), (0, 0x5000), (0x100, 0x7000)];
             }
             input.arguments = vec![Argument::I32(0xfffff)];
-            let read = transfer(engine, &input, "read32");
+            let read = transfer(&input, "read32");
             assert_eq!(
                 value(&read),
                 if enabled { 0x3322_1188 } else { 0x5566_7788 }
@@ -293,7 +290,7 @@ fn a20(engine: Engine) {
                 assert_eq!(&read.events[..read.events.len() - 1], expected);
             }
             input.arguments.push(Argument::I32(0x4433_2211));
-            let write = transfer(engine, &input, "write32");
+            let write = transfer(&input, "write32");
             let Event::Return { snapshot, .. } = write.events.last().unwrap() else {
                 unreachable!()
             };
@@ -323,7 +320,7 @@ fn a20(engine: Engine) {
                 ..MmioUpdate::default()
             }];
             input.arguments.truncate(1);
-            let read = transfer(engine, &input, "read32");
+            let read = transfer(&input, "read32");
             assert_eq!(
                 value(&read),
                 if enabled { 0x5566_7788 } else { 0x3322_1188 }
@@ -335,26 +332,16 @@ fn a20(engine: Engine) {
     input.a20_enabled = false;
     input.physical_pages = vec![(0, 0x5000, false)];
     input.arguments = vec![Argument::I32(0x100000)];
-    assert_eq!(value(&transfer(engine, &input, "read32")), 0x4455_6677);
+    assert_eq!(value(&transfer(&input, "read32")), 0x4455_6677);
     input.arguments.push(Argument::I32(0));
-    assert!(transfer(engine, &input, "write32").guest_unchanged);
+    assert!(transfer(&input, "write32").guest_unchanged);
 }
 
 #[test]
 fn routing_preserves_mmio_portions_and_live_mappings() {
-    mixed(Engine::Wasmtime);
-    backing_and_holes(Engine::Wasmtime);
-    remapping(Engine::Wasmtime);
-    last_real_mode_page(Engine::Wasmtime);
-    a20(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_routing_preserves_mmio_portions_and_live_mappings() {
-    mixed(Engine::V8);
-    backing_and_holes(Engine::V8);
-    remapping(Engine::V8);
-    last_real_mode_page(Engine::V8);
-    a20(Engine::V8);
+    mixed();
+    backing_and_holes();
+    remapping();
+    last_real_mode_page();
+    a20();
 }

@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     runtime::Runtime,
     state::Cpu,
-    test_step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
+    test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
     CompiledModule, Compiler, CpuState, SegmentDefaultSize, SegmentProfile,
 };
 use wasm86_compiler::{Program, Signature, Type};
@@ -55,7 +55,7 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
     }
 }
 
-fn exceptions(engine: Engine, fallback_enabled: bool) {
+fn exceptions(fallback_enabled: bool) {
     let module = TestModule::new(&exception_module(fallback_enabled));
     for (mxcsr, raised, expected_mxcsr, fault) in [
         (0x1f80, 0, 0x1f80, false),
@@ -108,7 +108,7 @@ fn exceptions(engine: Engine, fallback_enabled: bool) {
             ..Input::new(&initial.to_bytes())
         };
         assert_eq!(
-            engine.observe(&module, &input, 1),
+            module.observe(&input, 1),
             Observation {
                 events: vec![Event::Return {
                     outcome: Outcome::Returned(vec![Argument::I64(if fault {
@@ -131,13 +131,6 @@ fn exceptions(engine: Engine, fallback_enabled: bool) {
 
 #[test]
 fn simd_status_precedes_faults_and_destination_updates() {
-    exceptions(Engine::Wasmtime, false);
-    exceptions(Engine::Wasmtime, true);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_simd_status_precedes_faults_and_destination_updates() {
-    exceptions(Engine::V8, false);
-    exceptions(Engine::V8, true);
+    exceptions(false);
+    exceptions(true);
 }

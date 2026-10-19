@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use crate::wasm::{Input, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -286,23 +286,4 @@ fn native_literals_keep_their_signed_unsigned_and_boolean_meanings() {
             .unwrap(),
         (-0x1_0000_0000, 1, 0x1_0000_0000, 1)
     );
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn logical_division_and_remainder_execute_in_v8_at_every_width() {
-    fn check<T: IntType>(case: &Case) {
-        assert_eq!(
-            computed::<T>().run_v8(&Input::call(
-                "run",
-                &[input::<T>(case.left), input::<T>(case.right)]
-            )),
-            Observation::returned(&case.expected.map(input::<T>))
-        );
-    }
-    check::<I1>(&BIT[0]);
-    check::<I8>(&BYTE[0]);
-    check::<I16>(&WORD[0]);
-    check::<I32>(&DWORD[0]);
-    check::<I64>(&QWORD[0]);
 }

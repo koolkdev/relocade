@@ -120,31 +120,3 @@ fn full_scalar_products_normalize_dirty_operands_and_keep_both_halves() {
     check::<I16>(16);
     check::<I32>(32);
 }
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn full_scalar_products_execute_in_v8() {
-    fn check<T: DoubleWidth>(width: u32)
-    where
-        I64: AtLeast<T>,
-    {
-        for signed in [false, true] {
-            let module = computed_product::<T>(signed);
-            let sign = 1_i64 << (width - 1);
-            for (left, right) in [(-2_i64, 0_i64), (sign - 1, sign + 1), (sign - 1, 3)] {
-                assert_eq!(
-                    module.run_v8(&Input::call("run", &[Value::I64(left), Value::I64(right)])),
-                    Observation::returned(&[expected_product(
-                        width,
-                        left.wrapping_add(1) as u64,
-                        right.wrapping_sub(1) as u64,
-                        signed
-                    )])
-                );
-            }
-        }
-    }
-    check::<I8>(8);
-    check::<I16>(16);
-    check::<I32>(32);
-}

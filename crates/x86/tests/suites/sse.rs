@@ -30,7 +30,6 @@ mod words;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
 };
 use memory::check_m128_span;
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -64,8 +63,8 @@ fn encoding(prefix: &[u8], opcode: u8, modrm: u8) -> Vec<u8> {
     [prefix, &[0x0f, opcode, modrm]].concat()
 }
 
-fn registers(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn registers(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for prefix in [&[][..], &[0x66][..]] {
         for source in 0..8 {
             let destination = (source + 3) & 7;
@@ -93,8 +92,8 @@ fn registers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn transfers(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn transfers(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for prefix in [&[][..], &[0x66][..]] {
         let load = encoding(prefix, 0x10, 0x38); // xmm7, [eax]
         let store = encoding(prefix, 0x11, 0x39); // [ecx], xmm7
@@ -135,8 +134,8 @@ fn transfers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for opcode in [0x10, 0x11] {
         for writable in [false, true] {
             let code = [0x0f, 0x57, 0xff, 0x0f, opcode, 0x38];
@@ -187,8 +186,8 @@ test_frontends!(sse_register_encodings, registers);
 test_frontends!(sse_memory_transfers, transfers);
 test_frontends!(sse_precise_faults, faults);
 
-fn segmented_defaults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
+fn segmented_defaults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented16);
     for prefix in [&[][..], &[0x66][..]] {
         let code = encoding(prefix, 0x10, 0x06); // xmm0, [disp16]
         let code = [code, vec![0x00, 0x40]].concat();

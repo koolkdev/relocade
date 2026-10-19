@@ -20,7 +20,7 @@ use super::{
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
-    step::{Engine, Event, SegmentResolution, TestModule},
+    step::{Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{
     DescriptorTables, ExecutionProfile, PrivilegeLevel, Segment, SegmentDefaultSize,

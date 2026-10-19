@@ -13,14 +13,14 @@ use super::{
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Step},
-    step::{Engine, Event, SegmentQuery, TestModule},
+    step::{Event, SegmentQuery, TestModule},
 };
 use crate::{
     DescriptorTables, ExecutionProfile, Gpr32, PrivilegeLevel, Segment, SegmentDefaultSize,
     SegmentDescriptor, SegmentDescriptorKind, SegmentLimit, SegmentProfile,
 };
 
-fn descriptor_results(engine: Engine) {
+fn descriptor_results() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let mut tables = DescriptorTables::default();
     let ordinary = descriptor(0x1234_0000, SegmentDefaultSize::Bits16);
@@ -62,7 +62,6 @@ fn descriptor_results(engine: Engine) {
                 cpu.registers.ecx = if opcode == 2 { rights } else { limit };
             }
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -79,11 +78,5 @@ fn descriptor_results(engine: Engine) {
 
 #[test]
 fn lar_and_lsl_report_fields_or_preserve_the_destination_for_rejected_selectors() {
-    descriptor_results(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_lar_and_lsl_report_fields_or_preserve_the_destination_for_rejected_selectors() {
-    descriptor_results(Engine::V8);
+    descriptor_results();
 }

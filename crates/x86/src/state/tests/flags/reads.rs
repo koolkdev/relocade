@@ -6,25 +6,17 @@ use super::fixture::initial_cpu;
 use crate::alu::{ArithmeticOp, StatusSource};
 use crate::flags::{Flag, FlagChange};
 use crate::state::{Cpu, State};
-use crate::test_step::{
-    Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule,
-};
+use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState};
 use wasm86_compiler::{Program, Signature, Type, I1, I8};
 
-fn assert_reads(
-    engine: Engine,
-    module: &TestModule,
-    initial: &CpuState,
-    arguments: &[i32],
-    expected: &[i32],
-) {
+fn assert_reads(module: &TestModule, initial: &CpuState, arguments: &[i32], expected: &[i32]) {
     let input = Input {
         arguments: arguments.iter().copied().map(Argument::I32).collect(),
         ..Input::new(&initial.to_bytes())
     };
     assert_eq!(
-        engine.observe(module, &input, 1),
+        module.observe(&input, 1),
         Observation {
             events: vec![Event::Return {
                 outcome: Outcome::Returned(expected.iter().copied().map(Argument::I32).collect()),
@@ -104,7 +96,7 @@ fn mixed_history(local_base: bool) -> CompiledModule {
     }
 }
 
-fn check_mixed_history(engine: Engine) {
+fn check_mixed_history() {
     let mut initial = initial_cpu();
     initial.flags.bytes.tf = 0x81;
     initial.flags.bytes.df = 0xfe;
@@ -134,14 +126,14 @@ fn check_mixed_history(engine: Engine) {
     ] {
         let module = TestModule::new(&mixed_history(local));
         for (arguments, expected) in rows {
-            assert_reads(engine, &module, &initial, &arguments, &expected);
+            assert_reads(&module, &initial, &arguments, &expected);
         }
     }
 }
 
 #[test]
 fn ordered_reads_compose_stored_local_partial_and_conditional_flags_without_publication() {
-    check_mixed_history(Engine::Wasmtime);
+    check_mixed_history();
 }
 
 fn cached_reads_and_writes() -> CompiledModule {
@@ -196,13 +188,12 @@ fn cached_reads_and_writes() -> CompiledModule {
     }
 }
 
-fn check_cached_reads(engine: Engine) {
+fn check_cached_reads() {
     let module = TestModule::new(&cached_reads_and_writes());
     let mut initial = initial_cpu();
     initial.flags.bytes.df = 0x81;
     initial.flags.bytes.id = 0x81;
     assert_reads(
-        engine,
         &module,
         &initial,
         &[],
@@ -220,12 +211,5 @@ fn check_cached_reads(engine: Engine) {
 
 #[test]
 fn grouped_and_single_reads_share_cache_but_retain_values_across_later_writes() {
-    check_cached_reads(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn grouped_flag_queries_in_v8() {
-    check_mixed_history(Engine::V8);
-    check_cached_reads(Engine::V8);
+    check_cached_reads();
 }

@@ -24,7 +24,7 @@ fn native_module(code: &[u8], instruction_count: u32) -> TestModule {
     module
 }
 
-fn rounding_forms_and_signed_zero(engine: Engine) {
+fn rounding_forms_and_signed_zero() {
     for (operation, destination, reverse, pop) in [
         ([0xd8, 0xf1], 7, false, false),
         ([0xd8, 0xf9], 7, true, false),
@@ -99,7 +99,7 @@ fn rounding_forms_and_signed_zero(engine: Engine) {
                         result.x87.tag_word |= 0xc000;
                     }
                     assert_eq!(
-                        engine.observe(&module, &image.input(), 1),
+                        module.observe(&image.input(), 1),
                         expected(&image, &[dispatch(result)])
                     );
                 }
@@ -108,7 +108,7 @@ fn rounding_forms_and_signed_zero(engine: Engine) {
     }
 }
 
-fn range_and_restarts(engine: Engine) {
+fn range_and_restarts() {
     // The first division establishes PC53 precision for the native second division.
     let code = [0xdc, 0x35, 0, 0x40, 0, 0, 0xdc, 0x35, 8, 0x40, 0, 0];
     let module = native_module(&code, 2);
@@ -199,20 +199,20 @@ fn range_and_restarts(engine: Engine) {
             dispatch(result)
         };
         assert_eq!(
-            engine.observe(&module, &image.input(), 1),
+            module.observe(&image.input(), 1),
             expected(&image, &[block_exit]),
             "input={input:x?} divisor={divisor:x}"
         );
         if restart {
             assert_eq!(
-                engine.observe(&linked, &image.input(), 1),
+                linked.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
     }
 }
 
-fn arithmetic_precision_evidence(engine: Engine) {
+fn arithmetic_precision_evidence() {
     // Addition and cancellation produce the same PC53 evidence as multiplication.
     for (first_opcode, input, intermediate, quotient, flags) in [
         (
@@ -250,14 +250,14 @@ fn arithmetic_precision_evidence(engine: Engine) {
             }
             write_value(&mut result, 0, quotient);
             assert_eq!(
-                engine.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)])
             );
         }
     }
 }
 
-fn wider_operands_stay_in_jit(engine: Engine) {
+fn wider_operands_stay_in_jit() {
     let code = [0xd8, 0xf1];
     let module = TestModule::new(&compiler().compile_block(0x1000, &code, 1).unwrap());
     let numerator = LEADING + 0x7ff;
@@ -273,12 +273,12 @@ fn wider_operands_stay_in_jit(engine: Engine) {
     result.x87.status.c1 = u8::from(flags & C1 != 0);
     write_value(&mut result, 0, quotient);
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
-fn reverse_zero_divisor_restarts(engine: Engine) {
+fn reverse_zero_divisor_restarts() {
     let code = [0xdc, 0x35, 0, 0x40, 0, 0, 0xdc, 0x3d, 8, 0x40, 0, 0];
     let module = native_module(&code, 2);
     let linked = TestModule::new(&compiler().compile_block(0x1000, &code, 2).unwrap())
@@ -294,7 +294,7 @@ fn reverse_zero_divisor_restarts(engine: Engine) {
     first.x87.data_offset = 0x4000;
     first.x87.data_selector = 0x23;
     assert_eq!(
-        engine.observe(&module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(
             &image,
             &[Step {
@@ -309,44 +309,24 @@ fn reverse_zero_divisor_restarts(engine: Engine) {
     result.x87.status.zero_divide = 1;
     write_value(&mut result, 0, (LEADING, 0xffff));
     assert_eq!(
-        engine.observe(&linked, &image.input(), 1),
+        linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
 }
 
 #[test]
 fn native_quotients_preserve_rounding_forms_and_signed_zero() {
-    rounding_forms_and_signed_zero(Engine::Wasmtime);
+    rounding_forms_and_signed_zero();
 }
 
 #[test]
 fn native_quotients_preserve_extended_range_and_restart() {
-    range_and_restarts(Engine::Wasmtime);
-    reverse_zero_divisor_restarts(Engine::Wasmtime);
+    range_and_restarts();
+    reverse_zero_divisor_restarts();
 }
 
 #[test]
 fn precision53_evidence_preserves_wider_operands_and_precision_exceptions() {
-    arithmetic_precision_evidence(Engine::Wasmtime);
-    wider_operands_stay_in_jit(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_quotients_preserve_rounding_forms_and_signed_zero() {
-    rounding_forms_and_signed_zero(Engine::V8);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_quotients_preserve_extended_range_and_restart() {
-    range_and_restarts(Engine::V8);
-    reverse_zero_divisor_restarts(Engine::V8);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_precision53_evidence_preserves_wider_operands_and_precision_exceptions() {
-    arithmetic_precision_evidence(Engine::V8);
-    wider_operands_stay_in_jit(Engine::V8);
+    arithmetic_precision_evidence();
+    wider_operands_stay_in_jit();
 }

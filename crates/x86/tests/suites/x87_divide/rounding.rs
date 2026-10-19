@@ -30,8 +30,8 @@ pub(super) fn exact_quotient(
     )
 }
 
-fn quotients(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn quotients(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let boundaries = [
         LEADING,
         LEADING + 1,
@@ -88,8 +88,8 @@ fn quotients(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn range_boundaries(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn range_boundaries(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let two = (LEADING, 0x4000);
     let half = (LEADING, 0x3ffe);
     for (numerator, denominator, control, result, flags) in [

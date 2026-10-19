@@ -10,7 +10,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 
 // Successful DIV/IDIV leave all six status flags architecturally undefined.
@@ -312,7 +312,6 @@ fn source_encoding_fetch_precedes_divide_error() {
     // IDIV [disp32] is missing its last displacement byte.
     image.data(0x3ffb, &[0xf7, 0x3d, 0x20, 0x40, 0]);
     image.check_unchanged_exit(
-        Engine::Wasmtime,
         TestModule::interpreter(),
         "division requires its full source encoding before checking the dividend",
         Exit::PageFault {

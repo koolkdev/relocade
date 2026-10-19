@@ -12,7 +12,6 @@ mod specialization;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
-    step::Engine,
     x87::{
         arithmetic::{check_arithmetic, ArithmeticCase as Case},
         complete_x87, dispatch, stack_image, write_value, INDEFINITE,
@@ -25,8 +24,8 @@ const PE: u16 = 0x20;
 const C1: u16 = 0x200;
 const PENDING: u16 = 0x8080;
 
-fn register_forms(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn register_forms(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // ST0=-2 and ST2=3 expose both subtraction directions. TOP=7 also checks
     // that the destination uses the old logical index across a wrapping pop.
     for (prefix, base, destination, pop, result) in [
@@ -72,8 +71,8 @@ fn register_forms(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn signed_zeros(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn signed_zeros(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (instruction, negate_left, negate_right) in [
         ([0xde, 0xc1], false, false),
         ([0xde, 0xe9], false, true),

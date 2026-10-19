@@ -1,6 +1,6 @@
 use super::*;
 
-fn pairwise(v8: bool) {
+fn pairwise() {
     // Lane pairs differ across the 64-bit boundary, and maximum sums must widen.
     let left = 0xffff000180007fff_0001ff000201ffff_u128;
     let bytes = left.to_le_bytes();
@@ -20,13 +20,13 @@ fn pairwise(v8: bool) {
         u128::from_le_bytes(byte_sums.try_into().unwrap()),
         u128::from_le_bytes(word_sums.try_into().unwrap()),
     ];
-    binary_width_results::<V128, 2>(v8, left, 0, results, |a, _| {
+    binary_width_results::<V128, 2>(left, 0, results, |a, _| {
         [
             a.unsigned_pairwise_add_lanes::<I8>(),
             a.unsigned_pairwise_add_lanes::<I16>(),
         ]
     });
-    binary_width_results::<V64, 2>(v8, left, 0, results, |a, _| {
+    binary_width_results::<V64, 2>(left, 0, results, |a, _| {
         [
             a.unsigned_pairwise_add_lanes::<I8>(),
             a.unsigned_pairwise_add_lanes::<I16>(),
@@ -36,10 +36,5 @@ fn pairwise(v8: bool) {
 
 #[test]
 fn packed_pairwise_sums_widen_each_adjacent_pair() {
-    pairwise(false);
-}
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_packed_pairwise_sums_widen_each_adjacent_pair() {
-    pairwise(true);
+    pairwise();
 }

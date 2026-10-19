@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn layouts(engine: Engine, frontend: Frontend) {
+fn layouts(frontend: Frontend) {
     for profile in PROFILES {
         let save = instruction(profile, false, 0x4010);
         let code = [save.as_slice(), &[0x9b]].concat();
@@ -32,7 +32,7 @@ fn layouts(engine: Engine, frontend: Frontend) {
             [5, 6, 7, 0, 1, 2, 3, 4],
         );
         let saved = retire(image.cpu, save.len());
-        ImageSequences::new(engine, frontend, profile).check(
+        ImageSequences::new(frontend, profile).check(
             &format!("FXSAVE {profile:?}: one layout and no reset or wait"),
             &code,
             &image,
@@ -52,7 +52,7 @@ fn layouts(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn mmx_and_xmm(engine: Engine, frontend: Frontend) {
+fn mmx_and_xmm(frontend: Frontend) {
     let save = instruction(FLAT32, false, 0x4010);
     let save_empty = instruction(FLAT32, false, 0x4210);
     let code = [
@@ -89,7 +89,7 @@ fn mmx_and_xmm(engine: Engine, frontend: Frontend) {
     let mut empty_header = header;
     empty_header[1] = 0x0654_0000;
     let empty_bytes = saved_bytes(&emptied, empty_header, [0, 1, 2, 3, 4, 5, 6, 7]);
-    ImageSequences::new(engine, frontend, FLAT32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "FXSAVE observes retained MMX/XMM writes and keeps raw payloads after EMMS",
         &code,
         &image,
@@ -111,7 +111,7 @@ fn mmx_and_xmm(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn suppressed_push(engine: Engine, frontend: Frontend) {
+fn suppressed_push(frontend: Frontend) {
     let save = instruction(FLAT32, false, 0x4010);
     let code = [&[0xd9, 0xe8][..], &save].concat();
     let mut image = image(&code, FLAT32);
@@ -135,7 +135,7 @@ fn suppressed_push(engine: Engine, frontend: Frontend) {
         [1, 2, 3, 4, 5, 6, 7, 0],
     );
     let saved = retire(faulted, save.len());
-    ImageSequences::new(engine, frontend, FLAT32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "FXSAVE retains a suppressed push and uses actual TOP without delivering its exception",
         &code,
         &image,
@@ -150,7 +150,7 @@ fn suppressed_push(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
+fn faults(frontend: Frontend) {
     for (address, read_only, expected) in [
         (0x4011, false, Exit::GeneralProtection { error: 0 }),
         (
@@ -176,7 +176,7 @@ fn faults(engine: Engine, frontend: Frontend) {
             image.map(4, 0x8000, false);
         }
         image.data(0x8e10, &[0xa5; 512]);
-        ImageSequences::new(engine, frontend, FLAT32).check(
+        ImageSequences::new(frontend, FLAT32).check(
             "FXSAVE validates 16-byte alignment and the whole 512-byte operand before effects",
             &code,
             &image,
@@ -194,7 +194,7 @@ fn faults(engine: Engine, frontend: Frontend) {
         let code = instruction(profile, false, 0xff00);
         let mut image = image(&code, profile);
         image.cpu.segments.ds.limit = 0xffff;
-        ImageSequences::new(engine, frontend, profile).check(
+        ImageSequences::new(frontend, profile).check(
             "FXSAVE rejects an image spanning the segment limit",
             &code,
             &image,

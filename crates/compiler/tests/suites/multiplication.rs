@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use crate::wasm::{Input, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -240,26 +240,4 @@ fn repeated_products_share_native_multiplication() {
     }
     check::<I32>();
     check::<I64>();
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn computed_products_execute_in_v8_at_every_logical_width() {
-    fn check<T: IntType>(cases: &[(u64, u64, u64)])
-    where
-        I64: AtLeast<T>,
-    {
-        let module = computed_product::<T>();
-        for &(left, right, expected) in cases {
-            assert_eq!(
-                module.run_v8(&Input::call("run", &[input::<T>(left), input::<T>(right)])),
-                Observation::returned(&[Value::I64(expected as i64)])
-            );
-        }
-    }
-    check::<I1>(BIT);
-    check::<I8>(BYTE);
-    check::<I16>(WORD);
-    check::<I32>(DWORD);
-    check::<I64>(QWORD);
 }

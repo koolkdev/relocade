@@ -9,7 +9,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     Gpr32::{Eax, Ebx},
@@ -230,7 +230,6 @@ fn interpreter_aam_fetches_its_base_before_testing_for_divide_error() {
     image.cpu.registers.eax = 0x4433_ab00;
     image.data(0x3fff, &[0xd4]);
     image.check_unchanged_exit(
-        Engine::Wasmtime,
         TestModule::interpreter(),
         "an absent AAM base faults before any adjustment or divide error",
         Exit::PageFault {

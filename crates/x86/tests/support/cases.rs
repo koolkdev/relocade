@@ -435,7 +435,7 @@ pub(super) enum MemoryExpectation {
 
 pub(crate) use execution::check as check_cases;
 
-/// Register one case group in the normal test run and the explicit V8 lane.
+/// Register one case group for compiled and interpreter execution.
 macro_rules! test_cases {
     ($group:ident, $cases:expr $(,)?) => {
         $crate::support::execution::test_frontends!(

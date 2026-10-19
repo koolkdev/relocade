@@ -3,7 +3,7 @@
 use super::*;
 use wasm86_compiler::{IntType, Val, I16, I64};
 
-fn check_cancellation<T: IntType>(mask: impl Into<Val<T>>, cases: &[(Value, Value)], v8: bool) {
+fn check_cancellation<T: IntType>(mask: impl Into<Val<T>>, cases: &[(Value, Value)]) {
     let mask = mask.into();
     let module = Fixture::new().function(&[T::TYPE, Type::I1], &[T::TYPE], |mut body| {
         let input = body.parameter::<T>(0)?;
@@ -26,19 +26,18 @@ fn check_cancellation<T: IntType>(mask: impl Into<Val<T>>, cases: &[(Value, Valu
         Value::I32(0)
     };
     for &(input, expected) in cases {
-        check_result(&module, &[input, Value::I32(1)], &[expected], v8);
-        check_result(&module, &[input, Value::I32(0)], &[zero], v8);
+        check_result(&module, &[input, Value::I32(1)], &[expected]);
+        check_result(&module, &[input, Value::I32(0)], &[zero]);
     }
 }
 
-fn cancellation_at_each_width(v8: bool) {
+fn cancellation_at_each_width() {
     check_cancellation::<I1>(
         1,
         &[
             (Value::I32(0), Value::I32(0)),
             (Value::I32(1), Value::I32(1)),
         ],
-        v8,
     );
     check_cancellation::<I8>(
         255,
@@ -47,7 +46,6 @@ fn cancellation_at_each_width(v8: bool) {
             (Value::I32(128), Value::I32(128)),
             (Value::I32(255), Value::I32(255)),
         ],
-        v8,
     );
     check_cancellation::<I16>(
         65535,
@@ -56,7 +54,6 @@ fn cancellation_at_each_width(v8: bool) {
             (Value::I32(32768), Value::I32(32768)),
             (Value::I32(65535), Value::I32(65535)),
         ],
-        v8,
     );
     check_cancellation::<I32>(
         65535,
@@ -65,7 +62,6 @@ fn cancellation_at_each_width(v8: bool) {
             (Value::I32(65537), Value::I32(1)),
             (Value::I32(-1), Value::I32(65535)),
         ],
-        v8,
     );
     check_cancellation::<I64>(
         0x1_ffff_ffff_u64,
@@ -74,11 +70,10 @@ fn cancellation_at_each_width(v8: bool) {
             (Value::I64(i64::MIN), Value::I64(0)),
             (Value::I64(-1), Value::I64(0x1_ffff_ffff)),
         ],
-        v8,
     );
 }
 
-fn guarded_chain(v8: bool) {
+fn guarded_chain() {
     let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
         let input = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
@@ -99,18 +94,16 @@ fn guarded_chain(v8: bool) {
             &module,
             &[Value::I32(input), Value::I32(1)],
             &[Value::I32(expected)],
-            v8,
         );
         check_result(
             &module,
             &[Value::I32(input), Value::I32(0)],
             &[Value::I32(0)],
-            v8,
         );
     }
 }
 
-fn observation_boundaries(v8: bool) {
+fn observation_boundaries() {
     let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32; 5], |mut body| {
         let input = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
@@ -149,13 +142,11 @@ fn observation_boundaries(v8: bool) {
             &module,
             &[Value::I32(input), Value::I32(1)],
             &expected.map(Value::I32),
-            v8,
         );
         check_result(
             &module,
             &[Value::I32(input), Value::I32(0)],
             &[Value::I32(0); 5],
-            v8,
         );
     }
 
@@ -182,36 +173,22 @@ fn observation_boundaries(v8: bool) {
             &wide,
             &[Value::I64(input), Value::I32(1)],
             &[Value::I64(expected)],
-            v8,
         );
-        check_result(
-            &wide,
-            &[Value::I64(input), Value::I32(0)],
-            &[Value::I64(0)],
-            v8,
-        );
+        check_result(&wide, &[Value::I64(input), Value::I32(0)], &[Value::I64(0)]);
     }
 }
 
 #[test]
 fn branch_facts_cancel_masked_offsets_at_each_logical_width() {
-    cancellation_at_each_width(false);
+    cancellation_at_each_width();
 }
 
 #[test]
 fn branch_facts_collapse_guarded_mask_chains_through_byte_views() {
-    guarded_chain(false);
+    guarded_chain();
 }
 
 #[test]
 fn refolding_masks_preserves_carries_sparse_masks_and_conversion_boundaries() {
-    observation_boundaries(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_refolded_masks_preserve_results_and_observation_boundaries() {
-    cancellation_at_each_width(true);
-    guarded_chain(true);
-    observation_boundaries(true);
+    observation_boundaries();
 }

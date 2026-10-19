@@ -1,7 +1,7 @@
 use super::*;
 use wasm86_compiler::{I16, I64, V64};
 
-fn layout_and_lanes(v8: bool) {
+fn layout_and_lanes() {
     let mut initial = vec![0xa5; 400];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -97,21 +97,15 @@ fn layout_and_lanes(v8: bool) {
     }
     expected[208..216].copy_from_slice(&left);
     expected[216..232].copy_from_slice(&u128::from(LEFT as u64).to_le_bytes());
-    check(&module, &initial, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
 #[test]
 fn logical_vector_width_controls_layout_and_literal_evaluation() {
-    layout_and_lanes(false);
+    layout_and_lanes();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_logical_vector_width_controls_layout_and_literal_evaluation() {
-    layout_and_lanes(true);
-}
-
-fn calls_and_joins(v8: bool) {
+fn calls_and_joins() {
     let mut initial = vec![0xa5; 112];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -163,19 +157,13 @@ fn calls_and_joins(v8: bool) {
                 .copy_from_slice(&u128::from(bits).to_le_bytes());
         }
         expected[96..112].copy_from_slice(&u128::from(LEFT as u64).to_le_bytes());
-        check(&module, &initial, &expected, count, v8);
+        check(&module, &expected, count);
     }
 }
 
 #[test]
 fn vector_width_survives_calls_and_joins_with_dirty_carriers() {
-    calls_and_joins(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_width_survives_calls_and_joins_with_dirty_carriers() {
-    calls_and_joins(true);
+    calls_and_joins();
 }
 
 #[test]

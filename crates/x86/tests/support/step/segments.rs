@@ -1,9 +1,8 @@
-//! Both engines consume replies from the same host descriptor view.
+//! Host descriptor replies for generated execution tests.
 
-use serde::Serialize;
 use wasm86_x86::{DescriptorTables, Exception, Segment};
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 pub(crate) struct SegmentQuery {
     pub(crate) selector: u16,
     pub(crate) values: [u32; 5],
@@ -25,7 +24,7 @@ impl SegmentQuery {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 pub(crate) struct SegmentResolution {
     pub(crate) segment: u32,
     pub(crate) selector: u16,

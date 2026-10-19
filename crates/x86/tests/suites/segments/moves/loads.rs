@@ -4,7 +4,7 @@ use crate::register::Gpr32;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn register_loads(engine: Engine) {
+fn register_loads() {
     for (profile, code, segment, source) in [
         (
             ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -55,7 +55,6 @@ fn register_loads(engine: Engine) {
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             profile,
             code,
             &image,
@@ -71,10 +70,10 @@ fn register_loads(engine: Engine) {
 
 #[test]
 fn segment_load_forms_take_a_low_word_and_commit_each_cache() {
-    register_loads(Engine::Wasmtime);
+    register_loads();
 }
 
-fn old_memory_cache(engine: Engine) {
+fn old_memory_cache() {
     for (segment, suffix) in [(Segment::Ds, &[0x1b][..]), (Segment::Ss, &[0x14, 0x24][..])] {
         // MOV DS,[EBX] or MOV SS,[ESP], with a redundant operand-size override.
         let mut code = vec![0x66, 0x8e];
@@ -100,7 +99,6 @@ fn old_memory_cache(engine: Engine) {
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
@@ -116,10 +114,10 @@ fn old_memory_cache(engine: Engine) {
 
 #[test]
 fn memory_sources_use_two_bytes_through_the_old_ds_or_ss_cache() {
-    old_memory_cache(Engine::Wasmtime);
+    old_memory_cache();
 }
 
-fn overridden_source(engine: Engine) {
+fn overridden_source() {
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         ExecutionProfile::Protected(SegmentProfile::Segmented16),
@@ -165,7 +163,6 @@ fn overridden_source(engine: Engine) {
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             profile,
             &code,
             &image,
@@ -181,13 +178,5 @@ fn overridden_source(engine: Engine) {
 
 #[test]
 fn segment_load_sources_honor_address_size_and_the_last_segment_override() {
-    overridden_source(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_segment_load_sources_and_cache_commit() {
-    register_loads(Engine::V8);
-    old_memory_cache(Engine::V8);
-    overridden_source(Engine::V8);
+    overridden_source();
 }

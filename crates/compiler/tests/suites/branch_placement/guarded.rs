@@ -1,5 +1,4 @@
 use super::*;
-use crate::wasm::{Callback, Input, Observation};
 
 #[path = "guarded/continuations.rs"]
 mod continuations;
@@ -265,34 +264,5 @@ fn exclusive_arms_share_repeated_inputs_without_repeating_snapshot_reads() {
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i32>(condition), Ok(17));
         assert_eq!(&instance.memory("state")[..8], [7, 0, 0, 0, value, 0, 0, 0]);
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn guarded_predicates_preserve_load_call_and_join_snapshots_in_v8() {
-    for source in [
-        Source::Load,
-        Source::ReadOnlyCall,
-        Source::Callback,
-        Source::Join,
-    ] {
-        let module = guarded_snapshot(source);
-        for (first, second) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-            let mut input = Input::call(
-                "run",
-                &[Value::I32(first), Value::I32(second), Value::I32(1)],
-            )
-            .with_memories(&[MemoryBytes::new("state", &INITIAL)]);
-            let mut expected = Observation::returned(&[Value::I32(17)])
-                .with_memories(&[MemoryBytes::new("state", &expected_memory(first, second))]);
-            if matches!(source, Source::Callback) {
-                input = input.with_callbacks(&[Callback::new("receive", &[Value::I32(7)])]);
-                expected = expected
-                    .with_callbacks(&[Call::new("receive", &[])
-                        .with_memories(&[MemoryBytes::new("state", &INITIAL)])]);
-            }
-            assert_eq!(module.run_v8(&input), expected);
-        }
     }
 }

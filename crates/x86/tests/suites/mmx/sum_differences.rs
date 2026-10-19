@@ -1,7 +1,7 @@
 use super::*;
 
-fn sums(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn sums(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     check_binary(&mut checks, 0xf6, 0xffffffffffffffff, 0x0, 0x7f8);
     check_binary(&mut checks, 0xf6, 0x0, 0x2, 0x2);
     check_binary(

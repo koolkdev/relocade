@@ -4,7 +4,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint, SequenceCase},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::StoredStatusSource;
 use wasm86_x86::{CpuState, Gpr32, StoredFlags};
@@ -183,7 +183,6 @@ fn false_conditions_still_fetch_the_complete_instruction() {
         image.cpu.flags.bytes.zf = 1;
         image.data(0x3000 + (start & 0xfff), code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "false CMOVNE requires its complete address",
             Exit::PageFault {

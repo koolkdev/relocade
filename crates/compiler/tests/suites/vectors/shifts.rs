@@ -3,7 +3,7 @@
 use super::*;
 use wasm86_compiler::{VectorLane, I16, I64};
 
-fn cases<T: VectorLane>(v8: bool, width: u32, one: [u128; 3], last: [u128; 3]) {
+fn cases<T: VectorLane>(width: u32, one: [u128; 3], last: [u128; 3]) {
     const INPUT: u128 = 0x80017fffffff0001_800000017fffffff;
     for (count, results) in [
         (0, [INPUT; 3]),
@@ -43,13 +43,12 @@ fn cases<T: VectorLane>(v8: bool, width: u32, one: [u128; 3], last: [u128; 3]) {
         for (index, result) in [results, results].into_iter().flatten().enumerate() {
             expected[16 + index * 16..32 + index * 16].copy_from_slice(&result.to_le_bytes());
         }
-        check(&module, &bytes, &expected, count as i32, v8);
+        check(&module, &expected, count as i32);
     }
 }
 
-fn widths(v8: bool) {
+fn widths() {
     cases::<I8>(
-        v8,
         8,
         [
             0x0002fefefefe000200000002fefefefe,
@@ -63,7 +62,6 @@ fn widths(v8: bool) {
         ],
     );
     cases::<I16>(
-        v8,
         16,
         [
             0x0002fffefffe000200000002fffefffe,
@@ -77,7 +75,6 @@ fn widths(v8: bool) {
         ],
     );
     cases::<I32>(
-        v8,
         32,
         [
             0x0002fffefffe000200000002fffffffe,
@@ -91,7 +88,6 @@ fn widths(v8: bool) {
         ],
     );
     cases::<I64>(
-        v8,
         64,
         [
             0x0002fffffffe000200000002fffffffe,
@@ -108,18 +104,11 @@ fn widths(v8: bool) {
 
 #[test]
 fn packed_shifts_wrap_counts_at_lane_width() {
-    widths(false);
-    refined_count(false);
+    widths();
+    refined_count();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_packed_shifts_wrap_counts_at_lane_width() {
-    widths(true);
-    refined_count(true);
-}
-
-fn refined_count(v8: bool) {
+fn refined_count() {
     const INPUT: u128 = 0x0081_0081_0081_0081_0081_0081_0081_0081;
     let bytes = vec![0xa5; 40];
     let mut fixture = Fixture::new();
@@ -148,6 +137,6 @@ fn refined_count(v8: bool) {
         expected[..16].copy_from_slice(&INPUT.to_le_bytes());
         expected[16..32].copy_from_slice(&words.to_le_bytes());
         expected[32] = scalar;
-        check(&module, &bytes, &expected, count, v8);
+        check(&module, &expected, count);
     }
 }

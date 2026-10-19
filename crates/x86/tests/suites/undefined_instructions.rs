@@ -10,7 +10,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{
     compile_block_from_bytes, ExecutionProfile, Gpr32::*, Segment, SegmentProfile, StoredSegment,
@@ -65,14 +65,13 @@ fn complete_encoding_ends_snapshot_compilation() {
     }
 }
 
-fn instruction_fetch_faults(engine: Engine) {
+fn instruction_fetch_faults() {
     for code in [&[0x0f][..], &[0x66, 0x0f]] {
         let mut image = Image::empty();
         image.cpu.eip = 0x2000 - code.len() as u32;
         image.map(1, 0x3000, false);
         image.data(0x4000 - code.len() as u32, code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             "the missing second opcode byte faults before UD2 can execute",
             Exit::PageFault {
@@ -85,7 +84,6 @@ fn instruction_fetch_faults(engine: Engine) {
     let mut image = Image::new(&[0x0f, 0x0b]);
     image.cpu.segments.cs.limit = 0x1000;
     image.check_unchanged_exit(
-        engine,
         TestModule::interpreter_with_profile(ExecutionProfile::Protected(
             SegmentProfile::Segmented32,
         )),
@@ -96,13 +94,7 @@ fn instruction_fetch_faults(engine: Engine) {
 
 #[test]
 fn interpreter_fetch_checks_precede_the_invalid_opcode_fault() {
-    instruction_fetch_faults(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interpreter_fetch_checks_precede_the_invalid_opcode_fault() {
-    instruction_fetch_faults(Engine::V8);
+    instruction_fetch_faults();
 }
 
 test_cases!(fault_preserves_instruction_entry, faulting_forms());

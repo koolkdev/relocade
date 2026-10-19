@@ -3,9 +3,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn raw_extended_roundtrips(engine: Engine, frontend: Frontend) {
+fn raw_extended_roundtrips(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -65,9 +64,8 @@ fn raw_extended_roundtrips(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory_stack_faults(engine: Engine, frontend: Frontend) {
+fn memory_stack_faults(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -120,9 +118,8 @@ fn memory_stack_faults(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn ten_byte_memory_boundaries(engine: Engine, frontend: Frontend) {
+fn ten_byte_memory_boundaries(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -180,9 +177,8 @@ fn ten_byte_memory_boundaries(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn memory_fault_commitment(engine: Engine, frontend: Frontend) {
+fn memory_fault_commitment(frontend: Frontend) {
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
     );
@@ -284,7 +280,6 @@ fn memory_fault_commitment(engine: Engine, frontend: Frontend) {
     image.map(4, 0x8000, true);
     image.data(0x8000, &[0x6b; 10]);
     let mut checks = ImageSequences::new(
-        engine,
         frontend,
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
     );

@@ -5,19 +5,19 @@ mod fetch;
 
 use crate::support::{
     machine::{expected, Exit, Image, Step},
-    step::{Engine, Event, SegmentResolution, TestModule},
+    step::{Event, SegmentResolution, TestModule},
 };
 use wasm86_x86::{compile_interpreter, ExecutionProfile, Segment, SegmentProfile, StoredSegment};
 
-fn check(engine: Engine, module: &TestModule, name: &str, image: &Image, step: Step<'_>) {
+fn check(module: &TestModule, name: &str, image: &Image, step: Step<'_>) {
     assert_eq!(
-        engine.observe(module, &image.input(), 1),
+        module.observe(&image.input(), 1),
         expected(image, &[step]),
-        "{name}, {engine:?}"
+        "{name}"
     );
 }
 
-fn execution_boundaries(engine: Engine, module: &TestModule) {
+fn execution_boundaries(module: &TestModule) {
     let image = Image::new(&[
         0xb8, 0x78, 0x56, 0x34, 0x12, // MOV EAX,12345678
         0xb4, 0x9a, // MOV AH,9A
@@ -31,7 +31,6 @@ fn execution_boundaries(engine: Engine, module: &TestModule) {
     cpu.eip = 0x1010;
     cpu.instruction_count = 4;
     check(
-        engine,
         module,
         "padding preserves dependent aliases until dispatch and retirement wraps",
         &image,
@@ -57,7 +56,6 @@ fn execution_boundaries(engine: Engine, module: &TestModule) {
     cpu.eip = 0x100d;
     cpu.instruction_count = 3;
     check(
-        engine,
         module,
         "lazy arithmetic flags feed later SETcc and branch instructions",
         &image,
@@ -80,7 +78,6 @@ fn execution_boundaries(engine: Engine, module: &TestModule) {
         cpu.eip = if taken { 0x3000 } else { 0x2000 };
         cpu.instruction_count = 1;
         check(
-            engine,
             module,
             "both conditional outcomes dispatch before fetching an absent successor page",
             &image,
@@ -101,7 +98,6 @@ fn execution_boundaries(engine: Engine, module: &TestModule) {
     cpu.eip = 0x1000 + 12_002;
     cpu.instruction_count = 12_000;
     check(
-        engine,
         module,
         "long straight-line execution reaches its explicit boundary",
         &image,
@@ -122,7 +118,6 @@ fn execution_boundaries(engine: Engine, module: &TestModule) {
     cpu.eip = 0x1002;
     cpu.instruction_count = 0;
     check(
-        engine,
         module,
         "UD2 returns its guest fault without retiring or dispatching",
         &image,
@@ -134,7 +129,7 @@ fn execution_boundaries(engine: Engine, module: &TestModule) {
     );
 }
 
-fn repetition_progress(engine: Engine, module: &TestModule) {
+fn repetition_progress(module: &TestModule) {
     for count in [0, 2] {
         let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0xf3, 0xa4, 0x89, 0xcb, 0xeb, 0, 0xf4]);
         image.cpu.flags.bytes.df = 0;
@@ -153,7 +148,6 @@ fn repetition_progress(engine: Engine, module: &TestModule) {
         cpu.eip = 0x100b;
         cpu.instruction_count = 3;
         check(
-            engine,
             module,
             "zero and nonzero REP continue through a successor before dispatch",
             &image,
@@ -185,7 +179,6 @@ fn repetition_progress(engine: Engine, module: &TestModule) {
     cpu.eip = 0x1005;
     cpu.instruction_count = 0;
     check(
-        engine,
         module,
         "REP fault preserves predecessors and completed elements without dispatch",
         &image,
@@ -200,7 +193,7 @@ fn repetition_progress(engine: Engine, module: &TestModule) {
     );
 }
 
-fn terminal_segment_load(engine: Engine, module: &TestModule) {
+fn terminal_segment_load(module: &TestModule) {
     let image = Image::new(&[0xb8, 0x23, 0, 0, 0, 0x8e, 0xd8, 0xf4]);
     let ds = StoredSegment {
         base: 0x2000,
@@ -245,13 +238,13 @@ fn terminal_segment_load(engine: Engine, module: &TestModule) {
         },
     );
     assert_eq!(
-        engine.observe(module, &input, 1),
+        module.observe(&input, 1),
         observation,
         "a segment load dispatches before executing under incompatible flat assumptions"
     );
 }
 
-fn segmented_execution(engine: Engine) {
+fn segmented_execution() {
     let module = TestModule::new(
         &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Segmented16)).unwrap(),
     );
@@ -269,7 +262,6 @@ fn segmented_execution(engine: Engine) {
     cpu.eip = 0x1010;
     cpu.instruction_count = 4;
     check(
-        engine,
         &module,
         "16-bit code restores operand and address defaults between instructions",
         &image,
@@ -284,15 +276,14 @@ fn segmented_execution(engine: Engine) {
         &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Segmented32)).unwrap(),
     );
     let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0x90]);
-    fetch::segmented_code_pages(engine, &module);
-    fetch::segment_end(engine, &module);
+    fetch::segmented_code_pages(&module);
+    fetch::segment_end(&module);
     image.cpu.segments.cs.limit = 0x1004;
     let mut cpu = image.cpu;
     cpu.registers.eax = 42;
     cpu.eip = 0x1005;
     cpu.instruction_count = 0;
     check(
-        engine,
         &module,
         "the next instruction checks CS after publishing its predecessor",
         &image,
@@ -304,24 +295,18 @@ fn segmented_execution(engine: Engine) {
     );
 }
 
-fn check_runs(engine: Engine) {
+fn check_runs() {
     let module = TestModule::new(
         &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Flat32)).unwrap(),
     );
-    execution_boundaries(engine, &module);
-    fetch::check_fetch(engine, &module);
-    repetition_progress(engine, &module);
-    terminal_segment_load(engine, &module);
-    segmented_execution(engine);
+    execution_boundaries(&module);
+    fetch::check_fetch(&module);
+    repetition_progress(&module);
+    terminal_segment_load(&module);
+    segmented_execution();
 }
 
 #[test]
 fn instructions_continue_to_execution_boundaries() {
-    check_runs(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_instructions_continue_to_execution_boundaries() {
-    check_runs(Engine::V8);
+    check_runs();
 }

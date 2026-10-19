@@ -1,10 +1,9 @@
 //! Overlapping lane facts follow ordinary branch, join and snapshot lifetimes.
 
 use super::*;
-use crate::wasm::MemoryBytes;
 use wasm86_compiler::{Val, I16, I64, V128, V64};
 
-fn guards_and_switch(v8: bool) {
+fn guards_and_switch() {
     for masked in [false, true] {
         let module = Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
             let vector = Val::<V64>::from_bits(body.parameter::<I64>(0)?);
@@ -35,7 +34,6 @@ fn guards_and_switch(v8: bool) {
                 &module,
                 &[Value::I64(input as i64)],
                 &[Value::I32(if matches { 0x1234 } else { 7 })],
-                v8,
             );
         }
     }
@@ -62,11 +60,11 @@ fn guards_and_switch(v8: bool) {
         0
     );
     for (input, expected) in [(0x12345678, 0x1234), (0x76543210, 0x7654), (0, -1)] {
-        check_result(&module, &[Value::I64(input)], &[Value::I32(expected)], v8);
+        check_result(&module, &[Value::I64(input)], &[Value::I32(expected)]);
     }
 }
 
-fn joins_and_siblings(v8: bool) {
+fn joins_and_siblings() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I64, Type::I64],
         &[Type::I32],
@@ -109,7 +107,6 @@ fn joins_and_siblings(v8: bool) {
             &module,
             &[Value::I32(mode), Value::I64(a), Value::I64(b)],
             &[Value::I32(expected)],
-            v8,
         );
     }
     let module = Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
@@ -128,11 +125,11 @@ fn joins_and_siblings(v8: bool) {
         (0x98765678, 0x130ed),
         (0, 1),
     ] {
-        check_result(&module, &[Value::I64(input)], &[Value::I32(expected)], v8);
+        check_result(&module, &[Value::I64(input)], &[Value::I32(expected)]);
     }
 }
 
-fn loop_and_snapshots(v8: bool) {
+fn loop_and_snapshots() {
     let module = Fixture::new().function(&[], &[Type::I32], |mut body| {
         let sum = body.loop_::<(I32, V64, I32), I32>(
             (0, 1_u64, 0),
@@ -152,7 +149,7 @@ fn loop_and_snapshots(v8: bool) {
         )?;
         body.return_(sum)
     });
-    check_result(&module, &[], &[Value::I32(26)], v8);
+    check_result(&module, &[], &[Value::I32(26)]);
 
     let initial = 0x1234_5678_90ab_cdef_1234_5678_90ab_cdef_u128.to_le_bytes();
     let mut fixture = Fixture::new();
@@ -172,31 +169,15 @@ fn loop_and_snapshots(v8: bool) {
     let returned = [Value::I32(0x1234), Value::I32(0xdead)];
     let mut expected = initial;
     expected[12..].copy_from_slice(&0xdeadbeef_u32.to_le_bytes());
-    if v8 {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &initial)])
-            ),
-            Observation::returned(&returned).with_memories(&[MemoryBytes::new("state", &expected)])
-        );
-    } else {
-        let mut instance = module.instantiate();
-        assert_eq!(instance.call_values("run", &[]).unwrap(), returned);
-        assert_eq!(&instance.memory("state")[..16], expected);
-    }
+
+    let mut instance = module.instantiate();
+    assert_eq!(instance.call_values("run", &[]).unwrap(), returned);
+    assert_eq!(&instance.memory("state")[..16], expected);
 }
 
 #[test]
 fn vector_lane_observations_share_facts_only_on_their_established_paths() {
-    guards_and_switch(false);
-    joins_and_siblings(false);
-    loop_and_snapshots(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_lane_observations_share_facts_only_on_their_established_paths() {
-    guards_and_switch(true);
-    joins_and_siblings(true);
-    loop_and_snapshots(true);
+    guards_and_switch();
+    joins_and_siblings();
+    loop_and_snapshots();
 }

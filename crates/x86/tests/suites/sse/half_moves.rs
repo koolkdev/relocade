@@ -4,8 +4,8 @@ use super::*;
 use crate::support::step::TestModule;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
-fn registers(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn registers(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (opcode, destination_bytes, source_bytes) in [(0x12, 0..8, 8..16), (0x16, 8..16, 0..8)] {
         for source in [1, 6] {
             let code = [0x0f, opcode, 0xf0 | source]; // xmm6, xmm1 or xmm6
@@ -25,8 +25,8 @@ fn registers(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for prefix in [&[][..], &[0x66][..]] {
         for (load_opcode, store_opcode, half) in [(0x12, 0x13, 0..8), (0x16, 0x17, 8..16)] {
             let load = encoding(prefix, load_opcode, 0x30); // xmm6, [eax]
@@ -63,8 +63,8 @@ fn memory(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn split_memory(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn split_memory(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = [0x0f, 0x16, 0x30, 0x66, 0x0f, 0x17, 0x31]; // movhps; movhpd
     let mut image = image(&code);
     image.cpu.registers.eax = 0x4ffd;
@@ -95,8 +95,8 @@ fn split_memory(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for prefix in [&[][..], &[0x66][..]] {
         for opcode in [0x12, 0x13, 0x16, 0x17] {
             let transfer = encoding(prefix, opcode, 0x30);
@@ -127,7 +127,7 @@ fn faults(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn rejected_register_forms(engine: Engine) {
+fn rejected_register_forms() {
     for (prefix, opcodes) in [
         (&[][..], &[0x13, 0x17][..]),
         (&[0x66][..], &[0x12, 0x13, 0x16, 0x17][..]),
@@ -143,7 +143,6 @@ fn rejected_register_forms(engine: Engine) {
                 "memory-only half transfer rejects {code:02x?}",
             );
             image(&code).check_unchanged_exit(
-                engine,
                 TestModule::interpreter(),
                 &format!("memory-only half transfer rejects {code:02x?}"),
                 Exit::Other(0x0008_000f_0000_1000),
@@ -159,11 +158,5 @@ test_frontends!(sse_half_faults, faults);
 
 #[test]
 fn sse_half_rejected_register_forms() {
-    rejected_register_forms(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_sse_half_rejected_register_forms() {
-    rejected_register_forms(Engine::V8);
+    rejected_register_forms();
 }

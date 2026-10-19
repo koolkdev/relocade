@@ -1,7 +1,7 @@
 use super::*;
 
-fn shuffle(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn shuffle(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let source = 0x7766554433221100_u64;
     let words = [0x1100_u64, 0x3322, 0x5544, 0x7766];
     for control in [0x00, 0x55, 0xff, 0xe4, 0x1b, 0x93] {

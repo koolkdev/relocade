@@ -10,7 +10,6 @@ mod range;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_register_bits},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -175,8 +174,8 @@ fn check_store(checks: &mut ImageSequences, format: Format, pop: bool, case: Sto
     );
 }
 
-fn finite_rounding(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn finite_rounding(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         for negative in [false, true] {
             let sign = if negative { format.sign() } else { 0 };
@@ -232,8 +231,8 @@ fn finite_rounding(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn special_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn special_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for format in FORMATS {
         for (source, output, invalid) in [
             ((0, 0), 0, false),

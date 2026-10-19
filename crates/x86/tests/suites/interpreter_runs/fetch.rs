@@ -3,24 +3,24 @@
 use super::check;
 use crate::support::{
     machine::{expected, Exit, Image, Step},
-    step::{CallPatches, Engine, TestModule},
+    step::{CallPatches, TestModule},
 };
 
-pub(super) fn check_fetch(engine: Engine, module: &TestModule) {
-    completed_progress_at_faults(engine, module);
-    live_bytes_and_prefixes(engine, module);
-    extended_memory_fields(engine, module);
+pub(super) fn check_fetch(module: &TestModule) {
+    completed_progress_at_faults(module);
+    live_bytes_and_prefixes(module);
+    extended_memory_fields(module);
     for next_frame in [0x4000, 0x6000] {
-        code_pages(engine, module, 0, next_frame);
+        code_pages(module, 0, next_frame);
     }
-    mappings_between_entries(engine, module);
+    mappings_between_entries(module);
 }
 
-pub(super) fn segmented_code_pages(engine: Engine, module: &TestModule) {
-    code_pages(engine, module, 0x3123, 0x6000);
+pub(super) fn segmented_code_pages(module: &TestModule) {
+    code_pages(module, 0x3123, 0x6000);
 }
 
-pub(super) fn segment_end(engine: Engine, module: &TestModule) {
+pub(super) fn segment_end(module: &TestModule) {
     let mut image = Image::empty();
     image.cpu.eip = 0x1ff8;
     image.cpu.segments.cs.limit = 0x2001;
@@ -33,7 +33,6 @@ pub(super) fn segment_end(engine: Engine, module: &TestModule) {
     cpu.eip = 0x2002;
     cpu.instruction_count = 8;
     check(
-        engine,
         module,
         "cached fetch windows fall back and execute every remaining CS byte",
         &image,
@@ -45,7 +44,7 @@ pub(super) fn segment_end(engine: Engine, module: &TestModule) {
     );
 }
 
-fn code_pages(engine: Engine, module: &TestModule, cs_base: u32, next_frame: u32) {
+fn code_pages(module: &TestModule, cs_base: u32, next_frame: u32) {
     let code = [
         0xb8, 42, 0, 0, 0, // MOV EAX,42
         0xb9, 0x78, 0x56, 0x34, 0x12, // MOV ECX,12345678 across the page boundary
@@ -67,7 +66,6 @@ fn code_pages(engine: Engine, module: &TestModule, cs_base: u32, next_frame: u32
     cpu.eip = image.cpu.eip + code.len() as u32;
     cpu.instruction_count = 3;
     check(
-        engine,
         module,
         "instruction progress crosses linear code-page mappings",
         &image,
@@ -79,7 +77,7 @@ fn code_pages(engine: Engine, module: &TestModule, cs_base: u32, next_frame: u32
     );
 }
 
-fn extended_memory_fields(engine: Engine, module: &TestModule) {
+fn extended_memory_fields(module: &TestModule) {
     let mut image = Image::new(&[
         0x0f, 0xb6, 0x44, 0x4b, 3, // MOVZX EAX,byte [EBX+ECX*2+3]
         0x89, 0x43, 4, // MOV [EBX+4],EAX
@@ -96,7 +94,6 @@ fn extended_memory_fields(engine: Engine, module: &TestModule) {
     cpu.eip = 0x100c;
     cpu.instruction_count = 3;
     check(
-        engine,
         module,
         "extended memory fields join primary memory and register successors",
         &image,
@@ -108,7 +105,7 @@ fn extended_memory_fields(engine: Engine, module: &TestModule) {
     );
 }
 
-fn mappings_between_entries(engine: Engine, module: &TestModule) {
+fn mappings_between_entries(module: &TestModule) {
     let mut image = Image::new(&[0xb8, 37, 0, 0, 0, 0xb9, 17, 0, 0, 0, 0xeb, 0xf4]);
     image.data(0x5000, &[0xb8, 42, 0, 0, 0, 0xb9, 99, 0, 0, 0, 0xeb, 0xf4]);
     let mut input = image.input();
@@ -156,13 +153,13 @@ fn mappings_between_entries(engine: Engine, module: &TestModule) {
     );
     observation.machine_unchanged = false;
     assert_eq!(
-        engine.observe(module, &input, 3),
+        module.observe(&input, 3),
         observation,
         "each entry observes host remapping and removal of the previous code page"
     );
 }
 
-fn completed_progress_at_faults(engine: Engine, module: &TestModule) {
+fn completed_progress_at_faults(module: &TestModule) {
     for (name, start, suffix, restart, exit) in [
         (
             "absent next opcode",
@@ -223,7 +220,6 @@ fn completed_progress_at_faults(engine: Engine, module: &TestModule) {
         cpu.eip = restart;
         cpu.instruction_count = 0;
         check(
-            engine,
             module,
             name,
             &image,
@@ -236,7 +232,7 @@ fn completed_progress_at_faults(engine: Engine, module: &TestModule) {
     }
 }
 
-fn live_bytes_and_prefixes(engine: Engine, module: &TestModule) {
+fn live_bytes_and_prefixes(module: &TestModule) {
     let mut image = Image::new(&[
         0xc6, 0x05, 8, 0x10, 0, 0, 42, // MOV byte [1008],42
         0xb0, 7, // MOV AL,7; preceding store replaces its immediate
@@ -248,7 +244,6 @@ fn live_bytes_and_prefixes(engine: Engine, module: &TestModule) {
     cpu.eip = 0x100b;
     cpu.instruction_count = 2;
     check(
-        engine,
         module,
         "a completed store changes the next instruction's live bytes",
         &image,
@@ -279,7 +274,6 @@ fn live_bytes_and_prefixes(engine: Engine, module: &TestModule) {
     cpu.eip = 0x1010;
     cpu.instruction_count = 4;
     check(
-        engine,
         module,
         "operand and segment prefixes end with their instruction",
         &image,

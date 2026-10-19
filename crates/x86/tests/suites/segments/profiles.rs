@@ -1,11 +1,11 @@
 use super::data;
 use crate::support::{
     machine::{expected, Exit, Image, Step},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 
-fn changed_runtime_cache(engine: Engine) {
+fn changed_runtime_cache() {
     let code = [0x64, 0x8b, 0x03];
     let compiled = compile_block_from_bytes(0x1000, &code, 1).unwrap();
     let target = compiled.execution_target.unwrap();
@@ -29,7 +29,7 @@ fn changed_runtime_cache(engine: Engine) {
         cpu.instruction_count = 0;
         for module in [&block, TestModule::interpreter()] {
             assert_eq!(
-                engine.observe(module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(
                     &image,
                     &[Step {
@@ -45,7 +45,6 @@ fn changed_runtime_cache(engine: Engine) {
     assert!(target.is_compatible_with(target, &image.cpu.segments));
     for module in [&block, TestModule::interpreter()] {
         image.check_unchanged_exit(
-            engine,
             module,
             "reused entry reads the current segment limit",
             Exit::GeneralProtection { error: 0 },
@@ -59,11 +58,5 @@ fn changed_runtime_cache(engine: Engine) {
 
 #[test]
 fn compiled_entries_reuse_only_compatible_segment_assumptions() {
-    changed_runtime_cache(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn compatible_cache_changes_are_read_in_v8() {
-    changed_runtime_cache(Engine::V8);
+    changed_runtime_cache();
 }

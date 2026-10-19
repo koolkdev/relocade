@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn resolver_faults(engine: Engine) {
+fn resolver_faults() {
     for (segment, selector, present_slot, exit) in [
         (
             Segment::Ds,
@@ -37,7 +37,6 @@ fn resolver_faults(engine: Engine) {
             );
         }
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -53,10 +52,10 @@ fn resolver_faults(engine: Engine) {
 
 #[test]
 fn failed_resolution_preserves_all_cpu_state_and_reports_the_shared_fault() {
-    resolver_faults(Engine::Wasmtime);
+    resolver_faults();
 }
 
-fn source_faults(engine: Engine) {
+fn source_faults() {
     for segment_denied in [false, true] {
         let code = [0x8e, 0x14, 0x24]; // MOV SS,[ESP].
         let mut image = Image::new(&code);
@@ -74,7 +73,6 @@ fn source_faults(engine: Engine) {
         };
         // An empty response script also proves the resolver was never called.
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
@@ -94,7 +92,6 @@ fn source_faults(engine: Engine) {
     image.data(0x8fff, &[0xa5]);
     image.data(0xa000, &[0x5a]);
     check_one(
-        engine,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
@@ -112,10 +109,10 @@ fn source_faults(engine: Engine) {
 
 #[test]
 fn operand_faults_precede_resolution_and_split_stores_do_not_partially_write() {
-    source_faults(Engine::Wasmtime);
+    source_faults();
 }
 
-fn earlier_progress(engine: Engine) {
+fn earlier_progress() {
     // MOV EAX,1; ADD EAX,1; MOV [EBX],EAX; MOV SS,ECX (non-present).
     let code = [0xb8, 1, 0, 0, 0, 0x83, 0xc0, 1, 0x89, 0x03, 0x8e, 0xd1];
     let mut image = Image::new(&code);
@@ -173,7 +170,7 @@ fn earlier_progress(engine: Engine) {
     };
     let mut wanted = expected(&image, &[first, second, third, fault()]);
     wanted.events.insert(6, event.clone());
-    assert_eq!(engine.observe(TestModule::interpreter(), &input, 4), wanted);
+    assert_eq!(TestModule::interpreter().observe(&input, 4), wanted);
     let mut blocks = BlockModules::default();
     let block = blocks.get(
         &image.cpu,
@@ -183,15 +180,15 @@ fn earlier_progress(engine: Engine) {
     );
     let mut wanted = expected(&image, &[fault()]);
     wanted.events.insert(0, event);
-    assert_eq!(engine.observe(block, &input, 1), wanted);
+    assert_eq!(block.observe(&input, 1), wanted);
 }
 
 #[test]
 fn a_resolver_fault_publishes_earlier_register_flags_store_and_retirement_progress() {
-    earlier_progress(Engine::Wasmtime);
+    earlier_progress();
 }
 
-fn invalid_extensions(engine: Engine) {
+fn invalid_extensions() {
     for (opcode, extension) in [(0x8c, 6), (0x8c, 7), (0x8e, 1), (0x8e, 6), (0x8e, 7)] {
         for mode in [0, 3] {
             // Memory mode needs an unmapped disp32 after the ModRM byte.
@@ -205,7 +202,6 @@ fn invalid_extensions(engine: Engine) {
             image.map(1, 0x3000, false);
             image.data(0x3ffe, &code);
             image.check_unchanged_exit(
-                engine,
                 TestModule::interpreter(),
                 &format!(
                     "invalid segment move opcode={opcode:02x}, extension={extension}, mode={mode}"
@@ -218,14 +214,5 @@ fn invalid_extensions(engine: Engine) {
 
 #[test]
 fn invalid_segment_encodings_are_rejected_before_address_bytes_or_source_access() {
-    invalid_extensions(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_segment_fault_ordering_restart_and_invalid_extensions() {
-    resolver_faults(Engine::V8);
-    source_faults(Engine::V8);
-    earlier_progress(Engine::V8);
-    invalid_extensions(Engine::V8);
+    invalid_extensions();
 }

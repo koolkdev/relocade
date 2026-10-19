@@ -3,10 +3,7 @@
 use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32};
 use wasmparser::{Operator, Parser, Payload};
 
-use crate::{
-    fixture::Fixture,
-    wasm::{Input, MemoryBytes, Observation, Value},
-};
+use crate::fixture::Fixture;
 
 #[test]
 fn shared_imports_do_not_change_ordinary_memory_lowering() {
@@ -144,7 +141,7 @@ fn synchronization_orders_direct_reads_and_read_only_helpers_across_memories() {
     }
 }
 
-fn check_loop(v8: bool) {
+fn check_loop() {
     let mut fixture = Fixture::new();
     let memory = fixture.shared_memory("counter", &10u32.to_le_bytes());
     let module = fixture.function(&[Type::I32], &[Type::I32], |mut body| {
@@ -165,30 +162,13 @@ fn check_loop(v8: bool) {
         body.return_(sum)
     });
     for (count, sum, counter) in [(0, 0, 10u32), (1, 20, 11), (5, 66, 13)] {
-        if v8 {
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &[Value::I32(count)])
-                        .with_memories(&[MemoryBytes::new("counter", &10u32.to_le_bytes())])
-                ),
-                Observation::returned(&[Value::I32(sum)])
-                    .with_memories(&[MemoryBytes::new("counter", &counter.to_le_bytes())])
-            );
-        } else {
-            let mut instance = module.instantiate();
-            assert_eq!(instance.call::<i32>(count).unwrap(), sum);
-            assert_eq!(&instance.memory("counter")[..4], counter.to_le_bytes());
-        }
+        let mut instance = module.instantiate();
+        assert_eq!(instance.call::<i32>(count).unwrap(), sum);
+        assert_eq!(&instance.memory("counter")[..4], counter.to_le_bytes());
     }
 }
 
 #[test]
 fn atomic_results_execute_once_per_taken_loop_path() {
-    check_loop(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_atomic_results_execute_once_per_taken_loop_path() {
-    check_loop(true);
+    check_loop();
 }

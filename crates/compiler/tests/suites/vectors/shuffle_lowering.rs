@@ -18,7 +18,7 @@ fn routing(module: &TestModule) -> (usize, usize) {
     counts
 }
 
-fn narrow(v8: bool) {
+fn narrow() {
     let left: [u8; 16] = std::array::from_fn(|byte| 0x40 + byte as u8);
     let right: [u8; 16] = std::array::from_fn(|byte| 0x80 + byte as u8);
     for group in 0..32_u8 {
@@ -53,22 +53,16 @@ fn narrow(v8: bool) {
         for offset in [48, 56, 64] {
             expected[offset..offset + 8].copy_from_slice(&result);
         }
-        check(&module, &bytes, &expected, 0, v8);
+        check(&module, &expected, 0);
     }
 }
 
 #[test]
 fn narrow_shuffles_route_logical_inputs_and_zero_all_invalid_selectors() {
-    narrow(false);
+    narrow();
 }
 
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_narrow_shuffle_lowering() {
-    narrow(true);
-}
-
-fn known_on_path(v8: bool) {
+fn known_on_path() {
     let mut bytes = vec![0xa5; 48];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
     bytes[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -90,19 +84,13 @@ fn known_on_path(v8: bool) {
     expected[32..].copy_from_slice(&[
         0x10, 0, 0xf0, 0, 0, 1, 0x32, 0xff, 0x54, 0xff, 0x76, 0, 0x98, 0xcc, 0xba, 0xcc,
     ]);
-    check(&module, &bytes, &expected, 0, v8);
-    check(&module, &bytes, &bytes, 1, v8);
+    check(&module, &expected, 0);
+    check(&module, &bytes, 1);
 }
 
 #[test]
 fn path_known_selectors_use_one_immediate_shuffle_and_preserve_zero_fill() {
-    known_on_path(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_path_known_shuffle_selectors() {
-    known_on_path(true);
+    known_on_path();
 }
 
 #[test]

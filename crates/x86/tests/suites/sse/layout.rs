@@ -38,8 +38,8 @@ fn check_layout(
     }
 }
 
-fn shuffle(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn shuffle(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, width, left, right) in [
         (&[][..], 4, SINGLE_LEFT, SINGLE_RIGHT),
         (&[0x66][..], 8, DOUBLE_LEFT, DOUBLE_RIGHT),
@@ -83,8 +83,8 @@ fn shuffle(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn unpack(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn unpack(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (prefix, opcode, left, right, result) in [
         (
             &[][..],
@@ -119,9 +119,9 @@ fn unpack(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut flat = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
-    let mut segmented = ImageSequences::new(engine, frontend, SegmentProfile::Segmented16);
+fn faults(frontend: Frontend) {
+    let mut flat = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut segmented = ImageSequences::new(frontend, SegmentProfile::Segmented16);
     for prefix in [&[][..], &[0x66][..]] {
         for opcode in [0xc6, 0x14, 0x15] {
             let mut code = encoding(prefix, opcode, 0x30);

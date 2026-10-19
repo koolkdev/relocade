@@ -6,7 +6,6 @@ mod effects;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -166,8 +165,8 @@ fn check_store(checks: &mut ImageSequences, form: Form, case: Case) {
     );
 }
 
-fn exact_forms(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exact_forms(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for form in FORMS {
         for (source, output) in [
             ((0, 0), 0),
@@ -192,8 +191,8 @@ fn exact_forms(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn rounding_modes(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn rounding_modes(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let form = FORMS[3];
     // Literal nearest-even results distinguish both sides of ties at full precision.
     for (source, floor, nearest) in [
@@ -237,8 +236,8 @@ fn rounding_modes(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn rounded_range(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn rounded_range(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (form, positive_halfway, negative_halfway) in [
         (
             FORMS[2],
@@ -304,8 +303,8 @@ fn rounded_range(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn special_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn special_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let form = FORMS[4];
     for source in [
         (TOP, 0x7fff),

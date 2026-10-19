@@ -35,8 +35,5 @@ fn physical_alias_setup_cannot_change_the_interpreted_encoding() {
         ],
     );
     machine.memory(0x4000, &[0x91], Permissions::ReadWrite);
-    machine.run(
-        crate::support::step::TestModule::interpreter(),
-        crate::support::step::Engine::Wasmtime,
-    );
+    machine.run(crate::support::step::TestModule::interpreter());
 }

@@ -15,7 +15,7 @@ fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
         .collect()
 }
 
-fn snapshot_across_call(v8: bool) {
+fn snapshot_across_call() {
     let mut initial = vec![0xa5; 65536];
     initial[65528..].copy_from_slice(&0xffff_0001_7fff_8000_u64.to_le_bytes());
     let mut fixture = Fixture::new();
@@ -53,21 +53,13 @@ fn snapshot_across_call(v8: bool) {
     let mut expected = initial.clone();
     expected[65528..].fill(0);
     expected[16..24].copy_from_slice(&0x0000_0002_8000_8001_u64.to_le_bytes());
-    if v8 {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &initial)])
-            ),
-            Observation::returned(&[]).with_memories(&[MemoryBytes::new("state", &expected)])
-        );
-    } else {
-        let mut instance = module.instantiate();
-        instance.call::<()>(()).unwrap();
-        assert_eq!(instance.memory("state"), expected);
-    }
+
+    let mut instance = module.instantiate();
+    instance.call::<()>(()).unwrap();
+    assert_eq!(instance.memory("state"), expected);
 }
 
-fn shared_scalar_read(v8: bool) {
+fn shared_scalar_read() {
     let initial = 0xffff_0001_7fff_8000_u64.to_le_bytes();
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
@@ -96,22 +88,14 @@ fn shared_scalar_read(v8: bool) {
         Value::I64(0xffff_0001_7fff_8000_u64 as i64),
         Value::I64(0x0000_0002_8000_8001),
     ];
-    if v8 {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &initial)])
-            ),
-            Observation::returned(&expected).with_memories(&[MemoryBytes::new("state", &initial)])
-        );
-    } else {
-        assert_eq!(
-            module.instantiate().call_values("run", &[]).unwrap(),
-            expected
-        );
-    }
+
+    assert_eq!(
+        module.instantiate().call_values("run", &[]).unwrap(),
+        expected
+    );
 }
 
-fn lane_stores(v8: bool) {
+fn lane_stores() {
     let mut initial = vec![0xa5; 64];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
@@ -156,31 +140,15 @@ fn lane_stores(v8: bool) {
     expected[48..56].copy_from_slice(&0x0123_4567_89ab_cdef_u64.to_le_bytes());
     expected[40] = 0xef;
     let returned = [Value::I32(0x89ab)];
-    if v8 {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[]).with_memories(&[MemoryBytes::new("state", &initial)])
-            ),
-            Observation::returned(&returned).with_memories(&[MemoryBytes::new("state", &expected)])
-        );
-    } else {
-        let mut instance = module.instantiate();
-        assert_eq!(instance.call_values("run", &[]).unwrap(), returned);
-        assert_eq!(&instance.memory("state")[..64], expected);
-    }
+
+    let mut instance = module.instantiate();
+    assert_eq!(instance.call_values("run", &[]).unwrap(), returned);
+    assert_eq!(&instance.memory("state")[..64], expected);
 }
 
 #[test]
 fn vector_memory_selection_preserves_snapshots_widths_and_shared_values() {
-    snapshot_across_call(false);
-    shared_scalar_read(false);
-    lane_stores(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_memory_selection_preserves_snapshots_widths_and_shared_values() {
-    snapshot_across_call(true);
-    shared_scalar_read(true);
-    lane_stores(true);
+    snapshot_across_call();
+    shared_scalar_read();
+    lane_stores();
 }

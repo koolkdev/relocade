@@ -1,7 +1,7 @@
 //! Refined branches retain effects and exits without redundant result transport.
 
 use crate::fixture::{signature, Fixture};
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::TestModule;
 use wasm86_compiler::{FunctionImport, MemoryImport, Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -198,34 +198,6 @@ fn a_selected_arm_keeps_the_label_needed_by_an_early_result() {
         assert_eq!(
             module.instantiate().call::<i32>((condition, early)),
             Ok(expected)
-        );
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn refined_results_preserve_snapshots_and_early_exits_in_v8() {
-    for choice in [Choice::Conditional, Choice::Switch] {
-        assert_eq!(
-            tuple(choice).run_v8(&Input::call(
-                "run",
-                &[Value::I32(1), Value::I32(7), Value::I32(11)]
-            )),
-            Observation::returned(&[Value::I32(7), Value::I32(11)])
-        );
-    }
-    assert_eq!(
-        snapshot().run_v8(
-            &Input::call("run", &[Value::I32(1)])
-                .with_memories(&[MemoryBytes::new("state", &[7, 0, 0, 0])])
-        ),
-        Observation::returned(&[Value::I32(7)])
-            .with_memories(&[MemoryBytes::new("state", &[11, 0, 0, 0])])
-    );
-    for (early, expected) in [(0, 11), (1, 7)] {
-        assert_eq!(
-            early_result().run_v8(&Input::call("run", &[Value::I32(1), Value::I32(early)])),
-            Observation::returned(&[Value::I32(expected)])
         );
     }
 }

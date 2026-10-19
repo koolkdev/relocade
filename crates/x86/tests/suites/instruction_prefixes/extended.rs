@@ -2,11 +2,11 @@
 
 use crate::support::{
     machine::{Exit, Image},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
-fn required_extended_fields(engine: Engine) {
+fn required_extended_fields() {
     for code in [
         &[0xf3, 0x0f][..],
         &[0xf3, 0x0f, 0x10],
@@ -27,7 +27,6 @@ fn required_extended_fields(engine: Engine) {
         image.map(1, 0x3000, false);
         image.data(0x4000 - code.len() as u32, code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("required F3 extended field faults before data access: {code:02x?}"),
             Exit::PageFault {
@@ -38,7 +37,7 @@ fn required_extended_fields(engine: Engine) {
     }
 }
 
-fn rejected_extended_forms(engine: Engine) {
+fn rejected_extended_forms() {
     for (code, diagnostic, exit) in [
         (&[0x0f, 0xb8][..], 0x0f, 0x0008_000f_0000_1ffe),
         (&[0xf2, 0x0f, 0xb8][..], 0xf2, 0x0008_00f2_0000_1ffd),
@@ -57,7 +56,6 @@ fn rejected_extended_forms(engine: Engine) {
         image.map(1, 0x3000, false);
         image.data(0x4000 - code.len() as u32, code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("unavailable prefixed form rejects without a ModRM fetch: {code:02x?}"),
             Exit::Other(exit),
@@ -65,7 +63,7 @@ fn rejected_extended_forms(engine: Engine) {
     }
 }
 
-fn extended_field_length_limit(engine: Engine) {
+fn extended_field_length_limit() {
     for suffix in [
         &[0xf3, 0x0f][..],
         &[0xf3, 0x0f, 0x10],
@@ -81,7 +79,6 @@ fn extended_field_length_limit(engine: Engine) {
         image.map(1, 0x3000, false);
         image.data(0x3ff1, &code);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("required extended field exceeds the instruction limit: {suffix:02x?}"),
             Exit::GeneralProtection { error: 0 },
@@ -91,26 +88,13 @@ fn extended_field_length_limit(engine: Engine) {
 
 #[test]
 fn admitted_extended_forms_require_their_opcode_and_operand_fields() {
-    required_extended_fields(Engine::Wasmtime);
-    extended_field_length_limit(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_admitted_extended_forms_require_their_opcode_and_operand_fields() {
-    required_extended_fields(Engine::V8);
-    extended_field_length_limit(Engine::V8);
+    required_extended_fields();
+    extended_field_length_limit();
 }
 
 #[test]
 fn prefix_requirements_reject_unavailable_forms_before_operand_fields() {
-    rejected_extended_forms(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_prefix_requirements_reject_unavailable_forms_before_operand_fields() {
-    rejected_extended_forms(Engine::V8);
+    rejected_extended_forms();
 }
 
 #[test]
@@ -144,7 +128,6 @@ fn f2_extended_map_rejection_respects_the_fifteen_byte_limit() {
         image.cpu.registers.ecx = 0;
         image.data(0x3ff1, &code[..15]);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             &format!("F2 escape after {prefixes} operand overrides"),
             runtime_exit,

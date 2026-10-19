@@ -48,8 +48,8 @@ fn check_binary(checks: &mut ImageSequences, opcode: u8, left: u128, right: u128
     }
 }
 
-fn faults(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn faults(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // A completed PXOR is published when the following memory operation faults.
     for opcode in [0xd4, 0xdb] {
         // PADDQ and PAND, including a known-zero result.

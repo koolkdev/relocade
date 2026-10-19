@@ -28,8 +28,8 @@ fn restored_flags(cpu: &mut CpuState, bit: u8, word: bool) {
     }
 }
 
-fn returns(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn returns(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, width) in [(&[0x64, 0x67, 0xcf][..], 2), (&[0x66, 0xcf][..], 4)] {
         for (offset, selector, flags, bit) in
             [(0_u32, 0_u16, 0_u32, 0), (0xffff, 0xffff, u32::MAX, 1)]
@@ -69,7 +69,7 @@ fn returns(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(complete_return_frames, returns);
 
-fn stack_bounds(engine: Engine, frontend: Frontend) {
+fn stack_bounds(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     for (code, sp) in [(&[0xcf][..], 0xfffb), (&[0x66, 0xcf][..], 0xfff5)] {
         let mut image = image(code);
@@ -82,7 +82,7 @@ fn stack_bounds(engine: Engine, frontend: Frontend) {
             Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
         };
         assert_eq!(
-            engine.observe(module, &input, 1),
+            module.observe(&input, 1),
             expected(
                 &image,
                 &[Step {
@@ -97,7 +97,7 @@ fn stack_bounds(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(complete_stack_capacity, stack_bounds);
 
-fn mmio_fields(engine: Engine, frontend: Frontend) {
+fn mmio_fields(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     let code = [0x66, 0x67, 0xcf];
     for offset in [0xffff_u32, 0x10000, u32::MAX] {
@@ -155,7 +155,7 @@ fn mmio_fields(engine: Engine, frontend: Frontend) {
             Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
         };
         assert_eq!(
-            engine.observe(module, &input, 1),
+            module.observe(&input, 1),
             wanted,
             "IRETD validates EIP before CS/FLAGS and transfers only the selector's low word"
         );
@@ -163,7 +163,7 @@ fn mmio_fields(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(mmio_order_and_widths, mmio_fields);
 
-fn next_entry(engine: Engine) {
+fn next_entry() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
     for target_mapped in [false, true] {
         let mut image = image(&[0xcf]);
@@ -194,7 +194,7 @@ fn next_entry(engine: Engine) {
             (&[][..], Exit::Other(0x0008_00ff_0000_0020))
         };
         assert_eq!(
-            engine.observe(module, &image.input(), 2),
+            module.observe(&image.input(), 2),
             expected(
                 &image,
                 &[
@@ -217,11 +217,5 @@ fn next_entry(engine: Engine) {
 
 #[test]
 fn target_fetch_uses_the_committed_return() {
-    next_entry(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_target_fetch_uses_the_committed_return() {
-    next_entry(Engine::V8);
+    next_entry();
 }

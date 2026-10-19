@@ -8,7 +8,7 @@ use wasmparser::Validator;
 pub(crate) fn check_unsupported_at_page_end(code: &[u8], opcode: u8) {
     use super::{
         machine::{Exit, Image},
-        step::{Engine, TestModule},
+        step::TestModule,
     };
     let address = 0x2000 - code.len() as u32;
     assert_eq!(
@@ -19,7 +19,6 @@ pub(crate) fn check_unsupported_at_page_end(code: &[u8], opcode: u8) {
     image.cpu.eip = address;
     image.data(address + 0x2000, code);
     image.check_unchanged_exit(
-        Engine::Wasmtime,
         TestModule::interpreter(),
         "invalid form is rejected before fetching trailing bytes",
         Exit::Other(0x0008_0000_0000_0000 | (u64::from(opcode) << 32) | u64::from(address)),

@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn source_faults(engine: Engine) {
+fn source_faults() {
     for stack_source in [false, true] {
         for word in [false, true] {
             for (limit, first_present, exit) in [
@@ -71,7 +71,6 @@ fn source_faults(engine: Engine) {
                 );
                 // Both destinations and the resolver remain untouched on any source fault.
                 check_one(
-                    engine,
                     ExecutionProfile::Protected(SegmentProfile::Segmented32),
                     &code,
                     &image,
@@ -89,10 +88,10 @@ fn source_faults(engine: Engine) {
 
 #[test]
 fn the_complete_pointer_segment_check_precedes_paging_and_resolution() {
-    source_faults(Engine::Wasmtime);
+    source_faults();
 }
 
-fn resolver_faults(engine: Engine) {
+fn resolver_faults() {
     for (segment, opcode, selector, present_slot, exit) in [
         (
             Segment::Ds,
@@ -141,7 +140,6 @@ fn resolver_faults(engine: Engine) {
             );
         }
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -157,10 +155,10 @@ fn resolver_faults(engine: Engine) {
 
 #[test]
 fn failed_resolution_preserves_the_destination_gpr_and_complete_segment_cache() {
-    resolver_faults(Engine::Wasmtime);
+    resolver_faults();
 }
 
-fn earlier_progress(engine: Engine) {
+fn earlier_progress() {
     // ADD EAX,1; MOV [EBX],EAX; LSS ESP,[EBX] (non-present).
     let code = [0x83, 0xc0, 1, 0x89, 0x03, 0x0f, 0xb2, 0x23];
     let mut image = Image::new(&code);
@@ -211,7 +209,7 @@ fn earlier_progress(engine: Engine) {
     };
     let mut wanted = expected(&image, &[first, second, fault()]);
     wanted.events.insert(4, event.clone());
-    assert_eq!(engine.observe(TestModule::interpreter(), &input, 3), wanted);
+    assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
     let mut blocks = BlockModules::default();
     let block = blocks.get(
         &image.cpu,
@@ -221,15 +219,15 @@ fn earlier_progress(engine: Engine) {
     );
     let mut wanted = expected(&image, &[fault()]);
     wanted.events.insert(0, event);
-    assert_eq!(engine.observe(block, &input, 1), wanted);
+    assert_eq!(block.observe(&input, 1), wanted);
 }
 
 #[test]
 fn pointer_load_faults_publish_earlier_flags_register_store_and_retirement_progress() {
-    earlier_progress(Engine::Wasmtime);
+    earlier_progress();
 }
 
-fn register_sources(engine: Engine) {
+fn register_sources() {
     for (_, opcode) in FORMS {
         let rm = 3;
         let mut code = opcode.to_vec();
@@ -243,7 +241,6 @@ fn register_sources(engine: Engine) {
             Err(wasm86_x86::BlockError::UnsupportedInstruction { .. })
         ));
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("pointer load rejects register source {code:02x?}"),
             Exit::Other((8 << 48) | (u64::from(opcode[0]) << 32) | u64::from(image.cpu.eip)),
@@ -253,14 +250,5 @@ fn register_sources(engine: Engine) {
 
 #[test]
 fn register_sources_are_rejected_by_both_decoders_before_execution() {
-    register_sources(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_pointer_load_fault_publication_and_invalid_forms() {
-    source_faults(Engine::V8);
-    resolver_faults(Engine::V8);
-    earlier_progress(Engine::V8);
-    register_sources(Engine::V8);
+    register_sources();
 }

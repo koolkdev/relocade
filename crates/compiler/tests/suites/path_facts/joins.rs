@@ -1,6 +1,5 @@
 //! Incoming facts and values remain scoped to paths that pass through a join.
 use super::*;
-use crate::wasm::MemoryBytes;
 
 #[path = "joins/facts.rs"]
 mod facts;
@@ -87,7 +86,7 @@ fn cases(use_site: Use) -> impl Iterator<Item = Case> {
     })
 }
 
-fn folded_store(v8: bool) {
+fn folded_store() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 4]);
     let module = fixture.function(
@@ -112,20 +111,10 @@ fn folded_store(v8: bool) {
                 0
             };
             let memory = result.to_le_bytes();
-            if v8 {
-                assert_eq!(
-                    module.run_v8(
-                        &Input::call("run", &[mode, input, factor].map(Value::I32))
-                            .with_memories(&[MemoryBytes::new("state", &[0; 4])])
-                    ),
-                    Observation::returned(&[Value::I32(result)])
-                        .with_memories(&[MemoryBytes::new("state", &memory)])
-                );
-            } else {
-                let mut instance = module.instantiate();
-                assert_eq!(instance.call::<i32>((mode, input, factor)), Ok(result));
-                assert_eq!(&instance.memory("state")[..4], memory);
-            }
+
+            let mut instance = module.instantiate();
+            assert_eq!(instance.call::<i32>((mode, input, factor)), Ok(result));
+            assert_eq!(&instance.memory("state")[..4], memory);
         }
     }
 }
@@ -148,24 +137,5 @@ fn joined_values_preserve_descendant_and_sibling_results() {
 
 #[test]
 fn a_folded_store_branch_reuses_its_product_after_the_join() {
-    folded_store(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_joined_values_preserve_results_and_publication() {
-    folded_store(true);
-    for use_site in [Use::Descendant, Use::Sibling] {
-        let module = joined_square(use_site);
-        for case in cases(use_site) {
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &case.arguments.map(Value::I32))
-                        .with_memories(&[MemoryBytes::new("state", &[0; 8])])
-                ),
-                Observation::returned(&[Value::I32(case.result)])
-                    .with_memories(&[MemoryBytes::new("state", &case.memory)])
-            );
-        }
-    }
+    folded_store();
 }

@@ -1,5 +1,4 @@
 use super::*;
-use wasm86_test_support::Outcome;
 
 fn pure_results(observe: bool, readonly: bool) -> TestModule {
     let mut fixture = Fixture::new();
@@ -227,27 +226,5 @@ fn unused_effectful_multi_result_calls_keep_one_ordered_transitive_invocation() 
             &expected_memory(behavior)
         );
         assert_eq!(instance.callbacks(), &expected_callbacks(behavior));
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn unused_multi_result_calls_keep_host_effects_and_explicit_traps_in_v8() {
-    for behavior in [Effect::Write, Effect::WriteThenTrap, Effect::Import] {
-        let input = Input::call("run", &[])
-            .with_memories(&[MemoryBytes::new("state", &INITIAL)])
-            .with_callbacks(&[Callback::new("receive", &RETURNED)]);
-        assert_eq!(
-            effects(behavior).run_v8(&input),
-            Observation {
-                outcome: if matches!(behavior, Effect::WriteThenTrap) {
-                    Outcome::Trap
-                } else {
-                    Outcome::Returned(vec![])
-                },
-                callbacks: expected_callbacks(behavior),
-                memories: vec![MemoryBytes::new("state", &expected_memory(behavior))],
-            }
-        );
     }
 }

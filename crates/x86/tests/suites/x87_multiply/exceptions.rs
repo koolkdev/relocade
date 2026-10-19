@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn operand_classes(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn operand_classes(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let one = (LEADING, 0x3fff);
     let infinity = (LEADING, 0x7fff);
     let snan = (LEADING | 0x123, 0x7fff);
@@ -89,8 +89,8 @@ fn operand_classes(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn stack_and_pending(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn stack_and_pending(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for empty_slot in [0, 7] {
         for masked in [false, true] {
             let code = [0xde, 0xc9, 0x9b];

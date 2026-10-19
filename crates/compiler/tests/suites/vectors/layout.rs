@@ -3,7 +3,7 @@
 use super::*;
 use wasm86_compiler::{I16, I64};
 
-fn swizzle(v8: bool) {
+fn swizzle() {
     let input: [u8; 16] = std::array::from_fn(|i| 0x80 + i as u8);
     let mut cases: Vec<([u8; 16], [u8; 16])> = (0..16)
         .map(|group| {
@@ -37,7 +37,7 @@ fn swizzle(v8: bool) {
         for offset in [32, 48, 64] {
             expected[offset..offset + 16].copy_from_slice(&result);
         }
-        check(&module, &bytes, &expected, 0, v8);
+        check(&module, &expected, 0);
     }
     let indices = [7, 8, 15, 16, 255, 0, 6, 128];
     let mut bytes = vec![0xa5; 48];
@@ -61,10 +61,10 @@ fn swizzle(v8: bool) {
     for output in [24, 32, 40] {
         expected[output..output + 8].copy_from_slice(&[0x87, 0, 0, 0, 0, 0x80, 0x86, 0]);
     }
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
-fn bit_selection(v8: bool) {
+fn bit_selection() {
     let mask = 0x00ff_aa55_f00f_0180_ffff_0000_5555_aaaa_u128;
     let mut bytes = vec![0xa5; 160];
     for (offset, value) in [(0, LEFT), (16, RIGHT), (32, mask)] {
@@ -97,10 +97,10 @@ fn bit_selection(v8: bool) {
     {
         expected[64 + i * 16..80 + i * 16].copy_from_slice(&value.to_le_bytes());
     }
-    check(&module, &bytes, &expected, 0, v8);
+    check(&module, &expected, 0);
 }
 
-fn splat(v8: bool) {
+fn splat() {
     let bytes = vec![0xa5; 128];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
@@ -134,38 +134,20 @@ fn splat(v8: bool) {
         .take(8)
         .flat_map(u128::to_le_bytes)
         .collect();
-    check(&module, &bytes, &expected, 0x1234fffd, v8);
+    check(&module, &expected, 0x1234fffd);
 }
 
 #[test]
 fn vector_swizzle_zeroes_every_out_of_range_byte_index() {
-    swizzle(false);
+    swizzle();
 }
 
 #[test]
 fn vector_selection_uses_individual_mask_bits() {
-    bit_selection(false);
+    bit_selection();
 }
 
 #[test]
 fn vector_splat_preserves_logical_lane_widths() {
-    splat(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_swizzle_zeroes_every_out_of_range_byte_index() {
-    swizzle(true);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_selection_uses_individual_mask_bits() {
-    bit_selection(true);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_vector_splat_preserves_logical_lane_widths() {
-    splat(true);
+    splat();
 }

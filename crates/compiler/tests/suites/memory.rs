@@ -2,7 +2,7 @@
 mod stores;
 
 use crate::fixture::Fixture;
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{MemoryBytes, TestModule, Value};
 
 use wasm86_compiler::{MemoryImport, MemoryInt, Program, Signature, Type, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
@@ -428,7 +428,7 @@ fn stores_in_one_memory_do_not_change_another_memory() {
     assert!(instance.callbacks().is_empty());
 }
 
-fn check_import_limits(v8: bool) {
+fn check_import_limits() {
     for shared in [false, true] {
         let mut program = Program::new();
         let memory = program.import_memory(MemoryImport {
@@ -457,27 +457,12 @@ fn check_import_limits(v8: bool) {
             vec![MemoryBytes::new("memory", &[])],
             vec![],
         );
-        if v8 {
-            assert_eq!(
-                module.run_v8(
-                    &Input::call("run", &[]).with_memories(&[MemoryBytes::new("memory", &[])])
-                ),
-                Observation::returned(&[Value::I32(73)])
-                    .with_memories(&[MemoryBytes::new("memory", &[])])
-            );
-        } else {
-            assert_eq!(module.instantiate().call::<u32>(()).unwrap(), 73);
-        }
+
+        assert_eq!(module.instantiate().call::<u32>(()).unwrap(), 73);
     }
 }
 
 #[test]
 fn private_and_shared_imports_preserve_declared_limits() {
-    check_import_limits(false);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_private_and_shared_imports_preserve_declared_limits() {
-    check_import_limits(true);
+    check_import_limits();
 }

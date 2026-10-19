@@ -7,7 +7,7 @@ use crate::support::{
 };
 use wasm86_compiler::{FunctionImport, Program, Signature, Type};
 
-fn interpreter_imports(engine: Engine) {
+fn interpreter_imports() {
     // The caller only imports interpret; its Real16 callee requires physical memory.
     let mut program = Program::new();
     let signature = Signature {
@@ -54,16 +54,10 @@ fn interpreter_imports(engine: Engine) {
             bytes: 2,
         },
     );
-    assert_eq!(engine.observe(&module, &input, 1), wanted);
+    assert_eq!(module.observe(&input, 1), wanted);
 }
 
 #[test]
 fn handoff_registers_the_real_mode_interpreters_memory_imports() {
-    interpreter_imports(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_handoff_registers_the_real_mode_interpreters_memory_imports() {
-    interpreter_imports(Engine::V8);
+    interpreter_imports();
 }

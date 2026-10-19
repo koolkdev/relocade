@@ -1,7 +1,7 @@
 use super::*;
 
-fn quotient(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn quotient(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for rc in 0..4 {
         for (left, right, result, raised) in [
             (NEG_TWO, TWO, NEG_ONE, 0),
@@ -47,8 +47,8 @@ fn quotient(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn exceptional(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn exceptional(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (left, right, result, raised, controls) in [
         (ONE, ZERO, INFINITY, 4, 0x1f80),
         (NEG_ONE, ZERO, NEG_INFINITY, 4, 0x1f80),
@@ -80,8 +80,8 @@ fn exceptional(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn packed_priority(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn packed_priority(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = encoding(&[], 0x5e, 0xc1);
     for (controls, raised) in [(0x1d80, 4), (0x1f80, 36)] {
         let mut image = floating_image(&code, controls);

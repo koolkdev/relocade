@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn call_fault_order(engine: Engine) {
+fn call_fault_order() {
     for (present, stack_limit, target_limit, exit) in [
         (false, 0x8fff, 0x1ff, Exit::Other(0x0020_0024_0000_0000)),
         (true, 0x8fff, 0x1ff, Exit::StackFault { error: 0 }),
@@ -38,7 +38,6 @@ fn call_fault_order(engine: Engine) {
                 },
             );
             check_one(
-                engine,
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
@@ -55,10 +54,10 @@ fn call_fault_order(engine: Engine) {
 
 #[test]
 fn call_checks_descriptor_then_stack_capacity_then_target_then_stack_paging() {
-    call_fault_order(Engine::Wasmtime);
+    call_fault_order();
 }
 
-fn frame_page_faults(engine: Engine) {
+fn frame_page_faults() {
     for returning in [false, true] {
         for word in [false, true] {
             let code = if returning {
@@ -131,7 +130,6 @@ fn frame_page_faults(engine: Engine) {
                     vec![SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)]
                 };
                 check_one(
-                    engine,
                     ExecutionProfile::Protected(SegmentProfile::Flat32),
                     &code,
                     &image,
@@ -149,10 +147,10 @@ fn frame_page_faults(engine: Engine) {
 
 #[test]
 fn every_frame_page_is_proved_before_stores_or_selector_resolution_for_return() {
-    frame_page_faults(Engine::Wasmtime);
+    frame_page_faults();
 }
 
-fn return_selectors(engine: Engine) {
+fn return_selectors() {
     let normal = descriptor(0xc000, 0x200, SegmentDefaultSize::Bits32);
     for (selector, slot, resolved, exit) in [
         (
@@ -265,7 +263,6 @@ fn return_selectors(engine: Engine) {
                 vec![]
             };
             check_one(
-                engine,
                 ExecutionProfile::Protected(SegmentProfile::Flat32),
                 &code,
                 &image,
@@ -282,10 +279,10 @@ fn return_selectors(engine: Engine) {
 
 #[test]
 fn return_requires_rpl_three_before_reusing_code_descriptor_rules_and_limit_checks() {
-    return_selectors(Engine::Wasmtime);
+    return_selectors();
 }
 
-fn earlier_progress(engine: Engine) {
+fn earlier_progress() {
     for returning in [false, true] {
         // The preceding store supplies the target offset. Target 2 exceeds limit 1.
         let code = [
@@ -336,7 +333,7 @@ fn earlier_progress(engine: Engine) {
         };
         let mut wanted = expected(&image, &[first, second, fault()]);
         wanted.events.insert(4, event.clone());
-        assert_eq!(engine.observe(TestModule::interpreter(), &input, 3), wanted);
+        assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
         let mut blocks = BlockModules::default();
         let module = blocks.get(
             &image.cpu,
@@ -346,20 +343,11 @@ fn earlier_progress(engine: Engine) {
         );
         let mut wanted = expected(&image, &[fault()]);
         wanted.events.insert(0, event);
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
 }
 
 #[test]
 fn faults_publish_earlier_register_flag_memory_and_retirement_progress() {
-    earlier_progress(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_call_return_faults_and_restart() {
-    call_fault_order(Engine::V8);
-    frame_page_faults(Engine::V8);
-    return_selectors(Engine::V8);
-    earlier_progress(Engine::V8);
+    earlier_progress();
 }

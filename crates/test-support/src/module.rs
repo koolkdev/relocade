@@ -1,27 +1,17 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    OnceLock,
-};
+use std::sync::OnceLock;
 
-#[cfg(test)]
-#[path = "module_tests.rs"]
-mod tests;
-
-/// Immutable Wasm bytes with lazy compilation in each test engine.
+/// Immutable Wasm bytes with lazy Wasmtime compilation.
 /// Execution hosts still create fresh stores, imports and instances per case.
 pub struct Module {
     bytes: Vec<u8>,
     compiled: OnceLock<wasmtime::Module>,
-    pub(super) id: usize,
 }
 
 impl Module {
     pub fn new(bytes: &[u8]) -> Self {
-        static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
         Self {
             bytes: bytes.into(),
             compiled: OnceLock::new(),
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 

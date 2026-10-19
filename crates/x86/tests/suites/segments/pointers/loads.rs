@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn registers_and_widths(engine: Engine) {
+fn registers_and_widths() {
     for (segment, opcode) in FORMS {
         for (profile, word, destination) in [
             (
@@ -54,7 +54,6 @@ fn registers_and_widths(engine: Engine) {
             cpu.eip += code.len() as u32;
             cpu.instruction_count = 0;
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -71,10 +70,10 @@ fn registers_and_widths(engine: Engine) {
 
 #[test]
 fn every_pointer_load_supports_both_offset_widths_and_uses_entry_addresses() {
-    registers_and_widths(Engine::Wasmtime);
+    registers_and_widths();
 }
 
-fn source_spans(engine: Engine) {
+fn source_spans() {
     for (word, split, second_frame) in [
         (true, 4, 0xa000),
         (false, 6, 0xa000),
@@ -118,7 +117,6 @@ fn source_spans(engine: Engine) {
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -134,10 +132,10 @@ fn source_spans(engine: Engine) {
 
 #[test]
 fn pointer_sources_read_exactly_four_or_six_bytes_with_split_offset_or_selector_fields() {
-    source_spans(Engine::Wasmtime);
+    source_spans();
 }
 
-fn old_address_state(engine: Engine) {
+fn old_address_state() {
     // The source uses the old destination segment, and EBP participates in its address.
     for (segment, code) in [
         (Segment::Ds, &[0x3e, 0xc5, 0x6c, 0xb5, 7][..]), // LDS EBP,DS:[EBP+ESI*4+7].
@@ -174,7 +172,6 @@ fn old_address_state(engine: Engine) {
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             code,
             &image,
@@ -190,10 +187,10 @@ fn old_address_state(engine: Engine) {
 
 #[test]
 fn both_fields_use_entry_address_registers_and_the_old_overridden_segment_cache() {
-    old_address_state(Engine::Wasmtime);
+    old_address_state();
 }
 
-fn address_boundaries(engine: Engine) {
+fn address_boundaries() {
     for wrap_linear in [false, true] {
         let code = [0x67, 0x0f, 0xb5, 0]; // LGS EAX,[BX+SI].
         let mut image = Image::new(&code);
@@ -220,7 +217,6 @@ fn address_boundaries(engine: Engine) {
         cpu.eip += 4;
         cpu.instruction_count = 0;
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
@@ -236,14 +232,5 @@ fn address_boundaries(engine: Engine) {
 
 #[test]
 fn fields_continue_past_a_16_bit_starting_offset_and_wrap_only_at_linear_32_bits() {
-    address_boundaries(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_pointer_load_values_widths_and_sources() {
-    registers_and_widths(Engine::V8);
-    source_spans(Engine::V8);
-    old_address_state(Engine::V8);
-    address_boundaries(Engine::V8);
+    address_boundaries();
 }

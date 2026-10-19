@@ -20,7 +20,7 @@ fn binary64_bits(value: f64) -> (u64, u16) {
     }
 }
 
-fn native_quotient(engine: Engine, opcode: u8) {
+fn native_quotient(opcode: u8) {
     let fop = 0x0100 | u16::from(opcode);
     let code = [
         0xdd, 0x05, 0, 0x40, 0, 0, // FLD divisor
@@ -84,7 +84,7 @@ fn native_quotient(engine: Engine, opcode: u8) {
             write_value(&mut result, 7, binary64_bits(divisor));
             write_value(&mut result, 6, binary64_bits(remainder));
             assert_eq!(
-                engine.observe(&module, &image.input(), 1),
+                module.observe(&image.input(), 1),
                 expected(&image, &[dispatch(result)]),
                 "{dividend} / {divisor}, PC={pc}, RC={rc}"
             );
@@ -92,7 +92,7 @@ fn native_quotient(engine: Engine, opcode: u8) {
     }
 }
 
-fn restart(engine: Engine, opcode: u8) {
+fn restart(opcode: u8) {
     let code = [0xd9, opcode];
     let fop = 0x0100 | u16::from(opcode);
     let compiled = Compiler::new(SegmentProfile::Flat32)
@@ -111,7 +111,6 @@ fn restart(engine: Engine, opcode: u8) {
         write_value(&mut image.cpu, 0, left);
         write_value(&mut image.cpu, 1, right);
         image.check_unchanged_exit(
-            engine,
             &block,
             "remainder restarts before current effects",
             Exit::Interpret,
@@ -122,7 +121,7 @@ fn restart(engine: Engine, opcode: u8) {
         result.x87.status.denormal = u8::from(flags == 2);
         write_value(&mut result, 0, output);
         assert_eq!(
-            engine.observe(&linked, &image.input(), 1),
+            linked.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
         );
     }
@@ -141,7 +140,7 @@ fn restart(engine: Engine, opcode: u8) {
     write_value(&mut prefix, 7, (0, 0));
     write_value(&mut prefix, 6, (LEAD, 0x3fff));
     assert_eq!(
-        engine.observe(&TestModule::new(&compiled), &image.input(), 1),
+        TestModule::new(&compiled).observe(&image.input(), 1),
         expected(
             &image,
             &[crate::support::machine::Step {
@@ -156,11 +155,9 @@ fn restart(engine: Engine, opcode: u8) {
     quotient_flags(&mut result, 0);
     write_value(&mut result, 6, INDEFINITE);
     assert_eq!(
-        engine.observe(
-            &TestModule::new(&compiled).with_interpreter(TestModule::interpreter()),
-            &image.input(),
-            1
-        ),
+        TestModule::new(&compiled)
+            .with_interpreter(TestModule::interpreter())
+            .observe(&image.input(), 1),
         expected(&image, &[dispatch(result)]),
     );
 }
@@ -168,14 +165,14 @@ fn restart(engine: Engine, opcode: u8) {
 #[test]
 fn native_division_and_control_independence() {
     for opcode in [0xf8, 0xf5] {
-        native_quotient(Engine::Wasmtime, opcode);
+        native_quotient(opcode);
     }
 }
 
 #[test]
 fn exceptional_operands_and_tiny_results_restart() {
     for opcode in [0xf8, 0xf5] {
-        restart(Engine::Wasmtime, opcode);
+        restart(opcode);
     }
 }
 
@@ -200,14 +197,5 @@ fn preserves_native_precision(opcode: u8) {
 fn remainder_preserves_native_precision_for_following_arithmetic() {
     for opcode in [0xf8, 0xf5] {
         preserves_native_precision(opcode);
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_native_and_restart() {
-    for opcode in [0xf8, 0xf5] {
-        native_quotient(Engine::V8, opcode);
-        restart(Engine::V8, opcode);
     }
 }

@@ -1,5 +1,5 @@
 use crate::fixture::Fixture;
-use crate::wasm::{Input, MemoryBytes, Observation, TestModule, Value};
+use crate::wasm::{TestModule, Value};
 use wasm86_compiler::{AtLeast, IntType, Type, Val, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
@@ -347,44 +347,5 @@ fn rotations_preserve_operand_and_count_snapshots_across_branch_writes() {
             &instance.memory("state")[..7],
             &[count, 0, 0, 0, byte, 0xa5, 0x5a]
         );
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn computed_rotations_and_count_snapshots_execute_in_v8() {
-    let module = count_snapshot();
-    for (branch, expected, count, byte) in [(1, 4, 8, 0x55), (0, 0xc1, 16, 0x66)] {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[Value::I32(branch)])
-                    .with_memories(&[MemoryBytes::new("state", &[1, 0, 0, 0, 0x81, 0xa5, 0x5a])])
-            ),
-            Observation::returned(&[Value::I32(expected)]).with_memories(&[MemoryBytes::new(
-                "state",
-                &[count, 0, 0, 0, byte, 0xa5, 0x5a]
-            )])
-        );
-    }
-    for rotate_left in [false, true] {
-        let module = Fixture::new().expression(&[Type::I64, Type::I32], |body| {
-            let input = body.parameter::<I64>(0).unwrap();
-            let count = body.parameter::<I32>(1).unwrap();
-            if rotate_left {
-                input.rotl(count)
-            } else {
-                input.rotr(count)
-            }
-        });
-        for &(input, count, left, right) in QWORD {
-            let expected = if rotate_left { left } else { right };
-            assert_eq!(
-                module.run_v8(&Input::call(
-                    "run",
-                    &[Value::I64(input as i64), Value::I32(count as i32)]
-                )),
-                Observation::returned(&[Value::I64(expected as i64)])
-            );
-        }
     }
 }

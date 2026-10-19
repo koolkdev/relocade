@@ -4,7 +4,7 @@ use crate::support::{
     encoding::check_length,
     machine::{Exit, Image},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, Gpr32::*};
 use wasmparser::{Parser, Payload, TypeRef};
@@ -102,7 +102,6 @@ fn register_only_modrm_forms_are_unsupported_without_extra_fetches() {
         image.cpu.eip = start;
         image.data(0x3000 + (start & 0xfff), code);
         image.check_unchanged_exit(
-            Engine::Wasmtime,
             TestModule::interpreter(),
             "LEA rejects mod=3 at the final mapped byte",
             Exit::Other(exit),

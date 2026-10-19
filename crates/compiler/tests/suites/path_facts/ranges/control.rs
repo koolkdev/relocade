@@ -82,19 +82,3 @@ fn a_new_memory_snapshot_does_not_inherit_an_earlier_range() {
     });
     assert_eq!(module.instantiate().call::<i32>(()), Ok(1));
 }
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_range_facts_preserve_control_flow_boundaries() {
-    let module = sibling_and_join();
-    for (input, expected) in [(9, 11), (19, 12), (20, 3)] {
-        check_result(&module, &[Value::I32(input)], &[Value::I32(expected)], true);
-    }
-    check_result(&loop_ranges(), &[], &[Value::I32(70)], true);
-    check_result(
-        &bypass(),
-        &[Value::I32(1), Value::I32(30)],
-        &[Value::I32(2)],
-        true,
-    );
-}

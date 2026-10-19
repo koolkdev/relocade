@@ -210,32 +210,6 @@ fn dynamic_unsigned_bounds_preserve_strict_endpoints_and_signed_comparisons() {
 }
 
 #[test]
-#[ignore = "requires Node.js with V8"]
-fn unsigned_range_specialization_executes_in_v8() {
-    let module = interval();
-    for (input, result) in [(9, 100), (10, 11), (19, 11), (20, 200), (-1, 200)] {
-        check_result(&module, &[Value::I64(input)], &[Value::I32(result)], true);
-    }
-    let module = narrowed_input();
-    for input in [0_i32, 6, 245, i32::MIN, -1] {
-        check_result(
-            &module,
-            &[Value::I32(input)],
-            &[
-                Value::I32(1),
-                Value::I32(i32::from(input.wrapping_add(250) as u8)),
-                Value::I32(input),
-            ],
-            true,
-        );
-    }
-    let module = nonzero_endpoint();
-    for (input, result) in [(0, 11), (1, 7), (-1, 7)] {
-        check_result(&module, &[Value::I32(input)], &[Value::I32(result)], true);
-    }
-}
-
-#[test]
 fn nested_intervals_include_swapped_and_extreme_endpoints() {
     let module = Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
         let input = body.parameter::<I64>(0)?;

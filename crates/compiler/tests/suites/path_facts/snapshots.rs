@@ -1,5 +1,5 @@
 use super::*;
-use crate::{fixture::signature, wasm::MemoryBytes};
+use crate::fixture::signature;
 
 fn joined_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
@@ -57,24 +57,6 @@ fn rewritten_call_arguments_preserve_snapshots_and_result_grouping() {
         assert_eq!(
             module.instantiate().call::<(i32, i32)>((flag,)),
             Ok(expected)
-        );
-    }
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_rewritten_edges_preserve_snapshots() {
-    for (module, expected) in [
-        (joined_snapshot(), vec![Value::I32(6)]),
-        (call_snapshot(), vec![Value::I32(6), Value::I32(7)]),
-    ] {
-        assert_eq!(
-            module.run_v8(
-                &Input::call("run", &[Value::I32(1)])
-                    .with_memories(&[MemoryBytes::new("state", &[5, 0, 0, 0])])
-            ),
-            Observation::returned(&expected)
-                .with_memories(&[MemoryBytes::new("state", &[99, 0, 0, 0])])
         );
     }
 }

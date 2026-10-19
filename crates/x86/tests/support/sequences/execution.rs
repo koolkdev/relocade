@@ -8,13 +8,13 @@ use crate::support::{
     },
     execution::Frontend,
     guest::Exit,
-    step::{Engine, TestModule},
+    step::TestModule,
 };
 
-pub(crate) fn check(cases: &[SequenceCase], engine: Engine, frontend: Frontend) {
+pub(crate) fn check(cases: &[SequenceCase], frontend: Frontend) {
     assert!(!cases.is_empty(), "a sequence group must not be empty");
     let mut blocks = BlockModules::default();
-    let mut flags = FlagObservations::new(engine);
+    let mut flags = FlagObservations::new();
     for case in cases {
         validate(case);
         let mut code = case
@@ -31,15 +31,15 @@ pub(crate) fn check(cases: &[SequenceCase], engine: Engine, frontend: Frontend) 
                 flags.initial(
                     initial.cpu,
                     values,
-                    format!("{} [{engine:?}, initial stored flags]", case.name),
+                    format!("{} [initial stored flags]", case.name),
                 );
             }
         }
         for profile in case.profiles.for_cpu(&initial.cpu) {
             if matches!(frontend, Frontend::Block) {
                 let block = blocks.get(&initial.cpu, &code, limit, profile);
-                let execution = machine.run(block, engine);
-                let context = format!("{} [{engine:?}, {profile:?} block]", case.name);
+                let execution = machine.run(block);
+                let context = format!("{} [{profile:?} block]", case.name);
                 let mut final_state = FinalExpectation::new(case);
                 let completed = if execution.exit == Exit::Interpret {
                     let completed = execution
@@ -86,7 +86,6 @@ pub(crate) fn check(cases: &[SequenceCase], engine: Engine, frontend: Frontend) 
             }
             let executions = machine.run_many(
                 TestModule::interpreter_with_profile(profile),
-                engine,
                 case.checkpoints.len(),
             );
             let mut before = &initial;
@@ -94,7 +93,7 @@ pub(crate) fn check(cases: &[SequenceCase], engine: Engine, frontend: Frontend) 
                 case.checkpoints.iter().zip(&executions).enumerate()
             {
                 let context = format!(
-                    "{} [{engine:?}, {profile:?} interpreter, checkpoint {}]",
+                    "{} [{profile:?} interpreter, checkpoint {}]",
                     case.name,
                     index + 1
                 );

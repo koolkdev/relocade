@@ -1,6 +1,6 @@
 use wasm86_x86::{page_table, CpuState, Exception, ExecutionExit, Registers, Segments};
 
-use super::step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use super::step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 
 pub(crate) struct Image {
     pub(crate) cpu: CpuState,
@@ -60,15 +60,9 @@ impl Image {
 
     /// Expect one exit with the entire CPU record and both memories unchanged.
     #[track_caller]
-    pub(crate) fn check_unchanged_exit(
-        &self,
-        engine: Engine,
-        module: &TestModule,
-        name: &str,
-        exit: Exit,
-    ) {
+    pub(crate) fn check_unchanged_exit(&self, module: &TestModule, name: &str, exit: Exit) {
         assert_eq!(
-            engine.observe(module, &self.input(), 1),
+            module.observe(&self.input(), 1),
             expected(
                 self,
                 &[Step {

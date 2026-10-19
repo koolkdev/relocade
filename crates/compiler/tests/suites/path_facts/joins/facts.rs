@@ -51,7 +51,7 @@ fn common_comparison() -> TestModule {
     )
 }
 
-fn check_constant_results(v8: bool) {
+fn check_constant_results() {
     let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
         let branch = body.parameter::<I1>(0)?;
         let mode = body.parameter::<I32>(1)?;
@@ -73,12 +73,11 @@ fn check_constant_results(v8: bool) {
             &module,
             &[Value::I32(branch), Value::I32(mode)],
             &[Value::I32(expected)],
-            v8,
         );
     }
 }
 
-fn check_common_bits(v8: bool) {
+fn check_common_bits() {
     let module = common_bits();
     assert_eq!(count(&module, |op| matches!(op, Operator::Select)), 0);
     for (mode, input, expected) in [(1, 1, 11), (0, 3, 11), (1, 3, 7), (0, 1, 9), (0, -1, 11)] {
@@ -86,12 +85,11 @@ fn check_common_bits(v8: bool) {
             &module,
             &[Value::I32(mode), Value::I32(input)],
             &[Value::I32(expected)],
-            v8,
         );
     }
 }
 
-fn check_common_ranges(v8: bool) {
+fn check_common_ranges() {
     let module = common_ranges();
     assert_eq!(count(&module, |op| matches!(op, Operator::Select)), 1);
     for (mode, input, expected) in [
@@ -107,12 +105,11 @@ fn check_common_ranges(v8: bool) {
             &module,
             &[Value::I32(mode), Value::I32(input)],
             &[Value::I32(expected)],
-            v8,
         );
     }
 }
 
-fn check_common_comparison(v8: bool) {
+fn check_common_comparison() {
     let module = common_comparison();
     assert_eq!(count(&module, |op| matches!(op, Operator::Select)), 0);
     for (mode, left, right, expected) in
@@ -122,36 +119,26 @@ fn check_common_comparison(v8: bool) {
             &module,
             &[Value::I32(mode), Value::I32(left), Value::I32(right)],
             &[Value::I32(expected)],
-            v8,
         );
     }
 }
 
 #[test]
 fn joined_bit_facts_keep_only_agreeing_bits() {
-    check_common_bits(false);
+    check_common_bits();
 }
 
 #[test]
 fn joined_ranges_cover_both_incoming_intervals() {
-    check_common_ranges(false);
+    check_common_ranges();
 }
 
 #[test]
 fn joined_comparisons_preserve_common_outcomes() {
-    check_common_comparison(false);
+    check_common_comparison();
 }
 
 #[test]
 fn a_guard_makes_both_result_arms_constant() {
-    check_constant_results(false);
-}
-
-#[test]
-#[ignore = "requires Node.js with V8"]
-fn v8_common_join_facts_preserve_results() {
-    check_constant_results(true);
-    check_common_bits(true);
-    check_common_ranges(true);
-    check_common_comparison(true);
+    check_constant_results();
 }

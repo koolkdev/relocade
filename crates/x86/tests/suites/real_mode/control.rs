@@ -1,7 +1,7 @@
 use super::*;
 
-fn jumps(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn jumps(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, offset, selector) in [
         (&[0xea, 0x34, 0x12, 0, 0][..], 0x1234, 0),
         (
@@ -45,8 +45,8 @@ fn jumps(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(jump_targets, jumps);
 
-fn calls(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn calls(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, sp, frame, saved) in [
         (&[0x9a, 0x34, 0x12, 0, 0][..], 6, 2, &[5, 0x10, 0, 2][..]),
         (
@@ -101,8 +101,8 @@ fn calls(engine: Engine, frontend: Frontend) {
 }
 test_frontends!(far_call_frames, calls);
 
-fn returns(engine: Engine, frontend: Frontend) {
-    let mut cases = sequences(engine, frontend);
+fn returns(frontend: Frontend) {
+    let mut cases = sequences(frontend);
     for (code, frame, sp, next_sp, target, selector) in [
         (
             &[0xcb][..],

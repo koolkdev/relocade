@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn quotients(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn quotients(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for source in [
         Source::Single(0x4040_0000),
         Source::Double(0x4008_0000_0000_0000),
@@ -49,8 +49,8 @@ fn quotients(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn source_exceptions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn source_exceptions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for source in [
         Source::Single(0x8000_0000),
         Source::Double(0x8000_0000_0000_0000),

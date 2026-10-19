@@ -11,8 +11,8 @@ const MIXED: [u8; 12] = [
     0x0f, 0xf9, 0xc3, // PSUBW mm0,mm3
 ];
 
-fn chains(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn chains(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     let code = [0x0f, 0xfd, 0xc1].repeat(8);
     let mut initial = image(&code);
     write_register_bits(&mut initial.cpu, 0, (0x7ffe_fffe_8000_0001, 0x1234));

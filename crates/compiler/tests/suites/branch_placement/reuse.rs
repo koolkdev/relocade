@@ -1,7 +1,6 @@
 //! Share surviving scalar work across control-flow exits.
 
 use super::*;
-use crate::wasm::{Input, Observation};
 use wasm86_compiler::{I64, I8};
 
 fn count(module: &TestModule, predicate: impl Fn(&Operator<'_>) -> bool) -> usize {
@@ -29,7 +28,7 @@ fn accumulator(depth: u32) -> TestModule {
     })
 }
 
-fn accumulator_results(v8: bool) {
+fn accumulator_results() {
     for depth in [1, 4, 16, 32] {
         let module = accumulator(depth);
         assert_eq!(
@@ -52,17 +51,11 @@ fn accumulator_results(v8: bool) {
                     Value::I32(seed as i32),
                 ];
                 let expected = [Value::I32(expected as i32)];
-                if v8 {
-                    assert_eq!(
-                        module.run_v8(&Input::call("run", &args)),
-                        Observation::returned(&expected)
-                    );
-                } else {
-                    assert_eq!(
-                        module.instantiate().call_values("run", &args).unwrap(),
-                        expected
-                    );
-                }
+
+                assert_eq!(
+                    module.instantiate().call_values("run", &args).unwrap(),
+                    expected
+                );
             }
         }
     }
@@ -70,7 +63,7 @@ fn accumulator_results(v8: bool) {
 
 #[test]
 fn successive_exits_share_each_accumulator_update_once() {
-    accumulator_results(false);
+    accumulator_results();
 }
 
 #[test]
@@ -99,10 +92,4 @@ fn shared_narrow_values_retain_their_full_wasm_carrier() {
             );
         }
     }
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn surviving_calculations_execute_in_v8() {
-    accumulator_results(true);
 }

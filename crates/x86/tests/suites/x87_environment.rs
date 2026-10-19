@@ -9,7 +9,6 @@ use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{dispatch, set_control, stack_image, status, write_register_bits},
 };
 use wasm86_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
@@ -87,7 +86,7 @@ fn retire(mut cpu: CpuState, bytes: usize) -> CpuState {
     cpu
 }
 
-fn save_formats(engine: Engine, frontend: Frontend) {
+fn save_formats(frontend: Frontend) {
     // Literal fields from Intel Vol. 1 Figures 8-9 through 8-12. The pointers
     // exercise both selector addition and the split real-address high bits.
     let words = [
@@ -123,7 +122,7 @@ fn save_formats(engine: Engine, frontend: Frontend) {
         set_control(&mut cpu.x87.control, 0x0b7f);
         cpu.x87.status = status(0x6b21);
         let bytes = format.bytes(words);
-        ImageSequences::new(engine, frontend, format.profile()).check(
+        ImageSequences::new(frontend, format.profile()).check(
             &format!("FNSTENV {format:?} saves pre-mask state without waiting"),
             &code,
             &image,
@@ -154,7 +153,7 @@ fn register_classes(cpu: &mut CpuState) {
     }
 }
 
-fn load_formats(engine: Engine, frontend: Frontend) {
+fn load_formats(frontend: Frontend) {
     let words = [
         [0x045a, 0xffca, 0xeaaa, 0x5678, 0x1357, 0xcdef, 0x2468],
         [
@@ -210,7 +209,7 @@ fn load_formats(engine: Engine, frontend: Frontend) {
                 cpu.x87.opcode = 0x0654;
             }
         }
-        ImageSequences::new(engine, frontend, format.profile()).check(
+        ImageSequences::new(frontend, format.profile()).check(
             &format!(
                 "FLDENV {format:?} reclassifies occupied registers and ignores reserved fields"
             ),

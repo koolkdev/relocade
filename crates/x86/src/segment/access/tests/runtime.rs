@@ -1,24 +1,18 @@
 use super::*;
 use crate::SegmentProfile;
 use crate::{
-    test_step::{Argument, Engine, Event, Input, Observation, Outcome, Snapshot, TestModule},
+    test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
     CpuState, StoredSegment,
 };
 
-fn expect_address(
-    engine: Engine,
-    module: &TestModule,
-    cpu: CpuState,
-    choice: i32,
-    address_or_fault: i64,
-) {
+fn expect_address(module: &TestModule, cpu: CpuState, choice: i32, address_or_fault: i64) {
     let bytes = cpu.to_bytes().to_vec();
     let input = Input {
         arguments: vec![Argument::I32(choice), Argument::I32(0x20)],
         ..Input::new(&bytes)
     };
     assert_eq!(
-        engine.observe(module, &input, 1),
+        module.observe(&input, 1),
         Observation {
             events: vec![Event::Return {
                 outcome: Outcome::Returned(vec![Argument::I64(address_or_fault)]),
@@ -33,7 +27,7 @@ fn expect_address(
     );
 }
 
-fn check_segment_indices(engine: Engine) {
+fn check_segment_indices() {
     let mut cpu = CpuState::default();
     cpu.segments.fs = StoredSegment {
         base: 0x8000,
@@ -62,7 +56,7 @@ fn check_segment_indices(engine: Engine) {
             (4, 0x8020),
             (5, 2 << 48),
         ] {
-            expect_address(engine, &module, cpu, choice, expected);
+            expect_address(&module, cpu, choice, expected);
         }
     }
     let read = TestModule::new(&translation(
@@ -77,10 +71,10 @@ fn check_segment_indices(engine: Engine) {
         Intent::Read,
         Some(SegmentSelection::indexed),
     ));
-    expect_address(engine, &segmented_read, cpu, 1, 2 << 48);
+    expect_address(&segmented_read, cpu, 1, 2 << 48);
     cpu.segments.cs = StoredSegment::flat_code32(0);
     cpu.segments.fs.limit = 0x22;
-    expect_address(engine, &read, cpu, 4, 2 << 48);
+    expect_address(&read, cpu, 4, 2 << 48);
 
     let address_default = TestModule::new(&translation(
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
@@ -89,21 +83,15 @@ fn check_segment_indices(engine: Engine) {
     ));
     cpu.segments.ds.base = 0x4000;
     cpu.segments.ss.base = 0x8000;
-    expect_address(engine, &address_default, cpu, 0, 0x8020);
-    expect_address(engine, &address_default, cpu, 1, 0x4020);
+    expect_address(&address_default, cpu, 0, 0x8020);
+    expect_address(&address_default, cpu, 1, 0x4020);
     cpu.segments.ss.limit = 0x22;
-    expect_address(engine, &address_default, cpu, 0, 16 << 48);
+    expect_address(&address_default, cpu, 0, 16 << 48);
     cpu.segments.ds.limit = 0x22;
-    expect_address(engine, &address_default, cpu, 1, 2 << 48);
+    expect_address(&address_default, cpu, 1, 2 << 48);
 }
 
 #[test]
 fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
-    check_segment_indices(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_runtime_overrides_and_defaults_preserve_translation_and_faults() {
-    check_segment_indices(Engine::V8);
+    check_segment_indices();
 }

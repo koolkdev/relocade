@@ -6,7 +6,6 @@ mod sequences;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
-    step::Engine,
     x87::{
         complete_x87, dispatch, register_bits, set_control, stack_image, write_value, INDEFINITE,
     },
@@ -25,8 +24,8 @@ fn initial_image(code: &[u8]) -> Image {
     image
 }
 
-fn conditions(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn conditions(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     // Truth-table bits are indexed by CF + 2*ZF + 4*PF.
     for (instruction, truth) in [
         ([0xda, 0xc2], 0xaa_u8), // B
@@ -59,8 +58,8 @@ fn conditions(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn raw_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn raw_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for value in [
         (0, 0x8000),
         (0x8000_0000_0000_0001, 0x7fff), // SNaN
@@ -102,9 +101,9 @@ fn raw_values(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn stack_faults(engine: Engine, frontend: Frontend) {
+fn stack_faults(frontend: Frontend) {
     let code = [0xda, 0xc1, 0x9b];
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for empty in [1, 2, 3] {
         for taken in [false, true] {
             for masked in [false, true] {

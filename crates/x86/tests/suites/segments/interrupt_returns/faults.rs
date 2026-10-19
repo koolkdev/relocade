@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn stack_faults(engine: Engine) {
+fn stack_faults() {
     for word in [false, true] {
         let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
         for (start, limit, mapped, fault_address, capacity_fault) in [
@@ -36,7 +36,6 @@ fn stack_faults(engine: Engine) {
                 image.data(0xa000 + (start & 0xfff), &bytes[..available]);
             }
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -60,10 +59,10 @@ fn stack_faults(engine: Engine) {
 
 #[test]
 fn complete_frame_capacity_and_all_three_reads_precede_selector_validation() {
-    stack_faults(Engine::Wasmtime);
+    stack_faults();
 }
 
-fn selector_faults(engine: Engine) {
+fn selector_faults() {
     let normal = descriptor(0xc000, 0x200, SegmentDefaultSize::Bits32);
     for (selector, descriptor, resolved, exit) in [
         (
@@ -178,7 +177,6 @@ fn selector_faults(engine: Engine) {
                 cpu.instruction_count = 0;
             }
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -195,10 +193,10 @@ fn selector_faults(engine: Engine) {
 
 #[test]
 fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs() {
-    selector_faults(Engine::Wasmtime);
+    selector_faults();
 }
 
-fn nested_task(engine: Engine) {
+fn nested_task() {
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
@@ -213,7 +211,6 @@ fn nested_task(engine: Engine) {
                 image.cpu.segments.ss = crate::StoredSegment::unusable(0);
             }
             check_one(
-                engine,
                 profile,
                 &code,
                 &image,
@@ -230,13 +227,5 @@ fn nested_task(engine: Engine) {
 
 #[test]
 fn entry_nt_reports_unsupported_before_stack_checks_without_retiring() {
-    nested_task(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interrupt_return_fault_order_and_nested_task_exit() {
-    stack_faults(Engine::V8);
-    selector_faults(Engine::V8);
-    nested_task(Engine::V8);
+    nested_task();
 }

@@ -33,7 +33,7 @@ fn snapshot_forms_require_every_field_and_end_the_block() {
     }
 }
 
-fn missing_fields(engine: Engine) {
+fn missing_fields() {
     for (code, available) in [
         (immediate(false, 0x9234_5678, 0xf327), 3), // Offset.
         (immediate(true, 0x5678, 0xf327), 5),       // Selector.
@@ -45,7 +45,6 @@ fn missing_fields(engine: Engine) {
         image.map(1, 0x3000, false);
         image.data(0x4000 - available as u32, &code[..available]);
         image.check_unchanged_exit(
-            engine,
             TestModule::interpreter(),
             &format!("far control fields {code:02x?}, available {available}"),
             Exit::PageFault {
@@ -58,10 +57,10 @@ fn missing_fields(engine: Engine) {
 
 #[test]
 fn incomplete_pointer_displacement_or_cleanup_faults_before_data_or_descriptor_checks() {
-    missing_fields(Engine::Wasmtime);
+    missing_fields();
 }
 
-fn complete_fields(engine: Engine) {
+fn complete_fields() {
     for (returning, word, split) in [
         (false, false, 3), // Dword offset crosses the page.
         (false, true, 5),  // Word pointer's selector crosses the page.
@@ -98,7 +97,6 @@ fn complete_fields(engine: Engine) {
             vec![(if word { 0x8004 } else { 0x8000 }, saved.as_slice())]
         };
         check_one(
-            engine,
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
@@ -114,10 +112,10 @@ fn complete_fields(engine: Engine) {
 
 #[test]
 fn immediate_pointers_and_return_cleanup_cross_instruction_pages_in_order() {
-    complete_fields(Engine::Wasmtime);
+    complete_fields();
 }
 
-fn length_and_register_modes(engine: Engine) {
+fn length_and_register_modes() {
     for returning in [false, true] {
         for length in [15, 16] {
             let suffix = if returning {
@@ -136,7 +134,6 @@ fn length_and_register_modes(engine: Engine) {
                     Some(BlockError::InstructionTooLong { address: 0x1ff1 })
                 );
                 image.check_unchanged_exit(
-                    engine,
                     TestModule::interpreter(),
                     &format!("far control exceeds fifteen bytes, returning={returning}"),
                     Exit::GeneralProtection { error: 0 },
@@ -153,7 +150,6 @@ fn length_and_register_modes(engine: Engine) {
                     &[(0x8000, &[0, 0x20, 0, 0, 0x1b, 0])]
                 };
                 check_one(
-                    engine,
                     ExecutionProfile::Protected(SegmentProfile::Flat32),
                     &code,
                     &image,
@@ -179,7 +175,6 @@ fn length_and_register_modes(engine: Engine) {
         })
     );
     image.check_unchanged_exit(
-        engine,
         TestModule::interpreter(),
         "far CALL rejects a register operand",
         Exit::Other(0x0008_00ff_0000_1ffe),
@@ -188,13 +183,5 @@ fn length_and_register_modes(engine: Engine) {
 
 #[test]
 fn byte_sixteen_and_register_mode_far_calls_are_rejected_before_data_access() {
-    length_and_register_modes(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_far_call_return_fetch_and_invalid_forms() {
-    missing_fields(Engine::V8);
-    complete_fields(Engine::V8);
-    length_and_register_modes(Engine::V8);
+    length_and_register_modes();
 }

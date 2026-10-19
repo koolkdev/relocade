@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn earlier_progress(engine: Engine) {
+fn earlier_progress() {
     for nested_task in [false, true] {
         // ADD EAX,1; prefixed IRETD; unsupported trailing byte beyond the block end.
         let code = [0x83, 0xc0, 1, 0x67, 0xcf, 0xf4];
@@ -34,7 +34,7 @@ fn earlier_progress(engine: Engine) {
             },
         };
         assert_eq!(
-            engine.observe(TestModule::interpreter(), &image.input(), 2),
+            TestModule::interpreter().observe(&image.input(), 2),
             expected(
                 &image,
                 &[
@@ -50,7 +50,7 @@ fn earlier_progress(engine: Engine) {
         let mut blocks = BlockModules::default();
         let block = blocks.get(&image.cpu, &code, 3, profile);
         assert_eq!(
-            engine.observe(block, &image.input(), 1),
+            block.observe(&image.input(), 1),
             expected(&image, &[fault()])
         );
     }
@@ -58,10 +58,10 @@ fn earlier_progress(engine: Engine) {
 
 #[test]
 fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructions() {
-    earlier_progress(Engine::Wasmtime);
+    earlier_progress();
 }
 
-fn dispatch_and_fetch(engine: Engine) {
+fn dispatch_and_fetch() {
     let code = [0xcf, 0xf4];
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
     let mut image = image(&code, profile);
@@ -107,7 +107,7 @@ fn dispatch_and_fetch(engine: Engine) {
         blocks.get(&image.cpu, &code, 2, profile),
         TestModule::interpreter_with_profile(profile),
     ] {
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
     image.cpu = cpu;
     let step = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
@@ -115,7 +115,6 @@ fn dispatch_and_fetch(engine: Engine) {
     ));
     // Destination fetch belongs to the next entry, even when restored NT is set.
     image.check_unchanged_exit(
-        engine,
         step,
         "destination fetch precedes checking restored NT",
         Exit::PageFault {
@@ -126,7 +125,6 @@ fn dispatch_and_fetch(engine: Engine) {
     image.map(0xc, 0x5000, false);
     image.data(0x5200, &[0xcf]);
     image.check_unchanged_exit(
-        engine,
         step,
         "restored NT applies at the next IRET",
         Exit::Other(0x0008_00cf_0000_0200),
@@ -135,10 +133,10 @@ fn dispatch_and_fetch(engine: Engine) {
 
 #[test]
 fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
-    dispatch_and_fetch(Engine::Wasmtime);
+    dispatch_and_fetch();
 }
 
-fn flags_from_instructions(engine: Engine) {
+fn flags_from_instructions() {
     // POPFD loads NT; IRET must observe that definition before any stack access.
     let code = [0x9d, 0xcf];
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
@@ -157,7 +155,7 @@ fn flags_from_instructions(engine: Engine) {
         exit: Exit::Other(0x0008_00cf_0000_1001),
     };
     assert_eq!(
-        engine.observe(TestModule::interpreter(), &image.input(), 2),
+        TestModule::interpreter().observe(&image.input(), 2),
         expected(
             &image,
             &[
@@ -173,17 +171,17 @@ fn flags_from_instructions(engine: Engine) {
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 2, profile);
     assert_eq!(
-        engine.observe(block, &image.input(), 1),
+        block.observe(&image.input(), 1),
         expected(&image, &[unsupported()])
     );
 }
 
 #[test]
 fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
-    flags_from_instructions(Engine::Wasmtime);
+    flags_from_instructions();
 }
 
-fn fetch_boundary(engine: Engine) {
+fn fetch_boundary() {
     for (length, suffix) in [(1, 0xcf), (15, 0xcf), (16, 0xcf)] {
         let code = [vec![0x67; length - 1], vec![suffix]].concat();
         let mut image = image(&[], ExecutionProfile::Protected(SegmentProfile::Flat32));
@@ -197,7 +195,6 @@ fn fetch_boundary(engine: Engine) {
         };
         if length <= 15 {
             check_one(
-                engine,
                 ExecutionProfile::Protected(SegmentProfile::Flat32),
                 &code,
                 &image,
@@ -214,7 +211,6 @@ fn fetch_boundary(engine: Engine) {
                 Err(crate::BlockError::InstructionTooLong { address: 0x1ff1 })
             ));
             image.check_unchanged_exit(
-                engine,
                 TestModule::interpreter(),
                 "IRET exceeds fifteen bytes before checking NT",
                 exit,
@@ -226,7 +222,6 @@ fn fetch_boundary(engine: Engine) {
     image.cpu.flags.bytes.nt = 1;
     image.data(0x3fff, &[0x66]);
     image.check_unchanged_exit(
-        engine,
         TestModule::interpreter(),
         "IRET prefix fetch precedes checking NT",
         Exit::PageFault {
@@ -238,14 +233,5 @@ fn fetch_boundary(engine: Engine) {
 
 #[test]
 fn complete_fetch_precedes_nt_and_byte_sixteen_is_rejected() {
-    fetch_boundary(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_interrupt_return_progress_flags_and_fetch() {
-    earlier_progress(Engine::V8);
-    dispatch_and_fetch(Engine::V8);
-    flags_from_instructions(Engine::V8);
-    fetch_boundary(Engine::V8);
+    fetch_boundary();
 }

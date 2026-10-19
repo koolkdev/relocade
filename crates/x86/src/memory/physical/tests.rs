@@ -11,7 +11,7 @@ use crate::{
     alu::OperandUpdate,
     memory::{Intent, Memory},
     state::exit,
-    test_step::{Argument, Engine, Event, Input, Outcome, TestModule},
+    test_step::{Argument, Event, Input, Outcome, TestModule},
     CompiledModule,
 };
 
@@ -91,7 +91,7 @@ fn input() -> Input {
     }
 }
 
-fn widths(engine: Engine, mmio: bool) {
+fn widths(mmio: bool) {
     for (bits, expected_read, written) in [
         (8, 0x88, &[0x91][..]),
         (16, 0x7788, &[0x91, 0xa2][..]),
@@ -122,7 +122,7 @@ fn widths(engine: Engine, mmio: bool) {
                     Argument::I32(i64::from_le_bytes(value) as i32)
                 });
             }
-            let observed = engine.observe(&module, &input, 1);
+            let observed = module.observe(&input, 1);
             assert_eq!(observed.events.len(), if mmio { 2 } else { 1 });
             if mmio {
                 assert_eq!(
@@ -172,7 +172,7 @@ fn widths(engine: Engine, mmio: bool) {
     }
 }
 
-fn updates(engine: Engine) {
+fn updates() {
     for matches in [false, true] {
         let mut program = Program::new();
         let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
@@ -243,7 +243,7 @@ fn updates(engine: Engine) {
         });
         let mut input = input();
         input.mmio_pages = vec![(1, 0x3000), (2, 0x5000), (8, 0x6000)];
-        let observed = engine.observe(&module, &input, 1);
+        let observed = module.observe(&input, 1);
         assert_eq!(
             &observed.events[..3],
             &[
@@ -277,15 +277,7 @@ fn updates(engine: Engine) {
 
 #[test]
 fn widths_crossings_and_callback_effects() {
-    widths(Engine::Wasmtime, false);
-    widths(Engine::Wasmtime, true);
-    updates(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_widths_crossings_and_callback_effects() {
-    widths(Engine::V8, false);
-    widths(Engine::V8, true);
-    updates(Engine::V8);
+    widths(false);
+    widths(true);
+    updates();
 }

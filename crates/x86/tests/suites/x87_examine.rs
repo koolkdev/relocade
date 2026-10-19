@@ -3,7 +3,6 @@
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
-    step::Engine,
     x87::{complete_x87, dispatch, set_control, stack_image, write_register_bits, write_value},
 };
 use wasm86_x86::{CpuState, SegmentProfile};
@@ -15,9 +14,9 @@ fn condition_codes(cpu: &mut CpuState, word: u16) {
     cpu.x87.status.c3 = ((word >> 14) & 1) as u8;
 }
 
-fn raw_classes(engine: Engine, frontend: Frontend) {
+fn raw_classes(frontend: Frontend) {
     let code = [0xd9, 0xe5, 0x9b]; // FXAM; FWAIT
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (name, significand, exponent, codes) in [
         ("zero", 0, 0, 0x4000),
         ("denormal", 1, 0, 0x4400),
@@ -81,8 +80,8 @@ fn raw_classes(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn loaded_binary_values(engine: Engine, frontend: Frontend) {
-    let mut checks = ImageSequences::new(engine, frontend, SegmentProfile::Flat32);
+fn loaded_binary_values(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
     for (width, source, extended, codes) in [
         (4, 0x3f80_0000, (0x8000_0000_0000_0000, 0x3fff), 0x0400),
         (4, 0x8000_0000, (0, 0x8000), 0x4200),
@@ -130,7 +129,7 @@ fn loaded_binary_values(engine: Engine, frontend: Frontend) {
     }
 }
 
-fn constants_and_freed_payload(engine: Engine, frontend: Frontend) {
+fn constants_and_freed_payload(frontend: Frontend) {
     // FLD1; FXAM; FLDZ; FCHS; FXAM; FFREE ST(0); FXAM.
     let code = [
         0xd9, 0xe8, 0xd9, 0xe5, 0xd9, 0xee, 0xd9, 0xe0, 0xd9, 0xe5, 0xdd, 0xc0, 0xd9, 0xe5,
@@ -153,7 +152,7 @@ fn constants_and_freed_payload(engine: Engine, frontend: Frontend) {
     freed.x87.tag_word |= 3 << 12;
     let mut examined_empty = complete_x87(freed, 2, 0x01e5);
     condition_codes(&mut examined_empty, 0x4300);
-    ImageSequences::new(engine, frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
         "examine retained constants and the sign left in an empty register",
         &code,
         &image,
@@ -169,14 +168,14 @@ fn constants_and_freed_payload(engine: Engine, frontend: Frontend) {
     );
 }
 
-fn pending_exception(engine: Engine, frontend: Frontend) {
+fn pending_exception(frontend: Frontend) {
     let code = [0xd9, 0xe5];
     let mut image = stack_image(&code, 0, 0xffff);
     set_control(&mut image.cpu.x87.control, 0x037e);
     image.cpu.x87.status.invalid = 1;
     image.cpu.x87.status.error_summary = 1;
     image.cpu.x87.status.busy = 1;
-    ImageSequences::new(engine, frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
         "a pending exception prevents FXAM's condition codes and metadata",
         &code,
         &image,

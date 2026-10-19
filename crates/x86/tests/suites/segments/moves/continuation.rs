@@ -1,7 +1,7 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn changed_stack_width(engine: Engine) {
+fn changed_stack_width() {
     let code = [0x8e, 0xd0, 0x51]; // MOV SS,EAX; PUSH ECX.
     let mut image = Image::new(&code);
     image.cpu.registers.eax = 0x27;
@@ -21,7 +21,6 @@ fn changed_stack_width(engine: Engine) {
     cpu.eip = 0x1002;
     cpu.instruction_count = 0;
     check_one(
-        engine,
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
@@ -39,7 +38,6 @@ fn changed_stack_width(engine: Engine) {
     cpu.eip = 0x1003;
     cpu.instruction_count = 1;
     check_one(
-        engine,
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
         &code[2..],
         &image,
@@ -54,10 +52,10 @@ fn changed_stack_width(engine: Engine) {
 
 #[test]
 fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
-    changed_stack_width(Engine::Wasmtime);
+    changed_stack_width();
 }
 
-fn terminal_null_load(engine: Engine) {
+fn terminal_null_load() {
     // MOV DS,EAX must end compilation before the unsupported following byte.
     let code = [0x8e, 0xd8, 0xf4];
     let mut image = Image::new(&code);
@@ -97,7 +95,7 @@ fn terminal_null_load(engine: Engine) {
         ),
         TestModule::interpreter(),
     ] {
-        assert_eq!(engine.observe(module, &input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), wanted);
     }
 
     // The dispatch owner can admit the resulting cache under Segmented32.
@@ -110,7 +108,6 @@ fn terminal_null_load(engine: Engine) {
     cpu.eip += 2;
     cpu.instruction_count = 1;
     check_one(
-        engine,
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
         &read,
         &next,
@@ -125,10 +122,10 @@ fn terminal_null_load(engine: Engine) {
 
 #[test]
 fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() {
-    terminal_null_load(Engine::Wasmtime);
+    terminal_null_load();
 }
 
-fn repeated_reload(engine: Engine) {
+fn repeated_reload() {
     // MOV FS,EAX; MOV ECX,FS:[EBX]; MOV FS,EAX; MOV ECX,FS:[EBX].
     let code = [0x8e, 0xe0, 0x64, 0x8b, 0x0b, 0x8e, 0xe0, 0x64, 0x8b, 0x0b];
     let mut image = Image::new(&code);
@@ -186,18 +183,10 @@ fn repeated_reload(engine: Engine) {
             selector: 0x27,
         },
     );
-    assert_eq!(engine.observe(TestModule::interpreter(), &input, 4), wanted);
+    assert_eq!(TestModule::interpreter().observe(&input, 4), wanted);
 }
 
 #[test]
 fn reloading_the_same_selector_refreshes_the_cache_for_later_entries() {
-    repeated_reload(Engine::Wasmtime);
-}
-
-#[test]
-#[ignore = "requires Node.js; run the explicit V8 lane"]
-fn v8_segment_load_dispatch_and_continuation() {
-    changed_stack_width(Engine::V8);
-    terminal_null_load(Engine::V8);
-    repeated_reload(Engine::V8);
+    repeated_reload();
 }
