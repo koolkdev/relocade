@@ -3,22 +3,50 @@ use std::fmt;
 /// Error numbers returned to the guest in AX with carry set.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DosError {
+    FileNotFound,
+    PathNotFound,
+    TooManyOpenFiles,
+    AccessDenied,
     InvalidHandle,
     MemoryCorrupted,
     InsufficientMemory { available: u16 },
     InvalidMemoryBlock,
+    InvalidAccess,
 }
 
 impl DosError {
     pub(crate) fn code(self) -> u16 {
         match self {
+            Self::FileNotFound => 2,
+            Self::PathNotFound => 3,
+            Self::TooManyOpenFiles => 4,
+            Self::AccessDenied => 5,
             Self::InvalidHandle => 6,
             Self::MemoryCorrupted => 7,
             Self::InsufficientMemory { .. } => 8,
             Self::InvalidMemoryBlock => 9,
+            Self::InvalidAccess => 12,
         }
     }
 }
+
+/// A host-supplied file could not be mounted in the DOS environment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MountError {
+    InvalidPath,
+    FileTooLarge,
+}
+
+impl fmt::Display for MountError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::InvalidPath => "expected a nonempty ASCII file path on C: shorter than 128 bytes",
+            Self::FileTooLarge => "mounted file exceeds the 32-bit DOS file size",
+        })
+    }
+}
+
+impl std::error::Error for MountError {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LoadError {

@@ -1,4 +1,4 @@
-use crate::{memory, services, ServiceError};
+use crate::{files::Files, memory, services, ServiceError};
 use wasm86_machine::{MachineConfig, Memory};
 use wasm86_runtime::Hook;
 use wasm86_x86::{
@@ -13,8 +13,17 @@ const INT21_ENTRY: u16 = 0x110;
 /// Initialize the backend with `DosState::default()` before loading a program.
 #[derive(Default)]
 pub struct DosState {
+    pub(crate) files: Files,
     pub(crate) output: Vec<u8>,
     pub(crate) exit_status: Option<Result<u8, ServiceError>>,
+}
+
+impl DosState {
+    pub(crate) fn reset_process(&mut self) {
+        self.files.reset_handles();
+        self.output.clear();
+        self.exit_status = None;
+    }
 }
 
 pub(crate) fn configuration() -> MachineConfig {
