@@ -2,7 +2,12 @@
 
 use crate::error::DosError;
 use crate::{path, MountError};
-use std::{collections::BTreeMap, io::ErrorKind};
+use std::{
+    cell::{RefCell, RefMut},
+    collections::BTreeMap,
+    io::ErrorKind,
+    rc::Rc,
+};
 
 mod search;
 mod short_name;
@@ -32,8 +37,10 @@ pub(crate) struct Files {
     handles: [Option<OpenHandle>; HANDLE_COUNT],
 }
 
+#[derive(Clone)]
 enum OpenHandle {
-    File(OpenFile),
+    // Separate opens have separate cursors; duplicated handles share this record.
+    File(Rc<RefCell<OpenFile>>),
     ConsoleInput,
     ConsoleOutput,
     Auxiliary,
@@ -167,6 +174,7 @@ impl Files {
             let OpenHandle::File(open) = handle else {
                 return false;
             };
+            let open = open.borrow();
             open.file.same_file(&entry.file)
                 && ((entry.readable && open.deny_read)
                     || (entry.writable && open.deny_write)
@@ -179,7 +187,7 @@ impl Files {
             return Err(DosError::AccessDenied);
         }
         let handle = self.vacant_handle()?;
-        self.handles[handle] = Some(OpenHandle::File(entry));
+        self.handles[handle] = Some(OpenHandle::File(Rc::new(RefCell::new(entry))));
         Ok(handle as u16)
     }
 
@@ -191,7 +199,7 @@ impl Files {
     }
 
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
-        let open = self.file_mut(handle)?;
+        let mut open = self.file_mut(handle)?;
         if !open.readable {
             return Err(DosError::AccessDenied);
         }
@@ -204,7 +212,7 @@ impl Files {
     }
 
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
-        let open = self.file_mut(handle)?;
+        let mut open = self.file_mut(handle)?;
         if !open.writable {
             return Err(DosError::AccessDenied);
         }
@@ -229,7 +237,7 @@ impl Files {
     }
 
     pub(crate) fn seek(&mut self, handle: u16, origin: u8, offset: u32) -> Result<u32, DosError> {
-        let open = self.file_mut(handle)?;
+        let mut open = self.file_mut(handle)?;
         let base = match origin {
             0 => 0,
             1 => open.position,
@@ -247,6 +255,27 @@ impl Files {
             .and_then(Option::take)
             .map(|_| ())
             .ok_or(DosError::InvalidHandle)
+    }
+
+    pub(crate) fn duplicate(&mut self, source: u16) -> Result<u16, DosError> {
+        let open = self.handle(source)?.clone();
+        let destination = self.vacant_handle()?;
+        self.handles[destination] = Some(open);
+        Ok(destination as u16)
+    }
+
+    pub(crate) fn force_duplicate(
+        &mut self,
+        source: u16,
+        destination: u16,
+    ) -> Result<(), DosError> {
+        let open = self.handle(source)?.clone();
+        let slot = self
+            .handles
+            .get_mut(usize::from(destination))
+            .ok_or(DosError::InvalidHandle)?;
+        *slot = Some(open);
+        Ok(())
     }
 
     pub(crate) fn is_console_output(&self, handle: u16) -> bool {
@@ -274,15 +303,17 @@ impl Files {
         self.handles.fill_with(|| None);
     }
 
-    fn file_mut(&mut self, handle: u16) -> Result<&mut OpenFile, DosError> {
-        match self
-            .handles
-            .get_mut(usize::from(handle))
-            .and_then(Option::as_mut)
-        {
-            Some(OpenHandle::File(file)) => Ok(file),
-            Some(_) => Err(DosError::AccessDenied),
-            None => Err(DosError::InvalidHandle),
+    fn handle(&self, handle: u16) -> Result<&OpenHandle, DosError> {
+        self.handles
+            .get(usize::from(handle))
+            .and_then(Option::as_ref)
+            .ok_or(DosError::InvalidHandle)
+    }
+
+    fn file_mut(&self, handle: u16) -> Result<RefMut<'_, OpenFile>, DosError> {
+        match self.handle(handle)? {
+            OpenHandle::File(file) => Ok(file.borrow_mut()),
+            _ => Err(DosError::AccessDenied),
         }
     }
 }
