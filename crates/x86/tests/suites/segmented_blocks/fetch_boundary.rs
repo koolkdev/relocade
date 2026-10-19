@@ -6,7 +6,8 @@ use crate::support::{
 };
 use wasm86_x86::{ExecutionProfile, SegmentDefaultSize, SegmentProfile, StoredSegment};
 
-fn valid_prefix_then_fetch_fault() {
+#[test]
+fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
     let mut blocks = BlockModules::default();
     for (size, profile, modrm) in [
         (
@@ -68,9 +69,4 @@ fn valid_prefix_then_fetch_fault() {
             "{profile:?} interpreter fallback preserves prefix progress",
         );
     }
-}
-
-#[test]
-fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
-    valid_prefix_then_fetch_fault();
 }

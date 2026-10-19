@@ -5,7 +5,8 @@ use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
-fn native_arithmetic() {
+#[test]
+fn integer_sources_reach_native_operations() {
     for source in [Source::Integer16(-3), Source::Integer32(-3)] {
         for (extension, result, operation) in [
             (0, (0xc000_0000_0000_0000, 0x4000), "add"),
@@ -62,7 +63,8 @@ fn native_arithmetic() {
     }
 }
 
-fn restart_after_load() {
+#[test]
+fn operand_exception_restarts_after_the_completed_load() {
     let source = Source::Integer32(0);
     let code = [
         vec![0xdd, 0x05, 8, 0x40, 0, 0],
@@ -111,13 +113,4 @@ fn restart_after_load() {
             expected(&image, &[dispatch(result)])
         );
     }
-}
-
-#[test]
-fn integer_sources_reach_native_operations() {
-    native_arithmetic();
-}
-#[test]
-fn operand_exception_restarts_after_the_completed_load() {
-    restart_after_load();
 }

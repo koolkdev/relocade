@@ -20,7 +20,8 @@ fn native_module(code: &[u8], count: u32) -> TestModule {
     module
 }
 
-fn rounding_and_zero() {
+#[test]
+fn native_sums_preserve_rounding_and_signed_zero() {
     for (operation, negate_left, negate_right, pop) in [
         ([0xd8, 0xc1], false, false, false),
         ([0xd8, 0xe1], false, true, false),
@@ -137,7 +138,8 @@ fn rounding_and_zero() {
     }
 }
 
-fn range_and_restart() {
+#[test]
+fn native_sums_preserve_extended_range_and_restart() {
     // Multiplication by a loaded one establishes PC53 for both wide-exponent registers.
     for (opcode, left, right, sum, flags, restart) in [
         (
@@ -228,7 +230,8 @@ fn range_and_restart() {
     }
 }
 
-fn precision_exception() {
+#[test]
+fn native_sums_commit_unmasked_precision() {
     let code = [0xdc, 0x0d, 0, 0x40, 0, 0, 0xdc, 0x05, 8, 0x40, 0, 0];
     let module = native_module(&code, 2);
     for (input, sum, c1) in [(LEADING, LEADING, 0), (LEADING + 2048, LEADING + 4096, 1)] {
@@ -253,17 +256,4 @@ fn precision_exception() {
             expected(&image, &[dispatch(result)])
         );
     }
-}
-
-#[test]
-fn native_sums_preserve_rounding_and_signed_zero() {
-    rounding_and_zero();
-}
-#[test]
-fn native_sums_preserve_extended_range_and_restart() {
-    range_and_restart();
-}
-#[test]
-fn native_sums_commit_unmasked_precision() {
-    precision_exception();
 }

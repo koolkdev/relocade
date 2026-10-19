@@ -46,7 +46,8 @@ fn operations<T: MemoryInt>() -> TestModule {
     })
 }
 
-fn check_operations() {
+#[test]
+fn native_operations_preserve_widths_results_and_unused_effects() {
     for (width, module) in [
         (1, operations::<I8>()),
         (2, operations::<I16>()),
@@ -73,11 +74,6 @@ fn check_operations() {
         assert_eq!(instance.call_values("run", &[]).unwrap(), values);
         assert_eq!(&instance.memory("memory")[..24], expected);
     }
-}
-
-#[test]
-fn native_operations_preserve_widths_results_and_unused_effects() {
-    check_operations();
 }
 
 fn counter() -> TestModule {
@@ -117,7 +113,8 @@ fn independent_instances_share_one_atomic_modification_order() {
     assert_eq!(shared.read(0, 4), 4096u32.to_le_bytes());
 }
 
-fn check_traps() {
+#[test]
+fn atomic_alignment_and_bounds_trap_before_modification() {
     let mut fixture = Fixture::new();
     let memory = fixture.shared_memory("memory", &[0x55; 16]);
     let module = fixture.function(&[Type::I32], &[Type::I32], |mut body| {
@@ -138,9 +135,4 @@ fn check_traps() {
         );
         assert_eq!(&instance.memory("memory")[..16], &[0x55; 16]);
     }
-}
-
-#[test]
-fn atomic_alignment_and_bounds_trap_before_modification() {
-    check_traps();
 }

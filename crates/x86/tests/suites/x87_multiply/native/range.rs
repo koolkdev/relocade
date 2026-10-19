@@ -2,7 +2,8 @@
 
 use super::*;
 
-fn native_extended_range() {
+#[test]
+fn native_products_preserve_extended_range_and_boundary_restart() {
     // An exact multiplication by one establishes the native significand before
     // the second operation exercises the extended exponent boundaries.
     let code = [0xdc, 0x0d, 0, 0x40, 0, 0, 0xdc, 0x0d, 8, 0x40, 0, 0];
@@ -110,9 +111,4 @@ fn native_extended_range() {
             );
         }
     }
-}
-
-#[test]
-fn native_products_preserve_extended_range_and_boundary_restart() {
-    native_extended_range();
 }

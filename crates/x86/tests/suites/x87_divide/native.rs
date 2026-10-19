@@ -24,7 +24,8 @@ fn native_module(code: &[u8], instruction_count: u32) -> TestModule {
     module
 }
 
-fn rounding_forms_and_signed_zero() {
+#[test]
+fn native_quotients_preserve_rounding_forms_and_signed_zero() {
     for (operation, destination, reverse, pop) in [
         ([0xd8, 0xf1], 7, false, false),
         ([0xd8, 0xf9], 7, true, false),
@@ -312,11 +313,6 @@ fn reverse_zero_divisor_restarts() {
         linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(result)])
     );
-}
-
-#[test]
-fn native_quotients_preserve_rounding_forms_and_signed_zero() {
-    rounding_forms_and_signed_zero();
 }
 
 #[test]

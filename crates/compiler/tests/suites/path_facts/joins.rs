@@ -86,7 +86,8 @@ fn cases(use_site: Use) -> impl Iterator<Item = Case> {
     })
 }
 
-fn folded_store() {
+#[test]
+fn a_folded_store_branch_reuses_its_product_after_the_join() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 4]);
     let module = fixture.function(
@@ -133,9 +134,4 @@ fn joined_values_preserve_descendant_and_sibling_results() {
             assert_eq!(&instance.memory("state")[..8], case.memory);
         }
     }
-}
-
-#[test]
-fn a_folded_store_branch_reuses_its_product_after_the_join() {
-    folded_store();
 }

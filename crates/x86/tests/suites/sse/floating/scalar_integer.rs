@@ -143,7 +143,8 @@ fn memory(frontend: Frontend) {
     }
 }
 
-fn compiled_precision() {
+#[test]
+fn sse_scalar_integer_precision_stays_compiled() {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
         let code = [0xf3, 0x0f, 0x2d, 0xc1]; // CVTSS2SI EAX,XMM1
         let module = TestModule::new(
@@ -188,8 +189,3 @@ fn compiled_precision() {
 
 test_frontends!(sse_scalar_integer_conversion, conversions);
 test_frontends!(sse_scalar_integer_memory, memory);
-
-#[test]
-fn sse_scalar_integer_precision_stays_compiled() {
-    compiled_precision();
-}

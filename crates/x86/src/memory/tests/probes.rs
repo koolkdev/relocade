@@ -37,7 +37,8 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     })
 }
 
-fn check_probes() {
+#[test]
+fn probes_report_permissions_and_contiguity_without_transferring_guest_bytes() {
     for intent in [
         Intent::Read,
         Intent::Write,
@@ -119,11 +120,6 @@ fn check_probes() {
             }
         }
     }
-}
-
-#[test]
-fn probes_report_permissions_and_contiguity_without_transferring_guest_bytes() {
-    check_probes();
 }
 
 #[test]

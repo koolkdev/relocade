@@ -13,7 +13,8 @@ fn operations(value: Val<F64>) -> [Val<I64>; 5] {
     .map(observed_bits)
 }
 
-fn rounding() {
+#[test]
+fn integral_rounding_and_square_root_preserve_ieee_boundaries() {
     let runtime = Fixture::new().function(&[Type::I64], &[Type::I64; 5], |body| {
         let value = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         body.return_(operations(value))
@@ -117,9 +118,4 @@ fn rounding() {
             check(&constant, &[], &expected);
         }
     }
-}
-
-#[test]
-fn integral_rounding_and_square_root_preserve_ieee_boundaries() {
-    rounding();
 }

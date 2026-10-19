@@ -31,7 +31,8 @@ fn check_cancellation<T: IntType>(mask: impl Into<Val<T>>, cases: &[(Value, Valu
     }
 }
 
-fn cancellation_at_each_width() {
+#[test]
+fn branch_facts_cancel_masked_offsets_at_each_logical_width() {
     check_cancellation::<I1>(
         1,
         &[
@@ -73,7 +74,8 @@ fn cancellation_at_each_width() {
     );
 }
 
-fn guarded_chain() {
+#[test]
+fn branch_facts_collapse_guarded_mask_chains_through_byte_views() {
     let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
         let input = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
@@ -103,7 +105,8 @@ fn guarded_chain() {
     }
 }
 
-fn observation_boundaries() {
+#[test]
+fn refolding_masks_preserves_carries_sparse_masks_and_conversion_boundaries() {
     let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32; 5], |mut body| {
         let input = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
@@ -176,19 +179,4 @@ fn observation_boundaries() {
         );
         check_result(&wide, &[Value::I64(input), Value::I32(0)], &[Value::I64(0)]);
     }
-}
-
-#[test]
-fn branch_facts_cancel_masked_offsets_at_each_logical_width() {
-    cancellation_at_each_width();
-}
-
-#[test]
-fn branch_facts_collapse_guarded_mask_chains_through_byte_views() {
-    guarded_chain();
-}
-
-#[test]
-fn refolding_masks_preserves_carries_sparse_masks_and_conversion_boundaries() {
-    observation_boundaries();
 }

@@ -52,7 +52,8 @@ fn long_reads() -> Vec<Case> {
 
 test_cases!(complete_ranges_cover_repeated_reads, long_reads());
 
-fn check_handoff_completion() {
+#[test]
+fn failed_range_preflight_completes_through_the_linked_interpreter() {
     let code = [0xf3, 0xac];
     let linked = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap())
         .with_interpreter(TestModule::interpreter());
@@ -80,7 +81,8 @@ fn check_handoff_completion() {
     assert!(actual.machine_unchanged && actual.dispatches.is_empty());
 }
 
-fn check_direct_completion() {
+#[test]
+fn contiguous_ranges_complete_in_the_jit_without_handoff() {
     let code = [0xf3, 0xad];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for backward in [false, true] {
@@ -104,11 +106,7 @@ fn check_direct_completion() {
 }
 
 #[test]
-fn contiguous_ranges_complete_in_the_jit_without_handoff() {
-    check_direct_completion();
-}
-
-fn check_direct_writes_and_comparison() {
+fn resolved_writes_preserve_alias_order_and_comparisons_stop_early_in_the_jit() {
     let code = [0xf3, 0xa4];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     let mut machine = Machine::with_mappings(
@@ -189,11 +187,6 @@ fn check_direct_writes_and_comparison() {
 }
 
 #[test]
-fn resolved_writes_preserve_alias_order_and_comparisons_stop_early_in_the_jit() {
-    check_direct_writes_and_comparison();
-}
-
-#[test]
 fn failed_preflight_publishes_prior_instructions_at_the_rep_entry() {
     let code = [0xb9, 3, 0, 0, 0, 0xf3, 0xac, 0xb8, 99, 0, 0, 0];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
@@ -210,11 +203,6 @@ fn failed_preflight_publishes_prior_instructions_at_the_rep_entry() {
     assert_eq!(actual.state, expected);
     assert_eq!(actual.exit, Exit::Interpret);
     assert!(actual.machine_unchanged && actual.dispatches.is_empty());
-}
-
-#[test]
-fn failed_range_preflight_completes_through_the_linked_interpreter() {
-    check_handoff_completion();
 }
 
 #[test]

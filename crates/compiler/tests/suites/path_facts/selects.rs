@@ -25,7 +25,8 @@ fn correlated_fields(independent: bool) -> TestModule {
     )
 }
 
-fn check_correlated_fields() {
+#[test]
+fn predicates_correlate_fields_selected_by_the_same_condition() {
     for independent in [false, true] {
         let module = correlated_fields(independent);
         if !independent {
@@ -53,9 +54,4 @@ fn check_correlated_fields() {
             );
         }
     }
-}
-
-#[test]
-fn predicates_correlate_fields_selected_by_the_same_condition() {
-    check_correlated_fields();
 }

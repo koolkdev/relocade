@@ -42,7 +42,8 @@ fn indexed<T: VectorLane + MemoryType>(width: usize, replacement: u64) {
     }
 }
 
-fn widths() {
+#[test]
+fn vector_runtime_lane_indices_wrap_and_preserve_other_lanes() {
     indexed::<I8>(1, 0x73);
     indexed::<I16>(2, 0xfedc);
     indexed::<I32>(4, 0xfedcba98);
@@ -77,9 +78,4 @@ fn narrow() {
         expected[46..48].copy_from_slice(&0x1234_u16.to_le_bytes());
         check(&module, &expected, index);
     }
-}
-
-#[test]
-fn vector_runtime_lane_indices_wrap_and_preserve_other_lanes() {
-    widths();
 }

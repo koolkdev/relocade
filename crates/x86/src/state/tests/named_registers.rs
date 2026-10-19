@@ -93,7 +93,8 @@ fn named_views<T: RegisterType>() -> CompiledModule {
     }
 }
 
-fn check_named_views() {
+#[test]
+fn named_views_preserve_parent_identity_in_wasmtime() {
     let initial = initial_cpu();
     for (compiled, registers) in [
         (
@@ -144,11 +145,6 @@ fn check_named_views() {
         };
         assert_result(&TestModule::new(&compiled), &initial, &[], &expected, 7);
     }
-}
-
-#[test]
-fn named_views_preserve_parent_identity_in_wasmtime() {
-    check_named_views();
 }
 
 fn mixed_byte_views() -> CompiledModule {
@@ -215,7 +211,8 @@ fn mixed_byte_views() -> CompiledModule {
     }
 }
 
-fn check_mixed_byte_views() {
+#[test]
+fn named_and_encoded_byte_views_synchronize_in_wasmtime() {
     let initial = initial_cpu();
     let module = TestModule::new(&mixed_byte_views());
     for (code, parent, value, before) in [
@@ -249,9 +246,4 @@ fn check_mixed_byte_views() {
     expected.eip = 0x1005;
     expected.instruction_count = 0;
     assert_result(&module, &initial, &[4, 1], &expected, 7);
-}
-
-#[test]
-fn named_and_encoded_byte_views_synchronize_in_wasmtime() {
-    check_mixed_byte_views();
 }

@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn changed_stack_width() {
+#[test]
+fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
     let code = [0x8e, 0xd0, 0x51]; // MOV SS,EAX; PUSH ECX.
     let mut image = Image::new(&code);
     image.cpu.registers.eax = 0x27;
@@ -51,11 +52,7 @@ fn changed_stack_width() {
 }
 
 #[test]
-fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
-    changed_stack_width();
-}
-
-fn terminal_null_load() {
+fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() {
     // MOV DS,EAX must end compilation before the unsupported following byte.
     let code = [0x8e, 0xd8, 0xf4];
     let mut image = Image::new(&code);
@@ -121,11 +118,7 @@ fn terminal_null_load() {
 }
 
 #[test]
-fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() {
-    terminal_null_load();
-}
-
-fn repeated_reload() {
+fn reloading_the_same_selector_refreshes_the_cache_for_later_entries() {
     // MOV FS,EAX; MOV ECX,FS:[EBX]; MOV FS,EAX; MOV ECX,FS:[EBX].
     let code = [0x8e, 0xe0, 0x64, 0x8b, 0x0b, 0x8e, 0xe0, 0x64, 0x8b, 0x0b];
     let mut image = Image::new(&code);
@@ -184,9 +177,4 @@ fn repeated_reload() {
         },
     );
     assert_eq!(TestModule::interpreter().observe(&input, 4), wanted);
-}
-
-#[test]
-fn reloading_the_same_selector_refreshes_the_cache_for_later_entries() {
-    repeated_reload();
 }

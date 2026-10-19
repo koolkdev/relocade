@@ -151,7 +151,8 @@ fn converging_recipes() -> TestModule {
     )
 }
 
-fn check_converging_recipes() {
+#[test]
+fn distinct_recipes_share_the_residual_proved_by_their_guards() {
     let module = converging_recipes();
     assert_eq!(count(&module, |op| matches!(op, Operator::I32Mul)), 2);
     for (active, other, expected) in [
@@ -169,11 +170,7 @@ fn check_converging_recipes() {
 }
 
 #[test]
-fn distinct_recipes_share_the_residual_proved_by_their_guards() {
-    check_converging_recipes();
-}
-
-fn check_rewritten_predicate() {
+fn rewritten_predicates_fold_before_joined_value_reuse() {
     let initial: Vec<_> = [17_i32, 19]
         .into_iter()
         .flat_map(i32::to_le_bytes)
@@ -226,9 +223,4 @@ fn check_rewritten_predicate() {
             assert_eq!(&instance.memory("state")[..8], expected);
         }
     }
-}
-
-#[test]
-fn rewritten_predicates_fold_before_joined_value_reuse() {
-    check_rewritten_predicate();
 }

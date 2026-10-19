@@ -127,7 +127,8 @@ fn faults(frontend: Frontend) {
     }
 }
 
-fn rejected_register_forms() {
+#[test]
+fn sse_half_rejected_register_forms() {
     for (prefix, opcodes) in [
         (&[][..], &[0x13, 0x17][..]),
         (&[0x66][..], &[0x12, 0x13, 0x16, 0x17][..]),
@@ -155,8 +156,3 @@ test_frontends!(sse_half_registers, registers);
 test_frontends!(sse_half_memory, memory);
 test_frontends!(sse_half_split_memory, split_memory);
 test_frontends!(sse_half_faults, faults);
-
-#[test]
-fn sse_half_rejected_register_forms() {
-    rejected_register_forms();
-}

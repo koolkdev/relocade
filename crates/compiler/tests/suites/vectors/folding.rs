@@ -3,7 +3,8 @@
 use super::*;
 use wasm86_compiler::I16;
 
-fn routing() {
+#[test]
+fn lane_and_shuffle_folding_preserves_routed_bytes_and_narrow_scalars() {
     let mut initial = vec![0xa5; 192];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -121,9 +122,4 @@ fn routing() {
         shuffles, 3,
         "one composed shuffle and two for the three-source gather"
     );
-}
-
-#[test]
-fn lane_and_shuffle_folding_preserves_routed_bytes_and_narrow_scalars() {
-    routing();
 }

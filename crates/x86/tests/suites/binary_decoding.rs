@@ -14,7 +14,8 @@ use crate::support::step;
 use machine::{check, Exit, Image, Step};
 use step::TestModule;
 
-fn population_count_is_unsupported() {
+#[test]
+fn population_count_has_no_supported_encoding() {
     use wasm86_x86::{Compiler, ExecutionProfile, SegmentProfile, Segments};
 
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
@@ -45,11 +46,7 @@ fn population_count_is_unsupported() {
 }
 
 #[test]
-fn population_count_has_no_supported_encoding() {
-    population_count_is_unsupported();
-}
-
-fn unsupported_sse3_stores() {
+fn sse3_integer_stores_are_unsupported() {
     use wasm86_x86::{Compiler, SegmentProfile};
 
     for opcode in [0xdf, 0xdb, 0xdd] {
@@ -72,11 +69,6 @@ fn unsupported_sse3_stores() {
             Exit::Other(0x0008_0000_0000_1000 | (u64::from(opcode) << 32)),
         );
     }
-}
-
-#[test]
-fn sse3_integer_stores_are_unsupported() {
-    unsupported_sse3_stores();
 }
 
 #[test]

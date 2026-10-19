@@ -2,7 +2,8 @@
 use super::*;
 use wasm86_compiler::I16;
 
-fn guarded_masks() {
+#[test]
+fn masks_exposed_by_specialization_reuse_the_guarded_value() {
     let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
         let invalid = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?.or(0x8000);
@@ -32,7 +33,8 @@ fn guarded_masks() {
     }
 }
 
-fn computed_inputs() {
+#[test]
+fn computed_inputs_survive_specialization_in_later_guards() {
     let module = Fixture::new().function(
         &[Type::I1, Type::I1, Type::I32, Type::I32],
         &[Type::I32],
@@ -79,7 +81,8 @@ fn computed_inputs() {
     }
 }
 
-fn switched_byte() {
+#[test]
+fn switch_facts_preserve_wider_sources_of_specialized_bytes() {
     let module = Fixture::new().function(
         &[Type::I1, Type::I32],
         &[Type::I32, Type::I32],
@@ -122,19 +125,4 @@ fn switched_byte() {
             );
         }
     }
-}
-
-#[test]
-fn masks_exposed_by_specialization_reuse_the_guarded_value() {
-    guarded_masks();
-}
-
-#[test]
-fn computed_inputs_survive_specialization_in_later_guards() {
-    computed_inputs();
-}
-
-#[test]
-fn switch_facts_preserve_wider_sources_of_specialized_bytes() {
-    switched_byte();
 }

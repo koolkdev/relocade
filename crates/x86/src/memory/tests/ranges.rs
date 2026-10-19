@@ -58,7 +58,8 @@ fn expect_resolution(module: &TestModule, input: &Input, expected: u64) {
     );
 }
 
-fn first_denial() {
+#[test]
+fn faulting_ranges_report_the_first_denied_page_even_after_linear_wrap() {
     for intent in [
         Intent::Read,
         Intent::Write,
@@ -106,7 +107,8 @@ fn first_denial() {
     }
 }
 
-fn nearly_full_address_space() {
+#[test]
+fn ranges_near_four_gib_count_every_page_without_overflow() {
     let module = checked_range(Intent::Read, None);
     // All linear pages alias valid backing. Leave page 3 absent so a span can
     // stop immediately before it, or report it after traversing the address wrap.
@@ -132,14 +134,4 @@ fn nearly_full_address_space() {
         input.arguments = vec![Argument::I32(start), Argument::I32(-1)];
         expect_resolution(&module, &input, 7);
     }
-}
-
-#[test]
-fn faulting_ranges_report_the_first_denied_page_even_after_linear_wrap() {
-    first_denial();
-}
-
-#[test]
-fn ranges_near_four_gib_count_every_page_without_overflow() {
-    nearly_full_address_space();
 }

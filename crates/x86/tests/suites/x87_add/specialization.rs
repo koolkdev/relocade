@@ -71,7 +71,8 @@ fn normal_zero_values_and_restart_state() {
     restart_state();
 }
 
-fn admitted_controls() {
+#[test]
+fn admitted_sums_keep_controls_dynamic() {
     use crate::support::x87::{set_control, status};
     let code = [0xde, 0xc1];
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
@@ -139,9 +140,4 @@ fn admitted_controls() {
             }
         }
     }
-}
-
-#[test]
-fn admitted_sums_keep_controls_dynamic() {
-    admitted_controls();
 }

@@ -1,6 +1,7 @@
 use super::*;
 
-fn multiplication() {
+#[test]
+fn vector_products_preserve_signed_widths_and_pair_order() {
     binary_results(
         0x000080007fffffff7fff8000ffff1234,
         0xffffffffffff00027fff800000022345,
@@ -74,11 +75,7 @@ fn multiplication() {
 }
 
 #[test]
-fn vector_products_preserve_signed_widths_and_pair_order() {
-    multiplication();
-}
-
-fn unsigned_multiplication() {
+fn vector_unsigned_products_preserve_full_precision_and_half_selection() {
     // The narrow input keeps dirty upper carrier bits, which must not participate.
     binary_results(
         0x01ff03fe010080ff01ff03fe010080ff,
@@ -130,9 +127,4 @@ fn unsigned_multiplication() {
             ]
         },
     );
-}
-
-#[test]
-fn vector_unsigned_products_preserve_full_precision_and_half_selection() {
-    unsigned_multiplication();
 }

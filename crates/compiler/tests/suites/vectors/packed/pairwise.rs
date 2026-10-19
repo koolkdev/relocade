@@ -1,6 +1,7 @@
 use super::*;
 
-fn pairwise() {
+#[test]
+fn packed_pairwise_sums_widen_each_adjacent_pair() {
     // Lane pairs differ across the 64-bit boundary, and maximum sums must widen.
     let left = 0xffff000180007fff_0001ff000201ffff_u128;
     let bytes = left.to_le_bytes();
@@ -32,9 +33,4 @@ fn pairwise() {
             a.unsigned_pairwise_add_lanes::<I16>(),
         ]
     });
-}
-
-#[test]
-fn packed_pairwise_sums_widen_each_adjacent_pair() {
-    pairwise();
 }

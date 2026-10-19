@@ -33,7 +33,8 @@ fn snapshot_forms_require_every_field_and_end_the_block() {
     }
 }
 
-fn missing_fields() {
+#[test]
+fn incomplete_pointer_displacement_or_cleanup_faults_before_data_or_descriptor_checks() {
     for (code, available) in [
         (immediate(false, 0x9234_5678, 0xf327), 3), // Offset.
         (immediate(true, 0x5678, 0xf327), 5),       // Selector.
@@ -56,11 +57,7 @@ fn missing_fields() {
 }
 
 #[test]
-fn incomplete_pointer_displacement_or_cleanup_faults_before_data_or_descriptor_checks() {
-    missing_fields();
-}
-
-fn complete_fields() {
+fn immediate_pointers_and_return_cleanup_cross_instruction_pages_in_order() {
     for (returning, word, split) in [
         (false, false, 3), // Dword offset crosses the page.
         (false, true, 5),  // Word pointer's selector crosses the page.
@@ -111,11 +108,7 @@ fn complete_fields() {
 }
 
 #[test]
-fn immediate_pointers_and_return_cleanup_cross_instruction_pages_in_order() {
-    complete_fields();
-}
-
-fn length_and_register_modes() {
+fn byte_sixteen_and_register_mode_far_calls_are_rejected_before_data_access() {
     for returning in [false, true] {
         for length in [15, 16] {
             let suffix = if returning {
@@ -179,9 +172,4 @@ fn length_and_register_modes() {
         "far CALL rejects a register operand",
         Exit::Other(0x0008_00ff_0000_1ffe),
     );
-}
-
-#[test]
-fn byte_sixteen_and_register_mode_far_calls_are_rejected_before_data_access() {
-    length_and_register_modes();
 }

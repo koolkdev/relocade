@@ -194,7 +194,8 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
     }
 }
 
-fn loaded_binary_classification() {
+#[test]
+fn loaded_binary_values_share_classification_across_exact_representations() {
     struct Case {
         source_bits: u64,
         loaded_tag: i32,
@@ -462,9 +463,4 @@ fn loaded_binary_classification() {
             );
         }
     }
-}
-
-#[test]
-fn loaded_binary_values_share_classification_across_exact_representations() {
-    loaded_binary_classification();
 }

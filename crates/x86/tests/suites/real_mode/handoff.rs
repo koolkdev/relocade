@@ -7,7 +7,8 @@ use crate::support::{
 };
 use wasm86_compiler::{FunctionImport, Program, Signature, Type};
 
-fn interpreter_imports() {
+#[test]
+fn handoff_registers_the_real_mode_interpreters_memory_imports() {
     // The caller only imports interpret; its Real16 callee requires physical memory.
     let mut program = Program::new();
     let signature = Signature {
@@ -55,9 +56,4 @@ fn interpreter_imports() {
         },
     );
     assert_eq!(module.observe(&input, 1), wanted);
-}
-
-#[test]
-fn handoff_registers_the_real_mode_interpreters_memory_imports() {
-    interpreter_imports();
 }

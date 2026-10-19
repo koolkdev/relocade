@@ -2,7 +2,8 @@
 
 use super::*;
 
-fn conversions() {
+#[test]
+fn floating_vector_conversion_boundaries() {
     case(
         words([0x8000_0000, 0x7fff_ffff, 0x0100_0001, 0xfeff_ffff]),
         0,
@@ -48,9 +49,4 @@ fn conversions() {
         &[words([0x8000_0000, 0x7fff_ffff, 0, 0])],
         |a, _| vec![a.f64x2().trunc_saturating_i32_zero()],
     );
-}
-
-#[test]
-fn floating_vector_conversion_boundaries() {
-    conversions();
 }

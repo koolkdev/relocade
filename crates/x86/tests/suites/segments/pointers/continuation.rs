@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn stack_load() {
+#[test]
+fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
     for usable_pointer in [false, true] {
         let code = [0x0f, 0xb2, 0x23, 0x51]; // LSS ESP,[EBX]; PUSH ECX.
         let mut image = Image::new(&code);
@@ -76,11 +77,7 @@ fn stack_load() {
 }
 
 #[test]
-fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
-    stack_load();
-}
-
-fn terminal_loads() {
+fn all_pointer_loads_end_the_block_after_committing_both_results() {
     for (segment, opcode) in FORMS {
         let mut code = opcode.to_vec();
         code.extend([0x03, 0xf4]); // Load EAX,[EBX], followed by an unsupported byte.
@@ -138,11 +135,7 @@ fn terminal_loads() {
 }
 
 #[test]
-fn all_pointer_loads_end_the_block_after_committing_both_results() {
-    terminal_loads();
-}
-
-fn null_and_fetch_boundary() {
+fn null_selector_loads_still_commit_the_offset_without_fetching_a_following_byte() {
     let mut code = vec![0x67; 12];
     code.extend([0x0f, 0xb4, 0]); // Fifteen-byte LFS EAX,[BX+SI].
     let mut image = Image::empty();
@@ -173,9 +166,4 @@ fn null_and_fetch_boundary() {
             exit: Exit::Dispatch(cpu.eip),
         },
     );
-}
-
-#[test]
-fn null_selector_loads_still_commit_the_offset_without_fetching_a_following_byte() {
-    null_and_fetch_boundary();
 }

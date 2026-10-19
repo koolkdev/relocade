@@ -6,7 +6,8 @@ fn compare<T: VectorLane>(left: u128, right: u128, equal: u128, greater: u128) {
     });
 }
 
-fn comparisons() {
+#[test]
+fn packed_comparison_masks_and_signed_extrema() {
     compare::<I8>(
         0x4433ff80007ffe12_557f800100ff7f80,
         0x55220080017fff12_547f8001ff00807f,
@@ -37,9 +38,4 @@ fn comparisons() {
         0,
         u128::MAX,
     );
-}
-
-#[test]
-fn packed_comparison_masks_and_signed_extrema() {
-    comparisons();
 }

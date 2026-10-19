@@ -18,7 +18,8 @@ fn masks<T: VectorLane>(input: u128, expected_mask: u32) {
     check(&module, &expected, 0);
 }
 
-fn widths() {
+#[test]
+fn vector_sign_masks_preserve_lane_order_and_clear_upper_bits() {
     masks::<I8>(0x807f01ff_00fe7e81_aa558000_ff007f80, 0b10010101_10101001);
     masks::<I16>(0x80007fff_0001ffff_00ff807f_ff000000, 0b10010110);
     masks::<I32>(0x80000000_7fffffff_ffffffff_00000080, 0b1010);
@@ -41,9 +42,4 @@ fn widths() {
         .flat_map(u32::to_le_bytes)
         .collect();
     check(&module, &expected, 0);
-}
-
-#[test]
-fn vector_sign_masks_preserve_lane_order_and_clear_upper_bits() {
-    widths();
 }

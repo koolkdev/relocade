@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn changed_stack_width() {
+#[test]
+fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() {
     for old_big in [false, true] {
         let code = [0x17, 0x51]; // POP SS; PUSH ECX.
         let mut image = Image::new(&code);
@@ -75,11 +76,7 @@ fn changed_stack_width() {
 }
 
 #[test]
-fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() {
-    changed_stack_width();
-}
-
-fn terminal_pops() {
+fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
     for (segment, opcode) in POP {
         let mut code = opcode.to_vec();
         code.push(0xf4); // Unsupported next byte must remain undecoded.
@@ -135,11 +132,7 @@ fn terminal_pops() {
 }
 
 #[test]
-fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
-    terminal_pops();
-}
-
-fn stack_roundtrip() {
+fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
     // PUSH DS can continue into POP ES. Only the POP resolves a descriptor.
     let code = [0x1e, 0x07];
     let mut image = Image::new(&code);
@@ -190,9 +183,4 @@ fn stack_roundtrip() {
     let mut wanted = expected(&image, &[last()]);
     wanted.events.insert(0, event);
     assert_eq!(block.observe(&input, 1), wanted);
-}
-
-#[test]
-fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
-    stack_roundtrip();
 }

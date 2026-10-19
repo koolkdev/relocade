@@ -232,7 +232,8 @@ fn aliased_vector(frontend: Frontend) {
 }
 test_frontends!(stack_aliases_vector_table, aliased_vector);
 
-fn round_trip() {
+#[test]
+fn interrupt_return_round_trip() {
     let code = [0xcd, 0x21];
     let mut image = interrupt_image(&code, 0x21);
     image.data(0x7084, &[0x20, 0, 0, 0x10]);
@@ -280,11 +281,6 @@ fn round_trip() {
         ),
         "INT dispatches through the new CS and IRET restores its word frame; AC stays clear"
     );
-}
-
-#[test]
-fn interrupt_return_round_trip() {
-    round_trip();
 }
 
 fn prior_work(frontend: Frontend) {

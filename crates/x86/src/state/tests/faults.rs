@@ -49,7 +49,8 @@ fn conditional_fault(completed: u32) -> CompiledModule {
     }
 }
 
-fn check_fault_publication() {
+#[test]
+fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
     let mut initial = CpuState {
         eip: 0x1000,
         instruction_count: u64::MAX,
@@ -100,9 +101,4 @@ fn check_fault_publication() {
             );
         }
     }
-}
-
-#[test]
-fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
-    check_fault_publication();
 }

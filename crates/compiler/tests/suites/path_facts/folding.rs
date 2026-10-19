@@ -3,7 +3,8 @@
 use super::*;
 use wasm86_compiler::I64;
 
-fn identities() {
+#[test]
+fn operand_replacement_reuses_arithmetic_comparison_and_selection_folds() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I1, Type::I1],
         &[Type::I32; 7],
@@ -56,7 +57,8 @@ fn identities() {
     }
 }
 
-fn exposed_constants() {
+#[test]
+fn algebraic_folds_feed_constant_evaluation_at_both_carrier_widths() {
     let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32; 7], |mut body| {
         let input = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
@@ -132,14 +134,4 @@ fn exposed_constants() {
             &[Value::I64(0); 3],
         );
     }
-}
-
-#[test]
-fn operand_replacement_reuses_arithmetic_comparison_and_selection_folds() {
-    identities();
-}
-
-#[test]
-fn algebraic_folds_feed_constant_evaluation_at_both_carrier_widths() {
-    exposed_constants();
 }

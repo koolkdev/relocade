@@ -163,7 +163,8 @@ fn mmio_fields(frontend: Frontend) {
 }
 test_frontends!(mmio_order_and_widths, mmio_fields);
 
-fn next_entry() {
+#[test]
+fn target_fetch_uses_the_committed_return() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
     for target_mapped in [false, true] {
         let mut image = image(&[0xcf]);
@@ -213,9 +214,4 @@ fn next_entry() {
             "target fetch follows the committed return and sees its CS/FLAGS"
         );
     }
-}
-
-#[test]
-fn target_fetch_uses_the_committed_return() {
-    next_entry();
 }

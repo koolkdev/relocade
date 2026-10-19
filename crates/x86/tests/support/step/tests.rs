@@ -2,7 +2,8 @@ use super::{CallPatches, Input, TestModule};
 use crate::SegmentProfile;
 use wasm86_compiler::{MemoryImport, Program, Signature, Type, I32};
 
-fn check_transient_machine_write() {
+#[test]
+fn machine_changes_are_observed_before_a_later_call_restores_them() {
     let mut program = Program::new();
     let machine = program.import_memory(MemoryImport {
         module: "wasm86".into(),
@@ -36,11 +37,7 @@ fn check_transient_machine_write() {
 }
 
 #[test]
-fn machine_changes_are_observed_before_a_later_call_restores_them() {
-    check_transient_machine_write();
-}
-
-fn check_host_memory_edits() {
+fn host_edits_are_observed_without_module_memory_imports() {
     use super::{Argument, Event, Observation, Outcome, Snapshot};
 
     let mut program = Program::new();
@@ -95,11 +92,7 @@ fn check_host_memory_edits() {
 }
 
 #[test]
-fn host_edits_are_observed_without_module_memory_imports() {
-    check_host_memory_edits();
-}
-
-fn check_entry_contexts() {
+fn profile_admission_uses_patched_contexts_for_actual_calls() {
     use super::{Argument, Event, Observation, Outcome, Snapshot};
     use crate::{compile_block_from_bytes, CpuState, ExecutionProfile, Segments};
 
@@ -153,11 +146,6 @@ fn check_entry_contexts() {
             machine_unchanged: true,
         }
     );
-}
-
-#[test]
-fn profile_admission_uses_patched_contexts_for_actual_calls() {
-    check_entry_contexts();
 }
 
 #[test]

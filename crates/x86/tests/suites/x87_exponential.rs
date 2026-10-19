@@ -163,7 +163,8 @@ fn exceptions(frontend: Frontend) {
     );
 }
 
-fn specialization() {
+#[test]
+fn jit_specialization() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let compiled = compiler.compile_block(0x1000, &CODE, 1).unwrap();
     let module = TestModule::new(&compiled);
@@ -245,11 +246,6 @@ fn specialization() {
             .observe(&image.input(), 1,),
         expected(&image, &[dispatch(result)]),
     );
-}
-
-#[test]
-fn jit_specialization() {
-    specialization();
 }
 
 test_frontends!(rounding_and_extended_range, values);

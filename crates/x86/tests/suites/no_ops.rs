@@ -152,7 +152,8 @@ fn complete_encodings_require_every_byte_and_no_successor() {
     }
 }
 
-fn missing_encoding_bytes() {
+#[test]
+fn interpreter_fetches_unused_modrm_sib_and_displacement_bytes() {
     for code in [
         &[0x0f, 0x1f][..],
         &[0x0f, 0x1f, 0x04],
@@ -173,11 +174,6 @@ fn missing_encoding_bytes() {
             },
         );
     }
-}
-
-#[test]
-fn interpreter_fetches_unused_modrm_sib_and_displacement_bytes() {
-    missing_encoding_bytes();
 }
 
 test_cases!(

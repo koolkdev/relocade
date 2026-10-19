@@ -37,7 +37,8 @@ fn required_extended_fields() {
     }
 }
 
-fn rejected_extended_forms() {
+#[test]
+fn prefix_requirements_reject_unavailable_forms_before_operand_fields() {
     for (code, diagnostic, exit) in [
         (&[0x0f, 0xb8][..], 0x0f, 0x0008_000f_0000_1ffe),
         (&[0xf2, 0x0f, 0xb8][..], 0xf2, 0x0008_00f2_0000_1ffd),
@@ -90,11 +91,6 @@ fn extended_field_length_limit() {
 fn admitted_extended_forms_require_their_opcode_and_operand_fields() {
     required_extended_fields();
     extended_field_length_limit();
-}
-
-#[test]
-fn prefix_requirements_reject_unavailable_forms_before_operand_fields() {
-    rejected_extended_forms();
 }
 
 #[test]

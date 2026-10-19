@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn call_fault_order() {
+#[test]
+fn call_checks_descriptor_then_stack_capacity_then_target_then_stack_paging() {
     for (present, stack_limit, target_limit, exit) in [
         (false, 0x8fff, 0x1ff, Exit::Other(0x0020_0024_0000_0000)),
         (true, 0x8fff, 0x1ff, Exit::StackFault { error: 0 }),
@@ -53,11 +54,7 @@ fn call_fault_order() {
 }
 
 #[test]
-fn call_checks_descriptor_then_stack_capacity_then_target_then_stack_paging() {
-    call_fault_order();
-}
-
-fn frame_page_faults() {
+fn every_frame_page_is_proved_before_stores_or_selector_resolution_for_return() {
     for returning in [false, true] {
         for word in [false, true] {
             let code = if returning {
@@ -146,11 +143,7 @@ fn frame_page_faults() {
 }
 
 #[test]
-fn every_frame_page_is_proved_before_stores_or_selector_resolution_for_return() {
-    frame_page_faults();
-}
-
-fn return_selectors() {
+fn return_requires_rpl_three_before_reusing_code_descriptor_rules_and_limit_checks() {
     let normal = descriptor(0xc000, 0x200, SegmentDefaultSize::Bits32);
     for (selector, slot, resolved, exit) in [
         (
@@ -278,11 +271,7 @@ fn return_selectors() {
 }
 
 #[test]
-fn return_requires_rpl_three_before_reusing_code_descriptor_rules_and_limit_checks() {
-    return_selectors();
-}
-
-fn earlier_progress() {
+fn faults_publish_earlier_register_flag_memory_and_retirement_progress() {
     for returning in [false, true] {
         // The preceding store supplies the target offset. Target 2 exceeds limit 1.
         let code = [
@@ -345,9 +334,4 @@ fn earlier_progress() {
         wanted.events.insert(0, event);
         assert_eq!(module.observe(&input, 1), wanted);
     }
-}
-
-#[test]
-fn faults_publish_earlier_register_flag_memory_and_retirement_progress() {
-    earlier_progress();
 }

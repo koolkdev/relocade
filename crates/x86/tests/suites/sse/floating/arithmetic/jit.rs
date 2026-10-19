@@ -4,7 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{Compiler, ExecutionProfile, Segments};
 
-fn compiled() {
+#[test]
+fn sse_arithmetic_compiled_and_restart() {
     for (opcode, cases) in [
         (
             0x58,
@@ -95,9 +96,4 @@ fn compiled() {
             }
         }
     }
-}
-
-#[test]
-fn sse_arithmetic_compiled_and_restart() {
-    compiled();
 }

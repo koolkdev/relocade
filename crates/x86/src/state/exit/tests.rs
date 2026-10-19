@@ -58,7 +58,8 @@ fn exit_module() -> Vec<u8> {
     program.compile().unwrap()
 }
 
-fn check_host_exit_words() {
+#[test]
+fn host_exit_words_in_wasmtime() {
     let bytes = exit_module();
     let cpu = CpuState::filled(0xa5).to_bytes();
     for (name, detail, address, expected) in [
@@ -128,11 +129,6 @@ fn check_host_exit_words() {
             "{name}, detail {detail:#x}, address {address:#x}"
         );
     }
-}
-
-#[test]
-fn host_exit_words_in_wasmtime() {
-    check_host_exit_words();
 }
 
 #[test]

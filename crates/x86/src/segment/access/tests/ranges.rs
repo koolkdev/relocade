@@ -34,7 +34,8 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     })
 }
 
-fn dynamic_spans() {
+#[test]
+fn runtime_segment_spans_check_limits_and_wrap() {
     let module = probe(SegmentProfile::Segmented32.into(), Segment::Fs);
     use SegmentDefaultSize::{Bits16, Bits32};
     for (down, size, limit, cases) in [
@@ -116,11 +117,7 @@ fn dynamic_spans() {
 }
 
 #[test]
-fn runtime_segment_spans_check_limits_and_wrap() {
-    dynamic_spans();
-}
-
-fn real_mode_spans() {
+fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
     let module = probe(crate::ExecutionProfile::Real16, Segment::Cs);
     let mut cpu = CpuState {
         segments: crate::Segments::real_mode(),
@@ -163,9 +160,4 @@ fn real_mode_spans() {
             "offset {offset:x}, bytes {bytes}"
         );
     }
-}
-
-#[test]
-fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
-    real_mode_spans();
 }

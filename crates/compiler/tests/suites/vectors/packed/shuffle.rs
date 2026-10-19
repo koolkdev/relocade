@@ -1,6 +1,7 @@
 use super::*;
 
-fn shuffle() {
+#[test]
+fn vector_byte_shuffle_selects_both_inputs() {
     binary_results(
         LEFT,
         RIGHT,
@@ -24,11 +25,7 @@ fn shuffle() {
 }
 
 #[test]
-fn vector_byte_shuffle_selects_both_inputs() {
-    shuffle();
-}
-
-fn runtime_indices() {
+fn vector_byte_shuffle_runtime_indices_and_zero_fill() {
     let indices = [
         0, 15, 16, 31, 32, 33, 47, 48, 127, 128, 239, 240, 254, 255, 5, 20,
     ];
@@ -62,11 +59,7 @@ fn runtime_indices() {
 }
 
 #[test]
-fn vector_byte_shuffle_runtime_indices_and_zero_fill() {
-    runtime_indices();
-}
-
-fn swizzle_union() {
+fn vector_swizzle_union_preserves_overlapping_bits_and_zero_fill() {
     let even: [u8; 16] = std::array::from_fn(|i| if i % 2 == 0 { i as u8 } else { 255 });
     let odd: [u8; 16] = std::array::from_fn(|i| if i % 2 == 1 { i as u8 } else { 255 });
     let mut gap = odd;
@@ -89,9 +82,4 @@ fn swizzle_union() {
             ]
         },
     );
-}
-
-#[test]
-fn vector_swizzle_union_preserves_overlapping_bits_and_zero_fill() {
-    swizzle_union();
 }

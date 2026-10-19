@@ -167,7 +167,8 @@ test_cases!(complete_ranges_and_patterns, long_transfers());
 test_cases!(unavailable_ranges_preserve_element_semantics, fallbacks());
 test_sequences!(constant_count_and_successor_state, constant_counts());
 
-fn check_patterned_completion() {
+#[test]
+fn patterned_stos_completes_in_the_jit_with_a_short_final_prefix_copy() {
     use crate::support::{
         guest::{Exit, Machine},
         step::TestModule,
@@ -213,11 +214,6 @@ fn check_patterned_completion() {
             assert!(actual.machine_unchanged);
         }
     }
-}
-
-#[test]
-fn patterned_stos_completes_in_the_jit_with_a_short_final_prefix_copy() {
-    check_patterned_completion();
 }
 
 #[test]

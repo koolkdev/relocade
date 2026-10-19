@@ -198,7 +198,8 @@ fn retired_boolean_keeps_numeric_mask() {
     }
 }
 
-fn shuffled_observation() {
+#[test]
+fn partial_shuffle_observations_retain_only_contributing_replacements() {
     let mut initial = vec![0xa5; 40];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -241,7 +242,8 @@ fn shuffled_observation() {
     }
 }
 
-fn discarded_replacement_effects() {
+#[test]
+fn discarded_replacements_keep_loads_calls_and_effect_order() {
     let mut initial = vec![0xa5; 32];
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
@@ -287,16 +289,6 @@ fn discarded_replacement_effects() {
     instance.call::<()>(()).unwrap();
     assert_eq!(instance.callbacks(), calls);
     assert_eq!(&instance.memory("state")[..expected.len()], expected);
-}
-
-#[test]
-fn partial_shuffle_observations_retain_only_contributing_replacements() {
-    shuffled_observation();
-}
-
-#[test]
-fn discarded_replacements_keep_loads_calls_and_effect_order() {
-    discarded_replacement_effects();
 }
 
 #[test]

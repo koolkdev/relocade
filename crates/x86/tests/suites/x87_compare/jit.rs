@@ -100,7 +100,8 @@ fn native_values() {
     }
 }
 
-fn restart_after_load() {
+#[test]
+fn operand_exception_restart() {
     for (compare, quiet_nan, signaling_nan) in [
         (
             0xdc_u8,
@@ -183,11 +184,7 @@ fn native_and_extended_ordering() {
 }
 
 #[test]
-fn operand_exception_restart() {
-    restart_after_load();
-}
-
-fn promoted_inputs() {
+fn binary32_and_integer_comparisons_stay_compiled() {
     // Source bits, the independently specified loaded value, and the final
     // relation cover exact promotion, integer limits, signed zero and wide FILD.
     for (load, modrm, source, value, compare, right, flags) in [
@@ -312,11 +309,7 @@ fn promoted_inputs() {
 }
 
 #[test]
-fn binary32_and_integer_comparisons_stay_compiled() {
-    promoted_inputs();
-}
-
-fn signed_integer_comparison() {
+fn sign_changes_update_native_integer_comparisons() {
     for (operation, input, before, after, flags) in [
         (0xe0_u8, 1_i32, ONE, (LEADING, 0xbfff), LESS),
         (0xe1, -1, (LEADING, 0xbfff), ONE, 0),
@@ -345,9 +338,4 @@ fn signed_integer_comparison() {
             )
         );
     }
-}
-
-#[test]
-fn sign_changes_update_native_integer_comparisons() {
-    signed_integer_comparison();
 }

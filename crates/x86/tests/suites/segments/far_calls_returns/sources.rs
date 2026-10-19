@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn aliased_sources() {
+#[test]
+fn indirect_calls_read_entry_esp_and_source_bytes_before_pushing_through_ss() {
     for word in [false, true] {
         for override_fs in [false, true] {
             // The default-SS pointer occupies the cells that CALL will overwrite.
@@ -46,11 +47,7 @@ fn aliased_sources() {
 }
 
 #[test]
-fn indirect_calls_read_entry_esp_and_source_bytes_before_pushing_through_ss() {
-    aliased_sources();
-}
-
-fn source_faults() {
+fn the_whole_indirect_pointer_faults_before_resolution_or_return_frame_access() {
     for word in [false, true] {
         for (stack_source, limit, mapped, exit) in [
             (false, 0xfff, false, Exit::GeneralProtection { error: 0 }),
@@ -109,11 +106,7 @@ fn source_faults() {
 }
 
 #[test]
-fn the_whole_indirect_pointer_faults_before_resolution_or_return_frame_access() {
-    source_faults();
-}
-
-fn overrides_on_return() {
+fn return_ignores_address_and_segment_overrides_for_its_stack() {
     // An unusable FS and address override do not redirect implicit stack accesses.
     let code = [0x64, 0x67, 0xcb];
     let mut image = image_with_stack(&code, 0x9000);
@@ -135,9 +128,4 @@ fn overrides_on_return() {
             exit: Exit::Dispatch(cpu.eip),
         },
     );
-}
-
-#[test]
-fn return_ignores_address_and_segment_overrides_for_its_stack() {
-    overrides_on_return();
 }

@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn registers() {
+#[test]
+fn register_forms_use_low_words_in_both_code_sizes_with_or_without_overrides() {
     let mut tables = DescriptorTables::default();
     tables.insert(0xffff, descriptor(0, SegmentDefaultSize::Bits16));
     for (profile, code, source) in [
@@ -44,11 +45,7 @@ fn registers() {
 }
 
 #[test]
-fn register_forms_use_low_words_in_both_code_sizes_with_or_without_overrides() {
-    registers();
-}
-
-fn memory_sources() {
+fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrides() {
     let mut tables = DescriptorTables::default();
     tables.insert(0xf327, descriptor(0, SegmentDefaultSize::Bits32));
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
@@ -104,11 +101,7 @@ fn memory_sources() {
 }
 
 #[test]
-fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrides() {
-    memory_sources();
-}
-
-fn source_faults() {
+fn source_segment_and_page_faults_precede_permission_queries_and_flag_changes() {
     for (code, stack) in [
         (vec![0x0f, 0x00, 0x23], false),
         (vec![0x0f, 0x00, 0x2c, 0x24], true),
@@ -152,9 +145,4 @@ fn source_faults() {
             );
         }
     }
-}
-
-#[test]
-fn source_segment_and_page_faults_precede_permission_queries_and_flag_changes() {
-    source_faults();
 }

@@ -5,7 +5,8 @@ use crate::support::{
 };
 use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 
-fn check_progress() {
+#[test]
+fn segment_fault_publishes_prior_arithmetic_store_and_count() {
     // MOV EAX,1; ADD EAX,1; MOV [EBX],EAX; MOV ECX,FS:[EDX].
     let code = [
         0xb8, 1, 0, 0, 0, 0x83, 0xc0, 1, 0x89, 0x03, 0x64, 0x8b, 0x0a,
@@ -69,11 +70,7 @@ fn check_progress() {
 }
 
 #[test]
-fn segment_fault_publishes_prior_arithmetic_store_and_count() {
-    check_progress();
-}
-
-fn code_boundaries() {
+fn cs_faults_preserve_the_correct_instruction_boundary() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
         SegmentProfile::Segmented32,
     ));
@@ -195,9 +192,4 @@ fn code_boundaries() {
             ]
         )
     );
-}
-
-#[test]
-fn cs_faults_preserve_the_correct_instruction_boundary() {
-    code_boundaries();
 }

@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn earlier_progress() {
+#[test]
+fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructions() {
     for nested_task in [false, true] {
         // ADD EAX,1; prefixed IRETD; unsupported trailing byte beyond the block end.
         let code = [0x83, 0xc0, 1, 0x67, 0xcf, 0xf4];
@@ -57,11 +58,7 @@ fn earlier_progress() {
 }
 
 #[test]
-fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructions() {
-    earlier_progress();
-}
-
-fn dispatch_and_fetch() {
+fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
     let code = [0xcf, 0xf4];
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
     let mut image = image(&code, profile);
@@ -132,11 +129,7 @@ fn dispatch_and_fetch() {
 }
 
 #[test]
-fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
-    dispatch_and_fetch();
-}
-
-fn flags_from_instructions() {
+fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
     // POPFD loads NT; IRET must observe that definition before any stack access.
     let code = [0x9d, 0xcf];
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
@@ -177,11 +170,7 @@ fn flags_from_instructions() {
 }
 
 #[test]
-fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
-    flags_from_instructions();
-}
-
-fn fetch_boundary() {
+fn complete_fetch_precedes_nt_and_byte_sixteen_is_rejected() {
     for (length, suffix) in [(1, 0xcf), (15, 0xcf), (16, 0xcf)] {
         let code = [vec![0x67; length - 1], vec![suffix]].concat();
         let mut image = image(&[], ExecutionProfile::Protected(SegmentProfile::Flat32));
@@ -229,9 +218,4 @@ fn fetch_boundary() {
             error: 0x10,
         },
     );
-}
-
-#[test]
-fn complete_fetch_precedes_nt_and_byte_sixteen_is_rejected() {
-    fetch_boundary();
 }

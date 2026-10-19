@@ -173,7 +173,8 @@ fn memory_faults(frontend: Frontend) {
     );
 }
 
-fn compiled_continuation_and_restart() {
+#[test]
+fn compiled_sequence_and_restart() {
     // FICOMP's pop and saved memory pointer feed a following EFLAGS comparison.
     let code = [instruction(0xda, true, 0x4000), vec![0xdb, 0xf1]].concat();
     let mut image = initial_image(&code);
@@ -259,10 +260,6 @@ fn compiled_continuation_and_restart() {
 test_frontends!(forms, forms_and_exact_values);
 test_frontends!(exceptions, operand_exceptions);
 test_frontends!(memory, memory_faults);
-#[test]
-fn compiled_sequence_and_restart() {
-    compiled_continuation_and_restart();
-}
 
 #[test]
 fn complete_encodings() {

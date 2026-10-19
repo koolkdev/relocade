@@ -12,7 +12,8 @@ use wasm86_x86::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, CpuState, SegmentProfile,
 };
 
-fn guard_admission() {
+#[test]
+fn load_guards_admit_common_values_and_reject_exceptional_pushes() {
     // Literal encodings cover normal, signed zeros, infinity, quiet/signaling
     // NaNs and subnormal values. The final case occupies the push destination.
     let single = [
@@ -85,7 +86,8 @@ fn guard_admission() {
     }
 }
 
-fn faults_before_handoff() {
+#[test]
+fn pending_segment_and_page_faults_precede_interpreter_handoff() {
     let code = [0xd9, 0x05, 0, 0x40, 0, 0];
     let module = TestModule::new(
         &compile_block_from_bytes_with_profile(0x1000, &code, 1, SegmentProfile::Segmented32)
@@ -131,14 +133,4 @@ fn only_guarded_jit_entries_require_the_interpreter_import() {
     assert!(!imports_interpreter(&plain.bytes));
     assert!(!imports_interpreter(TestModule::interpreter().bytes()));
     assert!(!imports_interpreter(linked::interpreter_run().bytes()));
-}
-
-#[test]
-fn load_guards_admit_common_values_and_reject_exceptional_pushes() {
-    guard_admission();
-}
-
-#[test]
-fn pending_segment_and_page_faults_precede_interpreter_handoff() {
-    faults_before_handoff();
 }

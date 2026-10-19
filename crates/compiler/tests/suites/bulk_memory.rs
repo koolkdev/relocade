@@ -18,7 +18,8 @@ fn transfers() -> TestModule {
     })
 }
 
-fn check_transfers() {
+#[test]
+fn bulk_transfers_preserve_snapshots_overlap_and_byte_fill() {
     let module = transfers();
     let expected = &[0xa5, 0xa5, 1, 1, 2, 3, 4, 5, 6, 0x34, 0x34, 0xa5];
 
@@ -26,11 +27,6 @@ fn check_transfers() {
     assert_eq!(instance.call::<i32>((6,)).unwrap(), 0xa5a5_a5a5u32 as i32);
     assert_eq!(&instance.memory("destination")[..12], expected);
     assert_eq!(&instance.memory("source")[..6], &[1, 2, 3, 4, 5, 6]);
-}
-
-#[test]
-fn bulk_transfers_preserve_snapshots_overlap_and_byte_fill() {
-    check_transfers();
 }
 
 #[test]
@@ -83,7 +79,8 @@ fn calls_summarize_bulk_writes_and_keep_reader_snapshots() {
     assert_eq!(&instance.memory("memory")[..8], &[0, 0, 0, 0, 9, 0, 0, 0]);
 }
 
-fn check_relative_snapshots() {
+#[test]
+fn relative_bulk_writes_preserve_overlapping_snapshots_and_allow_disjoint_reads() {
     let initial = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
     for (offset, order) in [(2, ["load", "fill"]), (4, ["fill", "load"])] {
         let mut fixture = Fixture::new();
@@ -118,11 +115,6 @@ fn check_relative_snapshots() {
             assert_eq!(&instance.memory("memory")[..initial.len()], &expected);
         }
     }
-}
-
-#[test]
-fn relative_bulk_writes_preserve_overlapping_snapshots_and_allow_disjoint_reads() {
-    check_relative_snapshots();
 }
 
 #[test]

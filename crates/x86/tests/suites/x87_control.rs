@@ -375,7 +375,8 @@ fn waiting_boundaries(frontend: Frontend) {
     );
 }
 
-fn repeated_delivery() {
+#[test]
+fn repeated_delivery_retains_the_pending_exception() {
     let mut image = initial_image(&[0x9b]);
     pending(&mut image);
     assert_eq!(
@@ -453,7 +454,8 @@ fn memory_faults(frontend: Frontend) {
     );
 }
 
-fn rejected_forms() {
+#[test]
+fn controls_reject_other_modrm_forms_and_lock_prefixes() {
     for code in [
         &[0xd9, 0xef][..], // FLDCW's /5 is memory-only; D9 EF is unassigned.
         &[0xdd, 0xf8][..],
@@ -500,16 +502,6 @@ test_frontends!(
     memory_faults_publish_earlier_controls_without_partial_commitment,
     memory_faults
 );
-
-#[test]
-fn repeated_delivery_retains_the_pending_exception() {
-    repeated_delivery();
-}
-
-#[test]
-fn controls_reject_other_modrm_forms_and_lock_prefixes() {
-    rejected_forms();
-}
 
 #[test]
 fn controls_consume_exact_encodings_and_wait_has_its_own_length() {

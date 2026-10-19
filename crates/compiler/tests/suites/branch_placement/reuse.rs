@@ -28,7 +28,8 @@ fn accumulator(depth: u32) -> TestModule {
     })
 }
 
-fn accumulator_results() {
+#[test]
+fn successive_exits_share_each_accumulator_update_once() {
     for depth in [1, 4, 16, 32] {
         let module = accumulator(depth);
         assert_eq!(
@@ -59,11 +60,6 @@ fn accumulator_results() {
             }
         }
     }
-}
-
-#[test]
-fn successive_exits_share_each_accumulator_update_once() {
-    accumulator_results();
 }
 
 #[test]

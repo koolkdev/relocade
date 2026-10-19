@@ -3,7 +3,8 @@
 use super::*;
 use wasm86_compiler::{I16, I8};
 
-fn promotion() {
+#[test]
+fn binary32_promotion_preserves_values_and_defers_nan_payloads() {
     let runtime = Fixture::new().expression(&[Type::I32], |body| {
         observed_bits(Val::<F64>::from_binary32_bits(
             body.parameter::<I32>(0).unwrap(),
@@ -32,7 +33,8 @@ fn promotion() {
     }
 }
 
-fn demotion() {
+#[test]
+fn binary32_demotion_rounds_ties_and_preserves_gradual_underflow() {
     let observed = |value: Val<F64>| {
         let bits = value.to_binary32_bits();
         bits.and(0x7fff_ffff)
@@ -214,7 +216,8 @@ fn wide_integers() {
     }
 }
 
-fn saturating_integers() {
+#[test]
+fn floating_integer_conversion_saturates_without_trapping() {
     let runtime = Fixture::new().function(&[Type::I64], &[Type::I32], |body| {
         let value = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         body.return_(value.trunc_saturating_i32())
@@ -248,21 +251,6 @@ fn saturating_integers() {
             check(&constant, &[], &expected);
         }
     }
-}
-
-#[test]
-fn floating_integer_conversion_saturates_without_trapping() {
-    saturating_integers();
-}
-
-#[test]
-fn binary32_promotion_preserves_values_and_defers_nan_payloads() {
-    promotion();
-}
-
-#[test]
-fn binary32_demotion_rounds_ties_and_preserves_gradual_underflow() {
-    demotion();
 }
 
 #[test]

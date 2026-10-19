@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn call_widths() {
+#[test]
+fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
     // Each immediate/indirect form covers the four operand-width/SS.B combinations.
     for (profile, code, word, stack_big) in [
         (
@@ -124,11 +125,7 @@ fn call_widths() {
 }
 
 #[test]
-fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
-    call_widths();
-}
-
-fn return_widths() {
+fn return_forms_pop_two_slots_and_discard_unsigned_cleanup_without_accessing_it() {
     for (profile, operand_override, word, stack_big) in [
         (
             ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -201,11 +198,7 @@ fn return_widths() {
 }
 
 #[test]
-fn return_forms_pop_two_slots_and_discard_unsigned_cleanup_without_accessing_it() {
-    return_widths();
-}
-
-fn frame_boundaries() {
+fn complete_frame_capacity_and_selector_transfer_extent_are_distinct() {
     // Capacity covers both complete slots, while the unused selector padding is
     // excluded from paging. Fields remain consecutive across a 16-bit boundary.
     for returning in [false, true] {
@@ -308,9 +301,4 @@ fn frame_boundaries() {
             );
         }
     }
-}
-
-#[test]
-fn complete_frame_capacity_and_selector_transfer_extent_are_distinct() {
-    frame_boundaries();
 }

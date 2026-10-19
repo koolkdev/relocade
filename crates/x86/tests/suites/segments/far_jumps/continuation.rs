@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn new_code_defaults() {
+#[test]
+fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
     for next_word in [false, true] {
         let code = immediate(false, 0x200, 0x1b); // Reload the currently visible selector.
         let mut image = Image::new(&code);
@@ -80,11 +81,7 @@ fn new_code_defaults() {
 }
 
 #[test]
-fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
-    new_code_defaults();
-}
-
-fn destination_paging() {
+fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
     let code = immediate(false, 0x200, 0x27);
     let mut image = Image::new(&code);
     let mut tables = DescriptorTables::default();
@@ -125,11 +122,7 @@ fn destination_paging() {
 }
 
 #[test]
-fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
-    destination_paging();
-}
-
-fn terminal_jump() {
+fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
     for indirect in [false, true] {
         let mut code = if indirect {
             vec![0xff, 0x2b]
@@ -183,9 +176,4 @@ fn terminal_jump() {
             assert_eq!(module.observe(&input, 1), wanted);
         }
     }
-}
-
-#[test]
-fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
-    terminal_jump();
 }

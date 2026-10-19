@@ -96,7 +96,8 @@ fn mixed_history(local_base: bool) -> CompiledModule {
     }
 }
 
-fn check_mixed_history() {
+#[test]
+fn ordered_reads_compose_stored_local_partial_and_conditional_flags_without_publication() {
     let mut initial = initial_cpu();
     initial.flags.bytes.tf = 0x81;
     initial.flags.bytes.df = 0xfe;
@@ -129,11 +130,6 @@ fn check_mixed_history() {
             assert_reads(&module, &initial, &arguments, &expected);
         }
     }
-}
-
-#[test]
-fn ordered_reads_compose_stored_local_partial_and_conditional_flags_without_publication() {
-    check_mixed_history();
 }
 
 fn cached_reads_and_writes() -> CompiledModule {
@@ -188,7 +184,8 @@ fn cached_reads_and_writes() -> CompiledModule {
     }
 }
 
-fn check_cached_reads() {
+#[test]
+fn grouped_and_single_reads_share_cache_but_retain_values_across_later_writes() {
     let module = TestModule::new(&cached_reads_and_writes());
     let mut initial = initial_cpu();
     initial.flags.bytes.df = 0x81;
@@ -207,9 +204,4 @@ fn check_cached_reads() {
             0, 1, // Current ID is false; its earlier captured value remains true.
         ],
     );
-}
-
-#[test]
-fn grouped_and_single_reads_share_cache_but_retain_values_across_later_writes() {
-    check_cached_reads();
 }

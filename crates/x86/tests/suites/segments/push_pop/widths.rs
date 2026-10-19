@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn selector_widths() {
+#[test]
+fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
     // Every fixed form appears once; shared stack tests own the full size matrix.
     for (push, forms) in [(true, &PUSH[..]), (false, &POP[..])] {
         for (index, &(segment, opcode)) in forms.iter().enumerate() {
@@ -100,11 +101,7 @@ fn selector_widths() {
 }
 
 #[test]
-fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
-    selector_widths();
-}
-
-fn unread_slot_bytes() {
+fn a_dword_slot_does_not_access_its_third_or_fourth_byte() {
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
@@ -165,11 +162,7 @@ fn unread_slot_bytes() {
 }
 
 #[test]
-fn a_dword_slot_does_not_access_its_third_or_fourth_byte() {
-    unread_slot_bytes();
-}
-
-fn split_selector() {
+fn selector_words_can_cross_discontiguous_physical_pages() {
     for push in [false, true] {
         let code = [0x0f, if push { 0xa8 } else { 0xa9 }]; // PUSH/POP GS.
         let mut image = Image::new(&code);
@@ -213,9 +206,4 @@ fn split_selector() {
             },
         );
     }
-}
-
-#[test]
-fn selector_words_can_cross_discontiguous_physical_pages() {
-    split_selector();
 }

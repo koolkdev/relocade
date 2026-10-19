@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn source_faults() {
+#[test]
+fn the_complete_pointer_segment_check_precedes_paging_and_resolution() {
     for stack_source in [false, true] {
         for word in [false, true] {
             for (limit, first_present, exit) in [
@@ -87,11 +88,7 @@ fn source_faults() {
 }
 
 #[test]
-fn the_complete_pointer_segment_check_precedes_paging_and_resolution() {
-    source_faults();
-}
-
-fn resolver_faults() {
+fn failed_resolution_preserves_the_destination_gpr_and_complete_segment_cache() {
     for (segment, opcode, selector, present_slot, exit) in [
         (
             Segment::Ds,
@@ -154,11 +151,7 @@ fn resolver_faults() {
 }
 
 #[test]
-fn failed_resolution_preserves_the_destination_gpr_and_complete_segment_cache() {
-    resolver_faults();
-}
-
-fn earlier_progress() {
+fn pointer_load_faults_publish_earlier_flags_register_store_and_retirement_progress() {
     // ADD EAX,1; MOV [EBX],EAX; LSS ESP,[EBX] (non-present).
     let code = [0x83, 0xc0, 1, 0x89, 0x03, 0x0f, 0xb2, 0x23];
     let mut image = Image::new(&code);
@@ -223,11 +216,7 @@ fn earlier_progress() {
 }
 
 #[test]
-fn pointer_load_faults_publish_earlier_flags_register_store_and_retirement_progress() {
-    earlier_progress();
-}
-
-fn register_sources() {
+fn register_sources_are_rejected_by_both_decoders_before_execution() {
     for (_, opcode) in FORMS {
         let rm = 3;
         let mut code = opcode.to_vec();
@@ -246,9 +235,4 @@ fn register_sources() {
             Exit::Other((8 << 48) | (u64::from(opcode[0]) << 32) | u64::from(image.cpu.eip)),
         );
     }
-}
-
-#[test]
-fn register_sources_are_rejected_by_both_decoders_before_execution() {
-    register_sources();
 }

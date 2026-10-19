@@ -9,7 +9,8 @@ use crate::support::{
 };
 use wasm86_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32};
 
-fn incomplete_prefix_fetches() {
+#[test]
+fn prefix_order_preserves_the_next_required_fetch() {
     for code in [&[0xf3][..], &[0xf3, 0x67], &[0x67, 0xf3], &[0x67]] {
         let origin = 0x2000 - code.len() as u32;
         assert_eq!(
@@ -36,11 +37,7 @@ fn incomplete_prefix_fetches() {
 }
 
 #[test]
-fn prefix_order_preserves_the_next_required_fetch() {
-    incomplete_prefix_fetches();
-}
-
-fn unsupported_prefixed_register_exchanges() {
+fn prefix_selection_does_not_extend_pause_to_other_register_exchanges() {
     // PAUSE occupies only F3 90. Other F2/F3 exchange encodings remain outside
     // the supported set, and neither frontend may fall back to the bare form.
     for (prefix, first_opcode) in [(0xf2, 0x90), (0xf3, 0x91)] {
@@ -68,11 +65,6 @@ fn unsupported_prefixed_register_exchanges() {
             );
         }
     }
-}
-
-#[test]
-fn prefix_selection_does_not_extend_pause_to_other_register_exchanges() {
-    unsupported_prefixed_register_exchanges();
 }
 
 test_cases!(

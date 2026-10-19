@@ -93,7 +93,8 @@ fn block_with_alternative_continuations() -> TestModule {
     )
 }
 
-fn check_alternative_continuations() {
+#[test]
+fn alternative_continuations_preserve_results_and_effects() {
     let module = block_with_alternative_continuations();
     for (arguments, result, memory) in [
         ([0, 0, 0, 9], 17, [0; 12]),
@@ -109,11 +110,6 @@ fn check_alternative_continuations() {
         );
         assert_eq!(&instance.memory("state")[..12], memory);
     }
-}
-
-#[test]
-fn alternative_continuations_preserve_results_and_effects() {
-    check_alternative_continuations();
 }
 
 #[test]

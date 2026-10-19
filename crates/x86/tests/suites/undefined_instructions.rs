@@ -65,7 +65,8 @@ fn complete_encoding_ends_snapshot_compilation() {
     }
 }
 
-fn instruction_fetch_faults() {
+#[test]
+fn interpreter_fetch_checks_precede_the_invalid_opcode_fault() {
     for code in [&[0x0f][..], &[0x66, 0x0f]] {
         let mut image = Image::empty();
         image.cpu.eip = 0x2000 - code.len() as u32;
@@ -90,11 +91,6 @@ fn instruction_fetch_faults() {
         "the second opcode byte must be inside CS before UD2 can execute",
         Exit::GeneralProtection { error: 0 },
     );
-}
-
-#[test]
-fn interpreter_fetch_checks_precede_the_invalid_opcode_fault() {
-    instruction_fetch_faults();
 }
 
 test_cases!(fault_preserves_instruction_entry, faulting_forms());

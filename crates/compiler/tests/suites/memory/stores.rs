@@ -1,7 +1,8 @@
 //! Store selection observes exact low bytes without changing shared conversions.
 use super::*;
 
-fn conversions() {
+#[test]
+fn scalar_stores_absorb_only_unobserved_conversion_bits() {
     let initial = [0xa5; 32];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
@@ -56,9 +57,4 @@ fn conversions() {
         );
         assert_eq!(&instance.memory("state")[..32], expected);
     }
-}
-
-#[test]
-fn scalar_stores_absorb_only_unobserved_conversion_bits() {
-    conversions();
 }

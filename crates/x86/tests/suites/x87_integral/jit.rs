@@ -5,7 +5,8 @@ use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
-fn native_rounding() {
+#[test]
+fn loaded_values_use_native_rounding() {
     let code = [0xdd, 0x05, 0, 0x40, 0, 0, 0xd9, 0xfc]; // FLD m64; FRNDINT
     for rc in 0..4 {
         let mut observed = CpuState::default();
@@ -74,7 +75,8 @@ fn native_rounding() {
     }
 }
 
-fn restart() {
+#[test]
+fn full_precision_and_rejected_operands() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
@@ -116,13 +118,4 @@ fn restart() {
             expected(&image, &[dispatch(result)])
         );
     }
-}
-
-#[test]
-fn loaded_values_use_native_rounding() {
-    native_rounding();
-}
-#[test]
-fn full_precision_and_rejected_operands() {
-    restart();
 }

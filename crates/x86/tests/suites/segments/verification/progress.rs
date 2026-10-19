@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn lazy_flags() {
+#[test]
+fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
     let mut tables = DescriptorTables::default();
     tables.insert(
         0x27,
@@ -43,11 +44,7 @@ fn lazy_flags() {
 }
 
 #[test]
-fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
-    lazy_flags();
-}
-
-fn continuing_block() {
+fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Segmented16);
     // VERR AX; SETZ DL; VERW AX; SETZ BL.
     let code = [
@@ -113,11 +110,7 @@ fn continuing_block() {
 }
 
 #[test]
-fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() {
-    continuing_block();
-}
-
-fn table_changes() {
+fn the_same_entry_observes_table_edits_while_the_loaded_cache_stays_unchanged() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let code = [0x0f, 0x00, 0xe8]; // VERW AX.
     let mut image = image(&code, profile);
@@ -168,11 +161,7 @@ fn table_changes() {
 }
 
 #[test]
-fn the_same_entry_observes_table_edits_while_the_loaded_cache_stays_unchanged() {
-    table_changes();
-}
-
-fn later_fault() {
+fn a_later_fault_preserves_completed_verification_and_its_retirement() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     // VERR AX; MOV ECX,[EBX] (unmapped).
     let code = [0x0f, 0x00, 0xe0, 0x8b, 0x0b];
@@ -214,9 +203,4 @@ fn later_fault() {
         .events
         .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
     assert_eq!(block.observe(&input, 1), wanted);
-}
-
-#[test]
-fn a_later_fault_preserves_completed_verification_and_its_retirement() {
-    later_fault();
 }

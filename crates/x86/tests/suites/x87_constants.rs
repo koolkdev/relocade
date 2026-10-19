@@ -196,7 +196,8 @@ fn changed_rounding_control(frontend: Frontend) {
     );
 }
 
-fn exact_constants_keep_native_arithmetic() {
+#[test]
+fn native_constant_sequence() {
     // 1 -> -1 -> -1 + 3 -> 0 + 2. Both exact constants keep native significands.
     let code = [
         0xd9, 0xe8, 0xd9, 0xe0, 0xda, 0x05, 0, 0x40, 0, 0, 0xd9, 0xee, 0xde, 0xc1,
@@ -242,7 +243,3 @@ fn encodings() {
 test_frontends!(values, rounded_values);
 test_frontends!(faults, stack_and_pending_exceptions);
 test_frontends!(control_changes, changed_rounding_control);
-#[test]
-fn native_constant_sequence() {
-    exact_constants_keep_native_arithmetic();
-}

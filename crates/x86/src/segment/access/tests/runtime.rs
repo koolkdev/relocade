@@ -27,7 +27,8 @@ fn expect_address(module: &TestModule, cpu: CpuState, choice: i32, address_or_fa
     );
 }
 
-fn check_segment_indices() {
+#[test]
+fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
     let mut cpu = CpuState::default();
     cpu.segments.fs = StoredSegment {
         base: 0x8000,
@@ -89,9 +90,4 @@ fn check_segment_indices() {
     expect_address(&address_default, cpu, 0, 16 << 48);
     cpu.segments.ds.limit = 0x22;
     expect_address(&address_default, cpu, 1, 2 << 48);
-}
-
-#[test]
-fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
-    check_segment_indices();
 }

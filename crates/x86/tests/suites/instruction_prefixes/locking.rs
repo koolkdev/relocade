@@ -333,7 +333,8 @@ fn atomic_boundaries() -> Vec<Case> {
 
 test_cases!(atomic_operand_boundaries, atomic_boundaries());
 
-fn rejected_forms() {
+#[test]
+fn unavailable_lock_forms_reject_before_unused_operand_fields() {
     for code in [
         &[0xf0, 0x90][..],
         &[0xf0, 0x8b],
@@ -368,7 +369,8 @@ fn rejected_forms() {
     }
 }
 
-fn required_fields() {
+#[test]
+fn lock_prefixes_preserve_required_fetch_and_length_boundaries() {
     for code in [
         &[0xf0][..],
         &[0xf0, 0x01],
@@ -420,14 +422,4 @@ fn required_fields() {
             Exit::GeneralProtection { error: 0 },
         );
     }
-}
-
-#[test]
-fn unavailable_lock_forms_reject_before_unused_operand_fields() {
-    rejected_forms();
-}
-
-#[test]
-fn lock_prefixes_preserve_required_fetch_and_length_boundaries() {
-    required_fields();
 }

@@ -5,7 +5,8 @@ use crate::support::{
 };
 use wasm86_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 
-fn changed_runtime_cache() {
+#[test]
+fn compiled_entries_reuse_only_compatible_segment_assumptions() {
     let code = [0x64, 0x8b, 0x03];
     let compiled = compile_block_from_bytes(0x1000, &code, 1).unwrap();
     let target = compiled.execution_target.unwrap();
@@ -54,9 +55,4 @@ fn changed_runtime_cache() {
     assert!(!target.is_compatible_with(target, &image.cpu.segments));
     assert!(ExecutionProfile::Protected(SegmentProfile::Segmented32)
         .is_compatible_with(&image.cpu.segments));
-}
-
-#[test]
-fn compiled_entries_reuse_only_compatible_segment_assumptions() {
-    changed_runtime_cache();
 }

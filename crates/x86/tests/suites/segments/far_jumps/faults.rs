@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn source_faults() {
+#[test]
+fn the_complete_source_span_is_checked_before_paging_and_selector_resolution() {
     for stack_source in [false, true] {
         for word in [false, true] {
             for (limit, first_present, exit) in [
@@ -79,11 +80,7 @@ fn source_faults() {
 }
 
 #[test]
-fn the_complete_source_span_is_checked_before_paging_and_selector_resolution() {
-    source_faults();
-}
-
-fn descriptor_faults() {
+fn descriptor_type_privilege_and_presence_faults_precede_the_new_target_limit() {
     let code_descriptor = descriptor(0x9000, 0x10, SegmentDefaultSize::Bits32);
     for (selector, slot, exit) in [
         (3, None, Exit::GeneralProtection { error: 0 }),
@@ -149,11 +146,7 @@ fn descriptor_faults() {
 }
 
 #[test]
-fn descriptor_type_privilege_and_presence_faults_precede_the_new_target_limit() {
-    descriptor_faults();
-}
-
-fn earlier_progress() {
+fn failed_jumps_publish_earlier_register_flag_memory_and_retirement_progress() {
     for present in [false, true] {
         // ADD EAX,1; MOV [EBX],EAX; JMP FAR [EBX]. Target 2 exceeds limit 1.
         let code = [0x83, 0xc0, 1, 0x89, 0x03, 0xff, 0x2b];
@@ -221,9 +214,4 @@ fn earlier_progress() {
         wanted.events.insert(0, event);
         assert_eq!(block.observe(&input, 1), wanted);
     }
-}
-
-#[test]
-fn failed_jumps_publish_earlier_register_flag_memory_and_retirement_progress() {
-    earlier_progress();
 }

@@ -167,7 +167,8 @@ fn axes(frontend: Frontend) {
     );
 }
 
-fn specialization() {
+#[test]
+fn jit_specialization() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
@@ -208,11 +209,6 @@ fn specialization() {
         );
     }
     assert!(bytes.windows(2).all(|pair| pair[0] == pair[1]));
-}
-
-#[test]
-fn jit_specialization() {
-    specialization();
 }
 
 test_frontends!(values_and_rounding, values);

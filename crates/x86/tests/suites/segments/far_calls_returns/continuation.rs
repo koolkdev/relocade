@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn round_trip() {
+#[test]
+fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
     for word in [false, true] {
         let call = immediate(word, 0x200, 0x27);
         let return_code = ret(!word, None); // Callee CS.D=0, match the CALL operand size.
@@ -59,11 +60,7 @@ fn round_trip() {
 }
 
 #[test]
-fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
-    round_trip();
-}
-
-fn return_frame_width() {
+fn return_operand_size_selects_the_frame_layout_independently_of_the_caller() {
     for word in [false, true] {
         let code = ret(word, None);
         let mut image = image_with_stack(&code, 0x9000);
@@ -92,11 +89,7 @@ fn return_frame_width() {
 }
 
 #[test]
-fn return_operand_size_selects_the_frame_layout_independently_of_the_caller() {
-    return_frame_width();
-}
-
-fn saved_fallthrough() {
+fn call_saves_the_complete_fallthrough_at_operand_width() {
     for word in [false, true] {
         let code = immediate(word, 0x200, 0x27);
         let mut image = image_with_stack(&[], 0x9008);
@@ -130,11 +123,7 @@ fn saved_fallthrough() {
 }
 
 #[test]
-fn call_saves_the_complete_fallthrough_at_operand_width() {
-    saved_fallthrough();
-}
-
-fn dispatch_boundary() {
+fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch() {
     for returning in [false, true] {
         let instruction = if returning {
             ret(false, None)
@@ -212,9 +201,4 @@ fn dispatch_boundary() {
             )
         );
     }
-}
-
-#[test]
-fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch() {
-    dispatch_boundary();
 }

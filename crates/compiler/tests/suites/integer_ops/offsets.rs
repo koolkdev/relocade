@@ -31,7 +31,8 @@ where
     }
 }
 
-fn check_offsets() {
+#[test]
+fn constant_offsets_wrap_at_logical_width_and_stop_at_observation_boundaries() {
     narrow::<I1>(&[(0, 1, -1), (1, 0, 0)]);
     narrow::<I8>(&[(0, 1, 1), (127, 128, -128), (255, 0, 0)]);
     narrow::<I16>(&[(0, 1, 1), (32767, 32768, -32768), (65535, 0, 0)]);
@@ -168,9 +169,4 @@ fn check_masked_offsets() {
     ] {
         check_result(&wide, Value::I64(input), &[Value::I64(expected)]);
     }
-}
-
-#[test]
-fn constant_offsets_wrap_at_logical_width_and_stop_at_observation_boundaries() {
-    check_offsets();
 }

@@ -28,7 +28,8 @@ fn check(module: &TestModule, inputs: &[Value], expected: &[Value]) {
     );
 }
 
-fn numeric_choices() {
+#[test]
+fn zero_one_choices_fold_before_and_after_specialization() {
     let module = Fixture::new().function(&[Type::I32], &[Type::I8, Type::I32, Type::I64], |body| {
         let condition = body.parameter::<I32>(0)?.truncate::<I1>().add(true);
         body.return_((
@@ -69,7 +70,8 @@ fn numeric_choices() {
     }
 }
 
-fn complementary_values() {
+#[test]
+fn complementary_predicates_fold_without_treating_wide_values_as_booleans() {
     let predicates = Fixture::new().function(&[Type::I64], &[Type::I1; 6], |body| {
         let zero = body.parameter::<I64>(0)?.eq(0_u64);
         let nonzero = zero.eq(false);
@@ -128,7 +130,8 @@ fn complementary_values() {
     }
 }
 
-fn nested_predicates() {
+#[test]
+fn nested_zero_tests_keep_polarity_and_observe_the_full_input_width() {
     let module = Fixture::new().expression(&[Type::I64], |body| {
         body.parameter::<I64>(0)
             .unwrap()
@@ -146,19 +149,4 @@ fn nested_predicates() {
     for (input, expected) in [(0, 1), (1, 0), (0x1_0000_0000, 0), (i64::MIN, 0), (-1, 0)] {
         check(&module, &[Value::I64(input)], &[Value::I32(expected)]);
     }
-}
-
-#[test]
-fn zero_one_choices_fold_before_and_after_specialization() {
-    numeric_choices();
-}
-
-#[test]
-fn complementary_predicates_fold_without_treating_wide_values_as_booleans() {
-    complementary_values();
-}
-
-#[test]
-fn nested_zero_tests_keep_polarity_and_observe_the_full_input_width() {
-    nested_predicates();
 }

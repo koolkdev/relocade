@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn widths_and_profiles() {
+#[test]
+fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
     for (profile, code, word) in [
         (
             ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -72,11 +73,7 @@ fn widths_and_profiles() {
 }
 
 #[test]
-fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
-    widths_and_profiles();
-}
-
-fn accepted_descriptors() {
+fn execute_only_and_conforming_code_accept_table_selection_and_normalize_cs_rpl() {
     // One GDT execute-only descriptor and a conforming descriptor at LDT index zero.
     for (selector, visible_selector, readable, conforming, dpl) in [
         (0x18, 0x1b, false, false, PrivilegeLevel::Ring3),
@@ -123,11 +120,7 @@ fn accepted_descriptors() {
 }
 
 #[test]
-fn execute_only_and_conforming_code_accept_table_selection_and_normalize_cs_rpl() {
-    accepted_descriptors();
-}
-
-fn target_limits() {
+fn the_new_inclusive_code_limit_applies_even_when_the_incoming_profile_is_flat() {
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
@@ -174,9 +167,4 @@ fn target_limits() {
             );
         }
     }
-}
-
-#[test]
-fn the_new_inclusive_code_limit_applies_even_when_the_incoming_profile_is_flat() {
-    target_limits();
 }

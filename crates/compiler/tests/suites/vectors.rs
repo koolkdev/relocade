@@ -40,7 +40,8 @@ fn check(module: &TestModule, expected: &[u8], count: i32) {
     assert_eq!(&instance.memory("state")[..expected.len()], expected);
 }
 
-fn bitwise() {
+#[test]
+fn bitwise_operations_preserve_all_128_bits() {
     let mut bytes = vec![0xa5; 160];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
     bytes[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -87,7 +88,8 @@ fn bitwise() {
     }
 }
 
-fn calls_and_control() {
+#[test]
+fn vector_calls_selections_and_loop_backedges() {
     let bytes = vec![0xa5; 48];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
@@ -137,7 +139,8 @@ fn calls_and_control() {
     }
 }
 
-fn small_vector_literals() {
+#[test]
+fn vector_literals_with_zero_upper_bits_keep_vector_semantics() {
     let masks = [0, 1, 0xff, u128::from(u64::MAX), u128::MAX];
     let mut bytes = vec![0xa5; 16 + masks.len() * 3 * 16];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
@@ -169,11 +172,7 @@ fn small_vector_literals() {
 }
 
 #[test]
-fn vector_literals_with_zero_upper_bits_keep_vector_semantics() {
-    small_vector_literals();
-}
-
-fn mixed_literal_encodings() {
+fn mixed_literal_calls_preserve_narrow_values_float_bits_and_vector_bits() {
     const NAN: u64 = 0x7ff8_0000_0000_0042;
     let bytes = vec![0xa5; 40];
     let mut fixture = Fixture::new();
@@ -223,11 +222,7 @@ fn mixed_literal_encodings() {
 }
 
 #[test]
-fn mixed_literal_calls_preserve_narrow_values_float_bits_and_vector_bits() {
-    mixed_literal_encodings();
-}
-
-fn overlapping_memory() {
+fn vector_loads_keep_snapshots_across_overlapping_scalar_stores() {
     let mut bytes = vec![0xa5; 64];
     bytes[3..19].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
@@ -248,21 +243,6 @@ fn overlapping_memory() {
 }
 
 #[test]
-fn bitwise_operations_preserve_all_128_bits() {
-    bitwise();
-}
-
-#[test]
-fn vector_calls_selections_and_loop_backedges() {
-    calls_and_control();
-}
-
-#[test]
-fn vector_loads_keep_snapshots_across_overlapping_scalar_stores() {
-    overlapping_memory();
-}
-
-#[test]
 fn vector_literals_require_vector_signatures() {
     for (argument, expected, actual) in [
         (Argument::from(LEFT), Type::I64, Type::V128),
@@ -279,7 +259,8 @@ fn vector_literals_require_vector_signatures() {
     }
 }
 
-fn lanes() {
+#[test]
+fn vector_lanes_preserve_other_bits_and_use_low_byte_first_order() {
     use wasm86_compiler::I64;
     let mut bytes = vec![0xa5; 240];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
@@ -329,9 +310,4 @@ fn lanes() {
     expected[192..196].copy_from_slice(&LEFT.to_le_bytes()[12..]);
     expected[200..208].copy_from_slice(&LEFT.to_le_bytes()[8..]);
     check(&module, &expected, 0);
-}
-
-#[test]
-fn vector_lanes_preserve_other_bits_and_use_low_byte_first_order() {
-    lanes();
 }

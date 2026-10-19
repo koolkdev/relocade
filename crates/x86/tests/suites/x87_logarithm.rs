@@ -162,7 +162,8 @@ fn exceptions(frontend: Frontend) {
     );
 }
 
-fn specialization() {
+#[test]
+fn jit_specialization() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let compiled = compiler.compile_block(0x1000, &CODE, 1).unwrap();
     let module = TestModule::new(&compiled);
@@ -203,11 +204,6 @@ fn check_pc_independent(code: [u8; 2]) {
         );
     }
     assert!(modules.windows(2).all(|pair| pair[0] == pair[1]));
-}
-
-#[test]
-fn jit_specialization() {
-    specialization();
 }
 
 test_frontends!(values_and_cancellation, values);

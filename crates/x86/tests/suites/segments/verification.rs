@@ -20,7 +20,8 @@ use crate::{
     SegmentDescriptor, SegmentDescriptorKind, SegmentProfile,
 };
 
-fn descriptor_results() {
+#[test]
+fn verification_reports_rights_in_zf_without_loading_or_faulting_for_a_selector() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let mut tables = DescriptorTables::default();
     let writable = descriptor(0, SegmentDefaultSize::Bits32);
@@ -67,9 +68,4 @@ fn descriptor_results() {
             );
         }
     }
-}
-
-#[test]
-fn verification_reports_rights_in_zf_without_loading_or_faulting_for_a_selector() {
-    descriptor_results();
 }

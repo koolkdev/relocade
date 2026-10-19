@@ -26,7 +26,8 @@ fn subnormal_loaded(cpu: CpuState) -> CpuState {
     cpu
 }
 
-fn published_prefix_and_step() {
+#[test]
+fn handoff_publishes_prefix_and_interpreter_step_restarts_once() {
     let code = [
         0x8d, 0x40, 1, // LEA EAX,[EAX+1]
         0xa3, 0, 0x40, 0, 0, // MOV [0x4000],EAX
@@ -68,7 +69,8 @@ fn published_prefix_and_step() {
     }
 }
 
-fn run_to_branch_or_fault() {
+#[test]
+fn interpreter_run_passes_snapshot_limit_and_stops_at_branch_or_fault() {
     let code = [
         0xd9, 0x05, 0, 0x40, 0, 0, // Only FLD belongs to the compiled snapshot.
         0xd9, 0x1d, 0, 0x50, 0, 0, // FSTP dword [0x5000]
@@ -115,16 +117,7 @@ fn run_to_branch_or_fault() {
 }
 
 #[test]
-fn handoff_publishes_prefix_and_interpreter_step_restarts_once() {
-    published_prefix_and_step();
-}
-
-#[test]
-fn interpreter_run_passes_snapshot_limit_and_stops_at_branch_or_fault() {
-    run_to_branch_or_fault();
-}
-
-fn timestamp_after_handoff() {
+fn timestamp_includes_retirement_across_interpreter_handoff() {
     let code = [
         0x90, // The JIT retires this prefix before its FLD specialization fails.
         0xd9, 0x05, 0, 0x40, 0, 0, 0x0f, 0x31, 0xeb, 0,
@@ -154,9 +147,4 @@ fn timestamp_after_handoff() {
             }]
         )
     );
-}
-
-#[test]
-fn timestamp_includes_retirement_across_interpreter_handoff() {
-    timestamp_after_handoff();
 }

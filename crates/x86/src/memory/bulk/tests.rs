@@ -53,7 +53,8 @@ fn transfers(fill: bool) -> TestModule {
     })
 }
 
-fn check_transfers() {
+#[test]
+fn physical_bulk_transfers_require_proven_backing() {
     for fill in [false, true] {
         let module = transfers(fill);
         for (destination, source, bytes, allowed) in [
@@ -105,9 +106,4 @@ fn check_transfers() {
             assert_eq!(snapshot.guest, Some(expected));
         }
     }
-}
-
-#[test]
-fn physical_bulk_transfers_require_proven_backing() {
-    check_transfers();
 }

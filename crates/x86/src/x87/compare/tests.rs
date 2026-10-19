@@ -3,7 +3,8 @@ use crate::floating::BinaryFormat;
 use crate::{test_step as step, CompiledModule};
 use wasm86_compiler::{Program, Signature, Type, I32, I64};
 
-fn loaded_binary64_comparison() {
+#[test]
+fn loaded_binary64_values_compare_without_source_exceptions() {
     let mut program = Program::new();
     let function = program
         .function(
@@ -74,11 +75,7 @@ fn loaded_binary64_comparison() {
 }
 
 #[test]
-fn loaded_binary64_values_compare_without_source_exceptions() {
-    loaded_binary64_comparison();
-}
-
-fn promoted_comparison() {
+fn binary32_promotion_preserves_ordering_and_source_exceptions() {
     for memory in [false, true] {
         let mut program = Program::new();
         let function = program
@@ -158,11 +155,6 @@ fn promoted_comparison() {
             );
         }
     }
-}
-
-#[test]
-fn binary32_promotion_preserves_ordering_and_source_exceptions() {
-    promoted_comparison();
 }
 
 #[test]

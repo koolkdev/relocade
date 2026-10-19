@@ -239,7 +239,8 @@ fn cache_instruction_encodings() {
     check_unsupported_at_page_end(&[0x66, 0x0f, 0xae, 0x38], 0x0f);
 }
 
-fn prefetch_fetch_fault() {
+#[test]
+fn prefetch_requires_complete_instruction_fetch() {
     let mut image = Image::new(&[]);
     image.cpu.eip = 0x1ffc;
     image.data(0x3ffc, &[0x0f, 0x18, 0x84, 0x8d]);
@@ -251,9 +252,4 @@ fn prefetch_fetch_fault() {
             error: 16,
         },
     );
-}
-
-#[test]
-fn prefetch_requires_complete_instruction_fetch() {
-    prefetch_fetch_fault();
 }

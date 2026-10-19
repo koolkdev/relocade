@@ -4,7 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::compile_block_from_bytes;
 
-fn dynamic_controls() {
+#[test]
+fn normal_products_keep_all_controls_dynamic() {
     let code = [0xde, 0xc9];
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     // (1 + 2^-63) * 1.5 lies halfway between two extended values,
@@ -75,7 +76,8 @@ fn dynamic_controls() {
     }
 }
 
-fn signed_zero_products() {
+#[test]
+fn signed_zero_products_keep_all_controls_dynamic() {
     let code = [0xde, 0xc9];
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for (left, right) in [
@@ -130,7 +132,8 @@ fn signed_zero_products() {
     }
 }
 
-fn rejected_products() {
+#[test]
+fn rejected_products_restart_and_complete_in_the_interpreter() {
     let code = [0xde, 0xc9];
     let compiled = compile_block_from_bytes(0x1000, &code, 1).unwrap();
     let block = TestModule::new(&compiled);
@@ -232,7 +235,8 @@ fn rejected_products() {
     );
 }
 
-fn live_zero_products() {
+#[test]
+fn live_zero_products_preserve_rounding_and_handoff_state() {
     // A rounded normal result becomes -0, then either +0 or an invalid product.
     let code = [0xd8, 0xc9, 0xd8, 0xca, 0xd8, 0xcb];
     let compiled = compile_block_from_bytes(0x1000, &code, 3).unwrap();
@@ -288,7 +292,8 @@ fn live_zero_products() {
     }
 }
 
-fn prior_rounding_survives_handoff() {
+#[test]
+fn handoff_preserves_the_previous_rounding_state() {
     // The second multiply is rejected without overwriting the first one's C1,
     // sticky PE, result, metadata, EIP or completed-instruction count.
     let code = [0xd8, 0xc9, 0xde, 0xca];
@@ -324,29 +329,4 @@ fn prior_rounding_survives_handoff() {
         linked.observe(&image.input(), 1),
         expected(&image, &[dispatch(second)])
     );
-}
-
-#[test]
-fn normal_products_keep_all_controls_dynamic() {
-    dynamic_controls();
-}
-
-#[test]
-fn signed_zero_products_keep_all_controls_dynamic() {
-    signed_zero_products();
-}
-
-#[test]
-fn live_zero_products_preserve_rounding_and_handoff_state() {
-    live_zero_products();
-}
-
-#[test]
-fn rejected_products_restart_and_complete_in_the_interpreter() {
-    rejected_products();
-}
-
-#[test]
-fn handoff_preserves_the_previous_rounding_state() {
-    prior_rounding_survives_handoff();
 }

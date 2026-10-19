@@ -286,7 +286,8 @@ test_frontends!(fxrstor_then_pop, restore_then_pop);
 test_frontends!(fxrstor_invalid_mxcsr, invalid_mxcsr);
 test_frontends!(fxrstor_faults, faults);
 
-fn observed_mxcsr() {
+#[test]
+fn fxrstor_replaces_observed_mxcsr_before_following_conversion() {
     use crate::support::{machine::expected, step::TestModule};
     use wasm86_x86::Compiler;
 
@@ -353,11 +354,6 @@ fn observed_mxcsr() {
             expected(&image, &[dispatch(cpu)])
         );
     }
-}
-
-#[test]
-fn fxrstor_replaces_observed_mxcsr_before_following_conversion() {
-    observed_mxcsr();
 }
 
 #[test]

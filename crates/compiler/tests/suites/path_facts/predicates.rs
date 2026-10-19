@@ -12,7 +12,8 @@ fn excluded_interval() -> TestModule {
     })
 }
 
-fn check_interval() {
+#[test]
+fn a_later_operand_fact_removes_an_excluded_fallback_after_rewriting() {
     let module = excluded_interval();
     assert_eq!(count(&module, |op| matches!(op, Operator::I64Clz)), 0);
     for (input, expected) in [
@@ -26,9 +27,4 @@ fn check_interval() {
     ] {
         check_result(&module, &[Value::I64(input)], &[Value::I64(expected)]);
     }
-}
-
-#[test]
-fn a_later_operand_fact_removes_an_excluded_fallback_after_rewriting() {
-    check_interval();
 }

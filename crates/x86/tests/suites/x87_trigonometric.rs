@@ -184,7 +184,8 @@ fn exceptions(frontend: Frontend) {
     }
 }
 
-fn specialization() {
+#[test]
+fn jit_specialization() {
     for opcode in [0xfe, 0xff] {
         let code = [0xd9, opcode];
         let compiler = Compiler::new(SegmentProfile::Flat32);
@@ -232,11 +233,6 @@ fn specialization() {
         }
         assert!(modules.windows(2).all(|pair| pair[0] == pair[1]));
     }
-}
-
-#[test]
-fn jit_specialization() {
-    specialization();
 }
 
 test_frontends!(values_and_reduction, values);

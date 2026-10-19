@@ -2,7 +2,8 @@
 
 use super::*;
 
-fn transport() {
+#[test]
+fn floating_transport_preserves_zero_signs_and_nan_payloads() {
     let module = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I64; 5], |body| {
         let bits = body.parameter::<I64>(0)?;
         let choose = body.parameter::<I1>(1)?;
@@ -57,7 +58,8 @@ fn transport() {
     }
 }
 
-fn mixed_calls_and_loops() {
+#[test]
+fn mixed_scalar_calls_joins_and_backedges_keep_their_carriers() {
     let mut fixture = Fixture::new();
     let helper = fixture
         .program
@@ -122,7 +124,8 @@ fn mixed_calls_and_loops() {
     }
 }
 
-fn memory_snapshots() {
+#[test]
+fn floating_loads_keep_their_snapshot_across_integer_stores() {
     let original = 0xfff0_0000_0000_0042_u64;
     let replacement = SIGN;
     let mut bytes = vec![0xa5; 24];
@@ -143,21 +146,6 @@ fn memory_snapshots() {
     let mut instance = module.instantiate();
     assert_eq!(instance.call_values("run", &[]).unwrap(), expected);
     assert_eq!(&instance.memory("state")[..bytes.len()], bytes);
-}
-
-#[test]
-fn floating_transport_preserves_zero_signs_and_nan_payloads() {
-    transport();
-}
-
-#[test]
-fn mixed_scalar_calls_joins_and_backedges_keep_their_carriers() {
-    mixed_calls_and_loops();
-}
-
-#[test]
-fn floating_loads_keep_their_snapshot_across_integer_stores() {
-    memory_snapshots();
 }
 
 #[test]

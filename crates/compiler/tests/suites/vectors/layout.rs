@@ -3,7 +3,8 @@
 use super::*;
 use wasm86_compiler::{I16, I64};
 
-fn swizzle() {
+#[test]
+fn vector_swizzle_zeroes_every_out_of_range_byte_index() {
     let input: [u8; 16] = std::array::from_fn(|i| 0x80 + i as u8);
     let mut cases: Vec<([u8; 16], [u8; 16])> = (0..16)
         .map(|group| {
@@ -64,7 +65,8 @@ fn swizzle() {
     check(&module, &expected, 0);
 }
 
-fn bit_selection() {
+#[test]
+fn vector_selection_uses_individual_mask_bits() {
     let mask = 0x00ff_aa55_f00f_0180_ffff_0000_5555_aaaa_u128;
     let mut bytes = vec![0xa5; 160];
     for (offset, value) in [(0, LEFT), (16, RIGHT), (32, mask)] {
@@ -100,7 +102,8 @@ fn bit_selection() {
     check(&module, &expected, 0);
 }
 
-fn splat() {
+#[test]
+fn vector_splat_preserves_logical_lane_widths() {
     let bytes = vec![0xa5; 128];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
@@ -135,19 +138,4 @@ fn splat() {
         .flat_map(u128::to_le_bytes)
         .collect();
     check(&module, &expected, 0x1234fffd);
-}
-
-#[test]
-fn vector_swizzle_zeroes_every_out_of_range_byte_index() {
-    swizzle();
-}
-
-#[test]
-fn vector_selection_uses_individual_mask_bits() {
-    bit_selection();
-}
-
-#[test]
-fn vector_splat_preserves_logical_lane_widths() {
-    splat();
 }

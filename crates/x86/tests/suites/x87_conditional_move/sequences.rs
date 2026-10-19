@@ -51,7 +51,8 @@ fn live_integer_flags(frontend: Frontend) {
     }
 }
 
-fn native_maximum() {
+#[test]
+fn native_compare_move_store() {
     // Retained binary64 values survive conditional selection and conversion back.
     let code = [
         0xdd, 0x05, 8, 0x40, 0, 0, 0xdd, 0x05, 0, 0x40, 0, 0, 0xdb, 0xe9, 0xda, 0xc1, 0xdd, 0x1d,
@@ -143,12 +144,9 @@ fn native_maximum() {
 
 test_frontends!(continuation, stack_continuation);
 test_frontends!(integer_flags, live_integer_flags);
-#[test]
-fn native_compare_move_store() {
-    native_maximum();
-}
 
-fn restart_after_integer_compare() {
+#[test]
+fn empty_operand_restart() {
     let code = [0x39, 0xc8, 0xda, 0xc1];
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
     let block = TestModule::new(&compiled);
@@ -196,9 +194,4 @@ fn restart_after_integer_compare() {
             );
         }
     }
-}
-
-#[test]
-fn empty_operand_restart() {
-    restart_after_integer_compare();
 }

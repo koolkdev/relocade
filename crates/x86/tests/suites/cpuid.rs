@@ -81,7 +81,8 @@ fn forms(frontend: Frontend) {
 }
 test_frontends!(full_register_queries_preserve_other_state, forms);
 
-fn serialization() {
+#[test]
+fn serialization_dispatches_before_modified_code() {
     // Rewrite the immediate after CPUID. Its old bytes must not execute.
     let code = [
         0xc6, 0x05, 0x0a, 0x10, 0, 0, 0x77, 0x0f, 0xa2, 0xbb, 0x11, 0, 0, 0, 0xeb, 0,
@@ -125,11 +126,7 @@ fn serialization() {
 }
 
 #[test]
-fn serialization_dispatches_before_modified_code() {
-    serialization();
-}
-
-fn fetch_boundary() {
+fn queries_follow_complete_fetch_and_stop_before_successor_fetch() {
     let mut image = Image::empty();
     image.cpu.eip = 0x1ffe;
     image.map(1, 0x3000, false);
@@ -167,11 +164,6 @@ fn fetch_boundary() {
 }
 
 #[test]
-fn queries_follow_complete_fetch_and_stop_before_successor_fetch() {
-    fetch_boundary();
-}
-
-#[test]
 fn encoding_and_import_boundaries() {
     for code in [&[0x0f, 0xa2][..], &[0x66, 0x67, 0x64, 0x0f, 0xa2]] {
         let one = check_length(code);
@@ -196,7 +188,8 @@ fn encoding_and_import_boundaries() {
     }
 }
 
-fn leaf_selection() {
+#[test]
+fn leaf_selection_uses_current_full_width_eax() {
     let run = TestModule::new(&compile_interpreter(SegmentProfile::Flat32).unwrap());
     for (leaf, wanted_values) in [
         (0, VENDOR),
@@ -225,9 +218,4 @@ fn leaf_selection() {
             assert_eq!(module.observe(&image.input(), 1), wanted, "leaf {leaf:#x}");
         }
     }
-}
-
-#[test]
-fn leaf_selection_uses_current_full_width_eax() {
-    leaf_selection();
 }

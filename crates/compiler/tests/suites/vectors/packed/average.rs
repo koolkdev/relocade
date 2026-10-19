@@ -13,7 +13,8 @@ where
     });
 }
 
-fn average() {
+#[test]
+fn packed_averages_round_up_without_overflow() {
     lanes::<I8>(
         0x0102fe010000ffff0102fe010000ffff,
         0xff0200020100feffff0200020100feff,
@@ -24,9 +25,4 @@ fn average() {
         0xffff00020000000200010000fffeffff,
         0x800000027fff000200010000ffffffff,
     );
-}
-
-#[test]
-fn packed_averages_round_up_without_overflow() {
-    average();
 }

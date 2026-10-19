@@ -428,7 +428,8 @@ fn stores_in_one_memory_do_not_change_another_memory() {
     assert!(instance.callbacks().is_empty());
 }
 
-fn check_import_limits() {
+#[test]
+fn private_and_shared_imports_preserve_declared_limits() {
     for shared in [false, true] {
         let mut program = Program::new();
         let memory = program.import_memory(MemoryImport {
@@ -460,9 +461,4 @@ fn check_import_limits() {
 
         assert_eq!(module.instantiate().call::<u32>(()).unwrap(), 73);
     }
-}
-
-#[test]
-fn private_and_shared_imports_preserve_declared_limits() {
-    check_import_limits();
 }

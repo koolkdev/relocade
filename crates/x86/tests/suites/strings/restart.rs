@@ -70,7 +70,8 @@ fn restart_after_source_page_repair(opcode: u8) {
     }
 }
 
-fn restart_comparisons_after_page_repair() {
+#[test]
+fn repaired_comparison_resumes_with_remaining_count() {
     let observer = TestModule::new(&crate::state::compile_flag_observer().unwrap());
     for (opcode, prefix) in [(0xa6, 0xf3), (0xae, 0xf2)] {
         let code = [prefix, opcode];
@@ -169,9 +170,4 @@ fn repaired_transfer_resumes_after_completed_elements() {
     for opcode in [0xa4, 0xac] {
         restart_after_source_page_repair(opcode);
     }
-}
-
-#[test]
-fn repaired_comparison_resumes_with_remaining_count() {
-    restart_comparisons_after_page_repair();
 }

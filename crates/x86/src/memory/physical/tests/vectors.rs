@@ -41,7 +41,8 @@ fn module(write: bool) -> TestModule {
     })
 }
 
-fn rerouting() {
+#[test]
+fn vector_halves_observe_mmio_rerouting() {
     for write in [false, true] {
         let mut input = input();
         input.mmio_pages = vec![(1, 0x3000)];
@@ -98,9 +99,4 @@ fn rerouting() {
         };
         assert_eq!(snapshot.guest, Some(expected));
     }
-}
-
-#[test]
-fn vector_halves_observe_mmio_rerouting() {
-    rerouting();
 }

@@ -15,7 +15,8 @@ fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16), opcode: u16) -> Cp
     cpu
 }
 
-fn native_values() {
+#[test]
+fn native_and_extended_ordering() {
     for (load, values) in [
         (
             0xdd_u8,
@@ -85,7 +86,8 @@ fn native_values() {
     }
 }
 
-fn restart_after_integer_compare() {
+#[test]
+fn operand_exception_restart() {
     let code = [0x39, 0xc8, 0xdf, 0xf1]; // CMP EAX, ECX; FCOMIP ST1
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
     let block = TestModule::new(&compiled);
@@ -130,13 +132,4 @@ fn restart_after_integer_compare() {
             );
         }
     }
-}
-
-#[test]
-fn native_and_extended_ordering() {
-    native_values();
-}
-#[test]
-fn operand_exception_restart() {
-    restart_after_integer_compare();
 }

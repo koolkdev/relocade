@@ -4,7 +4,8 @@ use super::*;
 use wasm86_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
-fn integer_products() {
+#[test]
+fn first_product_uses_exact_integer_load() {
     use Source::{Dword, Qword, Word};
     for (source, product, precision, incremented) in [
         (Word(0), (0, 0), 0, 0),
@@ -80,9 +81,4 @@ fn integer_products() {
             );
         }
     }
-}
-
-#[test]
-fn first_product_uses_exact_integer_load() {
-    integer_products();
 }

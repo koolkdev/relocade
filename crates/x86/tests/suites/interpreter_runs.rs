@@ -295,7 +295,8 @@ fn segmented_execution() {
     );
 }
 
-fn check_runs() {
+#[test]
+fn instructions_continue_to_execution_boundaries() {
     let module = TestModule::new(
         &compile_interpreter(ExecutionProfile::Protected(SegmentProfile::Flat32)).unwrap(),
     );
@@ -304,9 +305,4 @@ fn check_runs() {
     repetition_progress(&module);
     terminal_segment_load(&module);
     segmented_execution();
-}
-
-#[test]
-fn instructions_continue_to_execution_boundaries() {
-    check_runs();
 }

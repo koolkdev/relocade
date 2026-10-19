@@ -1,6 +1,7 @@
 use super::*;
 
-fn saturation() {
+#[test]
+fn packed_saturating_arithmetic_boundaries() {
     binary_results(
         0x807fff00019c64c040ff0100817e807f,
         0x7f80807f00e41cc040fffeffff01ff01,
@@ -57,9 +58,4 @@ fn saturation() {
             ]
         },
     );
-}
-
-#[test]
-fn packed_saturating_arithmetic_boundaries() {
-    saturation();
 }

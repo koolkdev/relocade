@@ -1,6 +1,7 @@
 use super::*;
 
-fn narrowing() {
+#[test]
+fn vector_narrowing_saturates_signed_inputs_and_preserves_order() {
     binary_results(
         0x7fff0000ffff80000080007fff80ff7f,
         0xff7eff81007e00010000ffff010000ff,
@@ -29,9 +30,4 @@ fn narrowing() {
             ]
         },
     );
-}
-
-#[test]
-fn vector_narrowing_saturates_signed_inputs_and_preserves_order() {
-    narrowing();
 }

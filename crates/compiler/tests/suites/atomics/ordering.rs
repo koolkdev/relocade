@@ -141,7 +141,8 @@ fn synchronization_orders_direct_reads_and_read_only_helpers_across_memories() {
     }
 }
 
-fn check_loop() {
+#[test]
+fn atomic_results_execute_once_per_taken_loop_path() {
     let mut fixture = Fixture::new();
     let memory = fixture.shared_memory("counter", &10u32.to_le_bytes());
     let module = fixture.function(&[Type::I32], &[Type::I32], |mut body| {
@@ -166,9 +167,4 @@ fn check_loop() {
         assert_eq!(instance.call::<i32>(count).unwrap(), sum);
         assert_eq!(&instance.memory("counter")[..4], counter.to_le_bytes());
     }
-}
-
-#[test]
-fn atomic_results_execute_once_per_taken_loop_path() {
-    check_loop();
 }

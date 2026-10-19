@@ -70,7 +70,8 @@ fn cleared_flags(mut cpu: CpuState, word: bool) -> CpuState {
     cpu
 }
 
-fn widths() {
+#[test]
+fn operand_width_stack_width_and_new_code_defaults_are_independent() {
     for (profile, code, word, stack_big) in [
         (
             ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -152,11 +153,7 @@ fn widths() {
 }
 
 #[test]
-fn operand_width_stack_width_and_new_code_defaults_are_independent() {
-    widths();
-}
-
-fn flag_images() {
+fn flag_images_replace_pending_status_and_word_preserves_high_flags() {
     // stack_flags owns exhaustive architectural bit positions. These images check
     // IRET's pending-status replacement, ignored bits and partial-width restore.
     for (word, bits) in [
@@ -205,11 +202,7 @@ fn flag_images() {
 }
 
 #[test]
-fn flag_images_replace_pending_status_and_word_preserves_high_flags() {
-    flag_images();
-}
-
-fn frame_boundaries() {
+fn frames_are_consecutive_and_only_pointer_adjustment_wraps_at_stack_width() {
     for (word, start, limit, stack_big, accepted, next_esp) in [
         (true, 0xfffau32, 0xffff, false, true, 0xbeef_0000),
         (false, 0xfff4, 0xffff, false, true, 0xbeef_0000),
@@ -267,9 +260,4 @@ fn frame_boundaries() {
             },
         );
     }
-}
-
-#[test]
-fn frames_are_consecutive_and_only_pointer_adjustment_wraps_at_stack_width() {
-    frame_boundaries();
 }

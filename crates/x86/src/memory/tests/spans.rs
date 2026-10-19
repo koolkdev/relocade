@@ -49,7 +49,8 @@ fn field_module() -> TestModule {
     })
 }
 
-fn fields() {
+#[test]
+fn checked_spans_locate_mixed_width_fields_across_frames_and_linear_wrap() {
     let module = field_module();
     for linear in [
         0x4000u32,
@@ -101,11 +102,6 @@ fn fields() {
             );
         }
     }
-}
-
-#[test]
-fn checked_spans_locate_mixed_width_fields_across_frames_and_linear_wrap() {
-    fields();
 }
 
 const WIDE_FIELDS: [u8; 10] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa];
@@ -223,7 +219,8 @@ fn check_wide_fields(module: &TestModule, input: &Input, result: u64, changes: V
     );
 }
 
-fn wide_fields() {
+#[test]
+fn ten_byte_spans_transfer_qword_and_word_fields_after_complete_checks() {
     let [read, write] = wide_field_modules();
     let starts = [0x4000u32, 0x4001, 0x4ff6]
         .into_iter()
@@ -272,9 +269,4 @@ fn wide_fields() {
             );
         }
     }
-}
-
-#[test]
-fn ten_byte_spans_transfer_qword_and_word_fields_after_complete_checks() {
-    wide_fields();
 }

@@ -20,7 +20,8 @@ fn image_after_execution(image: &Image, observation: &Observation) -> Image {
     after
 }
 
-fn check_call_return_linkage() {
+#[test]
+fn calls_return_through_the_saved_link_in_wasmtime() {
     for (origin, call, ret, return_address, stack, physical_slot, returned) in [
         (
             0x1000,
@@ -91,9 +92,4 @@ fn check_call_return_linkage() {
             "compiled CALL/RET from {origin:08x}",
         );
     }
-}
-
-#[test]
-fn calls_return_through_the_saved_link_in_wasmtime() {
-    check_call_return_linkage();
 }

@@ -18,7 +18,8 @@ fn routing(module: &TestModule) -> (usize, usize) {
     counts
 }
 
-fn narrow() {
+#[test]
+fn narrow_shuffles_route_logical_inputs_and_zero_all_invalid_selectors() {
     let left: [u8; 16] = std::array::from_fn(|byte| 0x40 + byte as u8);
     let right: [u8; 16] = std::array::from_fn(|byte| 0x80 + byte as u8);
     for group in 0..32_u8 {
@@ -58,11 +59,7 @@ fn narrow() {
 }
 
 #[test]
-fn narrow_shuffles_route_logical_inputs_and_zero_all_invalid_selectors() {
-    narrow();
-}
-
-fn known_on_path() {
+fn path_known_selectors_use_one_immediate_shuffle_and_preserve_zero_fill() {
     let mut bytes = vec![0xa5; 48];
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
     bytes[16..32].copy_from_slice(&RIGHT.to_le_bytes());
@@ -86,11 +83,6 @@ fn known_on_path() {
     ]);
     check(&module, &expected, 0);
     check(&module, &bytes, 1);
-}
-
-#[test]
-fn path_known_selectors_use_one_immediate_shuffle_and_preserve_zero_fill() {
-    known_on_path();
 }
 
 #[test]

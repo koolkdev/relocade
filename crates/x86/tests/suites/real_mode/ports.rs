@@ -62,7 +62,8 @@ fn scalar(frontend: Frontend) {
 }
 test_frontends!(scalar_port_transfers, scalar);
 
-fn boundaries() {
+#[test]
+fn port_boundaries() {
     let run = TestModule::new(&compile_interpreter(ExecutionProfile::Real16).unwrap());
     let code = [0xe4, 0x92, 0xb8, 0, 0];
     let image = image(&code);
@@ -126,8 +127,4 @@ fn boundaries() {
             Exit::Other(0x0008_00f0_0000_1000),
         );
     }
-}
-#[test]
-fn port_boundaries() {
-    boundaries();
 }

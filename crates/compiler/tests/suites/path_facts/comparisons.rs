@@ -2,7 +2,8 @@
 use super::*;
 use wasm86_compiler::I64;
 
-fn constant_comparison() {
+#[test]
+fn inequality_guard_eliminates_the_opposite_equality() {
     let module = Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
         let input = body.parameter::<I32>(0)?;
         body.if_(input.ne(32767), |arm| {
@@ -16,7 +17,8 @@ fn constant_comparison() {
     }
 }
 
-fn opposite_comparisons() {
+#[test]
+fn both_edges_prove_opposite_comparisons_including_swapped_equality() {
     for kind in 0..6 {
         let module = Fixture::new().function(&[Type::I64; 2], &[Type::I32], |mut body| {
             let left = body.parameter::<I64>(0)?;
@@ -69,7 +71,8 @@ fn opposite_comparisons() {
     }
 }
 
-fn comparison_boundaries() {
+#[test]
+fn comparison_facts_respect_width_signedness_and_bypassed_guards() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I32, Type::I1],
         &[Type::I32; 2],
@@ -120,19 +123,4 @@ fn comparison_boundaries() {
             );
         }
     }
-}
-
-#[test]
-fn inequality_guard_eliminates_the_opposite_equality() {
-    constant_comparison();
-}
-
-#[test]
-fn both_edges_prove_opposite_comparisons_including_swapped_equality() {
-    opposite_comparisons();
-}
-
-#[test]
-fn comparison_facts_respect_width_signedness_and_bypassed_guards() {
-    comparison_boundaries();
 }

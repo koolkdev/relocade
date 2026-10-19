@@ -2,7 +2,8 @@ use super::*;
 use crate::SegmentProfile;
 use wasm86_x86::StoredSegment;
 
-fn stack_faults() {
+#[test]
+fn complete_frame_capacity_and_all_three_reads_precede_selector_validation() {
     for word in [false, true] {
         let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
         for (start, limit, mapped, fault_address, capacity_fault) in [
@@ -58,11 +59,7 @@ fn stack_faults() {
 }
 
 #[test]
-fn complete_frame_capacity_and_all_three_reads_precede_selector_validation() {
-    stack_faults();
-}
-
-fn selector_faults() {
+fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs() {
     let normal = descriptor(0xc000, 0x200, SegmentDefaultSize::Bits32);
     for (selector, descriptor, resolved, exit) in [
         (
@@ -192,11 +189,7 @@ fn selector_faults() {
 }
 
 #[test]
-fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs() {
-    selector_faults();
-}
-
-fn nested_task() {
+fn entry_nt_reports_unsupported_before_stack_checks_without_retiring() {
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         ExecutionProfile::Protected(SegmentProfile::Segmented32),
@@ -223,9 +216,4 @@ fn nested_task() {
             );
         }
     }
-}
-
-#[test]
-fn entry_nt_reports_unsupported_before_stack_checks_without_retiring() {
-    nested_task();
 }

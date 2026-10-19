@@ -4,7 +4,8 @@ use super::*;
 use crate::support::{machine::expected, step::TestModule};
 use wasm86_x86::{compile_block_from_bytes, Compiler, CpuState};
 
-fn controls() {
+#[test]
+fn admitted_quotients_use_dynamic_and_observed_modes() {
     let code = [0xde, 0xf9];
     let dynamic = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for (pc, precision) in [(0, 24), (1, 64), (2, 53), (3, 64)] {
@@ -58,7 +59,8 @@ fn controls() {
     }
 }
 
-fn zeros_and_restart() {
+#[test]
+fn zeros_and_rejected_divisors_preserve_restart_state() {
     let code = [0xd8, 0xf1];
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
     for numerator_sign in [0, 0x8000] {
@@ -118,14 +120,4 @@ fn zeros_and_restart() {
             expected(&image, &[dispatch(divided)])
         );
     }
-}
-
-#[test]
-fn admitted_quotients_use_dynamic_and_observed_modes() {
-    controls();
-}
-
-#[test]
-fn zeros_and_rejected_divisors_preserve_restart_state() {
-    zeros_and_restart();
 }

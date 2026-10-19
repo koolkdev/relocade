@@ -170,7 +170,8 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
         .collect()
 }
 
-fn check_dispatch() {
+#[test]
+fn callable_dispatch_resolves_functions_and_fallback() {
     for profile in [
         ExecutionProfile::Real16,
         SegmentProfile::Flat32.into(),
@@ -188,7 +189,8 @@ fn check_dispatch() {
     }
 }
 
-fn check_block_chain() {
+#[test]
+fn compiled_blocks_chain_until_budget_or_missing_entry() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let dispatcher = Module::new(&compiler.compile_dispatcher().unwrap().bytes);
     let mut targets = vec![constant(11)];
@@ -232,14 +234,4 @@ fn check_block_chain() {
             (0x2000, count, eax, ebx)
         );
     }
-}
-
-#[test]
-fn callable_dispatch_resolves_functions_and_fallback() {
-    check_dispatch();
-}
-
-#[test]
-fn compiled_blocks_chain_until_budget_or_missing_entry() {
-    check_block_chain();
 }

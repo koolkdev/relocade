@@ -151,7 +151,8 @@ fn rounding_and_order() {
     }
 }
 
-fn comparisons() {
+#[test]
+fn floating_comparisons_do_not_acquire_integer_identities_or_bit_equality() {
     let module = Fixture::new().function(&[Type::I64; 2], &[Type::I1; 9], |body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         let b = Val::<F64>::from_bits(body.parameter::<I64>(1)?);
@@ -230,9 +231,4 @@ fn comparisons() {
 fn binary64_arithmetic_preserves_rounding_zeros_and_nan_semantics() {
     arithmetic();
     rounding_and_order();
-}
-
-#[test]
-fn floating_comparisons_do_not_acquire_integer_identities_or_bit_equality() {
-    comparisons();
 }

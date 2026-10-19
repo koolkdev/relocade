@@ -102,7 +102,8 @@ fn snapshot_field_bounds_follow_the_selected_code_defaults() {
     }
 }
 
-fn runtime_stack_attributes() {
+#[test]
+fn a_segmented_block_reads_stack_attributes_at_each_entry() {
     let bytes = [0x50, 0x5b];
     let compiled = compile_block_from_bytes_with_profile(
         0x1000,
@@ -141,9 +142,4 @@ fn runtime_stack_attributes() {
             "SS.B={big}",
         );
     }
-}
-
-#[test]
-fn a_segmented_block_reads_stack_attributes_at_each_entry() {
-    runtime_stack_attributes();
 }

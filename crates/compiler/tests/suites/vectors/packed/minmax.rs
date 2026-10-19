@@ -23,7 +23,8 @@ where
     });
 }
 
-fn minmax() {
+#[test]
+fn packed_minmax_signedness_and_widths() {
     // Opposite signs, equal lanes and signed extrema distinguish all four operations.
     lanes::<I8>(
         0x7f80ff017f80ff017f80ff017f80ff01,
@@ -55,9 +56,4 @@ fn minmax() {
             0x8000000080000000ffffffff00000001,
         ],
     );
-}
-
-#[test]
-fn packed_minmax_signedness_and_widths() {
-    minmax();
 }

@@ -27,7 +27,8 @@ fn specialized<T: IntType>() -> TestModule {
     })
 }
 
-fn specialized_results() {
+#[test]
+fn path_specialization_cancels_and_combines_xor_masks() {
     for (ty, module) in [
         (Type::I32, specialized::<I32>()),
         (Type::I64, specialized::<I64>()),
@@ -80,7 +81,8 @@ fn carrier_boundaries() -> TestModule {
     })
 }
 
-fn carrier_results() {
+#[test]
+fn xor_folding_preserves_narrow_and_changed_carriers() {
     let module = narrow_carriers();
     assert_eq!(xor_count(&module), 0);
     for (input, mask, unsigned, signed) in [
@@ -115,14 +117,4 @@ fn carrier_results() {
             expected
         );
     }
-}
-
-#[test]
-fn path_specialization_cancels_and_combines_xor_masks() {
-    specialized_results();
-}
-
-#[test]
-fn xor_folding_preserves_narrow_and_changed_carriers() {
-    carrier_results();
 }

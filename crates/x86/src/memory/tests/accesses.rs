@@ -59,7 +59,8 @@ fn check_sequence(module: &TestModule, input: &Input, result: u64, changes: Vec<
     );
 }
 
-fn consecutive_accesses() {
+#[test]
+fn consecutive_spans_preserve_aliases_boundaries_and_fault_progress() {
     let module = write_then_read();
     // Distinct linear pages alias the same frame. The later read must observe
     // the write, including when the first span has scattered or wrapping backing.
@@ -99,7 +100,8 @@ fn consecutive_accesses() {
     }
 }
 
-fn same_address_updates() {
+#[test]
+fn narrower_updates_keep_their_width_and_require_write_permissions() {
     for first_write in [false, true] {
         let mut program = Program::new();
         let memory = Memory::declare(
@@ -193,7 +195,8 @@ fn same_address_updates() {
     }
 }
 
-fn page_changes_and_reentry() {
+#[test]
+fn later_pages_and_new_entries_use_current_mappings() {
     let mut program = Program::new();
     let memory = Memory::declare(
         &mut program,
@@ -281,19 +284,4 @@ fn page_changes_and_reentry() {
             machine_unchanged: false,
         }
     );
-}
-
-#[test]
-fn consecutive_spans_preserve_aliases_boundaries_and_fault_progress() {
-    consecutive_accesses();
-}
-
-#[test]
-fn narrower_updates_keep_their_width_and_require_write_permissions() {
-    same_address_updates();
-}
-
-#[test]
-fn later_pages_and_new_entries_use_current_mappings() {
-    page_changes_and_reentry();
 }

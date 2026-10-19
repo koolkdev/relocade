@@ -105,7 +105,8 @@ fn transfers(frontend: Frontend) {
 }
 test_frontends!(full_width_counter_and_preserved_state, transfers);
 
-fn ordering() {
+#[test]
+fn repeated_reads_include_pending_retirement_without_ending_execution() {
     // The first result is dead. The second is copied out before the third read.
     let code = [
         0x0f, 0x31, 0xb8, 0, 0, 0, 0, 0x0f, 0x31, 0x89, 0xc1, 0x89, 0xd3, 0x0f, 0x31, 0xeb, 0,
@@ -161,11 +162,7 @@ fn ordering() {
 }
 
 #[test]
-fn repeated_reads_include_pending_retirement_without_ending_execution() {
-    ordering();
-}
-
-fn fault_order() {
+fn counter_reads_and_faults_keep_instruction_order() {
     let code = [0x0f, 0x31, 0x8b, 0x1d, 0, 0x40, 0, 0];
     let mut image = Image::new(&code);
     image.cpu.instruction_count = 0x1234_5678_9abc_def0;
@@ -204,11 +201,7 @@ fn fault_order() {
 }
 
 #[test]
-fn counter_reads_and_faults_keep_instruction_order() {
-    fault_order();
-}
-
-fn fetch_boundary() {
+fn interpreter_reads_only_after_complete_supported_encoding() {
     let mut image = Image::empty();
     image.cpu.eip = 0x1fff;
     image.map(1, 0x3000, false);
@@ -250,11 +243,6 @@ fn fetch_boundary() {
 }
 
 #[test]
-fn interpreter_reads_only_after_complete_supported_encoding() {
-    fetch_boundary();
-}
-
-#[test]
 fn encoding_and_imports() {
     for code in [&[0x0f, 0x31][..], &[0x66, 0x67, 0x64, 0x0f, 0x31]] {
         check_length(code);
@@ -274,7 +262,8 @@ fn encoding_and_imports() {
     }
 }
 
-fn continuity() {
+#[test]
+fn counter_continues_across_entries_and_reads_full_width_restores() {
     // Each entry reads once, then branches back to the same address.
     let code = [0x0f, 0x31, 0xeb, 0xfc];
     let mut image = Image::new(&code);
@@ -313,11 +302,7 @@ fn continuity() {
 }
 
 #[test]
-fn counter_continues_across_entries_and_reads_full_width_restores() {
-    continuity();
-}
-
-fn repeated_instruction() {
+fn rep_contributes_one_retirement_to_the_counter() {
     let code = [0xf3, 0xa4, 0x0f, 0x31, 0xeb, 0];
     let mut image = Image::new(&code);
     image.cpu.instruction_count = 100;
@@ -349,9 +334,4 @@ fn repeated_instruction() {
     for module in [&block, &run] {
         assert_eq!(module.observe(&image.input(), 1), wanted);
     }
-}
-
-#[test]
-fn rep_contributes_one_retirement_to_the_counter() {
-    repeated_instruction();
 }

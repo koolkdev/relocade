@@ -5,7 +5,8 @@ use crate::support::{
 };
 use wasm86_x86::{ExecutionProfile, SegmentProfile};
 
-fn fault_order() {
+#[test]
+fn required_bytes_preserve_cs_page_and_length_fault_order() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
         SegmentProfile::Segmented32,
     ));
@@ -96,11 +97,7 @@ fn fault_order() {
 }
 
 #[test]
-fn required_bytes_preserve_cs_page_and_length_fault_order() {
-    fault_order();
-}
-
-fn invalid_instruction_spans() {
+fn required_instruction_spans_exceed_cs_limit() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
         SegmentProfile::Segmented32,
     ));
@@ -121,9 +118,4 @@ fn invalid_instruction_spans() {
             Exit::GeneralProtection { error: 0 },
         );
     }
-}
-
-#[test]
-fn required_instruction_spans_exceed_cs_limit() {
-    invalid_instruction_spans();
 }

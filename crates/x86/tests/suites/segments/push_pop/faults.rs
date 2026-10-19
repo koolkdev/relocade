@@ -1,7 +1,8 @@
 use super::*;
 use crate::SegmentProfile;
 
-fn access_faults() {
+#[test]
+fn selector_access_faults_preserve_esp_cache_and_both_halves_of_split_stores() {
     for push in [false, true] {
         for (limit, second_page, exit) in [
             (0xfff, None, Exit::StackFault { error: 0 }),
@@ -52,11 +53,7 @@ fn access_faults() {
 }
 
 #[test]
-fn selector_access_faults_preserve_esp_cache_and_both_halves_of_split_stores() {
-    access_faults();
-}
-
-fn resolution_faults() {
+fn a_failed_pop_resolution_does_not_commit_the_stack_advance() {
     for (segment, opcode, selector, nonpresent, exit) in [
         (
             Segment::Ds,
@@ -117,11 +114,7 @@ fn resolution_faults() {
 }
 
 #[test]
-fn a_failed_pop_resolution_does_not_commit_the_stack_advance() {
-    resolution_faults();
-}
-
-fn earlier_progress() {
+fn a_pop_fault_publishes_earlier_register_flags_store_and_retirement_progress() {
     // ADD EAX,1; MOV [EBX],EAX; POP SS (non-present).
     let code = [0x83, 0xc0, 1, 0x89, 0x03, 0x17];
     let mut image = Image::new(&code);
@@ -187,11 +180,7 @@ fn earlier_progress() {
 }
 
 #[test]
-fn a_pop_fault_publishes_earlier_register_flags_store_and_retirement_progress() {
-    earlier_progress();
-}
-
-fn opcode_fetch() {
+fn extended_segment_opcodes_obey_fetch_fault_and_instruction_length_boundaries() {
     for prefixes in [0, 13, 14] {
         let mut code = vec![0x66; prefixes];
         code.push(0x0f);
@@ -243,9 +232,4 @@ fn opcode_fetch() {
             exit: Exit::Dispatch(cpu.eip),
         },
     );
-}
-
-#[test]
-fn extended_segment_opcodes_obey_fetch_fault_and_instruction_length_boundaries() {
-    opcode_fetch();
 }

@@ -21,7 +21,8 @@ fn block(
     )
 }
 
-fn valid_spans() {
+#[test]
+fn valid_fetch_spans() {
     for profile in [SegmentProfile::Segmented16, SegmentProfile::Segmented32] {
         // MOV AX/EAX,AX/EAX; the unsupported suffix is outside the instruction limit.
         let code = [0x89, 0xc0, 0xff];
@@ -102,7 +103,8 @@ fn valid_spans() {
     image.check_unchanged_exit(&module, "finite limit rejects offset wrap", Exit::Interpret);
 }
 
-fn denied_spans() {
+#[test]
+fn denied_fetch_spans() {
     let code = [0x89, 0xc0];
     for profile in [SegmentProfile::Segmented16, SegmentProfile::Segmented32] {
         let mut image = Image::new(&code);
@@ -163,7 +165,8 @@ fn denied_spans() {
     }
 }
 
-fn precise_fallback() {
+#[test]
+fn fetch_fallback_preserves_execution_and_fault_order() {
     static INTERPRETER: OnceLock<TestModule> = OnceLock::new();
     let interpreter = INTERPRETER.get_or_init(|| {
         TestModule::new(
@@ -231,19 +234,4 @@ fn precise_fallback() {
             error: 0x10,
         },
     );
-}
-
-#[test]
-fn valid_fetch_spans() {
-    valid_spans();
-}
-
-#[test]
-fn denied_fetch_spans() {
-    denied_spans();
-}
-
-#[test]
-fn fetch_fallback_preserves_execution_and_fault_order() {
-    precise_fallback();
 }

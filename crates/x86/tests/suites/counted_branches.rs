@@ -247,7 +247,8 @@ fn forms_consume_one_displacement_and_end_the_block() {
     }
 }
 
-fn missing_displacement() {
+#[test]
+fn missing_displacement_precedes_the_counter_change() {
     for opcode in OPCODES {
         for BranchInput {
             count, zero_flag, ..
@@ -269,11 +270,6 @@ fn missing_displacement() {
             );
         }
     }
-}
-
-#[test]
-fn missing_displacement_precedes_the_counter_change() {
-    missing_displacement();
 }
 
 test_cases!(counts_and_conditions_without_successor_fetch, count_cases());

@@ -4,7 +4,8 @@ use super::*;
 use crate::support::step::TestModule;
 use wasm86_x86::{compile_block_from_bytes, BlockError};
 
-fn rejected_prefixes() {
+#[test]
+fn sse_mxcsr_rejected_prefixes() {
     for (prefix, diagnostic) in [(0x66, 0x0f), (0xf2, 0xf2), (0xf3, 0xf3), (0xf0, 0xf0)] {
         for modrm in [0x10, 0x18] {
             let code = [prefix, 0x0f, 0xae, modrm];
@@ -25,11 +26,6 @@ fn rejected_prefixes() {
             );
         }
     }
-}
-
-#[test]
-fn sse_mxcsr_rejected_prefixes() {
-    rejected_prefixes();
 }
 
 fn readback(frontend: Frontend) {

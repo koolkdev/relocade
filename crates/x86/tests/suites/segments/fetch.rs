@@ -68,7 +68,8 @@ test_cases!(
     ]
 );
 
-fn check_prefix_scope() {
+#[test]
+fn segment_overrides_end_with_their_instruction() {
     use crate::support::machine::expected;
     let code = [0x64, 0x8b, 0x03, 0x8b, 0x0b];
     let mut image = Image::new(&code);
@@ -111,11 +112,6 @@ fn check_prefix_scope() {
             }]
         )
     );
-}
-
-#[test]
-fn segment_overrides_end_with_their_instruction() {
-    check_prefix_scope();
 }
 
 #[test]

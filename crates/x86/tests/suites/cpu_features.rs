@@ -63,7 +63,8 @@ fn restricted_compiler() -> Compiler {
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
 }
 
-fn prior_work() {
+#[test]
+fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
     let code = [0xbb, 7, 0, 0, 0, 0x0f, 0x44, 0x03, 0x0f];
     let image = Image::new(&code);
     let mut cpu = image.cpu;
@@ -97,11 +98,7 @@ fn prior_work() {
 }
 
 #[test]
-fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
-    prior_work();
-}
-
-fn complete_fetch() {
+fn interpreter_fetch_fault_precedes_disabled_feature_fault() {
     let module = TestModule::interpreter_with_target(restricted_compiler().target());
     for (code, exit) in [
         (
@@ -119,11 +116,6 @@ fn complete_fetch() {
         image.data(0x4000 - code.len() as u32, code);
         image.check_unchanged_exit(module, "feature admission follows complete fetch", exit);
     }
-}
-
-#[test]
-fn interpreter_fetch_fault_precedes_disabled_feature_fault() {
-    complete_fetch();
 }
 
 #[test]

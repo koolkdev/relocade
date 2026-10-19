@@ -20,7 +20,8 @@ use crate::{
     SegmentDescriptor, SegmentDescriptorKind, SegmentLimit, SegmentProfile,
 };
 
-fn descriptor_results() {
+#[test]
+fn lar_and_lsl_report_fields_or_preserve_the_destination_for_rejected_selectors() {
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
     let mut tables = DescriptorTables::default();
     let ordinary = descriptor(0x1234_0000, SegmentDefaultSize::Bits16);
@@ -74,9 +75,4 @@ fn descriptor_results() {
             );
         }
     }
-}
-
-#[test]
-fn lar_and_lsl_report_fields_or_preserve_the_destination_for_rejected_selectors() {
-    descriptor_results();
 }

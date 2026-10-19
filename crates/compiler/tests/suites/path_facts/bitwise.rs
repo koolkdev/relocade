@@ -144,7 +144,8 @@ fn absorbed_updates<T: IntType>() -> TestModule {
     })
 }
 
-fn absorbed_results() {
+#[test]
+fn known_bits_absorb_updates_in_either_operand_order() {
     for (ty, module) in [
         (Type::I32, absorbed_updates::<I32>()),
         (Type::I64, absorbed_updates::<I64>()),
@@ -179,11 +180,6 @@ fn absorbed_results() {
             }
         }
     }
-}
-
-#[test]
-fn known_bits_absorb_updates_in_either_operand_order() {
-    absorbed_results();
 }
 
 #[test]
