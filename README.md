@@ -42,6 +42,9 @@ dispatch and fault exits, segment resolution, and entry validity. Real16 uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
 
+The [future worker design](crates/runtime/docs/worker-execution.md) describes
+execution-task ownership, UI messaging and scheduling for an interactive embedding.
+
 ## Build and test
 
 Compiler and x86 correctness tests execute Wasm in Wasmtime. Browser integration
