@@ -1,29 +1,13 @@
-//! Drive mounts and the DOS paths that select them.
+//! Drive mounts, host file access and the DOS paths that select them.
 
-use super::Files;
+use super::{FileAccess, Files, ARCHIVE_ATTRIBUTE};
 use crate::{
     error::DosError,
     path::{self, ResolvedPath},
+    MountError,
 };
-use relocade_vfs::{Drives, MemoryFileSystem};
-use std::{collections::BTreeMap, io};
-
-impl Default for Files {
-    fn default() -> Self {
-        let mut drives = Drives::new();
-        drives.mount('C', MemoryFileSystem::new()).unwrap();
-        Self {
-            drives,
-            current_drive: 'C',
-            current_directories: BTreeMap::new(),
-            attributes: BTreeMap::new(),
-            next_temporary_name: 0,
-            search_directories: Vec::new(),
-            handles: Default::default(),
-            output: Vec::new(),
-        }
-    }
-}
+use relocade_vfs::MemoryFileSystem;
+use std::io;
 
 impl Files {
     pub(crate) fn mount(&mut self, letter: char, filesystem: MemoryFileSystem) -> io::Result<()> {
@@ -41,6 +25,33 @@ impl Files {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn mount_file(
+        &mut self,
+        path: &str,
+        contents: Vec<u8>,
+        access: FileAccess,
+    ) -> Result<(), MountError> {
+        let path = self.host_path(path).ok_or(MountError::InvalidPath)?;
+        if contents.len() > u32::MAX as usize {
+            return Err(MountError::FileTooLarge);
+        }
+        let filesystem = self.drives.get_mut(path.drive).expect("mounted drive");
+        filesystem
+            .create_dir_all(path::parent(&path.relative))
+            .map_err(|_| MountError::InvalidPath)?;
+        let file = filesystem
+            .replace_file(&path.relative, contents)
+            .map_err(|_| MountError::InvalidPath)?;
+        file.set_read_only(access == FileAccess::ReadOnly);
+        self.attributes.insert(path, ARCHIVE_ATTRIBUTE as u8);
+        Ok(())
+    }
+
+    pub(crate) fn read_file(&self, path: &str) -> Option<Vec<u8>> {
+        let path = self.host_path(path)?;
+        self.drives.get(path.drive)?.read(&path.relative).ok()
     }
 
     pub(crate) fn select_drive(&mut self, number: u8) -> u8 {
@@ -85,7 +96,7 @@ impl Files {
     }
 
     // Host file helpers keep their existing root-relative default on C:.
-    pub(super) fn host_path(&self, path: &str) -> Option<ResolvedPath> {
+    fn host_path(&self, path: &str) -> Option<ResolvedPath> {
         let drive = path::drive(path.as_bytes(), 'C')?;
         self.drives.get(drive)?;
         let relative = path::file_path(path.as_bytes(), "")?;
