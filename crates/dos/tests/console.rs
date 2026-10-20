@@ -5,6 +5,70 @@ use relocade_dos::FileAccess;
 use relocade_x86::ExecutionExit;
 use std::io::{Read, Write};
 
+#[test]
+fn cooked_character_output_shares_tab_stops_with_strings_and_line_echo() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.runtime()
+            .machine()
+            .memory()
+            .write(0x10300, b"abc$")
+            .unwrap();
+        service(&mut dos, 0x0900, 0, 0, 0x300);
+        assert_eq!(common::output(dos.stdout()), b"abc");
+        dos.runtime().machine().cpu().set_eflags(0x643);
+        let cpu = service(&mut dos, 0x027b, 0x1234, 0x5678, u16::from(b'\t'));
+        assert_eq!(cpu.registers.eax as u16, 0x0220);
+        assert_eq!(cpu.flags.eflags(), 0x643);
+        assert_eq!(cpu.registers.ebx as u16, 0x1234);
+        assert_eq!(cpu.registers.ecx as u16, 0x5678);
+        assert_eq!(common::output(dos.stdout()), b"     "); // Draining preserved the column.
+
+        service(&mut dos, 0x0200, 0, 0, u16::from(b'\x08'));
+        service(&mut dos, 0x0200, 0, 0, u16::from(b'\t'));
+        assert_eq!(common::output(dos.stdout()), b"\x08 ");
+        dos.runtime()
+            .machine()
+            .memory()
+            .write(0x10300, &[8, 0])
+            .unwrap();
+        dos.stdin().write_all(b"x\r").unwrap();
+        service(&mut dos, 0x0a00, 0, 0, 0x300);
+        assert_eq!(common::output(dos.stdout()), b"x\r");
+        service(&mut dos, 0x0200, 0, 0, u16::from(b'\t'));
+        assert_eq!(common::output(dos.stdout()), b"        "); // Echoed CR reset the column.
+
+        dos.runtime()
+            .machine()
+            .memory()
+            .write(0x10300, b"\rabc")
+            .unwrap();
+        assert_eq!(success(&service(&mut dos, 0x4000, 1, 4, 0x300)), 4);
+        service(&mut dos, 0x0600, 0, 0, u16::from(b'\t'));
+        service(&mut dos, 0x0200, 0, 0, u16::from(b'\t'));
+        assert_eq!(common::output(dos.stdout()), b"\rabc\t     ");
+
+        dos.runtime()
+            .machine()
+            .memory()
+            .write(0x10300, b"\rabc\t\x1anot output")
+            .unwrap();
+        assert_eq!(success(&service(&mut dos, 0x4000, 2, 16, 0x300)), 5);
+        assert_eq!(common::output(dos.stderr()), b"\rabc     ");
+        assert!(common::output(dos.stdout()).is_empty());
+
+        let file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
+        success(&service(&mut dos, 0x4600, file, 1, 0));
+        service(&mut dos, 0x0200, 0, 0, u16::from(b'\r'));
+        for byte in [b'A', b'\t', 0xff] {
+            service(&mut dos, 0x0200, 0, 0, u16::from(byte));
+        }
+        assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"\rA       \xff");
+        assert!(common::output(dos.stdout()).is_empty());
+    });
+}
+
 async fn check_handle_output() {
     let mut dos = common::dos().await;
     dos.load_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())

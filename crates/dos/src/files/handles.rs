@@ -1,11 +1,10 @@
 //! DOS open handles, shared cursors and I/O.
 
-use super::{Files, ARCHIVE_ATTRIBUTE};
+use super::{CharacterOutput, Files, ARCHIVE_ATTRIBUTE};
 use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
 use relocade_vfs::File;
 use std::{
     cell::{Cell, RefCell, RefMut},
-    future::{pending, Future},
     rc::Rc,
 };
 
@@ -100,41 +99,6 @@ impl Files {
             .ok_or(DosError::TooManyOpenFiles)
     }
 
-    /// Reads one raw character from a console or redirected file handle.
-    pub(crate) fn read_character(&mut self, handle: u16) -> Result<Option<u8>, DosError> {
-        match self.handle_type(handle)? {
-            HandleType::ConsoleInput => Ok(self.stdio.input.try_read()),
-            HandleType::File => {
-                let mut byte = [0];
-                Ok((self.read(handle, &mut byte)? != 0).then_some(byte[0]))
-            }
-            HandleType::ConsoleOutput | HandleType::Auxiliary | HandleType::Printer => {
-                Err(DosError::AccessDenied)
-            }
-        }
-    }
-
-    /// Waits after an empty character read. Redirected EOF cannot consume console input.
-    pub(crate) fn wait_for_character(
-        &self,
-        handle: u16,
-    ) -> Result<impl Future<Output = u8> + 'static, DosError> {
-        let input = match self.handle_type(handle)? {
-            HandleType::ConsoleInput => Some(self.stdio.input.read_character()),
-            HandleType::File => None,
-            HandleType::ConsoleOutput | HandleType::Auxiliary | HandleType::Printer => {
-                return Err(DosError::AccessDenied);
-            }
-        };
-        Ok(async move {
-            match input {
-                Some(input) => input.await,
-                // AH=07h cannot report EOF. File growth notifications are not supported.
-                None => pending().await,
-            }
-        })
-    }
-
     pub(crate) fn handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
         Ok(match self.handle(handle)? {
             OpenHandle::File(_) => HandleType::File,
@@ -170,34 +134,28 @@ impl Files {
         Ok(count)
     }
 
-    /// Character output preserves console EOF; only AH=40h handle writes clear it.
-    pub(crate) fn write_characters(&mut self, handle: u16, bytes: &[u8]) -> Result<(), DosError> {
-        match self.handle_type(handle)? {
-            HandleType::ConsoleInput => self.stdio.output(OutputStream::Stdout).extend(bytes),
-            HandleType::File | HandleType::ConsoleOutput => {
-                if !bytes.is_empty() {
-                    self.write(handle, bytes)?;
-                }
-            }
-            HandleType::Auxiliary | HandleType::Printer => return Err(DosError::AccessDenied),
-        }
-        Ok(())
-    }
-
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
-        match self.handle(handle)? {
+        let console = match self.handle(handle)? {
             OpenHandle::ConsoleInput { eof } => {
                 // CON accepts output through its input handle too. Even a zero-byte
                 // handle write clears EOF on that open record and its duplicates.
                 eof.set(false);
-                self.stdio.output(OutputStream::Stdout).extend(bytes);
-                return Ok(bytes.len());
+                Some(OutputStream::Stdout)
             }
-            OpenHandle::ConsoleOutput(stream) => {
-                self.stdio.output(*stream).extend(bytes);
-                return Ok(bytes.len());
+            OpenHandle::ConsoleOutput(stream) => Some(*stream),
+            _ => None,
+        };
+        if let Some(stream) = console {
+            // Cooked console writes stop before Ctrl-Z and count source bytes,
+            // including tabs expanded by the shared character-output path.
+            let count = bytes
+                .iter()
+                .position(|&byte| byte == 0x1a)
+                .unwrap_or(bytes.len());
+            for &byte in &bytes[..count] {
+                self.write_cooked_character(CharacterOutput::Console(stream), byte);
             }
-            _ => {}
+            return Ok(count);
         }
         let mut open = self.file_mut(handle)?;
         if !open.writable {
@@ -347,7 +305,7 @@ impl Files {
         }
     }
 
-    fn handle(&self, handle: u16) -> Result<&OpenHandle, DosError> {
+    pub(super) fn handle(&self, handle: u16) -> Result<&OpenHandle, DosError> {
         self.handles
             .get(usize::from(handle))
             .and_then(Option::as_ref)

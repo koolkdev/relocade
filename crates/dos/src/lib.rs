@@ -11,7 +11,9 @@
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
 //! AH=06h polls stdin without echo or writes one byte to stdout.
-//! AH=07h waits for one raw character without echo. An empty input source returns
+//! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
+//! AH=02h writes DL through stdout. Cooked console output expands tabs to
+//! eight-column stops. An empty input source returns
 //! [`relocade_x86::ExecutionExit::Deferred`] from a synchronous run. Use
 //! [`Runtime::run_async`] to await input and complete the pending read.
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
@@ -25,8 +27,8 @@
 //! or a program load replaces the handles.
 //! Keep the same run future alive while waiting; dropping an active read
 //! cancels it and requires reloading the program before further execution.
-//! AH=07h/0Ah stay blocked at redirected file EOF; host file growth does not yet
-//! wake them. AH=3Fh file reads return zero at EOF.
+//! Character and buffered reads stay blocked at redirected file EOF; host file
+//! growth does not yet wake them. AH=3Fh file reads return zero at EOF.
 //! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
 //! [`Dos::stdout`] and [`Dos::stderr`] using `std::io` traits. Owned stream handles
 //! remain usable while an asynchronous run waits for input.

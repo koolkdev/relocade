@@ -1,23 +1,21 @@
-use crate::{error::DosError, files::Files, stdio::OutputStream};
-
-pub(super) enum Echo {
-    Stdout,
-    Console,
-}
+use crate::{
+    error::DosError,
+    files::{CharacterOutput, Files},
+};
 
 /// A line being edited, including its final carriage return once complete.
 pub(super) struct LineInput {
     pub(super) bytes: Vec<u8>,
     capacity: u8,
     input_handle: u16,
-    echo: Echo,
+    echo: CharacterOutput,
     extended_key: bool,
     first: bool,
 }
 
 impl LineInput {
     /// Capacity includes the carriage return and must be nonzero.
-    pub(super) fn new(capacity: u8, input_handle: u16, echo: Echo) -> Self {
+    pub(super) fn new(capacity: u8, input_handle: u16, echo: CharacterOutput) -> Self {
         Self {
             bytes: Vec::new(),
             capacity,
@@ -90,13 +88,8 @@ impl LineInput {
     }
 
     fn echo(&self, files: &mut Files, bytes: &[u8]) {
-        match self.echo {
-            Echo::Stdout => {
-                // DOS character input has no echo-write error return.
-                let _ = files.write_characters(1, bytes);
-            }
-            // Handle reads echo to the console device, regardless of stdout redirection.
-            Echo::Console => files.stdio.output(OutputStream::Stdout).extend(bytes),
+        for &byte in bytes {
+            files.write_cooked_character(self.echo, byte);
         }
     }
 }
