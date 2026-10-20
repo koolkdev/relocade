@@ -5,7 +5,7 @@ mod module;
 
 use super::Compiler;
 use crate::{BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentProfile};
-use module::BlockModule;
+use module::{BlockModule, Linking};
 
 /// Captured instruction bytes and a compilation bound for one CS-relative entry.
 /// The bytes must match readable guest memory when the resulting block executes.
@@ -117,11 +117,15 @@ impl Compiler {
         bytes: &[u8],
         instruction_limit: u32,
     ) -> Result<CompiledModule, BlockError> {
-        let mut blocks = self.compile_blocks(&[BlockSnapshot {
-            start_eip,
-            bytes,
-            instruction_limit,
-        }])?;
+        let mut blocks = BlockModule::compile(
+            self,
+            &[BlockSnapshot {
+                start_eip,
+                bytes,
+                instruction_limit,
+            }],
+            Linking::Dispatch,
+        )?;
         let entry = blocks
             .entries
             .pop()
@@ -142,8 +146,9 @@ impl Compiler {
     /// or before another supplied entry reached at an instruction boundary.
     /// Entry points inside an instruction's encoding do not split that instruction.
     /// Unused snapshot bytes are neither decoded nor included in its [`BlockEntry`].
-    /// Success publishes state, checks the instruction budget and tail-calls
-    /// `relocade.dispatch`, including when the successor is in this module.
+    /// Success publishes state and checks the instruction budget. Known successors
+    /// in this module use direct tail calls; other successors use `relocade.dispatch`.
+    /// Segment changes, port I/O and serializing instructions always dispatch.
     /// Faults and interpreter handoffs retain the single-block contract.
     ///
     /// Every export requires its original EIP and valid snapshot bytes under
@@ -174,6 +179,6 @@ impl Compiler {
         &self,
         snapshots: &[BlockSnapshot<'_>],
     ) -> Result<CompiledBlocks, BlockError> {
-        BlockModule::compile(self, snapshots)
+        BlockModule::compile(self, snapshots, Linking::SameModule)
     }
 }

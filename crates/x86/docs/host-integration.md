@@ -28,9 +28,13 @@ span starts at the CS-relative EIP and advances with 32-bit wrapping.
 Every supplied start is an execution boundary when reached between instructions
 in another snapshot. An entry inside an instruction's encoding does not split
 that instruction. The caller must also limit blocks at registered execution
-boundaries absent from the batch. Every export still publishes state, checks its
-instruction target and tail-calls shared dispatch on success, even for a successor
-in the same module.
+boundaries absent from the batch. Every export publishes state and checks its
+instruction target before continuing. Known successors within the module use
+direct tail calls, including backedges. Other successors use shared dispatch.
+Segment changes, port I/O and serializing instructions always dispatch. The
+single-snapshot `compile_block` API retains its shared-dispatch continuation.
+Hosts cannot rely on dispatch callbacks between locally linked blocks; validity
+must hold across the complete group.
 The host maintains the ordinary entry-validity contract for every export;
 sharing a module does not establish validity or install dispatch entries.
 
@@ -52,7 +56,7 @@ selection. The model is host configuration, not mutable `CpuState`; keep it fixe
 for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
-count, checks its instruction target, then tail-calls
+count, checks its instruction target, then tail-calls a local successor or
 `relocade.dispatch() -> i64`. Dispatch reads the published EIP from CPU state,
 and its result is returned unchanged. EIP is an offset relative to CS and wraps
 at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
