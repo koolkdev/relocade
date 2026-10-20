@@ -54,7 +54,9 @@ pub enum MountError {
 impl fmt::Display for MountError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::InvalidPath => "expected a nonempty ASCII file path on C: shorter than 128 bytes",
+            Self::InvalidPath => {
+                "expected a nonempty ASCII file path on a mounted drive shorter than 128 bytes"
+            }
             Self::FileTooLarge => "mounted file exceeds the 32-bit DOS file size",
         })
     }

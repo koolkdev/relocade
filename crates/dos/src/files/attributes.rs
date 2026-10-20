@@ -4,32 +4,34 @@ use super::{
     Files, ARCHIVE_ATTRIBUTE, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE,
     SYSTEM_ATTRIBUTE,
 };
-use crate::{error::DosError, path};
+use crate::{error::DosError, path::ResolvedPath};
 use relocade_vfs::Metadata;
 
 impl Files {
     pub(crate) fn attributes(&self, path: &[u8]) -> Result<u16, DosError> {
-        let path = path::resolve(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        let path = self.resolve(path)?;
         Ok(u16::from(
             self.entry_attributes(&path, &self.metadata(&path)?),
         ))
     }
 
     pub(crate) fn set_attributes(&mut self, path: &[u8], attributes: u16) -> Result<(), DosError> {
-        let path = path::resolve(path, &self.current_directory).ok_or(DosError::PathNotFound)?;
+        let path = self.resolve(path)?;
         let metadata = self.metadata(&path)?;
         let mutable = READ_ONLY_ATTRIBUTE | HIDDEN_ATTRIBUTE | SYSTEM_ATTRIBUTE | ARCHIVE_ATTRIBUTE;
         // The directory bit may be retained by a read-modify-write caller, but
         // cannot turn a file into a directory. Root has no directory entry.
-        if path.is_empty()
+        if path.relative.is_empty()
             || attributes & !(mutable | u16::from(DIRECTORY_ATTRIBUTE)) != 0
             || (attributes & u16::from(DIRECTORY_ATTRIBUTE) != 0 && !metadata.is_dir())
         {
             return Err(DosError::AccessDenied);
         }
         if metadata.is_file() {
-            self.filesystem
-                .open(&path)
+            self.drives
+                .get(path.drive)
+                .unwrap()
+                .open(&path.relative)
                 .expect("existing file")
                 .set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
         }
@@ -37,7 +39,7 @@ impl Files {
         Ok(())
     }
 
-    pub(super) fn entry_attributes(&self, path: &str, metadata: &Metadata) -> u8 {
+    pub(super) fn entry_attributes(&self, path: &ResolvedPath, metadata: &Metadata) -> u8 {
         let attributes = self.attributes.get(path).copied().unwrap_or_else(|| {
             if metadata.is_dir() {
                 0

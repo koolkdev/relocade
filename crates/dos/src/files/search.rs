@@ -1,5 +1,5 @@
 use super::{short_name, Files, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, SYSTEM_ATTRIBUTE};
-use crate::{error::DosError, path};
+use crate::{error::DosError, path::ResolvedPath};
 
 pub(crate) const FIND_DATA_BYTES: usize = 43;
 const VOLUME_ATTRIBUTE: u8 = 0x08;
@@ -10,7 +10,7 @@ const NAME_OFFSET: usize = 30;
 const SEARCH_MARKER: u8 = 0xd5;
 
 pub(super) struct SearchDirectory {
-    path: String,
+    pub(super) path: ResolvedPath,
     names: Vec<String>,
 }
 
@@ -35,30 +35,29 @@ impl Files {
             .rposition(|byte| matches!(byte, b'/' | b'\\' | b':'))
             .map_or(0, |position| position + 1);
         let directory = if split == 0 {
-            self.current_directory.clone()
+            self.resolve(b".")?
         } else {
-            path::resolve(&specification[..split], &self.current_directory)
-                .ok_or(DosError::PathNotFound)?
+            self.resolve(&specification[..split])?
         };
-        if !self.filesystem.is_dir(&directory) {
+        let filesystem = self.drives.get(directory.drive).unwrap();
+        if !filesystem.is_dir(&directory.relative) {
             return Err(DosError::PathNotFound);
         }
         let pattern = short_name::pattern(&specification[split..]).ok_or(DosError::NoMoreFiles)?;
-        let names: Vec<_> = self
-            .filesystem
-            .read_dir(&directory)
+        let names: Vec<_> = filesystem
+            .read_dir(&directory.relative)
             .expect("existing directory")
             .map(|entry| entry.file_name().to_owned())
             .collect();
         let directory = match self
             .search_directories
             .iter()
-            .position(|entry| entry.path == directory)
+            .position(|entry| entry.as_ref().is_some_and(|entry| entry.path == directory))
         {
             Some(index) => {
                 // New searches see additions, without shifting slots held by
                 // older DTAs when entries are deleted or recreated.
-                let known = &mut self.search_directories[index].names;
+                let known = &mut self.search_directories[index].as_mut().unwrap().names;
                 for name in names {
                     if !known.contains(&name) {
                         known.push(name);
@@ -67,10 +66,10 @@ impl Files {
                 index
             }
             None => {
-                self.search_directories.push(SearchDirectory {
+                self.search_directories.push(Some(SearchDirectory {
                     path: directory,
                     names,
-                });
+                }));
                 self.search_directories.len() - 1
             }
         };
@@ -106,16 +105,18 @@ impl Files {
         let directory = self
             .search_directories
             .get(search.directory as usize)
+            .and_then(Option::as_ref)
             .ok_or(DosError::NoMoreFiles)?;
         if search.attributes == VOLUME_ATTRIBUTE {
             return Err(DosError::NoMoreFiles); // No volume label is configured.
         }
-        if !self.filesystem.is_dir(&directory.path) {
+        let filesystem = self.drives.get(directory.path.drive).unwrap();
+        if !filesystem.is_dir(&directory.path.relative) {
             return Err(DosError::NoMoreFiles);
         }
         let dots = [".", ".."]
             .into_iter()
-            .filter(|_| !directory.path.is_empty());
+            .filter(|_| !directory.path.relative.is_empty());
         for (index, name) in dots
             .chain(directory.names.iter().map(String::as_str))
             .enumerate()
@@ -127,17 +128,26 @@ impl Files {
             let (attributes, len) = if matches!(name, "." | "..") {
                 (DIRECTORY_ATTRIBUTE, 0)
             } else {
-                let full_path = if directory.path.is_empty() {
+                let relative = if directory.path.relative.is_empty() {
                     name.to_owned()
                 } else {
-                    format!("{}/{name}", directory.path)
+                    format!("{}/{name}", directory.path.relative)
                 };
-                let Ok(metadata) = self.filesystem.metadata(&full_path) else {
+                let Ok(metadata) = filesystem.metadata(&relative) else {
                     continue; // A deleted entry keeps its slot, but is not returned.
                 };
+                let Ok(len) = u32::try_from(metadata.len()) else {
+                    continue; // DOS cannot expose a file larger than its 32-bit size.
+                };
                 (
-                    self.entry_attributes(&full_path, &metadata),
-                    metadata.len() as u32,
+                    self.entry_attributes(
+                        &ResolvedPath {
+                            drive: directory.path.drive,
+                            relative,
+                        },
+                        &metadata,
+                    ),
+                    len,
                 )
             };
             let special = attributes
