@@ -1,7 +1,11 @@
 //! DOS open handles, shared cursors and I/O.
 
 use super::{Files, ARCHIVE_ATTRIBUTE};
-use crate::{error::DosError, path::ResolvedPath};
+use crate::{
+    error::DosError,
+    path::ResolvedPath,
+    stdio::{OutputStream, Stdio},
+};
 use relocade_vfs::File;
 use std::{
     cell::{RefCell, RefMut},
@@ -16,7 +20,7 @@ pub(super) enum OpenHandle {
     // Separate opens have separate cursors; duplicated handles share this record.
     File(Rc<RefCell<OpenFile>>),
     ConsoleInput,
-    ConsoleOutput,
+    ConsoleOutput(OutputStream),
     Auxiliary,
     Printer,
 }
@@ -90,6 +94,15 @@ impl Files {
             .ok_or(DosError::TooManyOpenFiles)
     }
 
+    /// Reads one raw character from a console or redirected file handle.
+    pub(crate) fn read_character(&mut self, handle: u16) -> Result<Option<u8>, DosError> {
+        if matches!(self.handle(handle)?, OpenHandle::ConsoleInput) {
+            return Ok(self.stdio.input.pop_front());
+        }
+        let mut byte = [0];
+        Ok((self.read(handle, &mut byte)? != 0).then_some(byte[0]))
+    }
+
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
         let mut open = self.file_mut(handle)?;
         if !open.readable {
@@ -108,8 +121,9 @@ impl Files {
     }
 
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
-        if matches!(self.handle(handle)?, OpenHandle::ConsoleOutput) {
-            self.output.extend_from_slice(bytes);
+        if let OpenHandle::ConsoleOutput(stream) = self.handle(handle)? {
+            let stream = *stream;
+            self.stdio.output(stream).extend(bytes);
             return Ok(bytes.len());
         }
         let mut open = self.file_mut(handle)?;
@@ -226,25 +240,21 @@ impl Files {
                     | if file.written { 0 } else { FILE_NOT_WRITTEN }
             }
             // Console handles describe CON, regardless of their access direction.
-            OpenHandle::ConsoleInput | OpenHandle::ConsoleOutput => {
+            OpenHandle::ConsoleInput | OpenHandle::ConsoleOutput(_) => {
                 CHARACTER_DEVICE | INPUT_NOT_EOF | STANDARD_INPUT | STANDARD_OUTPUT
             }
             OpenHandle::Auxiliary | OpenHandle::Printer => CHARACTER_DEVICE | INPUT_NOT_EOF,
         })
     }
 
-    pub(crate) fn take_output(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.output)
-    }
-
     pub(crate) fn reset_handles(&mut self) {
         self.close_all();
-        self.output.clear();
+        self.stdio = Stdio::default();
         self.search_directories.clear();
         for (slot, device) in self.handles.iter_mut().zip([
             OpenHandle::ConsoleInput,
-            OpenHandle::ConsoleOutput,
-            OpenHandle::ConsoleOutput,
+            OpenHandle::ConsoleOutput(OutputStream::Stdout),
+            OpenHandle::ConsoleOutput(OutputStream::Stderr),
             OpenHandle::Auxiliary,
             OpenHandle::Printer,
         ]) {

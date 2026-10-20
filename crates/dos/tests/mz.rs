@@ -74,7 +74,7 @@ async fn check_mz_execution() {
     }
     assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(7)));
-    assert_eq!(dos.take_output(), b"MZ\r\n");
+    assert_eq!(common::output(dos.stdout()), b"MZ\r\n");
 
     // A requested maximum below the minimum uses the minimum; FFFF uses the arena.
     for (maximum, expected_end) in [(0x10, 0x1035_u16), (0xffff, 0x9ffe)] {
@@ -177,7 +177,7 @@ async fn check_invalid_mz() {
     assert_eq!(memory, saved_memory);
     assert_eq!(dos.runtime().machine().cpu().snapshot(), saved_cpu);
     assert_eq!(dos.exit_status(), Some(Ok(3)));
-    assert_eq!(dos.take_output(), b"X");
+    assert_eq!(common::output(dos.stdout()), b"X");
 }
 
 #[test]

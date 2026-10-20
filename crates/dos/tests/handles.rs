@@ -69,11 +69,11 @@ async fn check_redirection_and_capacity() {
         .unwrap();
     assert_eq!(success(&service(&mut dos, 0x4000, 1, 4, 0x200)), 4);
     assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"file");
-    assert!(dos.take_output().is_empty());
+    assert!(common::output(dos.stdout()).is_empty());
     success(&service(&mut dos, 0x4600, 5, 1, 0)); // Restore stdout.
     success(&service(&mut dos, 0x3e00, 5, 0, 0));
     assert_eq!(success(&service(&mut dos, 0x4000, 1, 4, 0x200)), 4);
-    assert_eq!(dos.take_output(), b"file");
+    assert_eq!(common::output(dos.stdout()), b"file");
     assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"file");
 
     // Forced duplication needs no vacant slot, including when source == destination.
@@ -87,7 +87,7 @@ async fn check_redirection_and_capacity() {
     success(&service(&mut dos, 0x3e00, 19, 0, 0));
     success(&service(&mut dos, 0x4600, 1, 19, 0)); // A closed destination is valid too.
     assert_eq!(success(&service(&mut dos, 0x4000, 19, 4, 0x200)), 4);
-    assert_eq!(dos.take_output(), b"file");
+    assert_eq!(common::output(dos.stdout()), b"file");
 
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     error(&service(&mut dos, 0x4500, 19, 0, 0), 6);

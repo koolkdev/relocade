@@ -249,7 +249,7 @@ async fn check_discovery_program() {
     dos.load_com(&program, Default::default()).unwrap();
     assert_eq!(dos.runtime().run(500).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(0)));
-    assert_eq!(dos.take_output(), b"first\nsecond\n");
+    assert_eq!(common::output(dos.stdout()), b"first\nsecond\n");
 }
 
 #[test]

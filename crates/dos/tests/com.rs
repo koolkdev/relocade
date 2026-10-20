@@ -36,12 +36,12 @@ async fn check_hello() {
         dos.runtime().run(1).unwrap(),
         ExecutionExit::BudgetExhausted
     );
-    assert!(dos.take_output().is_empty()); // INT completed, before entering the hook.
+    assert!(common::output(dos.stdout()).is_empty()); // INT completed, before entering the hook.
     assert_eq!(
         dos.runtime().run(1).unwrap(),
         ExecutionExit::BudgetExhausted
     );
-    assert_eq!(dos.take_output(), b"Hello, DOS!\r\n");
+    assert_eq!(common::output(dos.stdout()), b"Hello, DOS!\r\n");
     assert_eq!(dos.runtime().machine().cpu().al(), b'$');
     assert_eq!(dos.runtime().machine().cpu().sp(), 0xfffe);
     assert_eq!(dos.runtime().machine().cpu().eip(), 0x107);
@@ -50,7 +50,7 @@ async fn check_hello() {
         ExecutionExit::HostReturn
     );
     assert_eq!(dos.exit_status(), Some(Ok(7)));
-    assert!(dos.take_output().is_empty());
+    assert!(common::output(dos.stdout()).is_empty());
 }
 
 async fn check_com_bounds_and_return() {
@@ -146,7 +146,7 @@ async fn check_unterminated_string() {
         dos.exit_status(),
         Some(Err(ServiceError::UnterminatedString))
     );
-    let output = dos.take_output();
+    let output = common::output(dos.stdout());
     assert_eq!(output.len(), 65536);
     assert_eq!(&output[..2], b"ZA"); // The offset wraps within DS.
     assert!(output[2..].iter().all(|byte| *byte == 0));

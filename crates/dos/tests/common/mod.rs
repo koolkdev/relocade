@@ -9,6 +9,12 @@ pub async fn dos() -> Dos<Backend<DosState>> {
     Dos::new(backend).await.unwrap()
 }
 
+pub fn output(mut stream: impl std::io::Read) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).unwrap();
+    bytes
+}
+
 use relocade_x86::{CpuState, ExecutionExit};
 
 // INT 21h followed by JMP $ lets each host assertion inspect the IRET result.
