@@ -18,6 +18,28 @@ use line::LineInput;
 // DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
 const CONSOLE_LINE_CAPACITY: u8 = 128;
 
+/// AH=0Ch: flush stdin, then invoke the input service selected by AL.
+pub(super) fn flush_input(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    // DOS proceeds to the requested service even if the flush failed.
+    let _ = call.state_mut().files.flush_input(0);
+    let function = call.cpu().al();
+    if matches!(
+        function,
+        super::READ_CHARACTER_ECHO
+            | super::DIRECT_CONSOLE_IO
+            | super::READ_CHARACTER
+            | super::READ_CHARACTER_CHECK_BREAK
+            | super::READ_BUFFERED
+    ) {
+        call.cpu().set_ah(function);
+        // Reuse the current interrupt frame, including when this read defers.
+        super::int21(call)
+    } else {
+        call.cpu().set_al(0);
+        return_from_interrupt(call)
+    }
+}
+
 /// AH=0Bh: report stdin availability without consuming input or changing flags.
 pub(super) fn input_status(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let files = &call.state().files;

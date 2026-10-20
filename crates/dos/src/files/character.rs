@@ -11,6 +11,17 @@ pub(crate) enum CharacterOutput {
 }
 
 impl Files {
+    /// Flush the device queue without changing file cursors, buffered lines or EOF.
+    pub(crate) fn flush_input(&mut self, handle: u16) -> Result<(), DosError> {
+        match self.handle_type(handle)? {
+            HandleType::ConsoleInput | HandleType::ConsoleOutput => {
+                self.stdio.input.discard_queued();
+            }
+            HandleType::File | HandleType::Auxiliary | HandleType::Printer => {}
+        }
+        Ok(())
+    }
+
     /// DOS cooked output expands tabs, tracks its column and ignores write errors.
     /// Returns the last output byte (a space for a tab).
     pub(crate) fn write_cooked_character(&mut self, output: CharacterOutput, byte: u8) -> u8 {

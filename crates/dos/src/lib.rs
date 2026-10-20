@@ -21,6 +21,8 @@
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
 //! Its capacity includes the terminating CR; the returned count excludes it.
 //! Queued complete lines return immediately; incomplete lines await further input.
+//! AH=0Ch flushes queued console input, then invokes AL=01h/06h/07h/08h/0Ah.
+//! Other AL values only flush; redirected files and buffered handle lines are retained.
 //! AH=3Fh on a console input handle reads an edited line with CRLF, retaining
 //! unread bytes for later reads through any duplicate of the console handle.
 //! Console handle input echoes to the console even when stdout is redirected.

@@ -3,6 +3,8 @@ mod buffered;
 #[path = "input/characters.rs"]
 mod characters;
 mod common;
+#[path = "input/flush.rs"]
+mod flush;
 #[path = "input/handles.rs"]
 mod handles;
 
