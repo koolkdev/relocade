@@ -237,6 +237,9 @@ fn repeated_copy_remapping(frontend: Frontend) {
             )
             .unwrap(),
         )
+        .with_interpreter(TestModule::interpreter_with_profile(
+            ExecutionProfile::Real16,
+        ))
     });
     let module = block
         .as_ref()

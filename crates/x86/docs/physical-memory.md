@@ -79,8 +79,22 @@ backing pages with no remaining code dependencies. Mapping changes and host
 backing writes need the same invalidation even when no guest store occurs.
 
 Watching alone does not establish snapshot validity. Compiled accesses must
-handoff before a watched write can modify their captured code; interpreter
+hand off before a watched write can modify their captured code; interpreter
 execution then observes the slow callback and refetches subsequent instructions.
+
+Snapshot execution requires each physical operand to fit a direct RAM/ROM window
+before instruction effects. An unavailable window, including a watched RAM page,
+restarts the current instruction in the interpreter. All fields of that operand
+reuse the proof; ordinary accesses gain no watch-bit load or additional test.
+Non-direct reads hand off too, before a device read could be repeated by a later
+destination fallback. Compiled REP uses a complete direct span when available;
+otherwise the interpreter preserves element progress and live routing.
+
+PUSHA/POPA, nested ENTER, taken software interrupts and port strings retain their
+full physical implementation in the interpreter. These paths can access memory
+after partial effects or callbacks; routing them there avoids late restart guards
+and duplicated partial-progress machinery. Ordinary PUSH/POP and calls, memory
+operands, nonnested ENTER and eligible repeated RAM transfers remain compiled.
 
 ## MMIO callbacks
 

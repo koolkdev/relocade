@@ -18,9 +18,21 @@ struct BlockKey {
 }
 
 #[derive(Default)]
-pub(crate) struct BlockModules(HashMap<BlockKey, TestModule>);
+pub(crate) struct BlockModules {
+    modules: HashMap<BlockKey, TestModule>,
+    complete_handoffs: bool,
+}
 
 impl BlockModules {
+    /// Completes fallback instructions when a fixture checks full instruction
+    /// semantics rather than the precise interpreter handoff boundary.
+    pub(crate) fn with_interpreter() -> Self {
+        Self {
+            complete_handoffs: true,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn get(
         &mut self,
         cpu: &CpuState,
@@ -47,7 +59,8 @@ impl BlockModules {
         // A matching cache key only permits reuse after validating the current
         // execution context. The fixture machine supplies the code and mappings.
         key.validate_fetches(cpu);
-        self.0.entry(key).or_insert_with_key(|key| {
+        let complete_handoffs = self.complete_handoffs;
+        self.modules.entry(key).or_insert_with_key(|key| {
             let module = Compiler::new(target.profile)
                 .with_cpu_model(target.cpu_model)
                 .compile_block(key.start, bytes, limit)
@@ -56,7 +69,12 @@ impl BlockModules {
             Validator::new()
                 .validate_all(&module.bytes)
                 .unwrap_or_else(|error| panic!("validating {key:?}: {error}"));
-            TestModule::new(&module)
+            let module = TestModule::new(&module);
+            if complete_handoffs {
+                module.with_interpreter(TestModule::interpreter_with_target(target))
+            } else {
+                module
+            }
         })
     }
 }

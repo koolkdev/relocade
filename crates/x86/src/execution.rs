@@ -310,24 +310,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         )
     }
 
-    fn resolve_access(
-        &mut self,
-        linear: &Val<I32>,
-        bytes: u32,
-        intent: Intent,
-    ) -> Result<Access, BuildError> {
-        self.memory.resolve(
-            &mut self.body,
-            linear,
-            bytes,
-            intent,
-            |fault_body, exception| {
-                self.state
-                    .fault(fault_body, &self.eip, self.completed, exception)
-            },
-        )
-    }
-
     /// Ends a block, checks its instruction target and dispatches its successor.
     pub(super) fn dispatch(self) -> Result<(), BuildError> {
         let runtime = self.runtime;

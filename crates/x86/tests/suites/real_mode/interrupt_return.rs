@@ -70,7 +70,7 @@ fn returns(frontend: Frontend) {
 test_frontends!(complete_return_frames, returns);
 
 fn stack_bounds(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     for (code, sp) in [(&[0xcf][..], 0xfffb), (&[0x66, 0xcf][..], 0xfff5)] {
         let mut image = image(code);
         image.cpu.registers.esp = 0xabcd_0000 | sp;
@@ -98,7 +98,7 @@ fn stack_bounds(frontend: Frontend) {
 test_frontends!(complete_stack_capacity, stack_bounds);
 
 fn mmio_fields(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     let code = [0x66, 0x67, 0xcf];
     for offset in [0xffff_u32, 0x10000, u32::MAX] {
         let mut image = image(&code);

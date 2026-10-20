@@ -94,6 +94,7 @@ fn push_all_registers<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
+    execution.guard_stable_memory()?;
     let mut pointer = execution.stack_pointer()?;
     if matches!(execution.profile(), ExecutionProfile::Real16) {
         // PUSHA/PUSHAD specify #GP for these real-mode entry stack offsets,
@@ -122,6 +123,7 @@ where
 fn pop_all_registers<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
 ) -> Result<(), BuildError> {
+    execution.guard_stable_memory()?;
     let mut pointer = execution.stack_pointer()?;
     for register in Gpr32::ALL.into_iter().rev() {
         let frame = pointer.pop_frame(execution, T::BYTES, T::BYTES)?;

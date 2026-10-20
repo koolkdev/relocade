@@ -9,7 +9,7 @@ use crate::support::{
 use relocade_x86::{ExecutionProfile, Segments};
 
 fn mmio(frontend: Frontend) {
-    let mut blocks = BlockModules::default();
+    let mut blocks = BlockModules::with_interpreter();
     for bytes in [8, 16] {
         for (empty, remap) in [(true, false), (false, false), (false, true)] {
             let code = code(bytes);
