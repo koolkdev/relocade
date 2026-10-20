@@ -1,4 +1,6 @@
 mod common;
+#[path = "console/screen.rs"]
+mod screen;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;

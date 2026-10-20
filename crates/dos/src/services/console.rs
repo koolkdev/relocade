@@ -1,5 +1,5 @@
 use super::{buffers::write_wrapping, return_to_host};
-use crate::{files::CharacterOutput, interrupt::return_result, DosState, ServiceError};
+use crate::{interrupt::return_result, DosState, ServiceError};
 use relocade_runtime::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
     HostCall,
@@ -9,8 +9,11 @@ use std::ops::ControlFlow;
 
 mod handles;
 mod line;
+mod output;
 pub(super) use handles::read_handle;
 use line::LineInput;
+pub(super) use output::write_handle;
+use output::{write_characters, write_cooked_character, CharacterOutput};
 
 /// AH=0Ch: flush stdin, then invoke the input service selected by AL.
 pub(super) fn flush_input(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
@@ -58,7 +61,7 @@ pub(super) fn direct_io(call: &mut HostCall<'_, DosState>) -> ControlFlow<Execut
         set_zero(call, character.is_none());
     } else {
         // Like AH=09h, character output has no write-error return.
-        let _ = call.state_mut().files.write_characters(1, &[byte]);
+        let _ = write_characters(call, 1, &[byte]);
         call.cpu().set_al(byte);
     }
     return_from_interrupt(call)
@@ -87,9 +90,7 @@ fn return_character(
     echo: bool,
 ) -> ControlFlow<ExecutionExit> {
     if echo {
-        call.state_mut()
-            .files
-            .write_cooked_character(CharacterOutput::Stdout, byte);
+        write_cooked_character(call, CharacterOutput::Stdout, byte);
     }
     call.cpu().set_al(byte);
     return_from_interrupt(call)
@@ -98,10 +99,7 @@ fn return_character(
 /// AH=02h: write DL through stdout; AL is the last output byte.
 pub(super) fn write_character(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let byte = call.cpu().dl();
-    let last = call
-        .state_mut()
-        .files
-        .write_cooked_character(CharacterOutput::Stdout, byte);
+    let last = write_cooked_character(call, CharacterOutput::Stdout, byte);
     call.cpu().set_al(last);
     return_from_interrupt(call)
 }
@@ -118,13 +116,11 @@ pub(super) fn read_buffered(call: &mut HostCall<'_, DosState>) -> ControlFlow<Ex
         return return_from_interrupt(call);
     }
     let mut line = LineInput::new(capacity[0], 0, CharacterOutput::Stdout);
-    match line.read_available(&mut call.state_mut().files) {
+    match line.read_available(call) {
         Ok(true) => return_line(call, &segment, offset, &line.bytes),
-        Ok(false) => call.defer(async move |call| {
-            match line.read_remaining(&mut call.state_mut().files).await {
-                Ok(()) => return_line(call, &segment, offset, &line.bytes),
-                Err(error) => return_result(call, Err(error)),
-            }
+        Ok(false) => call.defer(async move |call| match line.read_remaining(call).await {
+            Ok(()) => return_line(call, &segment, offset, &line.bytes),
+            Err(error) => return_result(call, Err(error)),
         }),
         Err(error) => return_result(call, Err(error)),
     }
@@ -156,9 +152,7 @@ pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<Exe
             call.cpu().set_al(b'$');
             return return_from_interrupt(call);
         }
-        call.state_mut()
-            .files
-            .write_cooked_character(CharacterOutput::Stdout, byte[0]);
+        write_cooked_character(call, CharacterOutput::Stdout, byte[0]);
     }
     return_to_host(call, Err(ServiceError::UnterminatedString))
 }

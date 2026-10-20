@@ -79,6 +79,16 @@ impl TextScreen {
     }
 }
 
+/// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
+/// CR, LF and backspace move the cursor; other glyphs retain cell attributes.
+/// This updates guest video memory and BIOS cursor data without a host output stream.
+pub fn write_text(memory: &mut Memory<'_>, bytes: &[u8]) {
+    let page = active_page(memory);
+    for &byte in bytes {
+        teletype(memory, page, byte);
+    }
+}
+
 pub(super) fn active_page(memory: &mut Memory<'_>) -> u8 {
     // The initial color text aperture has four pages.
     memory.read_u8(ACTIVE_PAGE).expect("active video page") & 3
@@ -208,7 +218,7 @@ pub(super) fn scroll(
     }
 }
 
-pub(super) fn teletype(memory: &mut Memory<'_>, page: u8, character: u8) {
+fn teletype(memory: &mut Memory<'_>, page: u8, character: u8) {
     let [mut column, mut row] = cursor_position(memory, page).to_le_bytes();
     if usize::from(row) >= TextScreen::ROWS || usize::from(column) >= TextScreen::COLUMNS {
         return;

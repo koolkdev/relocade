@@ -9,7 +9,8 @@
 //! until the embedding updates them.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
-//! including a COM program's initial near RET. Output is buffered as guest bytes.
+//! including a COM program's initial near RET. CON output is buffered as guest
+//! bytes and also updates the BIOS text screen, including input echo.
 //! AH=06h polls stdin without echo or writes one byte to stdout.
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
@@ -240,7 +241,8 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     }
 
     /// Copies the active 80-by-25 color text page and its cursor for a renderer.
-    /// Direct guest writes to text memory appear in the next snapshot.
+    /// DOS CON output, BIOS video services and direct guest writes all update
+    /// this memory. File redirection does not write to the screen.
     pub fn screen(&mut self) -> relocade_bios::TextScreen {
         relocade_bios::TextScreen::read(&mut self.runtime.machine().memory())
     }

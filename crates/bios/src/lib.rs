@@ -14,7 +14,9 @@ pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::Memory;
 use relocade_runtime::{real_mode_interrupt, Hook, HostCall};
 use relocade_x86::ExecutionExit;
-pub use screen::{TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START};
+pub use screen::{
+    write_text, TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
+};
 use std::ops::ControlFlow;
 
 const BIOS_SEGMENT: u16 = 0xf000;
