@@ -11,14 +11,15 @@
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
+//! [`Dos::mount`] supplies a filesystem at a drive letter; C: starts empty.
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
 //! AH=3Ch creates or truncates files in existing directories.
 //! AH=5Bh creates a file only if its name is unused, preserving existing files.
 //! AH=5Ah creates a uniquely named temporary file; the caller owns its deletion.
-//! AH=56h renames or moves closed files on C: without replacing a destination.
-//! AH=0Eh/19h select/query C:; AH=3Bh/47h change/query its current directory.
+//! AH=56h renames or moves closed files on the same drive without replacing a destination.
+//! AH=0Eh/19h select/query the current drive; AH=3Bh/47h change/query a drive's directory.
 //! AH=39h/3Ah create directories or remove empty ones, excluding root and current.
-//! Guest relative paths use that directory, which persists across program loads.
+//! Guest relative paths use the selected drive's directory; both persist across loads.
 //! AH=1Ah/2Fh select/query the DTA; AH=4Eh/4Fh find matching 8.3 names.
 //! Search dates are initially fixed at 1980-01-01; long-name aliases are not generated.
 //! AH=30h reports DOS 5.00; AH=25h/35h set/query the real interrupt vector table.
@@ -42,6 +43,9 @@
 //! # where B: relocade_runtime::RuntimeBackend<State = relocade_dos::DosState>
 //! # {
 //! let mut dos = relocade_dos::Dos::new(backend).await?;
+//! let mut disk = relocade_vfs::MemoryFileSystem::new();
+//! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
+//! dos.mount('D', disk)?;
 //! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
 //! assert_eq!(dos.runtime().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
@@ -107,9 +111,23 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
         Ok(())
     }
 
-    /// Mounts bytes at an ASCII path on C: with an initial read-only attribute.
+    /// Mounts a filesystem at A: through Z:, replacing any previous mount.
+    /// Filesystem paths use uppercase ASCII names and '/' separators for DOS.
+    /// Files larger than u32::MAX bytes cannot be opened or listed by DOS.
+    /// Resets that drive's current directory to its root and discards its DOS
+    /// attributes and searches. Open handles continue to access their original files.
+    pub fn mount(
+        &mut self,
+        letter: char,
+        filesystem: relocade_vfs::MemoryFileSystem,
+    ) -> std::io::Result<()> {
+        self.runtime.state_mut().files.mount(letter, filesystem)
+    }
+
+    /// Supplies bytes at an ASCII path on a mounted drive with an initial read-only attribute.
     /// DOS AH=43h may change that attribute; existing handles keep their access rights.
     /// Paths are case-insensitive; relative paths start at the drive root.
+    /// An omitted drive defaults to C:, independently of the guest's current drive.
     /// Files persist across program loads.
     /// Replacing a mounted path leaves existing open handles on the previous bytes.
     pub fn mount_file(
@@ -118,10 +136,14 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
         contents: Vec<u8>,
         access: FileAccess,
     ) -> Result<(), MountError> {
-        self.runtime.state_mut().files.mount(path, contents, access)
+        self.runtime
+            .state_mut()
+            .files
+            .mount_file(path, contents, access)
     }
 
     /// Copies a file's current contents for the host to save or export.
+    /// Like mount_file, relative paths start at the root and default to C:.
     /// Returns None for invalid paths or files that do not exist.
     pub fn read_file(&self, path: &str) -> Option<Vec<u8>> {
         self.runtime.state().files.read_file(path)

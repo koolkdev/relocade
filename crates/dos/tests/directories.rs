@@ -91,7 +91,7 @@ async fn check_drive_services() {
     assert_eq!(cpu.flags.eflags() & 1, 1);
     for drive in [2, 3, 25] {
         let cpu = service(&mut dos, 0x0e00, 0, 0, drive);
-        assert_eq!(cpu.registers.eax as u8, 3);
+        assert_eq!(cpu.registers.eax as u8, 5);
         assert_eq!(cpu.flags.eflags() & 1, 1);
         assert_eq!(service(&mut dos, 0x1900, 0, 0, 0).registers.eax as u8, 2);
     }

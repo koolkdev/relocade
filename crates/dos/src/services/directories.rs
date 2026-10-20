@@ -4,18 +4,18 @@ use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
 use relocade_x86::Segment;
 use std::ops::ControlFlow;
 
-const DRIVE_C: u8 = 2; // AH=0Eh/19h number drives from zero.
-
 /// AH=0Eh: select DL's drive; report the drive-letter range in AL.
 pub(super) fn select_drive(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
-    // C: is the only mounted drive. Selecting an absent drive leaves it current.
-    call.cpu().set_al(DRIVE_C + 1);
+    let number = call.cpu().dl();
+    let count = call.state_mut().files.select_drive(number);
+    call.cpu().set_al(count);
     return_from_interrupt(call)
 }
 
 /// AH=19h: return the current drive in AL.
 pub(super) fn get_drive(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
-    call.cpu().set_al(DRIVE_C);
+    let number = call.state().files.current_drive();
+    call.cpu().set_al(number);
     return_from_interrupt(call)
 }
 

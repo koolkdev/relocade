@@ -1,13 +1,20 @@
-//! DOS paths resolve against C:'s current directory; VFS paths start at its root.
+//! DOS path normalization; mounted filesystems receive root-relative VFS paths.
 
 pub(crate) const MAX_PATH_BYTES: usize = 128; // Includes the terminating NUL.
 
-pub(crate) fn drive(path: &[u8]) -> Option<u8> {
+/// A resolved name retains its drive across later changes to the current drive.
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub(super) struct ResolvedPath {
+    pub drive: char,
+    pub relative: String,
+}
+
+pub(crate) fn drive(path: &[u8], default: char) -> Option<char> {
     match path {
         [drive, b':', ..] => drive
             .is_ascii_alphabetic()
-            .then_some(drive.to_ascii_uppercase()),
-        _ => Some(b'C'),
+            .then_some(char::from(drive.to_ascii_uppercase())),
+        _ => Some(default),
     }
 }
 
@@ -27,7 +34,7 @@ pub(crate) fn parent(path: &str) -> &str {
 }
 
 pub(crate) fn resolve(path: &[u8], current_directory: &str) -> Option<String> {
-    if path.is_empty() || path.len() >= MAX_PATH_BYTES || !path.is_ascii() || drive(path)? != b'C' {
+    if path.is_empty() || path.len() >= MAX_PATH_BYTES || !path.is_ascii() {
         return None;
     }
     let path = std::str::from_utf8(path).ok()?;
