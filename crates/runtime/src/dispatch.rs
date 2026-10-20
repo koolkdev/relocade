@@ -21,7 +21,7 @@ pub(crate) struct DispatchTable<B: WasmBackend> {
 
 impl<B: WasmBackend> DispatchTable<B> {
     pub fn new(backend: &mut B) -> Result<Self> {
-        let memory = backend.create_memory(1, None)?;
+        let memory = backend.create_memory(abi::EXECUTION_ENTRIES)?;
         let addresses = EntryTable::default();
         backend.write_memory(&memory, 0, &addresses.to_bytes());
         Ok(Self {

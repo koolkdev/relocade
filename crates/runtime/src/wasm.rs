@@ -2,7 +2,10 @@
 //! compatible backends. Instances bind to one backend's memories, tables and functions.
 
 use crate::Result;
-use relocade_compiler::{abi::Function, I64};
+use relocade_compiler::{
+    abi::{Function, Memory},
+    I64,
+};
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 
@@ -37,6 +40,16 @@ impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
     }
 }
 
+/// An independently owned reader for shared linear memory. Reads may overlap
+/// guest or host writes and do not provide a consistent snapshot of a range.
+/// The range must be allocated and in bounds, as with [`WasmMemoryAccess`].
+///
+/// Native handles can cross threads. Browser handles stay on their JavaScript
+/// thread; the underlying shared WebAssembly.Memory can be sent to a worker.
+pub trait WasmSharedMemory: Clone + 'static {
+    fn read(&self, offset: u32, bytes: &mut [u8]);
+}
+
 /// Scoped access to host state and live Wasm memory, during a callback or while
 /// execution is stopped. A stopped view may be held across an await; drop it
 /// before entering Wasm again. Callback views cannot outlive their callback.
@@ -48,7 +61,7 @@ pub trait WasmContext: WasmMemoryAccess {
 }
 
 /// One Wasm resource owner. Preparation futures, environment state and handles
-/// other than memory need not be `Send`. Memory is unshared Wasm32 with
+/// other than memory need not be `Send`. Memory is Wasm32 with
 /// 64-KiB pages; tables contain nullable function references. Host callbacks are wrapped by
 /// [`HostFunction`]; the runtime's callable exports use `() -> i64`.
 ///
@@ -67,6 +80,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     type Function;
     /// An engine function handle, after its binding's signature has been checked.
     type ImportFunction: Clone;
+    type SharedMemory: WasmSharedMemory;
 
     /// Host state is borrowed only between Wasm calls. A browser backend may
     /// return a borrow guard; drop it before calling into Wasm.
@@ -87,8 +101,13 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
         None
     }
 
-    /// Allocates zeroed memory with the supplied page limits.
-    fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Self::Memory>;
+    /// Allocates zeroed memory with the declaration's limits and sharing mode.
+    /// Shared memory requires a maximum. Import names are used only when linking.
+    fn create_memory(&mut self, declaration: Memory) -> Result<Self::Memory>;
+
+    /// Obtains a reader that does not borrow the backend or its context.
+    /// Returns `None` for private memory.
+    fn shared_memory(&self, memory: &Self::Memory) -> Option<Self::SharedMemory>;
 
     /// Grows memory when needed to contain `byte_len` bytes, preserving its contents.
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()>;

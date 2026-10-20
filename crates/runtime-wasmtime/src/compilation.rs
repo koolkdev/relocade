@@ -16,7 +16,8 @@ pub(super) fn shared() -> Result<&'static Compilation> {
             config
                 .wasm_multi_memory(true)
                 .wasm_tail_call(true)
-                .wasm_threads(true);
+                .wasm_threads(true)
+                .shared_memory(true);
             match wasmtime::Cache::from_file(None) {
                 Ok(cache) => {
                     config.cache(Some(cache));
