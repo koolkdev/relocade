@@ -2,6 +2,22 @@ use super::*;
 use crate::{value::source::ValueSource, Val, ValueType, I1, I32, I64, I8};
 
 #[test]
+fn constant_queries_fold_standalone_recipes_without_binding_them() -> Result<(), BuildError> {
+    let division = Val::<I32>::from(7).unsigned().div(0);
+    let folded = division.and(0).add(17);
+    assert_eq!(division.constant_bits()?, None);
+    assert_eq!(folded.constant_bits()?, Some(17));
+    assert!(matches!(folded.source, ValueSource::Unbound(_)));
+    for _ in 0..2 {
+        let arena = FunctionArena::new();
+        let bound = folded.bind(&arena, 0)?;
+        assert_eq!(bound.constant_bits()?, Some(17));
+        assert_eq!(folded.constant_bits()?, Some(17));
+    }
+    Ok(())
+}
+
+#[test]
 #[cfg(target_pointer_width = "64")]
 fn opcode_metadata_keeps_unbound_storage_compact() {
     assert_eq!(std::mem::size_of::<Val<I32>>(), 32);
@@ -15,6 +31,7 @@ fn shared_unbound_expressions_are_cached_per_body_and_released_when_closed() {
         expression = expression.add(&expression);
     }
     let folded = expression.and(0);
+    assert_eq!(folded.constant_bits().unwrap(), Some(0));
     let ValueSource::Unbound(recipe) = &folded.source else {
         panic!("the expression remains unbound before admission");
     };
@@ -97,6 +114,8 @@ fn unbound_operands_keep_their_types_across_comparisons_shifts_and_conversions()
 fn unbound_wide_components_share_storage_but_keep_distinct_identities_and_cache_entries() {
     let left = Val::<I64>::from(7).unsigned().div(0).and(0).or(u64::MAX);
     let (low, high) = left.unsigned().mul_wide(u64::MAX);
+    assert_eq!(low.constant_bits().unwrap(), Some(1));
+    assert_eq!(high.constant_bits().unwrap(), Some(u64::MAX - 1));
     assert!(!low.same_expression(&high));
     assert!(high.same_expression(&high.clone()));
     let ValueSource::Unbound(recipe) = &high.source else {

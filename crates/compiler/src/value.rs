@@ -20,7 +20,8 @@ pub(crate) use unbound::UnboundExpression;
 use crate::{
     bitwise::BitwiseOp,
     integer::{BinaryOp, BitCountOp, CompareOp, RotateOp, ShiftOp},
-    AtLeast, BitwiseType, DoubleWidth, Expression, IntType, ValueType, I1, I32, I64, V128,
+    AtLeast, BitwiseType, BuildError, DoubleWidth, Expression, IntType, ValueType, I1, I32, I64,
+    V128,
 };
 
 /// A literal, unbound calculation or function-body expression, checked by Rust.
@@ -186,17 +187,19 @@ impl<T: ValueType> Val<T> {
 }
 
 impl<T: IntType> Val<T> {
-    /// Returns the zero-extended logical bits of a standalone constant.
-    /// Body expressions return `None`; query them through
-    /// [`crate::BlockBuilder::constant_bits`] to check ownership and visibility.
-    pub fn constant_bits(&self) -> Option<u64> {
-        match &self.source {
-            ValueSource::Literal(bits) => {
-                let bits: crate::literal::Literal = (*bits).into();
-                Some(bits.into())
-            }
-            _ => None,
-        }
+    /// Returns the zero-extended logical bits known during construction.
+    /// Standalone calculations use the same folding rules as body expressions.
+    /// Runtime values and constants discovered only during placement return `None`.
+    /// Recorded construction errors and closed bodies return an error.
+    ///
+    /// This inspects the value without checking visibility in a consuming body.
+    /// Use [`crate::BlockBuilder::constant_bits`] to validate ownership and branch
+    /// visibility before querying a value for that body.
+    pub fn constant_bits(&self) -> Result<Option<u64>, BuildError> {
+        Ok(self
+            .source
+            .constant_literal()?
+            .map(|bits| T::TYPE.normalize(bits.into())))
     }
 
     /// Adds an integer value or literal of the same type, wrapping on overflow.

@@ -156,6 +156,7 @@ fn every_operand_and_argument_boundary_checks_folded_visibility() {
     program
         .define(function, |mut body| {
             let value = child_constant(&mut body, memory);
+            assert_eq!(value.constant_bits()?, Some(1));
             assert_eq!(body.value(&value).err(), Some(BuildError::OutOfScope));
             assert_eq!(body.constant_bits(&value), Err(BuildError::OutOfScope));
             assert_eq!(body.store(memory, 0, &value), Err(BuildError::OutOfScope));
@@ -316,6 +317,12 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
     let foreign = foreign.unwrap();
     program
         .define(function, |mut body| {
+            assert_eq!(
+                Val::<I1>::from(true)
+                    .select(body.value::<I32>(7)?, &foreign)
+                    .constant_bits(),
+                Err(BuildError::ForeignBody)
+            );
             assert_eq!(
                 body.constant_bits(Val::<I1>::from(true).select(7, &foreign)),
                 Err(BuildError::ForeignBody)

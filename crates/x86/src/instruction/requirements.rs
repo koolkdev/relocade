@@ -20,7 +20,9 @@ pub(super) struct Requirements {
 
 impl Requirements {
     pub(super) fn fault(self, target: ExecutionTarget) -> Option<Exception<Val<I32>>> {
-        if processor::supports_features(target.cpu_model.bits(), self.features).constant_bits()
+        if processor::supports_features(target.cpu_model.bits(), self.features)
+            .constant_bits()
+            .expect("CPU feature masks are constants")
             == Some(0)
         {
             return Some(Exception::InvalidOpcode);

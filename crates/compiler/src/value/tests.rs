@@ -8,18 +8,19 @@ use crate::{
 };
 
 #[test]
-fn standalone_constant_bits_include_folded_calculations() {
-    assert_eq!(Val::<I1>::from(3).constant_bits(), Some(1));
-    assert_eq!(Val::<I8>::from(-1).constant_bits(), Some(255));
-    assert_eq!(Val::<I32>::from(-1).constant_bits(), Some(0xffff_ffff));
-    assert_eq!(Val::<I64>::from(u64::MAX).constant_bits(), Some(u64::MAX));
+fn standalone_constant_bits_include_folded_calculations() -> Result<(), BuildError> {
+    assert_eq!(Val::<I1>::from(3).constant_bits()?, Some(1));
+    assert_eq!(Val::<I8>::from(-1).constant_bits()?, Some(255));
+    assert_eq!(Val::<I32>::from(-1).constant_bits()?, Some(0xffff_ffff));
+    assert_eq!(Val::<I64>::from(u64::MAX).constant_bits()?, Some(u64::MAX));
     let bits = Val::<I32>::from(0b101);
-    assert_eq!(bits.and(0b100).eq(0b100).constant_bits(), Some(1));
-    assert_eq!(bits.and(0b110).eq(0b110).constant_bits(), Some(0));
+    assert_eq!(bits.and(0b100).eq(0b100).constant_bits()?, Some(1));
+    assert_eq!(bits.and(0b110).eq(0b110).constant_bits()?, Some(0));
+    Ok(())
 }
 
 #[test]
-fn body_constants_require_a_scoped_query() {
+fn value_and_body_queries_agree_on_construction_folds() {
     let mut program = Program::new();
     program
         .function(
@@ -29,10 +30,14 @@ fn body_constants_require_a_scoped_query() {
             },
             |body| {
                 let input = body.parameter::<I32>(0)?;
-                assert_eq!(input.constant_bits(), None);
+                assert_eq!(input.constant_bits()?, None);
+                assert_eq!(body.constant_bits(&input)?, None);
                 let constant = input.mul(0).add(17);
-                assert_eq!(constant.constant_bits(), None);
+                assert_eq!(constant.constant_bits()?, Some(17));
                 assert_eq!(body.constant_bits(&constant)?, Some(17));
+                let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
+                assert_eq!(narrow.constant_bits()?, Some(255));
+                assert_eq!(body.constant_bits(narrow)?, Some(255));
                 body.return_(constant)
             },
         )
@@ -40,6 +45,7 @@ fn body_constants_require_a_scoped_query() {
 }
 
 fn assert_closed(value: &Val<I32>) {
+    assert_eq!(value.constant_bits(), Err(BuildError::BodyClosed));
     for result in [
         value.add(0),
         value.mul(0),
