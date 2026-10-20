@@ -3,7 +3,7 @@ use crate::wasm::WasmMemoryAccess;
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMemoryMap, Segment, Segments,
 };
-use std::cell::Cell;
+use std::{cell::Cell, sync::Arc};
 
 struct Caller {
     context: [u8; ExecutionContext::BYTE_LEN],
@@ -53,6 +53,12 @@ fn callbacks_apply_compatible_segment_edits() {
         PhysicalMemoryMap::new([]).unwrap(),
     )
     .unwrap();
+    let memory = RuntimeMemory {
+        config: Arc::new(config),
+        context: (),
+        guest: (),
+        mapping: (),
+    };
     let mut caller = Caller {
         context: ExecutionContext {
             cpu,
@@ -64,14 +70,14 @@ fn callbacks_apply_compatible_segment_edits() {
         state: RuntimeState::default(),
     };
 
-    let value = with_host_call(&config, &mut caller, (), (), |call| {
+    let value = memory.with_host_call(&mut caller, |call| {
         call.cpu().set_ax(41);
         17
     });
     assert_eq!(value, 17);
     assert_eq!(caller.reads.get(), 0);
 
-    with_host_call(&config, &mut caller, (), (), |call| {
+    memory.with_host_call(&mut caller, |call| {
         call.cpu().set_ax(42);
         call.cpu().set_segment(
             Segment::Cs,

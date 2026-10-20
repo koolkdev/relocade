@@ -88,13 +88,11 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             .expect("deferred exit must have a handler");
         // Cancellation leaves this set so a later run cannot replay the hook.
         self.host_call_incomplete = true;
-        let context = self.storage.context.clone();
-        let guest = self.storage.guest.clone();
+        let memory = self.storage.memory.clone();
         let mut access = self.storage.access.context();
         let mut storage = Storage {
             access: &mut access,
-            context,
-            guest,
+            memory,
         };
         let mut call = HostCall::new(&self.config, &mut storage);
         let result = handler.run(&mut call).await;
