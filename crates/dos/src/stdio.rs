@@ -58,6 +58,10 @@ impl Stdin {
         !self.0.borrow().bytes.is_empty()
     }
 
+    pub(crate) fn discard_queued(&self) {
+        self.0.borrow_mut().bytes.clear();
+    }
+
     pub(crate) fn try_read(&self) -> Option<u8> {
         self.0.borrow_mut().bytes.pop_front()
     }
