@@ -1,10 +1,13 @@
-//! Buffered host streams, accessed between guest runs.
+//! Owned host streams sharing the DOS console's byte queues.
 
-use crate::DosState;
 use std::{
+    cell::RefCell,
     collections::VecDeque,
+    future::Future,
     io::{self, Read, Write},
-    ops::DerefMut,
+    pin::Pin,
+    rc::Rc,
+    task::{Context, Poll, Waker},
 };
 
 #[derive(Clone, Copy)]
@@ -15,25 +18,60 @@ pub(crate) enum OutputStream {
 
 #[derive(Default)]
 pub(crate) struct Stdio {
-    pub(crate) input: VecDeque<u8>,
-    stdout: VecDeque<u8>,
-    stderr: VecDeque<u8>,
+    pub(crate) input: Stdin,
+    stdout: Output,
+    stderr: Output,
 }
 
 impl Stdio {
-    pub(crate) fn output(&mut self, stream: OutputStream) -> &mut VecDeque<u8> {
+    pub(crate) fn output(&self, stream: OutputStream) -> &Output {
         match stream {
-            OutputStream::Stdout => &mut self.stdout,
-            OutputStream::Stderr => &mut self.stderr,
+            OutputStream::Stdout => &self.stdout,
+            OutputStream::Stderr => &self.stderr,
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        *self.input.0.borrow_mut() = Input::default();
+        self.stdout.0.borrow_mut().clear();
+        self.stderr.0.borrow_mut().clear();
+    }
+}
+
+#[derive(Default)]
+struct Input {
+    bytes: VecDeque<u8>,
+    waker: Option<Waker>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Stdin(Rc<RefCell<Input>>);
+
+impl Stdin {
+    pub(crate) fn try_read(&self) -> Option<u8> {
+        self.0.borrow_mut().bytes.pop_front()
+    }
+
+    pub(crate) fn read_character(&self) -> ReadCharacter {
+        ReadCharacter {
+            input: self.clone(),
         }
     }
 }
 
-pub(crate) struct Stdin<S>(pub(crate) S);
-
-impl<S: DerefMut<Target = DosState>> Write for Stdin<S> {
+impl Write for Stdin {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0.files.stdio.input.write(bytes)
+        if !bytes.is_empty() {
+            let waker = {
+                let mut input = self.0.borrow_mut();
+                input.bytes.extend(bytes);
+                input.waker.take()
+            };
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        }
+        Ok(bytes.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -41,13 +79,43 @@ impl<S: DerefMut<Target = DosState>> Write for Stdin<S> {
     }
 }
 
-pub(crate) struct Output<S> {
-    pub(crate) state: S,
-    pub(crate) stream: OutputStream,
+// One guest can have one pending character read. Dropping it releases its waker.
+pub(crate) struct ReadCharacter {
+    input: Stdin,
 }
 
-impl<S: DerefMut<Target = DosState>> Read for Output<S> {
+impl Future for ReadCharacter {
+    type Output = u8;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<u8> {
+        let mut input = self.input.0.borrow_mut();
+        match input.bytes.pop_front() {
+            Some(byte) => Poll::Ready(byte),
+            None => {
+                input.waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
+        }
+    }
+}
+
+impl Drop for ReadCharacter {
+    fn drop(&mut self) {
+        self.input.0.borrow_mut().waker = None;
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Output(Rc<RefCell<VecDeque<u8>>>);
+
+impl Output {
+    pub(crate) fn extend(&self, bytes: &[u8]) {
+        self.0.borrow_mut().extend(bytes);
+    }
+}
+
+impl Read for Output {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        self.state.files.stdio.output(self.stream).read(bytes)
+        self.0.borrow_mut().read(bytes)
     }
 }

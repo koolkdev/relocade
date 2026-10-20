@@ -14,6 +14,7 @@ use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
 const DIRECT_CONSOLE_IO: u8 = 0x06;
+const READ_CHARACTER: u8 = 0x07;
 const WRITE_STRING: u8 = 0x09;
 const SELECT_DRIVE: u8 = 0x0e;
 const GET_DRIVE: u8 = 0x19;
@@ -54,6 +55,7 @@ const LONG_FILENAME: u8 = 0x71;
 pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     match call.cpu().ah() {
         DIRECT_CONSOLE_IO => console::direct_io(call),
+        READ_CHARACTER => console::read_character(call),
         WRITE_STRING => console::write_string(call),
         SELECT_DRIVE => directories::select_drive(call),
         GET_DRIVE => directories::get_drive(call),

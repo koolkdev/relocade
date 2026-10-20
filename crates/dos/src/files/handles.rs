@@ -1,14 +1,11 @@
 //! DOS open handles, shared cursors and I/O.
 
 use super::{Files, ARCHIVE_ATTRIBUTE};
-use crate::{
-    error::DosError,
-    path::ResolvedPath,
-    stdio::{OutputStream, Stdio},
-};
+use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
 use relocade_vfs::File;
 use std::{
     cell::{RefCell, RefMut},
+    future::{pending, Future},
     rc::Rc,
 };
 
@@ -97,10 +94,26 @@ impl Files {
     /// Reads one raw character from a console or redirected file handle.
     pub(crate) fn read_character(&mut self, handle: u16) -> Result<Option<u8>, DosError> {
         if matches!(self.handle(handle)?, OpenHandle::ConsoleInput) {
-            return Ok(self.stdio.input.pop_front());
+            return Ok(self.stdio.input.try_read());
         }
         let mut byte = [0];
         Ok((self.read(handle, &mut byte)? != 0).then_some(byte[0]))
+    }
+
+    /// Waits after an empty character read. Redirected EOF cannot consume console input.
+    pub(crate) fn wait_for_character(
+        &self,
+        handle: u16,
+    ) -> Result<impl Future<Output = u8> + 'static, DosError> {
+        let input = matches!(self.handle(handle)?, OpenHandle::ConsoleInput)
+            .then(|| self.stdio.input.read_character());
+        Ok(async move {
+            match input {
+                Some(input) => input.await,
+                // AH=07h cannot report EOF. File growth notifications are not supported.
+                None => pending().await,
+            }
+        })
     }
 
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
@@ -249,7 +262,7 @@ impl Files {
 
     pub(crate) fn reset_handles(&mut self) {
         self.close_all();
-        self.stdio = Stdio::default();
+        self.stdio.clear();
         self.search_directories.clear();
         for (slot, device) in self.handles.iter_mut().zip([
             OpenHandle::ConsoleInput,
