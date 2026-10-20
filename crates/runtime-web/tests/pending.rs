@@ -180,10 +180,8 @@ async fn check_pending_calls() {
         assert_eq!(state.started.get(), 2);
         assert_eq!(state.completed.get(), 1);
         state.send(&[30, 40]);
-        assert!(matches!(
-            run.as_mut().poll(&mut cx),
-            Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
-        ));
+        assert!(run.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(run.await.unwrap(), ExecutionExit::BudgetExhausted);
     }
     // Both suspensions shared the original target, ending at the second IRET.
     assert_eq!(state.started.get(), 2);

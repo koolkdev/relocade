@@ -12,7 +12,18 @@ pub use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
 #[cfg(target_arch = "wasm32")]
 pub use relocade_runtime_web::WebBackend as Backend;
 
-pub type TestRuntime = Runtime<Backend<RuntimeState<Rc<Cell<u32>>>>>;
+pub type TestState = Rc<Cell<u32>>;
+pub type TestRuntime = Runtime<Backend<RuntimeState<TestState>>>;
+
+pub struct HeldCompiler;
+impl<M: 'static> relocade_runtime::compilation::BackgroundCompiler<M> for HeldCompiler {
+    fn submit(
+        &mut self,
+        _snapshot: relocade_runtime::CodeSnapshot,
+    ) -> relocade_runtime::Result<Option<relocade_runtime::compilation::Compilation<M>>> {
+        Ok(Some(Box::pin(std::future::pending())))
+    }
+}
 
 pub async fn runtime() -> TestRuntime {
     let state = RuntimeState::new(Rc::new(Cell::new(0)));

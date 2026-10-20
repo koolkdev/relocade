@@ -26,6 +26,7 @@ use wasm_bindgen_futures::JsFuture;
 
 mod host;
 mod memory;
+mod scheduling;
 mod worker;
 pub use host::Context;
 pub use memory::SharedMemory;
@@ -119,6 +120,10 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
 
     fn module_cache(&self) -> Option<&ModuleCache<Self::Module>> {
         Some(&self.modules)
+    }
+
+    async fn yield_execution(&self) -> Result<()> {
+        scheduling::yield_task().await
     }
 
     fn create_memory(&mut self, declaration: abi::Memory) -> Result<Self::Memory> {

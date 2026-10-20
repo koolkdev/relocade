@@ -4,7 +4,7 @@ use std::{
     future::Future,
     io::Write,
     pin::pin,
-    task::{Context, Poll, Waker},
+    task::{Context, Waker},
 };
 
 #[test]
@@ -49,10 +49,8 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             assert!(run.as_mut().poll(&mut cx).is_pending());
             assert_eq!(common::output(output.clone()), b"\x08 \x08");
             input.write_all(b"\x48c\rN").unwrap();
-            assert!(matches!(
-                run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
-            ));
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            assert_eq!(run.await.unwrap(), ExecutionExit::BudgetExhausted);
         }
         assert_eq!(common::output(output), b"c\r");
         {

@@ -1,10 +1,7 @@
 mod common;
 
-use common::{complete, runtime};
-use relocade_runtime::{
-    compilation::{BackgroundCompiler, Compilation},
-    BlockRequest, CodeSnapshot, Result,
-};
+use common::{complete, runtime, HeldCompiler};
+use relocade_runtime::BlockRequest;
 use relocade_x86::ExecutionExit;
 use std::num::NonZeroU16;
 
@@ -60,13 +57,6 @@ async fn stale_completion() {
     assert_eq!(runtime.compiled_group_count(), 0);
     assert_eq!(runtime.run(2).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.machine().cpu().ax(), 0xffff);
-}
-
-struct HeldCompiler;
-impl<M: 'static> BackgroundCompiler<M> for HeldCompiler {
-    fn submit(&mut self, _snapshot: CodeSnapshot) -> Result<Option<Compilation<M>>> {
-        Ok(Some(Box::pin(std::future::pending())))
-    }
 }
 
 async fn queue_bounds() {

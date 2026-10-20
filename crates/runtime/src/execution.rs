@@ -1,8 +1,21 @@
 use crate::{Error, HostCall, Result, Runtime, RuntimeBackend, RuntimeState, Storage};
 use relocade_x86::ExecutionExit;
+use std::num::NonZeroU64;
 use std::ops::ControlFlow;
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
+    /// Instruction allowance between scheduler yields and compiler-result
+    /// collection (default 65,536). This uses existing block-boundary checks;
+    /// it is not a hard instruction or elapsed-time limit. Synchronous `run`
+    /// retains its caller-supplied budget without internal yields.
+    pub fn set_execution_slice(&mut self, instructions: NonZeroU64) {
+        self.execution_slice = instructions;
+    }
+
+    pub fn execution_slice(&self) -> NonZeroU64 {
+        self.execution_slice
+    }
+
     /// Runs until the budget is consumed at a block boundary, a guest exit
     /// occurs, or a host function requests a return. Whole blocks can exceed the
     /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
@@ -23,9 +36,12 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         self.enter(target)
     }
 
-    /// Runs with the same instruction budget as `run`, waiting for deferred host
-    /// operations before continuing the guest. Waits do not replenish the budget.
-    /// Other host returns and guest exits are returned to the embedding.
+    /// Runs in cooperative slices, publishing ready compiler results and awaiting
+    /// deferred host operations before continuing. Unfinished compilation never
+    /// delays guest execution. Slices and host waits retain one absolute caller
+    /// instruction target; internal budget exits are not returned to the caller.
+    /// Each budget exit yields to the scheduler, including the last short slice.
+    /// Other exits and block-boundary overshoot match [`Runtime::run`].
     ///
     /// Generated guest calls remain synchronous. Async handlers borrow the
     /// stopped runtime after the guest call returns, then dispatch resumes at
@@ -40,15 +56,33 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
         }
-        let target = self.instruction_target(instruction_budget);
-        let mut exit = self.enter(target)?;
-        while exit == ExecutionExit::Deferred {
-            exit = match self.run_deferred().await {
-                ControlFlow::Continue(()) => self.enter(target)?,
-                ControlFlow::Break(exit) => exit,
-            };
+        if self.host_call_incomplete {
+            return Err(Error::CancelledHostCall);
         }
-        Ok(exit)
+        let target = self.instruction_target(instruction_budget);
+        let mut slice_target = self
+            .instruction_target(self.execution_slice.get())
+            .min(target);
+        loop {
+            self.publish_ready_groups().await?;
+            match self.enter(slice_target)? {
+                ExecutionExit::BudgetExhausted => {
+                    self.storage.access.yield_execution().await?;
+                    self.publish_ready_groups().await?;
+                    if self.machine().cpu().instruction_count() >= target {
+                        return Ok(ExecutionExit::BudgetExhausted);
+                    }
+                    slice_target = self
+                        .instruction_target(self.execution_slice.get())
+                        .min(target);
+                }
+                ExecutionExit::Deferred => match self.run_deferred().await {
+                    ControlFlow::Continue(()) => {}
+                    ControlFlow::Break(exit) => return Ok(exit),
+                },
+                exit => return Ok(exit),
+            }
+        }
     }
 
     /// Drops a queued handler and clears any interrupted call, without changing CPU state.
