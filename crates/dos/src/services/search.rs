@@ -1,11 +1,11 @@
 use super::files::read_path;
 use crate::{error::DosError, files::FIND_DATA_BYTES, interrupt::return_result, DosState};
 use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
-use relocade_x86::{Segment, StoredSegment};
+use relocade_x86::{ExecutionExit, Segment, StoredSegment};
 use std::ops::ControlFlow;
 
 /// AH=1Ah: select the disk transfer area at DS:DX, preserving flags.
-pub(super) fn set_dta(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+pub(super) fn set_dta(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let segment = call.cpu().segment(Segment::Ds).selector;
     let offset = call.cpu().dx();
     call.state_mut().dta_segment = segment;
@@ -14,7 +14,7 @@ pub(super) fn set_dta(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
 }
 
 /// AH=2Fh: return the current DTA in ES:BX, preserving flags.
-pub(super) fn get_dta(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+pub(super) fn get_dta(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let segment = call.state().dta_segment;
     let offset = call.state().dta_offset;
     call.cpu()
@@ -25,7 +25,7 @@ pub(super) fn get_dta(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
 }
 
 /// AH=4Eh: find DS:DX's 8.3 pattern with CX's attributes; fill the current DTA.
-pub(super) fn find_first(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+pub(super) fn find_first(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let attributes = call.cpu().cx() as u8;
     let result =
         read_path(call).and_then(|path| call.state_mut().files.find_first(&path, attributes));
@@ -33,7 +33,7 @@ pub(super) fn find_first(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
 }
 
 /// AH=4Fh: continue the search saved in the current DTA.
-pub(super) fn find_next(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+pub(super) fn find_next(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let address = dta_address(call);
     let mut data = [0; FIND_DATA_BYTES];
     call.memory()
@@ -46,7 +46,7 @@ pub(super) fn find_next(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
 fn return_search(
     call: &mut HostCall<'_, DosState>,
     result: Result<[u8; FIND_DATA_BYTES], DosError>,
-) -> ControlFlow<()> {
+) -> ControlFlow<ExecutionExit> {
     let result = result.map(|data| {
         let address = dta_address(call);
         call.memory().write(address, &data).expect("real-mode DTA");

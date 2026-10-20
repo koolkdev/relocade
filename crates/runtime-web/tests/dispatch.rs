@@ -1,6 +1,6 @@
 use relocade_compiler::{Program, I32};
 use relocade_machine::MachineConfig;
-use relocade_runtime::{DispatchEntry, Runtime};
+use relocade_runtime::{DispatchEntry, Runtime, RuntimeState};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -28,9 +28,9 @@ async fn check_dispatch_table() {
     )
     .unwrap();
     #[cfg(not(target_arch = "wasm32"))]
-    let backend = Backend::new().unwrap();
+    let backend = Backend::with_state(RuntimeState::new(())).unwrap();
     #[cfg(target_arch = "wasm32")]
-    let backend = Backend::new();
+    let backend = Backend::with_state(RuntimeState::new(()));
     let mut runtime = Runtime::new(backend, config).await.unwrap();
     // JMP 0200. An uninstalled destination faults; only our callable writes the marker.
     runtime

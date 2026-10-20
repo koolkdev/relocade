@@ -1,15 +1,19 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use relocade_machine::{ConfigurationError, MachineConfig, MemoryError};
-use relocade_runtime::Runtime;
+use relocade_runtime::{Runtime, RuntimeState};
 use relocade_runtime_wasmtime::WasmtimeBackend;
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
     PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
 };
 
-fn create(config: MachineConfig) -> Runtime<WasmtimeBackend> {
-    pollster::block_on(Runtime::new(WasmtimeBackend::new().unwrap(), config)).unwrap()
+fn create(config: MachineConfig) -> Runtime<WasmtimeBackend<RuntimeState>> {
+    pollster::block_on(Runtime::new(
+        WasmtimeBackend::with_state(RuntimeState::default()).unwrap(),
+        config,
+    ))
+    .unwrap()
 }
 
 fn configuration() -> MachineConfig {
@@ -26,7 +30,7 @@ fn configuration() -> MachineConfig {
     .unwrap()
 }
 
-fn runtime(code: &[u8]) -> Runtime<WasmtimeBackend> {
+fn runtime(code: &[u8]) -> Runtime<WasmtimeBackend<RuntimeState>> {
     let mut runtime = create(configuration());
     runtime.machine().memory().write(0x100, code).unwrap();
     runtime

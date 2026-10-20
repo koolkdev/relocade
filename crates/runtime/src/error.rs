@@ -12,6 +12,7 @@ pub enum Error {
         message: String,
     },
     InvalidExit(u64),
+    CancelledHostCall,
 }
 
 impl Error {
@@ -31,6 +32,12 @@ impl fmt::Display for Error {
             Self::Configuration(error) => error.fmt(f),
             Self::Wasm { operation, message } => write!(f, "{operation}: {message}"),
             Self::InvalidExit(word) => write!(f, "invalid guest exit word {word:#018x}"),
+            Self::CancelledHostCall => {
+                write!(
+                    f,
+                    "host call cancelled; replace its guest continuation before resuming"
+                )
+            }
         }
     }
 }

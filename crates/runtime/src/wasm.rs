@@ -11,12 +11,12 @@ mod imports;
 pub use host::{HostFunction, HostSignature, HostValue};
 pub use imports::{Import, ImportBinding, ImportValue};
 
-/// Access to linear memory through a Wasm engine or its callback caller.
+/// Access to linear memory through a Wasm backend or its scoped context.
 /// Handles belong to that engine. Transfers require an allocated, in-bounds
 /// range; violating this storage invariant is a programming error.
 pub trait WasmMemoryAccess {
     /// A handle to engine-owned memory that host functions can capture. Access to
-    /// the contents still requires the owning backend or its callback caller.
+    /// the contents still requires the owning backend or its scoped context.
     type Memory: Clone + Send + Sync + 'static;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
@@ -35,9 +35,10 @@ impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
     }
 }
 
-/// Access to host state and live Wasm memory for the duration of a callback.
-/// Guest reentry from callbacks is not supported.
-pub trait WasmCaller: WasmMemoryAccess {
+/// Scoped access to host state and live Wasm memory, during a callback or while
+/// execution is stopped. A stopped view may be held across an await; drop it
+/// before entering Wasm again. Callback views cannot outlive their callback.
+pub trait WasmContext: WasmMemoryAccess {
     type State;
 
     fn state(&self) -> &Self::State;
@@ -53,7 +54,9 @@ pub trait WasmCaller: WasmMemoryAccess {
 /// valid after the original module and instance handles are dropped.
 pub trait WasmBackend: WasmMemoryAccess + Sized {
     type State: 'static;
-    type Caller<'a>: WasmCaller<State = Self::State, Memory = Self::Memory>;
+    type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
+    where
+        Self: 'a;
     type Module;
     type Instance;
     type Table: 'static;
@@ -66,6 +69,10 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// return a borrow guard; drop it before calling into Wasm.
     fn state(&self) -> impl Deref<Target = Self::State>;
     fn state_mut(&mut self) -> impl DerefMut<Target = Self::State>;
+
+    /// Borrows the stopped backend's state and memory. The view may be held
+    /// across an await, but must be dropped before calling into Wasm again.
+    fn context(&mut self) -> Self::Context<'_>;
 
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
 
@@ -95,11 +102,11 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     }
 
     /// Wraps a callback in the engine and binds it to the shared declaration.
-    /// Callbacks receive a scoped caller followed by the Wasm carrier arguments;
+    /// Callbacks receive a scoped context followed by the Wasm carrier arguments;
     /// narrow integers use zero-extended i32, as in the compiler's import ABI.
     /// Callbacks must also return narrow results zero-extended to their logical width.
     /// Callbacks implement Fn + Send + Sync; mutable or non-Send environment state
-    /// is accessed through the caller. Memory handles can be captured normally.
+    /// is accessed through the context. Memory handles can be captured normally.
     /// The backend retains callbacks while linked modules can call them.
     /// The import owns its handle without borrowing the backend.
     ///

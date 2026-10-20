@@ -4,13 +4,14 @@
 //! backend storage from [`MachineConfig`]. [`Runtime::machine`] lends access to
 //! the stopped CPU and mapped memory, both backed directly by Wasm storage.
 //! CPU edits take effect immediately. Preparation is asynchronous
-//! for native and web engines; guest execution is synchronous.
+//! for native and web engines. [`Runtime::run_async`] can await host operations
+//! between synchronous Wasm calls.
 //!
 //! ```
 //! use relocade_machine::MachineConfig;
-//! use relocade_runtime::{Runtime, RuntimeBackend};
+//! use relocade_runtime::{Runtime, RuntimeBackend, RuntimeState};
 //!
-//! async fn example<B: RuntimeBackend>(
+//! async fn example<B: RuntimeBackend<State = RuntimeState>>(
 //!     backend: B,
 //!     config: MachineConfig,
 //! ) -> Result<(), Box<dyn std::error::Error>> {
@@ -28,8 +29,10 @@ mod backend;
 mod callback;
 mod dispatch;
 mod error;
+mod execution;
 mod hooks;
 pub mod real_mode_interrupt;
+mod state;
 mod storage;
 pub mod wasm;
 
@@ -40,7 +43,8 @@ use dispatch::DispatchTable;
 pub use error::{Error, Result};
 pub use hooks::Hook;
 use relocade_machine::{Machine, MachineConfig};
-use relocade_x86::{abi, Compiler, EntryTable, ExecutionContext, ExecutionExit};
+use relocade_x86::{abi, Compiler, EntryTable, ExecutionContext};
+pub use state::RuntimeState;
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -58,9 +62,10 @@ pub struct Runtime<B: RuntimeBackend> {
     mapping: B::Memory,
     dispatch_table: DispatchTable<B>,
     host_imports: Vec<Import<'static, B>>,
+    host_call_incomplete: bool,
 }
 
-impl<B: RuntimeBackend> Runtime<B> {
+impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// Prepares code and allocates zeroed backing with the configured CPU and map.
     /// The runtime retains the backend and its live storage for subsequent calls.
     /// Port and MMIO reads currently return all ones; their writes are ignored.
@@ -114,6 +119,7 @@ impl<B: RuntimeBackend> Runtime<B> {
             mapping,
             dispatch_table,
             host_imports,
+            host_call_incomplete: false,
         };
         let instance = runtime.instantiate(&interpreter.bytes, &[]).await?;
         let backend = &mut runtime.storage.access;
@@ -170,29 +176,11 @@ impl<B: RuntimeBackend> Runtime<B> {
     }
 
     /// Borrows the environment state between guest calls. Drop the borrow before running.
-    pub fn state(&self) -> impl Deref<Target = B::State> + '_ {
-        self.storage.access.state()
+    pub fn state(&self) -> impl Deref<Target = T> + '_ {
+        state::Data(self.storage.access.state())
     }
 
-    pub fn state_mut(&mut self) -> impl DerefMut<Target = B::State> + '_ {
-        self.storage.access.state_mut()
-    }
-
-    /// Runs until the budget is consumed at a block boundary, a guest exit
-    /// occurs, or a host function requests a return. Whole blocks can exceed the budget; straight-line code and REP
-    /// have no fixed overshoot or elapsed-time bound. Zero does not enter Wasm.
-    /// The absolute target saturates at u64::MAX, which is practically unbounded.
-    pub fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
-        if instruction_budget == 0 {
-            return Ok(ExecutionExit::BudgetExhausted);
-        }
-        let target = self
-            .machine()
-            .cpu()
-            .instruction_count()
-            .saturating_add(instruction_budget);
-        self.storage.set_instruction_target(target);
-        let word = self.storage.access.call(&self.dispatch)? as u64;
-        ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
+    pub fn state_mut(&mut self) -> impl DerefMut<Target = T> + '_ {
+        state::Data(self.storage.access.state_mut())
     }
 }

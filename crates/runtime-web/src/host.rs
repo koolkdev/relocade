@@ -1,8 +1,8 @@
 use super::{Memory, Store, WebBackend};
 use js_sys::Function as JsFunction;
 use relocade_compiler::{Results, ValueType};
-use relocade_runtime::wasm::{HostFunction, HostValue, WasmCaller, WasmMemoryAccess};
-use std::rc::Rc;
+use relocade_runtime::wasm::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
+use std::{cell::RefMut, rc::Rc};
 use wasm_bindgen::{
     closure::Closure,
     convert::{FromWasmAbi, ReturnWasmAbi},
@@ -20,11 +20,11 @@ macro_rules! host_function {
         {
             fn host_function(
                 &mut self,
-                callback: Box<dyn Fn(Caller<'_, T>, $($parameter::Carrier),*) -> R::Carrier + Send + Sync>,
+                callback: Box<dyn Fn(Context<'_, T>, $($parameter::Carrier),*) -> R::Carrier + Send + Sync>,
             ) -> JsFunction {
                 let store = Rc::clone(&self.store);
                 let closure = Closure::<dyn Fn($($parameter::Carrier),*) -> R::Carrier>::new(move |$($argument),*| {
-                    callback(Caller(&mut *store.borrow_mut()), $($argument),*)
+                    callback(Context(store.borrow_mut()), $($argument),*)
                 });
                 let function = closure.as_ref().unchecked_ref::<JsFunction>().clone();
                 self.callbacks.push(Box::new(closure));
@@ -40,10 +40,10 @@ host_function!(A: a, B: b);
 host_function!(A: a, B: b, C: c);
 host_function!(A: a, B: b, C: c, D: d);
 
-/// A callback's scoped access to host state and the backend's memories.
-pub struct Caller<'a, T>(&'a mut Store<T>);
+/// Scoped access to host state and memories, inside or outside a callback.
+pub struct Context<'a, T>(pub(super) RefMut<'a, Store<T>>);
 
-impl<T> WasmCaller for Caller<'_, T> {
+impl<T> WasmContext for Context<'_, T> {
     type State = T;
 
     fn state(&self) -> &T {
@@ -54,7 +54,7 @@ impl<T> WasmCaller for Caller<'_, T> {
     }
 }
 
-impl<T> WasmMemoryAccess for Caller<'_, T> {
+impl<T> WasmMemoryAccess for Context<'_, T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {

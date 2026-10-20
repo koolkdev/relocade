@@ -7,6 +7,7 @@
 
 use relocade_machine::Memory;
 use relocade_runtime::{real_mode_interrupt, Hook, HostCall};
+use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
 const BIOS_SEGMENT: u16 = 0xf000;
@@ -35,7 +36,7 @@ pub fn hooks<T: 'static>() -> [Hook<T>; 1] {
     [Hook::new(CLOCK_ADDRESS, clock)]
 }
 
-fn clock<T>(call: &mut HostCall<'_, T>) -> ControlFlow<()> {
+fn clock<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> {
     if call.cpu().ah() == 0 {
         let mut data = [0; 5];
         call.memory()

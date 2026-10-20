@@ -2,10 +2,11 @@
 
 use relocade_dos::{Dos, DosState};
 
-pub use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
+use relocade_runtime::RuntimeState;
+pub type Backend<T> = relocade_runtime_wasmtime::WasmtimeBackend<RuntimeState<T>>;
 
 pub async fn dos() -> Dos<Backend<DosState>> {
-    let backend = Backend::with_state(DosState::default()).unwrap();
+    let backend = Backend::with_state(RuntimeState::new(DosState::default())).unwrap();
     Dos::new(backend).await.unwrap()
 }
 

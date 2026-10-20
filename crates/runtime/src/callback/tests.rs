@@ -9,17 +9,17 @@ use std::cell::Cell;
 struct Caller {
     context: [u8; ExecutionContext::BYTE_LEN],
     reads: Cell<usize>,
-    state: (),
+    state: RuntimeState,
 }
 
-impl WasmCaller for Caller {
-    type State = ();
+impl WasmContext for Caller {
+    type State = RuntimeState;
 
-    fn state(&self) -> &() {
+    fn state(&self) -> &RuntimeState {
         &self.state
     }
 
-    fn state_mut(&mut self) -> &mut () {
+    fn state_mut(&mut self) -> &mut RuntimeState {
         &mut self.state
     }
 }
@@ -57,7 +57,7 @@ fn callbacks_validate_only_segment_edits() {
         }
         .to_bytes(),
         reads: Cell::new(0),
-        state: (),
+        state: RuntimeState::default(),
     };
 
     let value = with_host_call(&config, &mut caller, (), (), |call| {
