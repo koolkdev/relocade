@@ -26,8 +26,10 @@ use wasm_bindgen_futures::JsFuture;
 
 mod host;
 mod memory;
+mod scheduling;
 pub use host::Context;
 pub use memory::SharedMemory;
+pub use scheduling::yield_to_event_loop;
 
 /// One guest's instances, callbacks and host state.
 pub struct WebBackend<T = ()> {

@@ -1340,6 +1340,7 @@ dependencies = [
 name = "relocade-runtime-web"
 version = "0.0.0"
 dependencies = [
+ "futures-channel",
  "js-sys",
  "pollster",
  "relocade-compiler",
