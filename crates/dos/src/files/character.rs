@@ -51,7 +51,7 @@ impl Files {
     /// Reads one raw character from a console or redirected file handle.
     pub(crate) fn read_character(&mut self, handle: u16) -> Result<Option<u8>, DosError> {
         match self.readable_handle_type(handle)? {
-            HandleType::Device(Device::Console(_)) => Ok(self.stdio.input.try_read()),
+            HandleType::Device(Device::Console(_)) => Ok(self.stdio.input.try_read_character()),
             // The NUL driver's empty character response is returned as AL=0.
             HandleType::Device(Device::Null) => Ok(Some(0)),
             HandleType::File => {
@@ -68,7 +68,7 @@ impl Files {
         handle: u16,
     ) -> Result<impl Future<Output = u8> + 'static, DosError> {
         let input = match self.readable_handle_type(handle)? {
-            HandleType::Device(Device::Console(_)) => Some(self.stdio.input.read_character()),
+            HandleType::Device(Device::Console(_)) => Some(self.stdio.input.clone()),
             HandleType::File | HandleType::Device(Device::Null) => None,
             HandleType::Device(Device::Auxiliary | Device::Printer) => {
                 return Err(DosError::AccessDenied);
@@ -76,7 +76,7 @@ impl Files {
         };
         Ok(async move {
             match input {
-                Some(input) => input.await,
+                Some(input) => input.read_character().await,
                 // Files cannot notify growth; NUL cannot produce a completed input line.
                 None => pending().await,
             }

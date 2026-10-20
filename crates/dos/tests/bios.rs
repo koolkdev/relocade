@@ -1,4 +1,6 @@
 mod common;
+#[path = "bios/keyboard.rs"]
+mod keyboard;
 
 use relocade_x86::ExecutionExit;
 

@@ -19,6 +19,12 @@ pub struct DosState {
     pub(crate) exit_status: Option<Result<u8, ServiceError>>,
 }
 
+impl AsRef<relocade_bios::Keyboard> for DosState {
+    fn as_ref(&self) -> &relocade_bios::Keyboard {
+        &self.files.stdio.input
+    }
+}
+
 impl DosState {
     pub(crate) fn reset_process(&mut self, psp_segment: u16) {
         self.files.reset_handles();

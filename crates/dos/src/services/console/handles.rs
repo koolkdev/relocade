@@ -78,7 +78,7 @@ fn read_raw(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let input = call.state().files.stdio.input.clone();
     let mut bytes = Vec::with_capacity(count);
     while bytes.len() < count {
-        match input.try_read() {
+        match input.try_read_character() {
             Some(byte) => bytes.push(byte),
             None => {
                 return call.defer(async move |call| {
