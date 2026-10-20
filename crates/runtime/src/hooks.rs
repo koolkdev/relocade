@@ -31,6 +31,9 @@ pub struct Hook<T = ()> {
 impl<T> Hook<T> {
     /// On Continue, the handler must set the guest continuation in CPU state.
     /// Break returns its execution exit without changing that state.
+    /// To defer work, return the result of [`HostCall::defer`], which queues the
+    /// required handler. Returning `ExecutionExit::Deferred` without a queued
+    /// handler is a programming error.
     /// Interrupt/ABI return conventions belong to the handler's environment.
     /// Captures must be Send + Sync. Mutable environment data belongs in the
     /// caller's state, which does not need to be Send or Sync.
