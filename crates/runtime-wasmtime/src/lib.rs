@@ -23,21 +23,23 @@
 
 use relocade_compiler::{abi::Function, I64};
 use relocade_runtime::{
-    wasm::{Import, ImportValue, WasmBackend, WasmMemoryAccess},
+    wasm::{Import, ImportValue, ModuleCache, WasmBackend, WasmMemoryAccess},
     Error, Result,
 };
 use std::ops::{Deref, DerefMut};
 use wasmtime::{
-    AsContextMut, Config, Engine, Func, Instance, Linker, Memory, MemoryType, Module, Ref, RefType,
-    Store, Table, TableType, TypedFunc,
+    AsContextMut, Func, Instance, Linker, Memory, MemoryType, Module, Ref, RefType, Store, Table,
+    TableType, TypedFunc,
 };
 
+mod compilation;
 mod host;
 pub use host::Context;
 
-/// One store for modules and their shared imports. Runtime owns execution policy.
+/// One store for guest instances and their imports. Runtime owns execution policy.
 pub struct WasmtimeBackend<T: 'static = ()> {
     store: Store<T>,
+    compilation: &'static compilation::Compilation,
 }
 
 impl WasmtimeBackend {
@@ -48,15 +50,10 @@ impl WasmtimeBackend {
 
 impl<T: 'static> WasmtimeBackend<T> {
     pub fn with_state(state: T) -> Result<Self> {
-        let mut config = Config::new();
-        config
-            .wasm_multi_memory(true)
-            .wasm_tail_call(true)
-            .wasm_threads(true);
-        let engine =
-            Engine::new(&config).map_err(|error| Error::wasm("create Wasmtime engine", error))?;
+        let compilation = compilation::shared()?;
         Ok(Self {
-            store: Store::new(&engine, state),
+            store: Store::new(compilation.engine(), state),
+            compilation,
         })
     }
 }
@@ -85,6 +82,10 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
     /// Native compilation completes synchronously on the calling thread.
     async fn compile(&self, bytes: &[u8]) -> Result<Module> {
         Module::new(self.store.engine(), bytes).map_err(|error| Error::wasm("compile Wasm", error))
+    }
+
+    fn module_cache(&self) -> Option<&ModuleCache<Module>> {
+        Some(&self.compilation.modules)
     }
 
     fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Memory> {

@@ -54,6 +54,20 @@ returns their embedded Wasm bytes, and `Runtime::new` uses them in both native a
 web builds. Starting a guest does not regenerate the interpreter. The backend
 still compiles the portable Wasm to native code when loading it.
 
+`WasmBackend::compile(bytes)` compiles any module. Runtime startup retains only the
+four interpreter assets in a shared `ModuleCache`, using that same compilation
+method on a cache miss. Dispatcher and guest modules go directly to `compile`.
+Backends provide optional cache storage through `module_cache()` and share it only
+with compatible engines. Native backends share a Wasmtime engine and cache within
+the process; browser backends share a cache within the same worker. The common
+cache coordinates concurrent requests and retries failures. Each runtime keeps
+its own instances, memory and host state.
+
+Wasmtime's default disk cache also reuses compiled code across processes; its
+standard cache configuration controls the location and eviction. If cache
+configuration cannot be loaded, the backend reports the problem and continues
+without disk caching.
+
 Compiler and x86 correctness tests execute Wasm in Wasmtime. Browser integration
 tests exercise the web runtime in Chrome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 

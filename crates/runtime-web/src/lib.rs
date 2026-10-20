@@ -9,7 +9,7 @@
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::{abi::Function as FunctionDeclaration, I64};
 use relocade_runtime::{
-    wasm::{Import, ImportValue, WasmBackend, WasmMemoryAccess},
+    wasm::{Import, ImportValue, ModuleCache, WasmBackend, WasmMemoryAccess},
     Error, Result,
 };
 use std::{
@@ -24,9 +24,10 @@ use wasm_bindgen_futures::JsFuture;
 mod host;
 pub use host::Context;
 
-/// Modules, callbacks and host state belonging to one guest.
+/// One guest's instances, callbacks and host state.
 pub struct WebBackend<T = ()> {
     store: Rc<RefCell<Store<T>>>,
+    modules: Rc<ModuleCache<WebAssembly::Module>>,
     // Rust must retain the closures for as long as guest modules can call them.
     callbacks: Vec<Box<dyn Any>>,
 }
@@ -64,11 +65,16 @@ impl Default for WebBackend {
 
 impl<T: 'static> WebBackend<T> {
     pub fn with_state(state: T) -> Self {
+        thread_local! {
+            static MODULES: Rc<ModuleCache<WebAssembly::Module>> =
+                Rc::new(ModuleCache::default());
+        }
         Self {
             store: Rc::new(RefCell::new(Store {
                 state,
                 memories: Vec::new(),
             })),
+            modules: MODULES.with(Rc::clone),
             callbacks: Vec::new(),
         }
     }
@@ -101,6 +107,10 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
             .await
             .map(|module| module.unchecked_into())
             .map_err(|error| js_error("compile Wasm", error))
+    }
+
+    fn module_cache(&self) -> Option<&ModuleCache<Self::Module>> {
+        Some(&self.modules)
     }
 
     fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Self::Memory> {

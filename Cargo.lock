@@ -829,6 +829,7 @@ dependencies = [
 name = "relocade-runtime"
 version = "0.0.0"
 dependencies = [
+ "futures-util",
  "relocade-compiler",
  "relocade-interpreter",
  "relocade-machine",

@@ -1,5 +1,5 @@
-//! Wasm engine operations used by the runtime. Handles belong to one backend;
-//! modules instantiated there can share imported memories, tables and functions.
+//! Wasm engine operations used by the runtime. Compiled code may be reused across
+//! compatible backends. Instances bind to one backend's memories, tables and functions.
 
 use crate::Result;
 use relocade_compiler::{abi::Function, I64};
@@ -8,8 +8,10 @@ use std::ops::{Deref, DerefMut};
 
 mod host;
 mod imports;
+mod module_cache;
 pub use host::{HostFunction, HostSignature, HostValue};
 pub use imports::{Import, ImportBinding, ImportValue};
+pub use module_cache::ModuleCache;
 
 /// Access to linear memory through a Wasm backend or its scoped context.
 /// Handles belong to that engine. Transfers require an allocated, in-bounds
@@ -57,7 +59,8 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
     where
         Self: 'a;
-    type Module;
+    /// Cloning a module shares compiled code without creating a guest instance.
+    type Module: Clone;
     type Instance;
     type Table: 'static;
     /// An exported function with signature `() -> i64`.
@@ -74,7 +77,15 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// across an await, but must be dropped before calling into Wasm again.
     fn context(&mut self) -> Self::Context<'_>;
 
+    /// Compiles Wasm bytes into code that can be instantiated with private imports.
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
+
+    /// Optional storage for modules that callers choose to retain.
+    /// Share it only between backends that can instantiate each other's modules.
+    /// Ordinary `compile` calls do not populate this cache.
+    fn module_cache(&self) -> Option<&ModuleCache<Self::Module>> {
+        None
+    }
 
     /// Allocates zeroed memory with the supplied page limits.
     fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Self::Memory>;
