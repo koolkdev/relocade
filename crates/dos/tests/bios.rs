@@ -1,6 +1,8 @@
 mod common;
 #[path = "bios/keyboard.rs"]
 mod keyboard;
+#[path = "bios/screen.rs"]
+mod screen;
 
 use relocade_x86::ExecutionExit;
 

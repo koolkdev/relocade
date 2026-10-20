@@ -239,6 +239,12 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
         self.runtime.state().as_ref().clone()
     }
 
+    /// Copies the active 80-by-25 color text page and its cursor for a renderer.
+    /// Direct guest writes to text memory appear in the next snapshot.
+    pub fn screen(&mut self) -> relocade_bios::TextScreen {
+        relocade_bios::TextScreen::read(&mut self.runtime.machine().memory())
+    }
+
     /// Returns an owned reader that drains currently buffered standard output.
     /// An empty buffer returns zero, even if the guest may produce more later.
     /// It can be used while `run_async` waits. DOS redirection follows the handle's
