@@ -30,12 +30,16 @@ impl MachineStorage for Storage {
 }
 
 fn configuration(map: PhysicalMemoryMap) -> (MachineConfig, Storage) {
+    let model =
+        relocade_x86::CpuModel::default().with_feature(relocade_x86::CpuFeature::Cmov, false);
     let cpu = CpuState {
         segments: Segments::real_mode(),
         ..CpuState::default()
     };
     let config = MachineConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16)
+            .with_cpu_model(model)
+            .target(),
         cpu,
         0x3000,
         map,
@@ -48,6 +52,7 @@ fn configuration(map: PhysicalMemoryMap) -> (MachineConfig, Storage) {
                 ExecutionContext {
                     cpu,
                     instruction_target: 998,
+                    cpu_model: model,
                 }
                 .to_bytes(),
             )),
@@ -84,7 +89,7 @@ fn register_access_is_live_and_preserves_aliases() {
 }
 
 #[test]
-fn snapshots_preserve_the_whole_cpu_without_changing_the_budget() {
+fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
     let context = Rc::clone(&storage.context);
     let mut machine = Machine::new(&config, &mut storage);
@@ -96,6 +101,7 @@ fn snapshots_preserve_the_whole_cpu_without_changing_the_budget() {
     cpu.restore(&snapshot).unwrap();
     assert_eq!(cpu.snapshot(), snapshot);
     assert_eq!(&context.borrow()[488..496], &998_u64.to_le_bytes());
+    assert_eq!(&context.borrow()[496..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
     let mut incompatible = snapshot;
     incompatible.segments.cs.base = 1;
     assert_eq!(

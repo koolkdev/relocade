@@ -1,6 +1,6 @@
 //! Admission shared by block boundaries and instruction execution.
 
-use crate::{CpuFeature, Exception, ExecutionProfile, ExecutionTarget};
+use crate::{processor, CpuFeature, Exception, ExecutionProfile, ExecutionTarget};
 use relocade_compiler::{Val, I32};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -20,14 +20,18 @@ pub(super) struct Requirements {
 
 impl Requirements {
     pub(super) fn fault(self, target: ExecutionTarget) -> Option<Exception<Val<I32>>> {
-        if self
-            .features
-            .iter()
-            .any(|&feature| !target.cpu_model.supports(feature))
+        if processor::supports_features(target.cpu_model.bits(), self.features)
+            .constant_bits()
+            .expect("CPU feature masks are constants")
+            == Some(0)
         {
             return Some(Exception::InvalidOpcode);
         }
-        match (self.availability, target.profile) {
+        self.mode_fault(target.profile)
+    }
+
+    pub(super) fn mode_fault(self, profile: ExecutionProfile) -> Option<Exception<Val<I32>>> {
+        match (self.availability, profile) {
             (Availability::ProtectedOnly, ExecutionProfile::Real16) => {
                 Some(Exception::InvalidOpcode)
             }

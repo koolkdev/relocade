@@ -20,7 +20,9 @@ fn constant_queries_report_construction_folds_without_changing_code() {
                         assert_eq!(body.constant_bits::<I32>(-1)?, Some(0xffff_ffff));
                         assert_eq!(body.constant_bits::<I64>(u64::MAX)?, Some(u64::MAX));
                         let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
+                        assert_eq!(narrow.constant_bits()?, Some(255));
                         assert_eq!(body.constant_bits(narrow)?, Some(255));
+                        assert_eq!(input.mul(0).add(17).constant_bits()?, Some(17));
                         assert_eq!(body.constant_bits(input.mul(0).add(17))?, Some(17));
                         assert_eq!(body.constant_bits(&input)?, None);
                         assert_eq!(body.constant_bits(input.add(1))?, None);
@@ -29,6 +31,7 @@ fn constant_queries_report_construction_folds_without_changing_code() {
                         if query {
                             // The guard becomes a constant fact only during placement.
                             assert_eq!(branch.constant_bits(&input)?, None);
+                            assert_eq!(input.constant_bits()?, None);
                         }
                         branch.return_(&input)
                     })?;

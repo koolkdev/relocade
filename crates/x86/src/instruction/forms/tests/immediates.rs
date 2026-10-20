@@ -37,9 +37,7 @@ fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
             crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
-        assert!(decoded
-            .instruction
-            .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
+        assert!(decoded.instruction.ends_block());
         assert!(!decoded.instruction.uses_memory());
         assert!(matches!(decoded.instruction.call, HandlerCall::Binary {
             left: Operand::Immediate(actual), right: Operand::Immediate(0xf327), ..
@@ -145,9 +143,7 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
             crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
-        assert!(decoded
-            .instruction
-            .ends_block(crate::Compiler::new(crate::SegmentProfile::Flat32).target()));
+        assert!(decoded.instruction.ends_block());
         assert!(decoded.instruction.uses_memory());
         assert!(matches!(
             decoded.instruction.call,

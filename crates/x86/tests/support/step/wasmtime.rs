@@ -38,13 +38,15 @@ impl TestModule {
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         let guest = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
+        let context = crate::ExecutionContext {
+            cpu_model: self
+                .target
+                .map(|target| target.cpu_model)
+                .unwrap_or_default(),
+            ..crate::ExecutionContext::default()
+        };
+        cpu.write(&mut store, 0, &context.to_bytes()).unwrap();
         cpu.write(&mut store, 0, &input.cpu).unwrap();
-        cpu.write(
-            &mut store,
-            std::mem::offset_of!(crate::ExecutionContext, instruction_target),
-            &u64::MAX.to_le_bytes(),
-        )
-        .unwrap();
         for (memory, patches) in [(guest, &input.guest), (machine, &input.machine)] {
             for (offset, bytes) in patches {
                 memory.write(&mut store, *offset as usize, bytes).unwrap();

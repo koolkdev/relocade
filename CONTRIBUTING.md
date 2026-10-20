@@ -142,6 +142,13 @@ access; a disabled form raises #UD and ends snapshot capture. Keep the form in t
 decoder catalog so instruction fetch still precedes capability rejection. Declare
 variants separately when their required capabilities differ.
 
+`ExecutionBuilder::supports_cpu_features` returns `Val<I1>` from a feature mask.
+JIT blocks use a constant mask; interpreters load it from the guest context.
+Both use the same conditional #UD check, which folds away when features are
+enabled by the JIT target. Snapshot decoding also stops at instructions known to
+fail their requirements by querying the same expression's constant bits, so it
+does not decode an unreachable successor.
+
 Use `unconditional_fault` when execution always raises a guest fault, as in UD2,
 so snapshot compilation stops without decoding a successor.
 

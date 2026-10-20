@@ -45,6 +45,8 @@ fn host_handler(call: &mut HostCall<'_, HostState>) {
 }
 
 async fn check_callback() {
+    let model =
+        relocade_x86::CpuModel::default().with_feature(relocade_x86::CpuFeature::Cmov, false);
     let mut expected_cpu = CpuState {
         registers: Registers {
             eax: 40,
@@ -56,7 +58,9 @@ async fn check_callback() {
         ..CpuState::default()
     };
     let config = MachineConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16)
+            .with_cpu_model(model)
+            .target(),
         expected_cpu,
         0x3000,
         PhysicalMemoryMap::new([
@@ -88,6 +92,7 @@ async fn check_callback() {
         &ExecutionContext {
             cpu: expected_cpu,
             instruction_target: 998,
+            cpu_model: model,
         }
         .to_bytes(),
     );
@@ -151,6 +156,7 @@ async fn check_callback() {
             ExecutionContext {
                 cpu: expected_cpu,
                 instruction_target: 998,
+                cpu_model: model
             }
             .to_bytes()
         );
@@ -175,6 +181,7 @@ async fn check_callback() {
         ExecutionContext {
             cpu: expected_cpu,
             instruction_target: 998,
+            cpu_model: model,
         }
         .to_bytes()
     );

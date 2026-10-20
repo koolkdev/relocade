@@ -1,9 +1,19 @@
 //! Capabilities selected for the virtual processor, independent of execution mode.
 
 mod cpuid;
+pub(crate) use cpuid::{cpuid, CpuidValues};
 mod feature;
 
 pub use feature::CpuFeature;
+
+use relocade_compiler::{Val, I1, I32};
+
+pub(crate) fn supports_features(bits: impl Into<Val<I32>>, features: &[CpuFeature]) -> Val<I1> {
+    let required = features
+        .iter()
+        .fold(0, |mask, feature| mask | feature.mask());
+    bits.into().and(required).eq(required)
+}
 
 /// Immutable capability choices for one virtual processor.
 ///
@@ -13,9 +23,10 @@ pub use feature::CpuFeature;
 /// Choices are independent instruction extensions, not older processor generations
 /// or register-bank switches. They do not remove stored x87, MMX or XMM state.
 /// Keep this model fixed for a guest and include it in compiled-entry cache keys.
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CpuModel {
-    features: u16,
+    features: u32,
 }
 
 impl Default for CpuModel {
@@ -27,6 +38,10 @@ impl Default for CpuModel {
 }
 
 impl CpuModel {
+    pub(crate) const fn bits(self) -> u32 {
+        self.features
+    }
+
     /// Enable or disable one architectural capability.
     ///
     /// ```

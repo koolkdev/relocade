@@ -72,6 +72,20 @@ impl<L> ValueSource<L> {
 }
 
 impl<L: Copy + Eq + Into<Literal>> ValueSource<L> {
+    pub(super) fn constant_literal(&self) -> Result<Option<Literal>, BuildError> {
+        match self {
+            Self::Literal(bits) => Ok(Some((*bits).into())),
+            Self::Unbound(expression) => {
+                let arena = FunctionArena::new();
+                let value = arena.resolve_unbound(expression)?;
+                arena.constant_literal(value)
+            }
+            Self::Expression { arena, expression } => {
+                arena.constant_literal(expression.clone()?.value)
+            }
+        }
+    }
+
     pub(super) fn resolve(
         &self,
         arena: &FunctionArena,

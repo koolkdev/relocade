@@ -82,6 +82,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             0,
             &ExecutionContext {
                 cpu: *config.cpu(),
+                cpu_model: target.cpu_model,
                 ..ExecutionContext::default()
             }
             .to_bytes(),

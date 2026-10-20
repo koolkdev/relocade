@@ -4,6 +4,7 @@ mod memory;
 mod mmx;
 mod operands;
 mod ports;
+mod processor;
 mod regions;
 mod register_pairs;
 mod segments;
@@ -39,6 +40,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     memory: Option<Accesses<'module>>,
     segments: SegmentReads<'module>,
     target: ExecutionTarget,
+    cpu_features: Val<I32>,
     segment_override: SegmentOverride,
     address_size: AddressSize,
     locked: bool,
@@ -66,6 +68,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             memory: memory.map(Memory::accesses),
             segments: SegmentReads::new(cpu, target.profile),
             target,
+            cpu_features: target.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
             locked: false,

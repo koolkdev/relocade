@@ -241,8 +241,7 @@ impl BlockBuilder<'_> {
         &self,
         operand: impl Into<Val<T>>,
     ) -> Result<Option<u64>, BuildError> {
-        let value = self.operand(operand)?;
-        self.arena.constant_bits(value)
+        self.value(operand)?.constant_bits()
     }
 
     /// Returns values from the function, consuming the active builder.

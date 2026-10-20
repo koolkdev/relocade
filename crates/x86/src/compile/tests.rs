@@ -22,7 +22,7 @@ fn snapshot_helpers_use_unobserved_configuration() {
 }
 
 #[test]
-fn interpreter_entries_keep_the_profile_and_ignore_cpu_observations() {
+fn interpreter_code_keeps_the_profile_without_specializing_cpu_features_or_observations() {
     let mut observed = CpuState::default();
     observed.x87.control.precision_control = 2;
     observed.x87.control.rounding_control = 3;
@@ -30,7 +30,15 @@ fn interpreter_entries_keep_the_profile_and_ignore_cpu_observations() {
     observed.x87.status.precision = 1;
     observed.simd.mxcsr = 0x9fc5;
     let profile = SegmentProfile::Segmented16;
-    let compiler = Compiler::new(profile).specialize_on_cpu(&observed);
+    use crate::{CpuFeature::*, CpuModel};
+    let model = [Cx8, Cmov, Tsc, Fpu, Mmx, Fxsr, Sse, Sse2, Clflush]
+        .into_iter()
+        .fold(CpuModel::default(), |model, feature| {
+            model.with_feature(feature, false)
+        });
+    let compiler = Compiler::new(profile)
+        .with_cpu_model(model)
+        .specialize_on_cpu(&observed);
     for (name, ordinary, configured) in [
         (
             "run",

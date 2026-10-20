@@ -44,6 +44,17 @@ pub(super) struct State<'cpu> {
 }
 
 impl<'cpu> State<'cpu> {
+    pub(super) fn read_cpu_features(
+        &self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I32>, BuildError> {
+        body.load_at::<I32>(
+            self.cpu.memory(),
+            0,
+            std::mem::offset_of!(ExecutionContext, cpu_model) as u32,
+        )
+    }
+
     pub(super) fn new(cpu: &'cpu Cpu) -> Self {
         Self {
             cpu,

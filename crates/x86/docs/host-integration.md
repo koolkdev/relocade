@@ -23,8 +23,10 @@ Every `CpuFeature` is implemented and enabled by default. For example,
 x87 conditional moves and the x87 comparisons that set EFLAGS. Known encodings
 requiring a disabled capability raise #UD after complete instruction fetch and
 before operand access, without retiring. They terminate snapshot compilation before
-the next instruction. The choice is fixed when Wasm is generated, so execution
-needs no dynamic feature test.
+the next instruction. Snapshot blocks specialize these checks when Wasm is generated.
+Interpreters read the configured model from `ExecutionContext`, so their Wasm bytes are
+independent of feature choices. Module metadata still records the intended target;
+the host must initialize backing and link specialized blocks for that target.
 
 `CpuModel::supports(feature)` reports whether the model enables that capability.
 `with_feature` returns the updated model directly. CPUID reports the same enabled
@@ -59,11 +61,12 @@ All execution entries share the declared `ExecutionContext` layout in
 `relocade.executionContext`:
 
 ```rust
-# use relocade_x86::CpuState;
+# use relocade_x86::{CpuState, CpuModel};
 #[repr(C)]
 pub struct ExecutionContext {
     pub cpu: CpuState,
     pub instruction_target: u64,
+    pub cpu_model: CpuModel,
 }
 ```
 
@@ -72,6 +75,13 @@ little endian, with offsets derived from this layout using `offset_of!`.
 CPU snapshot reads and writes cover only the `cpu` member. The host sets
 `instruction_target` between entries; generated code never writes it.
 Its default, `u64::MAX`, is practically unbounded.
+Set `cpu_model` to the guest's configured capabilities before execution and keep it
+fixed for that guest. Interpreters read it for instruction admission and CPUID;
+JIT blocks specialize to it. CPU snapshot replacement preserves this field.
+The model is a little-endian 32-bit capability mask at byte offset 496; use
+`ExecutionContext::to_bytes()` to encode it. The complete context is 504 bytes,
+including four zero padding bytes. Existing backing must be reinitialized when
+updating generated modules to this layout.
 
 For a finite budget, add the requested number of instructions to
 `instruction_count`, saturating at `u64::MAX`. Handle a zero budget before entering
@@ -225,8 +235,9 @@ follow Intel's [P4-era CPUID reference](https://www.intel.com/content/dam/suppor
 
 ## Processor identification
 
-CPUID is generated from the compiler's selected `CpuModel` and needs no host
-callback. Leaf 0 reports maximum basic leaf 1 and the vendor string `Relocade CPU`.
+CPUID uses the compiler's selected `CpuModel` in JIT blocks and reads
+`ExecutionContext.cpu_model` in interpreters. Neither path needs a host callback.
+Leaf 0 reports maximum basic leaf 1 and the vendor string `Relocade CPU`.
 Leaf 1 reports virtual family 6, model 0, stepping 1 (EAX=`0x00000601`) and the
 enabled capabilities listed above. The default EDX is `0x07888111` and ECX is zero.
 Disabling a capability clears its bit and rejects its instructions through the
