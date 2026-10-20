@@ -87,7 +87,7 @@ impl Files {
     pub(crate) fn write_characters(&mut self, handle: u16, bytes: &[u8]) -> Result<(), DosError> {
         match self.handle(handle)? {
             OpenHandle::Device(device) => {
-                if !device.writable {
+                if !device.access.can_write() {
                     return Err(DosError::AccessDenied);
                 }
                 match device.kind {

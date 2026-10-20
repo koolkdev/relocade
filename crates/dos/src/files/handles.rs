@@ -1,6 +1,9 @@
 //! DOS open handles, shared cursors and I/O.
 
-use super::{devices::OpenDevice, CharacterOutput, Device, Files, ARCHIVE_ATTRIBUTE};
+use super::{
+    devices::OpenDevice, AccessMode, CharacterOutput, Device, Files, ARCHIVE_ATTRIBUTE,
+    COMPATIBILITY_SHARING,
+};
 use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
 use relocade_vfs::File;
 use std::{
@@ -28,8 +31,7 @@ pub(super) struct OpenFile {
     file: File,
     path: ResolvedPath,
     position: u32,
-    readable: bool,
-    writable: bool,
+    access: AccessMode,
     deny_read: bool,
     deny_write: bool,
     compatibility: bool,
@@ -48,7 +50,8 @@ impl Files {
         &mut self,
         file: File,
         path: ResolvedPath,
-        mode: u8,
+        access: AccessMode,
+        sharing: u8,
     ) -> Result<u16, DosError> {
         if file.len() > u64::from(u32::MAX) {
             return Err(DosError::AccessDenied);
@@ -57,11 +60,10 @@ impl Files {
             file,
             path,
             position: 0,
-            readable: mode & 3 != 1,
-            writable: mode & 3 != 0,
-            deny_read: matches!(mode & 0x70, 0x10 | 0x30),
-            deny_write: matches!(mode & 0x70, 0x10 | 0x20),
-            compatibility: mode & 0x70 == 0,
+            access,
+            deny_read: matches!(sharing, 0x10 | 0x30),
+            deny_write: matches!(sharing, 0x10 | 0x20),
+            compatibility: sharing == COMPATIBILITY_SHARING,
             written: false,
         };
         let read_only = entry.file.is_read_only();
@@ -71,13 +73,13 @@ impl Files {
             };
             let open = open.borrow();
             open.file.same_file(&entry.file)
-                && ((entry.readable && open.deny_read)
-                    || (entry.writable && open.deny_write)
+                && ((entry.access.can_read() && open.deny_read)
+                    || (entry.access.can_write() && open.deny_write)
                     // New deny-read/write modes exempt this process's existing accesses.
                     || (entry.deny_read && entry.deny_write)
                     // Compatibility and explicit sharing may mix only for read-only files.
                     || (open.compatibility != entry.compatibility
-                        && !(read_only && !open.writable && !entry.writable)))
+                        && !(read_only && !open.access.can_write() && !entry.access.can_write())))
         }) {
             return Err(DosError::AccessDenied);
         }
@@ -102,8 +104,8 @@ impl Files {
 
     pub(crate) fn readable_handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
         let readable = match self.handle(handle)? {
-            OpenHandle::File(file) => file.borrow().readable,
-            OpenHandle::Device(device) => device.readable,
+            OpenHandle::File(file) => file.borrow().access.can_read(),
+            OpenHandle::Device(device) => device.access.can_read(),
         };
         if !readable {
             return Err(DosError::AccessDenied);
@@ -113,7 +115,7 @@ impl Files {
 
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
         if let OpenHandle::Device(device) = self.handle(handle)? {
-            if !device.readable || !matches!(device.kind, Device::Null) {
+            if !device.access.can_read() || !matches!(device.kind, Device::Null) {
                 return Err(DosError::AccessDenied);
             }
             if !buffer.is_empty() {
@@ -122,7 +124,7 @@ impl Files {
             return Ok(0);
         }
         let mut open = self.file_mut(handle)?;
-        if !open.readable {
+        if !open.access.can_read() {
             return Err(DosError::AccessDenied);
         }
         let count = open
@@ -139,7 +141,7 @@ impl Files {
 
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
         if let OpenHandle::Device(device) = self.handle(handle)? {
-            if !device.writable {
+            if !device.access.can_write() {
                 return Err(DosError::AccessDenied);
             }
             // Even a zero-byte handle write clears EOF on this record and its duplicates.
@@ -161,7 +163,7 @@ impl Files {
             return Ok(count);
         }
         let mut open = self.file_mut(handle)?;
-        if !open.writable {
+        if !open.access.can_write() {
             return Err(DosError::AccessDenied);
         }
         if bytes.is_empty() {
@@ -317,7 +319,10 @@ impl Files {
             Device::Auxiliary,
             Device::Printer,
         ]) {
-            *slot = Some(OpenHandle::Device(Rc::new(OpenDevice::new(device, 2))));
+            *slot = Some(OpenHandle::Device(Rc::new(OpenDevice::new(
+                device,
+                AccessMode::ReadWrite,
+            ))));
         }
     }
 

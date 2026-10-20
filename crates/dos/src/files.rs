@@ -29,12 +29,31 @@ const HIDDEN_ATTRIBUTE: u16 = 0x02;
 const SYSTEM_ATTRIBUTE: u16 = 0x04;
 const ARCHIVE_ATTRIBUTE: u16 = 0x20;
 const DIRECTORY_ATTRIBUTE: u8 = 0x10;
+const COMPATIBILITY_SHARING: u8 = 0;
 
 /// Initial read-only attribute of a mounted file; DOS AH=43h can change it later.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileAccess {
     ReadOnly,
     ReadWrite,
+}
+
+/// Access granted to an open file or character-device handle.
+#[derive(Clone, Copy)]
+enum AccessMode {
+    ReadOnly,
+    WriteOnly,
+    ReadWrite,
+}
+
+impl AccessMode {
+    fn can_read(self) -> bool {
+        !matches!(self, Self::WriteOnly)
+    }
+
+    fn can_write(self) -> bool {
+        !matches!(self, Self::ReadOnly)
+    }
 }
 
 pub(crate) struct Files {
@@ -125,18 +144,25 @@ impl Files {
     }
 
     pub(crate) fn open(&mut self, path: &[u8], mode: u8) -> Result<u16, DosError> {
-        if mode & 0x0f > 2 || (mode >> 4) & 7 > 4 {
+        let access = match mode & 0x0f {
+            0 => AccessMode::ReadOnly,
+            1 => AccessMode::WriteOnly,
+            2 => AccessMode::ReadWrite,
+            _ => return Err(DosError::InvalidAccess),
+        };
+        let sharing = mode & 0x70;
+        if sharing > 0x40 {
             return Err(DosError::InvalidAccess);
         }
-        if let Some(handle) = self.open_device(path, mode)? {
+        if let Some(handle) = self.open_device(path, access)? {
             return Ok(handle);
         }
         let path = self.file_path(path)?;
         let filesystem = self.drives.get(path.drive).unwrap();
-        let file = if mode & 3 == 0 {
-            filesystem.open(&path.relative)
-        } else {
+        let file = if access.can_write() {
             filesystem.open_read_write(&path.relative)
+        } else {
+            filesystem.open(&path.relative)
         }
         .map_err(|error| match error.kind() {
             ErrorKind::NotFound if filesystem.is_dir(path::parent(&path.relative)) => {
@@ -145,7 +171,7 @@ impl Files {
             ErrorKind::NotFound | ErrorKind::NotADirectory => DosError::PathNotFound,
             _ => DosError::AccessDenied,
         })?;
-        self.open_file(file, path, mode)
+        self.open_file(file, path, access, sharing)
     }
 
     fn metadata(&self, path: &ResolvedPath) -> Result<Metadata, DosError> {

@@ -1,6 +1,6 @@
 //! DOS character devices and the state shared by duplicated device handles.
 
-use super::{handles::OpenHandle, Files};
+use super::{handles::OpenHandle, AccessMode, Files};
 use crate::{error::DosError, path, stdio::OutputStream};
 use std::{cell::Cell, rc::Rc};
 
@@ -17,13 +17,12 @@ pub(crate) enum Device {
 
 pub(super) struct OpenDevice {
     pub kind: Device,
-    pub readable: bool,
-    pub writable: bool,
+    pub access: AccessMode,
     flags: Cell<u8>,
 }
 
 impl OpenDevice {
-    pub fn new(kind: Device, mode: u8) -> Self {
+    pub fn new(kind: Device, access: AccessMode) -> Self {
         let attributes = match kind {
             Device::Console(_) => 0x03, // Standard input and output.
             Device::Null => 0x04,
@@ -31,8 +30,7 @@ impl OpenDevice {
         };
         Self {
             kind,
-            readable: mode & 3 != 1,
-            writable: mode & 3 != 0,
+            access,
             flags: Cell::new(CHARACTER_DEVICE | INPUT_NOT_EOF | attributes),
         }
     }
@@ -57,7 +55,11 @@ impl OpenDevice {
 }
 
 impl Files {
-    pub(super) fn open_device(&mut self, path: &[u8], mode: u8) -> Result<Option<u16>, DosError> {
+    pub(super) fn open_device(
+        &mut self,
+        path: &[u8],
+        access: AccessMode,
+    ) -> Result<Option<u16>, DosError> {
         // DOS accepts an optional colon and ignores the extension in device names.
         let path = path.strip_suffix(b":").unwrap_or(path);
         let name = path
@@ -87,7 +89,7 @@ impl Files {
             return Err(DosError::PathNotFound);
         }
         let handle = self.vacant_handle()?;
-        self.handles[handle] = Some(OpenHandle::Device(Rc::new(OpenDevice::new(kind, mode))));
+        self.handles[handle] = Some(OpenHandle::Device(Rc::new(OpenDevice::new(kind, access))));
         Ok(Some(handle as u16))
     }
 
