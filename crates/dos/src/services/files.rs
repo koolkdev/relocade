@@ -1,3 +1,4 @@
+use super::buffers::{transfer_count, write_wrapping};
 use crate::{
     error::DosError,
     files::{CreateMode, HandleType},
@@ -67,13 +68,10 @@ pub(super) fn create_temporary(call: &mut HostCall<'_, DosState>) -> ControlFlow
             .files
             .create_temporary(&mut path, attributes)?;
         let cpu = call.cpu();
-        let base = cpu.segment(Segment::Ds).base;
+        let segment = cpu.segment(Segment::Ds);
         let offset = cpu.dx();
-        for (index, byte) in path.into_iter().chain([0]).enumerate() {
-            call.memory()
-                .write(base + u32::from(offset.wrapping_add(index as u16)), &[byte])
-                .expect("real-mode temporary path buffer");
-        }
+        path.push(0);
+        write_wrapping(&mut call.memory(), &segment, offset, &path);
         call.cpu().set_ax(handle);
         Ok(())
     });
@@ -137,8 +135,9 @@ pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionEx
         Err(error) => return return_result(call, Err(error)),
     }
     let cpu = call.cpu();
-    let count = usize::from(cpu.cx());
-    let address = cpu.segment(Segment::Ds).base + u32::from(cpu.dx());
+    let offset = cpu.dx();
+    let count = transfer_count(offset, cpu.cx());
+    let segment = cpu.segment(Segment::Ds);
     let mut bytes = vec![0; count];
     let result = call
         .state_mut()
@@ -146,7 +145,7 @@ pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionEx
         .read(handle, &mut bytes)
         .map(|count| {
             call.memory()
-                .write(address, &bytes[..count])
+                .write_segment(&segment, u32::from(offset), &bytes[..count])
                 .expect("real-mode buffer");
             call.cpu().set_ax(count as u16);
         });
@@ -157,12 +156,13 @@ pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionEx
 pub(super) fn write(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let handle = call.cpu().bx();
     let cpu = call.cpu();
-    let count = usize::from(cpu.cx());
-    let address = cpu.segment(Segment::Ds).base + u32::from(cpu.dx());
+    let offset = cpu.dx();
+    let count = transfer_count(offset, cpu.cx());
+    let segment = cpu.segment(Segment::Ds);
     let mut bytes = vec![0; count];
     if count != 0 {
         call.memory()
-            .read(address, &mut bytes)
+            .read_segment(&segment, u32::from(offset), &mut bytes)
             .expect("real-mode buffer");
     }
     let result = call
@@ -200,12 +200,12 @@ fn read_path_at(
     segment: Segment,
     offset: u16,
 ) -> Result<Vec<u8>, DosError> {
-    let base = call.cpu().segment(segment).base;
+    let segment = call.cpu().segment(segment);
     let mut path = Vec::new();
     for index in 0..MAX_PATH_BYTES as u16 {
         let mut byte = [0];
         call.memory()
-            .read(base + u32::from(offset.wrapping_add(index)), &mut byte)
+            .read_segment(&segment, u32::from(offset.wrapping_add(index)), &mut byte)
             .expect("real-mode path address");
         if byte[0] == 0 {
             return Ok(path);

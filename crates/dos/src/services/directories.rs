@@ -1,4 +1,4 @@
-use super::files::read_path;
+use super::{buffers::write_wrapping, files::read_path};
 use crate::{interrupt::return_result, DosState};
 use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
 use relocade_x86::{ExecutionExit, Segment};
@@ -41,16 +41,15 @@ pub(super) fn change_directory(call: &mut HostCall<'_, DosState>) -> ControlFlow
 pub(super) fn get_directory(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let cpu = call.cpu();
     let drive = cpu.dl();
-    let address = cpu.segment(Segment::Ds).base + u32::from(cpu.si());
+    let segment = cpu.segment(Segment::Ds);
+    let offset = cpu.si();
     let result = call.state().files.current_directory(drive).map(|path| {
         let mut bytes = path.replace('/', "\\").into_bytes();
         bytes.push(0);
         bytes
     });
     let result = result.map(|bytes| {
-        call.memory()
-            .write(address, &bytes)
-            .expect("real-mode directory buffer");
+        write_wrapping(&mut call.memory(), &segment, offset, &bytes);
         call.cpu().set_ax(0x0100);
     });
     return_result(call, result)
