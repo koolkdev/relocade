@@ -1,5 +1,5 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
-use relocade_bios::TextCell;
+use relocade_bios::{TextCell, TextScreen};
 use relocade_x86::ExecutionExit;
 
 #[test]
@@ -48,6 +48,60 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             .read(0xb80a4, &mut page_zero)
             .unwrap();
         assert_eq!(page_zero, [b' ', 7]);
+    });
+}
+
+#[test]
+fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
+    use std::{
+        future::Future,
+        io::Write,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.load_com(
+            &[
+                0xb4, 9, 0xba, 0x00, 3, 0xcd, 0x21, // Print DS:0300.
+                0xb4, 1, 0xcd, 0x21, // Read and echo a character.
+                0xb8, 0, 0x4c, 0xcd, 0x21,
+            ],
+            Default::default(),
+        )
+        .unwrap();
+        dos.runtime()
+            .machine()
+            .memory()
+            .write(0x10300, b"Ready$")
+            .unwrap();
+        let memory = dos.runtime().shared_memory();
+        let mut input = dos.stdin();
+        let mut run = pin!(dos.runtime().run_async(100));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(run.as_mut().poll(&mut cx).is_pending());
+        let thread_memory = memory.clone();
+        let screen = std::thread::spawn(move || TextScreen::read(&thread_memory))
+            .join()
+            .unwrap();
+        assert_eq!(
+            screen.cells[..5]
+                .iter()
+                .map(|cell| cell.character)
+                .collect::<Vec<_>>(),
+            b"Ready"
+        );
+        assert_eq!(screen.cursor.column, 5);
+
+        input.write_all(b"X").unwrap();
+        assert!(matches!(
+            run.as_mut().poll(&mut cx),
+            Poll::Ready(Ok(ExecutionExit::HostReturn))
+        ));
+        let screen = TextScreen::read(&memory);
+        assert_eq!(screen.cells[5].character, b'X');
+        assert_eq!(screen.cursor.column, 6);
     });
 }
 

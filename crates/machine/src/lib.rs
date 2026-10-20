@@ -37,7 +37,7 @@ mod memory;
 
 pub use config::{ConfigurationError, MachineConfig};
 pub use cpu::Cpu;
-pub use memory::{Memory, MemoryError};
+pub use memory::{Memory, MemoryError, ReadMemory};
 use relocade_x86::ExecutionTarget;
 
 /// Transfers to the CPU and guest memory supplied by the runtime. CPU offsets

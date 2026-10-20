@@ -1,6 +1,7 @@
 //! Wasmtime instantiation, host callbacks, and boundary observations.
 
 use ::wasmtime::{Caller, Linker, Memory, MemoryType, Store, Trap};
+use relocade_test_support::SharedBytes;
 use std::sync::Arc;
 
 use super::{
@@ -36,7 +37,7 @@ impl TestModule {
             },
         );
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
-        let guest = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+        let guest = SharedBytes::new(1, 1);
         let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
         let context = crate::ExecutionContext {
             cpu_model: self
@@ -47,12 +48,13 @@ impl TestModule {
         };
         cpu.write(&mut store, 0, &context.to_bytes()).unwrap();
         cpu.write(&mut store, 0, &input.cpu).unwrap();
-        for (memory, patches) in [(guest, &input.guest), (machine, &input.machine)] {
-            for (offset, bytes) in patches {
-                memory.write(&mut store, *offset as usize, bytes).unwrap();
-            }
+        for (offset, bytes) in &input.guest {
+            guest.write(*offset, bytes);
         }
-        let guest_before: Arc<[u8]> = guest.data(&store).into();
+        for (offset, bytes) in &input.machine {
+            machine.write(&mut store, *offset as usize, bytes).unwrap();
+        }
+        let guest_before: Arc<[u8]> = guest.read(0, 65536).into();
         // CPU-only observers without host mapping edits cannot change machine
         // memory. Avoid its four-megabyte copies at flag-observation checkpoints.
         let observes_machine = self.interpreter.is_some()
@@ -66,18 +68,18 @@ impl TestModule {
         let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
         ports::register(&mut linker);
-        for (name, memory) in [
-            ("executionContext", cpu),
-            ("guest", guest),
-            ("machine", machine),
-        ] {
+        for (name, memory) in [("executionContext", cpu), ("machine", machine)] {
             linker.define(&store, "relocade", name, memory).unwrap();
         }
+        linker
+            .define(&store, "relocade", "guest", guest.memory().clone())
+            .unwrap();
         let cpu_len = input.cpu.len();
         let observe_guest = input.observe_guest;
         let dispatch_return = input.dispatch_return;
         let dispatch_guest_before = guest_before.clone();
         let dispatch_machine_before = machine_before.clone();
+        let dispatch_guest = guest.clone();
         linker
             .func_wrap(
                 "relocade",
@@ -85,8 +87,9 @@ impl TestModule {
                 move |mut caller: Caller<'_, ExecutionEvents>| {
                     let snapshot = Snapshot {
                         cpu: cpu.data(&caller)[..cpu_len].to_vec(),
-                        guest: observe_guest
-                            .then(|| changes(&dispatch_guest_before, guest.data(&caller))),
+                        guest: observe_guest.then(|| {
+                            changes(&dispatch_guest_before, &dispatch_guest.read(0, 65536))
+                        }),
                     };
                     let unchanged = dispatch_machine_before
                         .as_ref()
@@ -151,7 +154,7 @@ impl TestModule {
                     .any(|import| import.module() == "relocade" && import.name() == "physicalMap")
             })
         {
-            physical::register(&mut linker, &mut store, guest, input);
+            physical::register(&mut linker, &mut store, guest.clone(), input);
         }
         if let Some(interpreter) = self.interpreter {
             let instance = linker
@@ -167,6 +170,7 @@ impl TestModule {
             // This callback probes the restart boundary without executing it.
             let handoff_guest_before = guest_before.clone();
             let handoff_machine_before = machine_before.clone();
+            let handoff_guest = guest.clone();
             linker
                 .func_wrap(
                     "relocade",
@@ -174,8 +178,9 @@ impl TestModule {
                     move |mut caller: Caller<'_, ExecutionEvents>| {
                         let snapshot = Snapshot {
                             cpu: cpu.data(&caller)[..cpu_len].to_vec(),
-                            guest: observe_guest
-                                .then(|| changes(&handoff_guest_before, guest.data(&caller))),
+                            guest: observe_guest.then(|| {
+                                changes(&handoff_guest_before, &handoff_guest.read(0, 65536))
+                            }),
                         };
                         let unchanged = handoff_machine_before
                             .as_ref()
@@ -201,14 +206,13 @@ impl TestModule {
         let mut results = vec![::wasmtime::Val::I32(0); entry.ty(&store).results().len()];
         for call in 0..invocations {
             if let Some(patches) = input.patches_before_calls.get(call) {
-                for (memory, edits) in [
-                    (cpu, &patches.cpu),
-                    (guest, &patches.guest),
-                    (machine, &patches.machine),
-                ] {
+                for (memory, edits) in [(cpu, &patches.cpu), (machine, &patches.machine)] {
                     for (offset, bytes) in edits {
                         memory.write(&mut store, *offset as usize, bytes).unwrap();
                     }
+                }
+                for (offset, bytes) in &patches.guest {
+                    guest.write(*offset, bytes);
                 }
             }
             self.check_profile(cpu.data(&store));
@@ -219,7 +223,7 @@ impl TestModule {
             };
             let snapshot = Snapshot {
                 cpu: cpu.data(&store)[..cpu_len].to_vec(),
-                guest: observe_guest.then(|| changes(&guest_before, guest.data(&store))),
+                guest: observe_guest.then(|| changes(&guest_before, &guest.read(0, 65536))),
             };
             let unchanged = machine_before
                 .as_ref()
@@ -242,7 +246,7 @@ impl TestModule {
         );
         assert_eq!(store.data().mmio_updates.len(), 0, "unused MMIO updates");
         assert_eq!(store.data().port_reads.len(), 0, "unused port reads");
-        let guest_unchanged = &*guest_before == guest.data(&store);
+        let guest_unchanged = &*guest_before == guest.read(0, 65536);
         let machine_unchanged = store.data().machine_unchanged;
         Observation {
             events: store.into_data().events,

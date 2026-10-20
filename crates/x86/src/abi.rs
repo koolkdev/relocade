@@ -6,7 +6,13 @@ use relocade_compiler::{
 };
 
 pub const EXECUTION_CONTEXT: Memory = Memory::new("relocade", "executionContext", 1);
-pub const GUEST: Memory = Memory::new("relocade", "guest", 1);
+/// Guest backing is shared with host devices. The maximum is the Wasm32 address
+/// space; each machine still chooses its initial allocation.
+pub const GUEST: Memory = Memory {
+    maximum: Some(65536),
+    shared: true,
+    ..Memory::new("relocade", "guest", 1)
+};
 pub const PHYSICAL_MAP: Memory = Memory::new("relocade", "physicalMap", 1);
 pub const PAGE_TABLE: Memory = Memory::new(
     "relocade",

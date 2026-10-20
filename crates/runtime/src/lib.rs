@@ -1,6 +1,6 @@
 //! Execution of one guest, independent of the host Wasm engine.
 //!
-//! [`Runtime::new`] prepares an interpreter and dispatcher and initializes private
+//! [`Runtime::new`] prepares an interpreter and dispatcher and initializes
 //! backend storage from [`MachineConfig`]. [`Runtime::machine`] lends access to
 //! the stopped CPU and mapped memory, both backed directly by Wasm storage.
 //! CPU edits take effect immediately. Preparation is asynchronous
@@ -31,6 +31,7 @@ mod dispatch;
 mod error;
 mod execution;
 mod hooks;
+mod memory;
 pub mod real_mode_interrupt;
 mod state;
 mod storage;
@@ -42,6 +43,7 @@ pub use dispatch::DispatchEntry;
 use dispatch::DispatchTable;
 pub use error::{Error, Result};
 pub use hooks::Hook;
+pub use memory::SharedMemory;
 use relocade_machine::{Machine, MachineConfig};
 use relocade_x86::{abi, Compiler, EntryTable, ExecutionContext};
 pub use state::RuntimeState;
@@ -199,6 +201,19 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// Borrows the stopped machine. CPU and memory writes take effect immediately.
     pub fn machine(&mut self) -> Machine<'_> {
         Machine::new(&self.config, &mut self.storage)
+    }
+
+    /// Shares guest memory with a reader that can outlive this runtime. Native
+    /// readers can move to another thread; web readers can send their backing
+    /// WebAssembly.Memory to a worker. CPU and dispatch storage remain private.
+    pub fn shared_memory(&self) -> SharedMemory<B::SharedMemory> {
+        SharedMemory::new(
+            &self.config,
+            self.storage
+                .access
+                .shared_memory(&self.storage.guest)
+                .expect("guest backing is shared"),
+        )
     }
 
     /// Borrows the environment state between guest calls. Drop the borrow before running.
