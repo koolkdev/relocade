@@ -21,6 +21,7 @@ const READ_CHARACTER: u8 = 0x07;
 const READ_CHARACTER_CHECK_BREAK: u8 = 0x08;
 const WRITE_STRING: u8 = 0x09;
 const READ_BUFFERED: u8 = 0x0a;
+const INPUT_STATUS: u8 = 0x0b;
 const SELECT_DRIVE: u8 = 0x0e;
 const GET_DRIVE: u8 = 0x19;
 const SET_VECTOR: u8 = 0x25;
@@ -66,6 +67,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionE
         WRITE_CHARACTER => console::write_character(call),
         WRITE_STRING => console::write_string(call),
         READ_BUFFERED => console::read_buffered(call),
+        INPUT_STATUS => console::input_status(call),
         SELECT_DRIVE => directories::select_drive(call),
         GET_DRIVE => directories::get_drive(call),
         SET_VECTOR => system::set_vector(call),

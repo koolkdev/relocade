@@ -54,6 +54,10 @@ struct Input {
 pub(crate) struct Stdin(Rc<RefCell<Input>>);
 
 impl Stdin {
+    pub(crate) fn has_input(&self) -> bool {
+        !self.0.borrow().bytes.is_empty()
+    }
+
     pub(crate) fn try_read(&self) -> Option<u8> {
         self.0.borrow_mut().bytes.pop_front()
     }

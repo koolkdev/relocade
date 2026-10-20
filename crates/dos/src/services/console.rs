@@ -18,6 +18,17 @@ use line::LineInput;
 // DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
 const CONSOLE_LINE_CAPACITY: u8 = 128;
 
+/// AH=0Bh: report stdin availability without consuming input or changing flags.
+pub(super) fn input_status(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    let files = &call.state().files;
+    // Closed stdin falls back to the console; AH=0Bh has no handle-error return.
+    let available = files
+        .input_available(0)
+        .unwrap_or_else(|_| files.stdio.input.has_input());
+    call.cpu().set_al(if available { 0xff } else { 0 });
+    return_from_interrupt(call)
+}
+
 /// AH=06h: DL=FFh polls stdin without echo; other values write a byte to stdout.
 pub(super) fn direct_io(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let byte = call.cpu().dl();
