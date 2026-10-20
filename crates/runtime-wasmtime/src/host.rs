@@ -1,7 +1,7 @@
-use super::WasmtimeBackend;
+use super::{Memory, WasmtimeBackend};
 use relocade_compiler::{Results, ValueType};
 use relocade_runtime::wasm::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
-use wasmtime::{AsContextMut, Func, Memory, StoreContextMut, WasmRet, WasmTy};
+use wasmtime::{AsContextMut, Func, StoreContextMut, WasmRet, WasmTy};
 
 macro_rules! host_function {
     ($($parameter:ident : $argument:ident),*) => {
@@ -49,14 +49,10 @@ impl<T: 'static> WasmMemoryAccess for Context<'_, T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory
-            .read(&self.0, offset as usize, bytes)
-            .expect("in-bounds Wasm memory range");
+        memory.read(&self.0, offset, bytes);
     }
 
     fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory
-            .write(&mut self.0, offset as usize, bytes)
-            .expect("in-bounds Wasm memory range");
+        memory.write(&mut self.0, offset, bytes);
     }
 }

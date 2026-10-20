@@ -30,7 +30,7 @@ async fn check_stateful_callbacks() {
     let mut backend = Backend::with_state(state).unwrap();
     #[cfg(target_arch = "wasm32")]
     let mut backend = Backend::with_state(state);
-    let memory = backend.create_memory(1, None).unwrap();
+    let memory = backend.create_memory(MEMORY).unwrap();
     let table = backend.create_table(1).unwrap();
     let entry = {
         // Snapshot blocks also use names constructed at runtime.
@@ -56,6 +56,8 @@ async fn check_stateful_callbacks() {
             .unwrap();
         advance_export.export(&mut producer, advance).unwrap();
         let module = backend.compile(&producer.compile().unwrap()).await.unwrap();
+        let read_memory = memory.clone();
+        let write_memory = memory.clone();
         let imports = [
             backend.bind(MEMORY, &memory),
             backend.bind_host(CALLS, Box::new(|caller| caller.state().calls)),
@@ -67,14 +69,14 @@ async fn check_stateful_callbacks() {
                 READ,
                 Box::new(move |caller, offset, _| {
                     let mut bytes = [0; 8];
-                    caller.read_memory(&memory, offset as u32, &mut bytes);
+                    caller.read_memory(&read_memory, offset as u32, &mut bytes);
                     i64::from_le_bytes(bytes)
                 }),
             ),
             backend.bind_host(
                 WRITE,
                 Box::new(move |mut caller, offset, _, value| {
-                    caller.write_memory(&memory, offset as u32, &value.to_le_bytes());
+                    caller.write_memory(&write_memory, offset as u32, &value.to_le_bytes());
                 }),
             ),
         ];

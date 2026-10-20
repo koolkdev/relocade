@@ -18,7 +18,7 @@ const EXECUTE: Function<fn() -> I64> = Function::new("example", "execute");
 fn modules_share_live_memory_and_functions_after_linking() {
     pollster::block_on(async {
         let mut backend = WasmtimeBackend::new().unwrap();
-        let memory = backend.create_memory(1, None).unwrap();
+        let memory = backend.create_memory(SHARED).unwrap();
         let table = backend.create_table(1).unwrap();
         let entry = {
             let mut producer = Program::new();

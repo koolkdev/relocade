@@ -75,7 +75,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         let dispatcher = compiler.compile_dispatcher()?;
         let dispatcher_module = backend.compile(&dispatcher.bytes).await?;
 
-        let context = backend.create_memory(1, Some(1))?;
+        let context = backend.create_memory(relocade_compiler::abi::Memory {
+            maximum: Some(1),
+            ..abi::EXECUTION_CONTEXT
+        })?;
         backend.write_memory(
             &context,
             0,
@@ -87,8 +90,14 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             .to_bytes(),
         );
         let guest_pages = config.memory_size().div_ceil(65536).max(1) as u32;
-        let guest = backend.create_memory(guest_pages, None)?;
-        let mapping = backend.create_memory(1, Some(1))?;
+        let guest = backend.create_memory(relocade_compiler::abi::Memory {
+            minimum: guest_pages,
+            ..abi::GUEST
+        })?;
+        let mapping = backend.create_memory(relocade_compiler::abi::Memory {
+            maximum: Some(1),
+            ..abi::PHYSICAL_MAP
+        })?;
         backend.write_memory(&mapping, 0, &config.memory_map().to_bytes());
         let dispatch_table = DispatchTable::new(&mut backend)?;
         let host_imports = vec![

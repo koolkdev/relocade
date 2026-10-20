@@ -18,23 +18,27 @@
 //! # Ok(())
 //! # }
 //! ```
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![cfg(not(target_arch = "wasm32"))]
 
-use relocade_compiler::{abi::Function, I64};
+use relocade_compiler::{
+    abi::{self, Function},
+    I64,
+};
 use relocade_runtime::{
     wasm::{Import, ImportValue, ModuleCache, WasmBackend, WasmMemoryAccess},
     Error, Result,
 };
 use std::ops::{Deref, DerefMut};
 use wasmtime::{
-    AsContextMut, Func, Instance, Linker, Memory, MemoryType, Module, Ref, RefType, Store, Table,
-    TableType, TypedFunc,
+    AsContextMut, Func, Instance, Linker, Module, Ref, RefType, Store, Table, TableType, TypedFunc,
 };
 
 mod compilation;
 mod host;
+mod memory;
 pub use host::Context;
+pub use memory::{Memory, SharedMemory};
 
 /// One store for guest instances and their imports. Runtime owns execution policy.
 pub struct WasmtimeBackend<T: 'static = ()> {
@@ -66,6 +70,7 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
     type Table = Table;
     type Function = TypedFunc<(), i64>;
     type ImportFunction = Func;
+    type SharedMemory = SharedMemory;
 
     fn state(&self) -> impl Deref<Target = T> {
         self.store.data()
@@ -88,9 +93,15 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
         Some(&self.compilation.modules)
     }
 
-    fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Memory> {
-        Memory::new(&mut self.store, MemoryType::new(minimum, maximum))
-            .map_err(|error| Error::wasm("create Wasm memory", error))
+    fn create_memory(&mut self, declaration: abi::Memory) -> Result<Memory> {
+        Memory::new(&mut self.store, declaration)
+    }
+
+    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
+        match memory {
+            Memory::Private(_) => None,
+            Memory::Shared(memory) => Some(memory.clone()),
+        }
     }
 
     fn create_table(&mut self, minimum: u32) -> Result<Table> {
@@ -114,14 +125,7 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
     }
 
     fn ensure_memory_size(&mut self, memory: &Memory, byte_len: u64) -> Result<()> {
-        let pages = byte_len.div_ceil(65536);
-        let current = memory.size(&self.store);
-        if pages > current {
-            memory
-                .grow(&mut self.store, pages - current)
-                .map_err(|error| Error::wasm("grow Wasm memory", error))?;
-        }
-        Ok(())
+        memory.ensure_size(&mut self.store, byte_len)
     }
 
     async fn instantiate(
@@ -133,7 +137,9 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
         for import in imports {
             let (module, name) = (import.module(), import.name());
             match import.value() {
-                ImportValue::Memory(memory) => linker.define(&self.store, module, name, **memory),
+                ImportValue::Memory(memory) => {
+                    linker.define(&self.store, module, name, memory.as_extern())
+                }
                 ImportValue::Table(table) => linker.define(&self.store, module, name, **table),
                 ImportValue::Function(function) => {
                     linker.define(&self.store, module, name, *function)
@@ -186,14 +192,10 @@ impl<T: 'static> WasmMemoryAccess for WasmtimeBackend<T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory
-            .read(&self.store, offset as usize, bytes)
-            .expect("in-bounds Wasm memory range");
+        memory.read(&self.store, offset, bytes);
     }
 
     fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory
-            .write(&mut self.store, offset as usize, bytes)
-            .expect("in-bounds Wasm memory range");
+        memory.write(&mut self.store, offset, bytes);
     }
 }

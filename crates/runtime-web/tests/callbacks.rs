@@ -84,8 +84,13 @@ async fn check_callback() {
     #[cfg(target_arch = "wasm32")]
     let mut backend = Backend::with_state(RuntimeState::new(state));
     // Creation order differs from module import order: handles belong to the backend.
-    let guest = backend.create_memory(1, None).unwrap();
-    let context = backend.create_memory(1, Some(1)).unwrap();
+    let guest = backend.create_memory(GUEST).unwrap();
+    let context = backend
+        .create_memory(Memory {
+            maximum: Some(1),
+            ..CONTEXT
+        })
+        .unwrap();
     backend.write_memory(
         &context,
         0,
@@ -127,6 +132,8 @@ async fn check_callback() {
         .unwrap();
     RUN.export(&mut program, run).unwrap();
     let module = backend.compile(&program.compile().unwrap()).await.unwrap();
+    let callback_context = context.clone();
+    let callback_guest = guest.clone();
     let imports = [
         backend.bind(CONTEXT, &context),
         backend.bind(GUEST, &guest),
@@ -134,7 +141,13 @@ async fn check_callback() {
             CALL,
             Box::new(move |mut caller| {
                 let config = Rc::clone(&caller.state().data.config);
-                with_host_call(&config, &mut caller, context, guest, host_handler);
+                with_host_call(
+                    &config,
+                    &mut caller,
+                    callback_context.clone(),
+                    callback_guest.clone(),
+                    host_handler,
+                );
                 0
             }),
         ),
@@ -169,7 +182,13 @@ async fn check_callback() {
     {
         let mut access = backend.context();
         let config = Rc::clone(&access.state().data.config);
-        with_host_call(&config, &mut access, context, guest, host_handler);
+        with_host_call(
+            &config,
+            &mut access,
+            context.clone(),
+            guest.clone(),
+            host_handler,
+        );
     }
     assert_eq!(backend.state().data.calls, 3);
     let mut bytes = [0; ExecutionContext::BYTE_LEN];

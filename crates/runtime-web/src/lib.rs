@@ -7,7 +7,10 @@
 #![cfg(target_arch = "wasm32")]
 
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
-use relocade_compiler::{abi::Function as FunctionDeclaration, I64};
+use relocade_compiler::{
+    abi::{self, Function as FunctionDeclaration},
+    I64,
+};
 use relocade_runtime::{
     wasm::{Import, ImportValue, ModuleCache, WasmBackend, WasmMemoryAccess},
     Error, Result,
@@ -22,7 +25,9 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 mod host;
+mod memory;
 pub use host::Context;
+pub use memory::SharedMemory;
 
 /// One guest's instances, callbacks and host state.
 pub struct WebBackend<T = ()> {
@@ -43,9 +48,9 @@ impl<T> Store<T> {
     }
 }
 
-/// A handle to memory owned by one backend. Copies identify the same JavaScript
+/// A handle to memory owned by one backend. Clones identify the same JavaScript
 /// resource; access requires the originating backend or its scoped context.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Memory(usize);
 
 /// A resolved `() -> i64` export, kept distinct from raw host function handles.
@@ -88,6 +93,7 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
     type Table = WebAssembly::Table;
     type Function = Function;
     type ImportFunction = JsFunction;
+    type SharedMemory = SharedMemory;
 
     fn state(&self) -> impl Deref<Target = T> {
         Ref::map(self.store.borrow(), |store| &store.state)
@@ -113,10 +119,11 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
         Some(&self.modules)
     }
 
-    fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Self::Memory> {
+    fn create_memory(&mut self, declaration: abi::Memory) -> Result<Self::Memory> {
         let descriptor = Object::new();
-        set(&descriptor, "initial", &minimum.into())?;
-        if let Some(maximum) = maximum {
+        set(&descriptor, "initial", &declaration.minimum.into())?;
+        set(&descriptor, "shared", &declaration.shared.into())?;
+        if let Some(maximum) = declaration.maximum {
             set(&descriptor, "maximum", &maximum.into())?;
         }
         let memory = WebAssembly::Memory::new(&descriptor)
@@ -125,6 +132,10 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
         let handle = Memory(store.memories.len());
         store.memories.push(memory);
         Ok(handle)
+    }
+
+    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
+        SharedMemory::from_memory(self.store.borrow().memory(memory).clone())
     }
 
     fn create_table(&mut self, minimum: u32) -> Result<Self::Table> {
@@ -148,18 +159,18 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
         let store = self.store.borrow();
         let memory = store.memory(memory);
         let pages = byte_len.div_ceil(65536);
-        let byte_length = Reflect::get(&memory.buffer(), &"byteLength".into())
-            .map_err(|error| js_error("read Wasm memory size", error))?
-            .as_f64()
-            .expect("ArrayBuffer byteLength is a number") as u64;
-        let current = byte_length / 65536;
+        let current = memory::size(memory)?;
         if pages > current {
             // js-sys's Memory::grow binding does not catch allocation failures.
             let grow = Reflect::get(memory, &"grow".into())
                 .map_err(|error| js_error("get Wasm memory grow", error))?
                 .unchecked_into::<JsFunction>();
-            grow.call1(memory, &JsValue::from_f64((pages - current) as f64))
-                .map_err(|error| js_error("grow Wasm memory", error))?;
+            if let Err(error) = grow.call1(memory, &JsValue::from_f64((pages - current) as f64)) {
+                // A worker may have satisfied the request since our size check.
+                if memory::size(memory)? < pages {
+                    return Err(js_error("grow Wasm memory", error));
+                }
+            }
         }
         Ok(())
     }
@@ -244,21 +255,12 @@ impl<T> WasmMemoryAccess for Store<T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory_range(self.memory(memory), offset, bytes.len()).copy_to(bytes);
+        memory::range(self.memory(memory), offset, bytes.len()).copy_to(bytes);
     }
 
     fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory_range(self.memory(memory), offset, bytes.len()).copy_from(bytes);
+        memory::range(self.memory(memory), offset, bytes.len()).copy_from(bytes);
     }
-}
-
-fn memory_range(memory: &WebAssembly::Memory, offset: u32, len: usize) -> Uint8Array {
-    // A memory.grow detaches the old buffer, so obtain it for each transfer.
-    Uint8Array::new_with_byte_offset_and_length(
-        &memory.buffer(),
-        offset,
-        len.try_into().expect("Wasm32 memory range"),
-    )
 }
 
 fn set(object: &Object, name: &str, value: &JsValue) -> Result<()> {
