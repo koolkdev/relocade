@@ -53,6 +53,30 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
         Ok(())
     }
 
+    /// Reads one byte through the guest memory map.
+    pub fn read_u8(&mut self, address: u32) -> Result<u8, MemoryError> {
+        let mut bytes = [0];
+        self.read(address, &mut bytes)?;
+        Ok(bytes[0])
+    }
+
+    /// Reads a little-endian word through the guest memory map.
+    pub fn read_u16(&mut self, address: u32) -> Result<u16, MemoryError> {
+        let mut bytes = [0; 2];
+        self.read(address, &mut bytes)?;
+        Ok(u16::from_le_bytes(bytes))
+    }
+
+    /// Writes one byte with the same guest access policy as [`Self::write`].
+    pub fn write_u8(&mut self, address: u32, value: u8) -> Result<(), MemoryError> {
+        self.write(address, &[value])
+    }
+
+    /// Writes a little-endian word with the same guest access policy as [`Self::write`].
+    pub fn write_u16(&mut self, address: u32, value: u16) -> Result<(), MemoryError> {
+        self.write(address, &value.to_le_bytes())
+    }
+
     /// Reads a contiguous span through a real-mode segment cache.
     /// Checks the entire span before copying; never wraps or truncates the offset.
     /// Physical mappings, including A20, apply after segment translation.
