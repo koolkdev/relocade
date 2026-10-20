@@ -28,6 +28,7 @@ const FIND_FIRST: u8 = 0x4e;
 const FIND_NEXT: u8 = 0x4f;
 const CREATE_HANDLE: u8 = 0x3c;
 const CREATE_NEW_HANDLE: u8 = 0x5b;
+const RENAME_FILE: u8 = 0x56;
 const OPEN_HANDLE: u8 = 0x3d;
 const CLOSE_HANDLE: u8 = 0x3e;
 const READ_HANDLE: u8 = 0x3f;
@@ -63,6 +64,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         FIND_NEXT => search::find_next(call),
         CREATE_HANDLE => files::create(call, CreateMode::TruncateExisting),
         CREATE_NEW_HANDLE => files::create(call, CreateMode::FailIfExists),
+        RENAME_FILE => files::rename(call),
         OPEN_HANDLE => files::open(call),
         CLOSE_HANDLE => files::close(call),
         READ_HANDLE => files::read(call),

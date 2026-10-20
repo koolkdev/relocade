@@ -2,6 +2,15 @@
 
 pub(crate) const MAX_PATH_BYTES: usize = 128; // Includes the terminating NUL.
 
+pub(crate) fn drive(path: &[u8]) -> Option<u8> {
+    match path {
+        [drive, b':', ..] => drive
+            .is_ascii_alphabetic()
+            .then_some(drive.to_ascii_uppercase()),
+        _ => Some(b'C'),
+    }
+}
+
 pub(crate) fn file_path(path: &[u8], current_directory: &str) -> Option<String> {
     if matches!(
         path.rsplit(|byte| matches!(byte, b'\\' | b'/')).next()?,
@@ -18,14 +27,11 @@ pub(crate) fn parent(path: &str) -> &str {
 }
 
 pub(crate) fn resolve(path: &[u8], current_directory: &str) -> Option<String> {
-    if path.is_empty() || path.len() >= MAX_PATH_BYTES || !path.is_ascii() {
+    if path.is_empty() || path.len() >= MAX_PATH_BYTES || !path.is_ascii() || drive(path)? != b'C' {
         return None;
     }
     let path = std::str::from_utf8(path).ok()?;
     let path = if path.as_bytes().get(1) == Some(&b':') {
-        if !path.as_bytes()[0].eq_ignore_ascii_case(&b'C') {
-            return None;
-        }
         &path[2..]
     } else {
         path
