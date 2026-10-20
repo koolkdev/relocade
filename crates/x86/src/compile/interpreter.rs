@@ -120,7 +120,7 @@ impl Compiler {
                     &decoded.eip,
                     self.target,
                 )?
-                .with_runtime_cpu_model()?;
+                .with_cpu_features_from_context()?;
                 execution.execute(decoded)?;
                 match continuation {
                     Some(continuation) => execution.complete(|body, _| continuation.resume(body)),
