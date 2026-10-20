@@ -72,7 +72,6 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self> {
         let target = config.execution_target();
         let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
-        let interpreter = relocade_interpreter::module(target.profile);
         let dispatcher = compiler.compile_dispatcher()?;
         let dispatcher_module = backend.compile(&dispatcher.bytes).await?;
 
@@ -122,7 +121,15 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             host_imports,
             host_call_incomplete: false,
         };
-        let module = runtime.storage.access.compile_shared(interpreter).await?;
+        let bytes = relocade_interpreter::module(target.profile);
+        let backend = &runtime.storage.access;
+        let module = if let Some(cache) = backend.module_cache() {
+            cache
+                .get_or_compile(bytes, |bytes| backend.compile(bytes))
+                .await?
+        } else {
+            backend.compile(bytes).await?
+        };
         let instance = runtime.instantiate_module(&module, &[]).await?;
         let backend = &mut runtime.storage.access;
         let function = backend.function(&instance, abi::RUN)?;

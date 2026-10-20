@@ -23,7 +23,7 @@
 
 use relocade_compiler::{abi::Function, I64};
 use relocade_runtime::{
-    wasm::{Import, ImportValue, WasmBackend, WasmMemoryAccess},
+    wasm::{Import, ImportValue, ModuleCache, WasmBackend, WasmMemoryAccess},
     Error, Result,
 };
 use std::ops::{Deref, DerefMut};
@@ -36,7 +36,7 @@ mod compilation;
 mod host;
 pub use host::Context;
 
-/// One store for modules and their shared imports. Runtime owns execution policy.
+/// One store for guest instances and their imports. Runtime owns execution policy.
 pub struct WasmtimeBackend<T: 'static = ()> {
     store: Store<T>,
     compilation: &'static compilation::Compilation,
@@ -84,8 +84,8 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
         Module::new(self.store.engine(), bytes).map_err(|error| Error::wasm("compile Wasm", error))
     }
 
-    async fn compile_shared(&self, bytes: &'static [u8]) -> Result<Module> {
-        self.compilation.compile_shared(bytes)
+    fn module_cache(&self) -> Option<&ModuleCache<Module>> {
+        Some(&self.compilation.modules)
     }
 
     fn create_memory(&mut self, minimum: u32, maximum: Option<u32>) -> Result<Memory> {
