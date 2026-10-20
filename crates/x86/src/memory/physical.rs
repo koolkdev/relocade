@@ -19,6 +19,7 @@ pub(crate) struct PhysicalMemory {
     table: PhysicalTable,
     mmio_reader: Func,
     mmio_writer: Func,
+    code_writer: Func,
     reader: Cell<Option<Func>>,
     writer: Cell<Option<Func>>,
 }
@@ -29,11 +30,13 @@ impl PhysicalMemory {
         let table = PhysicalTable::declare(program);
         let mmio_reader = program.import_function(crate::abi::READ_MMIO);
         let mmio_writer = program.import_function(crate::abi::WRITE_MMIO);
+        let code_writer = program.import_function(crate::abi::WRITE_CODE);
         Self {
             backing,
             table,
             mmio_reader,
             mmio_writer,
+            code_writer,
             reader: Cell::new(None),
             writer: Cell::new(None),
         }

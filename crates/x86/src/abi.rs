@@ -31,6 +31,10 @@ pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "
 pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");
 pub const READ_MMIO: Function<fn(I32, I32) -> I64> = Function::new("relocade", "readMmio");
 pub const WRITE_MMIO: Function<fn(I32, I32, I64)> = Function::new("relocade", "writeMmio");
+/// Slow write to watched RAM. Arguments are backing byte offset, byte count and
+/// little-endian value. Invalidate dependent code before storing; do not reenter
+/// execution or change the resolved destination during the callback.
+pub const WRITE_CODE: Function<fn(I32, I32, I64)> = Function::new("relocade", "writeCode");
 
 pub type ResolveSegmentSignature = fn(I32, I16) -> ([I32; 4], I16, [I1; 6]);
 pub type QuerySegmentDescriptorSignature = fn(I16) -> (I1, I1, I1, I32, I32);

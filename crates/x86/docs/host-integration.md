@@ -376,9 +376,20 @@ have a maximum no larger than that and enough initial capacity for all backing.
 
 Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
 `resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
-`executionContext`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
+`executionContext`, `guest`, `physicalMap`, `dispatch`, `writeCode`, the MMIO callbacks and the port
 callbacks. They use generated RAM/ROM accesses and do not call descriptor callbacks. The physical
 memory contract below describes routing and callback widths.
+
+`PhysicalMemoryMap::set_code_watched(backing_address, watched)` sets the
+`CODE_WATCH` bit on every RAM alias of that backing page, including aliases hidden
+by A20. The ordinary direct RAM/ROM tests are unchanged; watched RAM uses slow
+transfers. Reads still see backing bytes. Writes call
+`writeCode(backing_offset: i32, bytes: i32, value: i64)` with one through eight
+little-endian bytes. The host invalidates dependent code before storing those bytes,
+without reentering execution or changing the resolved destination. Code captured
+through ROM also needs its writable RAM aliases watched. The flag alone does not
+make snapshots safe: compiled execution must hand off before a watched write and
+the host must retire all dependent entries and local links.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
 `resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks

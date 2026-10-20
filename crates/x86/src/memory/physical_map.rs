@@ -69,6 +69,7 @@ impl PhysicalMapping {
 #[derive(Clone, Debug)]
 pub struct PhysicalMemoryMap {
     pages: [PhysicalMapping; Self::PAGE_COUNT],
+    code_watched: [bool; Self::PAGE_COUNT],
     a20_enabled: bool,
 }
 
@@ -78,6 +79,9 @@ impl PhysicalMemoryMap {
     /// The trailing address-mask word; page-entry offsets are independent of A20.
     pub const A20_MASK_OFFSET: usize = Self::PAGE_COUNT * 8;
     pub const BYTE_LEN: usize = Self::A20_MASK_OFFSET + 4;
+    /// RAM kind flag that routes transfers through the slow path. Watched writes
+    /// call `relocade.writeCode` with their resolved backing address.
+    pub const CODE_WATCH: u32 = 4;
 
     /// Checks all RAM/ROM backing, including pages currently hidden by A20.
     pub fn fits_backing(&self, memory_size: u64) -> bool {
@@ -126,6 +130,7 @@ impl PhysicalMemoryMap {
         }
         Ok(Self {
             pages,
+            code_watched: [false; Self::PAGE_COUNT],
             a20_enabled: false,
         })
     }
@@ -134,6 +139,19 @@ impl PhysicalMemoryMap {
     /// updated serialized mask before the next transfer that should observe it.
     pub fn set_a20_enabled(&mut self, enabled: bool) {
         self.a20_enabled = enabled;
+    }
+
+    /// Watches every RAM alias of the backing page containing this byte, including
+    /// mappings hidden by A20. ROM aliases remain readable and ignore guest writes.
+    /// Install the updated image before executing code that depends on this page.
+    pub fn set_code_watched(&mut self, backing_address: u32, watched: bool) {
+        let page = backing_address & !PAGE_MASK;
+        for (mapping, flag) in self.pages.iter().zip(&mut self.code_watched) {
+            if matches!(mapping, PhysicalMapping::Ram { backing_offset } if *backing_offset == page)
+            {
+                *flag = watched;
+            }
+        }
     }
 
     fn address_mask(&self) -> u32 {
@@ -161,16 +179,26 @@ impl PhysicalMemoryMap {
 
     /// Serializes 272 entries of eight bytes each, followed by the A20 mask. Each entry
     /// contains a little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO)
-    /// followed by a u32 backing-page offset. Unmapped and MMIO offsets are zero.
+    /// followed by a u32 backing-page offset. RAM may also carry [`Self::CODE_WATCH`].
+    /// Unmapped and MMIO offsets are zero.
     /// The trailing u32 is FFFFFFFF when A20 is enabled and FFEFFFFF otherwise.
     /// The host installs the 2180-byte image at offset zero in `physicalMap`.
     /// This format uses explicit fields, independent of Rust's enum layout.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
-        for (entry, page) in bytes.chunks_exact_mut(8).zip(&self.pages) {
+        for ((entry, page), watched) in bytes
+            .as_chunks_mut::<8>()
+            .0
+            .iter_mut()
+            .zip(&self.pages)
+            .zip(self.code_watched)
+        {
             let (kind, backing): (u32, u32) = match *page {
                 PhysicalMapping::Unmapped => (UNMAPPED, 0),
-                PhysicalMapping::Ram { backing_offset } => (RAM, backing_offset),
+                PhysicalMapping::Ram { backing_offset } => (
+                    RAM | if watched { Self::CODE_WATCH } else { 0 },
+                    backing_offset,
+                ),
                 PhysicalMapping::Rom { backing_offset } => (ROM, backing_offset),
                 PhysicalMapping::Mmio => (MMIO, 0),
             };

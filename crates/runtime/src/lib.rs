@@ -52,7 +52,7 @@ use std::{
     sync::Arc,
 };
 use storage::Storage;
-use wasm::Import;
+use wasm::{Import, WasmMemoryAccess};
 
 /// One running guest and its engine resources. CPU and memory access belongs to
 /// the machine; this owner prepares code and controls entry into execution.
@@ -102,11 +102,22 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         })?;
         backend.write_memory(&mapping, 0, &config.memory_map().to_bytes());
         let dispatch_table = DispatchTable::new(&mut backend)?;
+        let code_backing = guest.clone();
         let host_imports = vec![
             backend.bind_host(abi::READ_PORT, Box::new(|_, _, _| -1)),
             backend.bind_host(abi::WRITE_PORT, Box::new(|_, _, _, _| {})),
             backend.bind_host(abi::READ_MMIO, Box::new(|_, _, _| -1)),
             backend.bind_host(abi::WRITE_MMIO, Box::new(|_, _, _, _| {})),
+            backend.bind_host(
+                abi::WRITE_CODE,
+                Box::new(move |mut caller, offset, bytes, value| {
+                    caller.write_memory(
+                        &code_backing,
+                        offset as u32,
+                        &value.to_le_bytes()[..bytes as usize],
+                    );
+                }),
+            ),
         ];
         let imports = [
             backend.bind(abi::EXECUTION_CONTEXT, &context),

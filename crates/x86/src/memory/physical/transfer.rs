@@ -9,6 +9,7 @@ use super::{
     table::Entry,
     PhysicalMemory,
 };
+use crate::PhysicalMemoryMap;
 
 /// Covers one through eight bytes without a shift by the carrier's full width.
 fn byte_mask(bytes: &Val<I32>) -> Val<I64> {
@@ -80,7 +81,9 @@ impl PhysicalMemory {
             },
             |mut ordinary| {
                 let value = ordinary.if_value::<I64>(
-                    entry.readable(),
+                    entry
+                        .readable()
+                        .or(entry.kind.eq(RAM | PhysicalMemoryMap::CODE_WATCH)),
                     |mut ram| {
                         let value = ram.load_at::<I8>(self.backing, entry.backing_address(), 0)?;
                         ram.yield_(value.unsigned().extend::<I64>())
@@ -131,6 +134,19 @@ impl PhysicalMemory {
                 )
             },
             |mut ordinary| {
+                ordinary.if_(
+                    entry.kind.eq(RAM | PhysicalMemoryMap::CODE_WATCH),
+                    |mut watched| {
+                        watched.call::<()>(
+                            self.code_writer,
+                            &[
+                                entry.backing_address().into(),
+                                bytes.into(),
+                                value.and(byte_mask(bytes)).into(),
+                            ],
+                        )
+                    },
+                )?;
                 ordinary.if_(entry.kind.eq(RAM), |mut ram| {
                     ram.store_at::<I8>(
                         self.backing,

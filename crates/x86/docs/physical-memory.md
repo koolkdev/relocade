@@ -2,7 +2,7 @@
 
 `ExecutionProfile::Real16` translates segment offsets to physical addresses, then
 uses generated Wasm to route accesses. RAM and ROM reads use `guest` backing;
-only MMIO accesses call the host. Ordinary real mode does not raise a page fault
+MMIO and watched code writes call the host. Ordinary real mode does not raise a page fault
 for an absent physical mapping. The host controls the A20 gate in the routing map.
 
 ## Physical page map
@@ -63,6 +63,25 @@ keyboard-controller or fast-A20 port that controls this platform state.
 
 Runtime mapping and gate changes update the installed Wasm table.
 
+`set_code_watched(backing_address, watched)` marks every RAM alias of the backing
+page containing that byte. This includes aliases hidden by A20 and writable
+aliases of code captured through ROM. Serialization adds `CODE_WATCH` (bit 2) to
+the RAM kind. ROM, MMIO and hole kinds retain their values. The ordinary direct
+access comparisons are unchanged; watched RAM takes the slow path for reads and
+writes, and reads still return backing bytes.
+
+Watched writes import `relocade.writeCode(backing_offset: i32, bytes: i32, value: i64)`.
+The address is the resolved offset in `guest`, and the value contains one through
+eight little-endian bytes with unused high bits zero. The host invalidates all
+dependent code before writing those bytes. It must not reenter execution or
+change the resolved destination. After invalidation it may clear watch bits for
+backing pages with no remaining code dependencies. Mapping changes and host
+backing writes need the same invalidation even when no guest store occurs.
+
+Watching alone does not establish snapshot validity. Compiled accesses must
+handoff before a watched write can modify their captured code; interpreter
+execution then observes the slow callback and refetches subsequent instructions.
+
 ## MMIO callbacks
 
 Both functions belong to the `relocade` import module:
@@ -111,8 +130,8 @@ Segment checks establish physical table bounds before lookup, including for
 speculative fetch windows. A small inline check handles direct accesses within
 one RAM/ROM page. Routing,
 splitting and partial transfer assembly share one reader and one writer per
-module, created only when used. Helpers are Wasm functions; host calls occur only
-in their MMIO branches. Separate snapshot modules each contain their own helpers.
+module, created only when used. Helpers are Wasm functions; host calls occur in
+their MMIO and watched-write branches. Snapshot blocks in one module share helpers.
 
 The interpreter checks CS and probes RAM/ROM for a direct fetch window without
 calling a device. Windows stop at page boundaries; unavailable windows use exact

@@ -17,10 +17,10 @@ fn imports(bytes: &[u8]) -> Vec<String> {
 }
 
 #[test]
-fn physical_accesses_import_backing_map_and_only_mmio_callbacks() {
+fn physical_accesses_import_backing_map_and_slow_write_callbacks() {
     assert_eq!(
         imports(transfers()),
-        ["guest", "physicalMap", "readMmio", "writeMmio"]
+        ["guest", "physicalMap", "readMmio", "writeCode", "writeMmio"]
     );
 }
 
