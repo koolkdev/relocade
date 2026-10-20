@@ -23,12 +23,16 @@
 //! Queued complete lines return immediately; incomplete lines await further input.
 //! AH=0Ch flushes queued console input, then invokes AL=01h/06h/07h/08h/0Ah.
 //! Other AL values only flush; redirected files and buffered handle lines are retained.
-//! AH=3Fh on a console input handle reads an edited line with CRLF, retaining
-//! unread bytes for later reads through any duplicate of the console handle.
-//! Console handle input echoes to the console even when stdout is redirected.
-//! Leading Ctrl-Z sets EOF on that open console handle and its duplicates.
-//! Further handle reads return zero until AH=40h through that handle clears EOF
-//! or a program load replaces the handles.
+//! AH=3Fh on a console handle defaults to cooked mode: it reads an edited line
+//! with CRLF and retains unread bytes for later console reads. Input echoes to
+//! the console even when stdout is redirected. A leading Ctrl-Z sets EOF on
+//! that open handle and its duplicates. Handle reads at EOF return zero until
+//! EOF is cleared through AH=40h or AX=4401h, or a program load replaces the handles.
+//! AX=4401h switches device handles between cooked and raw mode. Raw AH=3Fh reads
+//! await the requested byte count, limited by the segment boundary, without editing,
+//! echo, CRLF insertion or interpreting Ctrl-Z as EOF. Raw AH=40h writes preserve
+//! tabs and control bytes. Duplicates share mode and EOF changes; separate opens
+//! keep their own state. Switching modes preserves the buffered cooked-line remainder.
 //! Keep the same run future alive while waiting; dropping an active read
 //! cancels it and requires reloading the program before further execution.
 //! Character and buffered reads stay blocked at redirected file EOF; host file

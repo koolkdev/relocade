@@ -7,6 +7,8 @@ mod common;
 mod flush;
 #[path = "input/handles.rs"]
 mod handles;
+#[path = "input/raw.rs"]
+mod raw;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
 use relocade_x86::{ExecutionExit, Segment};

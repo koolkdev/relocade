@@ -1,4 +1,6 @@
 mod common;
+#[path = "ioctl/modes.rs"]
+mod modes;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
@@ -26,7 +28,6 @@ async fn check_device_information() {
     }
     error(&service(&mut dos, 0x4400, 5, 0, 0), 6);
     error(&service(&mut dos, 0x4400, u16::MAX, 0, 0), 6);
-    error(&service(&mut dos, 0x4401, 1, 0, 0), 1);
     error(&service(&mut dos, 0x44ff, 1, 0, 0), 1);
     assert_eq!(dos.exit_status(), None);
 

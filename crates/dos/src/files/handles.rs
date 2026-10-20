@@ -151,6 +151,10 @@ impl Files {
                 Device::Null => return Ok(bytes.len()),
                 Device::Auxiliary | Device::Printer => return Err(DosError::AccessDenied),
             };
+            if device.raw() {
+                self.stdio.output(stream).extend(bytes);
+                return Ok(bytes.len());
+            }
             // Cooked console writes stop before Ctrl-Z and count source bytes,
             // including tabs expanded by the shared character-output path.
             let count = bytes

@@ -6,6 +6,7 @@ use std::{cell::Cell, rc::Rc};
 
 const CHARACTER_DEVICE: u8 = 0x80;
 const INPUT_NOT_EOF: u8 = 0x40;
+const RAW_MODE: u8 = 0x20;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Device {
@@ -44,6 +45,10 @@ impl OpenDevice {
         self.flags.get() & INPUT_NOT_EOF == 0
     }
 
+    pub fn raw(&self) -> bool {
+        self.flags.get() & RAW_MODE != 0
+    }
+
     pub fn set_eof(&self, eof: bool) {
         let flags = self.flags.get();
         self.flags.set(if eof {
@@ -55,6 +60,17 @@ impl OpenDevice {
 }
 
 impl Files {
+    pub(crate) fn set_device_information(&self, handle: u16, info: u16) -> Result<u8, DosError> {
+        let OpenHandle::Device(device) = self.handle(handle)? else {
+            return Err(DosError::InvalidFunction);
+        };
+        if info & 0xff00 != 0 {
+            return Err(DosError::InvalidData);
+        }
+        // IOCTL cannot turn a device into a file. Duplicates share the other flags.
+        Ok(device.flags.replace(info as u8 | CHARACTER_DEVICE))
+    }
+
     pub(super) fn open_device(
         &mut self,
         path: &[u8],
@@ -99,6 +115,10 @@ impl Files {
 
     pub(crate) fn set_console_eof(&self, handle: u16, eof: bool) {
         self.console(handle).set_eof(eof);
+    }
+
+    pub(crate) fn console_raw(&self, handle: u16) -> bool {
+        self.console(handle).raw()
     }
 
     fn console(&self, handle: u16) -> &OpenDevice {
