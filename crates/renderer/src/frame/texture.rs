@@ -1,13 +1,11 @@
-use crate::FrameError;
-
-pub(crate) struct Upload {
-    pub size: [u32; 2],
-    pub bind_group: wgpu::BindGroup,
+pub(super) struct FrameTexture {
+    pub(super) size: [u32; 2],
+    pub(super) bind_group: wgpu::BindGroup,
     texture: wgpu::Texture,
 }
 
-impl Upload {
-    pub fn new(
+impl FrameTexture {
+    pub(super) fn new(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
@@ -15,7 +13,7 @@ impl Upload {
         format: wgpu::TextureFormat,
     ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("pixel frame upload"),
+            label: Some("pixel frame texture"),
             size: wgpu::Extent3d {
                 width: size[0],
                 height: size[1],
@@ -50,7 +48,7 @@ impl Upload {
         }
     }
 
-    pub fn write(&self, queue: &wgpu::Queue, pixels: &[u8]) {
+    pub(super) fn upload(&self, queue: &wgpu::Queue, pixels: &[u8]) {
         queue.write_texture(
             self.texture.as_image_copy(),
             pixels,
@@ -62,21 +60,4 @@ impl Upload {
             self.texture.size(),
         );
     }
-}
-
-pub(crate) fn validate(size: [u32; 2], len: usize, max_dimension: u32) -> Result<(), FrameError> {
-    if size.iter().any(|&n| n == 0 || n > max_dimension) {
-        return Err(FrameError::InvalidSize);
-    }
-    let expected = (size[0] as usize)
-        .checked_mul(size[1] as usize)
-        .and_then(|n| n.checked_mul(4))
-        .ok_or(FrameError::InvalidSize)?;
-    if len != expected {
-        return Err(FrameError::InvalidLength {
-            expected,
-            actual: len,
-        });
-    }
-    Ok(())
 }

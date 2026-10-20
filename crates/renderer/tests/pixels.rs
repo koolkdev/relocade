@@ -111,7 +111,7 @@ async fn check_pixels() {
                 assert_color(pixels[y * 4 + x], colors[(y / 2) * 2 + x / 2]);
             }
         }
-        // The next frame updates the existing upload, including alpha.
+        // The next frame updates the existing texture, including alpha.
         let changed: [[u8; 4]; 4] = [[32, 64, 96, 17]; 4];
         renderer
             .render([2, 2], changed.as_flattened(), &view)

@@ -7,7 +7,7 @@ blending. Nearest-neighbor sampling fills the output view.
 
 The embedding creates the wgpu device and surface, configures the output size,
 acquires/presents surface textures and schedules frames. The renderer reuses its
-upload texture while the source size is unchanged. Changing source or output
+frame texture while the source size is unchanged. Changing source or output
 dimensions needs no renderer reconstruction, provided the output format stays
 the same. Skip surface acquisition while the window/canvas has zero size.
 
