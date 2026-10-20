@@ -19,8 +19,7 @@ fn temporary(
         let mut machine = dos.runtime().machine();
         machine
             .cpu()
-            .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, SEGMENT))
-            .unwrap();
+            .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, SEGMENT));
         for (index, byte) in buffer.iter().enumerate() {
             let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));
             machine.memory().write(address, &[*byte]).unwrap();
@@ -37,8 +36,7 @@ fn temporary(
     }
     machine
         .cpu()
-        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x1000))
-        .unwrap();
+        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x1000));
     (cpu, buffer)
 }
 

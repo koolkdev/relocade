@@ -12,8 +12,7 @@ fn use_data_segment(dos: &mut Dos<Backend<DosState>>) {
     dos.runtime()
         .machine()
         .cpu()
-        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x3000))
-        .unwrap();
+        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x3000));
 }
 
 fn write_memory(dos: &mut Dos<Backend<DosState>>, address: u32, bytes: &[u8]) {

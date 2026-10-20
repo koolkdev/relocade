@@ -25,7 +25,7 @@
 //! machine.memory().write(0x200, &ax.to_le_bytes())?;
 //! machine.cpu().set_ax(ax.wrapping_add(1));
 //! let saved = machine.cpu().snapshot();
-//! machine.cpu().restore(&saved)?;
+//! machine.cpu().restore(&saved);
 //! # Ok(())
 //! # }
 //! ```

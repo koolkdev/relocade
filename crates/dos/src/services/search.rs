@@ -18,8 +18,7 @@ pub(super) fn get_dta(call: &mut HostCall<'_, DosState>) -> ControlFlow<Executio
     let segment = call.state().dta_segment;
     let offset = call.state().dta_offset;
     call.cpu()
-        .set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, segment))
-        .expect("real-mode DTA segment");
+        .set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, segment));
     call.cpu().set_bx(offset);
     return_from_interrupt(call)
 }

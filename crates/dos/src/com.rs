@@ -37,9 +37,6 @@ pub(crate) fn load(
     let mut cpu = process::initial_cpu(psp_segment);
     cpu.registers.esp = u32::from(STACK_OFFSET);
     cpu.eip = process::PSP_BYTES as u32;
-    machine
-        .cpu()
-        .restore(&cpu)
-        .expect("real-mode COM entry state");
+    machine.cpu().restore(&cpu);
     Ok(psp_segment)
 }

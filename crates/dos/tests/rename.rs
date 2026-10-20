@@ -12,8 +12,7 @@ fn rename(dos: &mut Dos<Backend<DosState>>, from: &[u8], to: &[u8]) -> CpuState 
         let mut machine = dos.runtime().machine();
         machine
             .cpu()
-            .set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, SEGMENT))
-            .unwrap();
+            .set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, SEGMENT));
         machine.cpu().set_di(OFFSET);
         for (index, byte) in to.iter().copied().chain([0]).enumerate() {
             let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));

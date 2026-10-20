@@ -16,8 +16,7 @@ fn service(
         cpu.set_eip(0x100);
         cpu.set_ah(function);
         cpu.set_bx(paragraphs);
-        cpu.set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, segment))
-            .unwrap();
+        cpu.set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, segment));
     }
     assert_eq!(
         dos.runtime().run(10).unwrap(),

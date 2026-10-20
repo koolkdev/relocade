@@ -38,7 +38,6 @@ pub(super) fn get_vector(call: &mut HostCall<'_, DosState>) -> ControlFlow<Execu
     let segment = u16::from_le_bytes([vector[2], vector[3]]);
     let mut cpu = call.cpu();
     cpu.set_bx(offset);
-    cpu.set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, segment))
-        .expect("real-mode interrupt handler segment");
+    cpu.set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, segment));
     return_from_interrupt(call)
 }

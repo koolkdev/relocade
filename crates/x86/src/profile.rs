@@ -27,8 +27,8 @@ impl ExecutionTarget {
 /// Compatibility does not validate instruction-fetch spans, code bytes or mappings and
 /// does not perform cache invalidation. The execution owner must invalidate
 /// dependent entries and dispatch links when these assumptions cease to hold.
-/// A terminal segment load may break compatibility at its cache commit; only
-/// publication and dispatch may follow before the next entry is admitted.
+/// The runtime owns compatibility across segment changes, including any profile
+/// transition. Dispatch and interpreter entry rely on the runtime maintaining it.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ExecutionProfile {
     /// Protected mode at CPL3 under the selected segment assumptions, with
@@ -52,12 +52,18 @@ impl ExecutionProfile {
     /// caches alone do not establish the execution mode; entry and link keys must
     /// retain the profile. Protected profiles ignore irrelevant selector/cache bits.
     pub fn is_compatible_with(self, segments: &Segments) -> bool {
+        Segment::ALL
+            .into_iter()
+            .all(|segment| self.is_segment_compatible(segment, &segments[segment]))
+    }
+
+    /// Tests a proposed segment cache against this profile's fixed assumptions.
+    /// Runtimes use this at segment changes to preserve compatibility throughout
+    /// execution; unconstrained fields remain free to change.
+    pub fn is_segment_compatible(self, segment: Segment, cache: &StoredSegment) -> bool {
         match self {
-            Self::Protected(profile) => profile.is_compatible_with(segments),
-            Self::Real16 => Segment::ALL.into_iter().all(|segment| {
-                let cache = segments[segment];
-                cache == StoredSegment::real_mode(segment, cache.selector)
-            }),
+            Self::Protected(profile) => profile.assumptions(segment).matches(cache),
+            Self::Real16 => *cache == StoredSegment::real_mode(segment, cache.selector),
         }
     }
 }

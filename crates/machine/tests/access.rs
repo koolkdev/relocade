@@ -1,4 +1,4 @@
-use relocade_machine::{ConfigurationError, Machine, MachineConfig, MachineStorage, MemoryError};
+use relocade_machine::{Machine, MachineConfig, MachineStorage, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments, StoredSegment, StoredStatusSource,
@@ -98,35 +98,40 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
         segments: Segments::real_mode(),
         ..CpuState::filled(0xa5)
     };
-    cpu.restore(&snapshot).unwrap();
+    cpu.restore(&snapshot);
     assert_eq!(cpu.snapshot(), snapshot);
     assert_eq!(&context.borrow()[488..496], &998_u64.to_le_bytes());
     assert_eq!(&context.borrow()[496..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
-    let mut incompatible = snapshot;
-    incompatible.segments.cs.base = 1;
-    assert_eq!(
-        cpu.restore(&incompatible),
-        Err(ConfigurationError::IncompatibleCpu)
-    );
-    assert_eq!(cpu.snapshot(), snapshot);
 }
 
 #[test]
-fn segment_edits_validate_before_writing() {
+#[should_panic(expected = "CPU snapshot violates execution target")]
+fn incompatible_snapshot_restores_panic() {
+    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = Machine::new(&config, &mut storage);
+    let mut snapshot = *config.cpu();
+    snapshot.segments.cs.base = 1;
+    machine.cpu().restore(&snapshot);
+}
+
+#[test]
+fn segment_edits_preserve_the_execution_profile() {
     let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
     let mut machine = Machine::new(&config, &mut storage);
     let mut cpu = machine.cpu();
     let ds = StoredSegment::real_mode(Segment::Ds, 0x1234);
-    cpu.set_segment(Segment::Ds, ds).unwrap();
+    cpu.set_segment(Segment::Ds, ds);
     assert_eq!(cpu.segment(Segment::Ds), ds);
-    let before = cpu.snapshot();
-    let mut incompatible = ds;
-    incompatible.base = 0;
-    assert_eq!(
-        cpu.set_segment(Segment::Ds, incompatible),
-        Err(ConfigurationError::IncompatibleCpu)
-    );
-    assert_eq!(cpu.snapshot(), before);
+}
+
+#[test]
+#[should_panic(expected = "segment Ds violates execution profile Real16")]
+fn incompatible_segment_edits_panic() {
+    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = Machine::new(&config, &mut storage);
+    let mut ds = StoredSegment::real_mode(Segment::Ds, 0x1234);
+    ds.base = 0;
+    machine.cpu().set_segment(Segment::Ds, ds);
 }
 
 #[test]
@@ -142,7 +147,7 @@ fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
     };
     snapshot.flags.bytes.df = 1;
     snapshot.registers.eax = 0x1234_5678;
-    machine.cpu().restore(&snapshot).unwrap();
+    machine.cpu().restore(&snapshot);
     assert!(machine.cpu().carry());
     assert_eq!(machine.cpu().eflags(), 0x457);
     assert_eq!(machine.cpu().snapshot(), snapshot); // Reading does not materialize.
