@@ -13,6 +13,7 @@
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
 //! AH=3Ch creates or truncates files in existing directories.
+//! AH=5Bh creates a file only if its name is unused, preserving existing files.
 //! AH=0Eh/19h select/query C:; AH=3Bh/47h change/query its current directory.
 //! AH=39h/3Ah create directories or remove empty ones, excluding root and current.
 //! Guest relative paths use that directory, which persists across program loads.

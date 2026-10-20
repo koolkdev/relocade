@@ -1,4 +1,6 @@
-use crate::{error::DosError, interrupt::return_result, path::MAX_PATH_BYTES, DosState};
+use crate::{
+    error::DosError, files::CreateMode, interrupt::return_result, path::MAX_PATH_BYTES, DosState,
+};
 use relocade_runtime::HostCall;
 use relocade_x86::Segment;
 use std::ops::ControlFlow;
@@ -30,10 +32,11 @@ pub(super) fn delete(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_result(call, result)
 }
 
-/// AH=3Ch: create or truncate the path at DS:DX with CX's attributes; return AX.
-pub(super) fn create(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+/// AH=3Ch/5Bh: create DS:DX with CX's attributes using the requested mode; return AX.
+pub(super) fn create(call: &mut HostCall<'_, DosState>, mode: CreateMode) -> ControlFlow<()> {
     let attributes = call.cpu().cx();
-    let result = read_path(call).and_then(|path| call.state_mut().files.create(&path, attributes));
+    let result =
+        read_path(call).and_then(|path| call.state_mut().files.create(&path, attributes, mode));
     let result = result.map(|handle| call.cpu().set_ax(handle));
     return_result(call, result)
 }
