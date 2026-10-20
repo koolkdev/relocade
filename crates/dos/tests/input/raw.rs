@@ -6,7 +6,7 @@ use std::{
     io::Write,
     pin::pin,
     sync::{atomic::Ordering, Arc},
-    task::{Context, Poll, Waker},
+    task::{Context, Waker},
 };
 
 #[test]
@@ -41,10 +41,8 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
             assert!(common::output(output.clone()).is_empty());
             input.write_all(b"KZ").unwrap();
             assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
-            assert!(matches!(
-                run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
-            ));
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            assert_eq!(run.await.unwrap(), ExecutionExit::BudgetExhausted);
         }
         let cpu = dos.runtime().machine().cpu().snapshot();
         assert_eq!(success(&cpu), 5);

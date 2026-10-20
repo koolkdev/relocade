@@ -102,6 +102,24 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
         Ok(None)
     }
 
+    /// Yields execution to the embedding's scheduler. Browser implementations
+    /// must yield to an event-loop task, so worker messages can be delivered.
+    fn yield_execution(&self) -> impl Future<Output = Result<()>> {
+        async {
+            let mut yielded = false;
+            std::future::poll_fn(|cx| {
+                if yielded {
+                    std::task::Poll::Ready(Ok(()))
+                } else {
+                    yielded = true;
+                    cx.waker().wake_by_ref();
+                    std::task::Poll::Pending
+                }
+            })
+            .await
+        }
+    }
+
     /// Optional storage for modules that callers choose to retain.
     /// Share it only between backends that can instantiate each other's modules.
     /// Ordinary `compile` calls do not populate this cache.

@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    task::{Context, Poll, Wake, Waker},
+    task::{Context, Wake, Waker},
 };
 
 // BIOS INT 16h/JMP $, followed by DOS INT 21h/JMP $.
@@ -98,10 +98,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
                 scan_code: 0x48, // Up arrow.
             });
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
-            assert!(matches!(
-                run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
-            ));
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            assert_eq!(run.await.unwrap(), ExecutionExit::BudgetExhausted);
         }
         {
             let mut machine = dos.runtime().machine();
@@ -117,6 +115,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             machine.cpu().set_eip(0x100);
             machine.cpu().set_ax(0);
         }
+        let wakes_before_cancel = wakes.0.load(Ordering::Relaxed);
         {
             let mut run = pin!(dos.runtime().run_async(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());
@@ -125,7 +124,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             character: b'X',
             scan_code: 0x2d,
         });
-        assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
+        assert_eq!(wakes.0.load(Ordering::Relaxed), wakes_before_cancel);
         dos.load_com(PROGRAM, Default::default()).unwrap();
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
     });

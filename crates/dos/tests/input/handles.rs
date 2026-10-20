@@ -4,7 +4,7 @@ use std::{
     future::Future,
     io::Write,
     pin::pin,
-    task::{Context, Poll, Waker},
+    task::{Context, Waker},
 };
 
 #[test]
@@ -55,10 +55,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             assert!(run.as_mut().poll(&mut cx).is_pending()); // CX bytes still need Enter.
             assert_eq!(common::output(output.clone()), b"ab\x08 \x08C");
             input.write_all(b"\r").unwrap();
-            assert!(matches!(
-                run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
-            ));
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            assert_eq!(run.await.unwrap(), ExecutionExit::BudgetExhausted);
         }
         {
             let mut machine = dos.runtime().machine();

@@ -81,8 +81,16 @@ stop/reload behavior must follow the service API's cancellation contract.
 
 ## Event-loop scheduling
 
-CPU-bound execution also needs finite instruction budgets and an actual yield
-to the worker event loop between runs. Awaiting an already-ready future does not
-yield, and repeatedly scheduling microtasks can starve message delivery. Budget
-checks remain at block boundaries; they provide
+`run_async` divides its original instruction allowance into slices (65,536
+instructions by default, configurable with `set_execution_slice`). It collects
+ready results between slices and yields after each budget exit, including a
+final short slice. The browser backend uses a MessageChannel task so compiler
+messages and other host events can run; an already-ready future or a microtask
+loop would starve them. The native backend yields to its async executor.
+
+Internal slice exits do not replenish or return the caller's budget. Dropping a
+run future at a slice preserves completed guest work and pending compiler jobs;
+dropping during a host operation retains the separate host cancellation contract.
+Synchronous `run` continues to expose its original budget and exits directly.
+Budget checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).
