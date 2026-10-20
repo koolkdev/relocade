@@ -160,10 +160,11 @@ async fn check_callback() {
     }
 
     // The same live CPU/memory/state view is available without entering Wasm.
-    backend.with_context(|mut access| {
+    {
+        let mut access = backend.context();
         let config = Rc::clone(&access.state().data.config);
         with_host_call(&config, &mut access, context, guest, host_handler);
-    });
+    }
     assert_eq!(backend.state().data.calls, 3);
     let mut bytes = [0; ExecutionContext::BYTE_LEN];
     backend.read_memory(&context, 0, &mut bytes);

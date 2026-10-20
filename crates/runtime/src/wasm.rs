@@ -36,7 +36,8 @@ impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
 }
 
 /// Scoped access to host state and live Wasm memory, during a callback or while
-/// execution is stopped. Drop the view before entering Wasm or awaiting work.
+/// execution is stopped. A stopped view may be held across an await; drop it
+/// before entering Wasm again. Callback views cannot outlive their callback.
 pub trait WasmContext: WasmMemoryAccess {
     type State;
 
@@ -53,7 +54,9 @@ pub trait WasmContext: WasmMemoryAccess {
 /// valid after the original module and instance handles are dropped.
 pub trait WasmBackend: WasmMemoryAccess + Sized {
     type State: 'static;
-    type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>;
+    type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
+    where
+        Self: 'a;
     type Module;
     type Instance;
     type Table: 'static;
@@ -67,10 +70,9 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     fn state(&self) -> impl Deref<Target = Self::State>;
     fn state_mut(&mut self) -> impl DerefMut<Target = Self::State>;
 
-    /// Lends the same scoped state and memory access passed to host callbacks.
-    /// The view cannot escape the closure. Wasm execution and asynchronous work
-    /// must happen after the closure returns.
-    fn with_context<R>(&mut self, f: impl FnOnce(Self::Context<'_>) -> R) -> R;
+    /// Borrows the stopped backend's state and memory. The view may be held
+    /// across an await, but must be dropped before calling into Wasm again.
+    fn context(&mut self) -> Self::Context<'_>;
 
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
 

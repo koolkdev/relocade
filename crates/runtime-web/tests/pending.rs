@@ -1,5 +1,5 @@
 use relocade_machine::MachineConfig;
-use relocade_runtime::{real_mode_interrupt, Hook, Runtime, RuntimeState};
+use relocade_runtime::{real_mode_interrupt, Error, Hook, Runtime, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -123,24 +123,26 @@ async fn check_pending_calls() {
         .install_hooks([Hook::<Rc<State>>::new(0x200, |call| {
             call.state().started.set(call.state().started.get() + 1);
             let operation = Operation(call.state().clone());
-            call.defer(
-                async move {
+            call.defer(async move |call| {
+                let sum = {
+                    // The CPU view itself stays borrowed through both awaits.
+                    let mut cpu = call.cpu();
                     let first = operation.0.read().await;
+                    cpu.set_bx(first);
                     operation
                         .0
                         .first_awaits
                         .set(operation.0.first_awaits.get() + 1);
                     let second = operation.0.read().await;
-                    drop(operation);
-                    first + second
-                },
-                |call, sum| {
-                    call.state().completed.set(call.state().completed.get() + 1);
-                    call.cpu().set_bx(sum);
-                    call.memory().write(0x300, &sum.to_le_bytes()).unwrap();
-                    real_mode_interrupt::return_from_interrupt(call)
-                },
-            )
+                    let sum = cpu.bx() + second;
+                    cpu.set_bx(sum);
+                    sum
+                };
+                drop(operation);
+                call.state().completed.set(call.state().completed.get() + 1);
+                call.memory().write(0x300, &sum.to_le_bytes()).unwrap();
+                real_mode_interrupt::return_from_interrupt(call)
+            })
         })])
         .await
         .unwrap();
@@ -149,6 +151,16 @@ async fn check_pending_calls() {
     let suspended = runtime.machine().cpu().snapshot();
     assert_eq!(suspended.instruction_count, 1);
     assert_eq!(suspended.registers.esp, 0xfefa);
+    assert!(runtime.has_pending_call());
+    assert_eq!(runtime.run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(runtime.machine().cpu().snapshot(), suspended);
+    assert_eq!(
+        runtime.run_async(0).await.unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    // An unpolled run has not started or cancelled the queued handler.
+    drop(runtime.run_async(5));
+    assert!(runtime.has_pending_call());
     let wakes = Arc::new(WakeCount::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
@@ -159,20 +171,8 @@ async fn check_pending_calls() {
         assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
         assert!(run.as_mut().poll(&mut cx).is_pending());
         assert_eq!(state.first_awaits.get(), 1);
-    }
-    // Dropping the run future preserves work between its first and second awaits.
-    assert!(runtime.has_pending_call());
-    assert_eq!(state.dropped.get(), 0);
-    assert_eq!(runtime.run(100).unwrap(), ExecutionExit::HostReturn);
-    assert_eq!(runtime.machine().cpu().snapshot(), suspended);
-    assert_eq!(
-        runtime.run_async(0).await.unwrap(),
-        ExecutionExit::BudgetExhausted
-    );
-    {
-        let mut run = pin!(runtime.run_async(5));
-        assert!(run.as_mut().poll(&mut cx).is_pending());
         assert_eq!(state.started.get(), 1);
+        assert_eq!(state.dropped.get(), 0);
         state.send(&[20]);
         assert!(run.as_mut().poll(&mut cx).is_pending());
         assert_eq!(state.started.get(), 2);
@@ -206,8 +206,31 @@ async fn check_pending_calls() {
     assert!(!runtime.has_pending_call());
     assert_eq!(state.dropped.get(), 3);
     assert_eq!(state.completed.get(), 2);
-    // Cancellation leaves the continuation for the embedding to replace.
+
+    // Dropping an active handler releases its borrows and rejects accidental
+    // replay. Effects performed before cancellation remain visible.
+    runtime.machine().cpu().set_eip(0x100);
+    runtime.machine().cpu().set_sp(0xff00);
+    {
+        let mut run = pin!(runtime.run_async(10));
+        assert!(run.as_mut().poll(&mut cx).is_pending());
+        state.send(&[55]);
+        assert!(run.as_mut().poll(&mut cx).is_pending());
+    }
+    assert!(runtime.has_pending_call());
+    assert_eq!(runtime.machine().cpu().bx(), 55);
+    assert_eq!(state.dropped.get(), 4);
+    assert!(matches!(runtime.run(1), Err(Error::CancelledHostCall)));
+    assert!(matches!(
+        runtime.run_async(1).await,
+        Err(Error::CancelledHostCall)
+    ));
+    assert_eq!(state.started.get(), 4);
+    assert_eq!(state.completed.get(), 2);
+
+    // The embedding can replace the continuation and clear the interrupted call.
     runtime.machine().cpu().set_eip(0x400);
+    runtime.cancel_pending_call();
     runtime
         .machine()
         .memory()
@@ -222,16 +245,16 @@ async fn check_pending_calls() {
         .unwrap();
     runtime
         .install_hooks([Hook::new(0x400, |call| {
-            // The continuation need not name this hook. Both completions happen
-            // while stopped, even when the first completion defers more work.
+            // The continuation need not name this hook. Awaiting and completing
+            // the service must not enter guest code at this address.
             call.cpu().set_eip(0x500);
-            call.defer(std::future::ready(99), |call, value| {
+            call.defer(async |call| {
+                let value = std::future::ready(99).await;
                 call.cpu().set_bx(value);
-                call.defer(std::future::ready(value + 1), |call, value| {
-                    assert_eq!(call.cpu().bx(), 99);
-                    call.cpu().set_cx(value);
-                    std::ops::ControlFlow::Break(())
-                })
+                let value = std::future::ready(value + 1).await;
+                assert_eq!(call.cpu().bx(), 99);
+                call.cpu().set_cx(value);
+                std::ops::ControlFlow::Break(())
             })
         })])
         .await
@@ -248,12 +271,12 @@ async fn check_pending_calls() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn deferred_calls_keep_progress_and_resume_with_the_same_budget() {
+fn deferred_handlers_borrow_live_state_and_preserve_the_budget() {
     pollster::block_on(check_pending_calls());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn deferred_calls_keep_progress_and_resume_with_the_same_budget() {
+async fn deferred_handlers_borrow_live_state_and_preserve_the_budget() {
     check_pending_calls().await;
 }

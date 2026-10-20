@@ -62,6 +62,7 @@ pub struct Runtime<B: RuntimeBackend> {
     mapping: B::Memory,
     dispatch_table: DispatchTable<B>,
     host_imports: Vec<Import<'static, B>>,
+    host_call_incomplete: bool,
 }
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
@@ -118,6 +119,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             mapping,
             dispatch_table,
             host_imports,
+            host_call_incomplete: false,
         };
         let instance = runtime.instantiate(&interpreter.bytes, &[]).await?;
         let backend = &mut runtime.storage.access;

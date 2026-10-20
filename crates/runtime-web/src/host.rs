@@ -2,7 +2,7 @@ use super::{Memory, Store, WebBackend};
 use js_sys::Function as JsFunction;
 use relocade_compiler::{Results, ValueType};
 use relocade_runtime::wasm::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
-use std::rc::Rc;
+use std::{cell::RefMut, rc::Rc};
 use wasm_bindgen::{
     closure::Closure,
     convert::{FromWasmAbi, ReturnWasmAbi},
@@ -24,7 +24,7 @@ macro_rules! host_function {
             ) -> JsFunction {
                 let store = Rc::clone(&self.store);
                 let closure = Closure::<dyn Fn($($parameter::Carrier),*) -> R::Carrier>::new(move |$($argument),*| {
-                    callback(Context(&mut *store.borrow_mut()), $($argument),*)
+                    callback(Context(store.borrow_mut()), $($argument),*)
                 });
                 let function = closure.as_ref().unchecked_ref::<JsFunction>().clone();
                 self.callbacks.push(Box::new(closure));
@@ -41,7 +41,7 @@ host_function!(A: a, B: b, C: c);
 host_function!(A: a, B: b, C: c, D: d);
 
 /// Scoped access to host state and memories, inside or outside a callback.
-pub struct Context<'a, T>(pub(super) &'a mut Store<T>);
+pub struct Context<'a, T>(pub(super) RefMut<'a, Store<T>>);
 
 impl<T> WasmContext for Context<'_, T> {
     type State = T;

@@ -91,8 +91,8 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
         RefMut::map(self.store.borrow_mut(), |store| &mut store.state)
     }
 
-    fn with_context<R>(&mut self, f: impl FnOnce(Context<'_, T>) -> R) -> R {
-        f(Context(&mut self.store.borrow_mut()))
+    fn context(&mut self) -> Context<'_, T> {
+        Context(self.store.borrow_mut())
     }
 
     async fn compile(&self, bytes: &[u8]) -> Result<Self::Module> {

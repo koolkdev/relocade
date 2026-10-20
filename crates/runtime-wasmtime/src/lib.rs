@@ -78,8 +78,8 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
         self.store.data_mut()
     }
 
-    fn with_context<R>(&mut self, f: impl FnOnce(Context<'_, T>) -> R) -> R {
-        f(Context(self.store.as_context_mut()))
+    fn context(&mut self) -> Context<'_, T> {
+        Context(self.store.as_context_mut())
     }
 
     /// Native compilation completes synchronously on the calling thread.
