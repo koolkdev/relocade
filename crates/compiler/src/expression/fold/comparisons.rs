@@ -260,6 +260,9 @@ impl Folder<'_> {
     }
 
     pub(super) fn fold_zero_test(&mut self, input: usize, nonzero: bool) -> Option<usize> {
+        if let Some(source) = self.normalized_shift_source(input) {
+            return Some(self.zero_test(source, nonzero));
+        }
         if nonzero && self.values.bounds[input].unsigned <= 1 {
             return Some(input);
         }
