@@ -1,6 +1,9 @@
 //! File creation, including unique temporary names, shares DOS handle policy.
 
-use super::{Files, ARCHIVE_ATTRIBUTE, HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE, SYSTEM_ATTRIBUTE};
+use super::{
+    AccessMode, Files, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING, HIDDEN_ATTRIBUTE,
+    READ_ONLY_ATTRIBUTE, SYSTEM_ATTRIBUTE,
+};
 use crate::{error::DosError, path};
 use std::io::ErrorKind;
 
@@ -23,6 +26,9 @@ impl Files {
             != 0
         {
             return Err(DosError::AccessDenied);
+        }
+        if let Some(handle) = self.open_device(path, AccessMode::ReadWrite)? {
+            return Ok(handle);
         }
         let path = self.file_path(path)?;
         let filesystem = self.drives.get(path.drive).unwrap();
@@ -51,7 +57,12 @@ impl Files {
             Err(_) => return Err(DosError::AccessDenied),
         };
         // Existing files are truncated only after sharing and capacity checks.
-        let handle = self.open_file(file.clone(), path.clone(), 2)?;
+        let handle = self.open_file(
+            file.clone(),
+            path.clone(),
+            AccessMode::ReadWrite,
+            COMPATIBILITY_SHARING,
+        )?;
         self.write(handle, &[])
             .expect("truncating a new writable handle does not allocate");
         file.set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);

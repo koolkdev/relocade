@@ -1,7 +1,7 @@
 use super::buffers::{transfer_count, write_wrapping};
 use crate::{
     error::DosError,
-    files::{CreateMode, HandleType},
+    files::{CreateMode, Device, HandleType},
     interrupt::return_result,
     path::MAX_PATH_BYTES,
     DosState,
@@ -126,10 +126,12 @@ pub(super) fn force_duplicate(call: &mut HostCall<'_, DosState>) -> ControlFlow<
 /// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
 pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let handle = call.cpu().bx();
-    match call.state().files.handle_type(handle) {
-        Ok(HandleType::ConsoleInput) => return super::console::read_handle(call),
-        Ok(HandleType::File) => {}
-        Ok(HandleType::ConsoleOutput | HandleType::Auxiliary | HandleType::Printer) => {
+    match call.state().files.readable_handle_type(handle) {
+        Ok(HandleType::Device(Device::Console(stream))) => {
+            return super::console::read_handle(call, stream);
+        }
+        Ok(HandleType::File | HandleType::Device(Device::Null)) => {}
+        Ok(HandleType::Device(Device::Auxiliary | Device::Printer)) => {
             return return_result(call, Err(DosError::AccessDenied));
         }
         Err(error) => return return_result(call, Err(error)),

@@ -1,4 +1,6 @@
 mod common;
+#[path = "handles/devices.rs"]
+mod devices;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;

@@ -1,10 +1,13 @@
 //! DOS open handles, shared cursors and I/O.
 
-use super::{CharacterOutput, Files, ARCHIVE_ATTRIBUTE};
+use super::{
+    devices::OpenDevice, AccessMode, CharacterOutput, Device, Files, ARCHIVE_ATTRIBUTE,
+    COMPATIBILITY_SHARING,
+};
 use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
 use relocade_vfs::File;
 use std::{
-    cell::{Cell, RefCell, RefMut},
+    cell::{RefCell, RefMut},
     rc::Rc,
 };
 
@@ -14,28 +17,21 @@ pub(super) const HANDLE_COUNT: usize = 20;
 #[derive(Clone, Copy)]
 pub(crate) enum HandleType {
     File,
-    ConsoleInput,
-    ConsoleOutput,
-    Auxiliary,
-    Printer,
+    Device(Device),
 }
 
 #[derive(Clone)]
 pub(super) enum OpenHandle {
     // Separate opens have separate cursors; duplicated handles share this record.
     File(Rc<RefCell<OpenFile>>),
-    ConsoleInput { eof: Rc<Cell<bool>> },
-    ConsoleOutput(OutputStream),
-    Auxiliary,
-    Printer,
+    Device(Rc<OpenDevice>),
 }
 
 pub(super) struct OpenFile {
     file: File,
     path: ResolvedPath,
     position: u32,
-    readable: bool,
-    writable: bool,
+    access: AccessMode,
     deny_read: bool,
     deny_write: bool,
     compatibility: bool,
@@ -54,7 +50,8 @@ impl Files {
         &mut self,
         file: File,
         path: ResolvedPath,
-        mode: u8,
+        access: AccessMode,
+        sharing: u8,
     ) -> Result<u16, DosError> {
         if file.len() > u64::from(u32::MAX) {
             return Err(DosError::AccessDenied);
@@ -63,11 +60,10 @@ impl Files {
             file,
             path,
             position: 0,
-            readable: mode & 3 != 1,
-            writable: mode & 3 != 0,
-            deny_read: matches!(mode & 0x70, 0x10 | 0x30),
-            deny_write: matches!(mode & 0x70, 0x10 | 0x20),
-            compatibility: mode & 0x70 == 0,
+            access,
+            deny_read: matches!(sharing, 0x10 | 0x30),
+            deny_write: matches!(sharing, 0x10 | 0x20),
+            compatibility: sharing == COMPATIBILITY_SHARING,
             written: false,
         };
         let read_only = entry.file.is_read_only();
@@ -77,13 +73,13 @@ impl Files {
             };
             let open = open.borrow();
             open.file.same_file(&entry.file)
-                && ((entry.readable && open.deny_read)
-                    || (entry.writable && open.deny_write)
+                && ((entry.access.can_read() && open.deny_read)
+                    || (entry.access.can_write() && open.deny_write)
                     // New deny-read/write modes exempt this process's existing accesses.
                     || (entry.deny_read && entry.deny_write)
                     // Compatibility and explicit sharing may mix only for read-only files.
                     || (open.compatibility != entry.compatibility
-                        && !(read_only && !open.writable && !entry.writable)))
+                        && !(read_only && !open.access.can_write() && !entry.access.can_write())))
         }) {
             return Err(DosError::AccessDenied);
         }
@@ -102,24 +98,33 @@ impl Files {
     pub(crate) fn handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
         Ok(match self.handle(handle)? {
             OpenHandle::File(_) => HandleType::File,
-            OpenHandle::ConsoleInput { .. } => HandleType::ConsoleInput,
-            OpenHandle::ConsoleOutput(_) => HandleType::ConsoleOutput,
-            OpenHandle::Auxiliary => HandleType::Auxiliary,
-            OpenHandle::Printer => HandleType::Printer,
+            OpenHandle::Device(device) => HandleType::Device(device.kind),
         })
     }
 
-    /// EOF belongs to the open console input record, including all its duplicates.
-    pub(crate) fn console_eof(&self, handle: u16) -> &Cell<bool> {
-        match self.handle(handle).expect("validated console input handle") {
-            OpenHandle::ConsoleInput { eof } => eof,
-            _ => unreachable!("console input handle"),
+    pub(crate) fn readable_handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
+        let readable = match self.handle(handle)? {
+            OpenHandle::File(file) => file.borrow().access.can_read(),
+            OpenHandle::Device(device) => device.access.can_read(),
+        };
+        if !readable {
+            return Err(DosError::AccessDenied);
         }
+        self.handle_type(handle)
     }
 
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
+        if let OpenHandle::Device(device) = self.handle(handle)? {
+            if !device.access.can_read() || !matches!(device.kind, Device::Null) {
+                return Err(DosError::AccessDenied);
+            }
+            if !buffer.is_empty() {
+                device.set_eof(true);
+            }
+            return Ok(0);
+        }
         let mut open = self.file_mut(handle)?;
-        if !open.readable {
+        if !open.access.can_read() {
             return Err(DosError::AccessDenied);
         }
         let count = open
@@ -135,17 +140,17 @@ impl Files {
     }
 
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
-        let console = match self.handle(handle)? {
-            OpenHandle::ConsoleInput { eof } => {
-                // CON accepts output through its input handle too. Even a zero-byte
-                // handle write clears EOF on that open record and its duplicates.
-                eof.set(false);
-                Some(OutputStream::Stdout)
+        if let OpenHandle::Device(device) = self.handle(handle)? {
+            if !device.access.can_write() {
+                return Err(DosError::AccessDenied);
             }
-            OpenHandle::ConsoleOutput(stream) => Some(*stream),
-            _ => None,
-        };
-        if let Some(stream) = console {
+            // Even a zero-byte handle write clears EOF on this record and its duplicates.
+            device.set_eof(false);
+            let stream = match device.kind {
+                Device::Console(stream) => stream,
+                Device::Null => return Ok(bytes.len()),
+                Device::Auxiliary | Device::Printer => return Err(DosError::AccessDenied),
+            };
             // Cooked console writes stop before Ctrl-Z and count source bytes,
             // including tabs expanded by the shared character-output path.
             let count = bytes
@@ -158,7 +163,7 @@ impl Files {
             return Ok(count);
         }
         let mut open = self.file_mut(handle)?;
-        if !open.writable {
+        if !open.access.can_write() {
             return Err(DosError::AccessDenied);
         }
         if bytes.is_empty() {
@@ -184,6 +189,13 @@ impl Files {
     }
 
     pub(crate) fn seek(&mut self, handle: u16, origin: u8, offset: u32) -> Result<u32, DosError> {
+        let open = self.handle(handle)?;
+        if origin > 2 {
+            return Err(DosError::InvalidFunction);
+        }
+        if matches!(open, OpenHandle::Device(_)) {
+            return Ok(0);
+        }
         let mut open = self.file_mut(handle)?;
         let base = match origin {
             0 => 0,
@@ -259,28 +271,13 @@ impl Files {
 
     pub(crate) fn device_information(&self, handle: u16) -> Result<u16, DosError> {
         const FILE_NOT_WRITTEN: u16 = 1 << 6;
-        // Bit 7 identifies a device handle; DH includes the character-driver attribute.
-        const CHARACTER_DEVICE: u16 = (1 << 15) | (1 << 7);
-        const INPUT_NOT_EOF: u16 = 1 << 6;
-        const STANDARD_INPUT: u16 = 1;
-        const STANDARD_OUTPUT: u16 = 2;
         Ok(match self.handle(handle)? {
             OpenHandle::File(file) => {
                 let file = file.borrow();
                 u16::from(file.path.drive as u8 - b'A')
                     | if file.written { 0 } else { FILE_NOT_WRITTEN }
             }
-            // Console handles describe CON, regardless of their access direction.
-            OpenHandle::ConsoleInput { eof } => {
-                CHARACTER_DEVICE
-                    | STANDARD_INPUT
-                    | STANDARD_OUTPUT
-                    | if eof.get() { 0 } else { INPUT_NOT_EOF }
-            }
-            OpenHandle::ConsoleOutput(_) => {
-                CHARACTER_DEVICE | INPUT_NOT_EOF | STANDARD_INPUT | STANDARD_OUTPUT
-            }
-            OpenHandle::Auxiliary | OpenHandle::Printer => CHARACTER_DEVICE | INPUT_NOT_EOF,
+            OpenHandle::Device(device) => device.information(),
         })
     }
 
@@ -291,21 +288,23 @@ impl Files {
                 let file = file.borrow();
                 u64::from(file.position) < file.file.len()
             }
-            OpenHandle::ConsoleInput { .. } | OpenHandle::ConsoleOutput(_) => {
-                self.stdio.input.has_input()
-            }
-            OpenHandle::Auxiliary | OpenHandle::Printer => false,
+            OpenHandle::Device(device) => match device.kind {
+                Device::Console(_) => self.stdio.input.has_input(),
+                Device::Null => true,
+                Device::Auxiliary | Device::Printer => false,
+            },
         })
     }
 
     pub(crate) fn output_ready(&self, handle: u16) -> Result<bool, DosError> {
         Ok(match self.handle(handle)? {
             // DOS reports files ready even when opened for reading only.
-            OpenHandle::File(_)
-            | OpenHandle::ConsoleInput { .. }
-            | OpenHandle::ConsoleOutput(_) => true,
-            // These standard device slots have no attached host streams yet.
-            OpenHandle::Auxiliary | OpenHandle::Printer => false,
+            OpenHandle::File(_) => true,
+            OpenHandle::Device(device) => match device.kind {
+                Device::Console(_) | Device::Null => true,
+                // These standard device slots have no attached host streams yet.
+                Device::Auxiliary | Device::Printer => false,
+            },
         })
     }
 
@@ -314,13 +313,16 @@ impl Files {
         self.stdio.clear();
         self.search_directories.clear();
         for (slot, device) in self.handles.iter_mut().zip([
-            OpenHandle::ConsoleInput { eof: Rc::default() },
-            OpenHandle::ConsoleOutput(OutputStream::Stdout),
-            OpenHandle::ConsoleOutput(OutputStream::Stderr),
-            OpenHandle::Auxiliary,
-            OpenHandle::Printer,
+            Device::Console(OutputStream::Stdout),
+            Device::Console(OutputStream::Stdout),
+            Device::Console(OutputStream::Stderr),
+            Device::Auxiliary,
+            Device::Printer,
         ]) {
-            *slot = Some(device);
+            *slot = Some(OpenHandle::Device(Rc::new(OpenDevice::new(
+                device,
+                AccessMode::ReadWrite,
+            ))));
         }
     }
 

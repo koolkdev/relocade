@@ -149,10 +149,13 @@ fn return_line(
     return_from_interrupt(call)
 }
 
-/// AH=3Fh on a console input handle: read from one edited line, retaining its remainder.
-pub(super) fn read_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+/// AH=3Fh on a console handle: read from one edited line, retaining its remainder.
+pub(super) fn read_handle(
+    call: &mut HostCall<'_, DosState>,
+    stream: OutputStream,
+) -> ControlFlow<ExecutionExit> {
     let handle = call.cpu().bx();
-    if call.state().files.console_eof(handle).get() {
+    if call.state().files.console_eof(handle) {
         call.cpu().set_ax(0);
         return return_result(call, Ok(()));
     }
@@ -162,13 +165,13 @@ pub(super) fn read_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<Exec
     let mut line = LineInput::new(
         CONSOLE_LINE_CAPACITY,
         handle,
-        CharacterOutput::Console(OutputStream::Stdout),
+        CharacterOutput::Console(stream),
     );
     match line.read_available(&mut call.state_mut().files) {
-        Ok(true) => return_handle_line(call, line.bytes),
+        Ok(true) => return_handle_line(call, line.bytes, stream),
         Ok(false) => call.defer(async move |call| {
             match line.read_remaining(&mut call.state_mut().files).await {
-                Ok(()) => return_handle_line(call, line.bytes),
+                Ok(()) => return_handle_line(call, line.bytes, stream),
                 Err(error) => return_result(call, Err(error)),
             }
         }),
@@ -179,12 +182,13 @@ pub(super) fn read_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<Exec
 fn return_handle_line(
     call: &mut HostCall<'_, DosState>,
     mut bytes: Vec<u8>,
+    stream: OutputStream,
 ) -> ControlFlow<ExecutionExit> {
     let handle = call.cpu().bx();
     let eof = bytes.first() == Some(&0x1a);
-    call.state().files.console_eof(handle).set(eof);
+    call.state().files.set_console_eof(handle, eof);
     let stdio = &mut call.state_mut().files.stdio;
-    stdio.output(OutputStream::Stdout).extend(b"\n");
+    stdio.output(stream).extend(b"\n");
     // Ctrl-Z at the start of a console line reports EOF.
     if !eof {
         bytes.push(b'\n');
