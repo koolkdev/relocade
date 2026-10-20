@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler", "crates/x86", "crates/interpreter", "crates/test-support", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/runtime-web", "crates/vfs", "crates/bios", "crates/dos"]
-default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/vfs", "crates/bios", "crates/dos"]
+members = ["crates/compiler", "crates/x86", "crates/interpreter", "crates/test-support", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/runtime-web", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer"]
+default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/runtime", "crates/runtime-wasmtime", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer"]
 
 [workspace.package]
 version = "0.0.0"
@@ -13,6 +13,7 @@ publish = false
 relocade-test-support = { path = "crates/test-support" }
 wasm-encoder = { version = "=0.254.0", default-features = false }
 wasmtime = { version = "=50.0.0-rc.1", default-features = false, features = ["cranelift", "runtime", "std", "threads"] }
+wgpu = "=30.0.1"
 
 # Tests construct and compile Wasm at runtime. Keep assertions and debug info,
 # but optimize that work, including the Wasmtime compiler dependencies.
