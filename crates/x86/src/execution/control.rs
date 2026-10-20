@@ -52,18 +52,25 @@ impl ExecutionBuilder<'_, '_> {
         Ok(taken.select(target, fallthrough))
     }
 
+    pub(crate) fn known_successors(&self) -> Vec<u32> {
+        if !self.can_continue {
+            return Vec::new();
+        }
+        let mut successors = self.successors.clone();
+        successors.sort_unstable();
+        successors.dedup();
+        successors
+    }
+
     /// Uses direct tail calls for known successors in this immutable group.
     /// Every edge publishes state and checks the budget before entering its target.
     pub(crate) fn dispatch_linked(self, entries: &BTreeMap<u32, Func>) -> Result<(), BuildError> {
         let runtime = self.runtime;
-        let mut successors: Vec<_> = self
-            .successors
-            .iter()
-            .copied()
+        let successors: Vec<_> = self
+            .known_successors()
+            .into_iter()
             .filter(|eip| entries.contains_key(eip))
             .collect();
-        successors.sort_unstable();
-        successors.dedup();
         self.finish(true, |mut body, eip| {
             if let Some(target) = body.constant_bits(eip)? {
                 if successors.contains(&(target as u32)) {

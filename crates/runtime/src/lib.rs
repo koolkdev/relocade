@@ -9,7 +9,7 @@
 //!
 //! Managed groups capture readable code with [`Runtime::prepare_group`] and
 //! publish it with [`Runtime::install_group`]. Captures include their execution
-//! identity and validity generation; publication rechecks instruction bytes.
+//! identity; publication rechecks consumed instruction bytes and fixed entries.
 //! Guest stores, stopped memory edits and hook memory edits retire every entry
 //! of affected groups before changing the backing. Page-map watches cover RAM
 //! aliases, including writable aliases of ROM code. Ordinary RAM accesses retain
@@ -27,6 +27,13 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! [`Runtime::capture_group`] and [`Runtime::capture_connected_group`] only copy
+//! a bounded readable code image. The resulting [`CodeSnapshot`] can move to a
+//! compiler thread: `snapshot.compile()` performs discovery and Wasm lowering,
+//! without borrowing the runtime. A backend compiles `prepared.wasm()` and returns
+//! [`CompiledGroup`]; [`Runtime::publish_group`] then binds the guest's private
+//! imports and validates the consumed code before exposing any entries.
 //!
 //! ```
 //! use relocade_machine::MachineConfig;
@@ -62,7 +69,7 @@ pub mod wasm;
 
 pub use backend::RuntimeBackend;
 pub use callback::{with_host_call, HostCall};
-pub use code::{BlockRequest, GroupId, PreparedGroup};
+pub use code::{BlockRequest, CodeSnapshot, CompiledGroup, GroupId, PreparedGroup};
 pub use dispatch::DispatchEntry;
 use dispatch::DispatchTable;
 pub use error::{Error, Result};

@@ -17,6 +17,7 @@ pub(super) enum Linking {
 }
 
 pub(super) struct BlockModule<'a> {
+    pub(super) entries: Vec<BlockEntry>,
     compiler: &'a Compiler,
     program: Program,
     cpu: Cpu,
@@ -32,17 +33,25 @@ impl<'a> BlockModule<'a> {
         snapshots: &[BlockSnapshot<'_>],
         linking: Linking,
     ) -> Result<CompiledBlocks, BlockError> {
-        let blocks = decode::blocks(snapshots, compiler.target, &compiler.block_boundaries)?;
-        let mut module = Self::new(compiler, &blocks, linking);
-        let mut entries = Vec::with_capacity(blocks.len());
-        for block in blocks {
-            entries.push(module.define_block(block)?);
-        }
+        let module = Self::lower(compiler, snapshots, linking)?;
         Ok(CompiledBlocks {
             bytes: module.program.compile()?,
-            entries,
+            entries: module.entries,
             execution_target: compiler.target,
         })
+    }
+
+    pub(super) fn lower(
+        compiler: &'a Compiler,
+        snapshots: &[BlockSnapshot<'_>],
+        linking: Linking,
+    ) -> Result<Self, BlockError> {
+        let blocks = decode::blocks(snapshots, compiler.target, &compiler.block_boundaries)?;
+        let mut module = Self::new(compiler, &blocks, linking);
+        for block in blocks {
+            module.define_block(block)?;
+        }
+        Ok(module)
     }
 
     fn new(compiler: &'a Compiler, blocks: &[DecodedBlock], linking: Linking) -> Self {
@@ -60,6 +69,7 @@ impl<'a> BlockModule<'a> {
             })
             .collect();
         Self {
+            entries: Vec::with_capacity(blocks.len()),
             compiler,
             program,
             cpu,
@@ -70,7 +80,7 @@ impl<'a> BlockModule<'a> {
         }
     }
 
-    fn define_block(&mut self, block: DecodedBlock) -> Result<BlockEntry, BlockError> {
+    fn define_block(&mut self, mut block: DecodedBlock) -> Result<(), BlockError> {
         let function = self.functions[&block.entry.start_eip];
         self.program.define(function, |body| {
             let mut execution = ExecutionBuilder::new(
@@ -87,13 +97,15 @@ impl<'a> BlockModule<'a> {
             for instruction in block.instructions {
                 execution.execute(instruction)?;
             }
+            block.entry.successors = execution.known_successors();
             match self.linking {
                 Linking::Dispatch => execution.dispatch(),
                 Linking::SameModule => execution.dispatch_linked(&self.functions),
             }
         })?;
         self.export_block(&block.entry, function)?;
-        Ok(block.entry)
+        self.entries.push(block.entry);
+        Ok(())
     }
 
     fn export_block(&mut self, entry: &BlockEntry, function: Func) -> Result<(), BlockError> {

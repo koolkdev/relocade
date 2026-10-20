@@ -51,6 +51,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
     successors: Vec<u32>,
+    can_continue: bool,
 }
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
@@ -80,6 +81,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             can_fallback: false,
             observed_cpu: None,
             successors: Vec::new(),
+            can_continue: true,
         })
     }
 
@@ -247,6 +249,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         condition: impl Into<Val<I1>>,
         exception: Exception<Val<I32>>,
     ) -> Result<(), BuildError> {
+        let condition = condition.into();
+        if self.body.constant_bits(&condition)? == Some(1) {
+            self.can_continue = false;
+        }
         self.body.if_(condition, |fault_body| {
             self.state
                 .fault(fault_body, &self.eip, self.completed, exception)
@@ -266,6 +272,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         condition: impl Into<Val<I1>>,
         opcode: impl Into<Val<I8>>,
     ) -> Result<(), BuildError> {
+        let condition = condition.into();
+        if self.body.constant_bits(&condition)? == Some(1) {
+            self.can_continue = false;
+        }
         self.body.if_(condition, |mut body| {
             self.state.publish(&mut body, &self.eip, self.completed)?;
             exit::unsupported(body, &self.eip, opcode)

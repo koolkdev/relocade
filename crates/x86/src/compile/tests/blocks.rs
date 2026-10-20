@@ -40,22 +40,26 @@ fn entries_report_consumed_spans_in_input_order() {
             BlockEntry {
                 start_eip: u32::MAX,
                 byte_len: 2,
-                export: "block_ffffffff".into()
+                export: "block_ffffffff".into(),
+                successors: vec![1]
             },
             BlockEntry {
                 start_eip: 0x1000,
                 byte_len: 1,
-                export: "block_1000".into()
+                export: "block_1000".into(),
+                successors: vec![0x1001]
             },
             BlockEntry {
                 start_eip: 0x1001,
                 byte_len: 3,
-                export: "block_1001".into()
+                export: "block_1001".into(),
+                successors: vec![0x1001]
             },
             BlockEntry {
                 start_eip: 1,
                 byte_len: 2,
-                export: "block_1".into()
+                export: "block_1".into(),
+                successors: vec![]
             },
         ]
     );
@@ -331,4 +335,29 @@ fn exports_preserve_execution_boundaries() {
 #[test]
 fn entries_share_memory_helpers() {
     shared_memory_helpers();
+}
+
+#[test]
+fn successor_analysis_uses_compiled_control_flow_boundaries() {
+    let compiler = Compiler::new(SegmentProfile::Flat32)
+        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false));
+    for (bytes, expected) in [
+        (&[0x74, 4][..], vec![0x1002, 0x1006]), // JZ: both outcomes
+        (&[0x90][..], vec![0x1001]),            // instruction limit
+        (&[0xeb, 0xfe][..], vec![0x1000]),      // direct backedge
+        (&[0xff, 0xe0][..], vec![]),            // JMP EAX
+        (&[0x0f, 0x0b][..], vec![]),            // UD2 always faults
+        (&[0x0f, 0x44, 0xc0][..], vec![]),      // disabled CMOV always faults
+        (&[0xec][..], vec![]),                  // IN AL,DX requires dispatch
+        (&[0x8e, 0xd8][..], vec![]),            // MOV DS,AX requires dispatch
+    ] {
+        let input = [BlockSnapshot {
+            start_eip: 0x1000,
+            bytes,
+            instruction_limit: 1,
+        }];
+        let analyzed = compiler.analyze_blocks(&input).unwrap();
+        assert_eq!(analyzed[0].successors, expected, "{bytes:x?}");
+        assert_eq!(analyzed, compiler.compile_blocks(&input).unwrap().entries);
+    }
 }

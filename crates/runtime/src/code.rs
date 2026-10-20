@@ -1,10 +1,14 @@
 //! Capturing, admitting and publishing runtime-owned snapshot groups.
 
 mod cache;
+mod capture;
+mod compile;
 use crate::{DispatchEntry, Result, Runtime, RuntimeBackend, RuntimeState};
 pub(crate) use cache::CodeCache;
 use cache::{CodeState, Group};
-use relocade_x86::{BlockSnapshot, CompiledBlocks, Compiler, PhysicalMapping, PhysicalMemoryMap};
+pub use capture::CodeSnapshot;
+use compile::CompiledCode;
+use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex, Weak},
@@ -21,14 +25,33 @@ pub struct BlockRequest {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct GroupId(u64);
 
-/// Owned compilation inputs. Only the runtime that captured them can publish
-/// them, and intervening writes or entry changes make them stale.
+/// Lowered code and the exact instruction bytes it consumed. Publication checks
+/// ownership, consumed bytes and fixed entry boundaries again.
 pub struct PreparedGroup {
     owner: Weak<Mutex<CodeState>>,
-    generation: u64,
-    module: CompiledBlocks,
-    snapshots: Vec<Vec<u8>>,
-    group: Group,
+    code: CompiledCode,
+}
+
+impl PreparedGroup {
+    /// Wasm bytes for engine compilation. No guest imports are bound yet.
+    pub fn wasm(&self) -> &[u8] {
+        &self.code.module.bytes
+    }
+}
+
+/// A prepared group coupled to the engine module compiled from its Wasm bytes.
+/// It contains no guest instance and is published only by the capturing runtime.
+pub struct CompiledGroup<M> {
+    prepared: PreparedGroup,
+    module: M,
+}
+
+impl<M> CompiledGroup<M> {
+    /// Backends must supply the module compiled from `prepared.wasm()` using a
+    /// compatible engine. Instantiation stays on the runtime's owning thread.
+    pub fn new(prepared: PreparedGroup, module: M) -> Self {
+        Self { prepared, module }
+    }
 }
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
@@ -37,109 +60,62 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// or an instruction sequence the snapshot compiler cannot translate.
     /// The runtime owns byte validity after publication, including backing aliases.
     pub fn prepare_group(&mut self, requests: &[BlockRequest]) -> Result<Option<PreparedGroup>> {
-        if requests.is_empty() {
-            return Ok(None);
+        match self.capture_group(requests) {
+            Some(snapshot) => snapshot.compile(),
+            None => Ok(None),
         }
-        let cpu = self.machine().cpu().snapshot();
-        let base = cpu.segments.cs.base;
-        let cache = self.storage.code.as_ref().unwrap();
-        let state = cache.state.lock().unwrap();
-        let generation = state.generation;
-        let boundaries = state.boundaries();
-        let mut snapshots = Vec::with_capacity(requests.len());
-        for request in requests {
-            if request.start_eip > cpu.segments.cs.limit
-                || request.instruction_limit == 0
-                || state.fixed.contains(&base.wrapping_add(request.start_eip))
-            {
-                return Ok(None);
-            }
-            let max = (u64::from(cpu.segments.cs.limit) + 1 - u64::from(request.start_eip))
-                .min(u64::from(request.instruction_limit) * 15) as usize;
-            let mut bytes = Vec::with_capacity(max);
-            for index in 0..max {
-                let address = base
-                    .wrapping_add(request.start_eip)
-                    .wrapping_add(index as u32);
-                if index != 0 && boundaries.contains(&address) {
-                    break;
-                }
-                let backing_offset = match self.config.memory_map().get(address) {
-                    PhysicalMapping::Ram { backing_offset }
-                    | PhysicalMapping::Rom { backing_offset } => backing_offset,
-                    _ => break,
-                };
-                let mut byte = [0];
-                self.storage
-                    .access
-                    .read_memory(&self.storage.guest, backing_offset, &mut byte);
-                bytes.push(byte[0]);
-            }
-            snapshots.push(bytes);
-        }
-        let target = self.config.execution_target();
-        let compiler = Compiler::new(target.profile)
-            .with_cpu_model(target.cpu_model)
-            .with_code_base(base)
-            .with_block_boundaries(boundaries.iter().map(|address| address.wrapping_sub(base)));
-        let inputs: Vec<_> = requests
-            .iter()
-            .zip(&snapshots)
-            .map(|(request, bytes)| BlockSnapshot {
-                start_eip: request.start_eip,
-                bytes,
-                instruction_limit: request.instruction_limit,
-            })
-            .collect();
-        let module = match compiler.compile_blocks(&inputs) {
-            Ok(module) => module,
-            Err(relocade_x86::BlockError::Compiler(error)) => return Err(error.into()),
-            Err(_) => return Ok(None),
-        };
-        let mut pages = BTreeSet::new();
-        let mut spans = Vec::new();
-        for entry in &module.entries {
-            let start = base + entry.start_eip;
-            let end = start + entry.byte_len as u32;
-            spans.push(start..end);
-            for address in start..end {
-                let backing_offset = match self.config.memory_map().get(address) {
-                    PhysicalMapping::Ram { backing_offset }
-                    | PhysicalMapping::Rom { backing_offset } => backing_offset,
-                    _ => unreachable!("compiled bytes were captured from backing"),
-                };
-                pages.insert(backing_offset / PhysicalMemoryMap::PAGE_BYTES);
-            }
-        }
-        for (snapshot, entry) in snapshots.iter_mut().zip(&module.entries) {
-            snapshot.truncate(entry.byte_len);
-        }
-        Ok(Some(PreparedGroup {
-            owner: Arc::downgrade(&cache.state),
-            generation,
-            module,
-            snapshots,
-            group: Group { spans, pages },
-        }))
     }
 
-    /// Compiles/links in the engine and publishes only if the captured generation
-    /// and instruction bytes still belong to this runtime. Stale inputs return
-    /// None before publication.
-    /// External exports guard CS.base/EIP; local links bypass those admission guards.
+    /// Compiles in the engine and publishes a manually prepared group. Explicit
+    /// preparation may wait for compilation; automatic background work instead
+    /// uses [`Runtime::publish_group`] with an already compiled engine module.
     pub async fn install_group(&mut self, prepared: PreparedGroup) -> Result<Option<GroupId>> {
         if !self.group_is_current(&prepared) {
             return Ok(None);
         }
-        let instance = self.instantiate(&prepared.module.bytes, &[]).await?;
+        let module = self.storage.access.compile(prepared.wasm()).await?;
+        self.publish_group(CompiledGroup::new(prepared, module))
+            .await
+    }
+
+    /// Instantiates already compiled code with this guest's private imports and
+    /// publishes it while execution is stopped. Stale results return None.
+    /// External exports guard CS.base/EIP; local links bypass those admission guards.
+    pub async fn publish_group(
+        &mut self,
+        compiled: CompiledGroup<B::Module>,
+    ) -> Result<Option<GroupId>> {
+        let prepared = compiled.prepared;
         if !self.group_is_current(&prepared) {
             return Ok(None);
         }
+        let instance = self.instantiate_module(&compiled.module, &[]).await?;
+        if !self.group_is_current(&prepared) {
+            return Ok(None);
+        }
+        let mut group = Group {
+            spans: Vec::new(),
+            pages: BTreeSet::new(),
+        };
+        for entry in &prepared.code.module.entries {
+            let start = prepared.code.base + entry.start_eip;
+            let end = start + entry.byte_len as u32;
+            group.spans.push(start..end);
+            for address in start..end {
+                let backing = match self.config.memory_map().get(address) {
+                    PhysicalMapping::Ram { backing_offset }
+                    | PhysicalMapping::Rom { backing_offset } => backing_offset,
+                    _ => unreachable!("publication validated readable code"),
+                };
+                group.pages.insert(backing / PhysicalMemoryMap::PAGE_BYTES);
+            }
+        }
         let entries: Vec<_> = prepared
+            .code
             .module
             .entries
             .iter()
-            .zip(&prepared.group.spans)
+            .zip(&group.spans)
             .map(|(entry, span)| DispatchEntry {
                 address: span.start,
                 export: &entry.export,
@@ -150,38 +126,42 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         cache.before_entries(&mut self.storage.access, &addresses);
         self.dispatch_table
             .install(&mut self.storage.access, &instance, &entries)?;
-        Ok(Some(
-            cache.install(&mut self.storage.access, prepared.group),
-        ))
+        Ok(Some(cache.install(&mut self.storage.access, group)))
     }
 
     fn group_is_current(&self, prepared: &PreparedGroup) -> bool {
         let cache = self.storage.code.as_ref().unwrap();
         if !prepared.owner.ptr_eq(&Arc::downgrade(&cache.state))
-            || cache.state.lock().unwrap().generation != prepared.generation
+            || prepared.code.module.execution_target != self.config.execution_target()
         {
             return false;
         }
-        // Unpublished snapshots are not watched. Guest execution between capture
-        // and installation may have changed them through an ordinary RAM store.
+        let state = cache.state.lock().unwrap();
+        // Pending snapshots are unwatched: ordinary guest stores keep their
+        // existing fast path. Only consumed bytes and fixed entry boundaries
+        // affect admission; unrelated writes and managed publications do not.
         prepared
-            .group
-            .spans
+            .code
+            .module
+            .entries
             .iter()
-            .zip(&prepared.snapshots)
-            .all(|(span, bytes)| {
-                span.clone().zip(bytes).all(|(address, &expected)| {
-                    let backing = match self.config.memory_map().get(address) {
-                        PhysicalMapping::Ram { backing_offset }
-                        | PhysicalMapping::Rom { backing_offset } => backing_offset,
-                        _ => return false,
-                    };
-                    let mut current = [0];
-                    self.storage
-                        .access
-                        .read_memory(&self.storage.guest, backing, &mut current);
-                    current[0] == expected
-                })
+            .zip(&prepared.code.snapshots)
+            .all(|(entry, bytes)| {
+                let start = prepared.code.base + entry.start_eip;
+                let end = start + entry.byte_len as u32;
+                state.fixed.range(start..end).next().is_none()
+                    && (start..end).zip(bytes).all(|(address, &expected)| {
+                        let backing = match self.config.memory_map().get(address) {
+                            PhysicalMapping::Ram { backing_offset }
+                            | PhysicalMapping::Rom { backing_offset } => backing_offset,
+                            _ => return false,
+                        };
+                        let mut current = [0];
+                        self.storage
+                            .access
+                            .read_memory(&self.storage.guest, backing, &mut current);
+                        current[0] == expected
+                    })
             })
     }
 
