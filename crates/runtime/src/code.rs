@@ -130,6 +130,12 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         let cache = self.storage.code.as_ref().unwrap();
         let addresses: Vec<_> = entries.iter().map(|entry| entry.address).collect();
         cache.before_entries(&mut self.storage.access, &addresses);
+        cache.trim(
+            &mut self.storage.access,
+            usize::from(self.jit.config.max_groups.get()) - 1,
+        );
+        self.dispatch_table
+            .reclaim(&mut self.storage.access, &self.interpret)?;
         self.dispatch_table
             .install(&mut self.storage.access, &instance, &entries)?;
         Ok(Some(cache.install(&mut self.storage.access, group)))
@@ -180,6 +186,8 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         let addresses: Vec<_> = entries.iter().map(|entry| entry.address).collect();
         cache.before_entries(&mut self.storage.access, &addresses);
         self.dispatch_table
+            .reclaim(&mut self.storage.access, &self.interpret)?;
+        self.dispatch_table
             .install(&mut self.storage.access, instance, entries)?;
         cache.state.lock().unwrap().fixed.extend(addresses);
         Ok(())
@@ -196,5 +204,20 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             .unwrap()
             .groups
             .len()
+    }
+
+    /// Number of callable managed entries, excluding fixed modules and hooks.
+    pub fn compiled_entry_count(&self) -> usize {
+        self.storage
+            .code
+            .as_ref()
+            .unwrap()
+            .state
+            .lock()
+            .unwrap()
+            .groups
+            .values()
+            .map(|group| group.spans.len())
+            .sum()
     }
 }

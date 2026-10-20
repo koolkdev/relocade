@@ -7,6 +7,14 @@
 //! for native and web engines. [`Runtime::run_async`] can await host operations
 //! between synchronous Wasm calls.
 //!
+//! With a compiler worker installed, `run_async` queues hot interpreter entries
+//! and keeps executing while the worker discovers connected blocks and compiles
+//! a module. Ready results are published between cooperative execution slices.
+//! [`JitConfig`] controls promotion, compilation and cache bounds; synchronous
+//! [`Runtime::run`] exposes requests for callers using [`Runtime::queue_hot_request`].
+//! See the [worker contract](https://github.com/koolkdev/relocade/blob/main/crates/runtime/docs/worker-execution.md)
+//! for browser setup.
+//!
 //! Managed groups capture readable code with [`Runtime::prepare_group`] and
 //! publish it with [`Runtime::install_group`]. Captures include their execution
 //! identity; publication rechecks consumed instruction bytes and fixed entries.
@@ -62,6 +70,7 @@ mod error;
 mod execution;
 mod hooks;
 mod hotness;
+mod jit;
 mod memory;
 pub mod real_mode_interrupt;
 mod state;
@@ -75,6 +84,7 @@ pub use dispatch::DispatchEntry;
 use dispatch::DispatchTable;
 pub use error::{Error, Result};
 pub use hooks::Hook;
+pub use jit::JitConfig;
 pub use memory::SharedMemory;
 use relocade_machine::{Machine, MachineConfig};
 pub use relocade_x86::HotEntry;
@@ -97,6 +107,7 @@ pub struct Runtime<B: RuntimeBackend> {
     mapping: B::Memory,
     hotness: B::Memory,
     compilation: compilation::CompilationQueue<B::Module>,
+    jit: jit::JitState,
     execution_slice: std::num::NonZeroU64,
     dispatch_table: DispatchTable<B>,
     host_imports: Vec<Import<'static, B>>,
@@ -193,6 +204,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             mapping,
             hotness,
             compilation,
+            jit: jit::JitState::default(),
             execution_slice: std::num::NonZeroU64::new(65_536).unwrap(),
             dispatch_table,
             host_imports,

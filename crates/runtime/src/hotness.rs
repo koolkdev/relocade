@@ -6,7 +6,9 @@ use std::num::NonZeroU16;
 
 impl<B: RuntimeBackend> Runtime<B> {
     /// Enables or disables compilation requests, resetting previous heat and
-    /// pending work. Disabled by default. Counters run wholly in Wasm and apply
+    /// pending request. Disabled initially; `run_async` enables the configured
+    /// threshold when a compiler and lifetime allowance are available. Already
+    /// queued jobs are unaffected. Counters run wholly in Wasm and apply
     /// only to dispatch misses, never compiled links or interpreter guard fallback.
     pub fn set_hot_threshold(&mut self, threshold: Option<NonZeroU16>) {
         self.storage

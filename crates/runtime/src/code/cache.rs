@@ -64,7 +64,7 @@ impl<M: Clone> CodeCache<M> {
         let last = ((u64::from(offset) + len as u64 - 1) / u64::from(PhysicalMemoryMap::PAGE_BYTES))
             as u32;
         let mut state = self.state.lock().unwrap();
-        self.retire_matching(access, &mut state, |group| {
+        self.retire_matching(access, &mut state, |_, group| {
             group.pages.range(first..=last).next().is_some()
         });
     }
@@ -76,23 +76,35 @@ impl<M: Clone> CodeCache<M> {
         addresses: &[u32],
     ) {
         let mut state = self.state.lock().unwrap();
-        self.retire_matching(access, &mut state, |group| {
+        self.retire_matching(access, &mut state, |_, group| {
             addresses
                 .iter()
                 .any(|address| group.spans.iter().any(|span| span.contains(address)))
         });
     }
 
+    /// Evicts oldest whole groups until the live cache fits. Fixed entries are
+    /// outside this cache, and page watches remain until their last group retires.
+    pub(crate) fn trim(&self, access: &mut impl WasmMemoryAccess<Memory = M>, max_groups: usize) {
+        let mut state = self.state.lock().unwrap();
+        if state.groups.len() <= max_groups {
+            return;
+        }
+        let count = state.groups.len() - max_groups;
+        let oldest: BTreeSet<_> = state.groups.keys().take(count).copied().collect();
+        self.retire_matching(access, &mut state, |id, _| oldest.contains(&id));
+    }
+
     fn retire_matching(
         &self,
         access: &mut impl WasmMemoryAccess<Memory = M>,
         state: &mut CodeState,
-        predicate: impl Fn(&Group) -> bool,
+        predicate: impl Fn(GroupId, &Group) -> bool,
     ) {
         let ids: Vec<_> = state
             .groups
             .iter()
-            .filter(|(_, group)| predicate(group))
+            .filter(|(id, group)| predicate(**id, group))
             .map(|(&id, _)| id)
             .collect();
         if ids.is_empty() {

@@ -63,6 +63,14 @@ Pending snapshots do not watch pages: publication compares the instructions
 actually consumed, so ordinary data writes do not invalidate pending work.
 Published groups use the existing page-map bit and slow-path invalidation.
 
+`run_async` enables automatic promotion when a compiler is installed. Hot entries
+queue these owned captures, then keep interpreting. `JitConfig` bounds each job,
+the live group cache and lifetime accepted automatic jobs. Queue refusal and
+deduplication do not consume that lifetime allowance; failed, stale and
+untranslatable accepted jobs do. Exhausting it disables further promotion while
+existing compiled entries remain usable. Explicit `queue_group` and
+`install_group` calls leave lifetime resource policy to their caller.
+
 Jobs belong to the runtime, independently of each execution future. Replacing a
 compiler keeps accepted jobs counted until their completion. Worker failures are
 reported when collecting results, with no partial entries published.

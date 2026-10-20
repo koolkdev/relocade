@@ -21,8 +21,11 @@ functions use the default model without CPU observations.
 `Compiler::compile_blocks(&[BlockSnapshot { start_eip, bytes, instruction_limit }])`
 compiles several snapshot entries into one `CompiledBlocks` module. They share
 imports and generated helpers, with one required `execution_target` for the module.
-Its `entries` retain input order and report each `start_eip`, exported name and
-consumed `byte_len`; bytes after the compilation boundary are excluded. The byte
+Its `entries` retain input order and report each `start_eip`, exported name,
+consumed `byte_len` and sorted `successors` eligible for local links. Bytes after
+the compilation boundary are excluded. `Compiler::analyze_blocks` returns the
+same metadata using shared decoding/lowering without encoding a Wasm module;
+hosts can use it to discover connected entries before compiling their group. The byte
 span starts at the CS-relative EIP and advances with 32-bit wrapping.
 
 Every supplied start is an execution boundary when reached between instructions
@@ -180,6 +183,54 @@ Publish new mappings only outside execution. A watched slow write may retire
 entries after abandoning the compiled activation, before changing code bytes.
 The function table must already contain every published slot. Removing an address
 only changes lookup; the embedding owns function-slot and code lifetimes.
+
+## Automatic runtime compilation
+
+The `relocade-runtime` crate owns capture validity and publication for its real-mode
+machine. With a compiler installed, `Runtime::run_async(budget)` enables hotness
+tracking and queues `CompileRequest` exits while stopped. Discovery, lowering and
+engine compilation run on a separate native thread or browser worker; the guest
+continues interpreting while they are pending. Cooperative slices collect ready
+results and yield to host scheduling while retaining one absolute caller target,
+including across deferred host operations. The call returns ordinary budget,
+guest and host exits. Compilation does not introduce an elapsed-time guarantee.
+Browser embeddings explicitly configure their worker's module URLs; see the
+[worker contract](../../runtime/docs/worker-execution.md).
+
+`JitConfig` defaults to a threshold of 32 misses, at most 8 connected blocks with
+32 instructions per block, 64 live managed groups and 1,024 lifetime accepted
+automatic compilation jobs. Discovery follows static successors breadth first;
+known neighbors share direct tail calls inside one module. Fixed entries and
+hooks stop capture and remain dispatch destinations. Indirect successors are
+handled by dispatch and can become hot independently. Untranslatable jobs
+produce no entries; unavailable captures and busy queues decline immediately.
+Interpreter cooldown permits progress before retrying the same entry.
+
+`set_jit_config` resets heat and applies the live group limit immediately. Oldest
+whole groups are evicted first, preserving page watches used by other groups.
+Retired function slots release their previous references on return from Wasm or
+before publication, and later groups reuse them. The function table retains its
+high-water allocation. Some engines, including Wasmtime, retain instances for the
+store's lifetime, so automatic compilation also has a lifetime cap charged when
+the worker accepts a job. Failed, stale and untranslatable jobs consume that
+allowance; queue refusal and duplicate requests do not. On reaching
+it, existing groups remain usable and misses continue interpreting. Changing
+configuration does not reset the count; raising the cap permits further attempts.
+Explicit `install_group` calls share the live cache limit but leave preparation
+resource policy to their caller. Fixed modules and hooks are outside this cache.
+
+Synchronous callers can enable profiling and use `run`, then `queue_hot_request()`
+when an explicit compilation request arrives, and `publish_ready_groups().await`
+between runs. Queueing checks the current CS.base/EIP identity and consumes the
+pending request without waiting. `compiled_group_count`,
+`compiled_entry_count` and `jit_compilation_count` expose live cache size and
+lifetime accepted automatic jobs. `prepare_group`/`install_group` remain
+available when the embedding selects entries itself. Manual and automatic groups
+share snapshot capture, exact consumed-byte validation, alias-aware page watches
+and invalidation before writes. Pending snapshots do not add page watches.
+Dropping a run future at a slice preserves already completed guest work and
+pending compilation. Publication binds private guest imports on the execution
+owner and rejects stale results before exposing entries.
 
 ## Interpreter handoff
 

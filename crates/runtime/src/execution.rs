@@ -36,9 +36,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         self.enter(target)
     }
 
-    /// Runs in cooperative slices, publishing ready compiler results and awaiting
-    /// deferred host operations before continuing. Unfinished compilation never
-    /// delays guest execution. Slices and host waits retain one absolute caller
+    /// Runs in cooperative slices, queues hot entries on the compiler worker,
+    /// publishes ready results and awaits deferred host operations. Unfinished
+    /// compilation never delays guest execution; without a compiler, entries
+    /// continue interpreting. Slices and host waits retain one absolute caller
     /// instruction target; internal budget exits are not returned to the caller.
     /// Each budget exit yields to the scheduler, including the last short slice.
     /// Other exits and block-boundary overshoot match [`Runtime::run`].
@@ -58,6 +59,13 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         }
         if self.host_call_incomplete {
             return Err(Error::CancelledHostCall);
+        }
+        if self.has_compiler() && self.jit.can_compile() {
+            if self.hot_threshold().is_none() {
+                self.set_hot_threshold(Some(self.jit.config.hot_threshold));
+            }
+        } else if self.hot_threshold().is_some() {
+            self.set_hot_threshold(None);
         }
         let target = self.instruction_target(instruction_budget);
         let mut slice_target = self
@@ -80,6 +88,9 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
                     ControlFlow::Continue(()) => {}
                     ControlFlow::Break(exit) => return Ok(exit),
                 },
+                ExecutionExit::CompileRequest => {
+                    self.queue_hot_request()?;
+                }
                 exit => return Ok(exit),
             }
         }
@@ -110,7 +121,11 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             return Ok(ExecutionExit::Deferred);
         }
         self.storage.set_instruction_target(target);
+        self.dispatch_table
+            .reclaim(&mut self.storage.access, &self.interpret)?;
         let word = self.storage.access.call(&self.dispatch)? as u64;
+        self.dispatch_table
+            .reclaim(&mut self.storage.access, &self.interpret)?;
         ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
     }
 
