@@ -22,6 +22,9 @@ use relocade_x86::{CpuState, ExecutionExit};
 pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
 
 pub fn service(dos: &mut Dos<Backend<DosState>>, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
+    // Earlier async input may have enabled profiling. This synchronous fixture
+    // inspects one DOS service without servicing compilation requests.
+    dos.runtime().set_hot_threshold(None);
     {
         let mut machine = dos.runtime().machine();
         let mut cpu = machine.cpu();

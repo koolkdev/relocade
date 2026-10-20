@@ -21,6 +21,9 @@ that subset. The project is under development; the crates are not published.
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
+| [relocade-runtime](crates/runtime/src/lib.rs) | Guest execution, automatic hotblock compilation, code validity and host hooks. |
+| [relocade-runtime-wasmtime](crates/runtime-wasmtime/src/lib.rs) | Native Wasmtime backend. |
+| [relocade-runtime-web](crates/runtime-web/src/lib.rs) | Browser WebAssembly backend. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
@@ -43,20 +46,31 @@ dispatch and fault exits, segment resolution, and entry validity. Real16 uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
 
-The [future worker design](crates/runtime/docs/worker-execution.md) describes
-execution-task ownership, UI messaging and scheduling for an interactive embedding.
+For a managed guest, `relocade-runtime` provides `run_async(budget).await`: cold
+entries interpret, while a separate compiler thread or browser worker compiles hot
+entries and their direct successors into bounded modules with local links.
+`JitConfig` controls promotion and cache limits. Managed
+code pages use a page-map watch bit; writes fall back to the interpreter and retire
+affected groups in the slow path before modifying code. Ordinary RAM accesses
+keep their existing direct-access check. See the [runtime API](crates/runtime/src/lib.rs)
+and [automatic compilation contract](crates/x86/docs/host-integration.md#automatic-runtime-compilation).
+
+The [worker contract](crates/runtime/docs/worker-execution.md) describes browser
+compiler setup, execution-task ownership, UI messaging and cooperative scheduling.
 
 ## Build and test
 
-Cargo generates four interpreter modules on the build host, one for each execution
-profile. Each exports `step` and `run`. `relocade-interpreter::module(profile)`
-returns their embedded Wasm bytes, and `Runtime::new` uses them in both native and
-web builds. Starting a guest does not regenerate the interpreter. The backend
-still compiles the portable Wasm to native code when loading it.
+Cargo generates standalone and runtime interpreter modules on the build host
+for each of the four execution profiles. Each exports `step` and `run`.
+`relocade-interpreter::module(profile)` returns standalone Wasm;
+`runtime_module(profile)` adds registered-entry checks and hotness tracking for
+`Runtime::new` in native and web builds. Starting a guest does not regenerate the
+interpreter. The backend still compiles the portable Wasm to native code when loading it.
 
 `WasmBackend::compile(bytes)` compiles any module. Runtime startup retains only the
-four interpreter assets in a shared `ModuleCache`, using that same compilation
-method on a cache miss. Dispatcher and guest modules go directly to `compile`.
+four runtime interpreter assets in a shared `ModuleCache`, using that same compilation
+method on a cache miss. Dispatcher and explicitly installed guest modules go
+directly to `compile`; automatic groups use the separate compiler worker.
 Backends provide optional cache storage through `module_cache()` and share it only
 with compatible engines. Native backends share a Wasmtime engine and cache within
 the process; browser backends share a cache within the same worker. The common

@@ -27,6 +27,7 @@ pub(crate) struct DispatchTable<B: WasmBackend> {
 pub(crate) struct Entries {
     pub addresses: EntryTable,
     free: BTreeSet<u32>,
+    retired: BTreeSet<u32>,
     next: u32,
 }
 
@@ -34,6 +35,7 @@ impl Entries {
     pub fn remove(&mut self, address: u32) {
         if let Some(slot) = self.addresses.remove(address) {
             self.free.insert(slot);
+            self.retired.insert(slot);
         }
     }
 
@@ -49,6 +51,7 @@ impl Entries {
                 .expect("Wasm function table capacity");
             slot
         });
+        self.retired.remove(&slot);
         self.addresses.insert(address, slot);
         slot
     }
@@ -65,10 +68,22 @@ impl<B: WasmBackend> DispatchTable<B> {
             entries: Arc::new(Mutex::new(Entries {
                 addresses,
                 free: BTreeSet::new(),
+                retired: BTreeSet::new(),
                 next: EntryTable::FIRST_DYNAMIC_SLOT,
             })),
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
         })
+    }
+
+    /// Slow callbacks can remove lookup entries using memory alone. Once Wasm
+    /// has returned, release their function references while keeping slots reusable.
+    pub fn reclaim(&mut self, backend: &mut B, fallback: &B::Function) -> Result<()> {
+        let mut registry = self.entries.lock().unwrap();
+        while let Some(&slot) = registry.retired.first() {
+            backend.set_table_function(&self.functions, slot, fallback)?;
+            registry.retired.remove(&slot);
+        }
+        Ok(())
     }
 
     pub fn install(

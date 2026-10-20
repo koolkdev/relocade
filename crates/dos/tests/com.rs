@@ -156,3 +156,50 @@ async fn check_unterminated_string() {
 fn unterminated_string_wraps_offset_and_returns_to_host() {
     pollster::block_on(check_unterminated_string());
 }
+
+async fn check_hot_com() {
+    let mut dos = common::dos().await;
+    dos.runtime()
+        .set_jit_config(relocade_runtime::JitConfig {
+            max_compilations: std::num::NonZeroU32::new(1).unwrap(),
+            ..Default::default()
+        })
+        .unwrap();
+    dos.load_com(
+        &[
+            0xb9, 100, 0, // MOV CX,100
+            0x31, 0xc0, // XOR AX,AX
+            0x40, // INC AX
+            0xe2, 0xfd, // LOOP back to INC AX
+            0xb4, 0x4c, 0xcd, 0x21, // Exit with the accumulated AL
+        ],
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        dos.runtime().run_async(1_000).await.unwrap(),
+        ExecutionExit::HostReturn
+    );
+    assert_eq!(dos.exit_status(), Some(Ok(100)));
+    assert_eq!(dos.runtime().machine().cpu().instruction_count(), 204);
+    assert_eq!(dos.runtime().jit_compilation_count(), 1);
+    assert_eq!(
+        dos.runtime().compiled_group_count() + dos.runtime().pending_compilation_count(),
+        1
+    );
+    // Guest exit does not wait for compilation. Loading a replacement program
+    // retires any published code owned by the prior image.
+    dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())
+        .unwrap();
+    assert_eq!(dos.runtime().compiled_group_count(), 0);
+    assert_eq!(
+        dos.runtime().run_async(10).await.unwrap(),
+        ExecutionExit::HostReturn
+    );
+    assert_eq!(dos.exit_status(), Some(Ok(7)));
+}
+
+#[test]
+fn hot_com_loop_queues_compilation_and_returns_through_dos() {
+    pollster::block_on(check_hot_com());
+}
