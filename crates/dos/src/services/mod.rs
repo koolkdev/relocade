@@ -32,6 +32,8 @@ const CREATE_NEW_HANDLE: u8 = 0x5b;
 const RENAME_FILE: u8 = 0x56;
 const OPEN_HANDLE: u8 = 0x3d;
 const CLOSE_HANDLE: u8 = 0x3e;
+const COMMIT_HANDLE: u8 = 0x68;
+const COMMIT_HANDLE_ALIAS: u8 = 0x6a;
 const READ_HANDLE: u8 = 0x3f;
 const WRITE_HANDLE: u8 = 0x40;
 const DELETE_FILE: u8 = 0x41;
@@ -69,6 +71,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         RENAME_FILE => files::rename(call),
         OPEN_HANDLE => files::open(call),
         CLOSE_HANDLE => files::close(call),
+        COMMIT_HANDLE | COMMIT_HANDLE_ALIAS => files::commit(call),
         READ_HANDLE => files::read(call),
         WRITE_HANDLE => files::write(call),
         DELETE_FILE => files::delete(call),

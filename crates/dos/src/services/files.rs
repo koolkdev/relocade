@@ -88,6 +88,17 @@ pub(super) fn close(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     return_result(call, result)
 }
 
+/// AH=68h/6Ah: commit BX's handle without closing it or moving its cursor.
+pub(super) fn commit(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
+    let handle = call.cpu().bx();
+    let result = call
+        .state_mut()
+        .files
+        .commit(handle)
+        .map(|()| call.cpu().set_ah(super::COMMIT_HANDLE));
+    return_result(call, result)
+}
+
 /// AH=45h: duplicate BX's open handle into the lowest free slot; return AX.
 pub(super) fn duplicate(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
     let source = call.cpu().bx();
