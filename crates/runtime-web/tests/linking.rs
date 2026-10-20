@@ -2,7 +2,7 @@ use relocade_compiler::{
     abi::{Function, Memory, Table},
     Program, F64, I1, I16, I32, I64, I8,
 };
-use relocade_runtime::wasm::{WasmBackend, WasmCaller, WasmMemoryAccess};
+use relocade_runtime::wasm::{WasmBackend, WasmContext, WasmMemoryAccess};
 
 const MEMORY: Memory = Memory::new("example", "memory", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);

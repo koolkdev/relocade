@@ -2,7 +2,9 @@ use relocade_compiler::{abi::Function, Program, I1};
 use relocade_x86::{abi, ExecutionExit};
 use std::{ops::ControlFlow, sync::Arc};
 
-use crate::{with_host_call, DispatchEntry, HostCall, Result, Runtime, RuntimeBackend};
+use crate::{
+    with_host_call, DispatchEntry, HostCall, Result, Runtime, RuntimeBackend, RuntimeState,
+};
 
 type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<()> + Send + Sync;
 
@@ -42,18 +44,16 @@ impl<T> Hook<T> {
     }
 }
 
-impl<B: RuntimeBackend> Runtime<B> {
+impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// Generates and installs ordinary callable entries, each with its own direct
     /// host import. Dispatch neither classifies hooks nor calls a hook registry.
     ///
     /// Entries begin with CPU state already published by the predecessor. They
     /// cache no CPU values across the host call. Hooks do not retire guest
     /// instructions; continuing execution retains the current instruction target.
-    /// Handlers are synchronous and must not reenter guest execution.
-    pub async fn install_hooks(
-        &mut self,
-        hooks: impl IntoIterator<Item = Hook<B::State>>,
-    ) -> Result<()> {
+    /// Handlers must not reenter guest execution. They may use `HostCall::defer`
+    /// to await owned work and complete in Rust before guest execution resumes.
+    pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
         let hooks: Vec<_> = hooks.into_iter().collect();
         let names: Vec<_> = (0..hooks.len())
             .map(|index| format!("hook_{index}"))

@@ -4,8 +4,8 @@ use relocade_compiler::{
 };
 use relocade_machine::MachineConfig;
 use relocade_runtime::{
-    wasm::{WasmBackend, WasmCaller, WasmMemoryAccess},
-    with_host_call, HostCall,
+    wasm::{WasmBackend, WasmContext, WasmMemoryAccess},
+    with_host_call, HostCall, RuntimeState,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -76,9 +76,9 @@ async fn check_callback() {
         calls: 0,
     };
     #[cfg(not(target_arch = "wasm32"))]
-    let mut backend = Backend::with_state(state).unwrap();
+    let mut backend = Backend::with_state(RuntimeState::new(state)).unwrap();
     #[cfg(target_arch = "wasm32")]
-    let mut backend = Backend::with_state(state);
+    let mut backend = Backend::with_state(RuntimeState::new(state));
     // Creation order differs from module import order: handles belong to the backend.
     let guest = backend.create_memory(1, None).unwrap();
     let context = backend.create_memory(1, Some(1)).unwrap();
@@ -128,7 +128,7 @@ async fn check_callback() {
         backend.bind_host(
             CALL,
             Box::new(move |mut caller| {
-                let config = Rc::clone(&caller.state().config);
+                let config = Rc::clone(&caller.state().data.config);
                 with_host_call(&config, &mut caller, context, guest, host_handler);
                 0
             }),
@@ -141,7 +141,7 @@ async fn check_callback() {
             backend.call(&function).unwrap(),
             i64::from(value) | (i64::from(value) << 32)
         );
-        assert_eq!(backend.state().calls, calls);
+        assert_eq!(backend.state().data.calls, calls);
         let mut bytes = [0; ExecutionContext::BYTE_LEN];
         backend.read_memory(&context, 0, &mut bytes);
         expected_cpu.registers.eax = value as u32;
@@ -158,6 +158,28 @@ async fn check_callback() {
         backend.read_memory(&guest, 0x20, &mut byte);
         assert_eq!(byte, [0xa5]);
     }
+
+    // The same live CPU/memory/state view is available without entering Wasm.
+    backend.with_context(|mut access| {
+        let config = Rc::clone(&access.state().data.config);
+        with_host_call(&config, &mut access, context, guest, host_handler);
+    });
+    assert_eq!(backend.state().data.calls, 3);
+    let mut bytes = [0; ExecutionContext::BYTE_LEN];
+    backend.read_memory(&context, 0, &mut bytes);
+    expected_cpu.registers.eax = 77;
+    expected_cpu.eip = 0x106;
+    assert_eq!(
+        bytes,
+        ExecutionContext {
+            cpu: expected_cpu,
+            instruction_target: 998,
+        }
+        .to_bytes()
+    );
+    let mut value = [0; 4];
+    backend.read_memory(&guest, 0x2024, &mut value);
+    assert_eq!(u32::from_le_bytes(value), 77);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

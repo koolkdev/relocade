@@ -2,7 +2,7 @@
 //!
 //! ```
 //! use relocade_machine::MachineConfig;
-//! use relocade_runtime::Runtime;
+//! use relocade_runtime::{Runtime, RuntimeState};
 //! use relocade_runtime_wasmtime::WasmtimeBackend;
 //! use relocade_x86::{Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
 //!
@@ -11,7 +11,7 @@
 //! let cpu = CpuState { eip: 0x100, segments: Segments::real_mode(), ..CpuState::default() };
 //! let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
 //! let config = MachineConfig::new(target, cpu, 0x10000, map)?;
-//! let mut runtime = Runtime::new(WasmtimeBackend::new()?, config).await?;
+//! let mut runtime = Runtime::new(WasmtimeBackend::with_state(RuntimeState::new(()))?, config).await?;
 //! runtime.machine().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //! assert_eq!(runtime.run(1)?, ExecutionExit::BudgetExhausted);
 //! assert_eq!(runtime.machine().cpu().eax(), 42);
@@ -28,12 +28,12 @@ use relocade_runtime::{
 };
 use std::ops::{Deref, DerefMut};
 use wasmtime::{
-    Config, Engine, Func, Instance, Linker, Memory, MemoryType, Module, Ref, RefType, Store, Table,
-    TableType, TypedFunc,
+    AsContextMut, Config, Engine, Func, Instance, Linker, Memory, MemoryType, Module, Ref, RefType,
+    Store, Table, TableType, TypedFunc,
 };
 
 mod host;
-pub use host::Caller;
+pub use host::Context;
 
 /// One store for modules and their shared imports. Runtime owns execution policy.
 pub struct WasmtimeBackend<T: 'static = ()> {
@@ -63,7 +63,7 @@ impl<T: 'static> WasmtimeBackend<T> {
 
 impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
     type State = T;
-    type Caller<'a> = Caller<'a, T>;
+    type Context<'a> = Context<'a, T>;
     type Module = Module;
     type Instance = Instance;
     type Table = Table;
@@ -76,6 +76,10 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
 
     fn state_mut(&mut self) -> impl DerefMut<Target = T> {
         self.store.data_mut()
+    }
+
+    fn with_context<R>(&mut self, f: impl FnOnce(Context<'_, T>) -> R) -> R {
+        f(Context(self.store.as_context_mut()))
     }
 
     /// Native compilation completes synchronously on the calling thread.

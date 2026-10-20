@@ -1,5 +1,5 @@
 use relocade_machine::MachineConfig;
-use relocade_runtime::{real_mode_interrupt, Hook, Runtime};
+use relocade_runtime::{real_mode_interrupt, Hook, Runtime, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments,
@@ -30,9 +30,9 @@ async fn check_interrupt_hooks() {
     // Non-Send state belongs to the backend, while hooks may capture immutable metadata.
     let calls = Rc::new(Cell::new(0));
     #[cfg(not(target_arch = "wasm32"))]
-    let backend = Backend::with_state(calls).unwrap();
+    let backend = Backend::with_state(RuntimeState::new(calls)).unwrap();
     #[cfg(target_arch = "wasm32")]
-    let backend = Backend::with_state(calls);
+    let backend = Backend::with_state(RuntimeState::new(calls));
     let mut runtime = Runtime::new(backend, config).await.unwrap();
     runtime.machine().cpu().set_sp(0xff00);
     runtime.machine().cpu().set_eflags(0x202);

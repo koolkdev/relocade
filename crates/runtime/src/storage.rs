@@ -3,7 +3,7 @@ use relocade_machine::MachineStorage;
 use relocade_x86::ExecutionContext;
 use std::mem::offset_of;
 
-/// Routes CPU and guest transfers through a backend or a borrowed callback caller.
+/// Routes CPU and guest transfers through a backend or its scoped context.
 pub(crate) struct Storage<A: WasmMemoryAccess> {
     pub access: A,
     pub context: A::Memory,

@@ -10,7 +10,7 @@ const INT20_ENTRY: u16 = 0x100;
 const INT21_ENTRY: u16 = 0x110;
 
 /// Mutable DOS state owned by the Wasm backend and shared by its service handlers.
-/// Initialize the backend with `DosState::default()` before loading a program.
+/// Initialize the backend with `RuntimeState::new(DosState::default())` before loading a program.
 #[derive(Default)]
 pub struct DosState {
     pub(crate) files: Files,

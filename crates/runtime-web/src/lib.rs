@@ -22,7 +22,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 mod host;
-pub use host::Caller;
+pub use host::Context;
 
 /// Modules, callbacks and host state belonging to one guest.
 pub struct WebBackend<T = ()> {
@@ -43,7 +43,7 @@ impl<T> Store<T> {
 }
 
 /// A handle to memory owned by one backend. Copies identify the same JavaScript
-/// resource; access requires the originating backend or its callback caller.
+/// resource; access requires the originating backend or its scoped context.
 #[derive(Clone, Copy, Debug)]
 pub struct Memory(usize);
 
@@ -76,7 +76,7 @@ impl<T: 'static> WebBackend<T> {
 
 impl<T: 'static> WasmBackend for WebBackend<T> {
     type State = T;
-    type Caller<'a> = Caller<'a, T>;
+    type Context<'a> = Context<'a, T>;
     type Module = WebAssembly::Module;
     type Instance = WebAssembly::Instance;
     type Table = WebAssembly::Table;
@@ -89,6 +89,10 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
 
     fn state_mut(&mut self) -> impl DerefMut<Target = T> {
         RefMut::map(self.store.borrow_mut(), |store| &mut store.state)
+    }
+
+    fn with_context<R>(&mut self, f: impl FnOnce(Context<'_, T>) -> R) -> R {
+        f(Context(&mut self.store.borrow_mut()))
     }
 
     async fn compile(&self, bytes: &[u8]) -> Result<Self::Module> {

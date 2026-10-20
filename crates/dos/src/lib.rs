@@ -39,11 +39,11 @@
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
 //! The host chooses the Wasm backend and controls execution through
 //! [`Dos::runtime`]. Create the backend with its `with_state` constructor and
-//! [`DosState::default()`].
+//! `RuntimeState::new(DosState::default())`.
 //!
 //! ```no_run
 //! # async fn example<B>(backend: B) -> Result<(), Box<dyn std::error::Error>>
-//! # where B: relocade_runtime::RuntimeBackend<State = relocade_dos::DosState>
+//! # where B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosState>>
 //! # {
 //! use std::io::Read;
 //!
@@ -79,14 +79,14 @@ pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use kernel::DosState;
 pub use load::LoadOptions;
-use relocade_runtime::{Runtime, RuntimeBackend};
+use relocade_runtime::{Runtime, RuntimeBackend, RuntimeState};
 
 /// A DOS environment and its runtime, with space for one loaded program.
-pub struct Dos<B: RuntimeBackend<State = DosState>> {
+pub struct Dos<B: RuntimeBackend<State = RuntimeState<DosState>>> {
     runtime: Runtime<B>,
 }
 
-impl<B: RuntimeBackend<State = DosState>> Dos<B> {
+impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
     /// Load a program before entering guest execution.
     pub async fn new(backend: B) -> relocade_runtime::Result<Self> {
@@ -104,6 +104,7 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     /// Invalid images or options leave the existing program and its state unchanged.
     pub fn load_com(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
         let psp_segment = com::load(&mut self.runtime.machine(), image, &options)?;
+        self.runtime.cancel_pending_call();
         self.runtime.state_mut().reset_process(psp_segment);
         Ok(())
     }
@@ -114,6 +115,7 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     /// Overlay loading is not supported.
     pub fn load_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
         let psp_segment = mz::load(&mut self.runtime.machine(), image, &options)?;
+        self.runtime.cancel_pending_call();
         self.runtime.state_mut().reset_process(psp_segment);
         Ok(())
     }
