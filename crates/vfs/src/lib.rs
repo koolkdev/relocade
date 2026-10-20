@@ -4,6 +4,8 @@
 //! Callers normalize guest paths; empty components, '.' and '..' are rejected.
 //! The empty path names the root directory. File handles own their access rights
 //! and share contents; guest layers maintain cursors and sharing rules.
+//! [`Drives`] mounts these filesystems by drive letter, independently of DOS or
+//! Win32 path parsing. It starts empty and does not choose a current drive.
 //!
 //! ```
 //! use relocade_vfs::MemoryFileSystem;
@@ -26,10 +28,12 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod drives;
 mod file;
 mod filesystem;
 mod metadata;
 
+pub use drives::Drives;
 pub use file::File;
 pub use filesystem::MemoryFileSystem;
 pub use metadata::{DirEntry, Metadata};
