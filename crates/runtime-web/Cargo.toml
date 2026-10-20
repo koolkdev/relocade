@@ -15,6 +15,7 @@ wasm-bindgen-futures = "=0.4.79"
 js-sys = "=0.3.106"
 
 [dev-dependencies]
+futures-channel = "=0.3.34"
 relocade-runtime = { path = "../runtime" }
 relocade-machine = { path = "../machine" }
 relocade-x86 = { path = "../x86" }
