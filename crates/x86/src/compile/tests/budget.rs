@@ -171,3 +171,42 @@ fn rep_then_boundary(frontend: Frontend) {
     );
 }
 test_frontends!(rep_retires_once_before_block_boundary, rep_then_boundary);
+
+#[test]
+fn step_checks_budget_after_one_instruction_before_dispatch() {
+    for (code, next_eip) in [
+        (&[0x40, 0x40, 0xeb, 0][..], 0x1001),
+        (&[0x66, 0x40, 0x40, 0xeb, 0][..], 0x1002),
+    ] {
+        for target in [41u64, 42] {
+            let mut input = Input::new(&initial(40).to_bytes());
+            input.guest.push((0x1000, code.to_vec()));
+            input.machine.push((4, 0x1003u32.to_le_bytes().to_vec()));
+            input.patches_before_calls.push(CallPatches::cpu(vec![(
+                std::mem::offset_of!(ExecutionContext, instruction_target) as u32,
+                target.to_le_bytes().to_vec(),
+            )]));
+            input.dispatch_return = 0;
+            let observation = TestModule::interpreter().observe(&input, 1);
+            let Some(Event::Return {
+                outcome: Outcome::Returned(values),
+                snapshot,
+            }) = observation.events.last()
+            else {
+                panic!("unexpected execution: {:?}", observation.events);
+            };
+            let cpu = CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap());
+            assert_eq!(cpu.instruction_count, 41);
+            assert_eq!(cpu.eip, next_eip);
+            assert_eq!(cpu.registers.eax, 1);
+            let [Argument::I64(word)] = values.as_slice() else {
+                panic!("expected exit word")
+            };
+            assert_eq!(
+                ExecutionExit::from_bits(*word as u64),
+                (target == 41).then_some(ExecutionExit::BudgetExhausted)
+            );
+            assert_eq!(observation.events.len(), if target == 41 { 1 } else { 2 });
+        }
+    }
+}

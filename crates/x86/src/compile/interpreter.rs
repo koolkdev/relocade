@@ -5,14 +5,15 @@ use crate::{
     execution::ExecutionBuilder,
     memory::Memory,
     runtime::Runtime,
-    state::Cpu,
+    state::{Cpu, State},
     CompiledModule, ExecutionProfile,
 };
 
 use super::Compiler;
 
-/// Generates `run() -> i64`, which fetches and executes instructions until a
-/// branch, segment load, port I/O or serializing instruction completes, then
+/// Generates a module exporting both `step` and `run`, selecting `run() -> i64`.
+/// This entry fetches and executes instructions until a branch, segment load,
+/// port I/O or serializing instruction completes, then
 /// tail-calls host dispatch.
 /// Conditional branches dispatch on both outcomes without fetching the successor.
 /// Guest faults and unsupported forms return directly with earlier work published.
@@ -38,8 +39,9 @@ pub fn compile_interpreter(
     Compiler::new(profile).compile_interpreter()
 }
 
-/// Generates `step() -> i64`, which fetches and executes one supported instruction
-/// at the current CS-relative EIP under the selected execution profile.
+/// Generates the same module as [`compile_interpreter`], selecting `step() -> i64`.
+/// This entry fetches and executes one supported instruction at the current
+/// CS-relative EIP under the selected execution profile.
 /// Success publishes state, retires the instruction and tail-calls host dispatch.
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before dispatch and retains completed elements on a fault.
@@ -100,17 +102,22 @@ impl Compiler {
         let cpu = Cpu::declare(&mut program);
         let memory = Memory::declare(&mut program, profile)?;
         let runtime = Runtime::declare(&mut program);
-        let signature = entry.symbol().signature();
-        let entry_function = program.declare(signature.clone());
-        let exact = program.declare(signature);
         let fetch = InstructionFetch::new(&cpu, &memory, profile);
         let decoder = RuntimeDecoder::new(
             &mut program,
             fetch,
             profile.code_default_size(),
-            matches!(entry, InterpreterEntry::Run).then_some(entry_function),
+            |body| {
+                let single_step = RuntimeDecoder::single_step(body)?;
+                body.if_(single_step, |mut body| {
+                    let state = State::new(&cpu);
+                    let count = state.instruction_count(&mut body, 0)?;
+                    state.check_instruction_budget(&mut body, &count)?;
+                    runtime.dispatch(body)
+                })
+            },
             |body, decoded, continuation| {
-                let continuation = continuation.filter(|_| !decoded.instruction.ends_block());
+                let ends_block = decoded.instruction.ends_block();
                 let mut execution = ExecutionBuilder::new(
                     body,
                     &cpu,
@@ -121,28 +128,23 @@ impl Compiler {
                 )?
                 .with_cpu_features_from_context()?;
                 execution.execute(decoded)?;
-                match continuation {
-                    Some(continuation) => execution.complete(|body, _| continuation.resume(body)),
-                    None => execution.dispatch(),
+                if ends_block {
+                    execution.dispatch()
+                } else {
+                    execution.complete(|body, _| continuation.resume(body))
                 }
             },
         )?;
 
-        program.define(entry_function, |mut body| {
-            let mut fetch = decoder.fetch();
-            let start = cpu.read_eip(&mut body)?;
-            let direct = fetch.direct_window(&mut body, &start)?;
-            body.if_(&direct.unavailable, |arm| arm.tail_call(exact, &[]))?;
-            decoder.decode(body, fetch, &start, Some(&direct.physical))
-        })?;
-
-        program.define(exact, |mut body| {
-            let fetch = decoder.fetch();
-            let start = cpu.read_eip(&mut body)?;
-            decoder.decode(body, fetch, &start, None)
-        })?;
-
-        entry.symbol().export(&mut program, entry_function)?;
+        for export in [InterpreterEntry::Run, InterpreterEntry::Step] {
+            let wrapper = program.declare(export.symbol().signature());
+            program.define(wrapper, |body| {
+                let single_step =
+                    body.value::<relocade_compiler::I1>(matches!(export, InterpreterEntry::Step))?;
+                decoder.enter(body, &single_step)
+            })?;
+            export.symbol().export(&mut program, wrapper)?;
+        }
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: entry.symbol().name.into(),

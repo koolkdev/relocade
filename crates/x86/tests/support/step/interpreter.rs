@@ -1,4 +1,4 @@
-//! Share interpreter code by profile and entry while retaining per-target execution fixtures.
+//! Share interpreter code by profile while retaining per-target execution fixtures.
 
 use super::TestModule;
 use crate::{Compiler, ExecutionProfile, ExecutionTarget, SegmentProfile};
@@ -39,16 +39,12 @@ impl TestModule {
     }
 
     fn cached_interpreter(target: ExecutionTarget, entry: InterpreterEntry) -> &'static Self {
-        static CODE: Fixtures<(ExecutionProfile, InterpreterEntry), Arc<Module>> = Fixtures::new();
+        static CODE: Fixtures<ExecutionProfile, Arc<Module>> = Fixtures::new();
         static TARGETS: Fixtures<(ExecutionTarget, InterpreterEntry), TestModule> = Fixtures::new();
         TARGETS.get((target, entry), || {
-            let module = CODE.get((target.profile, entry), || {
+            let module = CODE.get(target.profile, || {
                 let compiler = Compiler::new(target.profile);
-                let module = match entry {
-                    InterpreterEntry::Step => compiler.compile_interpreter_step(),
-                    InterpreterEntry::Run => compiler.compile_interpreter(),
-                }
-                .unwrap();
+                let module = compiler.compile_interpreter().unwrap();
                 Arc::new(Module::new(&module.bytes))
             });
             Self {
