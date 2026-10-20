@@ -6,6 +6,15 @@ mod feature;
 
 pub use feature::CpuFeature;
 
+use relocade_compiler::{Val, I1, I32};
+
+pub(crate) fn supports_features(bits: impl Into<Val<I32>>, features: &[CpuFeature]) -> Val<I1> {
+    let required = features
+        .iter()
+        .fold(0, |mask, feature| mask | feature.mask());
+    bits.into().and(required).eq(required)
+}
+
 /// Immutable capability choices for one virtual processor.
 ///
 /// The default enables every [`CpuFeature`]. CPUID reports the enabled capabilities;

@@ -186,6 +186,19 @@ impl<T: ValueType> Val<T> {
 }
 
 impl<T: IntType> Val<T> {
+    /// Returns the zero-extended logical bits of a standalone constant.
+    /// Body expressions return `None`; query them through
+    /// [`crate::BlockBuilder::constant_bits`] to check ownership and visibility.
+    pub fn constant_bits(&self) -> Option<u64> {
+        match &self.source {
+            ValueSource::Literal(bits) => {
+                let bits: crate::literal::Literal = (*bits).into();
+                Some(bits.into())
+            }
+            _ => None,
+        }
+    }
+
     /// Adds an integer value or literal of the same type, wrapping on overflow.
     ///
     /// Different integer types cannot be mixed, even when both use Wasm i32:

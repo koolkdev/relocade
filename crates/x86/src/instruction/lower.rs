@@ -1,26 +1,15 @@
 use relocade_compiler::{BuildError, Val, I32};
 
 use super::{handlers::HandlerCall, map_location, map_operand, Instruction};
-use crate::{
-    execution::{CpuFeatureCheck, ExecutionBuilder},
-    Exception,
-};
+use crate::{execution::ExecutionBuilder, Exception};
 
 pub(crate) fn lower(
     execution: &mut ExecutionBuilder<'_, '_>,
     instruction: Instruction<impl Into<Val<I32>>>,
     fallthrough_eip: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
-    match execution.cpu_feature_check(instruction.requirements.features) {
-        CpuFeatureCheck::Supported => {}
-        CpuFeatureCheck::Unsupported => {
-            execution.fault(Exception::InvalidOpcode)?;
-            return Ok(fallthrough_eip);
-        }
-        CpuFeatureCheck::Runtime { missing } => {
-            execution.fault_if(missing, Exception::InvalidOpcode)?;
-        }
-    }
+    let supported = execution.supports_cpu_features(instruction.requirements.features);
+    execution.fault_if(supported.eq(false), Exception::InvalidOpcode)?;
     if let Some(exception) = instruction
         .requirements
         .mode_fault(execution.target().profile)

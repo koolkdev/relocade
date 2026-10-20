@@ -97,12 +97,12 @@ impl<V: Into<Val<I32>>> X87Opcode<V> {
 }
 
 impl<V> Instruction<V> {
-    pub(super) fn ends_interpreter_block(&self, profile: crate::ExecutionProfile) -> bool {
-        self.ends_block || self.requirements.mode_fault(profile).is_some()
+    pub(super) fn ends_block(&self) -> bool {
+        self.ends_block
     }
 
-    pub(super) fn ends_block(&self, target: ExecutionTarget) -> bool {
-        self.ends_block || self.requirements.fault(target).is_some()
+    pub(super) fn fails_requirements(&self, target: ExecutionTarget) -> bool {
+        self.requirements.fault(target).is_some()
     }
 
     pub(super) fn uses_memory(&self) -> bool {

@@ -110,8 +110,7 @@ impl Compiler {
             profile.code_default_size(),
             matches!(entry, InterpreterEntry::Run).then_some(entry_function),
             |body, decoded, continuation| {
-                let continuation =
-                    continuation.filter(|_| !decoded.instruction.ends_interpreter_block(profile));
+                let continuation = continuation.filter(|_| !decoded.instruction.ends_block());
                 let mut execution = ExecutionBuilder::new(
                     body,
                     &cpu,

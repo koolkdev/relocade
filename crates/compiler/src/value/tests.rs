@@ -7,6 +7,38 @@ use crate::{
     BuildError, Func, FunctionImport, MemoryImport, Program, Signature, Type, I1, I32, I64, I8,
 };
 
+#[test]
+fn standalone_constant_bits_include_folded_calculations() {
+    assert_eq!(Val::<I1>::from(3).constant_bits(), Some(1));
+    assert_eq!(Val::<I8>::from(-1).constant_bits(), Some(255));
+    assert_eq!(Val::<I32>::from(-1).constant_bits(), Some(0xffff_ffff));
+    assert_eq!(Val::<I64>::from(u64::MAX).constant_bits(), Some(u64::MAX));
+    let bits = Val::<I32>::from(0b101);
+    assert_eq!(bits.and(0b100).eq(0b100).constant_bits(), Some(1));
+    assert_eq!(bits.and(0b110).eq(0b110).constant_bits(), Some(0));
+}
+
+#[test]
+fn body_constants_require_a_scoped_query() {
+    let mut program = Program::new();
+    program
+        .function(
+            Signature {
+                parameters: vec![Type::I32],
+                results: vec![Type::I32],
+            },
+            |body| {
+                let input = body.parameter::<I32>(0)?;
+                assert_eq!(input.constant_bits(), None);
+                let constant = input.mul(0).add(17);
+                assert_eq!(constant.constant_bits(), None);
+                assert_eq!(body.constant_bits(&constant)?, Some(17));
+                body.return_(constant)
+            },
+        )
+        .unwrap();
+}
+
 fn assert_closed(value: &Val<I32>) {
     for result in [
         value.add(0),
