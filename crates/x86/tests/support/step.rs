@@ -8,6 +8,7 @@ use relocade_test_support::Module;
 pub(crate) use relocade_test_support::{Outcome, Value as Argument};
 
 mod interpreter;
+pub(crate) use interpreter::asset_bytes;
 mod segments;
 mod wasmtime;
 pub(crate) use segments::{SegmentQuery, SegmentResolution};

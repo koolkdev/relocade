@@ -55,6 +55,10 @@ fn interpreter_code_keeps_the_profile_without_specializing_cpu_features_or_obser
         assert_eq!(configured.entry, name);
         assert_eq!(configured.execution_target, Some(compiler.target()));
         assert!(ordinary.bytes == configured.bytes, "{name}");
+        assert!(
+            ordinary.bytes == crate::support::step::asset_bytes(profile.into()),
+            "build artifact matches fresh generation"
+        );
         if let Some(bytes) = &shared_bytes {
             assert!(*bytes == ordinary.bytes, "step and run share one module");
         } else {

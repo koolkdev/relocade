@@ -812,6 +812,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-interpreter"
+version = "0.0.0"
+dependencies = [
+ "relocade-x86",
+]
+
+[[package]]
 name = "relocade-machine"
 version = "0.0.0"
 dependencies = [
@@ -823,6 +830,7 @@ name = "relocade-runtime"
 version = "0.0.0"
 dependencies = [
  "relocade-compiler",
+ "relocade-interpreter",
  "relocade-machine",
  "relocade-x86",
 ]
@@ -872,6 +880,7 @@ name = "relocade-x86"
 version = "0.0.0"
 dependencies = [
  "relocade-compiler",
+ "relocade-interpreter",
  "relocade-test-support",
  "wasmparser 0.224.1",
  "wasmtime",

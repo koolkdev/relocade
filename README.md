@@ -19,6 +19,7 @@ that subset. The project is under development; the crates are not published.
 | Crate | Responsibility |
 | --- | --- |
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
+| [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
@@ -46,6 +47,12 @@ The [future worker design](crates/runtime/docs/worker-execution.md) describes
 execution-task ownership, UI messaging and scheduling for an interactive embedding.
 
 ## Build and test
+
+Cargo generates four interpreter modules on the build host, one for each execution
+profile. Each exports `step` and `run`. `relocade-interpreter::module(profile)`
+returns their embedded Wasm bytes, and `Runtime::new` uses them in both native and
+web builds. Starting a guest does not regenerate the interpreter. The backend
+still compiles the portable Wasm to native code when loading it.
 
 Compiler and x86 correctness tests execute Wasm in Wasmtime. Browser integration
 tests exercise the web runtime in Chrome; see [CONTRIBUTING.md](CONTRIBUTING.md).
