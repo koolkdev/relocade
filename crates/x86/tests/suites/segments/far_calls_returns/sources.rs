@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn indirect_calls_read_entry_esp_and_source_bytes_before_pushing_through_ss() {
@@ -26,7 +26,7 @@ fn indirect_calls_read_entry_esp_and_source_bytes_before_pushing_through_ss() {
                 &pointer(word, 0x200, 0x27),
             );
             let mut cpu = image.cpu;
-            cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+            cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
             cpu.eip = 0x200;
             cpu.registers.esp = 0x9000;
             cpu.instruction_count = 0;
@@ -110,10 +110,10 @@ fn return_ignores_address_and_segment_overrides_for_its_stack() {
     // An unusable FS and address override do not redirect implicit stack accesses.
     let code = [0x64, 0x67, 0xcb];
     let mut image = image_with_stack(&code, 0x9000);
-    image.cpu.segments.fs = loaded(0, 0x8000, 0, StoredSegment::unusable(0));
+    image.cpu.segments.fs = loaded(0, 0x8000, 0, SegmentRegister::unusable(0));
     image.data(0x8000, &pointer(false, 0x200, 0x27));
     let mut cpu = image.cpu;
-    cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+    cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
     cpu.eip = 0x200;
     cpu.registers.esp = 0x9008;
     cpu.instruction_count = 0;

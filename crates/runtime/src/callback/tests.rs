@@ -75,12 +75,12 @@ fn callbacks_apply_compatible_segment_edits() {
         call.cpu().set_ax(42);
         call.cpu().set_segment(
             Segment::Cs,
-            relocade_x86::StoredSegment::real_mode(Segment::Cs, 0x1000),
+            relocade_x86::SegmentRegister::real_mode(Segment::Cs, 0x1000),
         );
     });
     let mut expected = cpu;
     expected.registers.eax = 42;
-    expected.segments.cs = relocade_x86::StoredSegment::real_mode(Segment::Cs, 0x1000);
+    expected.segments.cs = relocade_x86::SegmentRegister::real_mode(Segment::Cs, 0x1000);
     assert_eq!(
         caller.context,
         ExecutionContext {

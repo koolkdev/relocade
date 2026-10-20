@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
@@ -70,9 +70,9 @@ fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
             0x23,
             base,
             u32::MAX,
-            StoredSegment {
+            SegmentRegister {
                 big: u8::from(stack_big),
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         image.map(
@@ -101,9 +101,9 @@ fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
             0x27,
             0xc000,
             u32::MAX,
-            StoredSegment {
+            SegmentRegister {
                 big: u8::from(word),
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         );
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
@@ -162,16 +162,16 @@ fn return_forms_pop_two_slots_and_discard_unsigned_cleanup_without_accessing_it(
                 0x23,
                 0,
                 u32::MAX,
-                StoredSegment {
+                SegmentRegister {
                     big: u8::from(stack_big),
-                    ..StoredSegment::flat_data32(0)
+                    ..SegmentRegister::flat_data32(0)
                 },
             );
             image.map(if stack_big { 0x12349 } else { 9 }, 0x8000, false);
             image.data(0x8000, &[0xa5; 8]);
             image.data(0x8000, &pointer(word, 0x9234_5678, 0x27));
             let mut cpu = image.cpu;
-            cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, StoredSegment::flat_code32(0));
+            cpu.segments.cs = loaded(0x27, 0xc000, u32::MAX, SegmentRegister::flat_code32(0));
             cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
             cpu.registers.esp = match (word, cleanup, stack_big) {
                 (true, None, _) => 0x1234_9004,
@@ -221,9 +221,9 @@ fn complete_frame_capacity_and_selector_transfer_extent_are_distinct() {
                 0x23,
                 0,
                 limit,
-                StoredSegment {
+                SegmentRegister {
                     big: u8::from(stack_big),
-                    ..StoredSegment::flat_data32(0)
+                    ..SegmentRegister::flat_data32(0)
                 },
             );
             let initial_sp = if returning {
@@ -259,7 +259,7 @@ fn complete_frame_capacity_and_selector_transfer_extent_are_distinct() {
             let mut ram: Vec<(u32, &[u8])> = vec![];
             let saved = pointer(false, 0x1007, 0x1b);
             let exit = if accepted {
-                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
                 cpu.eip = 0x200;
                 cpu.instruction_count = 0;
                 cpu.registers.esp = if returning {

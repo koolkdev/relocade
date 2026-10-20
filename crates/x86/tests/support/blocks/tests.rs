@@ -15,11 +15,11 @@ fn cache_hits_revalidate_cs_even_when_the_profile_stays_compatible() {
     blocks.get(&cpu, &[0xb0, 7], 1, profile);
     let valid = cpu;
     for cs in [
-        relocade_x86::StoredSegment {
+        relocade_x86::SegmentRegister {
             limit: 0x1000,
             ..valid.segments.cs
         },
-        relocade_x86::StoredSegment {
+        relocade_x86::SegmentRegister {
             usable: 0,
             ..valid.segments.cs
         },

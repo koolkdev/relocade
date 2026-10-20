@@ -1,4 +1,4 @@
-use crate::{FlagBytes, StoredFlags, StoredStatusSource};
+use crate::{FlagBytes, FlagsState, StatusSourceState};
 
 #[test]
 fn host_reads_resolve_each_status_source_width_without_materializing() {
@@ -15,8 +15,8 @@ fn host_reads_resolve_each_status_source_width_without_materializing() {
         (10, 0xffff_ffff, 1, 0x57),
         (11, 0x8000_0000, u32::MAX, 0x86),
     ] {
-        let flags = StoredFlags {
-            status_source: StoredStatusSource {
+        let flags = FlagsState {
+            status_source: StatusSourceState {
                 kind,
                 left,
                 right,
@@ -32,7 +32,7 @@ fn host_reads_resolve_each_status_source_width_without_materializing() {
 
 #[test]
 fn host_flag_images_use_low_bits_and_ignore_unrepresented_flags() {
-    let mut flags = StoredFlags::from_bytes([0xff; StoredFlags::BYTE_LEN]);
+    let mut flags = FlagsState::from_bytes([0xff; FlagsState::BYTE_LEN]);
     flags.status_source.kind = 0;
     flags.bytes.cf = 0x80;
     flags.bytes.if_ = 0xfe;

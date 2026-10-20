@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     address::MemoryAddress, execution::OperandSpan, memory::Intent, register::RegisterCode,
-    x87::ExtendedBits, StoredSimd,
+    x87::ExtendedBits, SimdState,
 };
 use relocade_compiler::{I64, V128};
 
@@ -78,7 +78,7 @@ fn save(
     }
     let mxcsr = execution.read_mxcsr()?.bits();
     operand.write(execution, 24, mxcsr)?;
-    operand.write::<I32>(execution, 28, StoredSimd::MXCSR_MASK)?;
+    operand.write::<I32>(execution, 28, SimdState::MXCSR_MASK)?;
     for (index, register) in registers.iter().enumerate() {
         let offset = 32 + index as u32 * 16;
         operand.write(execution, offset, &register.significand)?;

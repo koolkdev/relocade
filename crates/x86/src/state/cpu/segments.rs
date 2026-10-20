@@ -6,7 +6,7 @@ use relocade_compiler::{BlockBuilder, BuildError, I8};
 
 use crate::{
     segment::{SegmentSelection, SegmentValues},
-    state::{access::cpu_store, StoredSegment},
+    state::{access::cpu_store, SegmentRegister},
 };
 
 use super::Cpu;
@@ -18,7 +18,7 @@ impl Cpu {
         segment: &SegmentSelection,
         values: &SegmentValues,
     ) -> Result<(), BuildError> {
-        let displacement = segment.index().mul(size_of::<StoredSegment>() as u32);
+        let displacement = segment.index().mul(size_of::<SegmentRegister>() as u32);
         cpu_store!(body, self.memory, segments.es.base, &values.base, at: &displacement)?;
         cpu_store!(body, self.memory, segments.es.limit, &values.limit, at: &displacement)?;
         cpu_store!(body, self.memory, segments.es.selector, &values.selector, at: &displacement)?;

@@ -1,7 +1,7 @@
 use super::*;
 use crate::support::encoding::check_length;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 use relocade_x86::{compile_block_from_bytes, BlockError};
 
 fn encodings() -> Vec<Vec<u8>> {
@@ -78,7 +78,7 @@ fn immediate_pointers_and_return_cleanup_cross_instruction_pages_in_order() {
         }
         image.data(0x8000, &pointer(word, 0x200, 0x27));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x200;
         cpu.registers.esp = match (returning, word) {
             (true, true) => 0xa238,
@@ -133,7 +133,7 @@ fn byte_sixteen_and_register_mode_far_calls_are_rejected_before_data_access() {
                 );
             } else {
                 let mut cpu = image.cpu;
-                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+                cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
                 cpu.eip = 0x200;
                 cpu.registers.esp = if returning { 0x9008 } else { 0x9000 };
                 cpu.instruction_count = 0;

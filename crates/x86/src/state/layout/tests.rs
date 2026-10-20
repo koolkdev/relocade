@@ -4,17 +4,17 @@ mod x87;
 
 use std::mem::{offset_of, size_of};
 
-use super::{CpuState, FlagBytes, Registers, StoredFlags, StoredStatusSource};
+use super::{CpuState, FlagBytes, FlagsState, Registers, StatusSourceState};
 use crate::Gpr32;
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
     assert_eq!(CpuState::BYTE_LEN, 488);
-    assert_eq!(size_of::<StoredFlags>(), 28);
-    assert_eq!(size_of::<StoredStatusSource>(), 12);
+    assert_eq!(size_of::<FlagsState>(), 28);
+    assert_eq!(size_of::<StatusSourceState>(), 12);
     assert_eq!(size_of::<FlagBytes>(), 16);
-    assert_eq!(offset_of!(StoredFlags, status_source), 0);
-    assert_eq!(offset_of!(StoredFlags, bytes), 12);
+    assert_eq!(offset_of!(FlagsState, status_source), 0);
+    assert_eq!(offset_of!(FlagsState, bytes), 12);
     assert_eq!(size_of::<Registers>(), 32);
     assert_eq!(
         [
@@ -176,7 +176,7 @@ fn simd_layout_defaults_and_literal_encodings() {
     assert_eq!(offset_of!(CpuState, simd.mxcsr), 352);
     assert_eq!(offset_of!(CpuState, simd.reserved), 356);
     assert_eq!(offset_of!(CpuState, simd.xmm), 360);
-    assert_eq!(size_of::<super::StoredSimd>(), 136);
+    assert_eq!(size_of::<super::SimdState>(), 136);
     assert_eq!(CpuState::default().simd.mxcsr, 0x1f80);
     assert_eq!(CpuState::default().simd.xmm, [[0; 16]; 8]);
     let mut cpu = CpuState::filled(0xa5);

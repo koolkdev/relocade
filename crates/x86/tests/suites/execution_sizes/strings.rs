@@ -6,10 +6,10 @@ use crate::support::cases::{
 use relocade_x86::{
     CpuState,
     Gpr32::{Eax, Ecx, Edi, Esi},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
-fn record(backward: bool) -> relocade_x86::StoredFlags {
+fn record(backward: bool) -> relocade_x86::FlagsState {
     let mut flags = CpuState::filled(0xa5).flags;
     flags.bytes.df = u8::from(backward);
     flags
@@ -63,8 +63,8 @@ fn repetition() -> Vec<Case> {
                     .segmented_only()
                     .stored_flags(record(false))
                     .initial_register(Ecx, 0xaaaa_0000)
-                    .segment(Segment::Ds, StoredSegment::unusable(0))
-                    .segment(Segment::Es, StoredSegment::unusable(0));
+                    .segment(Segment::Ds, SegmentRegister::unusable(0))
+                    .segment(Segment::Es, SegmentRegister::unusable(0));
             cases.push(if default16 { code16(case) } else { case });
         }
     }

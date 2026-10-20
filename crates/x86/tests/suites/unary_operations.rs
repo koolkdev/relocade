@@ -14,7 +14,7 @@ use crate::support::{
 use relocade_x86::{
     compile_block_from_bytes, BlockError, CpuState,
     Gpr32::{self, Eax, Ebx, Ecx, Edi, Edx, Esi},
-    StoredStatusSource,
+    StatusSourceState,
 };
 
 // Input, result and parity columns are byte, word and dword respectively.
@@ -160,7 +160,7 @@ fn stored_carry_cases() -> Vec<Case> {
     .into_iter()
     .map(|(case, kind, left, concrete_carry)| {
         let mut record = CpuState::filled(0xa5).flags;
-        record.status_source = StoredStatusSource { kind, left, right: 1, ..record.status_source };
+        record.status_source = StatusSourceState { kind, left, right: 1, ..record.status_source };
         record.bytes.cf = concrete_carry;
         case.stored_flags(record)
     })

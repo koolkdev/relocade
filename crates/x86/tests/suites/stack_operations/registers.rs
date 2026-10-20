@@ -11,7 +11,7 @@ use crate::support::{
 };
 use relocade_x86::{
     Gpr32::{self, *},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 const INPUT: [(Gpr32, u32); 7] = [
@@ -176,7 +176,7 @@ fn fault_progress() -> Vec<Case> {
     for present in [false, true] {
         let case = Case::preserving_flags(format!("PUSHAD checks each slot before a later SS failure, first present={present}"), &[0x60])
             .segmented_only().initial_registers(&INPUT).initial_register(Esp, 0x9004)
-            .segment(Segment::Ss, StoredSegment {
+            .segment(Segment::Ss, SegmentRegister {
                 expand_down: 1, ..stack_segment(0x20000, 0x8fff, true)
             });
         cases.push(if present {

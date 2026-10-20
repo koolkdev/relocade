@@ -11,7 +11,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::*, StoredStatusSource};
+use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::*, StatusSourceState};
 
 #[path = "bit_tests/memory.rs"]
 mod memory;
@@ -113,7 +113,7 @@ test_cases!(indexes_capture_the_old_destination, aliased_indexes());
 
 fn stored_arithmetic_flags() -> Vec<Case> {
     let mut record = CpuState::filled(0xa5).flags;
-    record.status_source = StoredStatusSource {
+    record.status_source = StatusSourceState {
         kind: 9,
         left: 0,
         right: 1,

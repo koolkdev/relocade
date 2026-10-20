@@ -1,5 +1,5 @@
 use crate::{MachineConfig, MachineStorage};
-use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, StoredSegment};
+use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, SegmentRegister};
 use std::fmt;
 
 /// Read access to guest physical memory, independent of CPU ownership.
@@ -103,7 +103,7 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
     /// Physical mappings, including A20, apply after segment translation.
     pub fn read_segment(
         &mut self,
-        segment: &StoredSegment,
+        segment: &SegmentRegister,
         offset: u32,
         bytes: &mut [u8],
     ) -> Result<(), MemoryError> {
@@ -116,7 +116,7 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
     /// permissions do not: a CS-relative write is allowed.
     pub fn write_segment(
         &mut self,
-        segment: &StoredSegment,
+        segment: &SegmentRegister,
         offset: u32,
         bytes: &[u8],
     ) -> Result<(), MemoryError> {
@@ -158,7 +158,7 @@ impl<S: MachineStorage + ?Sized> ReadMemory for Memory<'_, S> {
     }
 }
 
-fn segment_address(segment: &StoredSegment, offset: u32, len: usize) -> Result<u32, MemoryError> {
+fn segment_address(segment: &SegmentRegister, offset: u32, len: usize) -> Result<u32, MemoryError> {
     if !range_fits(offset, len, u64::from(segment.limit) + 1) {
         return Err(MemoryError::SegmentRange);
     }

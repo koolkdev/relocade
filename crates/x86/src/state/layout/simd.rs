@@ -6,14 +6,14 @@ use super::codec::{read, read_u32, write};
 /// XMM bytes are in little-endian order. This is not an FXSAVE image.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct StoredSimd {
+pub struct SimdState {
     pub mxcsr: u32,
     /// Snapshot padding, retained without interpretation.
     pub reserved: [u8; 4],
     pub xmm: [[u8; 16]; 8],
 }
 
-impl Default for StoredSimd {
+impl Default for SimdState {
     fn default() -> Self {
         Self {
             mxcsr: Self::MXCSR_RESET,
@@ -23,7 +23,7 @@ impl Default for StoredSimd {
     }
 }
 
-impl StoredSimd {
+impl SimdState {
     /// Reset control: all exceptions masked, round to nearest, gradual underflow.
     pub const MXCSR_RESET: u32 = 0x1f80;
 

@@ -12,22 +12,22 @@ mod stack;
 mod strings;
 
 use crate::support::cases::InstructionCase as Case;
-use relocade_x86::{Segment, StoredSegment};
+use relocade_x86::{Segment, SegmentRegister};
 
 fn code16(case: Case) -> Case {
     case.segmented_only().segment(
         Segment::Cs,
-        StoredSegment {
+        SegmentRegister {
             big: 0,
-            ..StoredSegment::flat_code32(0x1b)
+            ..SegmentRegister::flat_code32(0x1b)
         },
     )
 }
 
-fn stack16(limit: u32) -> StoredSegment {
-    StoredSegment {
+fn stack16(limit: u32) -> SegmentRegister {
+    SegmentRegister {
         limit,
         big: 0,
-        ..StoredSegment::flat_data32(0x23)
+        ..SegmentRegister::flat_data32(0x23)
     }
 }

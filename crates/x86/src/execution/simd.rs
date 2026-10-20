@@ -5,7 +5,7 @@ use crate::{
     register::RegisterCode,
     simd::{FloatResult, PackedFloatCandidate, SimdExceptions},
     state::Mxcsr,
-    Exception, StoredSimd,
+    Exception, SimdState,
 };
 use relocade_compiler::{BuildError, Val, I32, V128};
 
@@ -74,7 +74,7 @@ impl ExecutionBuilder<'_, '_> {
 
     pub(crate) fn load_mxcsr(&mut self, value: Val<I32>) -> Result<(), BuildError> {
         self.fault_if(
-            value.and(!StoredSimd::MXCSR_MASK).ne(0),
+            value.and(!SimdState::MXCSR_MASK).ne(0),
             Exception::GeneralProtection {
                 error_code: 0.into(),
             },

@@ -20,12 +20,12 @@ use super::{
 type RecordQuery = fn(&Cpu, &mut BlockBuilder<'_>, Condition) -> Result<Val<I1>, BuildError>;
 
 #[derive(Clone, Copy)]
-enum StoredQuery {
+enum FlagQuery {
     Condition(Condition),
     Flags(FlagMask),
 }
 
-impl StoredQuery {
+impl FlagQuery {
     fn result_types(self) -> Vec<Type> {
         match self {
             Self::Condition(_) => vec![Type::I1],
@@ -153,7 +153,7 @@ impl Cpu {
         if mask.bits() == 0 {
             return Ok(flags);
         }
-        let resolver = self.flag_resolver(body.program(), StoredQuery::Flags(mask))?;
+        let resolver = self.flag_resolver(body.program(), FlagQuery::Flags(mask))?;
         let values = call_flags(body, resolver, mask.status_flags().count())?;
         for (flag, value) in mask.status_flags().zip(values) {
             flags[flag as usize] = Some(value);
@@ -166,10 +166,8 @@ impl Cpu {
         body: &mut BlockBuilder<'_>,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
-        let resolver = self.flag_resolver(
-            body.program(),
-            StoredQuery::Condition(condition.canonical()),
-        )?;
+        let resolver =
+            self.flag_resolver(body.program(), FlagQuery::Condition(condition.canonical()))?;
         let value = body.call::<I1>(resolver, &[])?;
         Ok(if condition.is_inverted() {
             value.eq(0)
@@ -180,12 +178,12 @@ impl Cpu {
 
     /// Shares canonical condition readers and readers for matching flag subsets.
     /// State owns result caching on the path where a reader is called.
-    fn flag_resolver(&self, program: &mut Program, query: StoredQuery) -> Result<Func, BuildError> {
+    fn flag_resolver(&self, program: &mut Program, query: FlagQuery) -> Result<Func, BuildError> {
         let slot = match query {
-            StoredQuery::Condition(condition) => {
+            FlagQuery::Condition(condition) => {
                 &self.condition_resolvers[condition_index(condition)]
             }
-            StoredQuery::Flags(mask) => &self.flag_resolvers[usize::from(mask.bits())],
+            FlagQuery::Flags(mask) => &self.flag_resolvers[usize::from(mask.bits())],
         };
         if let Some(function) = slot.get() {
             return Ok(function);
@@ -204,7 +202,7 @@ impl Cpu {
     fn define_flag_resolver(
         &self,
         mut body: BlockBuilder<'_>,
-        query: StoredQuery,
+        query: FlagQuery,
     ) -> Result<(), BuildError> {
         let kind = cpu_load!(&mut body, self.memory, flags.status_source.kind)?;
         body.if_(kind.eq(u32::from(record::CONCRETE_KIND)), |arm| {
@@ -247,7 +245,7 @@ fn return_query<T: MemoryInt>(
     stored_kind: &Val<I8>,
     left: &Val<I32>,
     right: &Val<I32>,
-    query: StoredQuery,
+    query: FlagQuery,
 ) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,

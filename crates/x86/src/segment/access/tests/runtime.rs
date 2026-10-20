@@ -2,7 +2,7 @@ use super::*;
 use crate::SegmentProfile;
 use crate::{
     test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
-    CpuState, StoredSegment,
+    CpuState, SegmentRegister,
 };
 
 fn expect_address(module: &TestModule, cpu: CpuState, choice: i32, address_or_fault: i64) {
@@ -30,12 +30,12 @@ fn expect_address(module: &TestModule, cpu: CpuState, choice: i32, address_or_fa
 #[test]
 fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
     let mut cpu = CpuState::default();
-    cpu.segments.fs = StoredSegment {
+    cpu.segments.fs = SegmentRegister {
         base: 0x8000,
         limit: 0x23,
-        ..StoredSegment::flat_data32(0x53)
+        ..SegmentRegister::flat_data32(0x53)
     };
-    cpu.segments.gs = StoredSegment::unusable(0x63);
+    cpu.segments.gs = SegmentRegister::unusable(0x63);
     for intent in [Intent::Read, Intent::Write] {
         let module = TestModule::new(&translation(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -73,7 +73,7 @@ fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
         Some(SegmentSelection::indexed),
     ));
     expect_address(&segmented_read, cpu, 1, 2 << 48);
-    cpu.segments.cs = StoredSegment::flat_code32(0);
+    cpu.segments.cs = SegmentRegister::flat_code32(0);
     cpu.segments.fs.limit = 0x22;
     expect_address(&read, cpu, 4, 2 << 48);
 

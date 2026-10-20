@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
@@ -18,9 +18,9 @@ fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
             0x27,
             0xc000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         );
         cpu.eip = 0x200;
@@ -41,7 +41,7 @@ fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
         );
         image.cpu = cpu;
         image.data(saved_address, &saved);
-        cpu.segments.cs = loaded(0x1b, 0, u32::MAX, StoredSegment::flat_code32(0));
+        cpu.segments.cs = loaded(0x1b, 0, u32::MAX, SegmentRegister::flat_code32(0));
         cpu.eip = 0x1000 + call.len() as u32;
         cpu.registers.esp = 0x9008;
         cpu.instruction_count = 1;
@@ -99,7 +99,7 @@ fn call_saves_the_complete_fallthrough_at_operand_width() {
         image.data(0x3ffc, &code[..4]);
         image.data(0x5000, &code[4..]);
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x200;
         cpu.registers.esp = if word { 0x9004 } else { 0x9000 };
         cpu.instruction_count = 0;
@@ -139,7 +139,7 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
             .segment_resolutions
             .push(SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x200;
         cpu.registers.esp = if returning { 0x9008 } else { 0x9000 };
         cpu.instruction_count = 0;

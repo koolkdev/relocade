@@ -2,7 +2,7 @@ mod common;
 
 use common::{path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
-use relocade_x86::{ExecutionExit, Segment, StoredSegment};
+use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::io::Write;
 
 const BASE: u32 = 0x30000;
@@ -12,7 +12,7 @@ fn use_data_segment(dos: &mut Dos<Backend<DosState>>) {
     dos.runtime()
         .machine()
         .cpu()
-        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x3000));
+        .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x3000));
 }
 
 fn write_memory(dos: &mut Dos<Backend<DosState>>, address: u32, bytes: &[u8]) {

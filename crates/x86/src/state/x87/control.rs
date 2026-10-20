@@ -5,7 +5,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 use crate::{
     floating::RoundingMode,
     ssa::{Location, StateFields},
-    state::{access::cpu_location, StoredX87Control},
+    state::{access::cpu_location, X87Control},
 };
 
 use super::{X87Access, X87Specialization};
@@ -74,7 +74,7 @@ impl Control {
     pub(super) fn matches_controls(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        expected: &StoredX87Control,
+        expected: &X87Control,
         specialization: X87Specialization,
     ) -> Result<Val<I1>, BuildError> {
         let rounding = self

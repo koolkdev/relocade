@@ -1,6 +1,6 @@
 //! Virtual descriptor storage owned by the host execution environment.
 
-use crate::{Exception, StoredSegment};
+use crate::{Exception, SegmentRegister};
 
 use super::{Segment, SegmentDescriptor, SegmentDescriptorInfo};
 
@@ -100,11 +100,11 @@ impl DescriptorTables {
         &self,
         destination: Segment,
         selector: u16,
-    ) -> Result<StoredSegment, Exception> {
+    ) -> Result<SegmentRegister, Exception> {
         if selector & !3 == 0 {
             return match destination {
                 Segment::Ss | Segment::Cs => Err(Exception::GeneralProtection { error_code: 0 }),
-                _ => Ok(StoredSegment::unusable(selector)),
+                _ => Ok(SegmentRegister::unusable(selector)),
             };
         }
         self.get(selector)

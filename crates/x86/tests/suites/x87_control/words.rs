@@ -11,7 +11,7 @@ fn control_field_packing(frontend: Frontend) {
     let code = [0xd9, 0x3d, 1, 0x40, 0, 0];
     for (fields, bytes) in [
         (
-            StoredX87Control {
+            X87Control {
                 invalid_mask: 0x81,
                 denormal_mask: 0x82,
                 zero_divide_mask: 0x83,
@@ -27,7 +27,7 @@ fn control_field_packing(frontend: Frontend) {
             [0xd5, 0xf6],
         ),
         (
-            StoredX87Control {
+            X87Control {
                 invalid_mask: 0x80,
                 denormal_mask: 0x81,
                 zero_divide_mask: 0x82,
@@ -73,7 +73,7 @@ fn load_control_fields(frontend: Frontend) {
     for (bytes, fields) in [
         (
             [0xff, 0xff],
-            StoredX87Control {
+            X87Control {
                 invalid_mask: 1,
                 denormal_mask: 1,
                 zero_divide_mask: 1,
@@ -89,7 +89,7 @@ fn load_control_fields(frontend: Frontend) {
         ),
         (
             [0, 0],
-            StoredX87Control {
+            X87Control {
                 invalid_mask: 0,
                 denormal_mask: 0,
                 zero_divide_mask: 0,

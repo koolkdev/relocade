@@ -1,6 +1,6 @@
 //! Compatibility of loaded segment state with compilation assumptions.
 
-use crate::state::{Segments, StoredSegment};
+use crate::state::{SegmentRegister, Segments};
 
 use super::{Segment, SegmentDefaultSize};
 
@@ -78,7 +78,7 @@ pub(crate) struct SegmentAssumptions {
 }
 
 impl SegmentAssumptions {
-    pub(crate) fn matches(&self, cache: &StoredSegment) -> bool {
+    pub(crate) fn matches(&self, cache: &SegmentRegister) -> bool {
         self.base.is_none_or(|value| cache.base == value)
             && self.limit.is_none_or(|value| cache.limit == value)
             && self.usable.is_none_or(|value| cache.usable == value)

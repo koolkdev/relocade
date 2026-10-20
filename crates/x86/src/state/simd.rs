@@ -3,7 +3,7 @@
 mod mxcsr;
 pub(crate) use mxcsr::Mxcsr;
 
-use super::{access::cpu_location, ExecutionContext, State, StoredSimd};
+use super::{access::cpu_location, ExecutionContext, SimdState, State};
 use crate::{register::RegisterCode, simd::SimdExceptions, ssa::Location};
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, V128};
 use std::mem::offset_of;
@@ -39,7 +39,7 @@ impl State<'_> {
         self.simd.define(
             body,
             cpu_location!(simd.mxcsr),
-            value.and(StoredSimd::MXCSR_MASK),
+            value.and(SimdState::MXCSR_MASK),
         )
     }
 

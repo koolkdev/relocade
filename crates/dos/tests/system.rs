@@ -1,7 +1,7 @@
 mod common;
 
 use common::{error, service, SERVICE_PROGRAM};
-use relocade_x86::{ExecutionExit, Segment, StoredSegment};
+use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 
 async fn check_system_services() {
     let mut dos = common::dos().await;
@@ -22,7 +22,7 @@ async fn check_system_services() {
     dos.runtime()
         .machine()
         .cpu()
-        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x1234));
+        .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1234));
     let cpu = service(&mut dos, 0x25ff, 0, 0, 0xfedc);
     assert_eq!(cpu.flags.eflags() & 1, 1);
     let mut vector = [0; 4];

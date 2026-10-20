@@ -2,7 +2,7 @@ mod common;
 
 use common::Backend;
 use relocade_dos::{Dos, DosState};
-use relocade_x86::{CpuState, ExecutionExit, Segment, StoredSegment};
+use relocade_x86::{CpuState, ExecutionExit, Segment, SegmentRegister};
 
 fn service(
     dos: &mut Dos<Backend<DosState>>,
@@ -16,7 +16,10 @@ fn service(
         cpu.set_eip(0x100);
         cpu.set_ah(function);
         cpu.set_bx(paragraphs);
-        cpu.set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, segment));
+        cpu.set_segment(
+            Segment::Es,
+            SegmentRegister::real_mode(Segment::Es, segment),
+        );
     }
     assert_eq!(
         dos.runtime().run(10).unwrap(),

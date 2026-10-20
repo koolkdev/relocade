@@ -10,7 +10,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use crate::{CpuState, Gpr32::*, Segment, StoredFlags, StoredSegment};
+use crate::{CpuState, FlagsState, Gpr32::*, Segment, SegmentRegister};
 
 fn initial_flags(zf: bool) -> Flags<bool> {
     Flags {
@@ -30,7 +30,7 @@ fn zero_flag(set: bool) -> Flags<FlagExpectation> {
     }
 }
 
-fn pending_add() -> StoredFlags {
+fn pending_add() -> FlagsState {
     let mut flags = CpuState::filled(0xa5).flags;
     flags.status_source.kind = 10;
     flags.status_source.left = 0x7fff_ffff;
@@ -83,9 +83,9 @@ fn fixed_word_forms() -> Vec<Case> {
         if code16 {
             case = case.segmented_only().segment(
                 Segment::Cs,
-                StoredSegment {
+                SegmentRegister {
                     big: 0,
-                    ..StoredSegment::flat_code32(0x1b)
+                    ..SegmentRegister::flat_code32(0x1b)
                 },
             );
         }
@@ -117,7 +117,7 @@ fn memory_forms() -> Vec<Case> {
         Case::new("FS override applies to a split word at a 16-bit effective address", &[0x64, 0x67, 0x63, 0x42, 0],
             initial_flags(false), zero_flag(true)).segmented_only()
             .initial_registers(&[(Eax, 3), (Ebp, 0xabcd_fffe), (Esi, 0xdead_0001)])
-            .segment(Segment::Fs, data(0x8000, 0x10000)).segment(Segment::Ss, StoredSegment::unusable(0))
+            .segment(Segment::Fs, data(0x8000, 0x10000)).segment(Segment::Ss, SegmentRegister::unusable(0))
             .map_page(0x17, 0x8000, ReadWrite).map_page(0x18, 0xa000, ReadWrite)
             .memory(0x17ffe, &[0x5a, 0xfc, 0xff, 0x5a], ReadWrite).expect_memory(0x17fff, &[0xff, 0xff]),
     ]

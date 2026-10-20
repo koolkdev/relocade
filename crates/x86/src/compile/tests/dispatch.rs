@@ -20,7 +20,7 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<u64>) {
     let mut cpu = CpuState::default();
     if profile == ExecutionProfile::Real16 {
         cpu.segments = Segments::real_mode();
-        cpu.segments[Segment::Cs] = crate::StoredSegment::real_mode(Segment::Cs, 0xffff);
+        cpu.segments[Segment::Cs] = crate::SegmentRegister::real_mode(Segment::Cs, 0xffff);
     }
     if profile == SegmentProfile::Segmented16.into() {
         cpu.segments.cs.big = 0;
@@ -68,7 +68,7 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<u64>) {
         let mut changed = cpu;
         changed.segments.ds.big = 0;
         changed.segments.ds.selector = 0x23;
-        changed.segments.fs = crate::StoredSegment::unusable(0);
+        changed.segments.fs = crate::SegmentRegister::unusable(0);
         push(changed, &table, "dispatch", 33);
     }
     push(cpu, &table, "interpret", 11);

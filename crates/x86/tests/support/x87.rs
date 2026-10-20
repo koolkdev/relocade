@@ -2,12 +2,12 @@
 
 pub(crate) mod arithmetic;
 
-use relocade_x86::{CpuState, StoredX87Control, StoredX87Status};
+use relocade_x86::{CpuState, X87Control, X87Status};
 
 use super::machine::{Exit, Image, Step};
 
-pub(crate) fn set_control(control: &mut StoredX87Control, word: u16) {
-    *control = StoredX87Control {
+pub(crate) fn set_control(control: &mut X87Control, word: u16) {
+    *control = X87Control {
         invalid_mask: (word & 1) as u8,
         denormal_mask: ((word >> 1) & 1) as u8,
         zero_divide_mask: ((word >> 2) & 1) as u8,
@@ -22,8 +22,8 @@ pub(crate) fn set_control(control: &mut StoredX87Control, word: u16) {
     };
 }
 
-pub(crate) const fn status(word: u16) -> StoredX87Status {
-    StoredX87Status {
+pub(crate) const fn status(word: u16) -> X87Status {
+    X87Status {
         invalid: (word & 1) as u8,
         denormal: ((word >> 1) & 1) as u8,
         zero_divide: ((word >> 2) & 1) as u8,

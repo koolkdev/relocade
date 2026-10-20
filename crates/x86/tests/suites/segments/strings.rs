@@ -6,12 +6,12 @@ use crate::support::cases::{
     Permissions::{ReadOnly, ReadWrite},
 };
 use relocade_x86::{
-    CpuState,
+    CpuState, FlagsState,
     Gpr32::{Eax, Ecx, Edi, Esi},
-    Segment, StoredFlags, StoredSegment,
+    Segment, SegmentRegister,
 };
 
-fn record(backward: bool) -> StoredFlags {
+fn record(backward: bool) -> FlagsState {
     let mut flags = CpuState::filled(0xa5).flags;
     flags.bytes.df = u8::from(backward);
     flags
@@ -32,7 +32,7 @@ fn selection() -> Vec<Case> {
         Case::preserving_flags("FS MOVSB overrides only the source", &[0x64, 0xa4])
             .segmented_only()
             .stored_flags(record(false))
-            .segment(Segment::Ds, StoredSegment::unusable(0x23))
+            .segment(Segment::Ds, SegmentRegister::unusable(0x23))
             .segment(Segment::Fs, data(0x8000, 0xff))
             .segment(Segment::Es, data(0x4000, 0xff))
             .register(Esi, 0x20, 0x21)
@@ -51,7 +51,7 @@ fn selection() -> Vec<Case> {
         .memory(0x18020, &[0x78, 0x56, 0x34, 0x12], ReadOnly),
         Case::preserving_flags("STOSB ignores an unusable source override", &[0x64, 0xaa])
             .stored_flags(record(false))
-            .segment(Segment::Fs, StoredSegment::unusable(0x53))
+            .segment(Segment::Fs, SegmentRegister::unusable(0x53))
             .initial_register(Eax, 0x78)
             .register(Edi, 0x4000, 0x4001)
             .memory(0x4000, &[0xff], ReadWrite)
@@ -87,7 +87,7 @@ fn selection() -> Vec<Case> {
             },
         )
         .stored_flags(record(false))
-        .segment(Segment::Fs, StoredSegment::unusable(0x53))
+        .segment(Segment::Fs, SegmentRegister::unusable(0x53))
         .initial_register(Eax, 0x78)
         .register(Edi, 0x4000, 0x4001)
         .memory(0x4000, &[0x78], ReadOnly),
@@ -105,7 +105,7 @@ fn faults_and_repetition() -> Vec<Case> {
             .segmented_only()
             .stored_flags(record(false))
             .segment(Segment::Fs, data(0x8000, 0xff))
-            .segment(Segment::Es, StoredSegment::unusable(0x23))
+            .segment(Segment::Es, SegmentRegister::unusable(0x23))
             .initial_registers(&[(Esi, 0x20), (Edi, 0x4000)])
             .memory(0x8020, &[0x78], ReadOnly)
             .general_protection(0),
@@ -123,9 +123,9 @@ fn faults_and_repetition() -> Vec<Case> {
             )
             .segmented_only()
             .stored_flags(record(false))
-            .segment(Segment::Ds, StoredSegment::unusable(0x23))
-            .segment(Segment::Es, StoredSegment::unusable(0x23))
-            .segment(Segment::Fs, StoredSegment::unusable(0x53))
+            .segment(Segment::Ds, SegmentRegister::unusable(0x23))
+            .segment(Segment::Es, SegmentRegister::unusable(0x23))
+            .segment(Segment::Fs, SegmentRegister::unusable(0x53))
             .initial_register(Ecx, 0),
         );
     }
@@ -195,7 +195,7 @@ fn repeated_prefix_orders() -> Vec<Case> {
         Case::preserving_flags(format!("word REP MOVS prefix order {prefixes:02x?}"), &code)
             .stored_flags(record(false))
             .segment(Segment::Fs, data(0x8000, 0xff))
-            .segment(Segment::Gs, StoredSegment::unusable(0x63))
+            .segment(Segment::Gs, SegmentRegister::unusable(0x63))
             .register(Ecx, 2, 0)
             .register(Esi, 0x20, 0x24)
             .register(Edi, 0x4000, 0x4004)

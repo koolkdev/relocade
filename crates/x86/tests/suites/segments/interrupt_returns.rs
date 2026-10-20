@@ -1,6 +1,6 @@
 //! Protected interrupt returns commit a complete frame or retain the restart state.
 
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[path = "interrupt_returns/faults.rs"]
 mod faults;
@@ -104,12 +104,12 @@ fn operand_width_stack_width_and_new_code_defaults_are_independent() {
             0x23,
             0,
             u32::MAX,
-            StoredSegment {
+            SegmentRegister {
                 big: u8::from(stack_big),
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
-        image.cpu.segments.fs = crate::StoredSegment::unusable(0);
+        image.cpu.segments.fs = crate::SegmentRegister::unusable(0);
         image.map(if stack_big { 0xabcd9 } else { 9 }, 0x8000, false);
         image.data(0x8000, &frame(word, 0x9234_5678, 0x27, 0));
         let mut tables = tables(u32::MAX);
@@ -130,9 +130,9 @@ fn operand_width_stack_width_and_new_code_defaults_are_independent() {
             0x27,
             0xc000,
             u32::MAX,
-            StoredSegment {
+            SegmentRegister {
                 big: u8::from(word),
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         );
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
@@ -185,7 +185,7 @@ fn flag_images_replace_pending_status_and_word_preserves_high_flags() {
         }
         cpu.eip = 0x200;
         cpu.registers.esp = if word { 0x9006 } else { 0x900c };
-        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+        cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.instruction_count = 0;
         check_one(
             profile,
@@ -217,9 +217,9 @@ fn frames_are_consecutive_and_only_pointer_adjustment_wraps_at_stack_width() {
             0x23,
             0,
             limit,
-            StoredSegment {
+            SegmentRegister {
                 big: u8::from(stack_big),
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         image.cpu.registers.esp = if stack_big {
@@ -241,7 +241,7 @@ fn frames_are_consecutive_and_only_pointer_adjustment_wraps_at_stack_width() {
             cpu = cleared_flags(cpu, word);
             cpu.eip = 0x200;
             cpu.registers.esp = next_esp;
-            cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, StoredSegment::flat_code32(0));
+            cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
             cpu.instruction_count = 0;
             resolutions.push(SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27));
             Exit::Dispatch(cpu.eip)

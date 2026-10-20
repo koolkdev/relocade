@@ -5,7 +5,7 @@ use crate::support::cases::{
 };
 use relocade_x86::{
     Gpr32::{Eax, Esp},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 fn transfers() -> Vec<Case> {
@@ -121,9 +121,9 @@ fn faults() -> Vec<Case> {
         .segment(Segment::Ss, stack16(0xffff))
         .segment(
             Segment::Cs,
-            StoredSegment {
+            SegmentRegister {
                 limit: 0x1fff,
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         )
         .initial_register(Esp, 0xabcd_fffe)
@@ -137,9 +137,9 @@ fn faults() -> Vec<Case> {
         .segment(Segment::Ss, stack16(0xffff))
         .segment(
             Segment::Cs,
-            StoredSegment {
+            SegmentRegister {
                 limit: 0x1fff,
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         )
         .initial_register(Esp, 0xabcd_0000)

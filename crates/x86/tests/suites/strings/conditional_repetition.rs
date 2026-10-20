@@ -5,7 +5,7 @@ use crate::support::{
     cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use relocade_x86::{Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{Gpr32::*, Segment, SegmentRegister};
 
 #[rustfmt::skip]
 fn stopping_conditions() -> Vec<Case> {
@@ -66,7 +66,7 @@ fn zero_count() -> Vec<Case> {
         stored.status_source.kind = 9;
         Case::preserving_flags(format!("zero comparison count skips unusable segments: {code:02x?}"), code)
             .stored_flags(stored).segmented_only().initial_registers(&[(Ecx, count), (Esi, u32::MAX), (Edi, u32::MAX)])
-            .segment(Segment::Ds, StoredSegment::unusable(0)).segment(Segment::Es, StoredSegment::unusable(0))
+            .segment(Segment::Ds, SegmentRegister::unusable(0)).segment(Segment::Es, SegmentRegister::unusable(0))
     }).collect()
 }
 
@@ -90,12 +90,12 @@ fn fault_rollback() -> Vec<Case> {
             .memory(0x17ffe, &[5, 0], ReadOnly).fault(0x18000, 0),
         Case::preserving_flags("conditional repeat restores entry flags on a segment fault after 16-bit progress", &[0x67, 0xf2, 0xae])
             .stored_flags(record(0)).segmented_only()
-            .segment(Segment::Es, StoredSegment { base: 0x7000, limit: 0, ..StoredSegment::flat_data32(0x23) })
+            .segment(Segment::Es, SegmentRegister { base: 0x7000, limit: 0, ..SegmentRegister::flat_data32(0x23) })
             .initial_register(Eax, 5).register(Ecx, 0xaaaa_0003, 0xaaaa_0002).register(Edi, 0xbbbb_0000, 0xbbbb_0001)
             .memory(0x7000, &[3], ReadOnly).general_protection(0),
         Case::preserving_flags("conditional CMPS SS source fault restores entry flags before accessing ES", &[0xf3, 0x36, 0xa6])
             .stored_flags(record(0)).segmented_only()
-            .segment(Segment::Ss, StoredSegment { base: 0x4000, limit: 0, ..StoredSegment::flat_data32(0x23) })
+            .segment(Segment::Ss, SegmentRegister { base: 0x4000, limit: 0, ..SegmentRegister::flat_data32(0x23) })
             .register(Ecx, 3, 2).register(Esi, 0, 1).register(Edi, 0x7fff, 0x8000)
             .memory(0x4000, &[5], ReadOnly).memory(0x7fff, &[5], ReadOnly).stack_fault(0),
     ]

@@ -2,7 +2,7 @@ use super::code16;
 use crate::support::cases::{
     test_cases, FlagExpectation::Preserved, Flags, InstructionCase as Case,
 };
-use relocade_x86::{Gpr32::Ecx, Segment, StoredSegment};
+use relocade_x86::{Gpr32::Ecx, Segment, SegmentRegister};
 
 fn counters() -> Vec<Case> {
     let mut cases = Vec::new();
@@ -45,9 +45,9 @@ fn counters() -> Vec<Case> {
         .segmented_only()
         .segment(
             Segment::Cs,
-            StoredSegment {
+            SegmentRegister {
                 limit: 0x1002,
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         )
         .initial_register(Ecx, 0xabcd_0002)

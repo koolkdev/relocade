@@ -15,7 +15,7 @@ use crate::support::{
         stack_image as initial_image, status, write_register_bits, INDEFINITE,
     },
 };
-use relocade_x86::{ExecutionProfile, SegmentProfile, StoredX87Status};
+use relocade_x86::{ExecutionProfile, SegmentProfile, X87Status};
 
 fn register_moves(frontend: Frontend) {
     let mut checks = ImageSequences::new(
@@ -190,7 +190,7 @@ fn stack_controls(frontend: Frontend) {
 
     let code = [0xd9, 0xf7, 0xdf, 0xe0];
     let mut image = initial_image(&code, 7, 0);
-    image.cpu.x87.status = StoredX87Status {
+    image.cpu.x87.status = X87Status {
         invalid: 0x80,
         denormal: 0x82,
         zero_divide: 0x84,

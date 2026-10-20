@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn call_checks_descriptor_then_stack_capacity_then_target_then_stack_paging() {
@@ -242,9 +242,9 @@ fn return_requires_rpl_three_before_reusing_code_descriptor_rules_and_limit_chec
                     selector,
                     0xc000,
                     0x200,
-                    StoredSegment {
+                    SegmentRegister {
                         readable: u8::from(selector != 7),
-                        ..StoredSegment::flat_code32(0)
+                        ..SegmentRegister::flat_code32(0)
                     },
                 );
                 cpu.registers.esp = if word { 0x19003 } else { 0x19007 };

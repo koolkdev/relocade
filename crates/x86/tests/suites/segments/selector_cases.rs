@@ -7,7 +7,7 @@ use crate::support::{
 };
 use relocade_x86::{
     ExecutionProfile, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentLimit,
-    SegmentProfile, StoredSegment,
+    SegmentProfile, SegmentRegister,
 };
 
 pub(super) fn check_one(
@@ -80,9 +80,9 @@ pub(super) fn loaded(
     selector: u16,
     base: u32,
     limit: u32,
-    properties: StoredSegment,
-) -> StoredSegment {
-    StoredSegment {
+    properties: SegmentRegister,
+) -> SegmentRegister {
+    SegmentRegister {
         base,
         limit,
         selector,

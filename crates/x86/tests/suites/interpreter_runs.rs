@@ -7,7 +7,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Event, SegmentResolution, TestModule},
 };
-use relocade_x86::{Segment, SegmentProfile, StoredSegment};
+use relocade_x86::{Segment, SegmentProfile, SegmentRegister};
 
 fn check(module: &TestModule, name: &str, image: &Image, step: Step<'_>) {
     assert_eq!(
@@ -195,9 +195,9 @@ fn repetition_progress(module: &TestModule) {
 
 fn terminal_segment_load(module: &TestModule) {
     let image = Image::new(&[0xb8, 0x23, 0, 0, 0, 0x8e, 0xd8, 0xf4]);
-    let ds = StoredSegment {
+    let ds = SegmentRegister {
         base: 0x2000,
-        ..StoredSegment::flat_data32(0x23)
+        ..SegmentRegister::flat_data32(0x23)
     };
     let mut input = image.input();
     input.segment_resolutions.push(SegmentResolution {

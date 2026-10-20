@@ -1,4 +1,4 @@
-use crate::{CpuState, Segment, SegmentProfile, Segments, StoredSegment};
+use crate::{CpuState, Segment, SegmentProfile, SegmentRegister, Segments};
 
 fn compatible(segments: &Segments) -> bool {
     SegmentProfile::Flat32.is_compatible_with(segments)
@@ -59,10 +59,10 @@ fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
     assert!(!compatible(&segments));
     assert!(SegmentProfile::Segmented32.is_compatible_with(&segments));
     for cache in [
-        StoredSegment::flat_data32(0),
-        StoredSegment {
+        SegmentRegister::flat_data32(0),
+        SegmentRegister {
             big: 1,
-            ..StoredSegment::unusable(0)
+            ..SegmentRegister::unusable(0)
         },
     ] {
         segments.cs = cache;
@@ -75,7 +75,7 @@ fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
 fn assumed_data_segments_require_writable_expand_up_data() {
     for segment in [Segment::Ds, Segment::Es, Segment::Ss] {
         for change in [
-            (|cache: &mut StoredSegment| cache.writable = 0) as fn(&mut StoredSegment),
+            (|cache: &mut SegmentRegister| cache.writable = 0) as fn(&mut SegmentRegister),
             |cache| cache.expand_down = 1,
             |cache| cache.executable = 1,
             |cache| cache.readable = 0,
@@ -102,12 +102,12 @@ fn selectors_do_not_change_assumptions() {
 #[test]
 fn fs_and_gs_changes_do_not_break_the_flat_profile() {
     let mut segments = Segments::flat32();
-    segments.fs = StoredSegment {
+    segments.fs = SegmentRegister {
         base: 0x1234_5000,
         limit: 0xfff,
-        ..StoredSegment::flat_data32(0x53)
+        ..SegmentRegister::flat_data32(0x53)
     };
-    segments.gs = StoredSegment::unusable(0x63);
+    segments.gs = SegmentRegister::unusable(0x63);
     assert!(compatible(&segments));
 }
 
@@ -119,11 +119,11 @@ fn segmented_profiles_assume_only_their_code_default_size() {
     ] {
         for segment in Segment::ALL {
             let mut segments = Segments::flat32();
-            segments[segment] = StoredSegment {
+            segments[segment] = SegmentRegister {
                 base: 0x8123_4000,
                 limit: 0x4321,
                 selector: 0x23,
-                ..StoredSegment::default()
+                ..SegmentRegister::default()
             };
             segments.cs.big = code_big;
             assert!(profile.is_compatible_with(&segments));

@@ -6,7 +6,7 @@ use std::mem::{offset_of, size_of};
 use super::payload::Payload;
 use crate::{
     ssa::TrackedValue,
-    state::{ExecutionContext, StoredX87Register},
+    state::{ExecutionContext, X87Register},
     x87::ExtendedValue,
 };
 
@@ -53,10 +53,8 @@ impl Bank {
         relative: usize,
     ) -> Result<&mut Payload, BuildError> {
         if self.registers[relative].payload.is_none() {
-            let address = body.value(
-                self.physical(relative)
-                    .mul(size_of::<StoredX87Register>() as u32),
-            )?;
+            let address =
+                body.value(self.physical(relative).mul(size_of::<X87Register>() as u32))?;
             self.registers[relative].payload = Some(Payload::new(self.memory, address));
         }
         Ok(self.registers[relative].payload.as_mut().unwrap())

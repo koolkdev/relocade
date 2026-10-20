@@ -4,7 +4,7 @@ use crate::support::{
 };
 use relocade_x86::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockError, ExecutionProfile,
-    SegmentProfile, StoredSegment,
+    SegmentProfile, SegmentRegister,
 };
 
 #[test]
@@ -117,10 +117,10 @@ fn a_segmented_block_reads_stack_attributes_at_each_entry() {
         let mut image = Image::new(&bytes);
         image.cpu.registers.eax = 0x1234_5678;
         image.cpu.registers.esp = 0x1234_8004;
-        image.cpu.segments.ss = StoredSegment {
+        image.cpu.segments.ss = SegmentRegister {
             base: 0x4000,
             big: u8::from(big),
-            ..StoredSegment::flat_data32(0x23)
+            ..SegmentRegister::flat_data32(0x23)
         };
         image.map(page, 0x8000, true);
         assert!(ExecutionProfile::Protected(SegmentProfile::Segmented32)

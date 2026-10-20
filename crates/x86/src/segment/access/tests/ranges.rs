@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
-    CpuState, SegmentDefaultSize, StoredSegment,
+    CpuState, SegmentDefaultSize, SegmentRegister,
 };
 
 fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
@@ -81,12 +81,12 @@ fn runtime_segment_spans_check_limits_and_wrap() {
         ),
     ] {
         let mut cpu = CpuState::default();
-        cpu.segments.fs = StoredSegment {
+        cpu.segments.fs = SegmentRegister {
             base: 0x8000,
             limit,
             expand_down: u8::from(down),
             big: u8::from(size == Bits32),
-            ..StoredSegment::flat_data32(0x53)
+            ..SegmentRegister::flat_data32(0x53)
         };
         let cpu = cpu.to_bytes().to_vec();
         for &(offset, bytes, denied) in cases {
@@ -123,7 +123,7 @@ fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
         segments: crate::Segments::real_mode(),
         ..CpuState::default()
     };
-    cpu.segments.cs = StoredSegment::real_mode(Segment::Cs, 0x1234);
+    cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
     let cpu = cpu.to_bytes().to_vec();
     for (offset, bytes, denied) in [
         (0u32, 0x10000u32, false),

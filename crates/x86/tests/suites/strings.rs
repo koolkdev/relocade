@@ -14,7 +14,7 @@ use crate::support::{
     step::TestModule,
 };
 use relocade_x86::{
-    compile_block_from_bytes, BlockError, CpuState, Gpr32::*, StoredFlags, StoredStatusSource,
+    compile_block_from_bytes, BlockError, CpuState, FlagsState, Gpr32::*, StatusSourceState,
 };
 
 #[path = "strings/bulk.rs"]
@@ -43,9 +43,9 @@ fn flags(bits: u8) -> Flags<FlagExpectation> {
     }
 }
 
-fn record(df: u8) -> StoredFlags {
+fn record(df: u8) -> FlagsState {
     let mut record = CpuState::filled(0xa5).flags;
-    record.status_source = StoredStatusSource {
+    record.status_source = StatusSourceState {
         kind: 0,
         reserved: [0x5a, 0xc3, 0x96],
         left: 0x1234_5678,

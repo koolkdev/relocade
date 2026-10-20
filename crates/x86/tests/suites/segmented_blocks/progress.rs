@@ -12,7 +12,7 @@ use relocade_x86::{
     Gpr32::{Eax, Ebx, Ecx, Edi, Esi, Esp},
     Segment,
     SegmentDefaultSize::{Bits16, Bits32},
-    StoredSegment,
+    SegmentRegister,
 };
 
 fn before_add() -> Flags<bool> {
@@ -58,9 +58,9 @@ fn data_fault_progress() -> Vec<Case> {
             .segment(Segment::Cs, code(0x4000, 0x1003, size))
             .segment(
                 Segment::Ds,
-                StoredSegment {
+                SegmentRegister {
                     base: 0x6000,
-                    ..StoredSegment::flat_data32(0x23)
+                    ..SegmentRegister::flat_data32(0x23)
                 },
             )
             .initial_registers(&[(Eax, 0xaaaa_007f), (Ebx, 0x4000)])
@@ -84,9 +84,9 @@ test_sequences!(
     .segment(Segment::Cs, code(0x6003, 0x100f, Bits16))
     .segment(
         Segment::Ds,
-        StoredSegment {
+        SegmentRegister {
             base: 0x4000,
-            ..StoredSegment::flat_data32(0x23)
+            ..SegmentRegister::flat_data32(0x23)
         }
     )
     .initial_registers(&[(Ebx, 0x0001_0020), (Esi, 0x0002_0004)])
@@ -114,12 +114,12 @@ fn stack_wrap() -> Vec<Case> {
             .segment(Segment::Cs, code(0x6003, 0x1fff, size))
             .segment(
                 Segment::Ss,
-                StoredSegment {
+                SegmentRegister {
                     base: 0x8000,
                     limit: 0x7fff,
                     expand_down: 1,
                     big: 0,
-                    ..StoredSegment::flat_data32(0x23)
+                    ..SegmentRegister::flat_data32(0x23)
                 },
             )
             .initial_registers(&[(Esp, 0xabcd_0000), (Ebx, 0xbbbb_9999)])
@@ -167,18 +167,18 @@ fn repeated_progress() -> Vec<Case> {
     .segment(Segment::Cs, code(0x6003, 0x1fff, Bits32))
     .segment(
         Segment::Ds,
-        StoredSegment {
+        SegmentRegister {
             base: 0x8000,
             limit: 0x4fff,
-            ..StoredSegment::flat_data32(0x23)
+            ..SegmentRegister::flat_data32(0x23)
         },
     )
     .segment(
         Segment::Es,
-        StoredSegment {
+        SegmentRegister {
             base: 0x18000,
             limit: 0xffff,
-            ..StoredSegment::flat_data32(0x23)
+            ..SegmentRegister::flat_data32(0x23)
         },
     )
     .memory(0xcfff, &[0x66], ReadOnly)

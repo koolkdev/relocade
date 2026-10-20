@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn complete_frame_capacity_and_all_three_reads_precede_selector_validation() {
@@ -165,9 +165,9 @@ fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs(
                     selector,
                     0xc000,
                     0x200,
-                    StoredSegment {
+                    SegmentRegister {
                         readable: u8::from(selector != 7),
-                        ..StoredSegment::flat_code32(0)
+                        ..SegmentRegister::flat_code32(0)
                     },
                 );
                 cpu.registers.esp = if word { 0x9006 } else { 0x900c };
@@ -201,7 +201,7 @@ fn entry_nt_reports_unsupported_before_stack_checks_without_retiring() {
             image.cpu.flags.bytes.nt = nt;
             image.cpu.registers.esp = 0x4000;
             if profile != ExecutionProfile::Protected(SegmentProfile::Flat32) {
-                image.cpu.segments.ss = crate::StoredSegment::unusable(0);
+                image.cpu.segments.ss = crate::SegmentRegister::unusable(0);
             }
             check_one(
                 profile,

@@ -6,9 +6,9 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint, SequenceCase},
 };
 use relocade_x86::Gpr32::{Eax, Ebx};
-use relocade_x86::{FlagBytes, StoredStatusSource};
+use relocade_x86::{FlagBytes, StatusSourceState};
 
-use relocade_x86::{CpuState, StoredFlags};
+use relocade_x86::{CpuState, FlagsState};
 
 #[path = "arithmetic_flags/cases.rs"]
 mod cases;
@@ -164,8 +164,8 @@ fn saved_conditions() -> Vec<SequenceCase> {
             Flags { cf: false, pf: true, af: false, zf: true, sf: false, of: false },
             [0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0]),
     ] {
-        let record = StoredFlags {
-            status_source: StoredStatusSource {
+        let record = FlagsState {
+            status_source: StatusSourceState {
                 kind,
                 left,
                 right,
@@ -192,8 +192,8 @@ fn saved_conditions() -> Vec<SequenceCase> {
     }
     cases.push(SequenceCase::new("concrete equal flags ignore stale recipe operands",
         Flags { cf: false, pf: true, af: false, zf: true, sf: false, of: false })
-        .stored_flags(StoredFlags {
-            status_source: StoredStatusSource {
+        .stored_flags(FlagsState {
+            status_source: StatusSourceState {
                 kind: 0,
                 ..(CpuState::filled(0xa5).flags).status_source
             },

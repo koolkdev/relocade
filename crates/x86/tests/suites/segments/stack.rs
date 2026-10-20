@@ -7,7 +7,7 @@ use crate::support::cases::{
 };
 use relocade_x86::{
     Gpr32::{Eax, Ebx, Esp},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 fn stack_transfers() -> Vec<Case> {
@@ -18,7 +18,7 @@ fn stack_transfers() -> Vec<Case> {
         )
         .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0xff))
-        .segment(Segment::Fs, StoredSegment::unusable(0x53))
+        .segment(Segment::Fs, SegmentRegister::unusable(0x53))
         .initial_register(Eax, 0x1234_5678)
         .register(Esp, 0x24, 0x20)
         .memory(0x8020, &[0xff; 4], ReadWrite)
@@ -29,7 +29,7 @@ fn stack_transfers() -> Vec<Case> {
         )
         .segmented_only()
         .segment(Segment::Ss, data(0x8000, 0xff))
-        .segment(Segment::Fs, StoredSegment::unusable(0x53))
+        .segment(Segment::Fs, SegmentRegister::unusable(0x53))
         .register(Eax, 0, 0x1234_5678)
         .register(Esp, 0x20, 0x24)
         .memory(0x8020, &[0x78, 0x56, 0x34, 0x12], ReadOnly),

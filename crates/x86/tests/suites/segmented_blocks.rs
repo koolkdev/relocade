@@ -7,13 +7,13 @@ mod profiles;
 #[path = "segmented_blocks/progress.rs"]
 mod progress;
 
-use relocade_x86::{SegmentDefaultSize, StoredSegment};
+use relocade_x86::{SegmentDefaultSize, SegmentRegister};
 
-fn code(base: u32, limit: u32, size: SegmentDefaultSize) -> StoredSegment {
-    StoredSegment {
+fn code(base: u32, limit: u32, size: SegmentDefaultSize) -> SegmentRegister {
+    SegmentRegister {
         base,
         limit,
         big: u8::from(size == SegmentDefaultSize::Bits32),
-        ..StoredSegment::flat_code32(0x1b)
+        ..SegmentRegister::flat_code32(0x1b)
     }
 }
