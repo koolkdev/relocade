@@ -51,7 +51,7 @@ async fn check_environments() {
         assert_eq!(&mcb[3..5], &[3, 0]); // 48 bytes occupy three paragraphs.
         assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
         assert_eq!(dos.exit_status(), Some(Ok(0)));
-        assert_eq!(dos.take_output(), expected);
+        assert_eq!(common::output(dos.stdout()), expected);
     }
 
     // Reloading with default options replaces the old variables and path.

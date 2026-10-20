@@ -114,7 +114,7 @@ fn commit_validates_handles_and_respects_device_and_replaced_file_identity() {
         }
         assert_eq!(success(&service(&mut dos, 0x6a37, 1, 0, 0)), 0x6837);
         success(&service(&mut dos, 0x4000, 1, 1, 0x400));
-        assert_eq!(dos.take_output(), b"XX");
+        assert_eq!(common::output(dos.stdout()), b"XX");
         success(&service(&mut dos, 0x3e00, 19, 0, 0));
         error(&service(&mut dos, 0x6a37, 19, 0, 0), 6);
     });

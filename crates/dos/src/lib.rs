@@ -10,6 +10,9 @@
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
+//! AH=06h polls stdin without echo or writes one byte to stdout.
+//! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
+//! [`Dos::stdout`] and [`Dos::stderr`] between runs using `std::io` traits.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
 //! [`Dos::mount`] supplies a filesystem at a drive letter; C: starts empty.
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
@@ -42,6 +45,8 @@
 //! # async fn example<B>(backend: B) -> Result<(), Box<dyn std::error::Error>>
 //! # where B: relocade_runtime::RuntimeBackend<State = relocade_dos::DosState>
 //! # {
+//! use std::io::Read;
+//!
 //! let mut dos = relocade_dos::Dos::new(backend).await?;
 //! let mut disk = relocade_vfs::MemoryFileSystem::new();
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
@@ -49,7 +54,8 @@
 //! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
 //! assert_eq!(dos.runtime().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
-//! let output: Vec<u8> = dos.take_output();
+//! let mut output = Vec::new();
+//! dos.stdout().read_to_end(&mut output)?;
 //! # let _ = output;
 //! # Ok(())
 //! # }
@@ -67,6 +73,7 @@ mod mz;
 mod path;
 mod process;
 mod services;
+mod stdio;
 
 pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
@@ -93,7 +100,7 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     }
 
     /// Loads a COM image of 1..=65,278 bytes and initializes its PSP, stack and CPU.
-    /// Replaces the process allocation and clears prior output and exit status.
+    /// Replaces the process allocation and clears buffered I/O and exit status.
     /// Invalid images or options leave the existing program and its state unchanged.
     pub fn load_com(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
         let psp_segment = com::load(&mut self.runtime.machine(), image, &options)?;
@@ -102,7 +109,7 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
     }
 
     /// Loads a DOS MZ executable, applies relocations and initializes its PSP and CPU.
-    /// Replaces the root process and clears prior output and exit status.
+    /// Replaces the root process and clears buffered I/O and exit status.
     /// Invalid images or options leave the existing program and its state unchanged.
     /// Overlay loading is not supported.
     pub fn load_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
@@ -158,8 +165,31 @@ impl<B: RuntimeBackend<State = DosState>> Dos<B> {
         self.runtime.state().exit_status
     }
 
-    /// Drains bytes sent to console output without interpreting their encoding.
-    pub fn take_output(&mut self) -> Vec<u8> {
-        self.runtime.state_mut().files.take_output()
+    /// Borrows the console input writer. Bytes use the guest's encoding.
+    /// Write after loading a program; each load clears buffered input and output.
+    /// Writes enqueue bytes immediately, and flush is a no-op. Drop the writer
+    /// before running the guest. Redirected stdin reads its file instead.
+    pub fn stdin(&mut self) -> impl std::io::Write + '_ {
+        stdio::Stdin(self.runtime.state_mut())
+    }
+
+    /// Borrows a reader that drains currently buffered standard output.
+    /// An empty buffer returns zero, even if the guest may produce more later.
+    /// Drop the reader before running. DOS redirection follows the handle's
+    /// destination, so bytes redirected to a file do not appear here.
+    pub fn stdout(&mut self) -> impl std::io::Read + '_ {
+        stdio::Output {
+            state: self.runtime.state_mut(),
+            stream: stdio::OutputStream::Stdout,
+        }
+    }
+
+    /// Borrows a reader that drains standard error, separately from stdout.
+    /// Like stdout, an empty buffer returns zero and reads do not block.
+    pub fn stderr(&mut self) -> impl std::io::Read + '_ {
+        stdio::Output {
+            state: self.runtime.state_mut(),
+            stream: stdio::OutputStream::Stderr,
+        }
     }
 }

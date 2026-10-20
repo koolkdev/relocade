@@ -2,8 +2,8 @@
 //!
 //! Place [`HOOK_STUB`] in guest memory and install a hook at its first byte.
 //! A returning handler uses [`return_from_interrupt`] to resume at the guest
-//! IRET, which restores IP, CS and FLAGS. Handlers can update the saved carry
-//! flag with [`set_carry`] before returning.
+//! IRET, which restores IP, CS and FLAGS. Handlers can update saved flags with
+//! [`set_carry`] or [`set_zero`] before returning.
 
 use crate::HostCall;
 use relocade_x86::Segment;
@@ -15,6 +15,16 @@ pub const HOOK_STUB: [u8; 2] = [0x90, 0xcf];
 /// Changes carry in the saved FLAGS, preserving every other flag.
 /// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
 pub fn set_carry<T>(call: &mut HostCall<'_, T>, carry: bool) {
+    set_flag(call, 1, carry);
+}
+
+/// Changes zero in the saved FLAGS, preserving every other flag.
+/// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
+pub fn set_zero<T>(call: &mut HostCall<'_, T>, zero: bool) {
+    set_flag(call, 1 << 6, zero);
+}
+
+fn set_flag<T>(call: &mut HostCall<'_, T>, mask: u8, value: bool) {
     // INT pushed FLAGS, CS, IP. Updating live flags would be undone by IRET.
     let cpu = call.cpu();
     let address = cpu.segment(Segment::Ss).base + u32::from(cpu.sp().wrapping_add(4));
@@ -22,7 +32,7 @@ pub fn set_carry<T>(call: &mut HostCall<'_, T>, carry: bool) {
     call.memory()
         .read(address, &mut flags)
         .expect("real-mode interrupt frame");
-    flags[0] = (flags[0] & !1) | u8::from(carry);
+    flags[0] = (flags[0] & !mask) | if value { mask } else { 0 };
     call.memory()
         .write(address, &flags)
         .expect("real-mode interrupt frame");

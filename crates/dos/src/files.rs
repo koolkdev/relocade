@@ -3,6 +3,7 @@
 use crate::{
     error::DosError,
     path::{self, ResolvedPath},
+    stdio::Stdio,
 };
 use relocade_vfs::{Drives, MemoryFileSystem, Metadata};
 use std::{collections::BTreeMap, io::ErrorKind};
@@ -39,7 +40,7 @@ pub(crate) struct Files {
     next_temporary_name: u32,
     search_directories: Vec<Option<search::SearchDirectory>>,
     handles: [Option<OpenHandle>; HANDLE_COUNT],
-    output: Vec<u8>,
+    pub(crate) stdio: Stdio,
 }
 
 impl Default for Files {
@@ -54,7 +55,7 @@ impl Default for Files {
             next_temporary_name: 0,
             search_directories: Vec::new(),
             handles: Default::default(),
-            output: Vec::new(),
+            stdio: Stdio::default(),
         }
     }
 }

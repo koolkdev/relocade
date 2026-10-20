@@ -37,7 +37,7 @@ async fn check_file_program() {
         dos.load_com(&program, Default::default()).unwrap();
         assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
         assert_eq!(dos.exit_status(), Some(Ok(0)));
-        assert_eq!(dos.take_output(), b"file\r\n");
+        assert_eq!(common::output(dos.stdout()), b"file\r\n");
     }
 }
 
@@ -134,9 +134,9 @@ async fn check_standard_handles() {
     assert_eq!(success(&service(&mut dos, 0x3f00, 1, 4, 0x200)), 4);
     assert_eq!(&buffer(&mut dos)[..4], b"file");
     error(&service(&mut dos, 0x4000, 1, 4, 0x200), 5); // Slot 1 now holds a read-only file.
-    assert_eq!(dos.take_output(), b"");
+    assert_eq!(common::output(dos.stdout()), b"");
     assert_eq!(success(&service(&mut dos, 0x4000, 2, 4, 0x200)), 4);
-    assert_eq!(dos.take_output(), b"file"); // Closing stdout leaves stderr open.
+    assert_eq!(common::output(dos.stderr()), b"file"); // Closing stdout leaves stderr open.
 
     for handle in 0..5 {
         success(&service(&mut dos, 0x3e00, handle, 0, 0));
@@ -151,7 +151,7 @@ async fn check_standard_handles() {
     assert_eq!(success(&open(&mut dos, b"X.BIN", 0)), 5);
     assert_eq!(success(&service(&mut dos, 0x3f00, 5, 4, 0x200)), 4);
     assert_eq!(success(&service(&mut dos, 0x4000, 1, 4, 0x200)), 4);
-    assert_eq!(dos.take_output(), b"file"); // New program gets fresh standard handles.
+    assert_eq!(common::output(dos.stdout()), b"file"); // New program gets fresh standard handles.
 }
 
 #[test]
