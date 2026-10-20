@@ -9,9 +9,9 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
 use relocade_x86::{
-    CpuState, FlagBytes,
+    CpuState, FlagBytes, FlagsState,
     Gpr32::{Eax, Ebx, Ecx, Esi},
-    StoredFlags, StoredStatusSource,
+    StatusSourceState,
 };
 
 fn byte_flags(ah: u8, overflow: bool) -> Flags<bool> {
@@ -37,9 +37,9 @@ fn sahf_flags(ah: u8) -> Flags<FlagExpectation> {
     }
 }
 
-fn concrete_record(flags: Flags<bool>, direction: u8) -> StoredFlags {
-    StoredFlags {
-        status_source: StoredStatusSource {
+fn concrete_record(flags: Flags<bool>, direction: u8) -> FlagsState {
+    FlagsState {
+        status_source: StatusSourceState {
             kind: 0,
             reserved: [0x5a, 0xc3, 0x96],
             left: 0x1234_5678,

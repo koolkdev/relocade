@@ -1,36 +1,36 @@
 //! Native access to the stored flag record and its represented EFLAGS bits.
 
 use super::codec::{read, read_u32, write};
-use super::{FlagBytes, StoredFlags, StoredStatusSource};
+use super::{FlagBytes, FlagsState, StatusSourceState};
 use std::mem::{offset_of, size_of};
 
-impl StoredFlags {
+impl FlagsState {
     pub const BYTE_LEN: usize = size_of::<Self>();
 
     /// Reads raw backing bytes, including inactive fields and snapshot padding.
     pub fn from_bytes(bytes: [u8; Self::BYTE_LEN]) -> Self {
         Self {
-            status_source: StoredStatusSource {
-                kind: bytes[offset_of!(StoredFlags, status_source.kind)],
-                reserved: read(&bytes, offset_of!(StoredFlags, status_source.reserved)),
-                left: read_u32(&bytes, offset_of!(StoredFlags, status_source.left)),
-                right: read_u32(&bytes, offset_of!(StoredFlags, status_source.right)),
+            status_source: StatusSourceState {
+                kind: bytes[offset_of!(FlagsState, status_source.kind)],
+                reserved: read(&bytes, offset_of!(FlagsState, status_source.reserved)),
+                left: read_u32(&bytes, offset_of!(FlagsState, status_source.left)),
+                right: read_u32(&bytes, offset_of!(FlagsState, status_source.right)),
             },
             bytes: FlagBytes {
-                cf: bytes[offset_of!(StoredFlags, bytes.cf)],
-                pf: bytes[offset_of!(StoredFlags, bytes.pf)],
-                af: bytes[offset_of!(StoredFlags, bytes.af)],
-                zf: bytes[offset_of!(StoredFlags, bytes.zf)],
-                sf: bytes[offset_of!(StoredFlags, bytes.sf)],
-                of: bytes[offset_of!(StoredFlags, bytes.of)],
-                tf: bytes[offset_of!(StoredFlags, bytes.tf)],
-                df: bytes[offset_of!(StoredFlags, bytes.df)],
-                nt: bytes[offset_of!(StoredFlags, bytes.nt)],
-                ac: bytes[offset_of!(StoredFlags, bytes.ac)],
-                id: bytes[offset_of!(StoredFlags, bytes.id)],
-                if_: bytes[offset_of!(StoredFlags, bytes.if_)],
-                iopl: bytes[offset_of!(StoredFlags, bytes.iopl)],
-                reserved: read(&bytes, offset_of!(StoredFlags, bytes.reserved)),
+                cf: bytes[offset_of!(FlagsState, bytes.cf)],
+                pf: bytes[offset_of!(FlagsState, bytes.pf)],
+                af: bytes[offset_of!(FlagsState, bytes.af)],
+                zf: bytes[offset_of!(FlagsState, bytes.zf)],
+                sf: bytes[offset_of!(FlagsState, bytes.sf)],
+                of: bytes[offset_of!(FlagsState, bytes.of)],
+                tf: bytes[offset_of!(FlagsState, bytes.tf)],
+                df: bytes[offset_of!(FlagsState, bytes.df)],
+                nt: bytes[offset_of!(FlagsState, bytes.nt)],
+                ac: bytes[offset_of!(FlagsState, bytes.ac)],
+                id: bytes[offset_of!(FlagsState, bytes.id)],
+                if_: bytes[offset_of!(FlagsState, bytes.if_)],
+                iopl: bytes[offset_of!(FlagsState, bytes.iopl)],
+                reserved: read(&bytes, offset_of!(FlagsState, bytes.reserved)),
             },
         }
     }
@@ -38,38 +38,38 @@ impl StoredFlags {
     /// Preserves every stored byte without interpreting the flag source.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
-        bytes[offset_of!(StoredFlags, status_source.kind)] = self.status_source.kind;
+        bytes[offset_of!(FlagsState, status_source.kind)] = self.status_source.kind;
         write(
             &mut bytes,
-            offset_of!(StoredFlags, status_source.reserved),
+            offset_of!(FlagsState, status_source.reserved),
             &self.status_source.reserved,
         );
         write(
             &mut bytes,
-            offset_of!(StoredFlags, status_source.left),
+            offset_of!(FlagsState, status_source.left),
             &self.status_source.left.to_le_bytes(),
         );
         write(
             &mut bytes,
-            offset_of!(StoredFlags, status_source.right),
+            offset_of!(FlagsState, status_source.right),
             &self.status_source.right.to_le_bytes(),
         );
-        bytes[offset_of!(StoredFlags, bytes.cf)] = self.bytes.cf;
-        bytes[offset_of!(StoredFlags, bytes.pf)] = self.bytes.pf;
-        bytes[offset_of!(StoredFlags, bytes.af)] = self.bytes.af;
-        bytes[offset_of!(StoredFlags, bytes.zf)] = self.bytes.zf;
-        bytes[offset_of!(StoredFlags, bytes.sf)] = self.bytes.sf;
-        bytes[offset_of!(StoredFlags, bytes.of)] = self.bytes.of;
-        bytes[offset_of!(StoredFlags, bytes.tf)] = self.bytes.tf;
-        bytes[offset_of!(StoredFlags, bytes.df)] = self.bytes.df;
-        bytes[offset_of!(StoredFlags, bytes.nt)] = self.bytes.nt;
-        bytes[offset_of!(StoredFlags, bytes.ac)] = self.bytes.ac;
-        bytes[offset_of!(StoredFlags, bytes.id)] = self.bytes.id;
-        bytes[offset_of!(StoredFlags, bytes.if_)] = self.bytes.if_;
-        bytes[offset_of!(StoredFlags, bytes.iopl)] = self.bytes.iopl;
+        bytes[offset_of!(FlagsState, bytes.cf)] = self.bytes.cf;
+        bytes[offset_of!(FlagsState, bytes.pf)] = self.bytes.pf;
+        bytes[offset_of!(FlagsState, bytes.af)] = self.bytes.af;
+        bytes[offset_of!(FlagsState, bytes.zf)] = self.bytes.zf;
+        bytes[offset_of!(FlagsState, bytes.sf)] = self.bytes.sf;
+        bytes[offset_of!(FlagsState, bytes.of)] = self.bytes.of;
+        bytes[offset_of!(FlagsState, bytes.tf)] = self.bytes.tf;
+        bytes[offset_of!(FlagsState, bytes.df)] = self.bytes.df;
+        bytes[offset_of!(FlagsState, bytes.nt)] = self.bytes.nt;
+        bytes[offset_of!(FlagsState, bytes.ac)] = self.bytes.ac;
+        bytes[offset_of!(FlagsState, bytes.id)] = self.bytes.id;
+        bytes[offset_of!(FlagsState, bytes.if_)] = self.bytes.if_;
+        bytes[offset_of!(FlagsState, bytes.iopl)] = self.bytes.iopl;
         write(
             &mut bytes,
-            offset_of!(StoredFlags, bytes.reserved),
+            offset_of!(FlagsState, bytes.reserved),
             &self.bytes.reserved,
         );
         bytes
@@ -124,7 +124,7 @@ fn flag_bits(flags: &mut FlagBytes) -> [(&mut u8, u32); 12] {
     ]
 }
 
-impl StoredStatusSource {
+impl StatusSourceState {
     fn resolve(self) -> [u8; 6] {
         let bits = match self.kind {
             1..=3 => 8,

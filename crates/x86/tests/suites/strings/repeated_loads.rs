@@ -5,7 +5,7 @@ use crate::support::{
     cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use relocade_x86::{Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{Gpr32::*, Segment, SegmentRegister};
 
 #[rustfmt::skip]
 fn loads() -> Vec<Case> {
@@ -24,18 +24,18 @@ fn loads() -> Vec<Case> {
             .memory(0x4ffc, &[0x12, 0x34, 0x56, 0x78], ReadOnly),
         Case::preserving_flags("16-bit REP LODSW uses CX and wraps SI between loads", &[0xf3, 0xad])
             .stored_flags(record(0)).segmented_only()
-            .segment(Segment::Cs, StoredSegment { big: 0, ..StoredSegment::flat_code32(0x1b) })
+            .segment(Segment::Cs, SegmentRegister { big: 0, ..SegmentRegister::flat_code32(0x1b) })
             .register(Eax, 0xaabb_ccdd, 0xaabb_7856)
             .register(Ecx, 0xcccc_0002, 0xcccc_0000).register(Esi, 0xdddd_fffe, 0xdddd_0002)
             .memory(0xfffe, &[0x12, 0x34], ReadOnly).memory(0, &[0x56, 0x78], ReadOnly),
         Case::preserving_flags("size overrides load dwords with full ESI in 16-bit code", &[0xf3, 0x66, 0x67, 0xad])
             .stored_flags(record(1)).segmented_only()
-            .segment(Segment::Cs, StoredSegment { big: 0, ..StoredSegment::flat_code32(0x1b) })
+            .segment(Segment::Cs, SegmentRegister { big: 0, ..SegmentRegister::flat_code32(0x1b) })
             .register(Eax, 0, 0x4433_2211).register(Ecx, 2, 0).register(Esi, 0x14004, 0x13ffc)
             .memory(0x14000, &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88], ReadOnly),
         Case::preserving_flags("REP LODS uses the last source override", &[0xf3, 0x65, 0x64, 0xac])
-            .stored_flags(record(0)).segment(Segment::Gs, StoredSegment::unusable(0))
-            .segment(Segment::Fs, StoredSegment { base: 0x4000, ..StoredSegment::flat_data32(0x23) })
+            .stored_flags(record(0)).segment(Segment::Gs, SegmentRegister::unusable(0))
+            .segment(Segment::Fs, SegmentRegister { base: 0x4000, ..SegmentRegister::flat_data32(0x23) })
             .register(Eax, 0xaabb_ccdd, 0xaabb_cc34).register(Ecx, 2, 0).register(Esi, 0, 2)
             .memory(0x4000, &[0x12, 0x34], ReadOnly),
     ]
@@ -48,7 +48,7 @@ fn zero_count() -> Vec<Case> {
             let code = [vec![0xf3, 0x67, 0x64], suffix].concat();
             Case::preserving_flags("zero CX skips an unusable source and preserves EAX", &code)
                 .stored_flags(record(0xff))
-                .segment(Segment::Fs, StoredSegment::unusable(0))
+                .segment(Segment::Fs, SegmentRegister::unusable(0))
                 .initial_registers(&[(Eax, 0xaabb_ccdd), (Ecx, 0xcccc_0000), (Esi, u32::MAX)])
         })
         .collect()
@@ -74,7 +74,7 @@ fn faults() -> Vec<Case> {
             .memory(0x4ffc, &[0x12, 0x34, 0x56, 0x78], ReadOnly).fault(0x5000, 0),
         Case::preserving_flags("backward REP LODSW retains a load before an SS limit fault", &[0xf3, 0x36, 0x66, 0xad])
             .stored_flags(record(0xff)).segmented_only()
-            .segment(Segment::Ss, StoredSegment { base: 0x4000, limit: 2, ..StoredSegment::flat_data32(0x23) })
+            .segment(Segment::Ss, SegmentRegister { base: 0x4000, limit: 2, ..SegmentRegister::flat_data32(0x23) })
             .register(Eax, 0xaabb_ccdd, 0xaabb_3412).register(Ecx, 2, 1).register(Esi, 1, u32::MAX)
             .memory(0x4001, &[0x12, 0x34], ReadOnly).stack_fault(0),
     ]

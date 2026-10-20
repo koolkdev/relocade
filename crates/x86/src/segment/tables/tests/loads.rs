@@ -2,7 +2,7 @@ use super::data;
 use crate::{
     CpuState, DescriptorTables, Exception::*, ExecutionProfile, PrivilegeLevel::*, Segment,
     SegmentDefaultSize::*, SegmentDescriptor, SegmentDescriptorKind::*, SegmentProfile,
-    StoredSegment,
+    SegmentRegister,
 };
 
 #[test]
@@ -160,13 +160,13 @@ fn direct_code_resolution_uses_call_jump_rules_and_normalizes_cs_rpl() {
             for selector in [0x20, 0x21, 0x22, 0x23] {
                 let result = tables.resolve_user_segment(Segment::Cs, selector);
                 if conforming || dpl == Ring3 {
-                    let expected = StoredSegment {
+                    let expected = SegmentRegister {
                         base: 0x1234_5000,
                         limit: 0xffff,
                         selector: 0x23,
                         readable: 0,
                         big: 0,
-                        ..StoredSegment::flat_code32(0)
+                        ..SegmentRegister::flat_code32(0)
                     };
                     assert_eq!(result, Ok(expected));
                     let mut cpu = CpuState::default();

@@ -15,7 +15,7 @@ use crate::segment::Segment;
 /// state; constructing one does not perform descriptor or privilege checks.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct StoredSegment {
+pub struct SegmentRegister {
     pub base: u32,
     /// Inclusive byte limit, after applying descriptor granularity.
     pub limit: u32,
@@ -31,7 +31,7 @@ pub struct StoredSegment {
     pub big: u8,
 }
 
-impl StoredSegment {
+impl SegmentRegister {
     pub const BYTE_LEN: usize = size_of::<Self>();
 
     pub fn from_bytes(bytes: [u8; Self::BYTE_LEN]) -> Self {
@@ -100,12 +100,12 @@ impl StoredSegment {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Segments {
-    pub es: StoredSegment,
-    pub cs: StoredSegment,
-    pub ss: StoredSegment,
-    pub ds: StoredSegment,
-    pub fs: StoredSegment,
-    pub gs: StoredSegment,
+    pub es: SegmentRegister,
+    pub cs: SegmentRegister,
+    pub ss: SegmentRegister,
+    pub ds: SegmentRegister,
+    pub fs: SegmentRegister,
+    pub gs: SegmentRegister,
 }
 
 impl Segments {
@@ -138,12 +138,12 @@ impl Segments {
     }
 
     /// Initializes ordinary real-mode caches with zero visible segment values.
-    /// The host may replace individual caches with [`StoredSegment::real_mode`].
+    /// The host may replace individual caches with [`SegmentRegister::real_mode`].
     pub const fn real_mode() -> Self {
-        let data = StoredSegment::real_mode(Segment::Ds, 0);
+        let data = SegmentRegister::real_mode(Segment::Ds, 0);
         Self {
             es: data,
-            cs: StoredSegment::real_mode(Segment::Cs, 0),
+            cs: SegmentRegister::real_mode(Segment::Cs, 0),
             ss: data,
             ds: data,
             fs: data,
@@ -154,10 +154,10 @@ impl Segments {
     /// Initializes flat caches with zero visible selectors. This host setup is
     /// neither a processor reset image nor a protected-mode segment-load operation.
     pub const fn flat32() -> Self {
-        let data = StoredSegment::flat_data32(0);
+        let data = SegmentRegister::flat_data32(0);
         Self {
             es: data,
-            cs: StoredSegment::flat_code32(0),
+            cs: SegmentRegister::flat_code32(0),
             ss: data,
             ds: data,
             fs: data,
@@ -167,7 +167,7 @@ impl Segments {
 }
 
 impl Index<Segment> for Segments {
-    type Output = StoredSegment;
+    type Output = SegmentRegister;
 
     fn index(&self, segment: Segment) -> &Self::Output {
         match segment {
@@ -194,40 +194,40 @@ impl IndexMut<Segment> for Segments {
     }
 }
 
-fn read_segment(bytes: &[u8], offset: usize) -> StoredSegment {
-    StoredSegment {
-        base: read_u32(bytes, offset + offset_of!(StoredSegment, base)),
-        limit: read_u32(bytes, offset + offset_of!(StoredSegment, limit)),
-        selector: read_u16(bytes, offset + offset_of!(StoredSegment, selector)),
-        usable: bytes[offset + offset_of!(StoredSegment, usable)],
-        readable: bytes[offset + offset_of!(StoredSegment, readable)],
-        writable: bytes[offset + offset_of!(StoredSegment, writable)],
-        executable: bytes[offset + offset_of!(StoredSegment, executable)],
-        expand_down: bytes[offset + offset_of!(StoredSegment, expand_down)],
-        big: bytes[offset + offset_of!(StoredSegment, big)],
+fn read_segment(bytes: &[u8], offset: usize) -> SegmentRegister {
+    SegmentRegister {
+        base: read_u32(bytes, offset + offset_of!(SegmentRegister, base)),
+        limit: read_u32(bytes, offset + offset_of!(SegmentRegister, limit)),
+        selector: read_u16(bytes, offset + offset_of!(SegmentRegister, selector)),
+        usable: bytes[offset + offset_of!(SegmentRegister, usable)],
+        readable: bytes[offset + offset_of!(SegmentRegister, readable)],
+        writable: bytes[offset + offset_of!(SegmentRegister, writable)],
+        executable: bytes[offset + offset_of!(SegmentRegister, executable)],
+        expand_down: bytes[offset + offset_of!(SegmentRegister, expand_down)],
+        big: bytes[offset + offset_of!(SegmentRegister, big)],
     }
 }
 
-fn write_segment(bytes: &mut [u8], offset: usize, segment: &StoredSegment) {
+fn write_segment(bytes: &mut [u8], offset: usize, segment: &SegmentRegister) {
     write(
         bytes,
-        offset + offset_of!(StoredSegment, base),
+        offset + offset_of!(SegmentRegister, base),
         &segment.base.to_le_bytes(),
     );
     write(
         bytes,
-        offset + offset_of!(StoredSegment, limit),
+        offset + offset_of!(SegmentRegister, limit),
         &segment.limit.to_le_bytes(),
     );
     write(
         bytes,
-        offset + offset_of!(StoredSegment, selector),
+        offset + offset_of!(SegmentRegister, selector),
         &segment.selector.to_le_bytes(),
     );
-    bytes[offset + offset_of!(StoredSegment, usable)] = segment.usable;
-    bytes[offset + offset_of!(StoredSegment, readable)] = segment.readable;
-    bytes[offset + offset_of!(StoredSegment, writable)] = segment.writable;
-    bytes[offset + offset_of!(StoredSegment, executable)] = segment.executable;
-    bytes[offset + offset_of!(StoredSegment, expand_down)] = segment.expand_down;
-    bytes[offset + offset_of!(StoredSegment, big)] = segment.big;
+    bytes[offset + offset_of!(SegmentRegister, usable)] = segment.usable;
+    bytes[offset + offset_of!(SegmentRegister, readable)] = segment.readable;
+    bytes[offset + offset_of!(SegmentRegister, writable)] = segment.writable;
+    bytes[offset + offset_of!(SegmentRegister, executable)] = segment.executable;
+    bytes[offset + offset_of!(SegmentRegister, expand_down)] = segment.expand_down;
+    bytes[offset + offset_of!(SegmentRegister, big)] = segment.big;
 }

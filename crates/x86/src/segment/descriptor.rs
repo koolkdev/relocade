@@ -1,6 +1,6 @@
 //! Host descriptors and protected-mode user-level permissions and load rules.
 
-use crate::{Exception, StoredSegment};
+use crate::{Exception, SegmentRegister};
 
 use super::{Segment, SegmentDefaultSize, SegmentLimit};
 
@@ -73,7 +73,7 @@ impl SegmentDescriptor {
         &self,
         destination: Segment,
         selector: u16,
-    ) -> Result<StoredSegment, Exception> {
+    ) -> Result<SegmentRegister, Exception> {
         use SegmentDescriptorKind::{Code, Data};
         let accessible = match (destination, self.kind) {
             (Segment::Ss, Data { writable: true, .. }) => {
@@ -94,7 +94,7 @@ impl SegmentDescriptor {
                 Exception::SegmentNotPresent { error_code }
             });
         }
-        let mut cache = StoredSegment {
+        let mut cache = SegmentRegister {
             base: self.base,
             limit: self.limit.effective(),
             selector: if destination == Segment::Cs {
@@ -104,7 +104,7 @@ impl SegmentDescriptor {
             },
             usable: 1,
             big: u8::from(self.default_size == SegmentDefaultSize::Bits32),
-            ..StoredSegment::default()
+            ..SegmentRegister::default()
         };
         match self.kind {
             Data {

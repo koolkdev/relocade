@@ -10,7 +10,7 @@ use super::codec::{read, read_u16, read_u32, write};
 /// Empty tags do not erase these bits, and noncanonical encodings are preserved.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct StoredX87Register {
+pub struct X87Register {
     pub significand: u64,
     pub sign_exponent: u16,
     /// Snapshot padding, retained without interpretation.
@@ -23,7 +23,7 @@ pub struct StoredX87Register {
 /// This record is not the architectural status-word encoding.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct StoredX87Status {
+pub struct X87Status {
     pub invalid: u8,
     pub denormal: u8,
     pub zero_divide: u8,
@@ -46,7 +46,7 @@ pub struct StoredX87Status {
 /// unused bits too; this record is not a packed architectural control word.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct StoredX87Control {
+pub struct X87Control {
     pub invalid_mask: u8,
     pub denormal_mask: u8,
     pub zero_divide_mask: u8,
@@ -61,7 +61,7 @@ pub struct StoredX87Control {
     pub reserved_bits: u16,
 }
 
-impl Default for StoredX87Control {
+impl Default for X87Control {
     fn default() -> Self {
         Self {
             invalid_mask: 1,
@@ -86,41 +86,41 @@ impl Default for StoredX87Control {
 /// and data operands. This layout is not an FSAVE or FXSAVE memory image.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct StoredX87 {
-    pub control: StoredX87Control,
+pub struct X87State {
+    pub control: X87Control,
     pub tag_word: u16,
     pub opcode: u16,
     pub instruction_offset: u32,
     pub data_offset: u32,
     pub instruction_selector: u16,
     pub data_selector: u16,
-    pub status: StoredX87Status,
+    pub status: X87Status,
     /// Snapshot padding, retained without interpretation.
     pub reserved: [u8; 6],
-    pub registers: [StoredX87Register; 8],
+    pub registers: [X87Register; 8],
 }
 
-impl Default for StoredX87 {
+impl Default for X87State {
     fn default() -> Self {
         Self {
-            control: StoredX87Control::default(),
+            control: X87Control::default(),
             tag_word: 0xffff,
             opcode: 0,
             instruction_offset: 0,
             data_offset: 0,
             instruction_selector: 0,
             data_selector: 0,
-            status: StoredX87Status::default(),
+            status: X87Status::default(),
             reserved: [0; 6],
-            registers: [StoredX87Register::default(); 8],
+            registers: [X87Register::default(); 8],
         }
     }
 }
 
-impl StoredX87 {
+impl X87State {
     pub(super) fn read(bytes: &[u8]) -> Self {
         Self {
-            control: StoredX87Control {
+            control: X87Control {
                 invalid_mask: bytes[offset_of!(Self, control.invalid_mask)],
                 denormal_mask: bytes[offset_of!(Self, control.denormal_mask)],
                 zero_divide_mask: bytes[offset_of!(Self, control.zero_divide_mask)],
@@ -139,7 +139,7 @@ impl StoredX87 {
             data_offset: read_u32(bytes, offset_of!(Self, data_offset)),
             instruction_selector: read_u16(bytes, offset_of!(Self, instruction_selector)),
             data_selector: read_u16(bytes, offset_of!(Self, data_selector)),
-            status: StoredX87Status {
+            status: X87Status {
                 invalid: bytes[offset_of!(Self, status.invalid)],
                 denormal: bytes[offset_of!(Self, status.denormal)],
                 zero_divide: bytes[offset_of!(Self, status.zero_divide)],
@@ -157,17 +157,14 @@ impl StoredX87 {
             },
             reserved: read(bytes, offset_of!(Self, reserved)),
             registers: std::array::from_fn(|index| {
-                let offset = offset_of!(Self, registers) + index * size_of::<StoredX87Register>();
-                StoredX87Register {
+                let offset = offset_of!(Self, registers) + index * size_of::<X87Register>();
+                X87Register {
                     significand: u64::from_le_bytes(read(
                         bytes,
-                        offset + offset_of!(StoredX87Register, significand),
+                        offset + offset_of!(X87Register, significand),
                     )),
-                    sign_exponent: read_u16(
-                        bytes,
-                        offset + offset_of!(StoredX87Register, sign_exponent),
-                    ),
-                    reserved: read(bytes, offset + offset_of!(StoredX87Register, reserved)),
+                    sign_exponent: read_u16(bytes, offset + offset_of!(X87Register, sign_exponent)),
+                    reserved: read(bytes, offset + offset_of!(X87Register, reserved)),
                 }
             }),
         }
@@ -265,20 +262,20 @@ impl StoredX87 {
             bytes[offset] = value;
         }
         for (index, register) in self.registers.iter().enumerate() {
-            let offset = offset_of!(Self, registers) + index * size_of::<StoredX87Register>();
+            let offset = offset_of!(Self, registers) + index * size_of::<X87Register>();
             write(
                 bytes,
-                offset + offset_of!(StoredX87Register, significand),
+                offset + offset_of!(X87Register, significand),
                 &register.significand.to_le_bytes(),
             );
             write(
                 bytes,
-                offset + offset_of!(StoredX87Register, sign_exponent),
+                offset + offset_of!(X87Register, sign_exponent),
                 &register.sign_exponent.to_le_bytes(),
             );
             write(
                 bytes,
-                offset + offset_of!(StoredX87Register, reserved),
+                offset + offset_of!(X87Register, reserved),
                 &register.reserved,
             );
         }

@@ -4,7 +4,7 @@ mod query;
 
 use crate::{
     DescriptorTables, Exception, Segment, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, SegmentLimit, StoredSegment,
+    SegmentDescriptorKind, SegmentLimit, SegmentRegister,
 };
 
 fn data() -> SegmentDescriptor {
@@ -57,7 +57,7 @@ fn only_global_slot_zero_is_a_null_selector() {
         for segment in [Segment::Ds, Segment::Es, Segment::Fs, Segment::Gs] {
             assert_eq!(
                 tables.resolve_user_segment(segment, selector),
-                Ok(StoredSegment::unusable(selector)),
+                Ok(SegmentRegister::unusable(selector)),
             );
         }
         for segment in [Segment::Cs, Segment::Ss] {
@@ -70,11 +70,11 @@ fn only_global_slot_zero_is_a_null_selector() {
     for selector in 4..8 {
         assert_eq!(
             tables.resolve_user_segment(Segment::Ds, selector),
-            Ok(StoredSegment {
+            Ok(SegmentRegister {
                 base: 0x1234_5000,
                 limit: 0xffff,
                 selector,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             }),
         );
     }
@@ -85,11 +85,11 @@ fn descriptor_replacement_and_removal_leave_loaded_copies_intact() {
     let mut tables = DescriptorTables::default();
     tables.insert(0x27, data());
     let loaded = tables.resolve_user_segment(Segment::Fs, 0x27).unwrap();
-    let expected = StoredSegment {
+    let expected = SegmentRegister {
         base: 0x1234_5000,
         limit: 0xffff,
         selector: 0x27,
-        ..StoredSegment::flat_data32(0)
+        ..SegmentRegister::flat_data32(0)
     };
     tables.insert(
         0x24,

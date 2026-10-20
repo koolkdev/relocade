@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::access::cpu_location;
-use queries::StoredFlagCache;
+use queries::CpuFlagCache;
 
 pub(super) fn condition_index(canonical: Condition) -> usize {
     Condition::CANONICAL
@@ -23,7 +23,7 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
 }
 
 #[derive(Clone)]
-pub(super) struct FlagState {
+pub(super) struct FlagTracker {
     status: StatusState,
     direct: StateFields,
 }
@@ -50,17 +50,17 @@ struct StatusState {
 
 #[derive(Clone)]
 enum StatusBase {
-    Stored(StoredFlagCache),
+    Stored(CpuFlagCache),
     Local(AnyStatusSource),
 }
 
 impl Default for StatusBase {
     fn default() -> Self {
-        Self::Stored(StoredFlagCache::default())
+        Self::Stored(CpuFlagCache::default())
     }
 }
 
-impl FlagState {
+impl FlagTracker {
     pub(super) fn new(memory: Mem) -> Self {
         Self {
             status: StatusState::default(),

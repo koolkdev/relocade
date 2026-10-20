@@ -9,10 +9,10 @@ use crate::state::Cpu;
 use super::{
     queries::resolve_flags,
     record::{self, FlagRecord},
-    FlagState, StatusBase, StatusState,
+    FlagTracker, StatusBase, StatusState,
 };
 
-impl FlagState {
+impl FlagTracker {
     pub(in crate::state) fn publish(
         &self,
         body: &mut BlockBuilder<'_>,

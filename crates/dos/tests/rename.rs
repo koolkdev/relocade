@@ -2,7 +2,7 @@ mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
-use relocade_x86::{CpuState, Segment, StoredSegment};
+use relocade_x86::{CpuState, Segment, SegmentRegister};
 
 fn rename(dos: &mut Dos<Backend<DosState>>, from: &[u8], to: &[u8]) -> CpuState {
     // Use a distinct ES and cross its offset boundary to exercise both pointers.
@@ -10,9 +10,10 @@ fn rename(dos: &mut Dos<Backend<DosState>>, from: &[u8], to: &[u8]) -> CpuState 
     const OFFSET: u16 = 0xfffc;
     {
         let mut machine = dos.runtime().machine();
-        machine
-            .cpu()
-            .set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, SEGMENT));
+        machine.cpu().set_segment(
+            Segment::Es,
+            SegmentRegister::real_mode(Segment::Es, SEGMENT),
+        );
         machine.cpu().set_di(OFFSET);
         for (index, byte) in to.iter().copied().chain([0]).enumerate() {
             let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));

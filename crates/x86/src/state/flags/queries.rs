@@ -5,9 +5,9 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I1};
 use crate::flags::{Condition, Flag, FlagChange, FlagMask, StatusFlag};
 use crate::state::Cpu;
 
-use super::{condition_index, direct_location, FlagState, StatusBase, StatusState};
+use super::{condition_index, direct_location, FlagTracker, StatusBase, StatusState};
 
-impl FlagState {
+impl FlagTracker {
     pub(in crate::state) fn read(
         &mut self,
         body: &mut BlockBuilder<'_>,
@@ -66,12 +66,12 @@ impl FlagState {
 }
 
 #[derive(Clone)]
-pub(super) struct StoredFlagCache {
+pub(super) struct CpuFlagCache {
     conditions: [Option<Val<I1>>; Condition::CANONICAL.len()],
     auxiliary: Option<Val<I1>>,
 }
 
-impl Default for StoredFlagCache {
+impl Default for CpuFlagCache {
     fn default() -> Self {
         Self {
             conditions: Condition::CANONICAL.map(|_| None),
@@ -80,7 +80,7 @@ impl Default for StoredFlagCache {
     }
 }
 
-impl StoredFlagCache {
+impl CpuFlagCache {
     // Single-flag conditions and subset reads share a slot. AF has no condition.
     fn flag_slot(&mut self, flag: StatusFlag) -> &mut Option<Val<I1>> {
         let Some(condition) = flag.condition() else {

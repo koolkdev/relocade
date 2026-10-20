@@ -5,7 +5,7 @@ use std::mem::offset_of;
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I64};
 
 use crate::{
-    state::{ExecutionContext, StoredX87Register},
+    state::{ExecutionContext, X87Register},
     x87::{ExtendedBits, ExtendedValue},
 };
 
@@ -127,12 +127,12 @@ fn load(
         significand: body.load_at::<I64>(
             memory,
             address,
-            base + offset_of!(StoredX87Register, significand) as u32,
+            base + offset_of!(X87Register, significand) as u32,
         )?,
         sign_exponent: body.load_at::<I16>(
             memory,
             address,
-            base + offset_of!(StoredX87Register, sign_exponent) as u32,
+            base + offset_of!(X87Register, sign_exponent) as u32,
         )?,
     }))
 }
@@ -148,13 +148,13 @@ fn store(
     body.store_at::<I64>(
         memory,
         address,
-        base + offset_of!(StoredX87Register, significand) as u32,
+        base + offset_of!(X87Register, significand) as u32,
         bits.significand,
     )?;
     body.store_at::<I16>(
         memory,
         address,
-        base + offset_of!(StoredX87Register, sign_exponent) as u32,
+        base + offset_of!(X87Register, sign_exponent) as u32,
         bits.sign_exponent,
     )
 }

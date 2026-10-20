@@ -13,7 +13,7 @@ use crate::support::{
 };
 use relocade_x86::{
     Gpr32::{Eax, Ebx},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 fn flag(value: bool) -> FlagExpectation {
@@ -196,9 +196,9 @@ fn fixed_operands_and_undefined_flags() -> Vec<Case> {
             if code16 {
                 case = case.segmented_only().segment(
                     Segment::Cs,
-                    StoredSegment {
+                    SegmentRegister {
                         big: 0,
-                        ..StoredSegment::flat_code32(0x1b)
+                        ..SegmentRegister::flat_code32(0x1b)
                     },
                 );
             }

@@ -55,7 +55,7 @@ impl ExecutionBuilder<'_, '_> {
             ExecutionProfile::Real16 => {
                 // Real16 admits only canonical caches. Retained descriptor limits
                 // and attributes across mode transitions require a different profile.
-                let cache = crate::StoredSegment::real_mode(segment, 0);
+                let cache = crate::SegmentRegister::real_mode(segment, 0);
                 SegmentValues {
                     base: selector.unsigned().extend::<I32>().shl(4),
                     limit: cache.limit.into(),

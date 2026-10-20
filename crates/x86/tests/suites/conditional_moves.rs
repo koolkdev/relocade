@@ -6,8 +6,8 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint, SequenceCase},
     step::TestModule,
 };
-use relocade_x86::StoredStatusSource;
-use relocade_x86::{CpuState, Gpr32, StoredFlags};
+use relocade_x86::StatusSourceState;
+use relocade_x86::{CpuState, FlagsState, Gpr32};
 
 #[path = "conditional_moves/memory.rs"]
 mod memory;
@@ -120,8 +120,8 @@ fn stored_flag_cases() -> Vec<Case> {
     .into_iter()
     .map(|(name, kind, left, right, opcode, eax, flags)| {
         Case::new(name, &[0x0f, opcode, 0xc1], flags, PRESERVED_FLAGS)
-            .stored_flags(StoredFlags {
-                status_source: StoredStatusSource {
+            .stored_flags(FlagsState {
+                status_source: StatusSourceState {
                     kind,
                     left,
                     right,

@@ -42,10 +42,10 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
             code_defaults(&mut image, profile);
             image.cpu.segments.ss = data(0x4000, 0xffff);
             image.cpu.segments.ss.big = u8::from(big);
-            image.cpu.segments.fs = StoredSegment::unusable(0xf327);
-            image.cpu.segments.gs = StoredSegment::unusable(0xf327);
+            image.cpu.segments.fs = SegmentRegister::unusable(0xf327);
+            image.cpu.segments.gs = SegmentRegister::unusable(0xf327);
             if segment == Segment::Ds && push {
-                image.cpu.segments.ds = StoredSegment::unusable(0xf327);
+                image.cpu.segments.ds = SegmentRegister::unusable(0xf327);
             }
             image.cpu.segments[segment].selector = 0xf327;
             image.cpu.registers.esp = if big { 0x104 } else { 0xabcd_0104 };
@@ -77,12 +77,12 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
                 let mut tables = DescriptorTables::default();
                 tables.insert(0xf327, descriptor(0x9000, size));
                 cpu.registers.esp += slot;
-                cpu.segments[segment] = StoredSegment {
+                cpu.segments[segment] = SegmentRegister {
                     base: 0x9000,
                     limit: 0xffff,
                     selector: 0xf327,
                     big: u8::from(!big),
-                    ..StoredSegment::flat_data32(0)
+                    ..SegmentRegister::flat_data32(0)
                 };
                 check_one(
                     profile,
@@ -133,12 +133,12 @@ fn a_dword_slot_does_not_access_its_third_or_fourth_byte() {
             let resolutions = if push {
                 vec![]
             } else {
-                cpu.segments.ds = StoredSegment {
+                cpu.segments.ds = SegmentRegister {
                     base: 0x9000,
                     limit: 0xffff,
                     selector: 0xf327,
                     big: 0,
-                    ..StoredSegment::flat_data32(0)
+                    ..SegmentRegister::flat_data32(0)
                 };
                 vec![SegmentResolution::new(&tables, Segment::Ds, 0xf327)]
             };
@@ -167,7 +167,7 @@ fn selector_words_can_cross_discontiguous_physical_pages() {
         let code = [0x0f, if push { 0xa8 } else { 0xa9 }]; // PUSH/POP GS.
         let mut image = Image::new(&code);
         image.cpu.registers.esp = if push { 0x5003 } else { 0x4fff };
-        image.cpu.segments.gs = StoredSegment::unusable(0xf327);
+        image.cpu.segments.gs = SegmentRegister::unusable(0xf327);
         image.map(4, 0x8000, true);
         image.map(5, 0xa000, true);
         image.data(0x8fff, &[if push { 0xa5 } else { 0x27 }]);
@@ -181,12 +181,12 @@ fn selector_words_can_cross_discontiguous_physical_pages() {
         let resolutions = if push {
             vec![]
         } else {
-            cpu.segments.gs = StoredSegment {
+            cpu.segments.gs = SegmentRegister {
                 base: 0x9000,
                 limit: 0xffff,
                 selector: 0xf327,
                 big: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             };
             vec![SegmentResolution::new(&tables, Segment::Gs, 0xf327)]
         };

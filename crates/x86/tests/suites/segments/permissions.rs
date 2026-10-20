@@ -2,7 +2,7 @@ use super::data;
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadWrite};
 use relocade_x86::{
     Gpr32::{Eax, Ebp, Ebx},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 fn access_rights() -> Vec<Case> {
@@ -14,7 +14,7 @@ fn access_rights() -> Vec<Case> {
         ("readable code", 1, 1, true, false),
         ("unusable", 0, 0, false, false),
     ] {
-        let cache = StoredSegment {
+        let cache = SegmentRegister {
             usable,
             executable,
             readable: u8::from(readable),
@@ -41,9 +41,9 @@ fn access_rights() -> Vec<Case> {
         });
     }
     for readable in [true, false] {
-        let cs = StoredSegment {
+        let cs = SegmentRegister {
             readable: u8::from(readable),
-            ..StoredSegment::flat_code32(0x1b)
+            ..SegmentRegister::flat_code32(0x1b)
         };
         let read = Case::preserving_flags(
             format!("CS read permission {readable}"),
@@ -83,12 +83,12 @@ fn fault_selection() -> Vec<Case> {
             Flags::all(false),
             Flags::all(Preserved),
         )
-        .segment(Segment::Fs, StoredSegment::unusable(0x53))
+        .segment(Segment::Fs, SegmentRegister::unusable(0x53))
         .initial_register(Ebx, 0x4000)
         .general_protection(0),
         Case::preserving_flags("unusable DS faults before an absent page", &[0x8b, 0x03])
             .segmented_only()
-            .segment(Segment::Ds, StoredSegment::unusable(0x23))
+            .segment(Segment::Ds, SegmentRegister::unusable(0x23))
             .initial_register(Ebx, 0x4000)
             .general_protection(0),
         Case::preserving_flags(
@@ -114,9 +114,9 @@ fn fault_selection() -> Vec<Case> {
         .segmented_only()
         .segment(
             Segment::Ss,
-            StoredSegment {
+            SegmentRegister {
                 big: 1,
-                ..StoredSegment::unusable(0x23)
+                ..SegmentRegister::unusable(0x23)
             },
         )
         .initial_register(Ebx, 0)
@@ -128,9 +128,9 @@ fn fault_selection() -> Vec<Case> {
         .segmented_only()
         .segment(
             Segment::Ss,
-            StoredSegment {
+            SegmentRegister {
                 big: 1,
-                ..StoredSegment::unusable(0x23)
+                ..SegmentRegister::unusable(0x23)
             },
         )
         .initial_register(Ebx, 0x1234_5678)
@@ -150,7 +150,7 @@ fn fault_selection() -> Vec<Case> {
             )
             .segment(
                 Segment::Fs,
-                StoredSegment {
+                SegmentRegister {
                     writable: 0,
                     ..data(0x8000, 0xff)
                 },

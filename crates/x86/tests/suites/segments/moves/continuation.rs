@@ -12,12 +12,12 @@ fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
     let mut tables = DescriptorTables::default();
     tables.insert(0x27, descriptor(0x4000, SegmentDefaultSize::Bits16));
     let mut cpu = image.cpu;
-    cpu.segments.ss = StoredSegment {
+    cpu.segments.ss = SegmentRegister {
         base: 0x4000,
         limit: 0xffff,
         selector: 0x27,
         big: 0,
-        ..StoredSegment::flat_data32(0)
+        ..SegmentRegister::flat_data32(0)
     };
     cpu.eip = 0x1002;
     cpu.instruction_count = 0;
@@ -63,7 +63,7 @@ fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() 
         .segment_resolutions
         .push(SegmentResolution::new(&tables, Segment::Ds, 3));
     let mut cpu = image.cpu;
-    cpu.segments.ds = StoredSegment::unusable(3);
+    cpu.segments.ds = SegmentRegister::unusable(3);
     cpu.eip += 2;
     cpu.instruction_count = 0;
     assert!(!ExecutionProfile::Protected(SegmentProfile::Flat32).is_compatible_with(&cpu.segments));
@@ -139,11 +139,11 @@ fn reloading_the_same_selector_refreshes_the_cache_for_later_entries() {
     let mut cpu = image.cpu;
     let mut steps = Vec::new();
     for (base, value) in [(0x4000, 0x1111_1111), (0x5000, 0x2222_2222)] {
-        cpu.segments.fs = StoredSegment {
+        cpu.segments.fs = SegmentRegister {
             base,
             limit: 0xffff,
             selector: 0x27,
-            ..StoredSegment::flat_data32(0)
+            ..SegmentRegister::flat_data32(0)
         };
         cpu.eip += 2;
         cpu.instruction_count = cpu.instruction_count.wrapping_add(1);

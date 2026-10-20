@@ -13,7 +13,7 @@ use crate::support::{
     step::TestModule,
 };
 use relocade_x86::{
-    compile_block_from_bytes, ExecutionProfile, Gpr32::*, Segment, SegmentProfile, StoredSegment,
+    compile_block_from_bytes, ExecutionProfile, Gpr32::*, Segment, SegmentProfile, SegmentRegister,
 };
 
 fn faulting_forms() -> Vec<Case> {
@@ -28,7 +28,7 @@ fn faulting_forms() -> Vec<Case> {
             "size and segment prefixes keep the restart EIP at the first prefix",
             &[0x66, 0x67, 0x64, 0x0f, 0x0b],
         )
-        .segment(Segment::Fs, StoredSegment::unusable(0))
+        .segment(Segment::Fs, SegmentRegister::unusable(0))
         .invalid_opcode(),
         Case::preserving_flags("a complete UD2 needs no following code page", &[0x0f, 0x0b])
             .at(0x1ffe)
@@ -40,9 +40,9 @@ fn faulting_forms() -> Vec<Case> {
         .segmented_only()
         .segment(
             Segment::Cs,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_code32(0x1b)
+                ..SegmentRegister::flat_code32(0x1b)
             },
         )
         .invalid_opcode(),

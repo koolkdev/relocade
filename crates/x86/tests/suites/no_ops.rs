@@ -12,7 +12,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use relocade_x86::{Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{Gpr32::*, Segment, SegmentRegister};
 
 // Intel SDM Volume 2, NOP: recommended alignment encodings of three to nine bytes.
 const ALIGNMENT_NOPS: &[&[u8]] = &[
@@ -63,9 +63,9 @@ fn complete_forms() -> Vec<Case> {
                 .segmented_only()
                 .segment(
                     Segment::Cs,
-                    StoredSegment {
+                    SegmentRegister {
                         big: 0,
-                        ..StoredSegment::flat_code32(0x1b)
+                        ..SegmentRegister::flat_code32(0x1b)
                     },
                 ),
         );
@@ -80,27 +80,27 @@ fn ignored_segments() -> Vec<Case> {
             "unusable DS",
             &[0x0f, 0x1f, 0x03][..],
             Segment::Ds,
-            StoredSegment {
+            SegmentRegister {
                 usable: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         ),
         (
             "SS limit",
             &[0x0f, 0x1f, 0x04, 0x24],
             Segment::Ss,
-            StoredSegment {
+            SegmentRegister {
                 limit: 0,
-                ..StoredSegment::flat_data32(0x23)
+                ..SegmentRegister::flat_data32(0x23)
             },
         ),
         (
             "unusable FS override",
             &[0x64, 0x0f, 0x1f, 0x03],
             Segment::Fs,
-            StoredSegment {
+            SegmentRegister {
                 usable: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         ),
     ] {
@@ -124,16 +124,16 @@ fn pause_forms() -> Vec<Case> {
             &[0x66, 0x67, 0x64, 0xf3, 0x90],
         )
         .initial_register(Ecx, 0xffff_0001)
-        .segment(Segment::Fs, StoredSegment::unusable(0)),
+        .segment(Segment::Fs, SegmentRegister::unusable(0)),
         Case::preserving_flags("complete PAUSE needs no following code page", &[0xf3, 0x90])
             .at(0x1ffe),
         Case::preserving_flags("PAUSE in 16-bit code", &[0xf3, 0x90])
             .segmented_only()
             .segment(
                 Segment::Cs,
-                StoredSegment {
+                SegmentRegister {
                     big: 0,
-                    ..StoredSegment::flat_code32(0x1b)
+                    ..SegmentRegister::flat_code32(0x1b)
                 },
             ),
     ]

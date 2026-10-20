@@ -21,5 +21,5 @@ use crate::support::{
 };
 use relocade_x86::{
     DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, StoredSegment,
+    SegmentDescriptorKind, SegmentRegister,
 };

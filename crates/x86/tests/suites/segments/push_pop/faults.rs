@@ -213,7 +213,7 @@ fn extended_segment_opcodes_obey_fetch_fault_and_instruction_length_boundaries()
     image.data(0x3ff1, &code);
     image.data(0x8000, &[3, 0]);
     let mut cpu = image.cpu;
-    cpu.segments.gs = StoredSegment::unusable(3);
+    cpu.segments.gs = SegmentRegister::unusable(3);
     cpu.registers.esp = 0x4002;
     cpu.eip = 0x2000;
     cpu.instruction_count = 0;

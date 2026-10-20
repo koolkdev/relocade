@@ -1,6 +1,6 @@
 use super::super::data;
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadWrite};
-use crate::{Gpr32::*, Segment, StoredSegment};
+use crate::{Gpr32::*, Segment, SegmentRegister};
 
 fn stores() -> Vec<Case> {
     let mut cases = Vec::new();
@@ -25,9 +25,9 @@ fn stores() -> Vec<Case> {
         (Segment::Gs, &[0x8c, 0xef][..], Edi, 0xf327, false),
     ] {
         let cache = if segment == Segment::Cs {
-            StoredSegment::flat_code32(0xf327)
+            SegmentRegister::flat_code32(0xf327)
         } else {
-            StoredSegment::flat_data32(0xf327)
+            SegmentRegister::flat_data32(0xf327)
         };
         let mut case =
             Case::preserving_flags(format!("MOV {destination:?},{segment:?} {code:02x?}"), code)
@@ -36,9 +36,9 @@ fn stores() -> Vec<Case> {
         if code16 {
             case = case.segmented_only().segment(
                 Segment::Cs,
-                StoredSegment {
+                SegmentRegister {
                     big: 0,
-                    ..StoredSegment::flat_code32(0x1b)
+                    ..SegmentRegister::flat_code32(0x1b)
                 },
             );
         }
@@ -50,13 +50,13 @@ fn stores() -> Vec<Case> {
             &[0x8c, 0xd8],
         )
         .segmented_only()
-        .segment(Segment::Ds, StoredSegment::unusable(3))
+        .segment(Segment::Ds, SegmentRegister::unusable(3))
         .register(Eax, 0x1234_5678, 3),
         Case::preserving_flags(
             "MOV reads a nonnull visible selector from an unusable FS",
             &[0x8c, 0xe0],
         )
-        .segment(Segment::Fs, StoredSegment::unusable(0xf327))
+        .segment(Segment::Fs, SegmentRegister::unusable(0xf327))
         .register(Eax, 0x1234_5678, 0xf327),
         Case::preserving_flags(
             "selector store writes only two bytes through the last override",
@@ -64,7 +64,7 @@ fn stores() -> Vec<Case> {
         )
         .initial_register(Ebx, 0xabcd_0ffe)
         .segment(Segment::Gs, data(0x4000, 0xfff))
-        .segment(Segment::Es, StoredSegment::flat_data32(0xf327))
+        .segment(Segment::Es, SegmentRegister::flat_data32(0xf327))
         .memory(0x4ffd, &[0xaa, 0xbb, 0xcc], ReadWrite)
         .expect_memory(0x4ffe, &[0x27, 0xf3]),
         Case::preserving_flags(
@@ -74,14 +74,14 @@ fn stores() -> Vec<Case> {
         .segmented_only()
         .segment(
             Segment::Cs,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_code32(0x1b)
+                ..SegmentRegister::flat_code32(0x1b)
             },
         )
         .initial_register(Ebx, 0xffe)
         .segment(Segment::Gs, data(0x4000, 0xfff))
-        .segment(Segment::Es, StoredSegment::flat_data32(0xf327))
+        .segment(Segment::Es, SegmentRegister::flat_data32(0xf327))
         .memory(0x4ffd, &[0xaa, 0xbb, 0xcc], ReadWrite)
         .expect_memory(0x4ffe, &[0x27, 0xf3]),
     ]);

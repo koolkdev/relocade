@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 use relocade_x86::{compile_block_from_bytes, BlockError};
 
 #[test]
@@ -24,7 +24,7 @@ fn both_immediate_fields_cross_code_pages_and_ignore_the_address_size_prefix() {
         let mut tables = DescriptorTables::default();
         tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
+        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x5678;
         cpu.instruction_count = 0;
         check_one(
@@ -104,7 +104,7 @@ fn a_fifteen_byte_jump_completes_without_fetching_a_sixteenth_byte() {
                 let mut tables = DescriptorTables::default();
                 tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
                 let mut cpu = image.cpu;
-                cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
+                cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
                 cpu.eip = 0x5678;
                 cpu.instruction_count = 0;
                 check_one(

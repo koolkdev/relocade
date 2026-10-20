@@ -4,7 +4,7 @@ use crate::support::{
     cases::Permissions::{ReadOnly, ReadWrite},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Case},
 };
-use relocade_x86::{CpuState, Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{CpuState, Gpr32::*, Segment, SegmentRegister};
 
 fn accesses() -> Vec<Case> {
     vec![
@@ -31,10 +31,10 @@ fn accesses() -> Vec<Case> {
             .segmented_only()
             .segment(
                 Segment::Ds,
-                StoredSegment {
+                SegmentRegister {
                     limit: 2,
                     base: 0x4000,
-                    ..StoredSegment::flat_data32(0x23)
+                    ..SegmentRegister::flat_data32(0x23)
                 },
             )
             .initial_registers(&[(Esi, 0), (Eax, 0)])

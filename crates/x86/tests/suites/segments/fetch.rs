@@ -7,7 +7,7 @@ use crate::support::{
 use relocade_x86::{
     compile_block_from_bytes, BlockError,
     Gpr32::{Eax, Ebx},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 fn prefix_transport() -> Vec<Case> {
@@ -60,9 +60,9 @@ test_cases!(
             .segmented_only()
             .segment(
                 Segment::Cs,
-                StoredSegment {
+                SegmentRegister {
                     readable: 0,
-                    ..StoredSegment::flat_code32(0x1b)
+                    ..SegmentRegister::flat_code32(0x1b)
                 },
             )
     ]

@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructions() {
@@ -76,9 +76,9 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
         0x27,
         0xc000,
         0xffff,
-        StoredSegment {
+        SegmentRegister {
             big: 0,
-            ..StoredSegment::flat_code32(0)
+            ..SegmentRegister::flat_code32(0)
         },
     );
     cpu.eip = 0x200;

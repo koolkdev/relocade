@@ -1,4 +1,4 @@
-use relocade_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
+use relocade_x86::{CpuState, FlagsState, Segment, SegmentRegister, Segments};
 use std::mem::offset_of;
 
 use crate::{MachineConfig, MachineStorage};
@@ -79,13 +79,13 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
 
     /// Returns represented EFLAGS bits, resolving any lazy arithmetic flags.
     pub fn eflags(&self) -> u32 {
-        StoredFlags::from_bytes(self.read(offset_of!(CpuState, flags))).eflags()
+        FlagsState::from_bytes(self.read(offset_of!(CpuState, flags))).eflags()
     }
 
     /// Replaces represented flags. This is host editing, not a privilege-checked
     /// POPFD operation; fixed and unrepresented bits are ignored.
     pub fn set_eflags(&mut self, value: u32) {
-        let mut flags = StoredFlags::from_bytes(self.read(offset_of!(CpuState, flags)));
+        let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
         flags.set_eflags(value);
         self.storage
             .write_cpu(offset_of!(CpuState, flags) as u32, &flags.to_bytes());
@@ -100,8 +100,8 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
         self.set_eflags((self.eflags() & !1) | u32::from(value));
     }
 
-    pub fn segment(&self, segment: Segment) -> StoredSegment {
-        StoredSegment::from_bytes(self.read(segment_offset(segment)))
+    pub fn segment(&self, segment: Segment) -> SegmentRegister {
+        SegmentRegister::from_bytes(self.read(segment_offset(segment)))
     }
 
     /// Replaces a visible selector and its loaded cache without descriptor loading.
@@ -109,7 +109,7 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
     /// # Panics
     /// Panics before writing if the cache violates the machine's execution profile.
     #[track_caller]
-    pub fn set_segment(&mut self, segment: Segment, value: StoredSegment) {
+    pub fn set_segment(&mut self, segment: Segment, value: SegmentRegister) {
         let profile = self.config.execution_target().profile;
         assert!(
             profile.is_segment_compatible(segment, &value),

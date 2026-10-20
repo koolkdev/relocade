@@ -25,7 +25,7 @@ use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use relocade_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
+use relocade_x86::{CpuState, ExecutionProfile, Segment, SegmentRegister, Segments};
 
 fn image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
@@ -33,12 +33,12 @@ fn image(code: &[u8]) -> Image {
     image
 }
 
-fn cache(segment: Segment, value: u16) -> StoredSegment {
-    StoredSegment {
+fn cache(segment: Segment, value: u16) -> SegmentRegister {
+    SegmentRegister {
         selector: value,
         base: u32::from(value) * 16,
         limit: 0xffff,
-        ..StoredSegment::real_mode(segment, value)
+        ..SegmentRegister::real_mode(segment, value)
     }
 }
 

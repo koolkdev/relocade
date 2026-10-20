@@ -4,7 +4,7 @@ use relocade_runtime::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
     HostCall,
 };
-use relocade_x86::{ExecutionExit, Segment, StoredSegment};
+use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::ops::ControlFlow;
 
 mod handles;
@@ -128,7 +128,7 @@ pub(super) fn read_buffered(call: &mut HostCall<'_, DosState>) -> ControlFlow<Ex
 
 fn return_line(
     call: &mut HostCall<'_, DosState>,
-    segment: &StoredSegment,
+    segment: &SegmentRegister,
     offset: u16,
     bytes: &[u8],
 ) -> ControlFlow<ExecutionExit> {

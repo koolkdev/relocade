@@ -4,7 +4,7 @@ use super::*;
 use crate::support::{
     blocks::BlockModules, encoding::check_length, machine::expected, step::TestModule,
 };
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 fn retired(mut cpu: relocade_x86::CpuState, length: usize) -> relocade_x86::CpuState {
     cpu.eip += length as u32;
@@ -99,26 +99,26 @@ fn segment_permissions(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented32);
     for (cache, limit, allowed) in [
         (
-            StoredSegment {
+            SegmentRegister {
                 readable: 0,
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
             0xfff,
             true,
         ),
         (
-            StoredSegment {
+            SegmentRegister {
                 writable: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
             0xfff,
             true,
         ),
-        (StoredSegment::unusable(0), 0xfff, false),
+        (SegmentRegister::unusable(0), 0xfff, false),
         (
-            StoredSegment {
+            SegmentRegister {
                 readable: 0,
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
             0xffe,
             false,

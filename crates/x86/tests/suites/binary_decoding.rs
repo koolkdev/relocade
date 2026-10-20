@@ -1,6 +1,6 @@
 use crate::support::encoding::check_length;
-use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32::Eax, StoredFlags};
-use relocade_x86::{FlagBytes, StoredStatusSource};
+use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, FlagsState, Gpr32::Eax};
+use relocade_x86::{FlagBytes, StatusSourceState};
 use wasmparser::Validator;
 
 use crate::support::cases::{
@@ -379,8 +379,8 @@ fn binary_fetch_faults_follow_decode_precedence() {
 fn code_page_boundaries() -> Vec<Case> {
     vec![
         Case::new("extended opcode spans scattered code pages", &[0x0f, 0x94, 0xc4], Flags::all(true), Flags::all(Preserved))
-            .stored_flags(StoredFlags {
-                status_source: StoredStatusSource {
+            .stored_flags(FlagsState {
+                status_source: StatusSourceState {
                     kind: 0,
                     ..(CpuState::filled(0xa5).flags).status_source
                 },

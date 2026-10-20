@@ -4,7 +4,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{ExecutionProfile, SegmentDefaultSize, SegmentProfile, StoredSegment};
+use relocade_x86::{ExecutionProfile, SegmentDefaultSize, SegmentProfile, SegmentRegister};
 
 #[test]
 fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
@@ -28,7 +28,7 @@ fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
         image.cpu.registers.eax = 0xaaaa_007f;
         image.cpu.registers.ebp = 0x4000;
         image.cpu.segments.cs = code(0x6003, 0x1003, size);
-        image.cpu.segments.ss = StoredSegment::unusable(0x23);
+        image.cpu.segments.ss = SegmentRegister::unusable(0x23);
         image.map(7, 0x3000, false);
         image.data(0x3003, &bytes);
 

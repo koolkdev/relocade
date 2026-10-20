@@ -437,26 +437,26 @@ payloads, raw segment fields, x87 and XMM encodings. The image is
 
 | Byte offset | Contents |
 | ---: | --- |
-| 0 | 12-byte `StoredStatusSource`: kind, three reserved bytes, two u32 operands. |
+| 0 | 12-byte `StatusSourceState`: kind, three reserved bytes, two u32 operands. |
 | 12 | 16-byte `FlagBytes`: CF, PF, AF, ZF, SF, OF, TF, DF, NT, AC, ID, IF, IOPL, three reserved bytes. |
 | 28 | Eight u32 registers: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI. |
 | 60 | u32 EIP. |
 | 64 | Six 16-byte segment records: ES, CS, SS, DS, FS, GS. |
 | 160 | Eight reserved bytes. |
 | 168 | u64 completed-instruction count and virtual timestamp counter. |
-| 176 | Twelve-byte `StoredX87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
+| 176 | Twelve-byte `X87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
 | 188 | u16 full x87 tag word. |
 | 190 | u16 last x87 opcode. |
 | 192 | Two u32 x87 pointer offsets: instruction, data. |
 | 200 | Two u16 x87 pointer selectors: instruction, data. |
-| 204 | Fourteen-byte `StoredX87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
+| 204 | Fourteen-byte `X87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
 | 218 | Six reserved bytes. |
 | 224 | Eight 16-byte physical x87 register slots, R0 through R7. |
 | 352 | u32 packed MXCSR. |
 | 356 | Four reserved bytes. |
 | 360 | Eight 16-byte XMM slots, XMM0 through XMM7, low byte first. |
 
-`StoredX87Control` keeps each exception mask in bit 0 of its named byte: invalid,
+`X87Control` keeps each exception mask in bit 0 of its named byte: invalid,
 denormal, zero divide, overflow, underflow and precision. A set mask suppresses
 exception delivery. `precision_control` and `rounding_control` use bits 0–1;
 `infinity_control` uses bit 0 and has no execution meaning on the Pentium 4.
@@ -464,7 +464,7 @@ exception delivery. `precision_control` and `rounding_control` use bits 0–1;
 contains no active control fields. FLDCW unpacks these fields and FNSTCW packs
 them. Their snapshot padding is preserved by both instructions and FNINIT.
 
-`StoredX87Status` stores independent bytes rather than a packed status word.
+`X87Status` stores independent bytes rather than a packed status word.
 `invalid`, `denormal`, `zero_divide`, `overflow`, `underflow`, `precision` and
 `stack_fault` each use bit 0 for IE, DE, ZE, OE, UE, PE and SF respectively. `top` uses
 bits 0–2; `c0`, `c1`, `c2`, `c3`, `error_summary` and `busy` use bit 0.
@@ -475,7 +475,7 @@ reserved bytes. The ten value bytes retain the binary80 encoding, including its
 explicit integer bit and noncanonical encodings. `status.top` maps
 logical ST(i) to these physical registers. The full tag word retains each
 register's two-bit tag; marking a register empty does not erase its payload.
-`StoredX87` is a host snapshot layout, not an FSAVE or FXSAVE memory operand.
+`X87State` is a host snapshot layout, not an FSAVE or FXSAVE memory operand.
 
 Each segment record contains a u32 base, u32 inclusive byte limit, u16 visible
 selector and six bytes: usable, readable, writable, executable, expand-down and
@@ -829,16 +829,16 @@ transferring instruction.
 ## Ordinary real mode
 
 Select `ExecutionProfile::Real16` and initialize caches with `Segments::real_mode()`.
-Use `StoredSegment::real_mode(segment, value)` for a nonzero segment register.
+Use `SegmentRegister::real_mode(segment, value)` for a nonzero segment register.
 This configuration is host-selected execution, not a processor reset or an emulated
 CR0 transition. The CPU backing layout is unchanged.
 
 ```rust
-use relocade_x86::{CpuState, ExecutionProfile, Segment, Segments, StoredSegment};
+use relocade_x86::{CpuState, ExecutionProfile, Segment, Segments, SegmentRegister};
 
 let mut cpu = CpuState::default();
 cpu.segments = Segments::real_mode();
-cpu.segments.cs = StoredSegment::real_mode(Segment::Cs, 0x1234);
+cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
 assert!(ExecutionProfile::Real16.is_compatible_with(&cpu.segments));
 ```
 
@@ -911,7 +911,7 @@ Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4 and GS=5. Selector inputs and
 selector outputs use zero-extended 16-bit values. The six property results are
 booleans, represented by 0 or 1.
 
-Status zero supplies a complete normalized `StoredSegment`. Failure statuses are
+Status zero supplies a complete normalized `SegmentRegister`. Failure statuses are
 architectural vectors 11 (#NP), 12 (#SS) or 13 (#GP); only their error code is used.
 Unknown statuses or invalid success records violate the host contract. Wasm owns
 the instruction's remaining checks, cache commitment, retirement and fault exit.
@@ -1101,7 +1101,7 @@ resuming x87 stack operations after MMX use.
 
 ## SSE state and raw transfers
 
-`CpuState::simd` contains `StoredSimd { mxcsr, reserved, xmm }`. Default state has
+`CpuState::simd` contains `SimdState { mxcsr, reserved, xmm }`. Default state has
 MXCSR `0x1f80` and zero XMM registers. Literal snapshots retain every bit, including
 reserved MXCSR bits and padding; these bytes are not an FXSAVE image. These
 fields belong to the CPU snapshot within `ExecutionContext`.
@@ -1126,10 +1126,10 @@ and physical MMIO use ordered integer parts; contiguous packed transfers use Was
 Hosts must enable the standard WebAssembly SIMD feature for these instructions.
 
 LDMXCSR/STMXCSR transfer an unaligned four-byte architectural MXCSR word.
-`StoredSimd::MXCSR_MASK` is `0x0000ffff`: this target supports DAZ (bit 6), in
+`SimdState::MXCSR_MASK` is `0x0000ffff`: this target supports DAZ (bit 6), in
 addition to exception status, exception masks, rounding control and FTZ. DAZ was
 optional on Pentium 4; hosts can use this mask as the emulator's declared policy.
-`StoredSimd::MXCSR_RESET` is `0x1f80`. LDMXCSR raises #GP(0) if any bit outside
+`SimdState::MXCSR_RESET` is `0x1f80`. LDMXCSR raises #GP(0) if any bit outside
 the supported mask is set, after completing the memory read and before changing
 state. Loading exception flags or unmasking them does not itself raise a SIMD
 floating-point exception. STMXCSR writes supported bits and zeroes reserved bits

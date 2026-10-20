@@ -2,7 +2,7 @@
 
 use crate::{memory, process, LoadError, LoadOptions};
 use relocade_machine::Machine;
-use relocade_x86::{Segment, StoredSegment};
+use relocade_x86::{Segment, SegmentRegister};
 
 const HEADER_BYTES: usize = 28;
 const FILE_PAGE_BYTES: usize = 512;
@@ -114,9 +114,9 @@ pub(crate) fn load(
         .expect("allocated MZ module");
     let mut cpu = process::initial_cpu(psp_segment);
     cpu.segments[Segment::Cs] =
-        StoredSegment::real_mode(Segment::Cs, load_segment.wrapping_add(image.cs));
+        SegmentRegister::real_mode(Segment::Cs, load_segment.wrapping_add(image.cs));
     cpu.segments[Segment::Ss] =
-        StoredSegment::real_mode(Segment::Ss, load_segment.wrapping_add(image.ss));
+        SegmentRegister::real_mode(Segment::Ss, load_segment.wrapping_add(image.ss));
     cpu.eip = u32::from(image.ip);
     cpu.registers.esp = u32::from(image.sp);
     machine.cpu().restore(&cpu);

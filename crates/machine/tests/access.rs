@@ -1,7 +1,7 @@
 use relocade_machine::{Machine, MachineConfig, MachineStorage, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segment, Segments, StoredSegment, StoredStatusSource,
+    Segment, SegmentRegister, Segments, StatusSourceState,
 };
 use std::{cell::RefCell, mem::offset_of, rc::Rc};
 
@@ -119,7 +119,7 @@ fn segment_edits_preserve_the_execution_profile() {
     let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
     let mut machine = Machine::new(&config, &mut storage);
     let mut cpu = machine.cpu();
-    let ds = StoredSegment::real_mode(Segment::Ds, 0x1234);
+    let ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     cpu.set_segment(Segment::Ds, ds);
     assert_eq!(cpu.segment(Segment::Ds), ds);
 }
@@ -129,7 +129,7 @@ fn segment_edits_preserve_the_execution_profile() {
 fn incompatible_segment_edits_panic() {
     let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
     let mut machine = Machine::new(&config, &mut storage);
-    let mut ds = StoredSegment::real_mode(Segment::Ds, 0x1234);
+    let mut ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     ds.base = 0;
     machine.cpu().set_segment(Segment::Ds, ds);
 }
@@ -139,11 +139,11 @@ fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
     let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
     let mut machine = Machine::new(&config, &mut storage);
     let mut snapshot = *config.cpu();
-    snapshot.flags.status_source = StoredStatusSource {
+    snapshot.flags.status_source = StatusSourceState {
         kind: 2, // ADD byte: ff + 1 => CF, PF, AF, ZF.
         left: 0xff,
         right: 1,
-        ..StoredStatusSource::default()
+        ..StatusSourceState::default()
     };
     snapshot.flags.bytes.df = 1;
     snapshot.registers.eax = 0x1234_5678;
@@ -221,7 +221,7 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
             .read_backing(if enabled { 0x2000 } else { 0 }, &mut byte)
             .unwrap();
         assert_eq!(byte, [0x5a]);
-        let ds = StoredSegment::real_mode(Segment::Ds, 0xffff);
+        let ds = SegmentRegister::real_mode(Segment::Ds, 0xffff);
         memory.read_segment(&ds, 0x10, &mut byte).unwrap();
         assert_eq!(byte, [0x5a]);
         memory.write_segment(&ds, 0x10, &[0x42]).unwrap();
@@ -245,7 +245,7 @@ fn segment_transfers_check_the_whole_span_before_copying() {
     let (config, mut storage) = configuration(map);
     let mut machine = Machine::new(&config, &mut storage);
     let mut memory = machine.memory();
-    let ds = StoredSegment::real_mode(Segment::Ds, 0);
+    let ds = SegmentRegister::real_mode(Segment::Ds, 0);
     memory.write(0xfffe, b"ABCD").unwrap();
     for offset in [0xffff, 0x10000, u32::MAX] {
         let mut bytes = [0x55; 2];
@@ -289,7 +289,7 @@ fn real_mode_segment_transfers_allow_cs_writes_and_preserve_rom_policy() {
     let (config, mut storage) = configuration(map);
     let mut machine = Machine::new(&config, &mut storage);
     let mut memory = machine.memory();
-    let cs = StoredSegment::real_mode(Segment::Cs, 0x1234);
+    let cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
     memory.write_backing(0x1000, b"CD").unwrap();
     memory.write_segment(&cs, 0xcbe, b"ABxy").unwrap();
     let mut bytes = [0; 4];

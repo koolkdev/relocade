@@ -5,7 +5,7 @@ use crate::support::cases::{
 };
 use relocade_x86::{
     Gpr32::{Eax, Ebx},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 fn finite_spans() -> Vec<Case> {
@@ -15,7 +15,7 @@ fn finite_spans() -> Vec<Case> {
     )
     .segment(
         Segment::Fs,
-        StoredSegment {
+        SegmentRegister {
             big: 0,
             ..data(0x8000, 0x1ffff)
         },
@@ -95,7 +95,7 @@ fn expand_down() -> Vec<Case> {
         )
         .segment(
             Segment::Fs,
-            StoredSegment {
+            SegmentRegister {
                 expand_down: 1,
                 big: u8::from(big),
                 ..data(0, limit)

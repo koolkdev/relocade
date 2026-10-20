@@ -14,8 +14,8 @@ pub use context::ExecutionContext;
 pub(super) use cpu::Cpu;
 pub use exit::ExecutionExit;
 pub use layout::{
-    CpuState, FlagBytes, Registers, Segments, StoredFlags, StoredSegment, StoredSimd,
-    StoredStatusSource, StoredX87, StoredX87Control, StoredX87Register, StoredX87Status,
+    CpuState, FlagBytes, FlagsState, Registers, SegmentRegister, Segments, SimdState,
+    StatusSourceState, X87Control, X87Register, X87State, X87Status,
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
@@ -39,8 +39,8 @@ pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
     registers: StateFields,
     simd: StateFields,
-    flags: flags::FlagState,
-    pub(super) x87: x87::X87State,
+    flags: flags::FlagTracker,
+    pub(super) x87: x87::X87Tracker,
 }
 
 impl<'cpu> State<'cpu> {
@@ -60,8 +60,8 @@ impl<'cpu> State<'cpu> {
             cpu,
             registers: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
-            flags: flags::FlagState::new(cpu.memory()),
-            x87: x87::X87State::new(cpu.memory()),
+            flags: flags::FlagTracker::new(cpu.memory()),
+            x87: x87::X87Tracker::new(cpu.memory()),
         }
     }
 

@@ -11,7 +11,7 @@ mod tests;
 use super::guest::Mapping;
 use crate::flags::Flag;
 use relocade_x86::{
-    CpuState, ExecutionProfile, Gpr32, Segment, SegmentProfile, StoredFlags, StoredSegment,
+    CpuState, ExecutionProfile, FlagsState, Gpr32, Segment, SegmentProfile, SegmentRegister,
 };
 
 pub(crate) use super::guest::Permissions;
@@ -119,7 +119,7 @@ impl InstructionCase {
         self
     }
 
-    pub(crate) fn segment(mut self, segment: Segment, cache: StoredSegment) -> Self {
+    pub(crate) fn segment(mut self, segment: Segment, cache: SegmentRegister) -> Self {
         self.initial.segments.push((segment, cache));
         self
     }
@@ -146,7 +146,7 @@ impl InstructionCase {
 
     /// Set the incoming stored flag record. A case with logical initial flags
     /// also verifies that the record represents those stated values.
-    pub(crate) fn stored_flags(mut self, flags: StoredFlags) -> Self {
+    pub(crate) fn stored_flags(mut self, flags: FlagsState) -> Self {
         self.initial.flags.set_record(flags);
         self
     }
@@ -278,7 +278,7 @@ pub(super) struct InitialState {
     pub(super) eip: u32,
     pub(super) instruction_count: u64,
     pub(super) registers: Vec<(Gpr32, u32)>,
-    pub(super) segments: Vec<(Segment, StoredSegment)>,
+    pub(super) segments: Vec<(Segment, SegmentRegister)>,
     pub(super) memory: Vec<MemoryRegion>,
     pub(super) mappings: Vec<Mapping>,
     pub(super) backing: Vec<(u32, Vec<u8>)>,
@@ -321,15 +321,15 @@ impl ExpectedState {
 pub(super) enum InitialFlags {
     Logical {
         values: Flags<bool>,
-        stored: Option<StoredFlags>,
+        stored: Option<FlagsState>,
     },
     Opaque {
-        stored: Option<StoredFlags>,
+        stored: Option<FlagsState>,
     },
 }
 
 impl InitialFlags {
-    pub(super) fn set_record(&mut self, record: StoredFlags) {
+    pub(super) fn set_record(&mut self, record: FlagsState) {
         let (Self::Logical { stored, .. } | Self::Opaque { stored }) = self;
         *stored = Some(record);
     }
@@ -339,7 +339,7 @@ impl InitialFlags {
             Self::Opaque { .. } => None,
         }
     }
-    pub(super) fn record(self) -> Option<StoredFlags> {
+    pub(super) fn record(self) -> Option<FlagsState> {
         match self {
             Self::Logical { stored, .. } | Self::Opaque { stored } => stored,
         }

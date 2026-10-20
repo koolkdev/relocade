@@ -5,7 +5,7 @@ use crate::support::cases::{
 };
 use relocade_x86::{
     Gpr32::{Eax, Ebp, Ebx, Edi, Esi},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 fn layouts() -> Vec<Case> {
@@ -84,23 +84,23 @@ fn segments_and_fields() -> Vec<Case> {
                 .segmented_only()
                 .segment(
                     Segment::Ds,
-                    StoredSegment {
+                    SegmentRegister {
                         base: 0x4000,
-                        ..StoredSegment::flat_data32(0)
+                        ..SegmentRegister::flat_data32(0)
                     },
                 )
                 .segment(
                     Segment::Ss,
-                    StoredSegment {
+                    SegmentRegister {
                         base: 0x8000,
-                        ..StoredSegment::flat_data32(0)
+                        ..SegmentRegister::flat_data32(0)
                     },
                 )
                 .segment(
                     Segment::Fs,
-                    StoredSegment {
+                    SegmentRegister {
                         base: 0x10000,
-                        ..StoredSegment::flat_data32(0)
+                        ..SegmentRegister::flat_data32(0)
                     },
                 )
                 .initial_registers(&[(Ebx, 0xaaaa_fff0), (Ebp, 0xbbbb_0020), (Esi, 0xcccc_0030)])
@@ -186,12 +186,12 @@ fn bit_string_offsets() -> Vec<Case> {
         .segmented_only()
         .segment(
             Segment::Ss,
-            StoredSegment {
+            SegmentRegister {
                 base: 0x8000,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         )
-        .segment(Segment::Ds, StoredSegment::unusable(0))
+        .segment(Segment::Ds, SegmentRegister::unusable(0))
         .initial_registers(&[(Ebp, 0xabcd_fffe), (Ecx, 16)])
         .memory(0x8000, &[0, 0], ReadWrite)
         .expect_memory(0x8000, &[1, 0]),
@@ -220,10 +220,10 @@ fn bit_string_offsets() -> Vec<Case> {
         .segmented_only()
         .segment(
             Segment::Ss,
-            StoredSegment {
+            SegmentRegister {
                 base: 0x8000,
                 limit: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         )
         .initial_registers(&[(Ebp, 0xabcd_fffe), (Ecx, 16)])

@@ -12,9 +12,9 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
 use relocade_x86::{
-    CpuState, FlagBytes,
+    CpuState, FlagBytes, FlagsState,
     Gpr32::{Eax, Ebx, Ecx, Esi, Esp},
-    StoredFlags, StoredStatusSource,
+    StatusSourceState,
 };
 
 #[derive(Clone, Copy)]
@@ -69,9 +69,9 @@ fn status_expectations(bits: u8) -> Flags<FlagExpectation> {
     }
 }
 
-fn stored_flags(status: u8, direct: u8) -> StoredFlags {
-    StoredFlags {
-        status_source: StoredStatusSource {
+fn stored_flags(status: u8, direct: u8) -> FlagsState {
+    FlagsState {
+        status_source: StatusSourceState {
             kind: 0,
             reserved: [0x5a, 0xc3, 0x96],
             left: 0x1234_5678,
@@ -170,8 +170,8 @@ fn lazy_images() -> Vec<Case> {
         };
         let code = if word { &[0x66, 0x9c][..] } else { &[0x9c][..] };
         let width = if word { 2 } else { 4 };
-        let record = StoredFlags {
-            status_source: StoredStatusSource {
+        let record = FlagsState {
+            status_source: StatusSourceState {
                 kind,
                 left,
                 right,
@@ -206,8 +206,8 @@ fn pop_replaces_lazy_status() -> Vec<Case> {
             status,
             direct,
         };
-        let record = StoredFlags {
-            status_source: StoredStatusSource {
+        let record = FlagsState {
+            status_source: StatusSourceState {
                 kind,
                 left,
                 right: 1,

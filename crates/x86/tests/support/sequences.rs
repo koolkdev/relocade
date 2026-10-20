@@ -12,7 +12,7 @@ use super::{
     guest::Mapping,
 };
 use crate::flags::Flag;
-use relocade_x86::{Gpr32, Segment, StoredFlags, StoredSegment};
+use relocade_x86::{FlagsState, Gpr32, Segment, SegmentRegister};
 
 pub(crate) struct SequenceCase {
     name: String,
@@ -73,7 +73,7 @@ impl SequenceCase {
         self.initial.registers.extend_from_slice(registers);
         self
     }
-    pub(crate) fn stored_flags(mut self, record: StoredFlags) -> Self {
+    pub(crate) fn stored_flags(mut self, record: FlagsState) -> Self {
         self.initial.flags.set_record(record);
         self
     }
@@ -81,7 +81,7 @@ impl SequenceCase {
         self.profiles = Profiles::Segmented;
         self
     }
-    pub(crate) fn segment(mut self, segment: Segment, cache: StoredSegment) -> Self {
+    pub(crate) fn segment(mut self, segment: Segment, cache: SegmentRegister) -> Self {
         self.initial.segments.push((segment, cache));
         self
     }

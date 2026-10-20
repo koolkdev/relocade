@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
@@ -38,10 +38,10 @@ fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
             0x1b,
             0x9000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: u8::from(!next_word),
                 readable: 0,
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         );
         cpu.eip = 0x200;
@@ -87,7 +87,7 @@ fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
     let mut tables = DescriptorTables::default();
     tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
     let mut cpu = image.cpu;
-    cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
+    cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
     cpu.eip = 0x200;
     cpu.instruction_count = 0;
     check_one(
@@ -143,7 +143,7 @@ fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
             .segment_resolutions
             .push(SegmentResolution::new(&tables, Segment::Cs, 0x27));
         let mut cpu = image.cpu;
-        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, StoredSegment::flat_code32(0));
+        cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         let mut wanted = expected(

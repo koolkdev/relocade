@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
@@ -29,9 +29,9 @@ fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
             0x27,
             0x9000,
             limit,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         cpu.eip = 0x1003;
@@ -97,9 +97,9 @@ fn all_pointer_loads_end_the_block_after_committing_both_results() {
             0x27,
             0x9000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         cpu.eip += opcode.len() as u32 + 1;
@@ -148,7 +148,7 @@ fn null_selector_loads_still_commit_the_offset_without_fetching_a_following_byte
     image.data(0x8000, &[0x78, 0x56, 0x34, 0x92, 3, 0]);
     let mut cpu = image.cpu;
     cpu.registers.eax = 0x9234_5678;
-    cpu.segments.fs = StoredSegment::unusable(3);
+    cpu.segments.fs = SegmentRegister::unusable(3);
     cpu.eip = 0x2000;
     cpu.instruction_count = 0;
     check_one(

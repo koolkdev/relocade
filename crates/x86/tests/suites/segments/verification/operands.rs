@@ -80,7 +80,7 @@ fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrid
         image.cpu.registers.ebp = 0xabcd_fffe;
         image.cpu.registers.esi = 0xdead_0001;
         image.cpu.segments.fs = data(0x8000, 0x10000);
-        image.cpu.segments.ss = crate::StoredSegment::unusable(0);
+        image.cpu.segments.ss = crate::SegmentRegister::unusable(0);
         image.map(0x17, 0x8000, false);
         image.map(0x18, 0xa000, false);
         image.data(0x8fff, &[0x27]);

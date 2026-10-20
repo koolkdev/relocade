@@ -10,7 +10,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use relocade_x86::{Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{Gpr32::*, Segment, SegmentRegister};
 
 const ORIGINAL: [u8; 8] = [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
 const REPLACEMENT: [u8; 8] = [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe];
@@ -79,9 +79,9 @@ fn comparisons() -> Vec<Case> {
                 .segmented_only()
                 .segment(
                     Segment::Cs,
-                    StoredSegment {
+                    SegmentRegister {
                         big: 0,
-                        ..StoredSegment::flat_code32(0x1b)
+                        ..SegmentRegister::flat_code32(0x1b)
                     },
                 ),
         );
@@ -142,10 +142,10 @@ fn memory_updates() -> Vec<Case> {
         ])
         .segment(
             Segment::Fs,
-            StoredSegment {
+            SegmentRegister {
                 base: 0x4000,
                 limit: 0xfff,
-                ..StoredSegment::flat_data32(0x33)
+                ..SegmentRegister::flat_data32(0x33)
             },
         )
         .memory(0x4004, &ORIGINAL, ReadWrite)
@@ -157,10 +157,10 @@ fn memory_updates() -> Vec<Case> {
         .initial_register(Edi, 0x100)
         .segment(
             Segment::Fs,
-            StoredSegment {
+            SegmentRegister {
                 base: 0x4000,
                 limit: 0x106,
-                ..StoredSegment::flat_data32(0x33)
+                ..SegmentRegister::flat_data32(0x33)
             },
         )
         .memory(0x4100, &ORIGINAL, ReadWrite)

@@ -2,7 +2,7 @@
 
 use super::{absolute_code, code16, pair, segment};
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly};
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 use relocade_x86::{Gpr32::*, Segment};
 
 fn ordered_accesses() -> Vec<Case> {
@@ -72,7 +72,7 @@ fn address_dependencies() -> Vec<Case> {
             .initial_register(Ebx, 0x4000).memory(0x4000, &pair(false, 0x3fff, 0x4000), ReadOnly),
         Case::preserving_flags("the segment override applies to both bounds", &[0x64, 0x62, 0x03])
             .initial_registers(&[(Eax, 7), (Ebx, 0x4000)])
-            .segment(Segment::Fs, segment(0x20000, 0x4007, StoredSegment { big: 0, writable: 0, ..StoredSegment::flat_data32(0) }))
+            .segment(Segment::Fs, segment(0x20000, 0x4007, SegmentRegister { big: 0, writable: 0, ..SegmentRegister::flat_data32(0) }))
             .memory(0x24000, &pair(false, -5, 7), ReadOnly),
         Case::preserving_flags("CS16 combines address32 and operand32 overrides", &[0x67, 0x66, 0x62, 0x03])
             .segmented_only().segment(Segment::Cs, code16())
@@ -99,7 +99,7 @@ fn segment_ordering() -> Vec<Case> {
             .initial_registers(&[(Eax, index as u32), (Ebx, 0x4000)])
             .segment(
                 register,
-                segment(0x20000, limit, StoredSegment::flat_data32(0)),
+                segment(0x20000, limit, SegmentRegister::flat_data32(0)),
             )
         };
         let fault = |case: Case| {
@@ -132,10 +132,10 @@ fn segment_ordering() -> Vec<Case> {
             segment(
                 0,
                 0x3fff,
-                StoredSegment {
+                SegmentRegister {
                     expand_down: 1,
                     big: 0,
-                    ..StoredSegment::flat_data32(0)
+                    ..SegmentRegister::flat_data32(0)
                 },
             ),
         )
@@ -194,9 +194,9 @@ fn field_wrapping() -> Vec<Case> {
             segment(
                 0,
                 0xffff,
-                StoredSegment {
+                SegmentRegister {
                     big: 0,
-                    ..StoredSegment::flat_data32(0)
+                    ..SegmentRegister::flat_data32(0)
                 },
             ),
         )

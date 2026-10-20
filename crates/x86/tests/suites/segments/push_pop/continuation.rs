@@ -37,12 +37,12 @@ fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() 
         );
         let mut cpu = image.cpu;
         cpu.registers.esp = if old_big { 0x10000 } else { 0xabcd_0000 };
-        cpu.segments.ss = StoredSegment {
+        cpu.segments.ss = SegmentRegister {
             base,
             limit,
             selector: 0x27,
             big: u8::from(!old_big),
-            ..StoredSegment::flat_data32(0)
+            ..SegmentRegister::flat_data32(0)
         };
         cpu.eip = 0x1001;
         cpu.instruction_count = 0;
@@ -92,12 +92,12 @@ fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
             .push(SegmentResolution::new(&tables, segment, 0x27));
         let mut cpu = image.cpu;
         cpu.registers.esp = 0x4004;
-        cpu.segments[segment] = StoredSegment {
+        cpu.segments[segment] = SegmentRegister {
             base: 0x9000,
             limit: 0xffff,
             selector: 0x27,
             big: 0,
-            ..StoredSegment::flat_data32(0)
+            ..SegmentRegister::flat_data32(0)
         };
         cpu.eip += opcode.len() as u32;
         cpu.instruction_count = 0;
@@ -157,7 +157,7 @@ fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
         exit: Exit::Dispatch(cpu.eip),
     };
     cpu.registers.esp = 0x4104;
-    cpu.segments.es = StoredSegment::unusable(3);
+    cpu.segments.es = SegmentRegister::unusable(3);
     cpu.eip = 0x1002;
     cpu.instruction_count = 1;
     assert!(!ExecutionProfile::Protected(SegmentProfile::Flat32).is_compatible_with(&cpu.segments));

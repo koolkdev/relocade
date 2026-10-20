@@ -11,7 +11,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, SegmentRegister};
 
 #[path = "bounds/memory.rs"]
 mod memory;
@@ -21,15 +21,15 @@ fn pair(word: bool, lower: i32, upper: i32) -> Vec<u8> {
     [&lower.to_le_bytes()[..width], &upper.to_le_bytes()[..width]].concat()
 }
 
-fn code16() -> StoredSegment {
-    StoredSegment {
+fn code16() -> SegmentRegister {
+    SegmentRegister {
         big: 0,
-        ..StoredSegment::flat_code32(0x1b)
+        ..SegmentRegister::flat_code32(0x1b)
     }
 }
 
-fn segment(base: u32, limit: u32, properties: StoredSegment) -> StoredSegment {
-    StoredSegment {
+fn segment(base: u32, limit: u32, properties: SegmentRegister) -> SegmentRegister {
+    SegmentRegister {
         base,
         limit,
         selector: 0x23,

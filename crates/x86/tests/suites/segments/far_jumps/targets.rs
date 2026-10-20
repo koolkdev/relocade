@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
@@ -51,9 +51,9 @@ fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
             0xf327,
             0x9000,
             u32::MAX,
-            StoredSegment {
+            SegmentRegister {
                 big: u8::from(word),
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         );
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
@@ -98,9 +98,9 @@ fn execute_only_and_conforming_code_accept_table_selection_and_normalize_cs_rpl(
             visible_selector,
             0x9000,
             0x200,
-            StoredSegment {
+            SegmentRegister {
                 readable: u8::from(readable),
-                ..StoredSegment::flat_code32(0)
+                ..SegmentRegister::flat_code32(0)
             },
         );
         cpu.eip = 0x200;
@@ -147,7 +147,7 @@ fn the_new_inclusive_code_limit_applies_even_when_the_incoming_profile_is_flat()
             );
             let mut cpu = image.cpu;
             let exit = if target <= new_limit {
-                cpu.segments.cs = loaded(0x27, 0x9000, new_limit, StoredSegment::flat_code32(0));
+                cpu.segments.cs = loaded(0x27, 0x9000, new_limit, SegmentRegister::flat_code32(0));
                 cpu.eip = target;
                 cpu.instruction_count = 0;
                 Exit::Dispatch(target)

@@ -10,7 +10,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use relocade_x86::{Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{Gpr32::*, Segment, SegmentRegister};
 
 #[rustfmt::skip]
 fn byte_lookups() -> Vec<Case> {
@@ -51,9 +51,9 @@ fn code16_lookups() -> Vec<Case> {
     .map(|case| {
         case.segmented_only().segment(
             Segment::Cs,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_code32(0x1b)
+                ..SegmentRegister::flat_code32(0x1b)
             },
         )
     })
@@ -61,10 +61,10 @@ fn code16_lookups() -> Vec<Case> {
 }
 
 fn segments_and_faults() -> Vec<Case> {
-    let table = StoredSegment {
+    let table = SegmentRegister {
         base: 0x8000,
         limit: 0x7f,
-        ..StoredSegment::flat_data32(0x23)
+        ..SegmentRegister::flat_data32(0x23)
     };
     vec![
         Case::preserving_flags(
@@ -74,7 +74,7 @@ fn segments_and_faults() -> Vec<Case> {
         .segmented_only()
         .segment(
             Segment::Ds,
-            StoredSegment {
+            SegmentRegister {
                 base: 0x10000,
                 ..table
             },
@@ -84,7 +84,7 @@ fn segments_and_faults() -> Vec<Case> {
         .memory(0x10070, &[0x56], ReadOnly),
         Case::preserving_flags("FS override replaces an unusable DS", &[0x64, 0xd7])
             .segmented_only()
-            .segment(Segment::Ds, StoredSegment::unusable(0))
+            .segment(Segment::Ds, SegmentRegister::unusable(0))
             .segment(Segment::Fs, table)
             .initial_register(Ebx, 0x60)
             .register(Eax, 0x9234_ab1f, 0x9234_ab78)
@@ -97,7 +97,7 @@ fn segments_and_faults() -> Vec<Case> {
         .fault(0x4080, 0),
         Case::preserving_flags("unusable DS faults before replacing AL", &[0xd7])
             .segmented_only()
-            .segment(Segment::Ds, StoredSegment::unusable(0))
+            .segment(Segment::Ds, SegmentRegister::unusable(0))
             .initial_registers(&[(Ebx, 0x4000), (Eax, 0x9234_ab80)])
             .memory(0x4080, &[0x56], ReadOnly)
             .general_protection(0),

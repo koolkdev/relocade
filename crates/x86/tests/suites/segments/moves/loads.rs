@@ -2,7 +2,7 @@ use super::super::selector_cases::loaded;
 use super::*;
 use crate::register::Gpr32;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn segment_load_forms_take_a_low_word_and_commit_each_cache() {
@@ -48,9 +48,9 @@ fn segment_load_forms_take_a_low_word_and_commit_each_cache() {
             0xf327,
             0x8765_0000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         cpu.eip += code.len() as u32;
@@ -88,9 +88,9 @@ fn memory_sources_use_two_bytes_through_the_old_ds_or_ss_cache() {
             0xf327,
             0x9000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         cpu.eip += code.len() as u32;
@@ -147,10 +147,10 @@ fn segment_load_sources_honor_address_size_and_the_last_segment_override() {
             0x27,
             0x9000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
                 writable: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         cpu.eip += code.len() as u32;

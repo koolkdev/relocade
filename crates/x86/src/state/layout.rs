@@ -6,9 +6,9 @@ mod segments;
 mod simd;
 mod x87;
 
-pub use segments::{Segments, StoredSegment};
-pub use simd::StoredSimd;
-pub use x87::{StoredX87, StoredX87Control, StoredX87Register, StoredX87Status};
+pub use segments::{SegmentRegister, Segments};
+pub use simd::SimdState;
+pub use x87::{X87Control, X87Register, X87State, X87Status};
 
 #[cfg(test)]
 mod tests;
@@ -25,7 +25,7 @@ use crate::register::Gpr32;
 /// from the payload; control and system flags always use their stored bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct StoredStatusSource {
+pub struct StatusSourceState {
     /// Zero selects stored bits. Subtraction uses 1/5/9, addition 2/6/10,
     /// and logic 3/7/11 for byte/word/dword values, respectively.
     pub kind: u8,
@@ -65,8 +65,8 @@ pub struct FlagBytes {
 /// Flag backing state, including inactive source operands and stale flag bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct StoredFlags {
-    pub status_source: StoredStatusSource,
+pub struct FlagsState {
+    pub status_source: StatusSourceState,
     pub bytes: FlagBytes,
 }
 
@@ -121,15 +121,15 @@ impl IndexMut<Gpr32> for Registers {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CpuState {
-    pub flags: StoredFlags,
+    pub flags: FlagsState,
     pub registers: Registers,
     pub eip: u32,
     pub segments: Segments,
     pub reserved: [u8; 8],
     /// Retired guest instructions, wrapping modulo 2^64; also the virtual TSC.
     pub instruction_count: u64,
-    pub x87: StoredX87,
-    pub simd: StoredSimd,
+    pub x87: X87State,
+    pub simd: SimdState,
 }
 
 impl CpuState {
@@ -140,8 +140,8 @@ impl Default for CpuState {
     fn default() -> Self {
         Self {
             segments: Segments::flat32(),
-            x87: StoredX87::default(),
-            simd: StoredSimd::default(),
+            x87: X87State::default(),
+            simd: SimdState::default(),
             ..Self::filled(0)
         }
     }

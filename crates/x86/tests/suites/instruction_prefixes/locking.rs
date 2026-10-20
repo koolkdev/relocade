@@ -13,7 +13,7 @@ use crate::support::{
     machine::{Exit, Image},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*, Segment, SegmentRegister};
 
 fn memory_updates() -> Vec<Case> {
     let clear = Flags::all(Clear);
@@ -296,9 +296,9 @@ fn atomic_boundaries() -> Vec<Case> {
             .register(Eax, 0x1122_3344, 0x8877_6655)
             .segment(
                 Segment::Fs,
-                StoredSegment {
+                SegmentRegister {
                     base,
-                    ..StoredSegment::flat_data32(0x33)
+                    ..SegmentRegister::flat_data32(0x33)
                 },
             )
             .memory(offset + base, &[0x55, 0x66, 0x77, 0x88], ReadWrite)

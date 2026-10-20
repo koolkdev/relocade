@@ -1,6 +1,6 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
-use crate::{CpuModel, Segment, SegmentDefaultSize, SegmentProfile, Segments, StoredSegment};
+use crate::{CpuModel, Segment, SegmentDefaultSize, SegmentProfile, SegmentRegister, Segments};
 
 /// The processor model and execution assumptions required by a compiled entry.
 ///
@@ -60,10 +60,10 @@ impl ExecutionProfile {
     /// Tests a proposed segment cache against this profile's fixed assumptions.
     /// Runtimes use this at segment changes to preserve compatibility throughout
     /// execution; unconstrained fields remain free to change.
-    pub fn is_segment_compatible(self, segment: Segment, cache: &StoredSegment) -> bool {
+    pub fn is_segment_compatible(self, segment: Segment, cache: &SegmentRegister) -> bool {
         match self {
             Self::Protected(profile) => profile.assumptions(segment).matches(cache),
-            Self::Real16 => *cache == StoredSegment::real_mode(segment, cache.selector),
+            Self::Real16 => *cache == SegmentRegister::real_mode(segment, cache.selector),
         }
     }
 }

@@ -8,7 +8,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use relocade_x86::{Gpr32::*, Segment, StoredSegment};
+use relocade_x86::{Gpr32::*, Segment, SegmentRegister};
 
 #[rustfmt::skip]
 fn widths() -> Vec<Case> {
@@ -155,7 +155,7 @@ fn fault_stages() -> Vec<Case> {
             .initial_registers(&[(Esp, 0x4004), (Ebp, 0x6000)])
             .memory(0x24000, &[0xa5; 4], ReadWrite).expect_memory(0x24000, &[0, 0x60, 0, 0]).stack_fault(0),
         Case::preserving_flags("ENTER allocation below an expand-down limit faults before paging", &[0xc8, 1, 0x20, 0])
-            .segmented_only().segment(Segment::Ss, StoredSegment {
+            .segmented_only().segment(Segment::Ss, SegmentRegister {
                 expand_down: 1, ..stack_segment(0x20000, 0x7fff, true)
             })
             .initial_registers(&[(Esp, 0x9004), (Ebp, 0x1234_5678)])

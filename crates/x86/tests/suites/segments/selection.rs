@@ -2,7 +2,7 @@ use super::data;
 use crate::support::cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly};
 use relocade_x86::{
     Gpr32::{Eax, Ebp, Ebx, Ecx, Esp},
-    Segment, StoredSegment,
+    Segment, SegmentRegister,
 };
 
 fn default_segments() -> Vec<Case> {
@@ -83,7 +83,7 @@ fn no_access() -> Vec<Case> {
             "LEA ignores segment usability, base and limit",
             &[0x64, 0x8d, 0x43, 0x7f],
         )
-        .segment(Segment::Fs, StoredSegment::unusable(0x53))
+        .segment(Segment::Fs, SegmentRegister::unusable(0x53))
         .initial_register(Ebx, 0xffff_fff0)
         .register(Eax, 1, 0x6f),
         Case::preserving_flags(
@@ -97,7 +97,7 @@ fn no_access() -> Vec<Case> {
             "register operand ignores unusable segment override",
             &[0x64, 0x8b, 0xc3],
         )
-        .segment(Segment::Fs, StoredSegment::unusable(0x53))
+        .segment(Segment::Fs, SegmentRegister::unusable(0x53))
         .initial_register(Ebx, 0x1234_5678)
         .register(Eax, 0, 0x1234_5678),
     ]

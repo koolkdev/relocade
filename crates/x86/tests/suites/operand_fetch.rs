@@ -4,8 +4,8 @@ use crate::support::cases::{
 use crate::support::machine;
 use crate::support::step;
 use machine::{check, Exit, Image, Step};
-use relocade_x86::StoredStatusSource;
-use relocade_x86::{CpuState, Gpr32, StoredFlags};
+use relocade_x86::StatusSourceState;
+use relocade_x86::{CpuState, FlagsState, Gpr32};
 use step::TestModule;
 
 fn image(start: u32, code: &[u8]) -> Image {
@@ -112,8 +112,8 @@ fn complete_operand_cases() -> Vec<Case> {
                 },
                 Flags::all(Preserved),
             )
-            .stored_flags(StoredFlags {
-                status_source: StoredStatusSource {
+            .stored_flags(FlagsState {
+                status_source: StatusSourceState {
                     kind: 11,
                     left: 0,
                     ..(CpuState::filled(0xa5).flags).status_source

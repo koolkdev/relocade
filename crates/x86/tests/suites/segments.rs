@@ -47,20 +47,20 @@ mod transfers;
 #[path = "segments/verification.rs"]
 mod verification;
 
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
-fn data(base: u32, limit: u32) -> StoredSegment {
-    StoredSegment {
+fn data(base: u32, limit: u32) -> SegmentRegister {
+    SegmentRegister {
         base,
         limit,
-        ..StoredSegment::flat_data32(0x23)
+        ..SegmentRegister::flat_data32(0x23)
     }
 }
 
-fn code(base: u32, limit: u32) -> StoredSegment {
-    StoredSegment {
+fn code(base: u32, limit: u32) -> SegmentRegister {
+    SegmentRegister {
         base,
         limit,
-        ..StoredSegment::flat_code32(0x1b)
+        ..SegmentRegister::flat_code32(0x1b)
     }
 }

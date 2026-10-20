@@ -15,8 +15,8 @@ use crate::support::{
     x87::{set_control, status},
 };
 use relocade_x86::{
-    compile_block_from_bytes, BlockError, CpuState, ExecutionProfile, SegmentProfile,
-    StoredX87Control, StoredX87Status,
+    compile_block_from_bytes, BlockError, CpuState, ExecutionProfile, SegmentProfile, X87Control,
+    X87Status,
 };
 
 fn initial_image(code: &[u8]) -> Image {
@@ -159,7 +159,7 @@ fn status_field_packing(frontend: Frontend) {
     for (name, fields, word) in [
         (
             "FNSTSW packs C1/C3 and independent B without ES",
-            StoredX87Status {
+            X87Status {
                 invalid: 0x81,
                 denormal: 0x83,
                 zero_divide: 0x85,
@@ -179,7 +179,7 @@ fn status_field_packing(frontend: Frontend) {
         ),
         (
             "FNSTSW packs C0/C2 and independent ES without B",
-            StoredX87Status {
+            X87Status {
                 invalid: 0x80,
                 denormal: 0x82,
                 zero_divide: 0x84,

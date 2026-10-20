@@ -1,6 +1,6 @@
 use super::*;
 use crate::SegmentProfile;
-use relocade_x86::StoredSegment;
+use relocade_x86::SegmentRegister;
 
 #[test]
 fn every_pointer_load_supports_both_offset_widths_and_uses_entry_addresses() {
@@ -47,9 +47,9 @@ fn every_pointer_load_supports_both_offset_widths_and_uses_entry_addresses() {
                 0xf327,
                 0x9000,
                 0x10,
-                StoredSegment {
+                SegmentRegister {
                     big: 0,
-                    ..StoredSegment::flat_data32(0)
+                    ..SegmentRegister::flat_data32(0)
                 },
             );
             cpu.eip += code.len() as u32;
@@ -106,9 +106,9 @@ fn pointer_sources_read_exactly_four_or_six_bytes_with_split_offset_or_selector_
             0xf327,
             0x9000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         cpu.eip += code.len() as u32;
@@ -139,7 +139,7 @@ fn both_fields_use_entry_address_registers_and_the_old_overridden_segment_cache(
         image.cpu.registers.ebp = 0x100;
         image.cpu.registers.esi = 3;
         image.cpu.segments[segment] = data(0x4000, 0xffff);
-        image.cpu.segments.fs = StoredSegment::unusable(3);
+        image.cpu.segments.fs = SegmentRegister::unusable(3);
         image.map(4, 0x8000, false);
         image.data(
             if segment == Segment::Gs {
@@ -157,9 +157,9 @@ fn both_fields_use_entry_address_registers_and_the_old_overridden_segment_cache(
             0xf327,
             0x9000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         cpu.eip += code.len() as u32;
@@ -198,9 +198,9 @@ fn fields_continue_past_a_16_bit_starting_offset_and_wrap_only_at_linear_32_bits
             0xf327,
             0x9000,
             0xffff,
-            StoredSegment {
+            SegmentRegister {
                 big: 0,
-                ..StoredSegment::flat_data32(0)
+                ..SegmentRegister::flat_data32(0)
             },
         );
         cpu.eip += 4;

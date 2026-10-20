@@ -2,7 +2,7 @@ mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
-use relocade_x86::{CpuState, Segment, StoredSegment};
+use relocade_x86::{CpuState, Segment, SegmentRegister};
 
 fn temporary(
     dos: &mut Dos<Backend<DosState>>,
@@ -17,9 +17,10 @@ fn temporary(
     buffer[directory.len()] = 0;
     {
         let mut machine = dos.runtime().machine();
-        machine
-            .cpu()
-            .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, SEGMENT));
+        machine.cpu().set_segment(
+            Segment::Ds,
+            SegmentRegister::real_mode(Segment::Ds, SEGMENT),
+        );
         for (index, byte) in buffer.iter().enumerate() {
             let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));
             machine.memory().write(address, &[*byte]).unwrap();
@@ -36,7 +37,7 @@ fn temporary(
     }
     machine
         .cpu()
-        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x1000));
+        .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1000));
     (cpu, buffer)
 }
 

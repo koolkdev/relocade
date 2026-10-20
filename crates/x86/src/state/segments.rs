@@ -9,7 +9,7 @@ use crate::{
     ExecutionProfile,
 };
 
-use super::{access::cpu_load, Cpu, StoredSegment};
+use super::{access::cpu_load, Cpu, SegmentRegister};
 
 /// Segment loads commit at the end of an entry. Cloning these read caches keeps
 /// child-scoped loads local to their branch; inherited values remain reusable.
@@ -67,7 +67,7 @@ macro_rules! read_field {
             let memory = self.cpu.memory();
             self.read_field(body, segment, |cache| &mut cache.$field, |body, index| {
                 let value = cpu_load!(body, memory, segments.es.$field,
-                    at: index.mul(size_of::<StoredSegment>() as u32))?;
+                    at: index.mul(size_of::<SegmentRegister>() as u32))?;
                 Ok(value$(.$convert($argument))?)
             })
         }

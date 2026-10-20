@@ -10,7 +10,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*, StoredSegment};
+use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*, SegmentRegister};
 
 #[path = "stack_operations/enter.rs"]
 mod enter;
@@ -19,20 +19,20 @@ mod leave;
 #[path = "stack_operations/registers.rs"]
 mod registers;
 
-fn stack_segment(base: u32, limit: u32, big: bool) -> StoredSegment {
-    StoredSegment {
+fn stack_segment(base: u32, limit: u32, big: bool) -> SegmentRegister {
+    SegmentRegister {
         base,
         limit,
         selector: 0x23,
         big: u8::from(big),
-        ..StoredSegment::flat_data32(0)
+        ..SegmentRegister::flat_data32(0)
     }
 }
 
-fn code16() -> StoredSegment {
-    StoredSegment {
+fn code16() -> SegmentRegister {
+    SegmentRegister {
         big: 0,
-        ..StoredSegment::flat_code32(0x1b)
+        ..SegmentRegister::flat_code32(0x1b)
     }
 }
 

@@ -2,7 +2,7 @@ mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosState, FileAccess};
-use relocade_x86::{ExecutionExit, Segment, StoredSegment};
+use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 
 fn dta(dos: &mut Dos<Backend<DosState>>, address: u32) -> [u8; 43] {
     let mut data = [0; 43];
@@ -94,7 +94,7 @@ async fn check_searches() {
     dos.runtime()
         .machine()
         .cpu()
-        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x1010));
+        .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1010));
     // Preserve a non-normalized segment:offset pair exactly in AH=2Fh.
     let cpu = service(&mut dos, 0x1a00, 0, 0, 0x500);
     assert_eq!(cpu.flags.eflags() & 1, 0);

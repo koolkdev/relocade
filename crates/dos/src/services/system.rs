@@ -2,7 +2,7 @@
 
 use crate::DosState;
 use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
-use relocade_x86::{ExecutionExit, Segment, StoredSegment};
+use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::ops::ControlFlow;
 
 /// AH=30h: report DOS 5.00, with no serial number or special version flags.
@@ -38,6 +38,9 @@ pub(super) fn get_vector(call: &mut HostCall<'_, DosState>) -> ControlFlow<Execu
     let segment = u16::from_le_bytes([vector[2], vector[3]]);
     let mut cpu = call.cpu();
     cpu.set_bx(offset);
-    cpu.set_segment(Segment::Es, StoredSegment::real_mode(Segment::Es, segment));
+    cpu.set_segment(
+        Segment::Es,
+        SegmentRegister::real_mode(Segment::Es, segment),
+    );
     return_from_interrupt(call)
 }

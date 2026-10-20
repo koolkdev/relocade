@@ -1,12 +1,12 @@
 use std::mem::offset_of;
 
-use super::{CpuState, Registers, Segments, StoredFlags, StoredSimd, StoredX87};
+use super::{CpuState, FlagsState, Registers, Segments, SimdState, X87State};
 
 impl CpuState {
     /// Reads every backing field without interpreting or normalizing its bits.
     pub fn from_bytes(bytes: [u8; Self::BYTE_LEN]) -> Self {
         Self {
-            flags: StoredFlags::from_bytes(read(&bytes, offset_of!(CpuState, flags))),
+            flags: FlagsState::from_bytes(read(&bytes, offset_of!(CpuState, flags))),
             registers: Registers {
                 eax: read_u32(&bytes, offset_of!(CpuState, registers.eax)),
                 ecx: read_u32(&bytes, offset_of!(CpuState, registers.ecx)),
@@ -21,8 +21,8 @@ impl CpuState {
             segments: Segments::from_bytes(read(&bytes, offset_of!(CpuState, segments))),
             reserved: read(&bytes, offset_of!(CpuState, reserved)),
             instruction_count: read_u64(&bytes, offset_of!(CpuState, instruction_count)),
-            x87: StoredX87::read(&bytes[offset_of!(CpuState, x87)..]),
-            simd: StoredSimd::read(&bytes[offset_of!(CpuState, simd)..]),
+            x87: X87State::read(&bytes[offset_of!(CpuState, x87)..]),
+            simd: SimdState::read(&bytes[offset_of!(CpuState, simd)..]),
         }
     }
 

@@ -1,22 +1,22 @@
 use std::mem::{offset_of, size_of};
 
-use crate::{CpuState, Segment, Segments, StoredSegment};
+use crate::{CpuState, Segment, SegmentRegister, Segments};
 
 #[test]
 fn segment_records_match_the_external_byte_contract() {
-    assert_eq!(size_of::<StoredSegment>(), 16);
+    assert_eq!(size_of::<SegmentRegister>(), 16);
     assert_eq!(size_of::<Segments>(), 96);
     assert_eq!(
         [
-            offset_of!(StoredSegment, base),
-            offset_of!(StoredSegment, limit),
-            offset_of!(StoredSegment, selector),
-            offset_of!(StoredSegment, usable),
-            offset_of!(StoredSegment, readable),
-            offset_of!(StoredSegment, writable),
-            offset_of!(StoredSegment, executable),
-            offset_of!(StoredSegment, expand_down),
-            offset_of!(StoredSegment, big),
+            offset_of!(SegmentRegister, base),
+            offset_of!(SegmentRegister, limit),
+            offset_of!(SegmentRegister, selector),
+            offset_of!(SegmentRegister, usable),
+            offset_of!(SegmentRegister, readable),
+            offset_of!(SegmentRegister, writable),
+            offset_of!(SegmentRegister, executable),
+            offset_of!(SegmentRegister, expand_down),
+            offset_of!(SegmentRegister, big),
         ],
         [0, 4, 8, 10, 11, 12, 13, 14, 15]
     );
@@ -41,7 +41,7 @@ fn decoding_retains_every_segment_field_including_noncanonical_boolean_bytes() {
         let value = |offset| start + offset;
         assert_eq!(
             cpu.segments[segment],
-            StoredSegment {
+            SegmentRegister {
                 base: u32::from_le_bytes([value(0), value(1), value(2), value(3)]),
                 limit: u32::from_le_bytes([value(4), value(5), value(6), value(7)]),
                 selector: u16::from_le_bytes([value(8), value(9)]),
@@ -62,7 +62,7 @@ fn decoding_retains_every_segment_field_including_noncanonical_boolean_bytes() {
 fn encoding_a_named_segment_changes_only_its_sixteen_bytes() {
     for (segment, offset) in Segment::ALL.into_iter().zip([64, 80, 96, 112, 128, 144]) {
         let mut cpu = CpuState::filled(0xa5);
-        cpu.segments[segment] = StoredSegment {
+        cpu.segments[segment] = SegmentRegister {
             base: 0x1234_5678,
             limit: 0xfedc_ba98,
             selector: 0x1357,
@@ -107,8 +107,8 @@ fn cpu_default_installs_flat_caches_while_literal_zero_images_stay_zero() {
 
 #[test]
 fn flat_and_unusable_constructors_keep_the_visible_selector() {
-    let data = StoredSegment::flat_data32(0x23);
-    let code = StoredSegment::flat_code32(0x1b);
+    let data = SegmentRegister::flat_data32(0x23);
+    let code = SegmentRegister::flat_code32(0x1b);
     assert_eq!(
         (
             data.base,
@@ -125,7 +125,7 @@ fn flat_and_unusable_constructors_keep_the_visible_selector() {
     );
     assert_eq!(
         code,
-        StoredSegment {
+        SegmentRegister {
             selector: 0x1b,
             writable: 0,
             executable: 1,
@@ -133,10 +133,10 @@ fn flat_and_unusable_constructors_keep_the_visible_selector() {
         }
     );
     assert_eq!(
-        StoredSegment::unusable(0x37),
-        StoredSegment {
+        SegmentRegister::unusable(0x37),
+        SegmentRegister {
             selector: 0x37,
-            ..StoredSegment::default()
+            ..SegmentRegister::default()
         }
     );
 }

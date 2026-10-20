@@ -18,7 +18,7 @@ use crate::support::{
 };
 use relocade_x86::{
     DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
-    StoredSegment,
+    SegmentRegister,
 };
 
 // Literal encoding order supplies an independent oracle for fixed segment operands.

@@ -2,7 +2,7 @@
 
 use crate::{memory, LoadError, LoadOptions};
 use relocade_machine::{MachineStorage, Memory};
-use relocade_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
+use relocade_x86::{CpuState, FlagsState, Segment, SegmentRegister, Segments};
 
 pub(crate) const COMMAND_TAIL_OFFSET: u16 = 0x80;
 pub(crate) const PSP_BYTES: usize = 0x100;
@@ -68,9 +68,9 @@ pub(crate) fn allocate(
 pub(crate) fn initial_cpu(psp_segment: u16) -> CpuState {
     let mut segments = Segments::real_mode();
     for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
-        segments[segment] = StoredSegment::real_mode(segment, psp_segment);
+        segments[segment] = SegmentRegister::real_mode(segment, psp_segment);
     }
-    let mut flags = StoredFlags::default();
+    let mut flags = FlagsState::default();
     flags.bytes.if_ = 1; // Start with maskable interrupts enabled.
     CpuState {
         segments,

@@ -1,6 +1,6 @@
 //! MXCSR controls and sticky status are distinct from the numerical calculation.
 
-use crate::{floating::RoundingMode, simd::SimdExceptions, StoredSimd};
+use crate::{floating::RoundingMode, simd::SimdExceptions, SimdState};
 use relocade_compiler::{Val, I1, I32, I8};
 
 pub(crate) struct Mxcsr(Val<I32>);
@@ -12,7 +12,7 @@ impl Mxcsr {
 
     /// Architectural reads expose zero for reserved bits in a literal snapshot.
     pub(crate) fn bits(&self) -> Val<I32> {
-        self.0.and(StoredSimd::MXCSR_MASK)
+        self.0.and(SimdState::MXCSR_MASK)
     }
 
     /// Status flags change as instructions execute; only control settings are
