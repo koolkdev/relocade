@@ -7,7 +7,7 @@ use relocade_compiler::{Program, Signature, Type, I16, I32};
 
 fn transfers(fill: bool) -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program, ExecutionProfile::Real16).unwrap();
+    let memory = Memory::declare(&mut program, ExecutionProfile::Real16);
     let function = program
         .function(
             Signature {

@@ -38,7 +38,6 @@ fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(decoded.instruction.ends_block());
-        assert!(!decoded.instruction.uses_memory());
         assert!(matches!(decoded.instruction.call, HandlerCall::Binary {
             left: Operand::Immediate(actual), right: Operand::Immediate(0xf327), ..
         } if actual == offset));
@@ -144,7 +143,6 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(decoded.instruction.ends_block());
-        assert!(decoded.instruction.uses_memory());
         assert!(matches!(
             decoded.instruction.call,
             HandlerCall::Unary {

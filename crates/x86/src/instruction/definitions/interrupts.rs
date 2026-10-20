@@ -6,17 +6,17 @@ use crate::{execution::CodeTarget, flags::image, flags::Flag, ExecutionProfile, 
 instruction_families! {
     INT {
         execute: interrupt(0xcd);
-        effects: [memory_read, memory_write, control_transfer, segment_load];
+        effects: [control_transfer, segment_load];
         forms { 0xCD => byte(imm8); }
     }
     INT3 {
         execute: interrupt(0xcc);
-        effects: [memory_read, memory_write, control_transfer, segment_load];
+        effects: [control_transfer, segment_load];
         forms { 0xCC => byte(constant(3)); }
     }
     INTO {
         execute: overflow_interrupt;
-        effects: [memory_read, memory_write, control_transfer, segment_load];
+        effects: [control_transfer, segment_load];
         forms { 0xCE => no_operands(); }
     }
 }

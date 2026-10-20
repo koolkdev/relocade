@@ -151,12 +151,6 @@ macro_rules! declaration_effect {
     (segment_load) => {
         Effect::SegmentLoad
     };
-    (memory_read) => {
-        Effect::MemoryRead
-    };
-    (memory_write) => {
-        Effect::MemoryWrite
-    };
     (control_transfer) => {
         Effect::ControlTransfer
     };

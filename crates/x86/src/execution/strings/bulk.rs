@@ -32,7 +32,7 @@ impl ExecutionBuilder<'_, '_> {
             .unsigned()
             .ge(&bytes)
             .and(source.sub(destination).unsigned().ge(&bytes));
-        let memory = self.memory.as_ref().unwrap().memory();
+        let memory = self.memory.memory();
         self.body.if_value::<I1>(
             source.eq(destination).or(disjoint),
             |mut copy| {
@@ -61,7 +61,7 @@ impl ExecutionBuilder<'_, '_> {
             .as_ref()
             .expect("a repeated fill needs a resolved operand")
             .physical_start;
-        let memory = self.memory.as_ref().unwrap().memory();
+        let memory = self.memory.memory();
         self.body.if_(count.ne(0), |mut nonempty| {
             memory.fill(&mut nonempty, destination, value, &count.mul(T::BYTES))
         })?;

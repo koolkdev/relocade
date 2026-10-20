@@ -35,21 +35,21 @@ instruction_families! {
     }
     CALL_FAR_IMMEDIATE {
         execute: call_far_immediate::<_>;
-        effects: [memory_write, control_transfer, segment_load];
+        effects: [control_transfer, segment_load];
         forms {
             0x9A => word_or_dword(imm, imm16);
         }
     }
     CALL_FAR_INDIRECT {
         execute: call_far_indirect::<_>;
-        effects: [memory_write, control_transfer, segment_load];
+        effects: [control_transfer, segment_load];
         forms {
             0xFF /3 => word_or_dword(mem);
         }
     }
     RET_FAR {
         execute: return_far::<_>;
-        effects: [memory_read, control_transfer, segment_load];
+        effects: [control_transfer, segment_load];
         forms {
             0xCB => word_or_dword(constant(0));
             0xCA => word_or_dword(imm16);
@@ -57,7 +57,7 @@ instruction_families! {
     }
     IRET {
         execute: return_interrupt::<_>;
-        effects: [memory_read, control_transfer, segment_load];
+        effects: [control_transfer, segment_load];
         forms { 0xCF => word_or_dword(); }
     }
 }

@@ -50,21 +50,21 @@ instruction_families! {
     }
     CALL_RELATIVE {
         execute: call_relative::<_>;
-        effects: [memory_write, control_transfer];
+        effects: [control_transfer];
         forms {
             0xE8 => word_or_dword(rel);
         }
     }
     CALL_INDIRECT {
         execute: call_indirect::<_>;
-        effects: [memory_write, control_transfer];
+        effects: [control_transfer];
         forms {
             0xFF /2 => word_or_dword(rm);
         }
     }
     RET {
         execute: return_near::<_>;
-        effects: [memory_read, control_transfer];
+        effects: [control_transfer];
         forms {
             0xC3 => word_or_dword(constant(0));
             0xC2 => word_or_dword(imm16);

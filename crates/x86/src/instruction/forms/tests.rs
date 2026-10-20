@@ -282,7 +282,6 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(!decoded.instruction.ends_block());
-        assert!(!decoded.instruction.uses_memory());
         assert!(matches!(
             decoded.instruction.call,
             HandlerCall::Binary {
@@ -307,7 +306,6 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
                 0x1001,
             );
             assert!(!decoded.instruction.ends_block());
-            assert!(!decoded.instruction.uses_memory());
             assert!(matches!(
                 decoded.instruction.call,
                 HandlerCall::Unary {
@@ -341,13 +339,12 @@ fn opcode_extensions_can_decode_without_binding_operands() {
             decoded.instruction.call,
             HandlerCall::Nullary { .. }
         ));
-        assert!(!decoded.instruction.uses_memory());
         assert!(!decoded.instruction.ends_block());
     }
 }
 
 #[test]
-fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_read() {
+fn effective_addresses_bind_separately_from_memory_operands() {
     let lea = unprefixed_form(OpcodeMap::Primary, 0x8d, None);
     let mov = unprefixed_form(OpcodeMap::Primary, 0x8b, None);
     for modrm in 0..=u8::MAX {
@@ -376,7 +373,6 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
             .resolve(&prefixes)
             .unwrap()
             .bind(fields(), 0x1000, 0x1006);
-        assert!(!address.instruction.uses_memory());
         assert!(matches!(
             address.instruction.call,
             HandlerCall::Binary {
@@ -391,7 +387,6 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
             .resolve(&prefixes)
             .unwrap()
             .bind(fields(), 0x1000, 0x1006);
-        assert!(load.instruction.uses_memory());
         assert!(matches!(
             load.instruction.call,
             HandlerCall::Binary {
@@ -403,14 +398,13 @@ fn effective_address_binding_rejects_register_modes_without_claiming_a_memory_re
 }
 
 #[test]
-fn prefetch_binds_an_address_without_claiming_a_memory_access() {
+fn prefetch_binds_an_effective_address() {
     for hint in 0..4 {
         let bytes = [0x0f, 0x18, 0x84 | hint << 3, 0x8b, 0x78, 0x56, 0x34, 0x12];
         let (decoded, remaining) =
             crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
         assert!(remaining.is_empty());
         assert_eq!(decoded.fallthrough_eip, 0x1008);
-        assert!(!decoded.instruction.uses_memory());
         assert!(matches!(
             decoded.instruction.call,
             HandlerCall::Unary {

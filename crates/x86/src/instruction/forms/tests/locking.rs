@@ -43,9 +43,8 @@ fn lock_admits_each_memory_destination_encoding_and_rejects_register_modes() {
             let modrm_position = code.len();
             code.push(modrm);
             code.extend_from_slice(&[0; 4]);
-            let (decoded, _) = decode::snapshot(&code, 0x1000, SegmentDefaultSize::Bits32)
+            decode::snapshot(&code, 0x1000, SegmentDefaultSize::Bits32)
                 .unwrap_or_else(|error| panic!("LOCK memory form {code:02x?}: {error}"));
-            assert!(decoded.instruction.uses_memory());
             code[modrm_position] |= 0xc0;
             assert!(
                 matches!(

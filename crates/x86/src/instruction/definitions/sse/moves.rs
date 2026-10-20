@@ -110,7 +110,6 @@ instruction_families! {
     }
     MASKMOVDQU {
         execute: store_masked;
-        effects: [memory_write];
         requires: [Sse2];
         forms { P66 0x0f 0xf7 => operands(xmm, register(xmm_rm)); }
     }

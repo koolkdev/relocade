@@ -1,11 +1,43 @@
-use relocade_compiler::{Program, Signature, Type};
+//! Public snapshot compilation inputs, outputs and entry points.
 
-use crate::{
-    decode, execution::ExecutionBuilder, memory::Memory, runtime::Runtime, state::Cpu, BlockError,
-    CompiledModule, ExecutionProfile, SegmentProfile,
-};
+mod decode;
+mod module;
 
 use super::Compiler;
+use crate::{BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentProfile};
+use module::BlockModule;
+
+/// Captured instruction bytes and a compilation bound for one CS-relative entry.
+/// The bytes must match readable guest memory when the resulting block executes.
+#[derive(Clone, Copy, Debug)]
+pub struct BlockSnapshot<'a> {
+    pub start_eip: u32,
+    pub bytes: &'a [u8],
+    /// Nonzero maximum number of instructions to decode from this snapshot.
+    pub instruction_limit: u32,
+}
+
+/// One exported block and the instruction bytes on which it depends.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BlockEntry {
+    /// CS-relative EIP required when entering this export.
+    pub start_eip: u32,
+    /// Bytes consumed from the snapshot, excluding any unused suffix.
+    /// Offsets advance from `start_eip` with 32-bit wrapping.
+    pub byte_len: usize,
+    /// Name of the `() -> i64` Wasm export.
+    pub export: String,
+}
+
+/// Snapshot blocks sharing one Wasm module, its imports and generated helpers.
+/// Entry metadata follows the supplied snapshot order.
+pub struct CompiledBlocks {
+    pub bytes: Vec<u8>,
+    pub entries: Vec<BlockEntry>,
+    /// Required target for every entry and its interpreter fallback.
+    /// The host also maintains each entry's code bytes and mapping validity.
+    pub execution_target: ExecutionTarget,
+}
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
 ///
@@ -85,66 +117,63 @@ impl Compiler {
         bytes: &[u8],
         instruction_limit: u32,
     ) -> Result<CompiledModule, BlockError> {
-        let profile = self.target.profile;
-        if instruction_limit == 0 {
-            return Err(BlockError::ZeroInstructionLimit);
-        }
-
-        let mut decoded_instructions = Vec::new();
-        let mut remaining_bytes = bytes;
-        let mut next_eip = start_eip;
-        for _ in 0..instruction_limit {
-            let (decoded_instruction, rest) =
-                decode::snapshot(remaining_bytes, next_eip, profile.code_default_size())?;
-            next_eip = decoded_instruction.fallthrough_eip;
-            remaining_bytes = rest;
-            let ends_block = decoded_instruction.instruction.ends_block()
-                || decoded_instruction
-                    .instruction
-                    .fails_requirements(self.target);
-            decoded_instructions.push(decoded_instruction);
-            if ends_block {
-                break;
-            }
-        }
-
-        let mut program = Program::new();
-        let cpu = Cpu::declare(&mut program);
-        let memory = decoded_instructions
-            .iter()
-            .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
-            .then(|| Memory::declare(&mut program, profile))
-            .transpose()?;
-        let runtime = Runtime::declare(&mut program);
-        let function = program.function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-            |body| {
-                let mut execution = ExecutionBuilder::new(
-                    body,
-                    &cpu,
-                    memory.as_ref(),
-                    runtime,
-                    start_eip,
-                    self.target,
-                )?
-                .with_interpreter_fallback()
-                .with_observed_cpu(self.observed_cpu.as_ref());
-                execution.guard_fetch_span(bytes.len() - remaining_bytes.len())?;
-                for decoded_instruction in decoded_instructions {
-                    execution.execute(decoded_instruction)?;
-                }
-                execution.dispatch()
-            },
-        )?;
-        let entry = format!("block_{start_eip:x}");
-        program.export(&entry, function)?;
+        let mut blocks = self.compile_blocks(&[BlockSnapshot {
+            start_eip,
+            bytes,
+            instruction_limit,
+        }])?;
+        let entry = blocks
+            .entries
+            .pop()
+            .expect("one snapshot exports one block");
         Ok(CompiledModule {
-            bytes: program.compile()?,
-            entry,
-            execution_target: Some(self.target),
+            bytes: blocks.bytes,
+            entry: entry.export,
+            execution_target: Some(blocks.execution_target),
         })
+    }
+
+    /// Compiles independently callable snapshot blocks into one module.
+    /// Entries share the compiler's target, observations, imports and helpers.
+    /// An empty slice produces a module without exports; repeated starting EIPs
+    /// return [`BlockError::DuplicateBlock`].
+    ///
+    /// Each block stops at the ordinary [`compile_block_from_bytes`] boundary,
+    /// or before another supplied entry reached at an instruction boundary.
+    /// Entry points inside an instruction's encoding do not split that instruction.
+    /// Unused snapshot bytes are neither decoded nor included in its [`BlockEntry`].
+    /// Success publishes state, checks the instruction budget and tail-calls
+    /// `relocade.dispatch`, including when the successor is in this module.
+    /// Faults and interpreter handoffs retain the single-block contract.
+    ///
+    /// Every export requires its original EIP and valid snapshot bytes under
+    /// the current CS base. The embedding admits entries against
+    /// [`CompiledBlocks::execution_target`] and maintains their validity throughout
+    /// execution, as described by the [host integration contract](crate#entry-validity).
+    /// The caller must also limit blocks at registered execution boundaries absent
+    /// from this batch.
+    ///
+    /// ```
+    /// use relocade_x86::{BlockSnapshot, Compiler, SegmentProfile};
+    /// let compiler = Compiler::new(SegmentProfile::Flat32);
+    /// let module = compiler.compile_blocks(&[
+    ///     BlockSnapshot {
+    ///         start_eip: 0x1000, bytes: &[0xb8, 42, 0, 0, 0], instruction_limit: 1,
+    ///     },
+    ///     BlockSnapshot {
+    ///         start_eip: 0x2000, bytes: &[0xeb, 0xfe], instruction_limit: 1,
+    ///     },
+    /// ])?;
+    /// assert_eq!(module.entries[0].export, "block_1000");
+    /// assert_eq!(module.entries[0].byte_len, 5);
+    /// assert_eq!(module.entries[1].export, "block_2000");
+    /// assert_eq!(module.execution_target, compiler.target());
+    /// # Ok::<(), relocade_x86::BlockError>(())
+    /// ```
+    pub fn compile_blocks(
+        &self,
+        snapshots: &[BlockSnapshot<'_>],
+    ) -> Result<CompiledBlocks, BlockError> {
+        BlockModule::compile(self, snapshots)
     }
 }

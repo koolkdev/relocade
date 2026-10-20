@@ -61,8 +61,6 @@ impl OperandSpec {
 
 #[derive(Clone, Copy)]
 pub(in crate::instruction) enum Effect {
-    MemoryRead,
-    MemoryWrite,
     ControlTransfer,
     SegmentLoad,
     /// Device callbacks may change instruction routing; resume through dispatch.
@@ -231,20 +229,7 @@ impl Declaration<'_> {
             word: bind_handler(self.handlers.word, bindings),
             dword: bind_handler(self.handlers.dword, bindings),
         };
-        let mut implicit_memory = false;
-        let mut ends_block = false;
-        index = 0;
-        while index < self.effects.len() {
-            match self.effects[index] {
-                Effect::MemoryRead | Effect::MemoryWrite => implicit_memory = true,
-                Effect::ControlTransfer
-                | Effect::SegmentLoad
-                | Effect::PortIo
-                | Effect::Serializing
-                | Effect::UnconditionalFault => ends_block = true,
-            }
-            index += 1;
-        }
+        let ends_block = !self.effects.is_empty();
         Form {
             opcode: self.opcode.byte,
             mask: if opcode_register { 0xf8 } else { 0xff },
@@ -258,7 +243,6 @@ impl Declaration<'_> {
             },
             handlers,
             condition: None,
-            implicit_memory,
             ends_block,
             requirements: Requirements {
                 availability: self.availability,

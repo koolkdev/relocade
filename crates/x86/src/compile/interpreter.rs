@@ -100,7 +100,7 @@ impl Compiler {
         let profile = self.target.profile;
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let memory = Memory::declare(&mut program, profile)?;
+        let memory = Memory::declare(&mut program, profile);
         let runtime = Runtime::declare(&mut program);
         let fetch = InstructionFetch::new(&cpu, &memory, profile);
         let decoder = RuntimeDecoder::new(
@@ -118,15 +118,9 @@ impl Compiler {
             },
             |body, decoded, continuation| {
                 let ends_block = decoded.instruction.ends_block();
-                let mut execution = ExecutionBuilder::new(
-                    body,
-                    &cpu,
-                    Some(&memory),
-                    runtime,
-                    &decoded.eip,
-                    self.target,
-                )?
-                .with_cpu_features_from_context()?;
+                let mut execution =
+                    ExecutionBuilder::new(body, &cpu, &memory, runtime, &decoded.eip, self.target)?
+                        .with_cpu_features_from_context()?;
                 execution.execute(decoded)?;
                 if ends_block {
                     execution.dispatch()

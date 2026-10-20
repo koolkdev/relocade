@@ -79,8 +79,7 @@ fn accesses() -> Vec<u8> {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    );
     define_read::<I8>(&mut program, &memory, "read8");
     define_write::<I8>(&mut program, &memory, "write8");
     define_read::<I16>(&mut program, &memory, "read16");
@@ -99,8 +98,7 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
         let memory = Memory::declare(
             &mut program,
             crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-        )
-        .unwrap();
+        );
         let result = program.function(
             Signature {
                 parameters: vec![Type::I32],

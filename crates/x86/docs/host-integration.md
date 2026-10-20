@@ -18,6 +18,22 @@ for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
 returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
 functions use the default model without CPU observations.
 
+`Compiler::compile_blocks(&[BlockSnapshot { start_eip, bytes, instruction_limit }])`
+compiles several snapshot entries into one `CompiledBlocks` module. They share
+imports and generated helpers, with one required `execution_target` for the module.
+Its `entries` retain input order and report each `start_eip`, exported name and
+consumed `byte_len`; bytes after the compilation boundary are excluded. The byte
+span starts at the CS-relative EIP and advances with 32-bit wrapping.
+
+Every supplied start is an execution boundary when reached between instructions
+in another snapshot. An entry inside an instruction's encoding does not split
+that instruction. The caller must also limit blocks at registered execution
+boundaries absent from the batch. Every export still publishes state, checks its
+instruction target and tail-calls shared dispatch on success, even for a successor
+in the same module.
+The host maintains the ordinary entry-validity contract for every export;
+sharing a module does not establish validity or install dispatch entries.
+
 Every `CpuFeature` is implemented and enabled by default. For example,
 `CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables integer and
 x87 conditional moves and the x87 comparisons that set EFLAGS. Known encodings

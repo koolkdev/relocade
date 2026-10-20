@@ -112,7 +112,6 @@ pub(crate) struct Form {
     pub(crate) modrm: Option<ModRmSelector>,
     handlers: SizedHandlers<HandlerBinding>,
     pub(super) condition: Option<Condition>,
-    pub(super) implicit_memory: bool,
     pub(super) ends_block: bool,
     pub(super) requirements: Requirements,
 }
