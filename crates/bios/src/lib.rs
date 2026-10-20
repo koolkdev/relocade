@@ -6,11 +6,13 @@
 #![forbid(unsafe_code)]
 
 mod keyboard;
+mod screen;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::Memory;
 use relocade_runtime::{real_mode_interrupt, Hook, HostCall};
 use relocade_x86::ExecutionExit;
+pub use screen::{TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START};
 use std::ops::ControlFlow;
 
 const BIOS_SEGMENT: u16 = 0xf000;
@@ -23,7 +25,9 @@ const MIDNIGHT_ROLLOVER: u32 = 0x470;
 
 /// Initializes the clock data, BIOS vectors and their ROM return instructions.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
+/// Color text memory at [`TEXT_MEMORY_START`] must also have RAM backing.
 pub fn initialize(memory: &mut Memory<'_>) {
+    screen::initialize(memory);
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
     for (vector, offset) in [(0x1a, CLOCK_ENTRY), (0x16, KEYBOARD_ENTRY)] {
