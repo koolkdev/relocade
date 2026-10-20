@@ -6,7 +6,7 @@ mod sealed {
 
     pub trait Shape {}
 
-    pub trait Values: Sized {
+    pub(crate) trait Values: Sized {
         fn types() -> Vec<Type>;
         /// Requests value sources in result order, using their logical types.
         fn bind(next: &mut dyn FnMut(Type) -> ValueSource) -> Self;
@@ -16,7 +16,7 @@ mod sealed {
 /// The logical shape of call and control results, and of loop inputs.
 ///
 /// A value marker such as `I32`, `F64` or `V128` produces its typed `Val`. `()` produces no values.
-/// Tuples of up to eight shapes produce corresponding tuples of typed values;
+/// Tuples of up to twelve shapes produce corresponding tuples of typed values;
 /// arrays repeat a shape, and shapes may be nested. Components retain their
 /// logical types even when several types use the same WebAssembly carrier.
 ///
@@ -24,6 +24,9 @@ mod sealed {
 /// can omit its loads, pure calls and possible traps; ordered arm effects remain.
 /// Function invocations follow [`BlockBuilder::call`]: when a call runs,
 /// its callee evaluates every declared result, including discarded components.
+// The result constructor is sealed inside the compiler. Public consumers name
+// result shapes and receive their typed values without implementing binding.
+#[allow(private_bounds)]
 pub trait Results: sealed::Shape {
     type Values: sealed::Values;
 }
@@ -172,6 +175,10 @@ tuples!(A 0, B 1, C 2, D 3, E 4);
 tuples!(A 0, B 1, C 2, D 3, E 4, F 5);
 tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
 tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
+tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8);
+tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9);
+tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
+tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
 
 pub(super) fn types<R: Results>() -> Vec<Type> {
     <R::Values as sealed::Values>::types()

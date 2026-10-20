@@ -1,13 +1,62 @@
 use super::{Memory, Store, WebBackend};
-use js_sys::Function as JsFunction;
+use js_sys::{Array, Function as JsFunction};
 use relocade_compiler::{Results, ValueType};
 use relocade_runtime::wasm::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
 use std::{cell::RefMut, rc::Rc};
 use wasm_bindgen::{
     closure::Closure,
     convert::{FromWasmAbi, ReturnWasmAbi},
-    JsCast,
+    JsCast, JsValue,
 };
+
+// JavaScript imports return an iterable for Wasm multi-value results. Keep that
+// conversion at the web boundary; native callbacks retain ordinary Rust tuples.
+trait HostResult: 'static {
+    type Return: ReturnWasmAbi;
+    fn into_return(self) -> Self::Return;
+}
+
+macro_rules! scalar_result {
+    ($($scalar:ty),+) => { $(
+        impl HostResult for $scalar {
+            type Return = Self;
+            fn into_return(self) -> Self { self }
+        }
+    )+ };
+}
+scalar_result!((), i32, i64, f64);
+
+impl<A: HostResult> HostResult for (A,) {
+    type Return = A::Return;
+    fn into_return(self) -> Self::Return {
+        self.0.into_return()
+    }
+}
+
+macro_rules! tuple_result {
+    ($($element:ident $index:tt),+) => {
+        impl<$($element: Into<JsValue> + 'static),+> HostResult for ($($element,)+) {
+            type Return = JsValue;
+            fn into_return(self) -> JsValue {
+                let values = Array::new();
+                $(values.push(&self.$index.into());)+
+                values.into()
+            }
+        }
+    };
+}
+
+tuple_result!(A 0, B 1);
+tuple_result!(A 0, B 1, C 2);
+tuple_result!(A 0, B 1, C 2, D 3);
+tuple_result!(A 0, B 1, C 2, D 3, E 4);
+tuple_result!(A 0, B 1, C 2, D 3, E 4, F 5);
+tuple_result!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
+tuple_result!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
+tuple_result!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8);
+tuple_result!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9);
+tuple_result!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
+tuple_result!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
 
 macro_rules! host_function {
     ($($parameter:ident : $argument:ident),*) => {
@@ -15,7 +64,7 @@ macro_rules! host_function {
         where
             T: 'static,
             R: Results + HostValue,
-            R::Carrier: ReturnWasmAbi,
+            R::Carrier: HostResult,
             $($parameter: ValueType + HostValue, $parameter::Carrier: FromWasmAbi),*
         {
             fn host_function(
@@ -23,8 +72,8 @@ macro_rules! host_function {
                 callback: Box<dyn Fn(Context<'_, T>, $($parameter::Carrier),*) -> R::Carrier + Send + Sync>,
             ) -> JsFunction {
                 let store = Rc::clone(&self.store);
-                let closure = Closure::<dyn Fn($($parameter::Carrier),*) -> R::Carrier>::new(move |$($argument),*| {
-                    callback(Context(store.borrow_mut()), $($argument),*)
+                let closure = Closure::<dyn Fn($($parameter::Carrier),*) -> <R::Carrier as HostResult>::Return>::new(move |$($argument),*| {
+                    callback(Context(store.borrow_mut()), $($argument),*).into_return()
                 });
                 let function = closure.as_ref().unchecked_ref::<JsFunction>().clone();
                 self.callbacks.push(Box::new(closure));
