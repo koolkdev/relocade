@@ -244,7 +244,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// DOS CON output, BIOS video services and direct guest writes all update
     /// this memory. File redirection does not write to the screen.
     pub fn screen(&mut self) -> relocade_bios::TextScreen {
-        relocade_bios::TextScreen::read(&mut self.runtime.machine().memory())
+        relocade_bios::TextScreen::read(&self.runtime.machine().memory())
     }
 
     /// Returns an owned reader that drains currently buffered standard output.

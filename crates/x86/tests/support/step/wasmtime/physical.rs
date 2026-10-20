@@ -1,5 +1,6 @@
 //! Physical routing and byte-backed MMIO devices for execution tests.
 
+use relocade_test_support::SharedBytes;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::{collections::BTreeMap, sync::Arc};
 use wasmtime::{Caller, Linker, Memory, MemoryType, Store};
@@ -9,7 +10,7 @@ use super::{Event, ExecutionEvents, Input};
 pub(super) fn register(
     linker: &mut Linker<ExecutionEvents>,
     store: &mut Store<ExecutionEvents>,
-    guest: Memory,
+    guest: SharedBytes,
     input: &Input,
 ) {
     let backing = input
@@ -40,6 +41,7 @@ pub(super) fn register(
     let devices: Arc<BTreeMap<u32, u32>> = Arc::new(input.mmio_pages.iter().copied().collect());
     let observe = input.observe_mmio;
     let read_devices = devices.clone();
+    let read_guest = guest.clone();
     linker
         .func_wrap(
             "relocade",
@@ -61,9 +63,9 @@ pub(super) fn register(
                 for offset in 0..bytes as u32 {
                     let address = (address as u32).checked_add(offset).unwrap();
                     let backing = device_backing(&read_devices, table.data(&caller), address);
-                    value |= u64::from(guest.data(&caller)[backing]) << (offset * 8);
+                    value |= u64::from(read_guest.read(backing as u32, 1)[0]) << (offset * 8);
                 }
-                apply_update(&mut caller, guest, table);
+                apply_update(&mut caller, &read_guest, table);
                 value as i64
             },
         )
@@ -88,9 +90,9 @@ pub(super) fn register(
                 for (offset, &byte) in value.iter().enumerate() {
                     let address = (address as u32).checked_add(offset as u32).unwrap();
                     let backing = device_backing(&devices, table.data(&caller), address);
-                    guest.data_mut(&mut caller)[backing] = byte;
+                    guest.write(backing as u32, &[byte]);
                 }
-                apply_update(&mut caller, guest, table);
+                apply_update(&mut caller, &guest, table);
             },
         )
         .unwrap();
@@ -111,12 +113,13 @@ fn device_backing(devices: &BTreeMap<u32, u32>, table: &[u8], address: u32) -> u
     (devices[&page] + (address & 4095)) as usize
 }
 
-fn apply_update(caller: &mut Caller<'_, ExecutionEvents>, guest: Memory, table: Memory) {
+fn apply_update(caller: &mut Caller<'_, ExecutionEvents>, guest: &SharedBytes, table: Memory) {
     if let Some(update) = caller.data_mut().mmio_updates.next() {
-        for (memory, patches) in [(guest, update.guest), (table, update.map)] {
-            for (offset, bytes) in patches {
-                memory.write(&mut *caller, offset as usize, &bytes).unwrap();
-            }
+        for (offset, bytes) in update.guest {
+            guest.write(offset, &bytes);
+        }
+        for (offset, bytes) in update.map {
+            table.write(&mut *caller, offset as usize, &bytes).unwrap();
         }
     }
 }

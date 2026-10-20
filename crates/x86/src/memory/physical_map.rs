@@ -66,7 +66,7 @@ impl PhysicalMapping {
 /// assert_eq!(map.get(0xa0000), PhysicalMapping::Unmapped);
 /// # Ok::<(), PhysicalMapError>(())
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PhysicalMemoryMap {
     pages: [PhysicalMapping; Self::PAGE_COUNT],
     a20_enabled: bool,

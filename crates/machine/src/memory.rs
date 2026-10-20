@@ -2,6 +2,47 @@ use crate::{MachineConfig, MachineStorage};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, StoredSegment};
 use std::fmt;
 
+/// Read access to guest physical memory, independent of CPU ownership.
+/// Implementations supply the fixed map and checked backing transfers.
+pub trait ReadMemory {
+    fn memory_map(&self) -> &PhysicalMemoryMap;
+    fn read_backing(&self, offset: u32, bytes: &mut [u8]) -> Result<(), MemoryError>;
+
+    /// Reads mapped RAM/ROM, including A20 aliases. Holes and unattached MMIO
+    /// return FF bytes. Concurrent readers need not observe one coherent snapshot.
+    fn read(&self, mut address: u32, mut bytes: &mut [u8]) -> Result<(), MemoryError> {
+        if !range_fits(address, bytes.len(), 1 << 32) {
+            return Err(MemoryError::AddressRange);
+        }
+        while !bytes.is_empty() {
+            let count = page_span(address, bytes.len());
+            let (part, rest) = bytes.split_at_mut(count);
+            match self.memory_map().get(address) {
+                PhysicalMapping::Ram { backing_offset }
+                | PhysicalMapping::Rom { backing_offset } => {
+                    self.read_backing(backing_offset, part)?;
+                }
+                PhysicalMapping::Unmapped | PhysicalMapping::Mmio => part.fill(0xff),
+            }
+            address = address.wrapping_add(count as u32);
+            bytes = rest;
+        }
+        Ok(())
+    }
+
+    fn read_u8(&self, address: u32) -> Result<u8, MemoryError> {
+        let mut bytes = [0];
+        self.read(address, &mut bytes)?;
+        Ok(bytes[0])
+    }
+
+    fn read_u16(&self, address: u32) -> Result<u16, MemoryError> {
+        let mut bytes = [0; 2];
+        self.read(address, &mut bytes)?;
+        Ok(u16::from_le_bytes(bytes))
+    }
+}
+
 /// Guest physical memory through the configured map, including A20 aliases.
 /// RAM/ROM use backing storage. Holes and currently unattached MMIO return FF
 /// bytes; writes to ROM, holes and unattached MMIO are ignored.
@@ -17,24 +58,8 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
     }
 
     /// Reads guest addresses. Addresses outside the fixed map are holes.
-    pub fn read(&mut self, mut address: u32, mut bytes: &mut [u8]) -> Result<(), MemoryError> {
-        if !range_fits(address, bytes.len(), 1 << 32) {
-            return Err(MemoryError::AddressRange);
-        }
-        while !bytes.is_empty() {
-            let count = page_span(address, bytes.len());
-            let (part, rest) = bytes.split_at_mut(count);
-            match self.config.memory_map().get(address) {
-                PhysicalMapping::Ram { backing_offset }
-                | PhysicalMapping::Rom { backing_offset } => {
-                    self.storage.read_backing(backing_offset, part);
-                }
-                PhysicalMapping::Unmapped | PhysicalMapping::Mmio => part.fill(0xff),
-            }
-            address = address.wrapping_add(count as u32);
-            bytes = rest;
-        }
-        Ok(())
+    pub fn read(&self, address: u32, bytes: &mut [u8]) -> Result<(), MemoryError> {
+        ReadMemory::read(self, address, bytes)
     }
 
     /// Writes guest addresses with the same mapping and ROM policy as execution.
@@ -54,17 +79,13 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
     }
 
     /// Reads one byte through the guest memory map.
-    pub fn read_u8(&mut self, address: u32) -> Result<u8, MemoryError> {
-        let mut bytes = [0];
-        self.read(address, &mut bytes)?;
-        Ok(bytes[0])
+    pub fn read_u8(&self, address: u32) -> Result<u8, MemoryError> {
+        ReadMemory::read_u8(self, address)
     }
 
     /// Reads a little-endian word through the guest memory map.
-    pub fn read_u16(&mut self, address: u32) -> Result<u16, MemoryError> {
-        let mut bytes = [0; 2];
-        self.read(address, &mut bytes)?;
-        Ok(u16::from_le_bytes(bytes))
+    pub fn read_u16(&self, address: u32) -> Result<u16, MemoryError> {
+        ReadMemory::read_u16(self, address)
     }
 
     /// Writes one byte with the same guest access policy as [`Self::write`].
@@ -124,6 +145,16 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
         }
         self.storage.write_backing(offset, bytes);
         Ok(())
+    }
+}
+
+impl<S: MachineStorage + ?Sized> ReadMemory for Memory<'_, S> {
+    fn memory_map(&self) -> &PhysicalMemoryMap {
+        self.config.memory_map()
+    }
+
+    fn read_backing(&self, offset: u32, bytes: &mut [u8]) -> Result<(), MemoryError> {
+        self.read_backing(offset, bytes)
     }
 }
 

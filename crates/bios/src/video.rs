@@ -27,7 +27,7 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionE
             .expect("video cursor shape"),
         0x02 => screen::set_cursor_position(&mut call.memory(), page, dx),
         0x03 => {
-            let position = screen::cursor_position(&mut call.memory(), page);
+            let position = screen::cursor_position(&call.memory(), page);
             let shape = call
                 .memory()
                 .read_u16(screen::CURSOR_SHAPE)
@@ -40,7 +40,7 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionE
             let [left, top] = cx.to_le_bytes();
             let [right, bottom] = dx.to_le_bytes();
             let mut memory = call.memory();
-            let active = screen::active_page(&mut memory);
+            let active = screen::active_page(&memory);
             screen::scroll(
                 &mut memory,
                 active,
@@ -72,10 +72,10 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionE
         ),
         0x0e => screen::write_text(&mut call.memory(), &[al]),
         0x0f => {
-            let mut memory = call.memory();
+            let memory = call.memory();
             let mode = memory.read_u8(screen::MODE).expect("video mode");
             let columns = memory.read_u16(screen::COLUMNS).expect("video columns") as u8;
-            let active = screen::active_page(&mut memory);
+            let active = screen::active_page(&memory);
             call.cpu().set_ax(u16::from_le_bytes([mode, columns]));
             call.cpu().set_bh(active);
         }

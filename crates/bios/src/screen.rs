@@ -1,6 +1,6 @@
 //! An 80-by-25 color text screen stored in guest memory.
 
-use relocade_machine::Memory;
+use relocade_machine::{Memory, ReadMemory};
 
 /// Physical start of color text memory.
 pub const TEXT_MEMORY_START: u32 = 0xb8000;
@@ -51,8 +51,9 @@ impl TextScreen {
     pub const COLUMNS: usize = 80;
     pub const ROWS: usize = 25;
 
-    /// Copies the active page and cursor while guest execution is stopped.
-    pub fn read(memory: &mut Memory<'_>) -> Self {
+    /// Samples the active page and cursor. When execution runs concurrently,
+    /// individual cells and cursor metadata may reflect different moments.
+    pub fn read(memory: &(impl ReadMemory + ?Sized)) -> Self {
         let page = active_page(memory);
         let mut bytes = [0; Self::COLUMNS * Self::ROWS * 2];
         memory
@@ -89,7 +90,7 @@ pub fn write_text(memory: &mut Memory<'_>, bytes: &[u8]) {
     }
 }
 
-pub(super) fn active_page(memory: &mut Memory<'_>) -> u8 {
+pub(super) fn active_page(memory: &(impl ReadMemory + ?Sized)) -> u8 {
     // The initial color text aperture has four pages.
     memory.read_u8(ACTIVE_PAGE).expect("active video page") & 3
 }
@@ -107,7 +108,7 @@ pub(super) fn select_page(memory: &mut Memory<'_>, page: u8) {
         .expect("video page offset");
 }
 
-pub(super) fn cursor_position(memory: &mut Memory<'_>, page: u8) -> u16 {
+pub(super) fn cursor_position(memory: &(impl ReadMemory + ?Sized), page: u8) -> u16 {
     memory
         .read_u16(CURSORS + u32::from(page) * 2)
         .expect("video cursor")

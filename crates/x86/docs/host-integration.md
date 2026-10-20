@@ -3,7 +3,7 @@
 Generated x86 modules use this contract for both snapshot blocks and interpreter
 entries. The embedding host supplies memory, dispatch and descriptor resolution.
 The Wasm engine must support multiple memories, multiple results, tail calls and
-the threads extension's atomic instructions, including on unshared memories.
+shared memories and the threads extension's atomic instructions.
 
 ## Entries and dispatch
 
@@ -261,7 +261,7 @@ CPUID serializes execution: both a snapshot block and an interpreter run complet
 the instruction, publish state and dispatch before fetching its successor. Prior
 guest stores are complete at this boundary. The host must validate the next
 snapshot's code against any preceding code writes, as at every dispatch; CPUID
-does not itself invalidate a host code cache. The single-threaded, unshared-memory
+does not itself invalidate a host code cache. The single-guest-CPU
 execution contract does not model a processor's speculative pipeline or cache.
 
 These semantics follow Intel's [Volume 2A, CPUID](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf#page=202).
@@ -341,8 +341,10 @@ or asynchronous interrupt polling within the repetition.
 
 ## Imported memories
 
-All imports belong to the `relocade` module. Memories are distinct, unshared Wasm
-memory objects; sizes below are minimum counts of 64-KiB Wasm pages.
+All imports belong to the `relocade` module. Memories are distinct Wasm objects;
+only `guest` is shared. Sizes below are minimum counts of 64-KiB Wasm pages.
+The `guest` import declares a maximum of 65536 pages. Its supplied memory must
+have a maximum no larger than that and enough initial capacity for all backing.
 
 | Import | Minimum pages | Contents |
 | --- | ---: | --- |
@@ -389,10 +391,12 @@ Alignment is determined after segment translation. All operand bytes pass write
 checks before the update, including a failed comparison. Ordinary loads, stores
 and unlocked updates retain ordinary Wasm accesses; no extra fences are inserted.
 
-Unaligned protected-mode locked operands use checked reads and writes under the private-memory
-contract, which prevents guest interleaving. The current imports do not support
-concurrent access to shared guest RAM. Such access will require coordination for
-unaligned locked operands as well as the surrounding ordinary accesses.
+Execution has one guest CPU and one writer to guest backing. Host writes run
+synchronously in callbacks or between guest entries; concurrent observers may
+read but must tolerate partial updates. Unaligned protected-mode locked operands
+use checked reads and writes under this contract, which prevents guest
+interleaving. Concurrent CPUs or writing bus masters will require coordination
+for unaligned locked operands as well as the surrounding ordinary accesses.
 Rejected LOCK combinations and register forms of memory-only instructions remain
 unsupported encodings, reported through the unsupported-instruction path rather
 than #UD.
@@ -401,7 +405,7 @@ than #UD.
 
 Explicit LFENCE, SFENCE and MFENCE instructions use Wasm's full atomic fence.
 This supplies stronger ordering than the individual load/store fences require;
-it does not change the private-memory contract or model speculative execution.
+it does not change the single-writer contract or model speculative execution.
 
 MOVNTPS, MOVNTPD, MOVNTDQ, MOVNTQ and MOVNTI use the ordinary checked memory
 write path. Their non-temporal cache hints do not alter host routing or introduce

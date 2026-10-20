@@ -7,10 +7,12 @@ for an absent physical mapping. The host controls the A20 gate in the routing ma
 
 ## Physical page map
 
-The host supplies two distinct, unshared Wasm memories in the `relocade` module:
-`guest` for backing bytes and `physicalMap` for routing metadata. Both imports
-have a minimum size of one 64-KiB Wasm page. The host allocates enough memory for
-all mapped backing. The routing table fits in one Wasm page.
+The host supplies two distinct Wasm memories in the `relocade` module:
+shared `guest` backing and unshared `physicalMap` routing metadata. Both imports
+have a minimum size of one 64-KiB Wasm page. The `guest` import declares a maximum
+of 65536 pages (the Wasm32 address space); its supplied memory may have a smaller
+maximum. The host allocates enough initial memory for all mapped backing.
+The routing table fits in one Wasm page.
 
 `PhysicalMemoryMap` contains 272 entries for complete 4-KiB physical pages below
 0x110000. This covers the highest ordinary real-mode address, 0x10ffef, formed by
@@ -96,10 +98,12 @@ issued MMIO request covers its entire selected span. Callbacks must not inspect 
 modify CPU backing state or reenter guest execution. There is no retry result;
 unexpected host or Wasm traps are implementation errors.
 
-Execution assumes one guest CPU with private backing. The host must not advance
-other CPUs or bus masters during an entry. Locked updates use a read followed by
-a write under this contract; the ABI does not expose a lock boundary for
-concurrent DMA or another processor.
+Execution assumes one guest CPU and one writer to guest backing. Host writes run
+synchronously in callbacks or between guest entries. Other threads may observe
+memory, but reads can see partial updates. The host must not advance other CPUs or
+writing bus masters during an entry. Locked updates use a read followed by a
+write under this contract; the ABI does not expose a lock boundary for concurrent
+DMA or another processor.
 
 ## Generated access and fetch
 

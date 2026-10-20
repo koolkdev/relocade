@@ -53,7 +53,11 @@ fn interpreter_step_exposes_host_abis() {
                     assert_eq!(import.module, "relocade");
                     match import.ty {
                         TypeRef::Memory(memory) => {
-                            assert!(!memory.memory64 && !memory.shared);
+                            assert!(!memory.memory64);
+                            assert_eq!(memory.shared, import.name == "guest");
+                            if memory.shared {
+                                assert_eq!(memory.maximum, Some(65536));
+                            }
                             memories.push((import.name.to_owned(), memory.initial));
                         }
                         TypeRef::Func(signature) => {

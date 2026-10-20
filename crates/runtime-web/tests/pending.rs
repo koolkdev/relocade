@@ -1,4 +1,4 @@
-use relocade_machine::MachineConfig;
+use relocade_machine::{MachineConfig, ReadMemory};
 use relocade_runtime::{real_mode_interrupt, Error, Hook, Runtime, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -148,6 +148,7 @@ async fn check_pending_calls() {
         .unwrap();
 
     assert_eq!(runtime.run(6).unwrap(), ExecutionExit::Deferred);
+    let reader = runtime.shared_memory();
     let suspended = runtime.machine().cpu().snapshot();
     assert_eq!(suspended.instruction_count, 1);
     assert_eq!(suspended.registers.esp, 0xfefa);
@@ -173,6 +174,9 @@ async fn check_pending_calls() {
         assert_eq!(state.dropped.get(), 0);
         state.send(&[20]);
         assert!(run.as_mut().poll(&mut cx).is_pending());
+        // The next deferred operation holds the backend context. Display/device
+        // readers still see writes from the completed host operation.
+        assert_eq!(reader.read_u16(0x300).unwrap(), 30);
         assert_eq!(state.started.get(), 2);
         assert_eq!(state.completed.get(), 1);
         state.send(&[30, 40]);
