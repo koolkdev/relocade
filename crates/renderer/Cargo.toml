@@ -1,0 +1,19 @@
+[package]
+name = "relocade-renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+wgpu.workspace = true
+
+[dev-dependencies]
+futures-channel = "0.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pollster = "=1.0.1"
+relocade-bios = { path = "../bios" }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"
