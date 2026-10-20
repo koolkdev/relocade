@@ -8,6 +8,7 @@
 
 mod keyboard;
 mod screen;
+mod text_renderer;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
@@ -18,6 +19,7 @@ pub use screen::{
     write_text, TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 use std::ops::ControlFlow;
+pub use text_renderer::TextRenderer;
 
 const BIOS_SEGMENT: u16 = 0xf000;
 const CLOCK_ENTRY: u16 = 0xff00;
