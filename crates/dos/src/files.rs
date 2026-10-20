@@ -16,6 +16,7 @@ mod mounts;
 mod search;
 mod short_name;
 pub(crate) use create::CreateMode;
+pub(crate) use handles::HandleType;
 use handles::{OpenHandle, HANDLE_COUNT};
 pub(crate) use search::FIND_DATA_BYTES;
 

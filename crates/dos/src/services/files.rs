@@ -1,5 +1,9 @@
 use crate::{
-    error::DosError, files::CreateMode, interrupt::return_result, path::MAX_PATH_BYTES, DosState,
+    error::DosError,
+    files::{CreateMode, HandleType},
+    interrupt::return_result,
+    path::MAX_PATH_BYTES,
+    DosState,
 };
 use relocade_runtime::HostCall;
 use relocade_x86::{ExecutionExit, Segment};
@@ -124,9 +128,12 @@ pub(super) fn force_duplicate(call: &mut HostCall<'_, DosState>) -> ControlFlow<
 /// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
 pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let handle = call.cpu().bx();
-    match call.state().files.is_console_input(handle) {
-        Ok(true) => return super::console::read_handle(call),
-        Ok(false) => {}
+    match call.state().files.handle_type(handle) {
+        Ok(HandleType::ConsoleInput) => return super::console::read_handle(call),
+        Ok(HandleType::File) => {}
+        Ok(HandleType::ConsoleOutput | HandleType::Auxiliary | HandleType::Printer) => {
+            return return_result(call, Err(DosError::AccessDenied));
+        }
         Err(error) => return return_result(call, Err(error)),
     }
     let cpu = call.cpu();
