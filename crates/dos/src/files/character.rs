@@ -1,6 +1,6 @@
 //! Character I/O through standard handles and the console.
 
-use super::{handles::OpenHandle, Files, HandleType};
+use super::{handles::OpenHandle, Device, Files, HandleType};
 use crate::{error::DosError, stdio::OutputStream};
 use std::future::{pending, Future};
 
@@ -14,10 +14,10 @@ impl Files {
     /// Flush the device queue without changing file cursors, buffered lines or EOF.
     pub(crate) fn flush_input(&mut self, handle: u16) -> Result<(), DosError> {
         match self.handle_type(handle)? {
-            HandleType::ConsoleInput | HandleType::ConsoleOutput => {
+            HandleType::Device(Device::Console(_)) => {
                 self.stdio.input.discard_queued();
             }
-            HandleType::File | HandleType::Auxiliary | HandleType::Printer => {}
+            HandleType::File | HandleType::Device(_) => {}
         }
         Ok(())
     }
@@ -50,15 +50,15 @@ impl Files {
 
     /// Reads one raw character from a console or redirected file handle.
     pub(crate) fn read_character(&mut self, handle: u16) -> Result<Option<u8>, DosError> {
-        match self.handle_type(handle)? {
-            HandleType::ConsoleInput => Ok(self.stdio.input.try_read()),
+        match self.readable_handle_type(handle)? {
+            HandleType::Device(Device::Console(_)) => Ok(self.stdio.input.try_read()),
+            // The NUL driver's empty character response is returned as AL=0.
+            HandleType::Device(Device::Null) => Ok(Some(0)),
             HandleType::File => {
                 let mut byte = [0];
                 Ok((self.read(handle, &mut byte)? != 0).then_some(byte[0]))
             }
-            HandleType::ConsoleOutput | HandleType::Auxiliary | HandleType::Printer => {
-                Err(DosError::AccessDenied)
-            }
+            HandleType::Device(Device::Auxiliary | Device::Printer) => Err(DosError::AccessDenied),
         }
     }
 
@@ -67,17 +67,17 @@ impl Files {
         &self,
         handle: u16,
     ) -> Result<impl Future<Output = u8> + 'static, DosError> {
-        let input = match self.handle_type(handle)? {
-            HandleType::ConsoleInput => Some(self.stdio.input.read_character()),
-            HandleType::File => None,
-            HandleType::ConsoleOutput | HandleType::Auxiliary | HandleType::Printer => {
+        let input = match self.readable_handle_type(handle)? {
+            HandleType::Device(Device::Console(_)) => Some(self.stdio.input.read_character()),
+            HandleType::File | HandleType::Device(Device::Null) => None,
+            HandleType::Device(Device::Auxiliary | Device::Printer) => {
                 return Err(DosError::AccessDenied);
             }
         };
         Ok(async move {
             match input {
                 Some(input) => input.await,
-                // Character reads cannot report EOF. File growth notifications are unsupported.
+                // Files cannot notify growth; NUL cannot produce a completed input line.
                 None => pending().await,
             }
         })
@@ -86,16 +86,21 @@ impl Files {
     /// Character output preserves console EOF; only AH=40h handle writes clear it.
     pub(crate) fn write_characters(&mut self, handle: u16, bytes: &[u8]) -> Result<(), DosError> {
         match self.handle(handle)? {
-            OpenHandle::ConsoleInput { .. } => {
-                self.stdio.output(OutputStream::Stdout).extend(bytes)
+            OpenHandle::Device(device) => {
+                if !device.writable {
+                    return Err(DosError::AccessDenied);
+                }
+                match device.kind {
+                    Device::Console(stream) => self.stdio.output(stream).extend(bytes),
+                    Device::Null => {}
+                    Device::Auxiliary | Device::Printer => return Err(DosError::AccessDenied),
+                }
             }
-            OpenHandle::ConsoleOutput(stream) => self.stdio.output(*stream).extend(bytes),
             OpenHandle::File(_) => {
                 if !bytes.is_empty() {
                     self.write(handle, bytes)?;
                 }
             }
-            OpenHandle::Auxiliary | OpenHandle::Printer => return Err(DosError::AccessDenied),
         }
         Ok(())
     }

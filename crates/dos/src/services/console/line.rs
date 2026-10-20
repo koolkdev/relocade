@@ -1,6 +1,6 @@
 use crate::{
     error::DosError,
-    files::{CharacterOutput, Files},
+    files::{CharacterOutput, Device, Files, HandleType},
 };
 
 /// A line being edited, including its final carriage return once complete.
@@ -28,6 +28,13 @@ impl LineInput {
 
     /// Consumes queued input, returning true when Enter completes the line.
     pub(super) fn read_available(&mut self, files: &mut Files) -> Result<bool, DosError> {
+        // NUL returns zero forever, so it cannot complete a line. Wait without spinning.
+        if matches!(
+            files.readable_handle_type(self.input_handle)?,
+            HandleType::Device(Device::Null)
+        ) {
+            return Ok(false);
+        }
         while let Some(byte) = files.read_character(self.input_handle)? {
             if self.accept(files, byte) {
                 return Ok(true);

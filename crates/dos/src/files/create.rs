@@ -24,6 +24,9 @@ impl Files {
         {
             return Err(DosError::AccessDenied);
         }
+        if let Some(handle) = self.open_device(path, 2)? {
+            return Ok(handle);
+        }
         let path = self.file_path(path)?;
         let filesystem = self.drives.get(path.drive).unwrap();
         if !filesystem.is_dir(path::parent(&path.relative)) {

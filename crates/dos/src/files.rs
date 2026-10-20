@@ -11,6 +11,7 @@ use std::{collections::BTreeMap, io::ErrorKind};
 mod attributes;
 mod character;
 mod create;
+mod devices;
 mod directories;
 mod handles;
 mod mounts;
@@ -18,6 +19,7 @@ mod search;
 mod short_name;
 pub(crate) use character::CharacterOutput;
 pub(crate) use create::CreateMode;
+pub(crate) use devices::Device;
 pub(crate) use handles::HandleType;
 use handles::{OpenHandle, HANDLE_COUNT};
 pub(crate) use search::FIND_DATA_BYTES;
@@ -125,6 +127,9 @@ impl Files {
     pub(crate) fn open(&mut self, path: &[u8], mode: u8) -> Result<u16, DosError> {
         if mode & 0x0f > 2 || (mode >> 4) & 7 > 4 {
             return Err(DosError::InvalidAccess);
+        }
+        if let Some(handle) = self.open_device(path, mode)? {
+            return Ok(handle);
         }
         let path = self.file_path(path)?;
         let filesystem = self.drives.get(path.drive).unwrap();
