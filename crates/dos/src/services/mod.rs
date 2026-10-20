@@ -27,6 +27,7 @@ const GET_DTA: u8 = 0x2f;
 const FIND_FIRST: u8 = 0x4e;
 const FIND_NEXT: u8 = 0x4f;
 const CREATE_HANDLE: u8 = 0x3c;
+const CREATE_TEMPORARY_HANDLE: u8 = 0x5a;
 const CREATE_NEW_HANDLE: u8 = 0x5b;
 const RENAME_FILE: u8 = 0x56;
 const OPEN_HANDLE: u8 = 0x3d;
@@ -63,6 +64,7 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<()> {
         FIND_FIRST => search::find_first(call),
         FIND_NEXT => search::find_next(call),
         CREATE_HANDLE => files::create(call, CreateMode::TruncateExisting),
+        CREATE_TEMPORARY_HANDLE => files::create_temporary(call),
         CREATE_NEW_HANDLE => files::create(call, CreateMode::FailIfExists),
         RENAME_FILE => files::rename(call),
         OPEN_HANDLE => files::open(call),

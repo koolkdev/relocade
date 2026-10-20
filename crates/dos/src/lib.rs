@@ -14,6 +14,7 @@
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
 //! AH=3Ch creates or truncates files in existing directories.
 //! AH=5Bh creates a file only if its name is unused, preserving existing files.
+//! AH=5Ah creates a uniquely named temporary file; the caller owns its deletion.
 //! AH=56h renames or moves closed files on C: without replacing a destination.
 //! AH=0Eh/19h select/query C:; AH=3Bh/47h change/query its current directory.
 //! AH=39h/3Ah create directories or remove empty ones, excluding root and current.
