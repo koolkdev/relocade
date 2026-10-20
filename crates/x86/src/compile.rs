@@ -2,6 +2,7 @@
 
 mod block;
 mod dispatch;
+mod hotness;
 mod interpreter;
 
 pub use block::{
@@ -9,6 +10,7 @@ pub use block::{
     CompiledBlocks,
 };
 pub use dispatch::EntryTable;
+pub use hotness::{HotEntry, HotnessTable};
 pub use interpreter::{compile_interpreter, compile_interpreter_step};
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
@@ -32,6 +34,7 @@ pub struct Compiler {
     code_base: Option<u32>,
     block_boundaries: std::collections::BTreeSet<u32>,
     dispatch_boundaries: bool,
+    profile_hotness: bool,
 }
 
 impl Compiler {
@@ -46,6 +49,7 @@ impl Compiler {
             code_base: None,
             block_boundaries: Default::default(),
             dispatch_boundaries: false,
+            profile_hotness: false,
         }
     }
 
@@ -87,6 +91,16 @@ impl Compiler {
     #[must_use]
     pub fn with_dispatch_boundaries(mut self) -> Self {
         self.dispatch_boundaries = true;
+        self
+    }
+
+    /// Profiles dispatcher misses in the interpreter module. Install its
+    /// `profile` export in table slot zero and its raw `run` export in slot one.
+    /// Guard fallbacks use slot one and never request another compilation.
+    /// Initialize `relocade.hotness` with [`HotnessTable`].
+    #[must_use]
+    pub fn with_hotness_tracking(mut self) -> Self {
+        self.profile_hotness = true;
         self
     }
 

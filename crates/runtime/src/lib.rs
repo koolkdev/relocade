@@ -53,6 +53,7 @@ mod dispatch;
 mod error;
 mod execution;
 mod hooks;
+mod hotness;
 mod memory;
 pub mod real_mode_interrupt;
 mod state;
@@ -68,6 +69,7 @@ pub use error::{Error, Result};
 pub use hooks::Hook;
 pub use memory::SharedMemory;
 use relocade_machine::{Machine, MachineConfig};
+pub use relocade_x86::HotEntry;
 use relocade_x86::{abi, Compiler, EntryTable, ExecutionContext};
 pub use state::RuntimeState;
 use std::{
@@ -85,6 +87,7 @@ pub struct Runtime<B: RuntimeBackend> {
     dispatch: B::Function,
     interpret: B::Function,
     mapping: B::Memory,
+    hotness: B::Memory,
     dispatch_table: DispatchTable<B>,
     host_imports: Vec<Import<'static, B>>,
     host_call_incomplete: bool,
@@ -96,7 +99,9 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// Port and MMIO reads currently return all ones; their writes are ignored.
     pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self> {
         let target = config.execution_target();
-        let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
+        let compiler = Compiler::new(target.profile)
+            .with_cpu_model(target.cpu_model)
+            .with_hotness_tracking();
         let dispatcher = compiler.compile_dispatcher()?;
         let dispatcher_module = backend.compile(&dispatcher.bytes).await?;
 
@@ -124,6 +129,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             ..abi::PHYSICAL_MAP
         })?;
         backend.write_memory(&mapping, 0, &config.memory_map().to_bytes());
+        let hotness = backend.create_memory(relocade_compiler::abi::Memory {
+            maximum: Some(1),
+            ..abi::HOTNESS
+        })?;
         let dispatch_table = DispatchTable::new(&mut backend)?;
         let code = code::CodeCache::new(
             config.memory_map().clone(),
@@ -171,6 +180,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             dispatch,
             interpret,
             mapping,
+            hotness,
             dispatch_table,
             host_imports,
             host_call_incomplete: false,
@@ -191,6 +201,12 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             &runtime.dispatch_table.functions,
             EntryTable::INTERPRETER_SLOT,
             &function,
+        )?;
+        let profile = backend.function(&instance, abi::PROFILE)?;
+        backend.set_table_function(
+            &runtime.dispatch_table.functions,
+            EntryTable::PROFILER_SLOT,
+            &profile,
         )?;
         Ok(runtime)
     }
@@ -231,6 +247,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         let mut imports = vec![
             backend.bind(abi::EXECUTION_CONTEXT, &self.storage.context),
             backend.bind(abi::GUEST, &self.storage.guest),
+            backend.bind(abi::HOTNESS, &self.hotness),
             backend.bind(abi::PHYSICAL_MAP, &self.mapping),
             backend.bind(abi::EXECUTION_ENTRIES, &self.dispatch_table.memory),
             backend.bind(abi::EXECUTION_FUNCTIONS, &self.dispatch_table.functions),

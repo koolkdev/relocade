@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 const HASH_MULTIPLIER: u32 = 0x9e37_79b1;
 /// Linear execution addresses mapped to ordinary `() -> i64` function-table slots.
-/// Slot zero is reserved; slot one holds the interpreter fallback.
+/// Slot zero is the optional profiler; slot one holds the raw interpreter.
 /// The embedding installs functions before publishing their addresses. Keys are
 /// CS.base + EIP before paging/A20 translation, scoped to one execution target
 /// and address space. This table neither classifies entries nor validates code.
@@ -14,6 +14,7 @@ const HASH_MULTIPLIER: u32 = 0x9e37_79b1;
 pub struct EntryTable(BTreeMap<u32, u32>);
 
 impl EntryTable {
+    pub const PROFILER_SLOT: u32 = 0;
     pub const INTERPRETER_SLOT: u32 = 1;
     pub const FIRST_DYNAMIC_SLOT: u32 = 2;
 
@@ -57,19 +58,6 @@ impl EntryTable {
 }
 
 impl Dispatch {
-    pub(super) fn lookup(
-        &self,
-        body: BlockBuilder<'_>,
-        address: &Val<I32>,
-    ) -> Result<(), BuildError> {
-        self.lookup_or(
-            body,
-            address,
-            |hit, slot| self.enter(hit, slot),
-            |miss| self.enter(miss, EntryTable::INTERPRETER_SLOT),
-        )
-    }
-
     pub(in crate::compile) fn lookup_or(
         &self,
         mut body: BlockBuilder<'_>,

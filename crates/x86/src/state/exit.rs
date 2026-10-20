@@ -15,6 +15,7 @@ const SIMD_FLOATING_POINT: u64 = 512 << 48;
 const BUDGET_EXHAUSTED: u64 = 1 << 63;
 const HOST_RETURN: u64 = 1 << 62;
 const DEFERRED: u64 = 1 << 61;
+const COMPILE_REQUEST: u64 = 1 << 60;
 
 /// A return from a generated execution entry.
 ///
@@ -22,6 +23,9 @@ const DEFERRED: u64 = 1 << 61;
 /// Distinguish host-defined callback results from execution exits before decoding.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionExit {
+    /// A hot interpreter entry requests host compilation before instruction effects.
+    /// Its identity is published in the hotness table; CPU state is already current.
+    CompileRequest,
     /// A host-call function requested a return to the embedding.
     /// The embedding owns the reason, such as process termination or a service error.
     HostReturn,
@@ -43,6 +47,7 @@ impl ExecutionExit {
     /// Encodes an execution return word. Architectural error codes occupy 16 bits.
     pub fn to_bits(self) -> u64 {
         match self {
+            Self::CompileRequest => COMPILE_REQUEST,
             Self::HostReturn => HOST_RETURN,
             Self::Deferred => DEFERRED,
             Self::BudgetExhausted => BUDGET_EXHAUSTED,
@@ -86,6 +91,7 @@ impl ExecutionExit {
         let payload = ((bits >> 32) & 0xffff) as u32;
         let address = bits as u32;
         let exception = match tag {
+            COMPILE_REQUEST if payload == 0 && address == 0 => return Some(Self::CompileRequest),
             HOST_RETURN if payload == 0 && address == 0 => {
                 return Some(Self::HostReturn);
             }

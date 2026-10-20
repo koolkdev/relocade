@@ -8,6 +8,9 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
     /// Zero does not enter Wasm. The target saturates at u64::MAX.
     ///
+    /// With hotness enabled this can also return `CompileRequest`; take its
+    /// identity with `take_hot_request` before scheduling more execution.
+    ///
     /// A deferred host operation returns Deferred. Subsequent synchronous runs
     /// also return Deferred without polling it; use `run_async` to wait and resume.
     /// An interrupted async handler returns `Error::CancelledHostCall` until
