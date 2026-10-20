@@ -14,6 +14,9 @@
 //! AH=07h waits for one raw character without echo. An empty input source returns
 //! [`relocade_x86::ExecutionExit::Deferred`] from a synchronous run. Use
 //! [`Runtime::run_async`] to await input and complete the pending read.
+//! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
+//! Its capacity includes the terminating CR; the returned count excludes it.
+//! Queued complete lines return immediately; incomplete lines await further input.
 //! Keep the same run future alive while waiting; dropping an active read
 //! cancels it and requires reloading the program before further execution.
 //! Redirected file EOF remains blocked; host file growth does not wake the read yet.
