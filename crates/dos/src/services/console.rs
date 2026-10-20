@@ -26,7 +26,7 @@ pub(super) fn direct_io(call: &mut HostCall<'_, DosState>) -> ControlFlow<Execut
         set_zero(call, character.is_none());
     } else {
         // Like AH=09h, character output has no write-error return.
-        let _ = call.state_mut().files.write(1, &[byte]);
+        let _ = call.state_mut().files.write_characters(1, &[byte]);
         call.cpu().set_al(byte);
     }
     return_from_interrupt(call)
@@ -97,10 +97,15 @@ fn return_line(
 
 /// AH=3Fh on a console input handle: read from one edited line, retaining its remainder.
 pub(super) fn read_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    let handle = call.cpu().bx();
+    if call.state().files.console_eof(handle).get() {
+        call.cpu().set_ax(0);
+        return return_result(call, Ok(()));
+    }
     if call.cpu().cx() == 0 || !call.state().files.stdio.console_line.is_empty() {
         return return_handle_buffer(call);
     }
-    let mut line = LineInput::new(CONSOLE_LINE_CAPACITY, call.cpu().bx(), Echo::Console);
+    let mut line = LineInput::new(CONSOLE_LINE_CAPACITY, handle, Echo::Console);
     match line.read_available(&mut call.state_mut().files) {
         Ok(true) => return_handle_line(call, line.bytes),
         Ok(false) => call.defer(async move |call| {
@@ -117,10 +122,13 @@ fn return_handle_line(
     call: &mut HostCall<'_, DosState>,
     mut bytes: Vec<u8>,
 ) -> ControlFlow<ExecutionExit> {
+    let handle = call.cpu().bx();
+    let eof = bytes.first() == Some(&0x1a);
+    call.state().files.console_eof(handle).set(eof);
     let stdio = &mut call.state_mut().files.stdio;
     stdio.output(OutputStream::Stdout).extend(b"\n");
     // Ctrl-Z at the start of a console line reports EOF.
-    if bytes.first() != Some(&0x1a) {
+    if !eof {
         bytes.push(b'\n');
         stdio.console_line.extend(bytes);
     }
@@ -157,7 +165,7 @@ pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<Exe
             return return_from_interrupt(call);
         }
         // AH=09h writes through stdout, without returning a write-error status.
-        let _ = call.state_mut().files.write(1, &byte);
+        let _ = call.state_mut().files.write_characters(1, &byte);
     }
     return_to_host(call, Err(ServiceError::UnterminatedString))
 }

@@ -93,7 +93,7 @@ impl LineInput {
         match self.echo {
             Echo::Stdout => {
                 // DOS character input has no echo-write error return.
-                let _ = files.write(1, bytes);
+                let _ = files.write_characters(1, bytes);
             }
             // Handle reads echo to the console device, regardless of stdout redirection.
             Echo::Console => files.stdio.output(OutputStream::Stdout).extend(bytes),

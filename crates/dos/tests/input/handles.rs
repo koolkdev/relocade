@@ -156,6 +156,91 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
 }
 
 #[test]
+fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
+        let file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
+
+        for output in [b"!".as_slice(), b"".as_slice()] {
+            dos.stdin().write_all(b"\x1a\rRnext\r").unwrap();
+            assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 0);
+            assert_eq!(common::output(dos.stdout()), b"^Z\r\n");
+            let duplicate = success(&service(&mut dos, 0x4500, console, 0, 0));
+            for handle in [0, console, duplicate] {
+                assert_eq!(success(&service(&mut dos, 0x3f00, handle, 10, 0x400)), 0);
+                assert_eq!(success(&service(&mut dos, 0x4400, handle, 0, 0)), 0x8083);
+            }
+            // EOF applies to handle reads; raw character input remains available.
+            assert_eq!(
+                service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
+                0x0752
+            );
+            assert!(dos.load_com(&[], Default::default()).is_err());
+            assert_eq!(success(&service(&mut dos, 0x3f00, console, 10, 0x400)), 0);
+
+            // Character output through an alias leaves EOF set, unlike AH=40h.
+            success(&service(&mut dos, 0x4600, console, 1, 0));
+            dos.runtime()
+                .machine()
+                .memory()
+                .write(0x10420, b"message$")
+                .unwrap();
+            service(&mut dos, 0x0900, 0, 0, 0x420);
+            service(&mut dos, 0x0600, 0, 0, u16::from(b'!'));
+            assert_eq!(common::output(dos.stdout()), b"message!");
+            assert_eq!(success(&service(&mut dos, 0x3f00, console, 10, 0x400)), 0);
+
+            dos.runtime()
+                .machine()
+                .memory()
+                .write(0x10400, b"!")
+                .unwrap();
+            assert_eq!(success(&service(&mut dos, 0x4000, file, 1, 0x400)), 1);
+            assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 0);
+            // Closing/replacing a handle slot does not reset the shared open record.
+            success(&service(&mut dos, 0x3e00, 0, 0, 0));
+            success(&service(&mut dos, 0x4600, duplicate, 0, 0));
+            assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 0);
+
+            assert_eq!(
+                success(&service(
+                    &mut dos,
+                    0x4000,
+                    console,
+                    output.len() as u16,
+                    0x400
+                )),
+                output.len() as u16
+            );
+            assert_eq!(common::output(dos.stdout()), output);
+            for handle in [0, console, duplicate] {
+                assert_eq!(success(&service(&mut dos, 0x4400, handle, 0, 0)), 0x80c3);
+            }
+            assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 6);
+            let mut bytes = [0; 6];
+            dos.runtime()
+                .machine()
+                .memory()
+                .read(0x10400, &mut bytes)
+                .unwrap();
+            assert_eq!(&bytes, b"next\r\n"); // Repeated EOF reads left queued input intact.
+            assert_eq!(common::output(dos.stdout()), b"next\r\n");
+            success(&service(&mut dos, 0x3e00, duplicate, 0, 0));
+        }
+
+        dos.stdin().write_all(b"\x1a\r").unwrap();
+        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 0);
+        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        assert_eq!(success(&service(&mut dos, 0x4400, 0, 0, 0)), 0x80c3);
+        dos.stdin().write_all(b"new\r").unwrap();
+        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 5);
+        assert_eq!(common::output(dos.stdout()), b"new\r\n");
+    });
+}
+
+#[test]
 fn program_reload_clears_the_console_line_remainder() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
