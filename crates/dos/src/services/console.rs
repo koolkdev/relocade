@@ -7,6 +7,9 @@ use relocade_runtime::{
 use relocade_x86::{ExecutionExit, Segment};
 use std::ops::ControlFlow;
 
+mod line;
+use line::LineInput;
+
 /// AH=06h: DL=FFh polls stdin without echo; other values write a byte to stdout.
 pub(super) fn direct_io(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let byte = call.cpu().dl();
@@ -44,6 +47,48 @@ pub(super) fn read_character(call: &mut HostCall<'_, DosState>) -> ControlFlow<E
 
 fn return_character(call: &mut HostCall<'_, DosState>, byte: u8) -> ControlFlow<ExecutionExit> {
     call.cpu().set_al(byte);
+    return_from_interrupt(call)
+}
+
+/// AH=0Ah: edit a line into DS:DX's buffer, whose capacity includes the final CR.
+pub(super) fn read_buffered(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    let base = call.cpu().segment(Segment::Ds).base;
+    let offset = call.cpu().dx();
+    let mut capacity = [0];
+    call.memory()
+        .read(base + u32::from(offset), &mut capacity)
+        .expect("real-mode line buffer");
+    if capacity[0] == 0 {
+        return return_from_interrupt(call);
+    }
+    let mut line = LineInput::new(capacity[0]);
+    match line.read_available(&mut call.state_mut().files) {
+        Ok(true) => return_line(call, base, offset, &line.bytes),
+        Ok(false) => call.defer(async move |call| {
+            match line.read_remaining(&mut call.state_mut().files).await {
+                Ok(()) => return_line(call, base, offset, &line.bytes),
+                Err(error) => return_result(call, Err(error)),
+            }
+        }),
+        Err(error) => return_result(call, Err(error)),
+    }
+}
+
+fn return_line(
+    call: &mut HostCall<'_, DosState>,
+    base: u32,
+    offset: u16,
+    bytes: &[u8],
+) -> ControlFlow<ExecutionExit> {
+    let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
+    for (index, byte) in std::iter::once(&count).chain(bytes).enumerate() {
+        call.memory()
+            .write(
+                base + u32::from(offset.wrapping_add(1 + index as u16)),
+                &[*byte],
+            )
+            .expect("real-mode line buffer");
+    }
     return_from_interrupt(call)
 }
 

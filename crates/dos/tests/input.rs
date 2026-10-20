@@ -1,3 +1,5 @@
+#[path = "input/buffered.rs"]
+mod buffered;
 mod common;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
