@@ -110,7 +110,7 @@ impl Renderer {
             ));
         }
         let texture = self.texture.as_ref().expect("frame texture");
-        texture.upload(&self.queue, pixels);
+        texture.write_pixels(&self.queue, pixels);
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

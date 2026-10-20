@@ -48,7 +48,7 @@ impl FrameTexture {
         }
     }
 
-    pub(super) fn upload(&self, queue: &wgpu::Queue, pixels: &[u8]) {
+    pub(super) fn write_pixels(&self, queue: &wgpu::Queue, pixels: &[u8]) {
         queue.write_texture(
             self.texture.as_image_copy(),
             pixels,
