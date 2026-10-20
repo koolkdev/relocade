@@ -1,5 +1,5 @@
 use crate::{MachineConfig, MachineStorage};
-use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, StoredSegment};
 use std::fmt;
 
 /// Guest physical memory through the configured map, including A20 aliases.
@@ -53,6 +53,32 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
         Ok(())
     }
 
+    /// Reads a contiguous span through a real-mode segment cache.
+    /// Checks the entire span before copying; never wraps or truncates the offset.
+    /// Physical mappings, including A20, apply after segment translation.
+    pub fn read_segment(
+        &mut self,
+        segment: &StoredSegment,
+        offset: u32,
+        bytes: &mut [u8],
+    ) -> Result<(), MemoryError> {
+        let address = segment_address(segment, offset, bytes.len())?;
+        self.read(address, bytes)
+    }
+
+    /// Writes a contiguous span through a real-mode segment cache.
+    /// As with execution in real mode, the limit applies but protected-mode access
+    /// permissions do not: a CS-relative write is allowed.
+    pub fn write_segment(
+        &mut self,
+        segment: &StoredSegment,
+        offset: u32,
+        bytes: &[u8],
+    ) -> Result<(), MemoryError> {
+        let address = segment_address(segment, offset, bytes.len())?;
+        self.write(address, bytes)
+    }
+
     /// Configured backing capacity, excluding Wasm-page rounding.
     pub fn backing_size(&self) -> u64 {
         self.config.memory_size()
@@ -77,6 +103,16 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
     }
 }
 
+fn segment_address(segment: &StoredSegment, offset: u32, len: usize) -> Result<u32, MemoryError> {
+    if !range_fits(offset, len, u64::from(segment.limit) + 1) {
+        return Err(MemoryError::SegmentRange);
+    }
+    segment
+        .base
+        .checked_add(offset)
+        .ok_or(MemoryError::AddressRange)
+}
+
 fn page_span(address: u32, remaining: usize) -> usize {
     remaining
         .min((PhysicalMemoryMap::PAGE_BYTES - address % PhysicalMemoryMap::PAGE_BYTES) as usize)
@@ -92,6 +128,7 @@ fn range_fits(address: u32, len: usize, limit: u64) -> bool {
 pub enum MemoryError {
     AddressRange,
     BackingRange,
+    SegmentRange,
 }
 
 impl fmt::Display for MemoryError {
@@ -99,6 +136,7 @@ impl fmt::Display for MemoryError {
         f.write_str(match self {
             Self::AddressRange => "memory access exceeds the 32-bit guest address space",
             Self::BackingRange => "backing access exceeds memory_size",
+            Self::SegmentRange => "memory access exceeds the segment limit",
         })
     }
 }

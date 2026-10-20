@@ -209,7 +209,80 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
             .read_backing(if enabled { 0x2000 } else { 0 }, &mut byte)
             .unwrap();
         assert_eq!(byte, [0x5a]);
+        let ds = StoredSegment::real_mode(Segment::Ds, 0xffff);
+        memory.read_segment(&ds, 0x10, &mut byte).unwrap();
+        assert_eq!(byte, [0x5a]);
+        memory.write_segment(&ds, 0x10, &[0x42]).unwrap();
+        memory.read(0x100000, &mut byte).unwrap();
+        assert_eq!(byte, [0x42]);
     }
+}
+
+#[test]
+fn segment_transfers_check_the_whole_span_before_copying() {
+    let map = PhysicalMemoryMap::new([
+        (0xf000..=0xffff, PhysicalMapping::Ram { backing_offset: 0 }),
+        (
+            0x10000..=0x10fff,
+            PhysicalMapping::Ram {
+                backing_offset: 0x1000,
+            },
+        ),
+    ])
+    .unwrap();
+    let (config, mut storage) = configuration(map);
+    let mut machine = Machine::new(&config, &mut storage);
+    let mut memory = machine.memory();
+    let ds = StoredSegment::real_mode(Segment::Ds, 0);
+    memory.write(0xfffe, b"ABCD").unwrap();
+    for offset in [0xffff, 0x10000, u32::MAX] {
+        let mut bytes = [0x55; 2];
+        assert_eq!(
+            memory.read_segment(&ds, offset, &mut bytes),
+            Err(MemoryError::SegmentRange)
+        );
+        assert_eq!(bytes, [0x55; 2]);
+        assert_eq!(
+            memory.write_segment(&ds, offset, b"XY"),
+            Err(MemoryError::SegmentRange)
+        );
+    }
+    let mut bytes = [0; 4];
+    memory.read(0xfffe, &mut bytes).unwrap();
+    assert_eq!(&bytes, b"ABCD");
+    memory.read_segment(&ds, 0xffff, &mut bytes[..1]).unwrap();
+    assert_eq!(bytes[0], b'B');
+    memory.write_segment(&ds, 0xfffe, b"XY").unwrap();
+    memory.read(0xfffe, &mut bytes).unwrap();
+    assert_eq!(&bytes, b"XYCD");
+    memory.read_segment(&ds, 0xffff, &mut []).unwrap();
+    memory.write_segment(&ds, 0xffff, &[]).unwrap();
+}
+
+#[test]
+fn real_mode_segment_transfers_allow_cs_writes_and_preserve_rom_policy() {
+    let map = PhysicalMemoryMap::new([
+        (
+            0x12000..=0x12fff,
+            PhysicalMapping::Ram { backing_offset: 0 },
+        ),
+        (
+            0x13000..=0x13fff,
+            PhysicalMapping::Rom {
+                backing_offset: 0x1000,
+            },
+        ),
+    ])
+    .unwrap();
+    let (config, mut storage) = configuration(map);
+    let mut machine = Machine::new(&config, &mut storage);
+    let mut memory = machine.memory();
+    let cs = StoredSegment::real_mode(Segment::Cs, 0x1234);
+    memory.write_backing(0x1000, b"CD").unwrap();
+    memory.write_segment(&cs, 0xcbe, b"ABxy").unwrap();
+    let mut bytes = [0; 4];
+    memory.read_segment(&cs, 0xcbe, &mut bytes).unwrap();
+    assert_eq!(&bytes, b"ABCD"); // CS:0CBE translates to 12FFE, crossing into ROM.
 }
 
 #[test]
