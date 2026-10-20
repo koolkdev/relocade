@@ -58,51 +58,30 @@ impl TextScreen {
         memory
             .read(TEXT_MEMORY_START + u32::from(page) * PAGE_BYTES, &mut bytes)
             .expect("text memory");
-        let mut position = [0; 2];
-        memory
-            .read(CURSORS + u32::from(page) * 2, &mut position)
-            .expect("video cursor");
-        let mut shape = [0; 2];
-        memory
-            .read(CURSOR_SHAPE, &mut shape)
-            .expect("video cursor shape");
+        let [column, row] = cursor_position(memory, page).to_le_bytes();
+        let [end_scan_line, start_scan_line] = memory
+            .read_u16(CURSOR_SHAPE)
+            .expect("video cursor shape")
+            .to_le_bytes();
         Self {
             cells: std::array::from_fn(|index| TextCell {
                 character: bytes[index * 2],
                 attribute: bytes[index * 2 + 1],
             }),
             cursor: TextCursor {
-                row: position[1],
-                column: position[0],
-                start_scan_line: shape[1],
-                end_scan_line: shape[0],
+                row,
+                column,
+                start_scan_line,
+                end_scan_line,
             },
             page,
         }
     }
 }
 
-pub(super) fn read_byte(memory: &mut Memory<'_>, address: u32) -> u8 {
-    let mut byte = [0];
-    memory.read(address, &mut byte).expect("video BIOS data");
-    byte[0]
-}
-
-pub(super) fn read_word(memory: &mut Memory<'_>, address: u32) -> u16 {
-    let mut bytes = [0; 2];
-    memory.read(address, &mut bytes).expect("video BIOS data");
-    u16::from_le_bytes(bytes)
-}
-
-pub(super) fn write_word(memory: &mut Memory<'_>, address: u32, value: u16) {
-    memory
-        .write(address, &value.to_le_bytes())
-        .expect("video BIOS data");
-}
-
 pub(super) fn active_page(memory: &mut Memory<'_>) -> u8 {
     // The initial color text aperture has four pages.
-    read_byte(memory, ACTIVE_PAGE) & 3
+    memory.read_u8(ACTIVE_PAGE).expect("active video page") & 3
 }
 
 pub(super) fn valid_page(page: u8) -> bool {
@@ -111,17 +90,23 @@ pub(super) fn valid_page(page: u8) -> bool {
 
 pub(super) fn select_page(memory: &mut Memory<'_>, page: u8) {
     memory
-        .write(ACTIVE_PAGE, &[page])
+        .write_u8(ACTIVE_PAGE, page)
         .expect("active video page");
-    write_word(memory, PAGE_OFFSET, u16::from(page) * PAGE_BYTES as u16);
+    memory
+        .write_u16(PAGE_OFFSET, u16::from(page) * PAGE_BYTES as u16)
+        .expect("video page offset");
 }
 
 pub(super) fn cursor_position(memory: &mut Memory<'_>, page: u8) -> u16 {
-    read_word(memory, CURSORS + u32::from(page) * 2)
+    memory
+        .read_u16(CURSORS + u32::from(page) * 2)
+        .expect("video cursor")
 }
 
 pub(super) fn set_cursor_position(memory: &mut Memory<'_>, page: u8, position: u16) {
-    write_word(memory, CURSORS + u32::from(page) * 2, position);
+    memory
+        .write_u16(CURSORS + u32::from(page) * 2, position)
+        .expect("video cursor");
 }
 
 fn cell_address(page: u8, row: u8, column: u8) -> u32 {
@@ -235,7 +220,7 @@ pub(super) fn teletype(memory: &mut Memory<'_>, page: u8, character: u8) {
         b'\n' => row += 1,
         _ => {
             memory
-                .write(cell_address(page, row, column), &[character])
+                .write_u8(cell_address(page, row, column), character)
                 .expect("text character");
             column += 1;
             if usize::from(column) == TextScreen::COLUMNS {
@@ -268,25 +253,21 @@ pub(super) fn teletype(memory: &mut Memory<'_>, page: u8, character: u8) {
 }
 
 pub(super) fn initialize(memory: &mut Memory<'_>) {
-    memory.write(MODE, &[3]).expect("video mode");
+    memory.write_u8(MODE, 3).expect("video mode");
     memory
-        .write(COLUMNS, &(TextScreen::COLUMNS as u16).to_le_bytes())
+        .write_u16(COLUMNS, TextScreen::COLUMNS as u16)
         .expect("video columns");
     memory
-        .write(PAGE_SIZE, &(PAGE_BYTES as u16).to_le_bytes())
+        .write_u16(PAGE_SIZE, PAGE_BYTES as u16)
         .expect("video page size");
-    memory
-        .write(PAGE_OFFSET, &[0; 2])
-        .expect("video page offset");
+    memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
     memory.write(CURSORS, &[0; 16]).expect("video cursors");
     memory
-        .write(CURSOR_SHAPE, &[7, 6])
+        .write_u16(CURSOR_SHAPE, 0x0607)
         .expect("video cursor shape");
-    memory.write(ACTIVE_PAGE, &[0]).expect("video active page");
+    memory.write_u8(ACTIVE_PAGE, 0).expect("video active page");
     // BIOS data: color CRTC port, last text row and character height.
-    memory
-        .write(CRTC_PORT, &0x3d4u16.to_le_bytes())
-        .expect("CRTC port");
+    memory.write_u16(CRTC_PORT, 0x3d4).expect("CRTC port");
     let [height_lo, height_hi] = CHARACTER_HEIGHT.to_le_bytes();
     memory
         .write(

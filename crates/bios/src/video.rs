@@ -21,11 +21,17 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionE
             screen::initialize(&mut call.memory());
             call.cpu().set_al(0x30); // BIOS mode-set return for color text modes.
         }
-        0x01 => screen::write_word(&mut call.memory(), screen::CURSOR_SHAPE, cx),
+        0x01 => call
+            .memory()
+            .write_u16(screen::CURSOR_SHAPE, cx)
+            .expect("video cursor shape"),
         0x02 => screen::set_cursor_position(&mut call.memory(), page, dx),
         0x03 => {
             let position = screen::cursor_position(&mut call.memory(), page);
-            let shape = screen::read_word(&mut call.memory(), screen::CURSOR_SHAPE);
+            let shape = call
+                .memory()
+                .read_u16(screen::CURSOR_SHAPE)
+                .expect("video cursor shape");
             call.cpu().set_dx(position);
             call.cpu().set_cx(shape);
         }
@@ -71,8 +77,8 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionE
         }
         0x0f => {
             let mut memory = call.memory();
-            let mode = screen::read_byte(&mut memory, screen::MODE);
-            let columns = screen::read_word(&mut memory, screen::COLUMNS) as u8;
+            let mode = memory.read_u8(screen::MODE).expect("video mode");
+            let columns = memory.read_u16(screen::COLUMNS).expect("video columns") as u8;
             let active = screen::active_page(&mut memory);
             call.cpu().set_ax(u16::from_le_bytes([mode, columns]));
             call.cpu().set_bh(active);
