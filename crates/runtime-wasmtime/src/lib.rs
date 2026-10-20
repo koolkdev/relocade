@@ -37,6 +37,7 @@ use wasmtime::{
 mod compilation;
 mod host;
 mod memory;
+mod worker;
 pub use host::Context;
 pub use memory::{Memory, SharedMemory};
 
@@ -91,6 +92,14 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
 
     fn module_cache(&self) -> Option<&ModuleCache<Module>> {
         Some(&self.compilation.modules)
+    }
+
+    fn create_compiler(
+        &self,
+    ) -> Result<Option<Box<dyn relocade_runtime::compilation::BackgroundCompiler<Module>>>> {
+        Ok(Some(Box::new(worker::CompilerWorker::new(
+            self.compilation.engine().clone(),
+        )?)))
     }
 
     fn create_memory(&mut self, declaration: abi::Memory) -> Result<Memory> {

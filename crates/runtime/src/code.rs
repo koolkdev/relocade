@@ -3,6 +3,8 @@
 mod cache;
 mod capture;
 mod compile;
+#[cfg(feature = "compiler-wire")]
+mod wire;
 use crate::{DispatchEntry, Result, Runtime, RuntimeBackend, RuntimeState};
 pub(crate) use cache::CodeCache;
 use cache::{CodeState, Group};
@@ -16,6 +18,10 @@ use std::{
 
 /// One CS-relative entry to capture from the stopped guest.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(
+    feature = "compiler-wire",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct BlockRequest {
     pub start_eip: u32,
     pub instruction_limit: u32,

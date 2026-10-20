@@ -7,6 +7,7 @@ use crate::{CpuModel, Segment, SegmentDefaultSize, SegmentProfile, SegmentRegist
 /// Use the complete value in cache and direct-link keys. Blocks and their fallback
 /// interpreters must agree on this target, including disabled capabilities.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExecutionTarget {
     pub profile: ExecutionProfile,
     pub cpu_model: CpuModel,
@@ -30,6 +31,7 @@ impl ExecutionTarget {
 /// The runtime owns compatibility across segment changes, including any profile
 /// transition. Dispatch and interpreter entry rely on the runtime maintaining it.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ExecutionProfile {
     /// Protected mode at CPL3 under the selected segment assumptions, with
     /// timestamp reads enabled (CR4.TSD=0).

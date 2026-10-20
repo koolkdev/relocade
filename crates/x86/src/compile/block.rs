@@ -19,6 +19,7 @@ pub struct BlockSnapshot<'a> {
 
 /// One exported block and the instruction bytes on which it depends.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BlockEntry {
     /// CS-relative EIP required when entering this export.
     pub start_eip: u32,
@@ -34,6 +35,7 @@ pub struct BlockEntry {
 
 /// Snapshot blocks sharing one Wasm module, its imports and generated helpers.
 /// Entry metadata follows the supplied snapshot order.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompiledBlocks {
     pub bytes: Vec<u8>,
     pub entries: Vec<BlockEntry>,

@@ -1318,16 +1318,19 @@ name = "relocade-runtime"
 version = "0.0.0"
 dependencies = [
  "futures-util",
+ "postcard",
  "relocade-compiler",
  "relocade-interpreter",
  "relocade-machine",
  "relocade-x86",
+ "serde",
 ]
 
 [[package]]
 name = "relocade-runtime-wasmtime"
 version = "0.0.0"
 dependencies = [
+ "futures-channel",
  "pollster",
  "relocade-compiler",
  "relocade-machine",
@@ -1371,6 +1374,7 @@ dependencies = [
  "relocade-compiler",
  "relocade-interpreter",
  "relocade-test-support",
+ "serde",
  "wasmparser 0.224.1",
  "wasmtime",
 ]

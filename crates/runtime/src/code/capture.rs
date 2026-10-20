@@ -13,6 +13,17 @@ pub struct CodeSnapshot {
 }
 
 impl CodeSnapshot {
+    pub(crate) fn entry(&self) -> relocade_x86::HotEntry {
+        relocade_x86::HotEntry {
+            code_base: self.input.base,
+            start_eip: self.input.requests[0].start_eip,
+        }
+    }
+
+    pub(crate) fn belongs_to(&self, owner: &Arc<Mutex<CodeState>>) -> bool {
+        self.owner.ptr_eq(&Arc::downgrade(owner))
+    }
+
     /// Discovers and lowers blocks using only the captured bytes.
     pub fn compile(self) -> Result<Option<PreparedGroup>> {
         Ok(self.input.compile()?.map(|code| PreparedGroup {

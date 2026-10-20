@@ -8,6 +8,7 @@ use super::{Segment, SegmentDefaultSize};
 /// Used by [`crate::ExecutionProfile::Protected`]; 16-bit code defaults do not
 /// select real mode. Entry validity and invalidation follow [`crate::ExecutionProfile`].
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SegmentProfile {
     /// Flat readable code CS, writable expand-up DS/ES/SS, 32-bit CS defaults and
     /// a 32-bit stack pointer. FS and GS have no assumptions in this profile;

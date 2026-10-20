@@ -56,6 +56,7 @@
 mod backend;
 mod callback;
 mod code;
+pub mod compilation;
 mod dispatch;
 mod error;
 mod execution;
@@ -95,6 +96,7 @@ pub struct Runtime<B: RuntimeBackend> {
     interpret: B::Function,
     mapping: B::Memory,
     hotness: B::Memory,
+    compilation: compilation::CompilationQueue<B::Module>,
     dispatch_table: DispatchTable<B>,
     host_imports: Vec<Import<'static, B>>,
     host_call_incomplete: bool,
@@ -105,6 +107,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// The runtime retains the backend and its live storage for subsequent calls.
     /// Port and MMIO reads currently return all ones; their writes are ignored.
     pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self> {
+        let compilation = compilation::CompilationQueue::new(backend.create_compiler()?);
         let target = config.execution_target();
         let compiler = Compiler::new(target.profile)
             .with_cpu_model(target.cpu_model)
@@ -188,6 +191,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             interpret,
             mapping,
             hotness,
+            compilation,
             dispatch_table,
             host_imports,
             host_call_incomplete: false,

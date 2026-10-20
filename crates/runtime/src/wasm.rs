@@ -73,7 +73,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     where
         Self: 'a;
     /// Cloning a module shares compiled code without creating a guest instance.
-    type Module: Clone;
+    type Module: Clone + 'static;
     type Instance;
     type Table: 'static;
     /// An exported function with signature `() -> i64`.
@@ -93,6 +93,14 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
 
     /// Compiles Wasm bytes into code that can be instantiated with private imports.
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
+
+    /// Optional background compiler sharing this backend's engine compatibility.
+    /// It must not retain or borrow the live store, guest memory or host state.
+    fn create_compiler(
+        &self,
+    ) -> Result<Option<Box<dyn crate::compilation::BackgroundCompiler<Self::Module>>>> {
+        Ok(None)
+    }
 
     /// Optional storage for modules that callers choose to retain.
     /// Share it only between backends that can instantiate each other's modules.
