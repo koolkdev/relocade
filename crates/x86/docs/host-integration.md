@@ -355,13 +355,13 @@ have a maximum no larger than that and enough initial capacity for all backing.
 | `executionEntries` | 1 | Execution-address table. |
 
 Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
-`resolveSegment` and `querySegmentDescriptor`. Real16 interpreters import
+`resolveSegment`, `completeSegmentLoad` and `querySegmentDescriptor`. Real16 interpreters import
 `executionContext`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
 callbacks. They use generated RAM/ROM accesses and do not call descriptor callbacks. The physical
 memory contract below describes routing and callback widths.
 Snapshot modules omit imports they do not use: protected-mode memory instructions
 require guest backing and the page table, protected-mode segment loads require
-`resolveSegment`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
+`resolveSegment` and `completeSegmentLoad`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
 Callable dispatch imports `executionEntries` and the `executionFunctions`
@@ -919,76 +919,85 @@ RET's two-slot capacity follows the corrected [Volume 2 RET entry](https://cdrdv
 
 ## Segment resolver
 
-Protected-mode segment loads call `relocade.resolveSegment(segment: i32, selector: i32)`, returning
-eleven Wasm i32 results: `(status, error_code, base, limit, selector, usable,
-readable, writable, executable, expand_down, big)`.
+`Descriptor` preserves an eight-byte legacy descriptor. The existing
+`SegmentDescriptor` builder and `DescriptorTables` load/query paths share this
+packed decoder. Typed code/data construction sets A=1 and L=0; raw descriptors
+retain their system types and flag bits. The host supplies stable descriptor
+storage separate from guest addresses for the callbacks below.
+
+Protected-mode segment loads call
+`relocade.resolveSegment(segment: i32, selector: i32)`, returning twelve Wasm i32
+results: `(status, error_code, base, limit, selector, usable, readable, writable,
+executable, expand_down, big, needs_completion)`.
 Segment indices are ES=0, CS=1, SS=2, DS=3, FS=4 and GS=5. Selector inputs and
-selector outputs use zero-extended 16-bit values. The six property results are
-booleans, represented by 0 or 1.
+outputs use zero-extended 16-bit values. The six cache properties and
+`needs_completion` are booleans, 0 or 1.
 
 Status zero supplies a complete normalized `SegmentRegister`. Failure statuses are
 architectural vectors 11 (#NP), 12 (#SS) or 13 (#GP); only their error code is used.
 Unknown statuses or invalid success records violate the host contract. Wasm owns
 the instruction's remaining checks, cache commitment, retirement and fault exit.
-In particular, resolving CS does not validate a transfer's target offset.
+Resolving CS does not validate a transfer's target offset. Gates and privilege
+transitions cannot be loaded through this resolver.
 
-Protected-mode RETF and IRET require a return selector with RPL 3 before resolving CS. IRET
-checks all three slots and reads their values before resolving the selector.
-It commits CS, EIP, flags and the stack pointer only after all checks succeed.
-An entry NT flag of one requests an unsupported task return before ordinary stack
-access. Restoring NT from the frame affects a later IRET, not the current return.
+When `needs_completion` is one, generated code calls
+`relocade.completeSegmentLoad(selector: i32) -> ()` with the resolved cache's
+selector after the instruction's remaining checks succeed and before installing
+the cache. The descriptor owner locates the selector's slot and sets A without
+faulting. No storage address crosses the Wasm boundary. Null selectors and
+descriptors with A already set need no callback. Failed loads or transfer checks
+leave A and loaded caches unchanged. The dedicated storage cannot alias guest
+stack/data writes or generate a guest page fault.
 
-The callback resolves the current thread's descriptor view, for example through
-`DescriptorTables::resolve_user_segment`. It must not inspect or mutate CPU state,
-guest RAM or page tables, or reenter guest execution. Descriptor-table edits affect
-future loads and leave already-loaded CPU caches unchanged.
+Protected-mode RETF and IRET require a return selector with RPL 3 before resolving
+CS. IRET checks all three slots and reads their values before resolving the
+selector. It commits CS, EIP, flags and the stack pointer only after all checks
+succeed. An entry NT flag of one requests an unsupported task return before
+ordinary stack access. Restoring NT from the frame affects a later IRET.
 
-`DescriptorTables` provides host-managed global/local slots keyed by selector table
-and index bits, ignoring RPL for lookup. Resolution applies protected-mode CPL3
-load rules; it neither allocates Windows selectors nor models guest GDTR/LDTR,
-packed descriptor memory or descriptor accessed-bit writes. All represented
-descriptors have A=1 and L=0. `SegmentLimit` keeps the encoded 20-bit limit and
-granularity together; loaded caches still use an effective byte limit. See the
-type's API documentation for load validation and descriptor construction.
+Descriptor callbacks read only current GDTR/LDTR and descriptor bytes. They do
+not require publication of other CPU fields, and must not inspect those fields,
+mutate guest RAM/page mappings or reenter execution. Resolution is pure; only
+`completeSegmentLoad` changes table bytes. GDTR, LDTR and descriptor contents
+must stay unchanged between resolution and completion. Host edits occur while
+execution is stopped. Descriptor edits affect future loads and queries while
+loaded caches retain their prior contents.
 
 ## Descriptor queries
 
 LAR/LSL/VERR/VERW call `relocade.querySegmentDescriptor(selector: i32)` after reading
-their 16-bit selector operand. The input is zero-extended. The callback returns
-five Wasm i32 results in this order: `(visible, readable, writable, accessRights,
-limit)`. The first three results are booleans represented as 0 or 1. The results
-describe code/data descriptors at CPL3:
+their zero-extended 16-bit selector operand. The callback returns six Wasm i32
+results: `(lar_valid, lsl_valid, readable, writable, accessRights, limit)`.
+The first four are booleans represented as 0 or 1:
 
 | Result | Meaning |
 | --- | --- |
-| `visible` | Visible; LAR and LSL use this as ZF. |
-| `readable` | Readable; VERR uses this as ZF. |
-| `writable` | Writable; VERW uses this as ZF. |
-| `accessRights` | LAR's 32-bit result, with the bit positions specified below. |
-| `limit` | Inclusive effective byte limit, with page granularity already expanded. |
+| `lar_valid` | LAR eligibility; LAR uses this as ZF. |
+| `lsl_valid` | LSL eligibility; LSL uses this as ZF. |
+| `readable` | Code/data read permission; VERR uses this as ZF. |
+| `writable` | Data write permission; VERW uses this as ZF. |
+| `accessRights` | LAR's result in upper-descriptor bit positions. |
+| `limit` | Inclusive effective byte limit, with page granularity expanded. |
 
-`accessRights` uses bit positions within the descriptor's upper 32 bits: type 11:8,
-S 12, DPL 14:13, P 15, AVL 20, L 21, D/B 22 and G 23. All remaining bits are zero
-in this model, including the architecturally undefined bits 19:16.
+`accessRights` retains type 11:8, S 12, DPL 14:13, P 15, AVL 20, L 21, D/B 22 and
+G 23. Other bits, including architecturally undefined bits 19:16, are zero.
+Code/data entries are eligible for both LAR and LSL. At CPL3, eligible system types
+are 16/32-bit available/busy TSS and LDT for both, plus 16/32-bit call gates and
+task gates for LAR only. System entries have neither VERR nor VERW permission.
 
-Null, missing and privilege-inaccessible descriptors return all zeros. Presence
-affects the reported P bit, not visibility or read/write permission. Execute-only
-code can be visible without either permission; code is
-never writable. LAR/LSL preserve the destination on failure and truncate successful
-results to the operand width. All four instructions change only ZF among flags.
+Null, out-of-bounds and privilege-inaccessible selectors return all zeros.
+Presence affects P, not query eligibility or read/write permission. Conforming
+code bypasses the ordinary DPL visibility check; execute-only code can be eligible
+without either permission, and code is never writable. LAR/LSL preserve the
+destination on failure and truncate successful results to operand width. All four
+instructions change only ZF among flags.
 
-The represented environment contains only code/data entries, which share LAR/LSL
-eligibility. System descriptors and gates are outside this contract. In particular,
-a future gate model needs separate LAR/LSL eligibility. A=1 and L=0 match the host
-descriptor invariants; undefined LAR bits 19:16 are chosen as zero.
-
-The callback queries the current thread's descriptor table, for example through
-`DescriptorTables::query_user_segment_descriptor`, which returns a
-`SegmentDescriptorInfo` with named booleans and values. It must not inspect or
-mutate CPU state, guest RAM or page tables, or reenter guest execution. It does not
-load a segment or fault for a rejected selector. Table edits affect the next query
-while loaded caches remain unchanged. Guest operand reads can still fault before
-the callback runs.
+Queries use the same descriptor view as loads.
+The callback returns `SegmentDescriptorInfo` values without loading a segment,
+setting A, or faulting for a rejected selector. Guest operand reads can still
+fault before the callback runs. The `DescriptorTables` builder offers the same
+query rules for its code/data construction entries through the common packed
+`Descriptor` decoder.
 
 ## Fault and host exits
 

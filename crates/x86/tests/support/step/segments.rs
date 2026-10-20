@@ -5,7 +5,7 @@ use relocade_x86::{DescriptorTables, Exception, Segment};
 #[derive(Clone)]
 pub(crate) struct SegmentQuery {
     pub(crate) selector: u16,
-    pub(crate) values: [u32; 5],
+    pub(crate) values: [u32; 6],
 }
 
 impl SegmentQuery {
@@ -14,7 +14,8 @@ impl SegmentQuery {
         Self {
             selector,
             values: [
-                u32::from(descriptor_info.visible),
+                u32::from(descriptor_info.lar_valid),
+                u32::from(descriptor_info.lsl_valid),
                 u32::from(descriptor_info.readable),
                 u32::from(descriptor_info.writable),
                 descriptor_info.access_rights,
@@ -28,7 +29,7 @@ impl SegmentQuery {
 pub(crate) struct SegmentResolution {
     pub(crate) segment: u32,
     pub(crate) selector: u16,
-    pub(crate) values: [u32; 11],
+    pub(crate) values: [u32; 12],
 }
 
 impl SegmentResolution {
@@ -46,6 +47,7 @@ impl SegmentResolution {
                 u32::from(cache.executable),
                 u32::from(cache.expand_down),
                 u32::from(cache.big),
+                0,
             ],
             Err(exception) => {
                 let error_code = match exception {
@@ -57,6 +59,7 @@ impl SegmentResolution {
                 [
                     exception.vector() as u32,
                     error_code,
+                    0,
                     0,
                     0,
                     0,

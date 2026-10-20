@@ -113,10 +113,10 @@ where
 {
     let selector = source.read(execution)?;
     let descriptor_info = execution.query_segment_descriptor(&selector)?;
-    execution.write_flag(Flag::ZF, descriptor_info.visible.clone())?;
+    execution.write_flag(Flag::ZF, descriptor_info.lar_valid.clone())?;
     destination.update(execution, |_, previous| {
         Ok(descriptor_info
-            .visible
+            .lar_valid
             .select(descriptor_info.access_rights.truncate::<T>(), previous))
     })
 }
@@ -131,10 +131,10 @@ where
 {
     let selector = source.read(execution)?;
     let descriptor_info = execution.query_segment_descriptor(&selector)?;
-    execution.write_flag(Flag::ZF, descriptor_info.visible.clone())?;
+    execution.write_flag(Flag::ZF, descriptor_info.lsl_valid.clone())?;
     destination.update(execution, |_, previous| {
         Ok(descriptor_info
-            .visible
+            .lsl_valid
             .select(descriptor_info.limit.truncate::<T>(), previous))
     })
 }

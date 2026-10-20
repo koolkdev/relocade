@@ -2,7 +2,7 @@
 
 use crate::{Exception, SegmentRegister};
 
-use super::{Segment, SegmentDescriptor, SegmentDescriptorInfo};
+use super::{Descriptor, Segment, SegmentDescriptor, SegmentDescriptorInfo};
 
 /// Host-managed global and local descriptor slots, addressed by x86 selectors.
 /// Bits 15:3 select an entry, bit 2 selects the local table, and bits 1:0 are
@@ -63,6 +63,25 @@ impl DescriptorTables {
         self.tables[table].get_mut(index).and_then(Option::take)
     }
 
+    /// Packs both tables, retaining empty slots as zero descriptors. Each table
+    /// has at least one slot, so its architectural limit is representable.
+    pub fn to_packed_tables(&self) -> [Vec<u8>; 2] {
+        std::array::from_fn(|table| {
+            let entries = &self.tables[table];
+            (0..entries.len().max(1))
+                .flat_map(|index| {
+                    entries
+                        .get(index)
+                        .copied()
+                        .flatten()
+                        .map(Descriptor::from)
+                        .unwrap_or_default()
+                        .to_bytes()
+                })
+                .collect()
+        })
+    }
+
     /// Queries the current table for LAR/LSL and VERR/VERW at CPL=3. Null selectors,
     /// missing slots and privilege-inaccessible descriptors are not visible.
     /// Presence affects the reported rights, not visibility or read/write permission.
@@ -101,17 +120,11 @@ impl DescriptorTables {
         destination: Segment,
         selector: u16,
     ) -> Result<SegmentRegister, Exception> {
-        if selector & !3 == 0 {
-            return match destination {
-                Segment::Ss | Segment::Cs => Err(Exception::GeneralProtection { error_code: 0 }),
-                _ => Ok(SegmentRegister::unusable(selector)),
-            };
-        }
         self.get(selector)
-            .ok_or(Exception::GeneralProtection {
-                error_code: u32::from(selector & !3),
-            })?
-            .resolve_user(destination, selector)
+            .copied()
+            .map(Descriptor::from)
+            .unwrap_or_default()
+            .resolve_user_segment(destination, selector)
     }
 }
 

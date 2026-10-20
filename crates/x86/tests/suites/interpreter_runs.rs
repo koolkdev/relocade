@@ -215,6 +215,7 @@ fn terminal_segment_load(module: &TestModule) {
             u32::from(ds.executable),
             u32::from(ds.expand_down),
             u32::from(ds.big),
+            0, // This fixture requires no accessed-bit update.
         ],
     });
     let mut cpu = image.cpu;
