@@ -67,6 +67,30 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
         Ok(())
     }
 
+    /// Reads one byte through the guest memory map.
+    pub fn read_u8(&mut self, address: u32) -> Result<u8, MemoryError> {
+        let mut bytes = [0];
+        self.read(address, &mut bytes)?;
+        Ok(bytes[0])
+    }
+
+    /// Reads a little-endian word through the guest memory map.
+    pub fn read_u16(&mut self, address: u32) -> Result<u16, MemoryError> {
+        let mut bytes = [0; 2];
+        self.read(address, &mut bytes)?;
+        Ok(u16::from_le_bytes(bytes))
+    }
+
+    /// Writes one byte with the same guest access policy as [`Self::write`].
+    pub fn write_u8(&mut self, address: u32, value: u8) -> Result<(), MemoryError> {
+        self.write(address, &[value])
+    }
+
+    /// Writes a little-endian word with the same guest access policy as [`Self::write`].
+    pub fn write_u16(&mut self, address: u32, value: u16) -> Result<(), MemoryError> {
+        self.write(address, &value.to_le_bytes())
+    }
+
     /// Reads a complete span through a loaded segment cache, then the active map.
     /// Protected mode enforces usability, readability and expand-down bounds.
     /// Host slices never wrap or truncate their segment offset or linear span.

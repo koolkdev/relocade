@@ -1,8 +1,7 @@
 //! DOS open handles, shared cursors and I/O.
 
 use super::{
-    devices::OpenDevice, AccessMode, CharacterOutput, Device, Files, ARCHIVE_ATTRIBUTE,
-    COMPATIBILITY_SHARING,
+    devices::OpenDevice, AccessMode, Device, Files, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING,
 };
 use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
 use relocade_vfs::File;
@@ -113,6 +112,17 @@ impl Files {
         self.handle_type(handle)
     }
 
+    pub(crate) fn writable_handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
+        let writable = match self.handle(handle)? {
+            OpenHandle::File(file) => file.borrow().access.can_write(),
+            OpenHandle::Device(device) => device.access.can_write(),
+        };
+        if !writable {
+            return Err(DosError::AccessDenied);
+        }
+        self.handle_type(handle)
+    }
+
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
         if let OpenHandle::Device(device) = self.handle(handle)? {
             if !device.access.can_read() || !matches!(device.kind, Device::Null) {
@@ -141,30 +151,12 @@ impl Files {
 
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
         if let OpenHandle::Device(device) = self.handle(handle)? {
-            if !device.access.can_write() {
+            if !device.access.can_write() || !matches!(device.kind, Device::Null) {
                 return Err(DosError::AccessDenied);
             }
             // Even a zero-byte handle write clears EOF on this record and its duplicates.
             device.set_eof(false);
-            let stream = match device.kind {
-                Device::Console(stream) => stream,
-                Device::Null => return Ok(bytes.len()),
-                Device::Auxiliary | Device::Printer => return Err(DosError::AccessDenied),
-            };
-            if device.raw() {
-                self.stdio.output(stream).extend(bytes);
-                return Ok(bytes.len());
-            }
-            // Cooked console writes stop before Ctrl-Z and count source bytes,
-            // including tabs expanded by the shared character-output path.
-            let count = bytes
-                .iter()
-                .position(|&byte| byte == 0x1a)
-                .unwrap_or(bytes.len());
-            for &byte in &bytes[..count] {
-                self.write_cooked_character(CharacterOutput::Console(stream), byte);
-            }
-            return Ok(count);
+            return Ok(bytes.len());
         }
         let mut open = self.file_mut(handle)?;
         if !open.access.can_write() {

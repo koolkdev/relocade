@@ -19,6 +19,12 @@ pub struct DosState {
     pub(crate) exit_status: Option<Result<u8, ServiceError>>,
 }
 
+impl AsRef<relocade_bios::Keyboard> for DosState {
+    fn as_ref(&self) -> &relocade_bios::Keyboard {
+        &self.files.stdio.input
+    }
+}
+
 impl DosState {
     pub(crate) fn reset_process(&mut self, psp_segment: u16) {
         self.files.reset_handles();
@@ -36,6 +42,13 @@ pub(crate) fn configuration() -> MachineConfig {
         (
             0..=CONVENTIONAL_RAM_SIZE - 1,
             PhysicalMapping::Ram { backing_offset: 0 },
+        ),
+        (
+            relocade_bios::TEXT_MEMORY_START
+                ..=relocade_bios::TEXT_MEMORY_START + relocade_bios::TEXT_MEMORY_BYTES - 1,
+            PhysicalMapping::Ram {
+                backing_offset: relocade_bios::TEXT_MEMORY_START,
+            },
         ),
         (
             kernel_rom_start..=MEMORY_SIZE - 1,

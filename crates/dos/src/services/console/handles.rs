@@ -1,9 +1,11 @@
 //! Console handle reads, including cooked lines and raw byte transfers.
 
-use super::line::LineInput;
+use super::{
+    line::LineInput,
+    output::{write_console, CharacterOutput},
+};
 use crate::{
-    files::CharacterOutput, interrupt::return_result, services::buffers::transfer_count,
-    stdio::OutputStream, DosState,
+    interrupt::return_result, services::buffers::transfer_count, stdio::OutputStream, DosState,
 };
 use relocade_runtime::HostCall;
 use relocade_x86::{ExecutionExit, Segment};
@@ -33,13 +35,11 @@ pub(in crate::services) fn read_handle(
         handle,
         CharacterOutput::Console(stream),
     );
-    match line.read_available(&mut call.state_mut().files) {
+    match line.read_available(call) {
         Ok(true) => return_handle_line(call, line.bytes, stream),
-        Ok(false) => call.defer(async move |call| {
-            match line.read_remaining(&mut call.state_mut().files).await {
-                Ok(()) => return_handle_line(call, line.bytes, stream),
-                Err(error) => return_result(call, Err(error)),
-            }
+        Ok(false) => call.defer(async move |call| match line.read_remaining(call).await {
+            Ok(()) => return_handle_line(call, line.bytes, stream),
+            Err(error) => return_result(call, Err(error)),
         }),
         Err(error) => return_result(call, Err(error)),
     }
@@ -53,12 +53,11 @@ fn return_handle_line(
     let handle = call.cpu().bx();
     let eof = bytes.first() == Some(&0x1a);
     call.state().files.set_console_eof(handle, eof);
-    let stdio = &mut call.state_mut().files.stdio;
-    stdio.output(stream).extend(b"\n");
+    write_console(call, stream, b"\n");
     // Ctrl-Z at the start of a console line reports EOF.
     if !eof {
         bytes.push(b'\n');
-        stdio.console_line.extend(bytes);
+        call.state_mut().files.stdio.console_line.extend(bytes);
     }
     return_handle_buffer(call)
 }
@@ -78,7 +77,7 @@ fn read_raw(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let input = call.state().files.stdio.input.clone();
     let mut bytes = Vec::with_capacity(count);
     while bytes.len() < count {
-        match input.try_read() {
+        match input.try_read_character() {
             Some(byte) => bytes.push(byte),
             None => {
                 return call.defer(async move |call| {

@@ -144,6 +144,13 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     let mut bytes = [0; 4];
     memory.read(0xffe, &mut bytes).unwrap();
     assert_eq!(bytes, [1, 2, 0xaa, 0xbb]);
+    // Scalar accesses use little-endian order across the same RAM/ROM boundary.
+    assert_eq!(memory.read_u16(0xfff).unwrap(), 0xaa02);
+    memory.write_u16(0xfff, 0x7856).unwrap();
+    assert_eq!(memory.read_u8(0xfff).unwrap(), 0x56);
+    assert_eq!(memory.read_u16(0xfff).unwrap(), 0xaa56);
+    memory.write_u8(0x1000, 0x99).unwrap();
+    assert_eq!(memory.read_u8(0x1000).unwrap(), 0xaa);
     memory.write_backing(0xffe, &[0xcc, 0xdd]).unwrap();
     memory.read(0x1ffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0xcc, 0xdd, 0xff, 0xff]);
@@ -275,6 +282,11 @@ fn invalid_spans_fail_before_any_transfer() {
     assert_eq!(bytes, [0x55; 2]);
     assert_eq!(
         memory.write(u32::MAX, &[1, 2]),
+        Err(MemoryError::AddressRange)
+    );
+    assert_eq!(memory.read_u16(u32::MAX), Err(MemoryError::AddressRange));
+    assert_eq!(
+        memory.write_u16(u32::MAX, 0x1234),
         Err(MemoryError::AddressRange)
     );
     memory.read(u32::MAX, &mut byte).unwrap();

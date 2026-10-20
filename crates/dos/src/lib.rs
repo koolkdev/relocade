@@ -9,7 +9,8 @@
 //! until the embedding updates them.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
-//! including a COM program's initial near RET. Output is buffered as guest bytes.
+//! including a COM program's initial near RET. CON output is buffered as guest
+//! bytes and also updates the BIOS text screen, including input echo.
 //! AH=06h polls stdin without echo or writes one byte to stdout.
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
@@ -40,6 +41,8 @@
 //! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
 //! [`Dos::stdout`] and [`Dos::stderr`] using `std::io` traits. Owned stream handles
 //! remain usable while an asynchronous run waits for input.
+//! [`Dos::keyboard`] also accepts translated keystrokes and modifier state.
+//! BIOS INT 16h/AH=00h/01h/02h consumes, peeks and queries that same keyboard.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
 //! [`Dos::mount`] supplies a filesystem at a drive letter; C: starts empty.
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
@@ -219,6 +222,29 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// ```
     pub fn stdin(&self) -> impl std::io::Write + Clone + 'static {
         self.runtime.state().files.stdio.input.clone()
+    }
+
+    /// Returns the input queue shared by BIOS INT 16h and DOS console reads.
+    /// Host adapters supply translated characters, BIOS scan codes and shift state.
+    /// The handle can be retained while `run_async` awaits keyboard input.
+    ///
+    /// ```no_run
+    /// # fn example<B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosState>>>(dos: &relocade_dos::Dos<B>) {
+    /// dos.keyboard().push(relocade_bios::KeyStroke {
+    ///     character: b'a',
+    ///     scan_code: 0x1e,
+    /// });
+    /// # }
+    /// ```
+    pub fn keyboard(&self) -> relocade_bios::Keyboard {
+        self.runtime.state().as_ref().clone()
+    }
+
+    /// Copies the active 80-by-25 color text page and its cursor for a renderer.
+    /// DOS CON output, BIOS video services and direct guest writes all update
+    /// this memory. File redirection does not write to the screen.
+    pub fn screen(&mut self) -> relocade_bios::TextScreen {
+        relocade_bios::TextScreen::read(&mut self.runtime.machine().memory())
     }
 
     /// Returns an owned reader that drains currently buffered standard output.
