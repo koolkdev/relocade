@@ -26,8 +26,10 @@ use wasm_bindgen_futures::JsFuture;
 
 mod host;
 mod memory;
+mod worker;
 pub use host::Context;
 pub use memory::SharedMemory;
+pub use worker::{relocade_compile_snapshot, WebCompiler};
 
 /// One guest's instances, callbacks and host state.
 pub struct WebBackend<T = ()> {

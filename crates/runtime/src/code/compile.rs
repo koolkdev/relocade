@@ -5,11 +5,19 @@ use crate::Result;
 use relocade_x86::{BlockError, BlockSnapshot, CompiledBlocks, Compiler, ExecutionTarget};
 use std::collections::{BTreeSet, VecDeque};
 
+#[cfg_attr(
+    feature = "compiler-wire",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub(super) struct Region {
     pub start_eip: u32,
     pub bytes: Vec<u8>,
 }
 
+#[cfg_attr(
+    feature = "compiler-wire",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub(super) struct CompilationInput {
     pub target: ExecutionTarget,
     pub base: u32,
@@ -21,6 +29,10 @@ pub(super) struct CompilationInput {
     pub max_blocks: usize,
 }
 
+#[cfg_attr(
+    feature = "compiler-wire",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub(super) struct CompiledCode {
     pub base: u32,
     pub module: CompiledBlocks,

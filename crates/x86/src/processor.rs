@@ -25,6 +25,7 @@ pub(crate) fn supports_features(bits: impl Into<Val<I32>>, features: &[CpuFeatur
 /// Keep this model fixed for a guest and include it in compiled-entry cache keys.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CpuModel {
     features: u32,
 }
