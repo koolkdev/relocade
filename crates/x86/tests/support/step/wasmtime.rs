@@ -114,9 +114,9 @@ impl TestModule {
                     state
                         .events
                         .push(Event::ResolveSegment { segment, selector });
-                    let [status, error, base, limit, selector, usable, readable, writable, executable, expand_down, big] =
+                    let [status, error, base, limit, selector, usable, readable, writable, executable, expand_down, big, accessed_byte] =
                         reply.values.map(|value| value as i32);
-                    (status, error, base, limit, selector, usable, readable, writable, executable, expand_down, big)
+                    (status, error, base, limit, selector, usable, readable, writable, executable, expand_down, big, accessed_byte)
                 },
             )
             .unwrap();
@@ -134,11 +134,23 @@ impl TestModule {
                     state
                         .events
                         .push(Event::QuerySegmentDescriptor { selector });
-                    let [visible, readable, writable, access_rights, limit] =
+                    let [lar_valid, lsl_valid, readable, writable, access_rights, limit] =
                         reply.values.map(|value| value as i32);
-                    (visible, readable, writable, access_rights, limit)
+                    (
+                        lar_valid,
+                        lsl_valid,
+                        readable,
+                        writable,
+                        access_rights,
+                        limit,
+                    )
                 },
             )
+            .unwrap();
+        linker
+            .func_wrap::<_, ()>("relocade", "markSegmentAccessed", |_: i32| {
+                panic!("pre-accessed fixture descriptors require no update");
+            })
             .unwrap();
         if std::iter::once(module)
             .chain(

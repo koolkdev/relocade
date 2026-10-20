@@ -21,6 +21,10 @@ that subset. The project is under development; the crates are not published.
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
+| [relocade-machine](crates/machine/src/lib.rs) | Initial configuration and scoped access to live CPU, mapped memory and descriptor tables. |
+| [relocade-runtime](crates/runtime/src/lib.rs) | Machine storage, dispatch, synchronous/deferred host calls and execution budgets. |
+| [relocade-runtime-wasmtime](crates/runtime-wasmtime/src/lib.rs) | Native Wasmtime backend. |
+| [relocade-runtime-web](crates/runtime-web/src/lib.rs) | Browser WebAssembly backend. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
@@ -45,6 +49,36 @@ Both contracts are included in the x86 crate's generated API documentation.
 
 The [future worker design](crates/runtime/docs/worker-execution.md) describes
 execution-task ownership, UI messaging and scheduling for an interactive embedding.
+
+## Configure a protected user machine
+
+The same runtime runs Real16 DOS and protected CPL3 code. `MachineConfig` accepts
+`PhysicalMemoryMap` for Real16 or `PagedMemoryMap` for protected profiles. For example:
+
+```rust
+use relocade_machine::{MachineConfig, PagedMemoryMap};
+use relocade_x86::{Compiler, CpuState, DescriptorTables, SegmentProfile};
+
+let mut pages = PagedMemoryMap::default();
+pages.map(0x400000..=0x40ffff, 0, true)?;
+let config = MachineConfig::new(
+    Compiler::new(SegmentProfile::Flat32).target(),
+    CpuState::default(), 0x10000, pages,
+)?.with_descriptor_tables(DescriptorTables::default(), None)?;
+// Runtime::new(backend, config).await initializes the live machine.
+```
+
+`runtime.machine()` lends CPU, memory and descriptor views. Host calls use the same
+views through `HostCall`; descriptor edits leave loaded segment caches intact.
+GDTR, IDTR and the loaded LDTR/TR caches are direct `CpuState` fields. Descriptor
+tables occupy dedicated Wasm memory, so they reserve no guest addresses. Page
+mappings are host-managed; guest CR3 walking and privilege transitions remain
+outside this user-mode runtime.
+
+For custom embeddings, `MachineMemory::new` initializes the storage,
+`imports` supplies its memory bindings, and `with_host_call` lends published CPU,
+map-aware guest memory, descriptors and environment state to a callback. Raw port
+and MMIO callbacks do not provide that CPU publication boundary.
 
 ## Build and test
 

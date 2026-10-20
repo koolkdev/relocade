@@ -1,5 +1,6 @@
 //! CPU view of the shared execution context and its generated readers.
 
+mod admission;
 mod flags;
 mod segments;
 

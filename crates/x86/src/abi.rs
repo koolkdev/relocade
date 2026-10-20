@@ -26,10 +26,17 @@ pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "w
 pub const READ_MMIO: Function<fn(I32, I32) -> I64> = Function::new("relocade", "readMmio");
 pub const WRITE_MMIO: Function<fn(I32, I32, I64)> = Function::new("relocade", "writeMmio");
 
-pub type ResolveSegmentSignature = fn(I32, I16) -> ([I32; 4], I16, [I1; 6]);
-pub type QuerySegmentDescriptorSignature = fn(I16) -> (I1, I1, I1, I32, I32);
+/// Status, error code, cache fields, and accessed-byte offset. The final offset
+/// is u32::MAX when no accessed-bit update is needed.
+pub type ResolveSegmentResults = (I32, I32, I32, I32, I16, I1, I1, I1, I1, I1, I1, I32);
+pub type ResolveSegmentSignature = fn(I32, I16) -> ResolveSegmentResults;
+pub type QuerySegmentDescriptorSignature = fn(I16) -> (I1, I1, I1, I1, I32, I32);
 
 pub const RESOLVE_SEGMENT: Function<ResolveSegmentSignature> =
     Function::new("relocade", "resolveSegment");
 pub const QUERY_SEGMENT_DESCRIPTOR: Function<QuerySegmentDescriptorSignature> =
     Function::new("relocade", "querySegmentDescriptor");
+
+/// Nonfaulting update in dedicated descriptor storage, after successful load guards.
+pub const MARK_SEGMENT_ACCESSED: Function<fn(I32)> =
+    Function::new("relocade", "markSegmentAccessed");

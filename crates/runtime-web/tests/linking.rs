@@ -205,3 +205,63 @@ fn callbacks_preserve_scalar_carriers() {
 async fn callbacks_preserve_scalar_carriers() {
     check_scalar_callbacks().await;
 }
+
+async fn check_tuple_callbacks() {
+    type Mixed = (I1, I8, I16, I32, I64, F64);
+    const MIXED: Function<fn() -> Mixed> = Function::new("tuple", "mixed");
+    const SINGLE: Function<fn() -> (I64,)> = Function::new("tuple", "single");
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut backend = Backend::new().unwrap();
+    #[cfg(target_arch = "wasm32")]
+    let mut backend = Backend::new();
+    let memory = backend.create_memory(1, Some(1)).unwrap();
+    let mut program = Program::new();
+    let output = program.import_memory(MEMORY);
+    let mixed = program.import_function(MIXED);
+    let single = program.import_function(SINGLE);
+    let run = program
+        .function(RUN.signature(), |mut body| {
+            let (bit, byte, word, integer, wide, float) = body.call::<Mixed>(mixed, &[])?;
+            body.store(output, 0, bit.unsigned().extend::<I32>())?;
+            body.store(output, 4, byte.unsigned().extend::<I32>())?;
+            body.store(output, 8, word.unsigned().extend::<I32>())?;
+            body.store(output, 12, integer)?;
+            body.store(output, 16, wide)?;
+            body.store(output, 24, float)?;
+            let (result,) = body.call::<(I64,)>(single, &[])?;
+            body.return_(result)
+        })
+        .unwrap();
+    RUN.export(&mut program, run).unwrap();
+    let module = backend.compile(&program.compile().unwrap()).await.unwrap();
+    let imports = [
+        backend.bind(MEMORY, &memory),
+        backend.bind_host(
+            MIXED,
+            Box::new(|_| (1, 255, 65535, -1, -0x20_0000_0000_0001, 1.75)),
+        ),
+        backend.bind_host(SINGLE, Box::new(|_| (0x20_0000_0000_0003,))),
+    ];
+    let instance = backend.instantiate(&module, &imports).await.unwrap();
+    let entry = backend.function(&instance, RUN).unwrap();
+    assert_eq!(backend.call(&entry).unwrap(), 0x20_0000_0000_0003);
+    let mut bytes = [0; 32];
+    backend.read_memory(&memory, 0, &mut bytes);
+    assert_eq!(
+        &bytes[..16],
+        &[1, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 0, 255, 255, 255, 255]
+    );
+    assert_eq!(&bytes[16..24], &(-0x20_0000_0000_0001_i64).to_le_bytes());
+    assert_eq!(&bytes[24..], &1.75_f64.to_le_bytes());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn callbacks_preserve_flat_tuple_carriers() {
+    pollster::block_on(check_tuple_callbacks());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn callbacks_preserve_flat_tuple_carriers() {
+    check_tuple_callbacks().await;
+}

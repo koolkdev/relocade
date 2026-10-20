@@ -27,6 +27,7 @@
 
 mod backend;
 mod callback;
+mod descriptors;
 mod dispatch;
 mod error;
 mod execution;
@@ -37,18 +38,19 @@ mod storage;
 pub mod wasm;
 
 pub use backend::RuntimeBackend;
-pub use callback::{with_host_call, HostCall};
+pub use callback::HostCall;
 pub use dispatch::DispatchEntry;
 use dispatch::DispatchTable;
 pub use error::{Error, Result};
 pub use hooks::Hook;
 use relocade_machine::{Machine, MachineConfig};
-use relocade_x86::{abi, Compiler, EntryTable, ExecutionContext};
+use relocade_x86::{abi, Compiler, EntryTable};
 pub use state::RuntimeState;
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+pub use storage::MachineMemory;
 use storage::Storage;
 use wasm::Import;
 
@@ -59,7 +61,6 @@ pub struct Runtime<B: RuntimeBackend> {
     storage: Storage<B>,
     dispatch: B::Function,
     interpret: B::Function,
-    mapping: B::Memory,
     dispatch_table: DispatchTable<B>,
     host_imports: Vec<Import<'static, B>>,
     host_call_incomplete: bool,
@@ -75,48 +76,31 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         let dispatcher = compiler.compile_dispatcher()?;
         let dispatcher_module = backend.compile(&dispatcher.bytes).await?;
 
-        let context = backend.create_memory(1, Some(1))?;
-        backend.write_memory(
-            &context,
-            0,
-            &ExecutionContext {
-                cpu: *config.cpu(),
-                cpu_model: target.cpu_model,
-                ..ExecutionContext::default()
-            }
-            .to_bytes(),
-        );
-        let guest_pages = config.memory_size().div_ceil(65536).max(1) as u32;
-        let guest = backend.create_memory(guest_pages, None)?;
-        let mapping = backend.create_memory(1, Some(1))?;
-        backend.write_memory(&mapping, 0, &config.memory_map().to_bytes());
+        let memory = MachineMemory::new(&mut backend, config)?;
         let dispatch_table = DispatchTable::new(&mut backend)?;
-        let host_imports = vec![
+        let mut host_imports = vec![
             backend.bind_host(abi::READ_PORT, Box::new(|_, _, _| -1)),
             backend.bind_host(abi::WRITE_PORT, Box::new(|_, _, _, _| {})),
             backend.bind_host(abi::READ_MMIO, Box::new(|_, _, _| -1)),
             backend.bind_host(abi::WRITE_MMIO, Box::new(|_, _, _, _| {})),
         ];
-        let imports = [
-            backend.bind(abi::EXECUTION_CONTEXT, &context),
-            backend.bind(abi::GUEST, &guest),
-            backend.bind(abi::PHYSICAL_MAP, &mapping),
+        host_imports.extend(descriptors::imports(&mut backend, &memory));
+        let mut imports = memory.imports(&backend).to_vec();
+        imports.extend([
             backend.bind(abi::EXECUTION_ENTRIES, &dispatch_table.memory),
             backend.bind(abi::EXECUTION_FUNCTIONS, &dispatch_table.functions),
-        ];
+        ]);
         let dispatcher_instance = backend.instantiate(&dispatcher_module, &imports).await?;
         let dispatch = backend.function(&dispatcher_instance, abi::DISPATCH)?;
         let interpret = backend.function(&dispatcher_instance, abi::INTERPRET)?;
         let mut runtime = Self {
-            config: Arc::new(config),
+            config: Arc::clone(&memory.config),
             storage: Storage {
                 access: backend,
-                context,
-                guest,
+                memory,
             },
             dispatch,
             interpret,
-            mapping,
             dispatch_table,
             host_imports,
             host_call_incomplete: false,
@@ -173,15 +157,13 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         additional: &[Import<'_, B>],
     ) -> Result<B::Instance> {
         let backend = &mut self.storage.access;
-        let mut imports = vec![
-            backend.bind(abi::EXECUTION_CONTEXT, &self.storage.context),
-            backend.bind(abi::GUEST, &self.storage.guest),
-            backend.bind(abi::PHYSICAL_MAP, &self.mapping),
+        let mut imports = self.storage.memory.imports(backend).to_vec();
+        imports.extend([
             backend.bind(abi::EXECUTION_ENTRIES, &self.dispatch_table.memory),
             backend.bind(abi::EXECUTION_FUNCTIONS, &self.dispatch_table.functions),
             backend.bind(abi::DISPATCH, &self.dispatch),
             backend.bind(abi::INTERPRET, &self.interpret),
-        ];
+        ]);
         imports.extend(self.host_imports.iter().cloned());
         imports.extend(additional.iter().cloned());
         backend.instantiate(module, &imports).await

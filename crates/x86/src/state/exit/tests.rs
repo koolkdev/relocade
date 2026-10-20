@@ -240,3 +240,16 @@ fn host_return_has_no_payload() {
         0x0008_00f3_89ab_cdef
     );
 }
+
+#[test]
+fn profile_change_is_a_host_boundary_with_no_payload() {
+    assert_eq!(
+        ExecutionExit::ProfileChanged.to_bits(),
+        0x1000_0000_0000_0000
+    );
+    assert_eq!(
+        ExecutionExit::from_bits(0x1000_0000_0000_0000),
+        Some(ExecutionExit::ProfileChanged)
+    );
+    assert_eq!(ExecutionExit::from_bits(0x1000_0000_0000_0001), None);
+}

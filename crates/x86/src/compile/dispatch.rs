@@ -39,20 +39,25 @@ impl Compiler {
     /// Compiles uniform address dispatch through `relocade.executionFunctions`.
     /// A hit tail-calls its slot; a miss tail-calls slot one. The generated code
     /// has no entry-kind branch, host-call import or instruction decoder.
-    /// The embedding maintains the execution profile. Each destination owns its
-    /// entry checks; lookup does not check instruction bytes or CS permissions.
+    /// Both dispatch and interpreter entry verify the fixed protected profile
+    /// before using its assumptions. A mismatch returns ProfileChanged with CPU
+    /// state intact. Destinations still own budget, instruction-fetch and code
+    /// validity checks. Real16 relies on canonical caches maintained by its loads
+    /// and the embedding's validated host edits.
     pub fn compile_dispatcher(&self) -> Result<CompiledModule, BuildError> {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let dispatch = Dispatch::declare(&mut program);
         let transfer = program.function(crate::abi::DISPATCH.signature(), |mut body| {
+            cpu.admit_profile(&mut body, self.target.profile)?;
             let eip = cpu.read_eip(&mut body)?;
             let mut segments = SegmentReads::new(&cpu, self.target.profile);
             let base = segments.base(&mut body, &Segment::Cs.into())?;
             dispatch.lookup(body, &base.add(eip))
         })?;
         crate::abi::DISPATCH.export(&mut program, transfer)?;
-        let interpret = program.function(crate::abi::INTERPRET.signature(), |body| {
+        let interpret = program.function(crate::abi::INTERPRET.signature(), |mut body| {
+            cpu.admit_profile(&mut body, self.target.profile)?;
             dispatch.enter(body, EntryTable::INTERPRETER_SLOT)
         })?;
         crate::abi::INTERPRET.export(&mut program, interpret)?;

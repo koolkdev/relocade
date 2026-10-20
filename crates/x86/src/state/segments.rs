@@ -6,7 +6,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, ValueType, I1, I16, I32};
 
 use crate::{
     segment::{Segment, SegmentSelection},
-    ExecutionProfile, SegmentDefaultSize, SegmentProfile,
+    ExecutionProfile,
 };
 
 use super::{access::cpu_load, Cpu, StoredSegment};
@@ -41,27 +41,17 @@ impl SegmentReadCache {
                 cache.limit = Some(0xffffu32.into());
                 cache.big = Some(false.into());
             }
-            ExecutionProfile::Protected(SegmentProfile::Flat32)
-                if matches!(
-                    segment,
-                    Segment::Cs | Segment::Ds | Segment::Es | Segment::Ss
-                ) =>
-            {
-                cache.base = Some(0.into());
-                cache.limit = Some(u32::MAX.into());
-                cache.usable = Some(true.into());
-                cache.readable = Some(true.into());
-                cache.writable = Some((segment != Segment::Cs).into());
-                cache.executable = Some((segment == Segment::Cs).into());
-                cache.expand_down = Some(false.into());
-                if segment == Segment::Ss {
-                    cache.big = Some(true.into());
-                }
+            ExecutionProfile::Protected(profile) => {
+                let facts = profile.assumptions(segment);
+                cache.base = facts.base.map(Into::into);
+                cache.limit = facts.limit.map(Into::into);
+                cache.usable = facts.usable.map(|value| (value != 0).into());
+                cache.readable = facts.readable.map(|value| (value != 0).into());
+                cache.writable = facts.writable.map(|value| (value != 0).into());
+                cache.executable = facts.executable.map(|value| (value != 0).into());
+                cache.expand_down = facts.expand_down.map(|value| (value != 0).into());
+                cache.big = facts.big.map(|value| (value != 0).into());
             }
-            ExecutionProfile::Protected(_) => {}
-        }
-        if segment == Segment::Cs {
-            cache.big = Some((profile.code_default_size() == SegmentDefaultSize::Bits32).into());
         }
         cache
     }

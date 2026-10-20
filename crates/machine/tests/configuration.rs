@@ -47,7 +47,10 @@ fn backing_capacity_is_independent_of_mapped_guest_addresses() {
     let config = MachineConfig::new(target(), cpu(), 0x20000, map).unwrap();
     assert_eq!(config.memory_size(), 0x20000);
     assert_eq!(
-        config.memory_map().get(0xfffff),
+        match config.memory_map() {
+            relocade_machine::MemoryMap::Physical(map) => map.get(0xfffff),
+            _ => unreachable!(),
+        },
         PhysicalMapping::Rom {
             backing_offset: 0xffff
         }

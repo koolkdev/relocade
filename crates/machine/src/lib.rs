@@ -1,8 +1,9 @@
 //! Initial machine configuration and scoped access to live guest state.
 //!
-//! [`MachineConfig`] describes the initial CPU, backing size and fixed physical
-//! map. Execution backends provide storage; [`Machine`] borrows that storage to
-//! expose the current CPU and [`Memory`] with the machine's access policy.
+//! [`MachineConfig`] describes the initial CPU, backing size, mappings and
+//! dedicated descriptor storage. It accepts a real-mode physical map or a
+//! protected-user [`PagedMemoryMap`]. Execution backends supply live storage;
+//! [`Machine`] borrows that storage to expose [`Cpu`], [`Memory`] and [`Descriptors`].
 //!
 //! ```
 //! use relocade_machine::MachineConfig;
@@ -33,14 +34,18 @@
 
 mod config;
 mod cpu;
+mod descriptors;
+mod mapping;
 mod memory;
 
 pub use config::{ConfigurationError, MachineConfig};
 pub use cpu::Cpu;
+pub use descriptors::{DescriptorError, DescriptorMemory, Descriptors, ResolvedDescriptor};
+pub use mapping::{MappingError, MemoryMap, PagedMemoryMap};
 pub use memory::{Memory, MemoryError};
 use relocade_x86::ExecutionTarget;
 
-/// Transfers to the CPU and guest memory supplied by the runtime. CPU offsets
+/// Transfers to the CPU, guest backing, mapping and descriptor memories. CPU offsets
 /// are relative to the start of `CpuState` in the execution context.
 /// Writes take effect immediately; implementations must not cache a CPU snapshot.
 /// Backing transfers receive ranges already checked against configured capacity.
@@ -49,18 +54,23 @@ pub trait MachineStorage {
     fn write_cpu(&mut self, offset: u32, bytes: &[u8]);
     fn read_backing(&self, offset: u32, bytes: &mut [u8]);
     fn write_backing(&mut self, offset: u32, bytes: &[u8]);
+    fn read_mapping(&self, offset: u32, bytes: &mut [u8]);
+    fn write_mapping(&mut self, offset: u32, bytes: &[u8]);
+    fn read_descriptors(&self, offset: u32, bytes: &mut [u8]);
+    fn write_descriptors(&mut self, offset: u32, bytes: &[u8]);
 }
 
-/// Scoped access to the stopped CPU and guest memory. Both views read and write
-/// execution storage directly.
+/// Scoped access to a stopped machine. Every view reads and writes live execution
+/// storage; the configuration is only the initial seed and fixed execution policy.
 pub struct Machine<'a, S: MachineStorage + ?Sized = dyn MachineStorage + 'a> {
     config: &'a MachineConfig,
     storage: &'a mut S,
 }
 
 impl<'a, S: MachineStorage + ?Sized> Machine<'a, S> {
-    /// Binds access to initialized storage. The CPU must be compatible with
-    /// `config`'s execution target; the map and backing capacity must also match.
+    /// Binds access to initialized storage. Its images and capacities must match
+    /// `config`. Execution must stop if a guest load invalidates the configured
+    /// profile; host CPU edits enforce compatibility before publishing changes.
     pub fn new(config: &'a MachineConfig, storage: &'a mut S) -> Self {
         Self { config, storage }
     }
@@ -71,6 +81,10 @@ impl<'a, S: MachineStorage + ?Sized> Machine<'a, S> {
 
     pub fn cpu(&mut self) -> Cpu<'_, S> {
         Cpu::new(self.config, self.storage)
+    }
+
+    pub fn descriptors(&mut self) -> Descriptors<'_, S> {
+        Descriptors::new(self.storage)
     }
 
     pub fn memory(&mut self) -> Memory<'_, S> {

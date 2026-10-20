@@ -1,10 +1,14 @@
-use crate::{MachineConfig, MachineStorage};
-use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, StoredSegment};
+mod paged;
+
+use crate::{MachineConfig, MachineStorage, MemoryMap};
+use relocade_x86::{
+    Exception, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, StoredSegment,
+};
 use std::fmt;
 
-/// Guest physical memory through the configured map, including A20 aliases.
-/// RAM/ROM use backing storage. Holes and currently unattached MMIO return FF
-/// bytes; writes to ROM, holes and unattached MMIO are ignored.
+/// Guest addresses through the machine's memory policy. Real-mode physical
+/// routing includes A20, ROM and holes. Protected-user accesses use the live
+/// page map and report page faults before copying any bytes.
 pub struct Memory<'a, S: MachineStorage + ?Sized = dyn MachineStorage + 'a> {
     config: &'a MachineConfig,
     storage: &'a mut S,
@@ -16,15 +20,20 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
         Self { config, storage }
     }
 
-    /// Reads guest addresses. Addresses outside the fixed map are holes.
+    /// Reads a nonwrapping guest span. Physical addresses outside the map are holes.
     pub fn read(&mut self, mut address: u32, mut bytes: &mut [u8]) -> Result<(), MemoryError> {
         if !range_fits(address, bytes.len(), 1 << 32) {
             return Err(MemoryError::AddressRange);
         }
+        let MemoryMap::Physical(map) = self.config.memory_map() else {
+            return self
+                .read_paged(address, bytes)
+                .map_err(MemoryError::PageFault);
+        };
         while !bytes.is_empty() {
             let count = page_span(address, bytes.len());
             let (part, rest) = bytes.split_at_mut(count);
-            match self.config.memory_map().get(address) {
+            match map.get(address) {
                 PhysicalMapping::Ram { backing_offset }
                 | PhysicalMapping::Rom { backing_offset } => {
                     self.storage.read_backing(backing_offset, part);
@@ -42,9 +51,14 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
         if !range_fits(address, bytes.len(), 1 << 32) {
             return Err(MemoryError::AddressRange);
         }
+        let MemoryMap::Physical(map) = self.config.memory_map() else {
+            return self
+                .write_paged(address, bytes)
+                .map_err(MemoryError::PageFault);
+        };
         while !bytes.is_empty() {
             let count = page_span(address, bytes.len());
-            if let PhysicalMapping::Ram { backing_offset } = self.config.memory_map().get(address) {
+            if let PhysicalMapping::Ram { backing_offset } = map.get(address) {
                 self.storage.write_backing(backing_offset, &bytes[..count]);
             }
             address = address.wrapping_add(count as u32);
@@ -53,29 +67,40 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
         Ok(())
     }
 
-    /// Reads a contiguous span through a real-mode segment cache.
-    /// Checks the entire span before copying; never wraps or truncates the offset.
-    /// Physical mappings, including A20, apply after segment translation.
+    /// Reads a complete span through a loaded segment cache, then the active map.
+    /// Protected mode enforces usability, readability and expand-down bounds.
+    /// Host slices never wrap or truncate their segment offset or linear span.
     pub fn read_segment(
         &mut self,
         segment: &StoredSegment,
         offset: u32,
         bytes: &mut [u8],
     ) -> Result<(), MemoryError> {
-        let address = segment_address(segment, offset, bytes.len())?;
+        let address = segment_address(
+            segment,
+            offset,
+            bytes.len(),
+            self.config.execution_target().profile,
+            false,
+        )?;
         self.read(address, bytes)
     }
 
-    /// Writes a contiguous span through a real-mode segment cache.
-    /// As with execution in real mode, the limit applies but protected-mode access
-    /// permissions do not: a CS-relative write is allowed.
+    /// Writes through a loaded segment cache and the active map. Protected mode
+    /// checks write permission; real mode permits writes through any segment.
     pub fn write_segment(
         &mut self,
         segment: &StoredSegment,
         offset: u32,
         bytes: &[u8],
     ) -> Result<(), MemoryError> {
-        let address = segment_address(segment, offset, bytes.len())?;
+        let address = segment_address(
+            segment,
+            offset,
+            bytes.len(),
+            self.config.execution_target().profile,
+            true,
+        )?;
         self.write(address, bytes)
     }
 
@@ -103,14 +128,40 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
     }
 }
 
-fn segment_address(segment: &StoredSegment, offset: u32, len: usize) -> Result<u32, MemoryError> {
-    if !range_fits(offset, len, u64::from(segment.limit) + 1) {
-        return Err(MemoryError::SegmentRange);
+fn segment_address(
+    segment: &StoredSegment,
+    offset: u32,
+    len: usize,
+    profile: ExecutionProfile,
+    write: bool,
+) -> Result<u32, MemoryError> {
+    if matches!(profile, ExecutionProfile::Protected(_)) {
+        let permission = if write {
+            segment.writable
+        } else {
+            segment.readable
+        };
+        if len != 0 && (segment.usable == 0 || permission == 0) {
+            return Err(MemoryError::SegmentAccess);
+        }
+        if segment.expand_down != 0 {
+            let upper = if segment.big != 0 { 1 << 32 } else { 1 << 16 };
+            if len != 0 && (offset <= segment.limit || !range_fits(offset, len, upper)) {
+                return Err(MemoryError::SegmentRange);
+            }
+        } else if !range_fits(offset, len, u64::from(segment.limit) + 1) {
+            return Err(MemoryError::SegmentRange);
+        }
+        Ok(segment.base.wrapping_add(offset))
+    } else {
+        if !range_fits(offset, len, u64::from(segment.limit) + 1) {
+            return Err(MemoryError::SegmentRange);
+        }
+        segment
+            .base
+            .checked_add(offset)
+            .ok_or(MemoryError::AddressRange)
     }
-    segment
-        .base
-        .checked_add(offset)
-        .ok_or(MemoryError::AddressRange)
 }
 
 fn page_span(address: u32, remaining: usize) -> usize {
@@ -129,13 +180,20 @@ pub enum MemoryError {
     AddressRange,
     BackingRange,
     SegmentRange,
+    SegmentAccess,
+    PageFault(Exception),
 }
 
 impl fmt::Display for MemoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Self::PageFault(exception) = self {
+            return exception.fmt(f);
+        }
         f.write_str(match self {
             Self::AddressRange => "memory access exceeds the 32-bit guest address space",
             Self::BackingRange => "backing access exceeds memory_size",
+            Self::PageFault(_) => unreachable!(),
+            Self::SegmentAccess => "segment does not permit this access",
             Self::SegmentRange => "memory access exceeds the segment limit",
         })
     }

@@ -167,7 +167,7 @@ impl PhysicalMemoryMap {
     /// This format uses explicit fields, independent of Rust's enum layout.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
-        for (entry, page) in bytes.chunks_exact_mut(8).zip(&self.pages) {
+        for (entry, page) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(&self.pages) {
             let (kind, backing): (u32, u32) = match *page {
                 PhysicalMapping::Unmapped => (UNMAPPED, 0),
                 PhysicalMapping::Ram { backing_offset } => (RAM, backing_offset),

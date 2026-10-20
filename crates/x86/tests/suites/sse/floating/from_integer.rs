@@ -50,7 +50,7 @@ fn scalar(frontend: Frontend) {
                 true,
             ),
         ] {
-            for rc in 0..4 {
+            for (rc, single) in singles.into_iter().enumerate() {
                 for mask in [0x1f80, 0x0f80] {
                     let mut image = floating_image(&code, mask | (rc as u32) << 13);
                     image.cpu.registers.eax = integer as u32;
@@ -70,7 +70,7 @@ fn scalar(frontend: Frontend) {
                             if wide {
                                 f64::from(integer).to_bits()
                             } else {
-                                singles[rc] as u64
+                                single as u64
                             },
                         );
                     }

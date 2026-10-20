@@ -235,3 +235,64 @@ fn compiled_blocks_chain_until_budget_or_missing_entry() {
         );
     }
 }
+
+#[test]
+fn protected_gateways_compare_every_constrained_cache_byte() {
+    for profile in [
+        SegmentProfile::Flat32,
+        SegmentProfile::Segmented32,
+        SegmentProfile::Segmented16,
+    ] {
+        let compiler = Compiler::new(profile);
+        let dispatcher = Module::new(&compiler.compile_dispatcher().unwrap().bytes);
+        let targets = [constant(11)];
+        let entries = EntryTable::default().to_bytes();
+        let mut cpu = CpuState::default();
+        cpu.segments.cs.big = u8::from(profile != SegmentProfile::Segmented16);
+        let baseline = cpu.to_bytes().to_vec();
+        let mut cases = Vec::new();
+        let mut expected = Vec::new();
+        for segment in Segment::ALL {
+            for byte in 0..16 {
+                let constrained = match profile {
+                    SegmentProfile::Flat32 => {
+                        matches!(
+                            segment,
+                            Segment::Cs | Segment::Ds | Segment::Es | Segment::Ss
+                        ) && (matches!(byte, 0..=7 | 10..=14)
+                            || byte == 15 && matches!(segment, Segment::Cs | Segment::Ss))
+                    }
+                    _ => segment == Segment::Cs && byte == 15,
+                };
+                for changed_bits in [2, 0x80] {
+                    let mut image = baseline.clone();
+                    image[64 + segment as usize * 16 + byte] ^= changed_bits;
+                    for export in ["dispatch", "interpret"] {
+                        cases.push(Invocation {
+                            cpu: image.clone(),
+                            entries: entries.clone(),
+                            export,
+                        });
+                        expected.push(if constrained { 1 << 60 } else { 11 });
+                    }
+                }
+            }
+        }
+        if profile == SegmentProfile::Flat32 {
+            // Equal differences in two caches must not cancel each other.
+            cpu.segments.es.base = 0x1000;
+            cpu.segments.ds.base = 0x1000;
+            cases.push(Invocation {
+                cpu: cpu.to_bytes().to_vec(),
+                entries,
+                export: "dispatch",
+            });
+            expected.push(1 << 60);
+        }
+        let outputs = execute(&dispatcher, &targets, &cases);
+        for ((output, case), expected) in outputs.iter().zip(cases).zip(expected) {
+            assert_eq!(output.word, expected, "{profile:?}, {}", case.export);
+            assert_eq!(output.cpu, case.cpu);
+        }
+    }
+}

@@ -1,33 +1,11 @@
-use relocade_machine::{ConfigurationError, Machine, MachineConfig, MachineStorage, MemoryError};
+mod support;
+use relocade_machine::{ConfigurationError, Machine, MachineConfig, MemoryError};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segment, Segments, StoredSegment, StoredStatusSource,
+    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
+    StoredSegment, StoredStatusSource,
 };
-use std::{cell::RefCell, mem::offset_of, rc::Rc};
-
-struct Storage {
-    context: Rc<RefCell<[u8; ExecutionContext::BYTE_LEN]>>,
-    cpu_reads: RefCell<Vec<(u32, usize)>>,
-    bytes: Vec<u8>,
-}
-
-impl MachineStorage for Storage {
-    fn read_cpu(&self, offset: u32, bytes: &mut [u8]) {
-        self.cpu_reads.borrow_mut().push((offset, bytes.len()));
-        let offset = offset_of!(ExecutionContext, cpu) + offset as usize;
-        bytes.copy_from_slice(&self.context.borrow()[offset..][..bytes.len()]);
-    }
-    fn write_cpu(&mut self, offset: u32, bytes: &[u8]) {
-        let offset = offset_of!(ExecutionContext, cpu) + offset as usize;
-        self.context.borrow_mut()[offset..][..bytes.len()].copy_from_slice(bytes);
-    }
-    fn read_backing(&self, offset: u32, bytes: &mut [u8]) {
-        bytes.copy_from_slice(&self.bytes[offset as usize..][..bytes.len()]);
-    }
-    fn write_backing(&mut self, offset: u32, bytes: &[u8]) {
-        self.bytes[offset as usize..][..bytes.len()].copy_from_slice(bytes);
-    }
-}
+use std::rc::Rc;
+use support::Storage;
 
 fn configuration(map: PhysicalMemoryMap) -> (MachineConfig, Storage) {
     let model =
@@ -45,21 +23,8 @@ fn configuration(map: PhysicalMemoryMap) -> (MachineConfig, Storage) {
         map,
     )
     .unwrap();
-    (
-        config,
-        Storage {
-            context: Rc::new(RefCell::new(
-                ExecutionContext {
-                    cpu,
-                    instruction_target: 998,
-                    cpu_model: model,
-                }
-                .to_bytes(),
-            )),
-            cpu_reads: RefCell::new(Vec::new()),
-            bytes: vec![0; 0x3000],
-        },
-    )
+    let storage = Storage::new(&config);
+    (config, storage)
 }
 
 #[test]
@@ -96,12 +61,15 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     let mut cpu = machine.cpu();
     let snapshot = CpuState {
         segments: Segments::real_mode(),
+        idtr: relocade_x86::StoredTableRegister::REAL_MODE_IDTR,
+        ldtr: relocade_x86::StoredSystemSegment::default(),
+        tr: relocade_x86::StoredSystemSegment::default(),
         ..CpuState::filled(0xa5)
     };
     cpu.restore(&snapshot).unwrap();
     assert_eq!(cpu.snapshot(), snapshot);
-    assert_eq!(&context.borrow()[488..496], &998_u64.to_le_bytes());
-    assert_eq!(&context.borrow()[496..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(&context.borrow()[536..544], &998_u64.to_le_bytes());
+    assert_eq!(&context.borrow()[544..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
     let mut incompatible = snapshot;
     incompatible.segments.cs.base = 1;
     assert_eq!(
@@ -311,4 +279,23 @@ fn invalid_spans_fail_before_any_transfer() {
     );
     memory.read(u32::MAX, &mut byte).unwrap();
     assert_eq!(byte, [0xff]);
+}
+
+#[test]
+fn real_mode_idtr_edits_and_restores_preserve_the_runtime_vector_table() {
+    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = Machine::new(&config, &mut storage);
+    let before = machine.cpu().snapshot();
+    let changed = relocade_x86::StoredTableRegister::new(0x1000, 0x3ff);
+    assert_eq!(
+        machine.cpu().set_idtr(changed),
+        Err(ConfigurationError::InvalidTableRegister)
+    );
+    let mut snapshot = before;
+    snapshot.idtr = changed;
+    assert_eq!(
+        machine.cpu().restore(&snapshot),
+        Err(ConfigurationError::InvalidTableRegister)
+    );
+    assert_eq!(machine.cpu().snapshot(), before);
 }

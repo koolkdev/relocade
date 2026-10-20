@@ -1,6 +1,9 @@
 use std::mem::offset_of;
 
-use super::{CpuState, Registers, Segments, StoredFlags, StoredSimd, StoredX87};
+use super::{
+    CpuState, Registers, Segments, StoredFlags, StoredSimd, StoredSystemSegment,
+    StoredTableRegister, StoredX87,
+};
 
 impl CpuState {
     /// Reads every backing field without interpreting or normalizing its bits.
@@ -23,6 +26,10 @@ impl CpuState {
             instruction_count: read_u64(&bytes, offset_of!(CpuState, instruction_count)),
             x87: StoredX87::read(&bytes[offset_of!(CpuState, x87)..]),
             simd: StoredSimd::read(&bytes[offset_of!(CpuState, simd)..]),
+            gdtr: StoredTableRegister::from_bytes(read(&bytes, offset_of!(CpuState, gdtr))),
+            idtr: StoredTableRegister::from_bytes(read(&bytes, offset_of!(CpuState, idtr))),
+            ldtr: StoredSystemSegment::from_bytes(read(&bytes, offset_of!(CpuState, ldtr))),
+            tr: StoredSystemSegment::from_bytes(read(&bytes, offset_of!(CpuState, tr))),
         }
     }
 
@@ -61,6 +68,22 @@ impl CpuState {
         );
         self.x87.write(&mut bytes[offset_of!(CpuState, x87)..]);
         self.simd.write(&mut bytes[offset_of!(CpuState, simd)..]);
+        write(
+            &mut bytes,
+            offset_of!(CpuState, gdtr),
+            &self.gdtr.to_bytes(),
+        );
+        write(
+            &mut bytes,
+            offset_of!(CpuState, idtr),
+            &self.idtr.to_bytes(),
+        );
+        write(
+            &mut bytes,
+            offset_of!(CpuState, ldtr),
+            &self.ldtr.to_bytes(),
+        );
+        write(&mut bytes, offset_of!(CpuState, tr), &self.tr.to_bytes());
         bytes
     }
 

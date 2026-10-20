@@ -4,10 +4,12 @@ mod codec;
 mod flags;
 mod segments;
 mod simd;
+mod tables;
 mod x87;
 
 pub use segments::{Segments, StoredSegment};
 pub use simd::StoredSimd;
+pub use tables::{StoredSystemSegment, StoredTableRegister};
 pub use x87::{StoredX87, StoredX87Control, StoredX87Register, StoredX87Status};
 
 #[cfg(test)]
@@ -130,6 +132,10 @@ pub struct CpuState {
     pub instruction_count: u64,
     pub x87: StoredX87,
     pub simd: StoredSimd,
+    pub gdtr: StoredTableRegister,
+    pub idtr: StoredTableRegister,
+    pub ldtr: StoredSystemSegment,
+    pub tr: StoredSystemSegment,
 }
 
 impl CpuState {
@@ -142,6 +148,7 @@ impl Default for CpuState {
             segments: Segments::flat32(),
             x87: StoredX87::default(),
             simd: StoredSimd::default(),
+            idtr: StoredTableRegister::REAL_MODE_IDTR,
             ..Self::filled(0)
         }
     }

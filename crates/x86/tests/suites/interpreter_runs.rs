@@ -215,6 +215,7 @@ fn terminal_segment_load(module: &TestModule) {
             u32::from(ds.executable),
             u32::from(ds.expand_down),
             u32::from(ds.big),
+            u32::MAX,
         ],
     });
     let mut cpu = image.cpu;

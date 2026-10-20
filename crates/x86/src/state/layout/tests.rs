@@ -9,7 +9,7 @@ use crate::Gpr32;
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
-    assert_eq!(CpuState::BYTE_LEN, 488);
+    assert_eq!(CpuState::BYTE_LEN, 536);
     assert_eq!(size_of::<StoredFlags>(), 28);
     assert_eq!(size_of::<StoredStatusSource>(), 12);
     assert_eq!(size_of::<FlagBytes>(), 16);
@@ -187,4 +187,48 @@ fn simd_layout_defaults_and_literal_encodings() {
     assert_eq!(&bytes[356..472], &[0xa5; 116]);
     assert_eq!(&bytes[472..488], &cpu.simd.xmm[7]);
     assert_eq!(CpuState::from_bytes(bytes), cpu);
+}
+
+#[test]
+fn table_registers_have_stable_offsets_and_preserve_complete_cache_images() {
+    use super::{StoredSystemSegment, StoredTableRegister};
+    assert_eq!(size_of::<StoredTableRegister>(), 8);
+    assert_eq!(size_of::<StoredSystemSegment>(), 16);
+    assert_eq!(
+        [
+            offset_of!(CpuState, gdtr),
+            offset_of!(CpuState, idtr),
+            offset_of!(CpuState, ldtr),
+            offset_of!(CpuState, tr)
+        ],
+        [488, 496, 504, 520]
+    );
+    let mut cpu = CpuState::filled(0xa5);
+    cpu.gdtr = StoredTableRegister {
+        base: 0x12345678,
+        limit: 0x9abc,
+        reserved: [0xde, 0xf0],
+    };
+    cpu.ldtr = StoredSystemSegment {
+        base: 0x12345678,
+        limit: 0x90abcdef,
+        selector: 0x2345,
+        usable: 0x67,
+        reserved: 0x89,
+        access_rights: 0xdeadbeef,
+    };
+    let bytes = cpu.to_bytes();
+    assert_eq!(
+        &bytes[488..496],
+        &[0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a, 0xde, 0xf0]
+    );
+    assert_eq!(
+        &bytes[504..520],
+        &[
+            0x78, 0x56, 0x34, 0x12, 0xef, 0xcd, 0xab, 0x90, 0x45, 0x23, 0x67, 0x89, 0xef, 0xbe,
+            0xad, 0xde
+        ]
+    );
+    assert_eq!(CpuState::from_bytes(bytes), cpu);
+    assert_eq!(CpuState::default().idtr, StoredTableRegister::new(0, 0x3ff));
 }

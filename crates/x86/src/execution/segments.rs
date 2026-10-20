@@ -12,6 +12,7 @@ use crate::{
 pub(crate) struct ResolvedSegment {
     segment: Segment,
     values: SegmentValues,
+    accessed_byte: Option<Val<I32>>,
 }
 
 impl ResolvedSegment {
@@ -22,6 +23,11 @@ impl ResolvedSegment {
     /// Installs the selector and cache after all instruction guards. Only
     /// completion and dispatch may follow.
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+        if let Some(address) = self.accessed_byte {
+            execution
+                .runtime
+                .mark_segment_accessed(&mut execution.body, address)?;
+        }
         execution
             .state
             .write_segment(&mut execution.body, &self.segment.into(), &self.values)
@@ -51,31 +57,41 @@ impl ExecutionBuilder<'_, '_> {
         segment: Segment,
         selector: &Val<I16>,
     ) -> Result<ResolvedSegment, BuildError> {
-        let values = match self.profile() {
+        let (values, accessed_byte) = match self.profile() {
             ExecutionProfile::Real16 => {
                 // Real16 admits only canonical caches. Retained descriptor limits
                 // and attributes across mode transitions require a different profile.
                 let cache = crate::StoredSegment::real_mode(segment, 0);
-                SegmentValues {
-                    base: selector.unsigned().extend::<I32>().shl(4),
-                    limit: cache.limit.into(),
-                    selector: selector.clone(),
-                    usable: (cache.usable != 0).into(),
-                    readable: (cache.readable != 0).into(),
-                    writable: (cache.writable != 0).into(),
-                    executable: (cache.executable != 0).into(),
-                    expand_down: (cache.expand_down != 0).into(),
-                    big: (cache.big != 0).into(),
-                }
+                (
+                    SegmentValues {
+                        base: selector.unsigned().extend::<I32>().shl(4),
+                        limit: cache.limit.into(),
+                        selector: selector.clone(),
+                        usable: (cache.usable != 0).into(),
+                        readable: (cache.readable != 0).into(),
+                        writable: (cache.writable != 0).into(),
+                        executable: (cache.executable != 0).into(),
+                        expand_down: (cache.expand_down != 0).into(),
+                        big: (cache.big != 0).into(),
+                    },
+                    None,
+                )
             }
-            ExecutionProfile::Protected(_) => self.runtime.resolve_segment(
-                &mut self.body,
-                segment,
-                selector,
-                |body, exception| self.state.fault(body, &self.eip, self.completed, exception),
-            )?,
+            ExecutionProfile::Protected(_) => {
+                let resolved = self.runtime.resolve_segment(
+                    &mut self.body,
+                    segment,
+                    selector,
+                    |body, exception| self.state.fault(body, &self.eip, self.completed, exception),
+                )?;
+                (resolved.cache, Some(resolved.accessed_byte))
+            }
         };
-        Ok(ResolvedSegment { segment, values })
+        Ok(ResolvedSegment {
+            segment,
+            values,
+            accessed_byte,
+        })
     }
 
     /// Reads an offset followed by a selector through the entry address and cache.

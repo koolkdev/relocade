@@ -1,10 +1,8 @@
 use relocade_compiler::{abi::Function, Program, I64};
 use relocade_x86::{abi, ExecutionExit};
-use std::{ops::ControlFlow, sync::Arc};
+use std::ops::ControlFlow;
 
-use crate::{
-    with_host_call, DispatchEntry, HostCall, Result, Runtime, RuntimeBackend, RuntimeState,
-};
+use crate::{DispatchEntry, HostCall, Result, Runtime, RuntimeBackend, RuntimeState};
 
 type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync;
 
@@ -75,19 +73,11 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
                 body.tail_call(dispatch, &[])
             })?;
             program.export(name, function)?;
-            let config = Arc::clone(&self.config);
-            let context = self.storage.context.clone();
-            let guest = self.storage.guest.clone();
+            let memory = self.storage.memory.clone();
             imports.push(self.storage.access.bind_host(
                 declaration,
                 Box::new(move |mut caller| {
-                    let flow = with_host_call(
-                        &config,
-                        &mut caller,
-                        context.clone(),
-                        guest.clone(),
-                        |call| (hook.handler)(call),
-                    );
+                    let flow = memory.with_host_call(&mut caller, |call| (hook.handler)(call));
                     match flow {
                         ControlFlow::Continue(()) => 0,
                         ControlFlow::Break(exit) => exit.to_bits() as i64,

@@ -1,4 +1,7 @@
-use relocade_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
+use relocade_x86::{
+    CpuState, Segment, Segments, StoredFlags, StoredSegment, StoredSystemSegment,
+    StoredTableRegister,
+};
 use std::mem::offset_of;
 
 use crate::{ConfigurationError, MachineConfig, MachineStorage};
@@ -124,6 +127,48 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
         Segments::from_bytes(self.read(offset_of!(CpuState, segments)))
     }
 
+    pub fn gdtr(&self) -> StoredTableRegister {
+        StoredTableRegister::from_bytes(self.read(offset_of!(CpuState, gdtr)))
+    }
+
+    pub fn set_gdtr(&mut self, value: StoredTableRegister) {
+        self.storage
+            .write_cpu(offset_of!(CpuState, gdtr) as u32, &value.to_bytes());
+    }
+
+    pub fn idtr(&self) -> StoredTableRegister {
+        StoredTableRegister::from_bytes(self.read(offset_of!(CpuState, idtr)))
+    }
+
+    pub fn set_idtr(&mut self, value: StoredTableRegister) -> Result<(), ConfigurationError> {
+        crate::config::validate_idtr(self.config.execution_target().profile, value)?;
+        self.storage
+            .write_cpu(offset_of!(CpuState, idtr) as u32, &value.to_bytes());
+        Ok(())
+    }
+
+    pub fn ldtr(&self) -> StoredSystemSegment {
+        StoredSystemSegment::from_bytes(self.read(offset_of!(CpuState, ldtr)))
+    }
+
+    pub fn set_ldtr(&mut self, value: StoredSystemSegment) -> Result<(), ConfigurationError> {
+        crate::config::validate_system_segment(value, true)?;
+        self.storage
+            .write_cpu(offset_of!(CpuState, ldtr) as u32, &value.to_bytes());
+        Ok(())
+    }
+
+    pub fn tr(&self) -> StoredSystemSegment {
+        StoredSystemSegment::from_bytes(self.read(offset_of!(CpuState, tr)))
+    }
+
+    pub fn set_tr(&mut self, value: StoredSystemSegment) -> Result<(), ConfigurationError> {
+        crate::config::validate_system_segment(value, false)?;
+        self.storage
+            .write_cpu(offset_of!(CpuState, tr) as u32, &value.to_bytes());
+        Ok(())
+    }
+
     /// Copies the complete CPU backing image, including x87 and SIMD state.
     pub fn snapshot(&self) -> CpuState {
         CpuState::from_bytes(self.read(0))
@@ -131,7 +176,7 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
 
     /// Restores a compatible CPU snapshot without changing the execution budget.
     pub fn restore(&mut self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
-        self.check_segments(&snapshot.segments)?;
+        crate::config::validate_cpu(self.config.execution_target(), snapshot)?;
         self.storage.write_cpu(0, &snapshot.to_bytes());
         Ok(())
     }

@@ -57,20 +57,20 @@ mod tests {
     #[test]
     fn context_layout_keeps_cpu_snapshot_and_execution_controls_distinct() {
         assert_eq!(offset_of!(ExecutionContext, cpu), 0);
-        assert_eq!(offset_of!(ExecutionContext, instruction_target), 488);
-        assert_eq!(offset_of!(ExecutionContext, cpu_model), 496);
-        assert_eq!(ExecutionContext::BYTE_LEN, 504);
+        assert_eq!(offset_of!(ExecutionContext, instruction_target), 536);
+        assert_eq!(offset_of!(ExecutionContext, cpu_model), 544);
+        assert_eq!(ExecutionContext::BYTE_LEN, 552);
         let context = ExecutionContext {
             cpu: CpuState::filled(0xa5),
             instruction_target: 0x0807_0605_0403_0201,
             cpu_model: CpuModel::default().with_feature(crate::CpuFeature::Cmov, false),
         };
         let bytes = context.to_bytes();
-        assert_eq!(&bytes[..488], &[0xa5; 488]);
-        assert_eq!(&bytes[488..496], &[1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(&bytes[496..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(&bytes[..536], &[0xa5; 536]);
+        assert_eq!(&bytes[536..544], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(&bytes[544..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
         assert_eq!(
-            &ExecutionContext::default().to_bytes()[488..496],
+            &ExecutionContext::default().to_bytes()[536..544],
             &[0xff; 8]
         );
     }

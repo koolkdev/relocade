@@ -2,7 +2,7 @@
 
 use crate::state::{Segments, StoredSegment};
 
-use super::SegmentDefaultSize;
+use super::{Segment, SegmentDefaultSize};
 
 /// Protected-mode segment assumptions fixed when an entry is compiled.
 /// Used by [`crate::ExecutionProfile::Protected`]; 16-bit code defaults do not
@@ -30,37 +30,68 @@ impl SegmentProfile {
     /// Tests the properties assumed by this profile, rather than comparing
     /// selectors or requiring every byte of a segment cache to remain unchanged.
     pub fn is_compatible_with(self, segments: &Segments) -> bool {
-        let cs = &segments.cs;
-        if cs.big != u8::from(self.code_default_size() == SegmentDefaultSize::Bits32) {
-            return false;
-        }
-        match self {
-            Self::Flat32 => {
-                segments.ss.big == 1
-                    && flat_range(cs)
-                    && cs.usable == 1
-                    && cs.readable == 1
-                    && cs.writable == 0
-                    && cs.executable == 1
-                    && cs.expand_down == 0
-                    && [&segments.ds, &segments.es, &segments.ss]
-                        .into_iter()
-                        .all(|segment| {
-                            flat_range(segment)
-                                && segment.usable == 1
-                                && segment.readable == 1
-                                && segment.writable == 1
-                                && segment.executable == 0
-                                && segment.expand_down == 0
-                        })
+        Segment::ALL
+            .into_iter()
+            .all(|segment| self.assumptions(segment).matches(&segments[segment]))
+    }
+
+    pub(crate) fn assumptions(self, segment: Segment) -> SegmentAssumptions {
+        let mut assumptions = SegmentAssumptions::default();
+        if self == Self::Flat32
+            && matches!(
+                segment,
+                Segment::Cs | Segment::Ds | Segment::Es | Segment::Ss
+            )
+        {
+            assumptions.base = Some(0);
+            assumptions.limit = Some(u32::MAX);
+            assumptions.usable = Some(1);
+            assumptions.readable = Some(1);
+            assumptions.writable = Some(u8::from(segment != Segment::Cs));
+            assumptions.executable = Some(u8::from(segment == Segment::Cs));
+            assumptions.expand_down = Some(0);
+            if segment == Segment::Ss {
+                assumptions.big = Some(1);
             }
-            Self::Segmented32 | Self::Segmented16 => true,
         }
+        if segment == Segment::Cs {
+            assumptions.big = Some(u8::from(
+                self.code_default_size() == SegmentDefaultSize::Bits32,
+            ));
+        }
+        assumptions
     }
 }
 
-fn flat_range(segment: &StoredSegment) -> bool {
-    segment.base == 0 && segment.limit == u32::MAX
+/// Facts shared by host validation, generated cache reads and entry admission.
+/// Selectors never constrain these protected-mode profiles.
+#[derive(Default)]
+pub(crate) struct SegmentAssumptions {
+    pub(crate) base: Option<u32>,
+    pub(crate) limit: Option<u32>,
+    pub(crate) usable: Option<u8>,
+    pub(crate) readable: Option<u8>,
+    pub(crate) writable: Option<u8>,
+    pub(crate) executable: Option<u8>,
+    pub(crate) expand_down: Option<u8>,
+    pub(crate) big: Option<u8>,
+}
+
+impl SegmentAssumptions {
+    fn matches(&self, cache: &StoredSegment) -> bool {
+        self.base.is_none_or(|value| cache.base == value)
+            && self.limit.is_none_or(|value| cache.limit == value)
+            && self.usable.is_none_or(|value| cache.usable == value)
+            && self.readable.is_none_or(|value| cache.readable == value)
+            && self.writable.is_none_or(|value| cache.writable == value)
+            && self
+                .executable
+                .is_none_or(|value| cache.executable == value)
+            && self
+                .expand_down
+                .is_none_or(|value| cache.expand_down == value)
+            && self.big.is_none_or(|value| cache.big == value)
+    }
 }
 
 #[cfg(test)]

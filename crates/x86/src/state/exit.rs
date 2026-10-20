@@ -15,6 +15,7 @@ const SIMD_FLOATING_POINT: u64 = 512 << 48;
 const BUDGET_EXHAUSTED: u64 = 1 << 63;
 const HOST_RETURN: u64 = 1 << 62;
 const DEFERRED: u64 = 1 << 61;
+const PROFILE_CHANGED: u64 = 1 << 60;
 
 /// A return from a generated execution entry.
 ///
@@ -25,6 +26,10 @@ pub enum ExecutionExit {
     /// A host-call function requested a return to the embedding.
     /// The embedding owns the reason, such as process termination or a service error.
     HostReturn,
+    /// Loaded segment caches no longer satisfy the dispatcher's fixed profile.
+    /// The previous instruction has completed; no incompatible entry was run.
+    /// The embedding must establish a compatible profile before continuing.
+    ProfileChanged,
     /// A host-call function queued work to be awaited outside guest execution.
     /// Runtime hooks produce this exit through `HostCall::defer`; returning it
     /// without a queued handler is a programming error.
@@ -44,6 +49,7 @@ impl ExecutionExit {
     pub fn to_bits(self) -> u64 {
         match self {
             Self::HostReturn => HOST_RETURN,
+            Self::ProfileChanged => PROFILE_CHANGED,
             Self::Deferred => DEFERRED,
             Self::BudgetExhausted => BUDGET_EXHAUSTED,
             Self::UnsupportedInstruction { eip, opcode } => {
@@ -89,6 +95,9 @@ impl ExecutionExit {
             HOST_RETURN if payload == 0 && address == 0 => {
                 return Some(Self::HostReturn);
             }
+            PROFILE_CHANGED if payload == 0 && address == 0 => {
+                return Some(Self::ProfileChanged);
+            }
             DEFERRED if payload == 0 && address == 0 => {
                 return Some(Self::Deferred);
             }
@@ -123,6 +132,10 @@ impl ExecutionExit {
         };
         Some(Self::Exception(exception))
     }
+}
+
+pub(crate) fn profile_changed(body: BlockBuilder<'_>) -> Result<(), BuildError> {
+    body.return_(PROFILE_CHANGED)
 }
 
 /// CPU state must already describe the completed block.

@@ -70,13 +70,13 @@ pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;
 pub use segment::{
-    DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
+    Descriptor, DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
     SegmentDescriptorInfo, SegmentDescriptorKind, SegmentLimit, SegmentProfile,
 };
 pub use state::{
     CpuState, ExecutionContext, ExecutionExit, FlagBytes, Registers, Segments, StoredFlags,
-    StoredSegment, StoredSimd, StoredStatusSource, StoredX87, StoredX87Control, StoredX87Register,
-    StoredX87Status,
+    StoredSegment, StoredSimd, StoredStatusSource, StoredSystemSegment, StoredTableRegister,
+    StoredX87, StoredX87Control, StoredX87Register, StoredX87Status,
 };
 
 /// A WebAssembly module and the exported function that enters it.

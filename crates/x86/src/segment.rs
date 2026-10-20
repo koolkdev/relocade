@@ -3,6 +3,7 @@
 mod access;
 mod descriptor;
 mod limit;
+mod packed;
 mod profile;
 mod query;
 mod selection;
@@ -12,6 +13,7 @@ use relocade_compiler::{Val, I1, I16, I32};
 
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use limit::SegmentLimit;
+pub use packed::Descriptor;
 pub use profile::SegmentProfile;
 pub use query::SegmentDescriptorInfo;
 pub(crate) use selection::SegmentSelection;

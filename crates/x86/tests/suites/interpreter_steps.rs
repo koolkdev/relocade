@@ -93,12 +93,13 @@ fn interpreter_step_exposes_host_abis() {
             ("dispatch", (vec![], vec![ValType::I64])),
             (
                 "resolveSegment",
-                (vec![ValType::I32; 2], vec![ValType::I32; 11])
+                (vec![ValType::I32; 2], vec![ValType::I32; 12])
             ),
             (
                 "querySegmentDescriptor",
-                (vec![ValType::I32], vec![ValType::I32; 5])
+                (vec![ValType::I32], vec![ValType::I32; 6])
             ),
+            ("markSegmentAccessed", (vec![ValType::I32], vec![])),
         ]
     );
     assert_eq!(
