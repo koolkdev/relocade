@@ -14,6 +14,7 @@ const FLOATING_POINT: u64 = 256 << 48;
 const SIMD_FLOATING_POINT: u64 = 512 << 48;
 const BUDGET_EXHAUSTED: u64 = 1 << 63;
 const HOST_RETURN: u64 = 1 << 62;
+const DEFERRED: u64 = 1 << 61;
 
 /// A return from a generated execution entry.
 ///
@@ -24,6 +25,8 @@ pub enum ExecutionExit {
     /// A host-call function requested a return to the embedding.
     /// The embedding owns the reason, such as process termination or a service error.
     HostReturn,
+    /// A host-call function deferred work to be awaited outside guest execution.
+    Deferred,
     /// The instruction budget was consumed at a completed block boundary.
     BudgetExhausted,
     Exception(Exception),
@@ -39,6 +42,7 @@ impl ExecutionExit {
     pub fn to_bits(self) -> u64 {
         match self {
             Self::HostReturn => HOST_RETURN,
+            Self::Deferred => DEFERRED,
             Self::BudgetExhausted => BUDGET_EXHAUSTED,
             Self::UnsupportedInstruction { eip, opcode } => {
                 UNSUPPORTED_INSTRUCTION | (u64::from(opcode) << 32) | u64::from(eip)
@@ -82,6 +86,9 @@ impl ExecutionExit {
         let exception = match tag {
             HOST_RETURN if payload == 0 && address == 0 => {
                 return Some(Self::HostReturn);
+            }
+            DEFERRED if payload == 0 && address == 0 => {
+                return Some(Self::Deferred);
             }
             BUDGET_EXHAUSTED if payload == 0 && address == 0 => {
                 return Some(Self::BudgetExhausted);

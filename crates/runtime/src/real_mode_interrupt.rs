@@ -6,7 +6,7 @@
 //! [`set_carry`] or [`set_zero`] before returning.
 
 use crate::HostCall;
-use relocade_x86::Segment;
+use relocade_x86::{ExecutionExit, Segment};
 use std::ops::ControlFlow;
 
 /// NOP reserves the hook entry; IRET performs the interrupt return in the guest.
@@ -40,7 +40,7 @@ fn set_flag<T>(call: &mut HostCall<'_, T>, mask: u8, value: bool) {
 
 /// Resumes at the IRET in [`HOOK_STUB`], preserving the interrupt frame.
 /// The current CS:IP must point to the stub's hook entry.
-pub fn return_from_interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<()> {
+pub fn return_from_interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> {
     let mut cpu = call.cpu();
     let iret_ip = (cpu.eip() as u16).wrapping_add(1);
     cpu.set_eip(u32::from(iret_ip));

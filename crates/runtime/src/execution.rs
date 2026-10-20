@@ -1,6 +1,4 @@
-use crate::{
-    callback::DeferredCall, Error, HostCall, Result, Runtime, RuntimeBackend, RuntimeState, Storage,
-};
+use crate::{Error, HostCall, Result, Runtime, RuntimeBackend, RuntimeState, Storage};
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
@@ -10,17 +8,13 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
     /// Zero does not enter Wasm. The target saturates at u64::MAX.
     ///
-    /// A deferred host operation returns HostReturn. Subsequent synchronous runs
-    /// also return HostReturn without polling it; use `run_async` to wait and resume.
+    /// A deferred host operation returns Deferred. Subsequent synchronous runs
+    /// also return Deferred without polling it; use `run_async` to wait and resume.
     /// An interrupted async handler returns `Error::CancelledHostCall` until
     /// the embedding replaces its continuation and clears the pending call.
     pub fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
-        }
-        self.check_host_call()?;
-        if self.has_pending_call() {
-            return Ok(ExecutionExit::HostReturn);
         }
         let target = self.instruction_target(instruction_budget);
         self.enter(target)
@@ -43,27 +37,15 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
         }
-        self.check_host_call()?;
         let target = self.instruction_target(instruction_budget);
-        loop {
-            // Release the backend's state guard before borrowing it for the handler.
-            let pending = self.storage.access.state_mut().pending.take();
-            if let Some(handler) = pending {
-                if self.run_deferred(handler).await.is_break() && !self.has_pending_call() {
-                    return Ok(ExecutionExit::HostReturn);
-                }
-                continue;
-            }
-            let exit = self.enter(target)?;
-            if exit != ExecutionExit::HostReturn || !self.has_pending_call() {
-                return Ok(exit);
-            }
+        let mut exit = self.enter(target)?;
+        while exit == ExecutionExit::Deferred {
+            exit = match self.run_deferred().await {
+                ControlFlow::Continue(()) => self.enter(target)?,
+                ControlFlow::Break(exit) => exit,
+            };
         }
-    }
-
-    /// Whether a hook has a queued or interrupted async handler.
-    pub fn has_pending_call(&self) -> bool {
-        self.host_call_incomplete || self.storage.access.state().pending.is_some()
+        Ok(exit)
     }
 
     /// Drops a queued handler and clears any interrupted call, without changing CPU state.
@@ -75,14 +57,6 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         drop(pending);
     }
 
-    fn check_host_call(&self) -> Result<()> {
-        if self.host_call_incomplete {
-            Err(Error::CancelledHostCall)
-        } else {
-            Ok(())
-        }
-    }
-
     fn instruction_target(&mut self, instruction_budget: u64) -> u64 {
         self.machine()
             .cpu()
@@ -91,12 +65,27 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     }
 
     fn enter(&mut self, target: u64) -> Result<ExecutionExit> {
+        if self.host_call_incomplete {
+            return Err(Error::CancelledHostCall);
+        }
+        // A previous synchronous run may already have stopped at a deferred call.
+        if self.storage.access.state().pending.is_some() {
+            return Ok(ExecutionExit::Deferred);
+        }
         self.storage.set_instruction_target(target);
         let word = self.storage.access.call(&self.dispatch)? as u64;
         ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
     }
 
-    async fn run_deferred(&mut self, handler: Box<dyn DeferredCall<T>>) -> ControlFlow<()> {
+    async fn run_deferred(&mut self) -> ControlFlow<ExecutionExit> {
+        // Release the backend's state guard before borrowing it for the handler.
+        let handler = self
+            .storage
+            .access
+            .state_mut()
+            .pending
+            .take()
+            .expect("deferred exit must have a handler");
         // Cancellation leaves this set so a later run cannot replay the hook.
         self.host_call_incomplete = true;
         let context = self.storage.context.clone();

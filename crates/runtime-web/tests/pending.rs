@@ -147,12 +147,11 @@ async fn check_pending_calls() {
         .await
         .unwrap();
 
-    assert_eq!(runtime.run(6).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(runtime.run(6).unwrap(), ExecutionExit::Deferred);
     let suspended = runtime.machine().cpu().snapshot();
     assert_eq!(suspended.instruction_count, 1);
     assert_eq!(suspended.registers.esp, 0xfefa);
-    assert!(runtime.has_pending_call());
-    assert_eq!(runtime.run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(runtime.run(100).unwrap(), ExecutionExit::Deferred);
     assert_eq!(runtime.machine().cpu().snapshot(), suspended);
     assert_eq!(
         runtime.run_async(0).await.unwrap(),
@@ -160,7 +159,6 @@ async fn check_pending_calls() {
     );
     // An unpolled run has not started or cancelled the queued handler.
     drop(runtime.run_async(5));
-    assert!(runtime.has_pending_call());
     let wakes = Arc::new(WakeCount::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
@@ -184,7 +182,6 @@ async fn check_pending_calls() {
         ));
     }
     // Both suspensions shared the original target, ending at the second IRET.
-    assert!(!runtime.has_pending_call());
     assert_eq!(state.started.get(), 2);
     assert_eq!(state.first_awaits.get(), 2);
     assert_eq!(state.completed.get(), 2);
@@ -200,10 +197,8 @@ async fn check_pending_calls() {
     runtime.machine().memory().read(0x300, &mut bytes).unwrap();
     assert_eq!(bytes, [70, 0]);
 
-    assert_eq!(runtime.run(10).unwrap(), ExecutionExit::HostReturn);
-    assert!(runtime.has_pending_call());
+    assert_eq!(runtime.run(10).unwrap(), ExecutionExit::Deferred);
     runtime.cancel_pending_call();
-    assert!(!runtime.has_pending_call());
     assert_eq!(state.dropped.get(), 3);
     assert_eq!(state.completed.get(), 2);
 
@@ -217,7 +212,6 @@ async fn check_pending_calls() {
         state.send(&[55]);
         assert!(run.as_mut().poll(&mut cx).is_pending());
     }
-    assert!(runtime.has_pending_call());
     assert_eq!(runtime.machine().cpu().bx(), 55);
     assert_eq!(state.dropped.get(), 4);
     assert!(matches!(runtime.run(1), Err(Error::CancelledHostCall)));
@@ -254,7 +248,7 @@ async fn check_pending_calls() {
                 let value = std::future::ready(value + 1).await;
                 assert_eq!(call.cpu().bx(), 99);
                 call.cpu().set_cx(value);
-                std::ops::ControlFlow::Break(())
+                std::ops::ControlFlow::Break(ExecutionExit::HostReturn)
             })
         })])
         .await
@@ -266,7 +260,6 @@ async fn check_pending_calls() {
     assert_eq!(runtime.machine().cpu().cx(), 100);
     assert_eq!(runtime.machine().cpu().eip(), 0x500);
     assert_eq!(runtime.machine().cpu().instruction_count(), count);
-    assert!(!runtime.has_pending_call());
 }
 
 #[cfg(not(target_arch = "wasm32"))]

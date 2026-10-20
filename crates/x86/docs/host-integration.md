@@ -982,11 +982,13 @@ tag, 16-bit payload and 32-bit address. These tags are independent of architectu
 exception vector numbers:
 
 Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
-`Exception`, an unsupported-instruction diagnostic, `BudgetExhausted`, or
-`HostReturn` requested by a host-call function. The embedding owns the reason
-for a host return. Unknown tags and nonzero reserved fields return `None`. Host-defined values returned by `dispatch` or
-`interpret` must be distinguished before decoding; either callback may return
-any i64. Track callback results or use a distinct result convention. If a callback
+`Exception`, an unsupported-instruction diagnostic, `BudgetExhausted`, or a
+`HostReturn` or `Deferred` requested by a host-call function. The embedding owns
+the reason for a host return. Deferred work is awaited by the runtime after the
+guest call returns. Unknown tags and nonzero reserved fields return `None`.
+Host-defined values returned by `dispatch` or `interpret` must be distinguished
+before decoding; either callback may return any i64. Track callback results or
+use a distinct result convention. If a callback
 continues guest execution, classify the resulting execution outcome according to
 that callback's contract. A matching exit word alone does not establish its source.
 
@@ -1002,6 +1004,7 @@ that callback's contract. A matching exit word alone does not establish its sour
 | Invalid opcode | 128 | Zero | Zero |
 | Floating-point error | 256 | Zero | Zero |
 | SIMD floating-point exception | 512 | Zero | Zero |
+| Deferred host call | 8192 | Zero | Zero |
 | Host return | 16384 | Zero | Zero |
 | Instruction budget exhausted | 32768 | Zero | Zero |
 

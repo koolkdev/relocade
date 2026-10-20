@@ -783,6 +783,7 @@ version = "0.0.0"
 dependencies = [
  "relocade-machine",
  "relocade-runtime",
+ "relocade-x86",
 ]
 
 [[package]]

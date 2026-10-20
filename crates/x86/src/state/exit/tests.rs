@@ -209,6 +209,18 @@ fn instruction_budget_exit_has_no_payload() {
 }
 
 #[test]
+fn deferred_host_call_has_no_payload() {
+    assert_eq!(ExecutionExit::Deferred.to_bits(), 0x2000_0000_0000_0000);
+    assert_eq!(
+        ExecutionExit::from_bits(0x2000_0000_0000_0000),
+        Some(ExecutionExit::Deferred)
+    );
+    assert_eq!(ExecutionExit::from_bits(0x2000_0000_0000_0001), None);
+    assert_eq!(ExecutionExit::from_bits(0x2000_0001_0000_0000), None);
+    assert_eq!(ExecutionExit::from_bits(0x6000_0000_0000_0000), None);
+}
+
+#[test]
 fn host_return_has_no_payload() {
     assert_eq!(ExecutionExit::HostReturn.to_bits(), 0x4000_0000_0000_0000);
     assert_eq!(

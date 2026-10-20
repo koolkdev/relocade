@@ -1,4 +1,4 @@
-use relocade_compiler::{abi::Function, Program, I1};
+use relocade_compiler::{abi::Function, Program, I64};
 use relocade_x86::{abi, ExecutionExit};
 use std::{ops::ControlFlow, sync::Arc};
 
@@ -6,7 +6,7 @@ use crate::{
     with_host_call, DispatchEntry, HostCall, Result, Runtime, RuntimeBackend, RuntimeState,
 };
 
-type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<()> + Send + Sync;
+type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync;
 
 /// A host function reached at a guest linear address through ordinary dispatch.
 /// `T` is the backend's environment state, borrowed through the caller.
@@ -14,11 +14,12 @@ type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<()> + Send + Sync;
 /// ```
 /// use std::ops::ControlFlow;
 /// use relocade_runtime::{Hook, HostCall};
+/// use relocade_x86::ExecutionExit;
 ///
-/// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> ControlFlow<()> {
+/// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> ControlFlow<ExecutionExit> {
 ///     let code = call.cpu().al();
 ///     *call.state_mut() = Some(code);
-///     ControlFlow::Break(())
+///     ControlFlow::Break(ExecutionExit::HostReturn)
 /// }
 /// let hook = Hook::new(0xf0100, terminate);
 /// ```
@@ -29,13 +30,13 @@ pub struct Hook<T = ()> {
 
 impl<T> Hook<T> {
     /// On Continue, the handler must set the guest continuation in CPU state.
-    /// Break returns `ExecutionExit::HostReturn` without changing that state.
+    /// Break returns its execution exit without changing that state.
     /// Interrupt/ABI return conventions belong to the handler's environment.
     /// Captures must be Send + Sync. Mutable environment data belongs in the
     /// caller's state, which does not need to be Send or Sync.
     pub fn new(
         address: u32,
-        handler: impl Fn(&mut HostCall<'_, T>) -> ControlFlow<()> + Send + Sync + 'static,
+        handler: impl Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync + 'static,
     ) -> Self {
         Self {
             address,
@@ -63,13 +64,11 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         let mut imports = Vec::new();
         let mut entries = Vec::new();
         for (hook, name) in hooks.into_iter().zip(&names) {
-            let declaration: Function<fn() -> I1> = Function::new("hooks", name);
+            let declaration: Function<fn() -> I64> = Function::new("hooks", name);
             let import = program.import_function(declaration);
             let function = program.function(abi::RUN.signature(), |mut body| {
-                let resume = body.call::<I1>(import, &[])?;
-                body.if_(resume.eq(false), |stop| {
-                    stop.return_(ExecutionExit::HostReturn.to_bits())
-                })?;
+                let exit = body.call::<I64>(import, &[])?;
+                body.if_(exit.ne(0), |stop| stop.return_(exit))?;
                 body.tail_call(dispatch, &[])
             })?;
             program.export(name, function)?;
@@ -86,7 +85,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
                         guest.clone(),
                         |call| (hook.handler)(call),
                     );
-                    i32::from(flow.is_continue())
+                    match flow {
+                        ControlFlow::Continue(()) => 0,
+                        ControlFlow::Break(exit) => exit.to_bits() as i64,
+                    }
                 }),
             ));
             entries.push(DispatchEntry {

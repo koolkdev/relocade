@@ -82,7 +82,7 @@ async fn check_interrupt_hooks() {
                 real_mode_interrupt::set_carry(call, false);
                 real_mode_interrupt::return_from_interrupt(call)
             }),
-            Hook::new(0x400, |_| ControlFlow::Break(())),
+            Hook::new(0x400, |_| ControlFlow::Break(ExecutionExit::HostReturn)),
         ])
         .await
         .unwrap();
