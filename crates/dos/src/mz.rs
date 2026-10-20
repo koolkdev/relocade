@@ -119,7 +119,10 @@ pub(crate) fn load(
         SegmentRegister::real_mode(Segment::Ss, load_segment.wrapping_add(image.ss));
     cpu.eip = u32::from(image.ip);
     cpu.registers.esp = u32::from(image.sp);
-    machine.cpu().restore(&cpu);
+    machine
+        .cpu()
+        .restore(&cpu)
+        .expect("MZ entry state satisfies the real-mode execution target");
     Ok(psp_segment)
 }
 

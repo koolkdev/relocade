@@ -1,7 +1,10 @@
-use relocade_x86::{CpuState, FlagsState, Segment, SegmentRegister, Segments};
+use relocade_x86::{
+    CpuState, DescriptorTableRegister, FlagsState, Segment, SegmentRegister, Segments,
+    SystemSegmentRegister,
+};
 use std::mem::offset_of;
 
-use crate::{MachineConfig, MachineStorage};
+use crate::{ConfigurationError, MachineConfig, MachineStorage};
 
 /// A live view of published CPU state. Each register access transfers only its
 /// own bytes; there is no cached snapshot or deferred writeback.
@@ -123,6 +126,48 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
         Segments::from_bytes(self.read(offset_of!(CpuState, segments)))
     }
 
+    pub fn gdtr(&self) -> DescriptorTableRegister {
+        DescriptorTableRegister::from_bytes(self.read(offset_of!(CpuState, gdtr)))
+    }
+
+    pub fn set_gdtr(&mut self, value: DescriptorTableRegister) {
+        self.storage
+            .write_cpu(offset_of!(CpuState, gdtr) as u32, &value.to_bytes());
+    }
+
+    pub fn idtr(&self) -> DescriptorTableRegister {
+        DescriptorTableRegister::from_bytes(self.read(offset_of!(CpuState, idtr)))
+    }
+
+    pub fn set_idtr(&mut self, value: DescriptorTableRegister) -> Result<(), ConfigurationError> {
+        crate::config::validate_idtr(self.config.execution_target().profile, value)?;
+        self.storage
+            .write_cpu(offset_of!(CpuState, idtr) as u32, &value.to_bytes());
+        Ok(())
+    }
+
+    pub fn ldtr(&self) -> SystemSegmentRegister {
+        SystemSegmentRegister::from_bytes(self.read(offset_of!(CpuState, ldtr)))
+    }
+
+    pub fn set_ldtr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
+        crate::config::validate_system_segment(value, true)?;
+        self.storage
+            .write_cpu(offset_of!(CpuState, ldtr) as u32, &value.to_bytes());
+        Ok(())
+    }
+
+    pub fn tr(&self) -> SystemSegmentRegister {
+        SystemSegmentRegister::from_bytes(self.read(offset_of!(CpuState, tr)))
+    }
+
+    pub fn set_tr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
+        crate::config::validate_system_segment(value, false)?;
+        self.storage
+            .write_cpu(offset_of!(CpuState, tr) as u32, &value.to_bytes());
+        Ok(())
+    }
+
     /// Copies the complete CPU backing image, including x87 and SIMD state.
     pub fn snapshot(&self) -> CpuState {
         CpuState::from_bytes(self.read(0))
@@ -130,21 +175,13 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
 
     /// Restores a compatible CPU snapshot without changing the execution budget.
     ///
-    /// # Panics
-    /// Panics before writing if the snapshot violates the machine's execution target.
-    #[track_caller]
-    pub fn restore(&mut self, snapshot: &CpuState) {
-        self.check_segments(&snapshot.segments);
+    /// # Errors
+    /// Returns an error without writing if the snapshot violates the machine's
+    /// execution target.
+    pub fn restore(&mut self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
+        crate::config::validate_cpu(self.config.execution_target(), snapshot)?;
         self.storage.write_cpu(0, &snapshot.to_bytes());
-    }
-
-    #[track_caller]
-    fn check_segments(&self, segments: &Segments) {
-        let target = self.config.execution_target();
-        assert!(
-            target.profile.is_compatible_with(segments),
-            "CPU snapshot violates execution target {target:?}"
-        );
+        Ok(())
     }
 
     fn read<const N: usize>(&self, offset: usize) -> [u8; N] {
