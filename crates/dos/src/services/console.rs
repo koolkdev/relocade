@@ -1,10 +1,13 @@
-use super::return_to_host;
+use super::{
+    buffers::{transfer_count, write_wrapping},
+    return_to_host,
+};
 use crate::{interrupt::return_result, stdio::OutputStream, DosState, ServiceError};
 use relocade_runtime::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
     HostCall,
 };
-use relocade_x86::{ExecutionExit, Segment};
+use relocade_x86::{ExecutionExit, Segment, StoredSegment};
 use std::ops::ControlFlow;
 
 mod line;
@@ -55,21 +58,21 @@ fn return_character(call: &mut HostCall<'_, DosState>, byte: u8) -> ControlFlow<
 
 /// AH=0Ah: edit a line into DS:DX's buffer, whose capacity includes the final CR.
 pub(super) fn read_buffered(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
-    let base = call.cpu().segment(Segment::Ds).base;
+    let segment = call.cpu().segment(Segment::Ds);
     let offset = call.cpu().dx();
     let mut capacity = [0];
     call.memory()
-        .read(base + u32::from(offset), &mut capacity)
+        .read_segment(&segment, u32::from(offset), &mut capacity)
         .expect("real-mode line buffer");
     if capacity[0] == 0 {
         return return_from_interrupt(call);
     }
     let mut line = LineInput::new(capacity[0], 0, Echo::Stdout);
     match line.read_available(&mut call.state_mut().files) {
-        Ok(true) => return_line(call, base, offset, &line.bytes),
+        Ok(true) => return_line(call, &segment, offset, &line.bytes),
         Ok(false) => call.defer(async move |call| {
             match line.read_remaining(&mut call.state_mut().files).await {
-                Ok(()) => return_line(call, base, offset, &line.bytes),
+                Ok(()) => return_line(call, &segment, offset, &line.bytes),
                 Err(error) => return_result(call, Err(error)),
             }
         }),
@@ -79,19 +82,14 @@ pub(super) fn read_buffered(call: &mut HostCall<'_, DosState>) -> ControlFlow<Ex
 
 fn return_line(
     call: &mut HostCall<'_, DosState>,
-    base: u32,
+    segment: &StoredSegment,
     offset: u16,
     bytes: &[u8],
 ) -> ControlFlow<ExecutionExit> {
     let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
-    for (index, byte) in std::iter::once(&count).chain(bytes).enumerate() {
-        call.memory()
-            .write(
-                base + u32::from(offset.wrapping_add(1 + index as u16)),
-                &[*byte],
-            )
-            .expect("real-mode line buffer");
-    }
+    let mut memory = call.memory();
+    write_wrapping(&mut memory, segment, offset.wrapping_add(1), &[count]);
+    write_wrapping(&mut memory, segment, offset.wrapping_add(2), bytes);
     return_from_interrupt(call)
 }
 
@@ -137,14 +135,15 @@ fn return_handle_line(
 
 fn return_handle_buffer(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let cpu = call.cpu();
-    let count = usize::from(cpu.cx());
-    let address = cpu.segment(Segment::Ds).base + u32::from(cpu.dx());
+    let offset = cpu.dx();
+    let count = transfer_count(offset, cpu.cx());
+    let segment = cpu.segment(Segment::Ds);
     let line = &mut call.state_mut().files.stdio.console_line;
     let count = count.min(line.len());
     let bytes: Vec<_> = line.drain(..count).collect();
     if count != 0 {
         call.memory()
-            .write(address, &bytes)
+            .write_segment(&segment, u32::from(offset), &bytes)
             .expect("real-mode console read buffer");
     }
     call.cpu().set_ax(count as u16);
@@ -153,12 +152,12 @@ fn return_handle_buffer(call: &mut HostCall<'_, DosState>) -> ControlFlow<Execut
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
 pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
-    let base = call.cpu().segment(Segment::Ds).base;
+    let segment = call.cpu().segment(Segment::Ds);
     let start = call.cpu().dx();
     for index in 0..=u16::MAX {
         let mut byte = [0];
         call.memory()
-            .read(base + u32::from(start.wrapping_add(index)), &mut byte)
+            .read_segment(&segment, u32::from(start.wrapping_add(index)), &mut byte)
             .expect("real-mode byte address");
         if byte[0] == b'$' {
             call.cpu().set_al(b'$');

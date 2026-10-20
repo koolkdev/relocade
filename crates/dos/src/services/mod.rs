@@ -1,5 +1,6 @@
 //! DOS interrupt dispatch and service handlers.
 
+mod buffers;
 mod console;
 mod directories;
 mod files;
