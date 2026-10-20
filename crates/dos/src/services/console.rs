@@ -1,5 +1,5 @@
 use super::return_to_host;
-use crate::{interrupt::return_result, DosState, ServiceError};
+use crate::{interrupt::return_result, stdio::OutputStream, DosState, ServiceError};
 use relocade_runtime::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
     HostCall,
@@ -8,7 +8,10 @@ use relocade_x86::{ExecutionExit, Segment};
 use std::ops::ControlFlow;
 
 mod line;
-use line::LineInput;
+use line::{Echo, LineInput};
+
+// DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
+const CONSOLE_LINE_CAPACITY: u8 = 128;
 
 /// AH=06h: DL=FFh polls stdin without echo; other values write a byte to stdout.
 pub(super) fn direct_io(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
@@ -61,7 +64,7 @@ pub(super) fn read_buffered(call: &mut HostCall<'_, DosState>) -> ControlFlow<Ex
     if capacity[0] == 0 {
         return return_from_interrupt(call);
     }
-    let mut line = LineInput::new(capacity[0]);
+    let mut line = LineInput::new(capacity[0], 0, Echo::Stdout);
     match line.read_available(&mut call.state_mut().files) {
         Ok(true) => return_line(call, base, offset, &line.bytes),
         Ok(false) => call.defer(async move |call| {
@@ -90,6 +93,54 @@ fn return_line(
             .expect("real-mode line buffer");
     }
     return_from_interrupt(call)
+}
+
+/// AH=3Fh on a console input handle: read from one edited line, retaining its remainder.
+pub(super) fn read_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    if call.cpu().cx() == 0 || !call.state().files.stdio.console_line.is_empty() {
+        return return_handle_buffer(call);
+    }
+    let mut line = LineInput::new(CONSOLE_LINE_CAPACITY, call.cpu().bx(), Echo::Console);
+    match line.read_available(&mut call.state_mut().files) {
+        Ok(true) => return_handle_line(call, line.bytes),
+        Ok(false) => call.defer(async move |call| {
+            match line.read_remaining(&mut call.state_mut().files).await {
+                Ok(()) => return_handle_line(call, line.bytes),
+                Err(error) => return_result(call, Err(error)),
+            }
+        }),
+        Err(error) => return_result(call, Err(error)),
+    }
+}
+
+fn return_handle_line(
+    call: &mut HostCall<'_, DosState>,
+    mut bytes: Vec<u8>,
+) -> ControlFlow<ExecutionExit> {
+    let stdio = &mut call.state_mut().files.stdio;
+    stdio.output(OutputStream::Stdout).extend(b"\n");
+    // Ctrl-Z at the start of a console line reports EOF.
+    if bytes.first() != Some(&0x1a) {
+        bytes.push(b'\n');
+        stdio.console_line.extend(bytes);
+    }
+    return_handle_buffer(call)
+}
+
+fn return_handle_buffer(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    let cpu = call.cpu();
+    let count = usize::from(cpu.cx());
+    let address = cpu.segment(Segment::Ds).base + u32::from(cpu.dx());
+    let line = &mut call.state_mut().files.stdio.console_line;
+    let count = count.min(line.len());
+    let bytes: Vec<_> = line.drain(..count).collect();
+    if count != 0 {
+        call.memory()
+            .write(address, &bytes)
+            .expect("real-mode console read buffer");
+    }
+    call.cpu().set_ax(count as u16);
+    return_result(call, Ok(()))
 }
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.

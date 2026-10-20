@@ -93,7 +93,7 @@ impl Files {
 
     /// Reads one raw character from a console or redirected file handle.
     pub(crate) fn read_character(&mut self, handle: u16) -> Result<Option<u8>, DosError> {
-        if matches!(self.handle(handle)?, OpenHandle::ConsoleInput) {
+        if self.is_console_input(handle)? {
             return Ok(self.stdio.input.try_read());
         }
         let mut byte = [0];
@@ -105,7 +105,8 @@ impl Files {
         &self,
         handle: u16,
     ) -> Result<impl Future<Output = u8> + 'static, DosError> {
-        let input = matches!(self.handle(handle)?, OpenHandle::ConsoleInput)
+        let input = self
+            .is_console_input(handle)?
             .then(|| self.stdio.input.read_character());
         Ok(async move {
             match input {
@@ -114,6 +115,10 @@ impl Files {
                 None => pending().await,
             }
         })
+    }
+
+    pub(crate) fn is_console_input(&self, handle: u16) -> Result<bool, DosError> {
+        Ok(matches!(self.handle(handle)?, OpenHandle::ConsoleInput))
     }
 
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {

@@ -123,8 +123,13 @@ pub(super) fn force_duplicate(call: &mut HostCall<'_, DosState>) -> ControlFlow<
 
 /// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
 pub(super) fn read(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    let handle = call.cpu().bx();
+    match call.state().files.is_console_input(handle) {
+        Ok(true) => return super::console::read_handle(call),
+        Ok(false) => {}
+        Err(error) => return return_result(call, Err(error)),
+    }
     let cpu = call.cpu();
-    let handle = cpu.bx();
     let count = usize::from(cpu.cx());
     let address = cpu.segment(Segment::Ds).base + u32::from(cpu.dx());
     let mut bytes = vec![0; count];
