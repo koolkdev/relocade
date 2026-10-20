@@ -60,6 +60,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             can_fallback: false,
             observed_cpu: None,
             successors: Vec::new(),
+            can_continue: true,
         }
     }
 

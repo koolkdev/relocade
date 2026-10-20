@@ -188,7 +188,7 @@ async fn stale_publication() {
     assert!(runtime.install_group(untracked).await.unwrap().is_none());
     runtime.machine().cpu().set_eip(0x1000);
     let group = runtime.prepare_group(&request).unwrap().unwrap();
-    runtime.machine().memory().write(0x2000, &[0x48]).unwrap();
+    runtime.machine().memory().write(0x2000, &[0x40]).unwrap();
     assert!(runtime.install_group(group).await.unwrap().is_none());
     let group = runtime.prepare_group(&request).unwrap().unwrap();
     runtime
@@ -274,6 +274,82 @@ async fn deferred_writes() {
     assert_eq!(runtime.compiled_group_count(), 0);
     assert_eq!(runtime.machine().cpu().ax(), 0xffff);
     assert_eq!(runtime.machine().cpu().instruction_count(), 2);
+}
+
+async fn owned_captures() {
+    let mut runtime = runtime().await;
+    runtime
+        .machine()
+        .memory()
+        .write(0x1000, &[0x40, 0xeb, 0xfd])
+        .unwrap();
+    runtime
+        .machine()
+        .memory()
+        .write(0x3000, &[0x43, 0xeb, 0xfd])
+        .unwrap();
+    let capture = |runtime: &mut Runtime<Backend<RuntimeState>>, start_eip| {
+        runtime
+            .capture_group(&[BlockRequest {
+                start_eip,
+                instruction_limit: u32::MAX,
+            }])
+            .unwrap()
+    };
+    let first = capture(&mut runtime, 0x1000);
+    let second = capture(&mut runtime, 0x3000);
+    // Writes outside consumed instructions, even on the same page, cannot
+    // starve a background job. The CPU may move on before publication too.
+    runtime.machine().memory().write(0x1005, &[0xcc]).unwrap();
+    runtime.machine().memory().write(0x5000, &[0x55]).unwrap();
+    runtime.machine().cpu().set_eip(0x3000);
+    let first = first.compile().unwrap().unwrap();
+    let second = second.compile().unwrap().unwrap();
+    assert!(runtime.install_group(second).await.unwrap().is_some());
+    assert!(runtime.install_group(first).await.unwrap().is_some());
+    assert_eq!(runtime.compiled_group_count(), 2);
+    assert_eq!(runtime.run(2).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.machine().cpu().bx(), 1);
+    runtime.machine().cpu().set_eip(0x1000);
+    assert_eq!(runtime.run(2).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.machine().cpu().ax(), 1);
+
+    let foreign = capture(&mut runtime, 0x1000);
+    let mut other = self::runtime().await;
+    other
+        .machine()
+        .memory()
+        .write(0x1000, &[0x40, 0xeb, 0xfd])
+        .unwrap();
+    assert!(other
+        .install_group(foreign.compile().unwrap().unwrap())
+        .await
+        .unwrap()
+        .is_none());
+
+    let pending = capture(&mut runtime, 0x3000);
+    runtime
+        .install_hooks([Hook::new(0x3001, |_| {
+            ControlFlow::Break(ExecutionExit::HostReturn)
+        })])
+        .await
+        .unwrap();
+    assert!(runtime
+        .install_group(pending.compile().unwrap().unwrap())
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn owned_captures_survive_unrelated_writes_and_publications() {
+    pollster::block_on(owned_captures());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn owned_captures_survive_unrelated_writes_and_publications() {
+    owned_captures().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -27,6 +27,9 @@ pub struct BlockEntry {
     pub byte_len: usize,
     /// Name of the `() -> i64` Wasm export.
     pub export: String,
+    /// Possible CS-relative successors eligible for same-module links, in sorted
+    /// order. Indirect transfers and required dispatch boundaries have no entries.
+    pub successors: Vec<u32>,
 }
 
 /// Snapshot blocks sharing one Wasm module, its imports and generated helpers.
@@ -182,5 +185,14 @@ impl Compiler {
         snapshots: &[BlockSnapshot<'_>],
     ) -> Result<CompiledBlocks, BlockError> {
         BlockModule::compile(self, snapshots, Linking::SameModule)
+    }
+
+    /// Analyzes snapshot boundaries and possible local successors using the same
+    /// decoding and lowering as compilation, without encoding a Wasm module.
+    pub fn analyze_blocks(
+        &self,
+        snapshots: &[BlockSnapshot<'_>],
+    ) -> Result<Vec<BlockEntry>, BlockError> {
+        Ok(BlockModule::lower(self, snapshots, Linking::SameModule)?.entries)
     }
 }

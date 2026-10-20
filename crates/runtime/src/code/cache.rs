@@ -15,7 +15,6 @@ pub(super) struct Group {
 }
 
 pub(crate) struct CodeState {
-    pub generation: u64,
     pub fixed: BTreeSet<u32>,
     pub(super) groups: BTreeMap<GroupId, Group>,
     map: PhysicalMemoryMap,
@@ -40,7 +39,6 @@ impl<M: Clone> CodeCache<M> {
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(CodeState {
-                generation: 0,
                 fixed: BTreeSet::new(),
                 groups: BTreeMap::new(),
                 map,
@@ -66,7 +64,6 @@ impl<M: Clone> CodeCache<M> {
         let last = ((u64::from(offset) + len as u64 - 1) / u64::from(PhysicalMemoryMap::PAGE_BYTES))
             as u32;
         let mut state = self.state.lock().unwrap();
-        state.advance();
         self.retire_matching(access, &mut state, |group| {
             group.pages.range(first..=last).next().is_some()
         });
@@ -79,7 +76,6 @@ impl<M: Clone> CodeCache<M> {
         addresses: &[u32],
     ) {
         let mut state = self.state.lock().unwrap();
-        state.advance();
         self.retire_matching(access, &mut state, |group| {
             addresses
                 .iter()
@@ -130,7 +126,6 @@ impl<M: Clone> CodeCache<M> {
         group: Group,
     ) -> GroupId {
         let mut state = self.state.lock().unwrap();
-        state.advance();
         state.next_id = state
             .next_id
             .checked_add(1)
@@ -149,13 +144,6 @@ impl<M: Clone> CodeCache<M> {
 }
 
 impl CodeState {
-    fn advance(&mut self) {
-        self.generation = self
-            .generation
-            .checked_add(1)
-            .expect("code generation capacity");
-    }
-
     pub fn boundaries(&self) -> BTreeSet<u32> {
         self.fixed
             .iter()
