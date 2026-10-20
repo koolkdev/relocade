@@ -26,7 +26,7 @@ impl ExecutionBuilder<'_, '_> {
         Ok(self)
     }
 
-    /// Resolves feature requirements without emitting faults or instruction effects.
+    /// Uses the target CPU model for JIT blocks and guest feature bits for the interpreter.
     pub(crate) fn cpu_feature_check(&self, features: &[CpuFeature]) -> CpuFeatureCheck {
         if let Some(bits) = &self.runtime_cpu_features {
             let required = features
