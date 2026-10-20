@@ -17,9 +17,16 @@
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
 //! Its capacity includes the terminating CR; the returned count excludes it.
 //! Queued complete lines return immediately; incomplete lines await further input.
+//! AH=3Fh on a console input handle reads an edited line with CRLF, retaining
+//! unread bytes for later reads through any duplicate of the console handle.
+//! Console handle input echoes to the console even when stdout is redirected.
+//! Leading Ctrl-Z sets EOF on that open console handle and its duplicates.
+//! Further handle reads return zero until AH=40h through that handle clears EOF
+//! or a program load replaces the handles.
 //! Keep the same run future alive while waiting; dropping an active read
 //! cancels it and requires reloading the program before further execution.
-//! Redirected file EOF remains blocked; host file growth does not wake the read yet.
+//! AH=07h/0Ah stay blocked at redirected file EOF; host file growth does not yet
+//! wake them. AH=3Fh file reads return zero at EOF.
 //! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
 //! [`Dos::stdout`] and [`Dos::stderr`] using `std::io` traits. Owned stream handles
 //! remain usable while an asynchronous run waits for input.

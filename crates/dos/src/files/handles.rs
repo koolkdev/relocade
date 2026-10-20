@@ -4,7 +4,7 @@ use super::{Files, ARCHIVE_ATTRIBUTE};
 use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
 use relocade_vfs::File;
 use std::{
-    cell::{RefCell, RefMut},
+    cell::{Cell, RefCell, RefMut},
     future::{pending, Future},
     rc::Rc,
 };
@@ -12,11 +12,20 @@ use std::{
 // A DOS process starts with 20 handles, including its five standard devices.
 pub(super) const HANDLE_COUNT: usize = 20;
 
+#[derive(Clone, Copy)]
+pub(crate) enum HandleType {
+    File,
+    ConsoleInput,
+    ConsoleOutput,
+    Auxiliary,
+    Printer,
+}
+
 #[derive(Clone)]
 pub(super) enum OpenHandle {
     // Separate opens have separate cursors; duplicated handles share this record.
     File(Rc<RefCell<OpenFile>>),
-    ConsoleInput,
+    ConsoleInput { eof: Rc<Cell<bool>> },
     ConsoleOutput(OutputStream),
     Auxiliary,
     Printer,
@@ -93,11 +102,16 @@ impl Files {
 
     /// Reads one raw character from a console or redirected file handle.
     pub(crate) fn read_character(&mut self, handle: u16) -> Result<Option<u8>, DosError> {
-        if matches!(self.handle(handle)?, OpenHandle::ConsoleInput) {
-            return Ok(self.stdio.input.try_read());
+        match self.handle_type(handle)? {
+            HandleType::ConsoleInput => Ok(self.stdio.input.try_read()),
+            HandleType::File => {
+                let mut byte = [0];
+                Ok((self.read(handle, &mut byte)? != 0).then_some(byte[0]))
+            }
+            HandleType::ConsoleOutput | HandleType::Auxiliary | HandleType::Printer => {
+                Err(DosError::AccessDenied)
+            }
         }
-        let mut byte = [0];
-        Ok((self.read(handle, &mut byte)? != 0).then_some(byte[0]))
     }
 
     /// Waits after an empty character read. Redirected EOF cannot consume console input.
@@ -105,8 +119,13 @@ impl Files {
         &self,
         handle: u16,
     ) -> Result<impl Future<Output = u8> + 'static, DosError> {
-        let input = matches!(self.handle(handle)?, OpenHandle::ConsoleInput)
-            .then(|| self.stdio.input.read_character());
+        let input = match self.handle_type(handle)? {
+            HandleType::ConsoleInput => Some(self.stdio.input.read_character()),
+            HandleType::File => None,
+            HandleType::ConsoleOutput | HandleType::Auxiliary | HandleType::Printer => {
+                return Err(DosError::AccessDenied);
+            }
+        };
         Ok(async move {
             match input {
                 Some(input) => input.await,
@@ -114,6 +133,24 @@ impl Files {
                 None => pending().await,
             }
         })
+    }
+
+    pub(crate) fn handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
+        Ok(match self.handle(handle)? {
+            OpenHandle::File(_) => HandleType::File,
+            OpenHandle::ConsoleInput { .. } => HandleType::ConsoleInput,
+            OpenHandle::ConsoleOutput(_) => HandleType::ConsoleOutput,
+            OpenHandle::Auxiliary => HandleType::Auxiliary,
+            OpenHandle::Printer => HandleType::Printer,
+        })
+    }
+
+    /// EOF belongs to the open console input record, including all its duplicates.
+    pub(crate) fn console_eof(&self, handle: u16) -> &Cell<bool> {
+        match self.handle(handle).expect("validated console input handle") {
+            OpenHandle::ConsoleInput { eof } => eof,
+            _ => unreachable!("console input handle"),
+        }
     }
 
     pub(crate) fn read(&mut self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
@@ -133,11 +170,34 @@ impl Files {
         Ok(count)
     }
 
+    /// Character output preserves console EOF; only AH=40h handle writes clear it.
+    pub(crate) fn write_characters(&mut self, handle: u16, bytes: &[u8]) -> Result<(), DosError> {
+        match self.handle_type(handle)? {
+            HandleType::ConsoleInput => self.stdio.output(OutputStream::Stdout).extend(bytes),
+            HandleType::File | HandleType::ConsoleOutput => {
+                if !bytes.is_empty() {
+                    self.write(handle, bytes)?;
+                }
+            }
+            HandleType::Auxiliary | HandleType::Printer => return Err(DosError::AccessDenied),
+        }
+        Ok(())
+    }
+
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
-        if let OpenHandle::ConsoleOutput(stream) = self.handle(handle)? {
-            let stream = *stream;
-            self.stdio.output(stream).extend(bytes);
-            return Ok(bytes.len());
+        match self.handle(handle)? {
+            OpenHandle::ConsoleInput { eof } => {
+                // CON accepts output through its input handle too. Even a zero-byte
+                // handle write clears EOF on that open record and its duplicates.
+                eof.set(false);
+                self.stdio.output(OutputStream::Stdout).extend(bytes);
+                return Ok(bytes.len());
+            }
+            OpenHandle::ConsoleOutput(stream) => {
+                self.stdio.output(*stream).extend(bytes);
+                return Ok(bytes.len());
+            }
+            _ => {}
         }
         let mut open = self.file_mut(handle)?;
         if !open.writable {
@@ -253,7 +313,13 @@ impl Files {
                     | if file.written { 0 } else { FILE_NOT_WRITTEN }
             }
             // Console handles describe CON, regardless of their access direction.
-            OpenHandle::ConsoleInput | OpenHandle::ConsoleOutput(_) => {
+            OpenHandle::ConsoleInput { eof } => {
+                CHARACTER_DEVICE
+                    | STANDARD_INPUT
+                    | STANDARD_OUTPUT
+                    | if eof.get() { 0 } else { INPUT_NOT_EOF }
+            }
+            OpenHandle::ConsoleOutput(_) => {
                 CHARACTER_DEVICE | INPUT_NOT_EOF | STANDARD_INPUT | STANDARD_OUTPUT
             }
             OpenHandle::Auxiliary | OpenHandle::Printer => CHARACTER_DEVICE | INPUT_NOT_EOF,
@@ -265,7 +331,7 @@ impl Files {
         self.stdio.clear();
         self.search_directories.clear();
         for (slot, device) in self.handles.iter_mut().zip([
-            OpenHandle::ConsoleInput,
+            OpenHandle::ConsoleInput { eof: Rc::default() },
             OpenHandle::ConsoleOutput(OutputStream::Stdout),
             OpenHandle::ConsoleOutput(OutputStream::Stderr),
             OpenHandle::Auxiliary,

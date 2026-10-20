@@ -1,6 +1,8 @@
 #[path = "input/buffered.rs"]
 mod buffered;
 mod common;
+#[path = "input/handles.rs"]
+mod handles;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
 use relocade_x86::{ExecutionExit, Segment};
