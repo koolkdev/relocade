@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use relocade_machine::{ConfigurationError, MachineConfig, MemoryError};
+use relocade_machine::{MachineConfig, MemoryError};
 use relocade_runtime::{Runtime, RuntimeState};
 use relocade_runtime_wasmtime::WasmtimeBackend;
 use relocade_x86::{
@@ -70,14 +70,15 @@ fn runtimes_keep_private_cpu_and_backing() {
     assert_eq!(bytes, [0, 0]);
     assert_eq!(second.machine().cpu().instruction_count(), 0);
     assert_eq!(second.machine().cpu().eax(), 0);
-    let before = first.machine().cpu().snapshot();
-    let mut cs = before.segments.cs;
+}
+
+#[test]
+#[should_panic(expected = "segment Cs violates execution profile Real16")]
+fn incompatible_host_segment_edits_panic() {
+    let mut runtime = runtime(&[]);
+    let mut cs = runtime.machine().cpu().segment(Segment::Cs);
     cs.base = 1;
-    assert_eq!(
-        first.machine().cpu().set_segment(Segment::Cs, cs),
-        Err(ConfigurationError::IncompatibleCpu)
-    );
-    assert_eq!(first.machine().cpu().snapshot(), before);
+    runtime.machine().cpu().set_segment(Segment::Cs, cs);
 }
 
 #[test]

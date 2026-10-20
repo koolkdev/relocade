@@ -1,6 +1,5 @@
 use super::*;
 use crate::wasm::WasmMemoryAccess;
-use relocade_machine::ConfigurationError;
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMemoryMap, Segment, Segments,
 };
@@ -38,7 +37,7 @@ impl WasmMemoryAccess for Caller {
 }
 
 #[test]
-fn callbacks_validate_only_segment_edits() {
+fn callbacks_apply_compatible_segment_edits() {
     let model =
         relocade_x86::CpuModel::default().with_feature(relocade_x86::CpuFeature::Cmov, false);
     let cpu = CpuState {
@@ -72,15 +71,16 @@ fn callbacks_validate_only_segment_edits() {
     assert_eq!(value, 17);
     assert_eq!(caller.reads.get(), 0);
 
-    let result = with_host_call(&config, &mut caller, (), (), |call| {
+    with_host_call(&config, &mut caller, (), (), |call| {
         call.cpu().set_ax(42);
-        let mut cs = call.cpu().segment(Segment::Cs);
-        cs.base = 1;
-        call.cpu().set_segment(Segment::Cs, cs)
+        call.cpu().set_segment(
+            Segment::Cs,
+            relocade_x86::StoredSegment::real_mode(Segment::Cs, 0x1000),
+        );
     });
-    assert_eq!(result, Err(ConfigurationError::IncompatibleCpu));
     let mut expected = cpu;
     expected.registers.eax = 42;
+    expected.segments.cs = relocade_x86::StoredSegment::real_mode(Segment::Cs, 0x1000);
     assert_eq!(
         caller.context,
         ExecutionContext {

@@ -203,7 +203,7 @@ fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
         }
         // Abandon the EOF read and restore the caller before testing console input.
         dos.runtime().cancel_pending_call();
-        dos.runtime().machine().cpu().restore(&before).unwrap();
+        dos.runtime().machine().cpu().restore(&before);
         assert_eq!(success(&service(&mut dos, 0x4201, 6, 0, 0)), 1); // Shared file cursor.
         success(&service(&mut dos, 0x4600, 5, 0, 0));
         assert_eq!(

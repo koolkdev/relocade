@@ -94,8 +94,7 @@ async fn check_searches() {
     dos.runtime()
         .machine()
         .cpu()
-        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x1010))
-        .unwrap();
+        .set_segment(Segment::Ds, StoredSegment::real_mode(Segment::Ds, 0x1010));
     // Preserve a non-normalized segment:offset pair exactly in AH=2Fh.
     let cpu = service(&mut dos, 0x1a00, 0, 0, 0x500);
     assert_eq!(cpu.flags.eflags() & 1, 0);

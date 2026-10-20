@@ -16,7 +16,8 @@ pub(crate) struct SegmentCheck {
 }
 
 impl SegmentReads<'_> {
-    /// The entry's profile must remain compatible until a terminal segment load.
+    /// The runtime maintains profile compatibility throughout execution, including
+    /// when segment loads replace a cache.
     /// Known flat data segments need no cache reads or segment guards.
     /// Unknown indices use the complete checked path.
     /// The span must be nonempty.

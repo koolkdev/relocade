@@ -743,9 +743,9 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 
-The host must admit each entry against `CompiledModule::execution_target` before
-executing it, including when following a direct dispatch link. This replaces the
-former profile-only metadata. `ExecutionTarget::is_compatible_with(active, segments)`
+The runtime must ensure that each entry matches `CompiledModule::execution_target`
+before execution, including entries reached through a direct dispatch link. This
+replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, segments)`
 requires exact target equality and checks the current segment caches. The host
 supplies its actual active target; segment bytes alone cannot establish the mode.
 
@@ -778,9 +778,15 @@ when a segment is first requested. Address defaults retain a DS/SS hint so commo
 constants can be reused when the base register is decoded at runtime. Other
 dynamic indices load the selected backing field. Known permissions and full limits
 skip range-check construction, including ordinary Flat32 accesses.
-The selected profile must remain valid until a terminal segment load commits its
-cache. Only state publication and dispatch follow that commit; the next entry
-must be admitted against the new state.
+The runtime owns profile compatibility and must preserve it when changing segment
+caches. `ExecutionProfile::is_segment_compatible` checks a proposed cache without
+reading the other segments. Host edits through `Cpu::set_segment` panic if the new
+cache violates the configured profile; `Cpu::restore` applies the same rule to
+the complete snapshot. Descriptor callbacks must likewise enforce the profile
+before returning a cache for a guest segment load. The dispatcher and
+interpreter gateway rely on this invariant and do not recheck it on entry. Any
+future profile transition, including replacing compiled entries and links, belongs
+to the runtime.
 
 Snapshot blocks check their complete compiled fetch span against current CS at
 entry, before any instruction effects. This includes the last byte of the final

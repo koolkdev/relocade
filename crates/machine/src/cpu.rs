@@ -1,7 +1,7 @@
 use relocade_x86::{CpuState, Segment, Segments, StoredFlags, StoredSegment};
 use std::mem::offset_of;
 
-use crate::{ConfigurationError, MachineConfig, MachineStorage};
+use crate::{MachineConfig, MachineStorage};
 
 /// A live view of published CPU state. Each register access transfers only its
 /// own bytes; there is no cached snapshot or deferred writeback.
@@ -104,20 +104,19 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
         StoredSegment::from_bytes(self.read(segment_offset(segment)))
     }
 
-    /// Replaces a visible selector and its loaded cache after checking the
-    /// machine's execution profile. Rejected edits leave CPU storage unchanged.
-    /// This does not perform descriptor loading.
-    pub fn set_segment(
-        &mut self,
-        segment: Segment,
-        value: StoredSegment,
-    ) -> Result<(), ConfigurationError> {
-        let mut segments = self.segments();
-        segments[segment] = value;
-        self.check_segments(&segments)?;
+    /// Replaces a visible selector and its loaded cache without descriptor loading.
+    ///
+    /// # Panics
+    /// Panics before writing if the cache violates the machine's execution profile.
+    #[track_caller]
+    pub fn set_segment(&mut self, segment: Segment, value: StoredSegment) {
+        let profile = self.config.execution_target().profile;
+        assert!(
+            profile.is_segment_compatible(segment, &value),
+            "segment {segment:?} violates execution profile {profile:?}"
+        );
         self.storage
             .write_cpu(segment_offset(segment) as u32, &value.to_bytes());
-        Ok(())
     }
 
     pub fn segments(&self) -> Segments {
@@ -130,23 +129,22 @@ impl<'a, S: MachineStorage + ?Sized> Cpu<'a, S> {
     }
 
     /// Restores a compatible CPU snapshot without changing the execution budget.
-    pub fn restore(&mut self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
-        self.check_segments(&snapshot.segments)?;
+    ///
+    /// # Panics
+    /// Panics before writing if the snapshot violates the machine's execution target.
+    #[track_caller]
+    pub fn restore(&mut self, snapshot: &CpuState) {
+        self.check_segments(&snapshot.segments);
         self.storage.write_cpu(0, &snapshot.to_bytes());
-        Ok(())
     }
 
-    fn check_segments(&self, segments: &Segments) -> Result<(), ConfigurationError> {
-        if self
-            .config
-            .execution_target()
-            .profile
-            .is_compatible_with(segments)
-        {
-            Ok(())
-        } else {
-            Err(ConfigurationError::IncompatibleCpu)
-        }
+    #[track_caller]
+    fn check_segments(&self, segments: &Segments) {
+        let target = self.config.execution_target();
+        assert!(
+            target.profile.is_compatible_with(segments),
+            "CPU snapshot violates execution target {target:?}"
+        );
     }
 
     fn read<const N: usize>(&self, offset: usize) -> [u8; N] {
