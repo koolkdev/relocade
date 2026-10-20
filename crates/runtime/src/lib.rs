@@ -7,6 +7,27 @@
 //! for native and web engines. [`Runtime::run_async`] can await host operations
 //! between synchronous Wasm calls.
 //!
+//! Managed groups capture readable code with [`Runtime::prepare_group`] and
+//! publish it with [`Runtime::install_group`]. Captures include their execution
+//! identity and validity generation; publication rechecks instruction bytes.
+//! Guest stores, stopped memory edits and hook memory edits retire every entry
+//! of affected groups before changing the backing. Page-map watches cover RAM
+//! aliases, including writable aliases of ROM code. Ordinary RAM accesses retain
+//! their existing direct-access predicate.
+//!
+//! ```no_run
+//! # use relocade_runtime::{BlockRequest, Runtime, RuntimeBackend, RuntimeState};
+//! # async fn example<B: RuntimeBackend<State = RuntimeState>>(runtime: &mut Runtime<B>) -> relocade_runtime::Result<()> {
+//! let entries = [BlockRequest { start_eip: 0x1000, instruction_limit: 32 }];
+//! if let Some(group) = runtime.prepare_group(&entries)? {
+//!     let installed = runtime.install_group(group).await?;
+//!     // None means intervening code or entry changes made this capture stale.
+//!     # let _ = installed;
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ```
 //! use relocade_machine::MachineConfig;
 //! use relocade_runtime::{Runtime, RuntimeBackend, RuntimeState};
@@ -27,6 +48,7 @@
 
 mod backend;
 mod callback;
+mod code;
 mod dispatch;
 mod error;
 mod execution;
@@ -39,6 +61,7 @@ pub mod wasm;
 
 pub use backend::RuntimeBackend;
 pub use callback::{with_host_call, HostCall};
+pub use code::{BlockRequest, GroupId, PreparedGroup};
 pub use dispatch::DispatchEntry;
 use dispatch::DispatchTable;
 pub use error::{Error, Result};
@@ -102,6 +125,13 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         })?;
         backend.write_memory(&mapping, 0, &config.memory_map().to_bytes());
         let dispatch_table = DispatchTable::new(&mut backend)?;
+        let code = code::CodeCache::new(
+            config.memory_map().clone(),
+            Arc::clone(&dispatch_table.entries),
+            dispatch_table.memory.clone(),
+            mapping.clone(),
+        );
+        let code_writes = code.clone();
         let code_backing = guest.clone();
         let host_imports = vec![
             backend.bind_host(abi::READ_PORT, Box::new(|_, _, _| -1)),
@@ -111,6 +141,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             backend.bind_host(
                 abi::WRITE_CODE,
                 Box::new(move |mut caller, offset, bytes, value| {
+                    code_writes.before_write(&mut caller, offset as u32, bytes as usize);
                     caller.write_memory(
                         &code_backing,
                         offset as u32,
@@ -135,6 +166,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
                 access: backend,
                 context,
                 guest,
+                code: Some(code),
             },
             dispatch,
             interpret,
@@ -143,7 +175,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             host_imports,
             host_call_incomplete: false,
         };
-        let bytes = relocade_interpreter::module(target.profile);
+        let bytes = relocade_interpreter::runtime_module(target.profile);
         let backend = &runtime.storage.access;
         let module = if let Some(cache) = backend.module_cache() {
             cache
@@ -169,15 +201,16 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// paging/A20. Installing an existing address replaces its function.
     ///
     /// The caller must maintain the module's execution assumptions and invalidate
-    /// or replace captured code when guest bytes or mappings change.
+    /// or replace captured code when guest bytes or mappings change. These fixed
+    /// entries are preserved as boundaries by managed compilation. Use
+    /// `prepare_group`/`install_group` for runtime-owned snapshot validity.
     pub async fn install_module(
         &mut self,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let instance = self.instantiate(bytes, &[]).await?;
-        self.dispatch_table
-            .install(&mut self.storage.access, &instance, entries)
+        self.publish_fixed(&instance, entries)
     }
 
     async fn instantiate(

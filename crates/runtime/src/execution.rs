@@ -95,6 +95,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
             access: &mut access,
             context,
             guest,
+            code: self.storage.code.clone(),
         };
         let mut call = HostCall::new(&self.config, &mut storage);
         let result = handler.run(&mut call).await;

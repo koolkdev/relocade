@@ -3,20 +3,35 @@
 
 pub use relocade_x86::{ExecutionProfile, SegmentProfile};
 
+macro_rules! include_module {
+    ($profile:expr, $suffix:literal) => {
+        match $profile {
+            ExecutionProfile::Protected(SegmentProfile::Flat32) => {
+                include_bytes!(concat!(env!("OUT_DIR"), "/flat32", $suffix, ".wasm"))
+            }
+            ExecutionProfile::Protected(SegmentProfile::Segmented32) => {
+                include_bytes!(concat!(env!("OUT_DIR"), "/segmented32", $suffix, ".wasm"))
+            }
+            ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
+                include_bytes!(concat!(env!("OUT_DIR"), "/segmented16", $suffix, ".wasm"))
+            }
+            ExecutionProfile::Real16 => {
+                include_bytes!(concat!(env!("OUT_DIR"), "/real16", $suffix, ".wasm"))
+            }
+        }
+    };
+}
+
 /// Returns immutable Wasm for the requested execution assumptions.
 /// The host must initialize the execution context and establish profile compatibility
 /// before entry, just as for freshly generated interpreter code.
 pub fn module(profile: ExecutionProfile) -> &'static [u8] {
-    match profile {
-        ExecutionProfile::Protected(SegmentProfile::Flat32) => {
-            include_bytes!(concat!(env!("OUT_DIR"), "/flat32.wasm"))
-        }
-        ExecutionProfile::Protected(SegmentProfile::Segmented32) => {
-            include_bytes!(concat!(env!("OUT_DIR"), "/segmented32.wasm"))
-        }
-        ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
-            include_bytes!(concat!(env!("OUT_DIR"), "/segmented16.wasm"))
-        }
-        ExecutionProfile::Real16 => include_bytes!(concat!(env!("OUT_DIR"), "/real16.wasm")),
-    }
+    include_module!(profile, "")
+}
+
+/// Returns the runtime variant, which checks registered entries between instructions.
+/// In addition to the ordinary interpreter imports, the host provides the shared
+/// execution-entry memory and function table. Both `step` and `run` share the decoder.
+pub fn runtime_module(profile: ExecutionProfile) -> &'static [u8] {
+    include_module!(profile, "-runtime")
 }

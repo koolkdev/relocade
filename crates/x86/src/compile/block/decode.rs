@@ -12,6 +12,7 @@ pub(super) struct DecodedBlock {
 pub(super) fn blocks(
     snapshots: &[BlockSnapshot<'_>],
     target: ExecutionTarget,
+    registered_boundaries: &BTreeSet<u32>,
 ) -> Result<Vec<DecodedBlock>, BlockError> {
     let mut boundaries = BTreeSet::new();
     for snapshot in snapshots {
@@ -21,6 +22,7 @@ pub(super) fn blocks(
             });
         }
     }
+    boundaries.extend(registered_boundaries);
     snapshots
         .iter()
         .map(|snapshot| DecodedBlock::decode(snapshot, target, &boundaries))

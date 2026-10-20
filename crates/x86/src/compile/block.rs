@@ -152,9 +152,11 @@ impl Compiler {
     /// Faults and interpreter handoffs retain the single-block contract.
     ///
     /// Every export requires its original EIP and valid snapshot bytes under
-    /// the current CS base. The embedding admits entries against
-    /// [`CompiledBlocks::execution_target`] and maintains their validity throughout
-    /// execution, as described by the [host integration contract](crate#entry-validity).
+    /// the current CS base. [`Compiler::with_code_base`] emits CS/EIP admission
+    /// guards on external exports; same-module links enter after those guards.
+    /// The embedding admits entries against [`CompiledBlocks::execution_target`]
+    /// and maintains their validity throughout execution, as described by the
+    /// [host integration contract](crate#entry-validity).
     /// The caller must also limit blocks at registered execution boundaries absent
     /// from this batch.
     ///

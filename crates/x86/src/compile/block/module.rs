@@ -32,7 +32,7 @@ impl<'a> BlockModule<'a> {
         snapshots: &[BlockSnapshot<'_>],
         linking: Linking,
     ) -> Result<CompiledBlocks, BlockError> {
-        let blocks = decode::blocks(snapshots, compiler.target)?;
+        let blocks = decode::blocks(snapshots, compiler.target, &compiler.block_boundaries)?;
         let mut module = Self::new(compiler, &blocks, linking);
         let mut entries = Vec::with_capacity(blocks.len());
         for block in blocks {
@@ -92,7 +92,29 @@ impl<'a> BlockModule<'a> {
                 Linking::SameModule => execution.dispatch_linked(&self.functions),
             }
         })?;
-        self.program.export(&block.entry.export, function)?;
+        self.export_block(&block.entry, function)?;
         Ok(block.entry)
+    }
+
+    fn export_block(&mut self, entry: &BlockEntry, function: Func) -> Result<(), BlockError> {
+        // External callers need admission guards. Local links target the body
+        // directly, after the module's execution identity has been established.
+        let export = if let Some(base) = self.compiler.code_base {
+            self.program
+                .function(crate::abi::RUN.signature(), |mut body| {
+                    let eip = self.cpu.read_eip(&mut body)?;
+                    let mut segments =
+                        crate::state::SegmentReads::new(&self.cpu, self.compiler.target.profile);
+                    let live_base = segments.base(&mut body, &crate::Segment::Cs.into())?;
+                    body.if_(live_base.ne(base).or(eip.ne(entry.start_eip)), |miss| {
+                        self.runtime.interpret(miss)
+                    })?;
+                    body.tail_call(function, &[])
+                })?
+        } else {
+            function
+        };
+        self.program.export(&entry.export, export)?;
+        Ok(())
     }
 }
