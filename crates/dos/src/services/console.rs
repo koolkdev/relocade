@@ -1,10 +1,5 @@
-use super::{
-    buffers::{transfer_count, write_wrapping},
-    return_to_host,
-};
-use crate::{
-    files::CharacterOutput, interrupt::return_result, stdio::OutputStream, DosState, ServiceError,
-};
+use super::{buffers::write_wrapping, return_to_host};
+use crate::{files::CharacterOutput, interrupt::return_result, DosState, ServiceError};
 use relocade_runtime::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
     HostCall,
@@ -12,11 +7,10 @@ use relocade_runtime::{
 use relocade_x86::{ExecutionExit, Segment, StoredSegment};
 use std::ops::ControlFlow;
 
+mod handles;
 mod line;
+pub(super) use handles::read_handle;
 use line::LineInput;
-
-// DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
-const CONSOLE_LINE_CAPACITY: u8 = 128;
 
 /// AH=0Ch: flush stdin, then invoke the input service selected by AL.
 pub(super) fn flush_input(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
@@ -147,71 +141,6 @@ fn return_line(
     write_wrapping(&mut memory, segment, offset.wrapping_add(1), &[count]);
     write_wrapping(&mut memory, segment, offset.wrapping_add(2), bytes);
     return_from_interrupt(call)
-}
-
-/// AH=3Fh on a console handle: read from one edited line, retaining its remainder.
-pub(super) fn read_handle(
-    call: &mut HostCall<'_, DosState>,
-    stream: OutputStream,
-) -> ControlFlow<ExecutionExit> {
-    let handle = call.cpu().bx();
-    if call.state().files.console_eof(handle) {
-        call.cpu().set_ax(0);
-        return return_result(call, Ok(()));
-    }
-    if call.cpu().cx() == 0 || !call.state().files.stdio.console_line.is_empty() {
-        return return_handle_buffer(call);
-    }
-    let mut line = LineInput::new(
-        CONSOLE_LINE_CAPACITY,
-        handle,
-        CharacterOutput::Console(stream),
-    );
-    match line.read_available(&mut call.state_mut().files) {
-        Ok(true) => return_handle_line(call, line.bytes, stream),
-        Ok(false) => call.defer(async move |call| {
-            match line.read_remaining(&mut call.state_mut().files).await {
-                Ok(()) => return_handle_line(call, line.bytes, stream),
-                Err(error) => return_result(call, Err(error)),
-            }
-        }),
-        Err(error) => return_result(call, Err(error)),
-    }
-}
-
-fn return_handle_line(
-    call: &mut HostCall<'_, DosState>,
-    mut bytes: Vec<u8>,
-    stream: OutputStream,
-) -> ControlFlow<ExecutionExit> {
-    let handle = call.cpu().bx();
-    let eof = bytes.first() == Some(&0x1a);
-    call.state().files.set_console_eof(handle, eof);
-    let stdio = &mut call.state_mut().files.stdio;
-    stdio.output(stream).extend(b"\n");
-    // Ctrl-Z at the start of a console line reports EOF.
-    if !eof {
-        bytes.push(b'\n');
-        stdio.console_line.extend(bytes);
-    }
-    return_handle_buffer(call)
-}
-
-fn return_handle_buffer(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
-    let cpu = call.cpu();
-    let offset = cpu.dx();
-    let count = transfer_count(offset, cpu.cx());
-    let segment = cpu.segment(Segment::Ds);
-    let line = &mut call.state_mut().files.stdio.console_line;
-    let count = count.min(line.len());
-    let bytes: Vec<_> = line.drain(..count).collect();
-    if count != 0 {
-        call.memory()
-            .write_segment(&segment, u32::from(offset), &bytes)
-            .expect("real-mode console read buffer");
-    }
-    call.cpu().set_ax(count as u16);
-    return_result(call, Ok(()))
 }
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
