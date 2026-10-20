@@ -167,10 +167,7 @@ pub(super) fn write(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionE
             .read_segment(&segment, u32::from(offset), &mut bytes)
             .expect("real-mode buffer");
     }
-    let result = call
-        .state_mut()
-        .files
-        .write(handle, &bytes)
+    let result = super::console::write_handle(call, handle, &bytes)
         .map(|count| call.cpu().set_ax(count as u16));
     return_result(call, result)
 }

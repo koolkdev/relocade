@@ -1,14 +1,8 @@
-//! Character I/O through standard handles and the console.
+//! Character input through standard handles and the console.
 
-use super::{handles::OpenHandle, Device, Files, HandleType};
-use crate::{error::DosError, stdio::OutputStream};
+use super::{Device, Files, HandleType};
+use crate::error::DosError;
 use std::future::{pending, Future};
-
-#[derive(Clone, Copy)]
-pub(crate) enum CharacterOutput {
-    Stdout,
-    Console(OutputStream),
-}
 
 impl Files {
     /// Flush the device queue without changing file cursors, buffered lines or EOF.
@@ -20,32 +14,6 @@ impl Files {
             HandleType::File | HandleType::Device(_) => {}
         }
         Ok(())
-    }
-
-    /// DOS cooked output expands tabs, tracks its column and ignores write errors.
-    /// Returns the last output byte (a space for a tab).
-    pub(crate) fn write_cooked_character(&mut self, output: CharacterOutput, byte: u8) -> u8 {
-        let (byte, count) = if byte == b'\t' {
-            (b' ', 8 - (self.stdio.output_column & 7))
-        } else {
-            (byte, 1)
-        };
-        let column = &mut self.stdio.output_column;
-        match byte {
-            b'\r' => *column = 0,
-            b'\x08' => *column = column.wrapping_sub(1),
-            b' '..=b'~' | 0x80..=0xff => *column = column.wrapping_add(count),
-            _ => {}
-        }
-        let bytes = [byte; 8];
-        let bytes = &bytes[..usize::from(count)];
-        match output {
-            CharacterOutput::Stdout => {
-                let _ = self.write_characters(1, bytes);
-            }
-            CharacterOutput::Console(stream) => self.stdio.output(stream).extend(bytes),
-        }
-        byte
     }
 
     /// Reads one raw character from a console or redirected file handle.
@@ -81,27 +49,5 @@ impl Files {
                 None => pending().await,
             }
         })
-    }
-
-    /// Character output preserves console EOF; only AH=40h handle writes clear it.
-    pub(crate) fn write_characters(&mut self, handle: u16, bytes: &[u8]) -> Result<(), DosError> {
-        match self.handle(handle)? {
-            OpenHandle::Device(device) => {
-                if !device.access.can_write() {
-                    return Err(DosError::AccessDenied);
-                }
-                match device.kind {
-                    Device::Console(stream) => self.stdio.output(stream).extend(bytes),
-                    Device::Null => {}
-                    Device::Auxiliary | Device::Printer => return Err(DosError::AccessDenied),
-                }
-            }
-            OpenHandle::File(_) => {
-                if !bytes.is_empty() {
-                    self.write(handle, bytes)?;
-                }
-            }
-        }
-        Ok(())
     }
 }

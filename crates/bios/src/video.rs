@@ -70,11 +70,7 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionE
             (function == 0x09).then_some(attribute),
             cx,
         ),
-        0x0e => {
-            let mut memory = call.memory();
-            let active = screen::active_page(&mut memory);
-            screen::teletype(&mut memory, active, al);
-        }
+        0x0e => screen::write_text(&mut call.memory(), &[al]),
         0x0f => {
             let mut memory = call.memory();
             let mode = memory.read_u8(screen::MODE).expect("video mode");
