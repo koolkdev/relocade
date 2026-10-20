@@ -284,6 +284,31 @@ impl Files {
         })
     }
 
+    /// DOS status queries ask the device, not the buffered handle-read line or EOF bit.
+    pub(crate) fn input_available(&self, handle: u16) -> Result<bool, DosError> {
+        Ok(match self.handle(handle)? {
+            OpenHandle::File(file) => {
+                let file = file.borrow();
+                u64::from(file.position) < file.file.len()
+            }
+            OpenHandle::ConsoleInput { .. } | OpenHandle::ConsoleOutput(_) => {
+                self.stdio.input.has_input()
+            }
+            OpenHandle::Auxiliary | OpenHandle::Printer => false,
+        })
+    }
+
+    pub(crate) fn output_ready(&self, handle: u16) -> Result<bool, DosError> {
+        Ok(match self.handle(handle)? {
+            // DOS reports files ready even when opened for reading only.
+            OpenHandle::File(_)
+            | OpenHandle::ConsoleInput { .. }
+            | OpenHandle::ConsoleOutput(_) => true,
+            // These standard device slots have no attached host streams yet.
+            OpenHandle::Auxiliary | OpenHandle::Printer => false,
+        })
+    }
+
     pub(crate) fn reset_handles(&mut self) {
         self.close_all();
         self.stdio.clear();

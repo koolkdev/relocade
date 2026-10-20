@@ -16,6 +16,8 @@
 //! eight-column stops. An empty input source returns
 //! [`relocade_x86::ExecutionExit::Deferred`] from a synchronous run. Use
 //! [`Runtime::run_async`] to await input and complete the pending read.
+//! AH=0Bh and IOCTL AX=4406h query input without consuming it; AX=4407h reports
+//! output readiness. Console status describes queued keys, not a buffered line.
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
 //! Its capacity includes the terminating CR; the returned count excludes it.
 //! Queued complete lines return immediately; incomplete lines await further input.
