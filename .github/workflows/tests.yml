@@ -17,11 +17,87 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  select:
+    name: Select affected tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      args: ${{ steps.tests.outputs.args }}
+      browser: ${{ steps.tests.outputs.browser }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Select test scope
+        id: tests
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          args=(--workspace)
+          browser=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed-paths"
+            declare -A manifests=()
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                */Cargo.toml|*/Cargo.lock) manifests=(); break ;;
+                crates/*/*)
+                  crate=${path#crates/}
+                  manifest="crates/${crate%%/*}/Cargo.toml"
+                  if [[ ! -f "$manifest" ]]; then
+                    manifests=(); break
+                  fi
+                  manifests["$manifest"]=1
+                  ;;
+                *) manifests=(); break ;;
+              esac
+            done < "$RUNNER_TEMP/changed-paths"
+            if [[ ${#manifests[@]} -gt 0 ]]; then
+              roots=()
+              for manifest in "${!manifests[@]}"; do
+                package=$(cargo pkgid --manifest-path "$manifest" --locked)
+                roots+=(--invert "$package")
+              done
+              # Cargo follows normal, build and dev dependencies for all targets.
+              cargo tree --workspace "${roots[@]}" --all-features --target all \
+                --depth workspace --prefix none --color never --locked \
+                | awk 'NF {print $1}' | sort -u > "$RUNNER_TEMP/test-packages"
+              test -s "$RUNNER_TEMP/test-packages"
+              args=()
+              browser=false
+              while IFS= read -r package; do
+                args+=(-p "$package")
+                if [[ "$package" == relocade-runtime-web ]]; then
+                  browser=true
+                fi
+              done < "$RUNNER_TEMP/test-packages"
+            fi
+          fi
+          echo "args=${args[*]}" >> "$GITHUB_OUTPUT"
+          echo "browser=$browser" >> "$GITHUB_OUTPUT"
+          printf 'Native tests: `cargo test %s --locked`\n\nBrowser tests: %s\n' "${args[*]}" "$browser" >> "$GITHUB_STEP_SUMMARY"
+
   test:
     name: Rust tests
+    needs: select
+    # Keep this required check failing if selection fails, rather than skipping it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Require successful test selection
+        env:
+          SELECTION_RESULT: ${{ needs.select.result }}
+        run: test "$SELECTION_RESULT" = success
+
       - name: Check out repository
         uses: actions/checkout@v7
         with:
@@ -41,11 +117,17 @@ jobs:
           restore-keys: |
             wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-
 
-      - name: Run workspace tests
-        run: cargo test --workspace --locked
+      - name: Run affected package tests
+        env:
+          TEST_ARGS: ${{ needs.select.outputs.args }}
+        run: |
+          read -r -a test_args <<< "$TEST_ARGS"
+          cargo test "${test_args[@]}" --locked
 
   web:
     name: Browser runtime tests
+    needs: select
+    if: ${{ needs.select.outputs.browser == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

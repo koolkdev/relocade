@@ -16,6 +16,23 @@ cargo fmt --all -- --check
 cargo doc --workspace --no-deps --locked
 ```
 
+On pull requests, CI maps changed files to their crate manifests under `crates/`.
+Cargo's built-in `cargo pkgid` identifies those packages, and
+[`cargo tree --workspace --invert`](https://doc.rust-lang.org/cargo/commands/cargo-tree.html)
+finds their downstream consumers. For example, a DOS-only change runs
+`cargo test -p relocade-dos --locked`; a BIOS or VFS change also tests DOS.
+Browser tests run when `relocade-runtime-web` is selected.
+
+Dependency selection includes normal, build and dev dependencies with all
+features and targets, including Wasm. This is conservative; the test commands
+use their usual features. Native packages share one Cargo invocation, including
+doctests, and dependencies still compile when their own tests are not selected.
+
+Selection uses the full PR diff against its base, including both paths of a
+rename. Manifest/lockfile changes, paths outside known crates, empty diffs and
+pushes to `main` run `cargo test --workspace --locked` and the browser suite.
+The workflow summary shows the selected scope.
+
 While editing an instruction, select its suite and skip the full interpreter:
 
 ```sh
