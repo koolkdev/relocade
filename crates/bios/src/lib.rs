@@ -1,5 +1,6 @@
 //! BIOS services for a real-mode PC, reached through ordinary runtime hooks.
 //!
+//! INT 10h supplies basic mode-3 text output, cursors, pages and scrolling.
 //! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared host keyboard.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. A machine timer must update these fields.
@@ -7,6 +8,7 @@
 
 mod keyboard;
 mod screen;
+mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::Memory;
@@ -20,6 +22,8 @@ const CLOCK_ENTRY: u16 = 0xff00;
 const CLOCK_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + CLOCK_ENTRY as u32;
 const KEYBOARD_ENTRY: u16 = 0xff10;
 const KEYBOARD_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + KEYBOARD_ENTRY as u32;
+const VIDEO_ENTRY: u16 = 0xff20;
+const VIDEO_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + VIDEO_ENTRY as u32;
 const CLOCK_TICKS: u32 = 0x46c;
 const MIDNIGHT_ROLLOVER: u32 = 0x470;
 
@@ -30,7 +34,11 @@ pub fn initialize(memory: &mut Memory<'_>) {
     screen::initialize(memory);
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
-    for (vector, offset) in [(0x1a, CLOCK_ENTRY), (0x16, KEYBOARD_ENTRY)] {
+    for (vector, offset) in [
+        (0x1a, CLOCK_ENTRY),
+        (0x16, KEYBOARD_ENTRY),
+        (0x10, VIDEO_ENTRY),
+    ] {
         let [offset_lo, offset_hi] = offset.to_le_bytes();
         memory
             .write(vector * 4, &[offset_lo, offset_hi, segment_lo, segment_hi])
@@ -44,10 +52,11 @@ pub fn initialize(memory: &mut Memory<'_>) {
 
 /// Returns hooks for installation alongside another environment's hooks.
 /// The environment lends the same keyboard used by its console input.
-pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 2] {
+pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 3] {
     [
         Hook::new(CLOCK_ADDRESS, clock),
         Hook::new(KEYBOARD_ADDRESS, keyboard::interrupt),
+        Hook::new(VIDEO_ADDRESS, video::interrupt),
     ]
 }
 

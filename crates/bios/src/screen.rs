@@ -53,12 +53,7 @@ impl TextScreen {
 
     /// Copies the active page and cursor while guest execution is stopped.
     pub fn read(memory: &mut Memory<'_>) -> Self {
-        let mut page = [0];
-        memory
-            .read(ACTIVE_PAGE, &mut page)
-            .expect("video BIOS data");
-        // The initial color text aperture has four pages.
-        let page = page[0] & 3;
+        let page = active_page(memory);
         let mut bytes = [0; Self::COLUMNS * Self::ROWS * 2];
         memory
             .read(TEXT_MEMORY_START + u32::from(page) * PAGE_BYTES, &mut bytes)
@@ -85,6 +80,191 @@ impl TextScreen {
             page,
         }
     }
+}
+
+pub(super) fn read_byte(memory: &mut Memory<'_>, address: u32) -> u8 {
+    let mut byte = [0];
+    memory.read(address, &mut byte).expect("video BIOS data");
+    byte[0]
+}
+
+pub(super) fn read_word(memory: &mut Memory<'_>, address: u32) -> u16 {
+    let mut bytes = [0; 2];
+    memory.read(address, &mut bytes).expect("video BIOS data");
+    u16::from_le_bytes(bytes)
+}
+
+pub(super) fn write_word(memory: &mut Memory<'_>, address: u32, value: u16) {
+    memory
+        .write(address, &value.to_le_bytes())
+        .expect("video BIOS data");
+}
+
+pub(super) fn active_page(memory: &mut Memory<'_>) -> u8 {
+    // The initial color text aperture has four pages.
+    read_byte(memory, ACTIVE_PAGE) & 3
+}
+
+pub(super) fn valid_page(page: u8) -> bool {
+    u32::from(page) < TEXT_MEMORY_BYTES / PAGE_BYTES
+}
+
+pub(super) fn select_page(memory: &mut Memory<'_>, page: u8) {
+    memory
+        .write(ACTIVE_PAGE, &[page])
+        .expect("active video page");
+    write_word(memory, PAGE_OFFSET, u16::from(page) * PAGE_BYTES as u16);
+}
+
+pub(super) fn cursor_position(memory: &mut Memory<'_>, page: u8) -> u16 {
+    read_word(memory, CURSORS + u32::from(page) * 2)
+}
+
+pub(super) fn set_cursor_position(memory: &mut Memory<'_>, page: u8, position: u16) {
+    write_word(memory, CURSORS + u32::from(page) * 2, position);
+}
+
+fn cell_address(page: u8, row: u8, column: u8) -> u32 {
+    TEXT_MEMORY_START
+        + u32::from(page) * PAGE_BYTES
+        + (u32::from(row) * TextScreen::COLUMNS as u32 + u32::from(column)) * 2
+}
+
+pub(super) fn read_cell(memory: &mut Memory<'_>, page: u8) -> [u8; 2] {
+    let [column, row] = cursor_position(memory, page).to_le_bytes();
+    let mut cell = [0; 2];
+    if usize::from(row) < TextScreen::ROWS && usize::from(column) < TextScreen::COLUMNS {
+        memory
+            .read(cell_address(page, row, column), &mut cell)
+            .expect("text cell");
+    }
+    cell
+}
+
+pub(super) fn write_repeated(
+    memory: &mut Memory<'_>,
+    page: u8,
+    character: u8,
+    attribute: Option<u8>,
+    count: u16,
+) {
+    let [column, row] = cursor_position(memory, page).to_le_bytes();
+    let start = u16::from(page) * PAGE_BYTES as u16
+        + (u16::from(row) * TextScreen::COLUMNS as u16 + u16::from(column)) * 2;
+    // BIOS repeat writes advance a 16-bit video offset; the visible page edge
+    // does not stop them or move the cursor.
+    for index in 0..count {
+        let offset = start.wrapping_add(index.wrapping_mul(2));
+        let address = TEXT_MEMORY_START + u32::from(offset);
+        let cell = [character, attribute.unwrap_or(0)];
+        memory
+            .write(address, &cell[..if attribute.is_some() { 2 } else { 1 }])
+            .expect("text cell");
+    }
+}
+
+pub(super) struct Window {
+    pub top: u8,
+    pub left: u8,
+    pub bottom: u8,
+    pub right: u8,
+}
+
+pub(super) enum ScrollDirection {
+    Up,
+    Down,
+}
+
+pub(super) fn scroll(
+    memory: &mut Memory<'_>,
+    page: u8,
+    window: Window,
+    lines: u8,
+    attribute: u8,
+    direction: ScrollDirection,
+) {
+    let bottom = window.bottom.min((TextScreen::ROWS - 1) as u8);
+    let right = window.right.min((TextScreen::COLUMNS - 1) as u8);
+    if window.top > bottom || window.left > right {
+        return;
+    }
+    let height = bottom - window.top + 1;
+    let count = if lines == 0 {
+        height
+    } else {
+        lines.min(height)
+    };
+    let width_bytes = usize::from(right - window.left + 1) * 2;
+    let mut row_bytes = [0; TextScreen::COLUMNS * 2];
+    for index in 0..height {
+        let (row, source) = match direction {
+            ScrollDirection::Up => {
+                let row = window.top + index;
+                (row, i16::from(row) + i16::from(count))
+            }
+            ScrollDirection::Down => {
+                let row = bottom - index;
+                (row, i16::from(row) - i16::from(count))
+            }
+        };
+        let bytes = &mut row_bytes[..width_bytes];
+        if source >= i16::from(window.top) && source <= i16::from(bottom) {
+            memory
+                .read(cell_address(page, source as u8, window.left), bytes)
+                .expect("scroll source");
+        } else {
+            for cell in bytes.as_chunks_mut::<2>().0 {
+                *cell = [b' ', attribute];
+            }
+        }
+        memory
+            .write(cell_address(page, row, window.left), bytes)
+            .expect("scroll destination");
+    }
+}
+
+pub(super) fn teletype(memory: &mut Memory<'_>, page: u8, character: u8) {
+    let [mut column, mut row] = cursor_position(memory, page).to_le_bytes();
+    if usize::from(row) >= TextScreen::ROWS || usize::from(column) >= TextScreen::COLUMNS {
+        return;
+    }
+    match character {
+        7 => return, // Bell requires a future speaker device.
+        8 => column = column.saturating_sub(1),
+        b'\r' => column = 0,
+        b'\n' => row += 1,
+        _ => {
+            memory
+                .write(cell_address(page, row, column), &[character])
+                .expect("text character");
+            column += 1;
+            if usize::from(column) == TextScreen::COLUMNS {
+                column = 0;
+                row += 1;
+            }
+        }
+    }
+    if usize::from(row) == TextScreen::ROWS {
+        row -= 1;
+        // BIOS reads the fill attribute after advancing the cursor. A wrapped
+        // line uses column zero; a line feed retains its previous column.
+        set_cursor_position(memory, page, u16::from_le_bytes([column, row]));
+        let attribute = read_cell(memory, page)[1];
+        scroll(
+            memory,
+            page,
+            Window {
+                top: 0,
+                left: 0,
+                bottom: row,
+                right: (TextScreen::COLUMNS - 1) as u8,
+            },
+            1,
+            attribute,
+            ScrollDirection::Up,
+        );
+    }
+    set_cursor_position(memory, page, u16::from_le_bytes([column, row]));
 }
 
 pub(super) fn initialize(memory: &mut Memory<'_>) {
