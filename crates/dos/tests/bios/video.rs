@@ -75,7 +75,11 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         assert_eq!(dos.screen().cells[164].character, b'Z');
         assert_eq!(dos.screen().cursor.column, 5);
 
-        video(&mut dos, 0x0003, 0, 0, 0); // Mode reset clears pages and cursors.
+        // Mode reset returns AL=30h and clears pages and cursors.
+        assert_eq!(
+            video(&mut dos, 0x0003, 0, 0, 0).registers.eax as u16,
+            0x0030
+        );
         let screen = dos.screen();
         assert_eq!(screen.page, 0);
         assert_eq!(screen.cursor.row, 0);

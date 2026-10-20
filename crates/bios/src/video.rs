@@ -17,7 +17,10 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionE
         return unsupported(call);
     }
     match function {
-        0x00 if al == 3 => screen::initialize(&mut call.memory()),
+        0x00 if al == 3 => {
+            screen::initialize(&mut call.memory());
+            call.cpu().set_al(0x30); // BIOS mode-set return for color text modes.
+        }
         0x01 => screen::write_word(&mut call.memory(), screen::CURSOR_SHAPE, cx),
         0x02 => screen::set_cursor_position(&mut call.memory(), page, dx),
         0x03 => {
