@@ -14,8 +14,11 @@ use relocade_runtime::HostCall;
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
+const READ_CHARACTER_ECHO: u8 = 0x01;
+const WRITE_CHARACTER: u8 = 0x02;
 const DIRECT_CONSOLE_IO: u8 = 0x06;
 const READ_CHARACTER: u8 = 0x07;
+const READ_CHARACTER_CHECK_BREAK: u8 = 0x08;
 const WRITE_STRING: u8 = 0x09;
 const READ_BUFFERED: u8 = 0x0a;
 const SELECT_DRIVE: u8 = 0x0e;
@@ -57,7 +60,10 @@ const LONG_FILENAME: u8 = 0x71;
 pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     match call.cpu().ah() {
         DIRECT_CONSOLE_IO => console::direct_io(call),
-        READ_CHARACTER => console::read_character(call),
+        READ_CHARACTER_ECHO | READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
+            console::read_character(call)
+        }
+        WRITE_CHARACTER => console::write_character(call),
         WRITE_STRING => console::write_string(call),
         READ_BUFFERED => console::read_buffered(call),
         SELECT_DRIVE => directories::select_drive(call),

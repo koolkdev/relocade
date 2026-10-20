@@ -2,7 +2,9 @@ use super::{
     buffers::{transfer_count, write_wrapping},
     return_to_host,
 };
-use crate::{interrupt::return_result, stdio::OutputStream, DosState, ServiceError};
+use crate::{
+    files::CharacterOutput, interrupt::return_result, stdio::OutputStream, DosState, ServiceError,
+};
 use relocade_runtime::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
     HostCall,
@@ -11,7 +13,7 @@ use relocade_x86::{ExecutionExit, Segment, StoredSegment};
 use std::ops::ControlFlow;
 
 mod line;
-use line::{Echo, LineInput};
+use line::LineInput;
 
 // DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
 const CONSOLE_LINE_CAPACITY: u8 = 128;
@@ -35,15 +37,16 @@ pub(super) fn direct_io(call: &mut HostCall<'_, DosState>) -> ControlFlow<Execut
     return_from_interrupt(call)
 }
 
-/// AH=07h: read stdin without echo or Ctrl-C processing, waiting if necessary.
+/// AH=01h/07h/08h: wait for one character, echoing through stdout for AH=01h.
 pub(super) fn read_character(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    let echo = call.cpu().ah() == super::READ_CHARACTER_ECHO;
     let result = call.state_mut().files.read_character(0);
     match result {
-        Ok(Some(byte)) => return_character(call, byte),
+        Ok(Some(byte)) => return_character(call, byte, echo),
         Ok(None) => match call.state().files.wait_for_character(0) {
             Ok(input) => call.defer(async move |call| {
                 let byte = input.await;
-                return_character(call, byte)
+                return_character(call, byte, echo)
             }),
             Err(error) => return_result(call, Err(error)),
         },
@@ -51,8 +54,28 @@ pub(super) fn read_character(call: &mut HostCall<'_, DosState>) -> ControlFlow<E
     }
 }
 
-fn return_character(call: &mut HostCall<'_, DosState>, byte: u8) -> ControlFlow<ExecutionExit> {
+fn return_character(
+    call: &mut HostCall<'_, DosState>,
+    byte: u8,
+    echo: bool,
+) -> ControlFlow<ExecutionExit> {
+    if echo {
+        call.state_mut()
+            .files
+            .write_cooked_character(CharacterOutput::Stdout, byte);
+    }
     call.cpu().set_al(byte);
+    return_from_interrupt(call)
+}
+
+/// AH=02h: write DL through stdout; AL is the last output byte.
+pub(super) fn write_character(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    let byte = call.cpu().dl();
+    let last = call
+        .state_mut()
+        .files
+        .write_cooked_character(CharacterOutput::Stdout, byte);
+    call.cpu().set_al(last);
     return_from_interrupt(call)
 }
 
@@ -67,7 +90,7 @@ pub(super) fn read_buffered(call: &mut HostCall<'_, DosState>) -> ControlFlow<Ex
     if capacity[0] == 0 {
         return return_from_interrupt(call);
     }
-    let mut line = LineInput::new(capacity[0], 0, Echo::Stdout);
+    let mut line = LineInput::new(capacity[0], 0, CharacterOutput::Stdout);
     match line.read_available(&mut call.state_mut().files) {
         Ok(true) => return_line(call, &segment, offset, &line.bytes),
         Ok(false) => call.defer(async move |call| {
@@ -103,7 +126,11 @@ pub(super) fn read_handle(call: &mut HostCall<'_, DosState>) -> ControlFlow<Exec
     if call.cpu().cx() == 0 || !call.state().files.stdio.console_line.is_empty() {
         return return_handle_buffer(call);
     }
-    let mut line = LineInput::new(CONSOLE_LINE_CAPACITY, handle, Echo::Console);
+    let mut line = LineInput::new(
+        CONSOLE_LINE_CAPACITY,
+        handle,
+        CharacterOutput::Console(OutputStream::Stdout),
+    );
     match line.read_available(&mut call.state_mut().files) {
         Ok(true) => return_handle_line(call, line.bytes),
         Ok(false) => call.defer(async move |call| {
@@ -163,8 +190,9 @@ pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<Exe
             call.cpu().set_al(b'$');
             return return_from_interrupt(call);
         }
-        // AH=09h writes through stdout, without returning a write-error status.
-        let _ = call.state_mut().files.write_characters(1, &byte);
+        call.state_mut()
+            .files
+            .write_cooked_character(CharacterOutput::Stdout, byte[0]);
     }
     return_to_host(call, Err(ServiceError::UnterminatedString))
 }

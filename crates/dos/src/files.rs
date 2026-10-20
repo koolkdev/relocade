@@ -9,12 +9,14 @@ use relocade_vfs::{Drives, MemoryFileSystem, Metadata};
 use std::{collections::BTreeMap, io::ErrorKind};
 
 mod attributes;
+mod character;
 mod create;
 mod directories;
 mod handles;
 mod mounts;
 mod search;
 mod short_name;
+pub(crate) use character::CharacterOutput;
 pub(crate) use create::CreateMode;
 pub(crate) use handles::HandleType;
 use handles::{OpenHandle, HANDLE_COUNT};

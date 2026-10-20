@@ -1,5 +1,7 @@
 #[path = "input/buffered.rs"]
 mod buffered;
+#[path = "input/characters.rs"]
+mod characters;
 mod common;
 #[path = "input/handles.rs"]
 mod handles;

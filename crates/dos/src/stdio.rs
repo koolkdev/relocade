@@ -21,6 +21,8 @@ pub(crate) struct Stdio {
     pub(crate) input: Stdin,
     // Unread bytes of a completed AH=3Fh line, shared by all console input handles.
     pub(crate) console_line: VecDeque<u8>,
+    // DOS's cooked-output column, independent of how the host drains its queues.
+    pub(crate) output_column: u8,
     stdout: Output,
     stderr: Output,
 }
@@ -36,6 +38,7 @@ impl Stdio {
     pub(crate) fn clear(&mut self) {
         *self.input.0.borrow_mut() = Input::default();
         self.console_line.clear();
+        self.output_column = 0;
         self.stdout.0.borrow_mut().clear();
         self.stderr.0.borrow_mut().clear();
     }
