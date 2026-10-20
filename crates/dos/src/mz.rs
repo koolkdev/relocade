@@ -53,7 +53,7 @@ impl<'a> Image<'a> {
             }
             &file[start..end]
         };
-        for relocation in relocations.chunks_exact(4) {
+        for relocation in relocations.as_chunks::<4>().0 {
             if relocation_offset(relocation) + 2 > module.len() {
                 return Err(LoadError::InvalidRelocation);
             }
@@ -103,7 +103,7 @@ pub(crate) fn load(
         psp_segment + process::PSP_PARAGRAPHS
     };
     let mut module = image.module.to_vec();
-    for relocation in image.relocations.chunks_exact(4) {
+    for relocation in image.relocations.as_chunks::<4>().0 {
         let offset = relocation_offset(relocation);
         let segment = word(&module, offset).wrapping_add(load_segment);
         module[offset..offset + 2].copy_from_slice(&segment.to_le_bytes());

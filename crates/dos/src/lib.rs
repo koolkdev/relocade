@@ -11,8 +11,15 @@
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. Output is buffered as guest bytes.
 //! AH=06h polls stdin without echo or writes one byte to stdout.
+//! AH=07h waits for one raw character without echo. An empty input source returns
+//! [`relocade_x86::ExecutionExit::Deferred`] from a synchronous run. Use
+//! [`Runtime::run_async`] to await input and complete the pending read.
+//! Keep the same run future alive while waiting; dropping an active read
+//! cancels it and requires reloading the program before further execution.
+//! Redirected file EOF remains blocked; host file growth does not wake the read yet.
 //! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
-//! [`Dos::stdout`] and [`Dos::stderr`] between runs using `std::io` traits.
+//! [`Dos::stdout`] and [`Dos::stderr`] using `std::io` traits. Owned stream handles
+//! remain usable while an asynchronous run waits for input.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
 //! [`Dos::mount`] supplies a filesystem at a drive letter; C: starts empty.
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
@@ -167,31 +174,54 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
         self.runtime.state().exit_status
     }
 
-    /// Borrows the console input writer. Bytes use the guest's encoding.
-    /// Write after loading a program; each load clears buffered input and output.
-    /// Writes enqueue bytes immediately, and flush is a no-op. Drop the writer
-    /// before running the guest. Redirected stdin reads its file instead.
-    pub fn stdin(&mut self) -> impl std::io::Write + '_ {
-        stdio::Stdin(self.runtime.state_mut())
+    /// Returns an owned console input writer. Bytes use the guest's encoding.
+    /// Writes enqueue bytes immediately and wake a pending console read; flush
+    /// is a no-op. The writer can be cloned and used while `run_async` is pending.
+    /// Redirected stdin reads its file instead. Loading a program clears buffered
+    /// input and output; existing stream handles remain connected to the console.
+    ///
+    /// ```no_run
+    /// # async fn example<B>(backend: B) -> Result<(), Box<dyn std::error::Error>>
+    /// # where B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosState>>
+    /// # {
+    /// use std::io::Write;
+    ///
+    /// let mut dos = relocade_dos::Dos::new(backend).await?;
+    /// dos.load_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
+    /// let mut input = dos.stdin();
+    /// // An event handler can retain this writer while the runtime waits.
+    /// let run = dos.runtime().run_async(100);
+    /// input.write_all(b"y")?;
+    /// run.await?;
+    /// assert_eq!(dos.exit_status(), Some(Ok(b'y')));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn stdin(&self) -> impl std::io::Write + Clone + 'static {
+        self.runtime.state().files.stdio.input.clone()
     }
 
-    /// Borrows a reader that drains currently buffered standard output.
+    /// Returns an owned reader that drains currently buffered standard output.
     /// An empty buffer returns zero, even if the guest may produce more later.
-    /// Drop the reader before running. DOS redirection follows the handle's
+    /// It can be used while `run_async` waits. DOS redirection follows the handle's
     /// destination, so bytes redirected to a file do not appear here.
-    pub fn stdout(&mut self) -> impl std::io::Read + '_ {
-        stdio::Output {
-            state: self.runtime.state_mut(),
-            stream: stdio::OutputStream::Stdout,
-        }
+    pub fn stdout(&self) -> impl std::io::Read + Clone + 'static {
+        self.runtime
+            .state()
+            .files
+            .stdio
+            .output(stdio::OutputStream::Stdout)
+            .clone()
     }
 
-    /// Borrows a reader that drains standard error, separately from stdout.
+    /// Returns an owned reader that drains standard error, separately from stdout.
     /// Like stdout, an empty buffer returns zero and reads do not block.
-    pub fn stderr(&mut self) -> impl std::io::Read + '_ {
-        stdio::Output {
-            state: self.runtime.state_mut(),
-            stream: stdio::OutputStream::Stderr,
-        }
+    pub fn stderr(&self) -> impl std::io::Read + Clone + 'static {
+        self.runtime
+            .state()
+            .files
+            .stdio
+            .output(stdio::OutputStream::Stderr)
+            .clone()
     }
 }

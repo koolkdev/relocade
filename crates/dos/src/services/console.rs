@@ -26,6 +26,27 @@ pub(super) fn direct_io(call: &mut HostCall<'_, DosState>) -> ControlFlow<Execut
     return_from_interrupt(call)
 }
 
+/// AH=07h: read stdin without echo or Ctrl-C processing, waiting if necessary.
+pub(super) fn read_character(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+    let result = call.state_mut().files.read_character(0);
+    match result {
+        Ok(Some(byte)) => return_character(call, byte),
+        Ok(None) => match call.state().files.wait_for_character(0) {
+            Ok(input) => call.defer(async move |call| {
+                let byte = input.await;
+                return_character(call, byte)
+            }),
+            Err(error) => return_result(call, Err(error)),
+        },
+        Err(error) => return_result(call, Err(error)),
+    }
+}
+
+fn return_character(call: &mut HostCall<'_, DosState>, byte: u8) -> ControlFlow<ExecutionExit> {
+    call.cpu().set_al(byte);
+    return_from_interrupt(call)
+}
+
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
 pub(super) fn write_string(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
     let base = call.cpu().segment(Segment::Ds).base;
