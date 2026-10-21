@@ -12,10 +12,18 @@ crate-type = ["cdylib", "rlib"]
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
 futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+relocade-compiler = { path = "../../crates/compiler" }
+relocade-runtime = { path = "../../crates/runtime" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "=0.4.79"
+relocade-runtime-web = { path = "../../crates/runtime-web" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde-wasm-bindgen = "=0.6.5"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+relocade-runtime-wasmtime = { path = "../../crates/runtime-wasmtime" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"

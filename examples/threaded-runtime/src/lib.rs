@@ -12,6 +12,20 @@ use std::{
 };
 use web_thread::Thread;
 
+mod compiler;
+
+#[cfg(not(target_arch = "wasm32"))]
+use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
+#[cfg(target_arch = "wasm32")]
+use relocade_runtime_web::WebBackend as Backend;
+
+fn backend<T: 'static>(state: T) -> Result<Backend<T>, String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    return Backend::with_state(state).map_err(|error| error.to_string());
+    #[cfg(target_arch = "wasm32")]
+    Ok(Backend::with_state(state))
+}
+
 thread_local! {
     static LOCAL: Cell<bool> = const { Cell::new(false) };
 }
@@ -72,7 +86,8 @@ async fn check_threads() -> Result<(), String> {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn run_checks() -> Result<(), String> {
-    check_threads().await
+    check_threads().await?;
+    compiler::check().await
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -80,5 +95,10 @@ mod tests {
     #[test]
     fn shared_rust_messages_wake_a_worker_local_future() {
         pollster::block_on(super::check_threads()).unwrap();
+    }
+
+    #[test]
+    fn compiled_modules_reach_another_execution_owner() {
+        pollster::block_on(super::compiler::check()).unwrap();
     }
 }
