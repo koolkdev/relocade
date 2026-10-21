@@ -1,5 +1,5 @@
 use crate::{runtime::access::CpuAccess, RuntimeMemory, RuntimeState};
-use crate::{CpuConfig, CpuStorage, CpuView, MachineConfig, Memory};
+use crate::{CpuConfig, CpuStorage, CpuView, MachineConfig, MemoryView};
 use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
 use std::{future::Future, ops::ControlFlow, pin::Pin};
@@ -34,8 +34,8 @@ impl<'a, T> HostCall<'a, T> {
     }
 
     /// Borrows the machine's shared guest memory through its configured map.
-    pub fn memory(&mut self) -> Memory<'_> {
-        Memory::new(self.config, self.access)
+    pub fn memory(&mut self) -> MemoryView<'_> {
+        MemoryView::new(self.config, self.access)
     }
 
     /// The environment state owned by this backend.

@@ -41,7 +41,7 @@ mod state;
 #[cfg(feature = "worker")]
 pub mod worker;
 
-use crate::{CpuConfig, CpuContext, MachineConfig};
+use crate::{CpuConfig, CpuContext, MachineConfig, Memory};
 use access::CpuAccess;
 pub use backend::RuntimeBackend;
 pub use callback::HostCall;
@@ -49,7 +49,7 @@ use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
 pub use hooks::Hook;
-pub use memory::{RuntimeMemory, SharedMemory};
+pub use memory::RuntimeMemory;
 use relocade_wasm_runtime::WasmCompiler;
 pub use state::RuntimeState;
 use std::{
@@ -100,22 +100,23 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             .await
     }
 
-    /// Borrows the stopped machine. CPU and memory writes take effect immediately.
+    /// Borrows the stopped CPU and guest memory. Writes take effect immediately.
     pub fn context(&mut self) -> CpuContext<'_> {
         CpuContext::new(&self.config, &self.machine_config, &mut self.access)
     }
 
-    /// Shares guest memory with a reader that can outlive this runtime. Native
-    /// readers can move to another thread; web readers can send their backing
-    /// WebAssembly.Memory to a worker. CPU and dispatch storage remain private.
-    pub fn shared_memory(&self) -> SharedMemory<B::SharedMemory> {
-        SharedMemory::new(
-            &self.machine_config,
+    /// Shares guest memory through a handle that can outlive this runtime.
+    /// Native handles can move to another thread; browser handles preserve their
+    /// shared allocation during worker transport. CPU and dispatch storage remain private.
+    pub fn memory(&self) -> Memory<B::SharedMemory> {
+        Memory::with_backing(
+            self.machine_config.as_ref().clone(),
             self.access
                 .backend
                 .shared_memory(&self.access.bindings.guest)
                 .expect("guest backing is shared"),
         )
+        .expect("guest backing matches the configured capacity")
     }
 
     /// Borrows the environment state between guest calls. Drop the borrow before running.

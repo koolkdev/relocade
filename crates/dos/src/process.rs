@@ -1,7 +1,7 @@
 //! Initialization shared by the COM and MZ loaders.
 
 use crate::{memory, LoadError, LoadOptions};
-use relocade_machine::{CpuStorage, Memory};
+use relocade_machine::MemoryView;
 use relocade_x86::{CpuState, FlagsState, Segment, SegmentRegister, Segments};
 
 pub(crate) const COMMAND_TAIL_OFFSET: u16 = 0x80;
@@ -15,7 +15,7 @@ pub(crate) struct Allocation {
 
 /// Validates startup inputs and memory requirements before replacing the process.
 pub(crate) fn allocate(
-    memory: &mut Memory<'_, impl CpuStorage + ?Sized>,
+    memory: &mut MemoryView<'_>,
     minimum: usize,
     maximum: usize,
     options: &LoadOptions<'_>,

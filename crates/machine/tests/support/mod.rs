@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use relocade_machine::{CpuConfig, CpuStorage, MachineConfig};
+use relocade_machine::{CpuConfig, CpuStorage, MachineConfig, MemoryStorage};
 use relocade_x86::ExecutionContext;
 use std::{cell::RefCell, mem::offset_of, rc::Rc};
 
@@ -19,6 +19,9 @@ impl CpuStorage for Storage {
         let offset = offset_of!(ExecutionContext, cpu) + offset as usize;
         self.context.borrow_mut()[offset..][..bytes.len()].copy_from_slice(bytes);
     }
+}
+
+impl MemoryStorage for Storage {
     fn read_backing(&self, offset: u32, bytes: &mut [u8]) {
         bytes.copy_from_slice(&self.bytes[offset as usize..][..bytes.len()]);
     }

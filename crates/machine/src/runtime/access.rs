@@ -1,5 +1,5 @@
 use super::RuntimeMemory;
-use crate::CpuStorage;
+use crate::{CpuStorage, MemoryStorage};
 use relocade_wasm_runtime::WasmMemoryAccess;
 use relocade_x86::ExecutionContext;
 use std::mem::offset_of;
@@ -36,6 +36,9 @@ impl<A: WasmMemoryAccess> CpuStorage for CpuAccess<A> {
             bytes,
         );
     }
+}
+
+impl<A: WasmMemoryAccess> MemoryStorage for CpuAccess<A> {
     fn read_backing(&self, offset: u32, bytes: &mut [u8]) {
         self.backend
             .read_memory(&self.bindings.guest, offset, bytes);

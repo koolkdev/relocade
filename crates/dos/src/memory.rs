@@ -1,7 +1,7 @@
 //! DOS paragraph allocation. The guest MCB chain is the source of truth.
 
 use crate::error::DosError;
-use relocade_machine::{CpuStorage, Memory};
+use relocade_machine::MemoryView;
 
 pub(crate) const PARAGRAPH_BYTES: u32 = 16;
 // Keep the IVT and DOS workspace below the single root process.
@@ -16,7 +16,7 @@ struct Block {
     paragraphs: u16, // Excludes the MCB's own paragraph.
 }
 
-pub(crate) fn reset(memory: &mut Memory<'_, impl CpuStorage + ?Sized>) {
+pub(crate) fn reset(memory: &mut MemoryView<'_>) {
     write_chain(
         memory,
         &[Block {
@@ -28,7 +28,7 @@ pub(crate) fn reset(memory: &mut Memory<'_, impl CpuStorage + ?Sized>) {
 }
 
 pub(crate) fn allocate(
-    memory: &mut Memory<'_, impl CpuStorage + ?Sized>,
+    memory: &mut MemoryView<'_>,
     paragraphs: u16,
     owner: u16,
 ) -> Result<u16, DosError> {
@@ -53,10 +53,7 @@ pub(crate) fn allocate(
     Ok(segment)
 }
 
-pub(crate) fn free(
-    memory: &mut Memory<'_, impl CpuStorage + ?Sized>,
-    segment: u16,
-) -> Result<(), DosError> {
+pub(crate) fn free(memory: &mut MemoryView<'_>, segment: u16) -> Result<(), DosError> {
     let mut blocks = read_chain(memory)?;
     let index = allocated_block(&blocks, segment)?;
     blocks[index].owner = 0;
@@ -66,7 +63,7 @@ pub(crate) fn free(
 }
 
 pub(crate) fn resize(
-    memory: &mut Memory<'_, impl CpuStorage + ?Sized>,
+    memory: &mut MemoryView<'_>,
     segment: u16,
     paragraphs: u16,
 ) -> Result<(), DosError> {
@@ -124,7 +121,7 @@ fn coalesce(blocks: &mut Vec<Block>) {
     }
 }
 
-fn read_chain(memory: &mut Memory<'_, impl CpuStorage + ?Sized>) -> Result<Vec<Block>, DosError> {
+fn read_chain(memory: &MemoryView<'_>) -> Result<Vec<Block>, DosError> {
     let mut blocks = Vec::new();
     let mut mcb = FIRST_MCB;
     loop {
@@ -154,7 +151,7 @@ fn read_chain(memory: &mut Memory<'_, impl CpuStorage + ?Sized>) -> Result<Vec<B
     }
 }
 
-fn write_chain(memory: &mut Memory<'_, impl CpuStorage + ?Sized>, blocks: &[Block]) {
+fn write_chain(memory: &mut MemoryView<'_>, blocks: &[Block]) {
     for (index, block) in blocks.iter().enumerate() {
         let [owner_lo, owner_hi] = block.owner.to_le_bytes();
         let [size_lo, size_hi] = block.paragraphs.to_le_bytes();

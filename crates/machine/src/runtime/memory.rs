@@ -1,8 +1,5 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
-mod shared;
-pub use shared::SharedMemory;
-
 use super::Result;
 use crate::{CpuConfig, MachineConfig};
 use relocade_compiler::abi::Memory;

@@ -1,6 +1,6 @@
 mod support;
+use relocade_machine::MemoryError;
 use relocade_machine::RuntimeState;
-use relocade_machine::{MemoryError, ReadMemory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -41,7 +41,8 @@ async fn check_guest_memory() {
     .unwrap();
     let backend = Backend::with_state(RuntimeState::new(())).unwrap();
     let mut runtime = support::create_cpu(backend, config).await.unwrap();
-    let reader = runtime.shared_memory();
+    let mut shared = runtime.memory();
+    let reader = shared.view();
     runtime
         .context()
         .memory()
