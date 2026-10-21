@@ -6,6 +6,13 @@ entry closures are `Send`, while async state constructed inside the worker can
 contain `Rc`. The browser check also verifies independent thread-local storage
 and that a channel moves the original allocation without serializing its bytes.
 
+The compiler check lowers and compiles a module on one thread, then instantiates
+it on another thread with that owner's private callbacks and non-Send state. The
+same compiler thread accepts a valid request after a compilation failure. Rust
+requests move in the task closure; browser module results use the library's
+existing `Post` transport with `serde-wasm-bindgen::preserve`. No custom message
+derive or transport is needed. Native modules cross as ordinary Send values.
+
 Run the native check with the normal toolchain:
 
 ```sh
