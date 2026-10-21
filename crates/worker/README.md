@@ -47,12 +47,32 @@ contains a structured-clone value plus its owned buffers or ports to transfer.
 Encoding is separate from the common request loop.
 
 The worker crate provides browser encodings for owned byte vectors, pairs,
-optional values, worker results/errors, JavaScript values and compiled Wasm
-modules. Composite messages preserve nested transfer lists. Options use explicit
-tags, so None differs from Some(null) and nested options retain their meaning.
+optional values, worker results/errors, strings, u32 values, JavaScript values and
+compiled Wasm modules. Composite messages preserve nested transfer lists. Options
+use explicit tags, so None differs from Some(null) and nested options retain their meaning.
 Owned byte vectors are copied out of live Wasm memory before their buffer is
-transferred; compiled modules are structured-cloned. Custom records can delegate
-their fields to these encodings without writing a request loop or message arrays.
+transferred; compiled modules are structured-cloned.
+
+Derive `Message` on ordinary structs and enums to compose their field encodings:
+
+```rust
+#[derive(relocade_worker::Message)]
+pub struct Compilation<M> {
+    pub module: M,
+    pub metadata: Vec<u8>,
+}
+```
+
+The derive supports named, tuple and unit structs and enum variants. It preserves
+generic bounds and requires each field type to be a message. It generates the browser conversion;
+native values still move directly through the channel. There is no per-record
+browser implementation to maintain. `relocade-worker-derive` owns code generation;
+the worker crate owns field codecs and transfer-list composition.
+
+Browser records use field order and enum tags use variant declaration order.
+Workers must use the same message definitions; this is not a storage format or
+a protocol for independently versioned programs. The derive uses the
+`relocade_worker` crate name.
 
 Raw workers remain useful for independent commands and unsolicited events.
 

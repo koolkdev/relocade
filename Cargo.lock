@@ -1372,9 +1372,19 @@ dependencies = [
  "futures-util",
  "js-sys",
  "pollster",
+ "relocade-worker-derive",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "relocade-worker-derive"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
