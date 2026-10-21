@@ -18,15 +18,11 @@ env:
 
 jobs:
   test:
-    name: Rust tests (x86 opt-level ${{ matrix.x86-opt-level }}, workspace cache ${{ matrix.cache-workspace-crates }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - x86-opt-level: 1
-            cache-workspace-crates: true
+    name: Rust tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -34,6 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
+        id: rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install software graphics driver
@@ -42,11 +39,26 @@ jobs:
           sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+        uses: actions/cache@v6
         with:
-          key: cache-study-${{ matrix.cache-workspace-crates }}
-          cache-workspace-crates: ${{ matrix.cache-workspace-crates }}
-          save-if: false
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            .cargo-cache/source-mtimes.json
+          key: rust-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}-${{ github.sha }}
+          restore-keys: |
+            rust-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}-
+            rust-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-
+
+      - name: Restore unchanged source timestamps
+        run: python3 .github/scripts/cargo_cache.py restore .cargo-cache/source-mtimes.json
+
+      - name: Snapshot source timestamps
+        run: python3 .github/scripts/cargo_cache.py snapshot .cargo-cache/source-mtimes.json
+
+      - name: Check source timestamp restoration
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - name: Cache compiled Wasm test modules
         uses: actions/cache@v6
@@ -57,17 +69,15 @@ jobs:
             wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-
 
       - name: Run workspace tests
-        env:
-          CARGO_LOG: cargo::core::compiler::fingerprint=info
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          cargo test --workspace --locked --timings --config 'profile.test.package.relocade-x86.opt-level=${{ matrix.x86-opt-level }}'
+          cargo test --workspace --locked --timings
 
       - name: Upload Rust build timings
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: cargo-timings-x86-opt-${{ matrix.x86-opt-level }}-workspace-cache-${{ matrix.cache-workspace-crates }}-attempt-${{ github.run_attempt }}
+          name: cargo-timings-attempt-${{ github.run_attempt }}
           path: target/cargo-timings/*.html
           if-no-files-found: warn
           retention-days: 14
