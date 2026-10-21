@@ -37,28 +37,6 @@ bytes; sending the handle neither copies those bytes nor synchronizes accesses.
 Use the backend's independent shared-memory handle, not its store-local `Memory`
 index. Objects requiring transfer lists are outside `Message`'s scope.
 
-## Compilation
-
-The `compiler-worker` feature also enables `worker` and provides one shared
-lowering/compilation handler:
-
-```rust,ignore
-use relocade_runtime::{compiler_worker, worker::{Message, Thread}};
-
-let compiler = Thread::new();
-let task = compiler.run((), move |()| {
-    compiler_worker::compile(create_backend, move || lower(request))
-});
-let Message(module) = task.await??;
-```
-
-`create_backend` returns `runtime::Result<B>` and runs on the compiler thread.
-`lower` returns `runtime::Result<Vec<u8>>`. Errors are task-local string
-diagnostics and leave the thread available for another job. Wasmtime backends
-share their existing engine, so returned modules can be linked by another owner.
-The execution owner instantiates code with its private imports and retains its
-callbacks, CPU, memory and dispatch table.
-
 ## Browser build and lifetime
 
 The browser suite uses one threaded Rust configuration throughout: atomics,

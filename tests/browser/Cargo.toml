@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-compiler = { path = "../../crates/compiler" }
-relocade-runtime = { path = "../../crates/runtime", features = ["compiler-worker"] }
+relocade-runtime = { path = "../../crates/runtime", features = ["worker"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

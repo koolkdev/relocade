@@ -1,7 +1,6 @@
 use crate::{backend, Backend};
 use relocade_compiler::{abi::Function, Program, I64};
 use relocade_runtime::{
-    compiler_worker,
     wasm::{WasmBackend, WasmContext},
     worker::{Message, Thread},
     Result,
@@ -42,47 +41,16 @@ async fn execute(
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn compiled_modules() -> std::result::Result<(), String> {
-    let compiler = Thread::new();
-    let execution = Thread::new();
-    let module = compiler
-        .run((), |()| compiler_worker::compile(|| backend(()), lower))
+    let module = backend(())
+        .map_err(|error| error.to_string())?
+        .compile(&lower().map_err(|error| error.to_string())?)
         .await
-        .map_err(|error| error.to_string())??;
+        .map_err(|error| error.to_string())?;
+    let execution = Thread::new();
     let values = execution
-        .run_send(module, execute)
+        .run_send(Message(module), execute)
         .await
         .map_err(|error| error.to_string())??;
     assert_eq!(values, (42, 52));
     Ok(())
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[test]
-fn compiler_errors_leave_the_worker_usable() {
-    pollster::block_on(async {
-        let compiler = Thread::new();
-        for (bytes, operation) in [
-            (None, "lower request"),
-            (Some(b"invalid Wasm"), "compile Wasm"),
-        ] {
-            let result = compiler
-                .run((), move |()| {
-                    compiler_worker::compile(
-                        || backend(()),
-                        move || match bytes {
-                            Some(bytes) => Ok(bytes.to_vec()),
-                            None => Err(relocade_runtime::Error::wasm("lower request", "failed")),
-                        },
-                    )
-                })
-                .await
-                .unwrap();
-            assert!(result.err().expect("request must fail").contains(operation));
-        }
-        assert!(compiler
-            .run((), |()| compiler_worker::compile(|| backend(()), lower))
-            .await
-            .unwrap()
-            .is_ok());
-    });
 }

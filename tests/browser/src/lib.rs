@@ -1,12 +1,12 @@
 //! Cross-thread checks shared by the browser suite and native tests.
 
 mod channels;
-mod compilation;
 mod memory;
+mod modules;
 
 pub use channels::rust_channels;
-pub use compilation::compiled_modules;
 pub use memory::shared_memory;
+pub use modules::compiled_modules;
 
 #[cfg(not(target_arch = "wasm32"))]
 use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
@@ -34,6 +34,6 @@ mod tests {
 
     #[test]
     fn compiled_modules_link_to_private_worker_state() {
-        pollster::block_on(super::compilation::compiled_modules()).unwrap();
+        pollster::block_on(super::modules::compiled_modules()).unwrap();
     }
 }
