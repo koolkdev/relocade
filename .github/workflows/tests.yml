@@ -18,7 +18,11 @@ env:
 
 jobs:
   test:
-    name: Rust tests
+    name: Rust tests (workspace cache ${{ matrix.cache-workspace-crates }})
+    strategy:
+      fail-fast: false
+      matrix:
+        cache-workspace-crates: [false, true]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -37,6 +41,9 @@ jobs:
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          key: cache-study-${{ matrix.cache-workspace-crates }}
+          cache-workspace-crates: ${{ matrix.cache-workspace-crates }}
 
       - name: Cache compiled Wasm test modules
         uses: actions/cache@v6
@@ -49,7 +56,16 @@ jobs:
       - name: Run workspace tests
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          cargo test --workspace --locked
+          cargo test --workspace --locked --timings
+
+      - name: Upload Rust build timings
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cargo-timings-workspace-cache-${{ matrix.cache-workspace-crates }}-attempt-${{ github.run_attempt }}
+          path: target/cargo-timings/*.html
+          if-no-files-found: warn
+          retention-days: 14
 
   web:
     name: Browser tests
