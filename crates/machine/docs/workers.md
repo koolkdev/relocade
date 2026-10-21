@@ -13,7 +13,7 @@ move as Send Rust values. Browser payloads use Serde and structured cloning.
 Message types can use ordinary derives without platform conditions:
 
 ```rust,ignore
-use relocade_runtime::worker::Message;
+use relocade_machine::worker::Message;
 use relocade_wasm_runtime::WasmSharedMemory;
 
 #[derive(serde::Serialize, serde::Deserialize)]

@@ -24,7 +24,7 @@ A native reader can move to the rendering thread. In the browser, send
 `memory.backing().memory()` through `postMessage`; shared WebAssembly memories
 are cloned, not transferred. The receiving thread can wrap it with
 `relocade_wasm_runtime::SharedMemory::from_memory` and associate its machine
-configuration with `relocade_runtime::SharedMemory::new`.
+configuration with `relocade_machine::SharedMemory::new`.
 
 Browser worker sharing requires cross-origin isolation, typically served with
 `Cross-Origin-Opener-Policy: same-origin` and

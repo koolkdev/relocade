@@ -7,5 +7,4 @@ publish.workspace = true
 
 [dependencies]
 relocade-machine = { path = "../machine" }
-relocade-runtime = { path = "../runtime" }
 relocade-x86 = { path = "../x86" }

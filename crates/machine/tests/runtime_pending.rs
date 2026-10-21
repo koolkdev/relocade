@@ -1,5 +1,5 @@
+use relocade_machine::{real_mode_interrupt, Cpu, Error, Hook, RuntimeState};
 use relocade_machine::{MachineConfig, ReadMemory};
-use relocade_runtime::{real_mode_interrupt, Cpu, Error, Hook, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,

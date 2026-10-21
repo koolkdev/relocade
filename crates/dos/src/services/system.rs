@@ -1,7 +1,7 @@
 //! DOS version and interrupt-vector services used during program startup.
 
 use crate::DosServices;
-use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
+use relocade_machine::{real_mode_interrupt::return_from_interrupt, HostCall};
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::ops::ControlFlow;
 

@@ -3,7 +3,7 @@ use relocade_compiler::{
     Program, I32, I64,
 };
 use relocade_machine::MachineConfig;
-use relocade_runtime::{HostCall, RuntimeMemory, RuntimeState};
+use relocade_machine::{HostCall, RuntimeMemory, RuntimeState};
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmMemoryAccess};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,

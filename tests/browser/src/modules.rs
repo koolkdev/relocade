@@ -1,5 +1,5 @@
 use relocade_compiler::{abi::Function, Program, I64};
-use relocade_runtime::{
+use relocade_machine::{
     worker::{Message, Thread},
     Result,
 };

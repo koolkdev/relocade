@@ -7,7 +7,7 @@ use crate::{
     state::DosState,
     DosServices,
 };
-use relocade_runtime::HostCall;
+use relocade_machine::HostCall;
 use relocade_x86::{ExecutionExit, Segment};
 use std::ops::ControlFlow;
 

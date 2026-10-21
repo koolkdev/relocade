@@ -1,5 +1,5 @@
-use crate::{memory::Storage, RuntimeMemory, RuntimeState};
-use relocade_machine::{CpuStorage, CpuView, MachineConfig, Memory};
+use super::{memory::Storage, RuntimeMemory, RuntimeState};
+use crate::{CpuStorage, CpuView, MachineConfig, Memory};
 use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
 use std::{future::Future, ops::ControlFlow, pin::Pin};

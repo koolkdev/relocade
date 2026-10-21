@@ -1,6 +1,6 @@
 use super::{buffers::write_wrapping, files::read_path};
 use crate::{interrupt::return_result, state::DosState, DosServices};
-use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
+use relocade_machine::{real_mode_interrupt::return_from_interrupt, HostCall};
 use relocade_x86::{ExecutionExit, Segment};
 use std::ops::ControlFlow;
 

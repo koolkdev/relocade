@@ -2,7 +2,7 @@
 
 use relocade_dos::{Dos, DosServices};
 
-use relocade_runtime::RuntimeState;
+use relocade_machine::RuntimeState;
 pub type Backend<T> = relocade_wasm_runtime::Backend<RuntimeState<T>>;
 
 pub async fn dos() -> Dos<Backend<DosServices>> {

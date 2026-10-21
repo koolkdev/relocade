@@ -2,7 +2,7 @@ use relocade_compiler::{abi::Function, Program, I64};
 use relocade_x86::{abi, ExecutionExit};
 use std::ops::ControlFlow;
 
-use crate::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
 
 type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync;
 
@@ -11,7 +11,7 @@ type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + S
 ///
 /// ```
 /// use std::ops::ControlFlow;
-/// use relocade_runtime::{Hook, HostCall};
+/// use relocade_machine::{Hook, HostCall};
 /// use relocade_x86::ExecutionExit;
 ///
 /// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> ControlFlow<ExecutionExit> {

@@ -4,7 +4,7 @@ use crate::{
     state::DosState,
     DosServices, ServiceError,
 };
-use relocade_runtime::{
+use relocade_machine::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
     HostCall,
 };

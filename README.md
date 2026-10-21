@@ -22,7 +22,7 @@ that subset. The project is under development; the crates are not published.
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
-| [relocade-runtime](crates/runtime/src/lib.rs) | Guest execution, dispatch, hooks and worker tasks. |
+| [relocade-machine](crates/machine/src/lib.rs) | CPU views, execution, dispatch, hooks and worker tasks. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
@@ -45,7 +45,7 @@ dispatch and fault exits, segment resolution, and entry validity. Real16 uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
 
-The [future worker design](crates/runtime/docs/worker-execution.md) describes
+The [future worker design](crates/machine/docs/worker-execution.md) describes
 execution-task ownership, UI messaging and scheduling for an interactive embedding.
 
 ## Build and test

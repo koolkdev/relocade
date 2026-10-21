@@ -13,7 +13,7 @@ mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::Memory;
-use relocade_runtime::{real_mode_interrupt, Hook, HostCall};
+use relocade_machine::{real_mode_interrupt, Hook, HostCall};
 use relocade_x86::ExecutionExit;
 pub use screen::{
     write_text, TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,

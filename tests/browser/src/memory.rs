@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_compiler::abi::Memory;
-use relocade_runtime::worker::{Message, Thread};
+use relocade_machine::worker::{Message, Thread};
 use relocade_wasm_runtime::{Backend, WasmBackend, WasmMemoryAccess, WasmSharedMemory};
 use serde::{Deserialize, Serialize};
 
