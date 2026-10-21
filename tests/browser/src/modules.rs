@@ -43,7 +43,7 @@ async fn execute(
 pub async fn compiled_modules() -> std::result::Result<(), String> {
     let module = backend(())
         .map_err(|error| error.to_string())?
-        .compile(&lower().map_err(|error| error.to_string())?)
+        .compile_with(lower)
         .await
         .map_err(|error| error.to_string())?;
     let execution = Thread::new();

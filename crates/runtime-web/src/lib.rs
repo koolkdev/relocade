@@ -1,12 +1,13 @@
 //! Browser implementation of the runtime's Wasm engine interface.
 //!
-//! Compilation and instantiation use the asynchronous WebAssembly APIs. Guest
-//! calls are synchronous. Callbacks borrow host state only while running and
+//! Compilation runs on a shared compiler worker. Instantiation uses the async
+//! WebAssembly API on the owning thread; guest calls are synchronous.
+//! Callbacks borrow host state only while running and
 //! access guest memory through its current buffer, including after memory growth.
 #![forbid(unsafe_code)]
 #![cfg(target_arch = "wasm32")]
 
-use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
+use js_sys::{Function as JsFunction, Object, Reflect, WebAssembly};
 use relocade_compiler::{
     abi::{self, Function as FunctionDeclaration},
     I64,
@@ -24,15 +25,17 @@ use std::{
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
+mod compilation;
 mod host;
 mod memory;
+pub use compilation::Module;
 pub use host::Context;
 pub use memory::SharedMemory;
 
 /// One guest's instances, callbacks and host state.
 pub struct WebBackend<T = ()> {
     store: Rc<RefCell<Store<T>>>,
-    modules: Rc<ModuleCache<Module>>,
+    compilation: Rc<compilation::Compilation>,
     // Rust must retain the closures for as long as guest modules can call them.
     callbacks: Vec<Box<dyn Any>>,
 }
@@ -53,12 +56,6 @@ impl<T> Store<T> {
 #[derive(Clone, Debug)]
 pub struct Memory(usize);
 
-/// Compiled code whose JavaScript handle can be posted to another worker.
-/// Equality compares handle identity, including across clones of this value.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
-pub struct Module(#[serde(with = "serde_wasm_bindgen::preserve")] WebAssembly::Module);
-
 /// A resolved `() -> i64` export, kept distinct from raw host function handles.
 pub struct Function(JsFunction);
 
@@ -76,16 +73,12 @@ impl Default for WebBackend {
 
 impl<T: 'static> WebBackend<T> {
     pub fn with_state(state: T) -> Self {
-        thread_local! {
-            static MODULES: Rc<ModuleCache<Module>> =
-                Rc::new(ModuleCache::default());
-        }
         Self {
             store: Rc::new(RefCell::new(Store {
                 state,
                 memories: Vec::new(),
             })),
-            modules: MODULES.with(Rc::clone),
+            compilation: compilation::shared(),
             callbacks: Vec::new(),
         }
     }
@@ -113,16 +106,15 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
         Context(self.store.borrow_mut())
     }
 
-    async fn compile(&self, bytes: &[u8]) -> Result<Self::Module> {
-        let bytes = Uint8Array::from(bytes);
-        JsFuture::from(WebAssembly::compile(&bytes))
-            .await
-            .map(|module| Module(module.unchecked_into()))
-            .map_err(|error| js_error("compile Wasm", error))
+    async fn compile_with(
+        &self,
+        lower: impl FnOnce() -> Result<Vec<u8>> + Send + 'static,
+    ) -> Result<Self::Module> {
+        self.compilation.worker.compile(lower).await
     }
 
     fn module_cache(&self) -> Option<&ModuleCache<Self::Module>> {
-        Some(&self.modules)
+        Some(&self.compilation.modules)
     }
 
     fn create_memory(&mut self, declaration: abi::Memory) -> Result<Self::Memory> {

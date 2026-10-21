@@ -3,9 +3,9 @@
 //! [`Runtime::new`] prepares an interpreter and dispatcher and initializes
 //! backend storage from [`MachineConfig`]. [`Runtime::machine`] lends access to
 //! the stopped CPU and mapped memory, both backed directly by Wasm storage.
-//! CPU edits take effect immediately. Preparation is asynchronous
-//! for native and web engines. [`Runtime::run_async`] can await host operations
-//! between synchronous Wasm calls.
+//! CPU edits take effect immediately. Code generation and compilation run on a
+//! worker; linking stays with the runtime. [`Runtime::run_async`] can await host
+//! operations between synchronous Wasm calls.
 //!
 //! ```
 //! use relocade_machine::MachineConfig;
@@ -73,9 +73,12 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// Port and MMIO reads currently return all ones; their writes are ignored.
     pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self> {
         let target = config.execution_target();
-        let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
-        let dispatcher = compiler.compile_dispatcher()?;
-        let dispatcher_module = backend.compile(&dispatcher.bytes).await?;
+        let dispatcher_module = backend
+            .compile_with(move || {
+                let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
+                Ok(compiler.compile_dispatcher()?.bytes)
+            })
+            .await?;
 
         let memory = RuntimeMemory::new(&mut backend, config)?;
         let dispatch_table = DispatchTable::new(&mut backend)?;

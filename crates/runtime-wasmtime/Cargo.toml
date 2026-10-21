@@ -9,7 +9,7 @@ publish.workspace = true
 relocade-compiler = { path = "../compiler" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-relocade-runtime = { path = "../runtime" }
+relocade-runtime = { path = "../runtime", features = ["worker"] }
 wasmtime = { workspace = true, features = ["cache"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

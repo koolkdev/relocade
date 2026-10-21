@@ -84,9 +84,11 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
         Context(self.store.as_context_mut())
     }
 
-    /// Native compilation completes synchronously on the calling thread.
-    async fn compile(&self, bytes: &[u8]) -> Result<Module> {
-        Module::new(self.store.engine(), bytes).map_err(|error| Error::wasm("compile Wasm", error))
+    async fn compile_with(
+        &self,
+        lower: impl FnOnce() -> Result<Vec<u8>> + Send + 'static,
+    ) -> Result<Module> {
+        self.compilation.worker.compile(lower).await
     }
 
     fn module_cache(&self) -> Option<&ModuleCache<Module>> {

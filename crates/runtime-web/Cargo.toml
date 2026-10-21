@@ -9,7 +9,7 @@ publish.workspace = true
 relocade-compiler = { path = "../compiler" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-relocade-runtime = { path = "../runtime" }
+relocade-runtime = { path = "../runtime", features = ["worker"] }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "=0.4.79"
 js-sys = "=0.3.106"

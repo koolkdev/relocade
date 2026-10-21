@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Relocade browser tests</title>
+<link rel="icon" href="data:,">
+<pre id="output">Loading Wasm tests…</pre>
+<script type="module">
+    import * as bindings from "relocade:wasm-bindings";
+
+    window.__wbg_test_invoke = f => f();
+    window.checks = (async () => {
+        const wasm = await bindings.default();
+        if (!crossOriginIsolated) throw new Error("Browser tests require cross-origin isolation");
+        const parameters = new URLSearchParams(location.search);
+        const names = new Set(JSON.parse(parameters.get("tests")));
+        const allTests = Object.keys(wasm).filter(name => name.startsWith("__wbgt_"));
+        const tests = allTests.filter(name => names.has(name.slice(name.indexOf("::") + 2)));
+        if (tests.length !== names.size) throw new Error("Missing test exports");
+
+        // wasm-bindgen-test owns assertion capture, ignored tests and reporting.
+        for (const method of ["debug", "log", "info", "warn", "error"]) {
+            const original = console[method];
+            console[method] = (...args) => {
+                bindings[`__wbgtest_console_${method}`](args);
+                original.apply(console, args);
+            };
+        }
+        const context = new bindings.WasmBindgenTestContext(false);
+        context.include_ignored(parameters.get("ignored") === "true");
+        context.filtered_count(allTests.length - tests.length);
+        document.querySelector("#output").textContent = "";
+        try {
+            if (!await context.run(tests.map(name => wasm[name]))) {
+                throw new Error("Browser tests failed");
+            }
+        } finally {
+            context.free();
+        }
+    })();
+</script>

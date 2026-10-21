@@ -37,6 +37,9 @@ bytes; sending the handle neither copies those bytes nor synchronizes accesses.
 Use the backend's independent shared-memory handle, not its store-local `Memory`
 index. Objects requiring transfer lists are outside `Message`'s scope.
 
+The runtime's [compilation path](compilation.md) uses these tasks for dispatcher,
+interpreter, hook and installed-module compilation.
+
 ## Browser build and lifetime
 
 The browser suite uses one threaded Rust configuration throughout: atomics,

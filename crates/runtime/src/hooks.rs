@@ -1,6 +1,6 @@
 use relocade_compiler::{abi::Function, Program, I64};
 use relocade_x86::{abi, ExecutionExit};
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, sync::Arc};
 
 use crate::{DispatchEntry, HostCall, Result, Runtime, RuntimeBackend, RuntimeState};
 
@@ -57,22 +57,23 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     /// to await owned work and complete in Rust before guest execution resumes.
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
         let hooks: Vec<_> = hooks.into_iter().collect();
-        let names: Vec<_> = (0..hooks.len())
-            .map(|index| format!("hook_{index}"))
-            .collect();
-        let mut program = Program::new();
-        let dispatch = program.import_function(abi::DISPATCH);
+        let names = Arc::new(
+            (0..hooks.len())
+                .map(|index| format!("hook_{index}"))
+                .collect::<Vec<_>>(),
+        );
+        let module = self
+            .storage
+            .access
+            .compile_with({
+                let names = Arc::clone(&names);
+                move || compile_hooks(&names)
+            })
+            .await?;
         let mut imports = Vec::new();
         let mut entries = Vec::new();
-        for (hook, name) in hooks.into_iter().zip(&names) {
+        for (hook, name) in hooks.into_iter().zip(names.iter()) {
             let declaration: Function<fn() -> I64> = Function::new("hooks", name);
-            let import = program.import_function(declaration);
-            let function = program.function(abi::RUN.signature(), |mut body| {
-                let exit = body.call::<I64>(import, &[])?;
-                body.if_(exit.ne(0), |stop| stop.return_(exit))?;
-                body.tail_call(dispatch, &[])
-            })?;
-            program.export(name, function)?;
             let memory = self.storage.memory.clone();
             imports.push(self.storage.access.bind_host(
                 declaration,
@@ -89,8 +90,24 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
                 export: name,
             });
         }
-        let instance = self.instantiate(&program.compile()?, &imports).await?;
+        let instance = self.instantiate_module(&module, &imports).await?;
         self.dispatch_table
             .install(&mut self.storage.access, &instance, &entries)
     }
+}
+
+fn compile_hooks(names: &[String]) -> Result<Vec<u8>> {
+    let mut program = Program::new();
+    let dispatch = program.import_function(abi::DISPATCH);
+    for name in names {
+        let declaration: Function<fn() -> I64> = Function::new("hooks", name);
+        let import = program.import_function(declaration);
+        let function = program.function(abi::RUN.signature(), |mut body| {
+            let exit = body.call::<I64>(import, &[])?;
+            body.if_(exit.ne(0), |stop| stop.return_(exit))?;
+            body.tail_call(dispatch, &[])
+        })?;
+        program.export(name, function)?;
+    }
+    Ok(program.compile()?)
 }

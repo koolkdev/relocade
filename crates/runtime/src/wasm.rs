@@ -9,9 +9,13 @@ use relocade_compiler::{
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 
+#[cfg(feature = "worker")]
+mod compiler;
 mod host;
 mod imports;
 mod module_cache;
+#[cfg(feature = "worker")]
+pub use compiler::{CompilerWorker, WasmCompiler};
 pub use host::{HostFunction, HostSignature, HostValue};
 pub use imports::{Import, ImportBinding, ImportValue};
 pub use module_cache::ModuleCache;
@@ -91,8 +95,18 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// across an await, but must be dropped before calling into Wasm again.
     fn context(&mut self) -> Self::Context<'_>;
 
-    /// Compiles Wasm bytes into code that can be instantiated with private imports.
-    fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
+    /// Compiles owned input on the backend's compiler worker. The closure builds
+    /// and lowers code on that worker; imports and guest state stay with the owner.
+    fn compile_with(
+        &self,
+        lower: impl FnOnce() -> Result<Vec<u8>> + Send + 'static,
+    ) -> impl Future<Output = Result<Self::Module>>;
+
+    /// Copies supplied Wasm bytes into an owned request for the same compiler worker.
+    fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>> {
+        let bytes = bytes.to_vec();
+        self.compile_with(move || Ok(bytes))
+    }
 
     /// Optional storage for modules that callers choose to retain.
     /// Share it only between backends that can instantiate each other's modules.

@@ -1,10 +1,12 @@
 //! Cross-thread checks shared by the browser suite and native tests.
 
 mod channels;
+mod compilation;
 mod memory;
 mod modules;
 
 pub use channels::rust_channels;
+pub use compilation::worker_compilation;
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
 
@@ -22,6 +24,11 @@ fn backend<T: 'static>(state: T) -> relocade_runtime::Result<Backend<T>> {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    #[test]
+    fn backends_compile_on_a_reusable_worker() {
+        pollster::block_on(super::compilation::worker_compilation()).unwrap();
+    }
+
     #[test]
     fn rust_channels_wake_worker_tasks() {
         pollster::block_on(super::channels::rust_channels()).unwrap();

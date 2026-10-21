@@ -1,4 +1,7 @@
-use relocade_runtime::{wasm::ModuleCache, Error, Result};
+use relocade_runtime::{
+    wasm::{CompilerWorker, ModuleCache, WasmCompiler},
+    Error, Result,
+};
 use std::sync::OnceLock;
 use wasmtime::{Config, Engine, Module};
 
@@ -6,6 +9,18 @@ use wasmtime::{Config, Engine, Module};
 pub(super) struct Compilation {
     engine: Engine,
     pub(super) modules: ModuleCache<Module>,
+    pub(super) worker: CompilerWorker<Compiler>,
+}
+
+#[derive(Clone)]
+pub(super) struct Compiler(Engine);
+
+impl WasmCompiler for Compiler {
+    type Module = Module;
+
+    async fn compile(&self, bytes: &[u8]) -> Result<Module> {
+        Module::new(&self.0, bytes).map_err(|error| Error::wasm("compile Wasm", error))
+    }
 }
 
 pub(super) fn shared() -> Result<&'static Compilation> {
@@ -28,6 +43,7 @@ pub(super) fn shared() -> Result<&'static Compilation> {
             }
             Engine::new(&config)
                 .map(|engine| Compilation {
+                    worker: CompilerWorker::new(Compiler(engine.clone())),
                     engine,
                     modules: ModuleCache::default(),
                 })
