@@ -211,7 +211,12 @@ async fn failed_delivery_releases_capacity_and_terminal_failure_completes_all_re
     }
 }
 
-type Payload = (Option<Option<JsValue>>, (Vec<u8>, WebAssembly::Module));
+#[derive(Message)]
+struct Payload {
+    optional: Option<Option<JsValue>>,
+    bytes: Vec<u8>,
+    module: WebAssembly::Module,
+}
 
 #[wasm_bindgen]
 pub async fn payload_worker(_: JsValue, endpoint: Endpoint, _: JsValue) -> Result<(), JsValue> {
@@ -228,19 +233,23 @@ async fn typed_messages_preserve_nested_options_bytes_and_module_handles() {
     let mut client = RequestWorker::<Payload, Payload>::from_worker(worker("payload_worker"), 1);
     for optional in [None, Some(None), Some(Some(JsValue::NULL))] {
         let expected = optional.clone();
-        let (optional, (bytes, returned_module)) = client
-            .submit((optional, (vec![7, 42], module.clone())))
+        let returned = client
+            .submit(Payload {
+                optional,
+                bytes: vec![7, 42],
+                module: module.clone(),
+            })
             .unwrap()
             .unwrap()
             .await
             .unwrap();
-        match (expected, optional) {
+        match (expected, returned.optional) {
             (None, None) | (Some(None), Some(None)) => {}
             (Some(Some(expected)), Some(Some(actual))) => assert_eq!(actual, expected),
             _ => panic!("nested option changed in transit"),
         }
-        assert_eq!(bytes, [7, 42]);
-        assert!(JsValue::from(returned_module).is_instance_of::<WebAssembly::Module>());
+        assert_eq!(returned.bytes, [7, 42]);
+        assert!(JsValue::from(returned.module).is_instance_of::<WebAssembly::Module>());
     }
     client.shutdown();
     client.stopped().await.unwrap();

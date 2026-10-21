@@ -9,6 +9,28 @@ pub struct Packet {
     pub transfer: Vec<JsValue>,
 }
 
+/// Field composition used by the derive and built-in aggregate messages.
+pub fn encode_fields<const N: usize>(fields: [Packet; N]) -> Packet {
+    let values = Array::new();
+    let mut transfer = Vec::new();
+    for field in fields {
+        values.push(&field.value);
+        transfer.extend(field.transfer);
+    }
+    Packet {
+        value: values.into(),
+        transfer,
+    }
+}
+
+pub fn decode_fields<const N: usize>(value: JsValue) -> Result<[JsValue; N]> {
+    let fields = value.dyn_into::<Array>().map_err(invalid_message)?;
+    if fields.length() as usize != N {
+        return Err(invalid_message(fields.into()));
+    }
+    Ok(std::array::from_fn(|index| fields.get(index as u32)))
+}
+
 impl Message for JsValue {
     fn encode(self) -> Packet {
         Packet {
@@ -18,6 +40,30 @@ impl Message for JsValue {
     }
     fn decode(value: JsValue) -> Result<Self> {
         Ok(value)
+    }
+}
+
+impl Message for String {
+    fn encode(self) -> Packet {
+        JsValue::from(self).encode()
+    }
+
+    fn decode(value: JsValue) -> Result<Self> {
+        value.as_string().ok_or_else(|| invalid_message(value))
+    }
+}
+
+impl Message for u32 {
+    fn encode(self) -> Packet {
+        JsValue::from(self).encode()
+    }
+
+    fn decode(value: JsValue) -> Result<Self> {
+        let number = value.as_f64().ok_or_else(|| invalid_message(value))?;
+        if number.fract() != 0.0 || !(0.0..=f64::from(u32::MAX)).contains(&number) {
+            return Err(invalid_message(number.into()));
+        }
+        Ok(number as u32)
     }
 }
 
@@ -50,16 +96,12 @@ impl Message for WebAssembly::Module {
 
 impl<A: Message, B: Message> Message for (A, B) {
     fn encode(self) -> Packet {
-        let mut first = self.0.encode();
-        let second = self.1.encode();
-        first.value = Array::of2(&first.value, &second.value).into();
-        first.transfer.extend(second.transfer);
-        first
+        encode_fields([self.0.encode(), self.1.encode()])
     }
 
     fn decode(value: JsValue) -> Result<Self> {
-        let values = value.dyn_into::<Array>().map_err(invalid_message)?;
-        Ok((A::decode(values.get(0))?, B::decode(values.get(1))?))
+        let [first, second] = decode_fields(value)?;
+        Ok((A::decode(first)?, B::decode(second)?))
     }
 }
 
@@ -99,38 +141,14 @@ impl<T: Message> Message for Result<T> {
     }
 }
 
-impl Message for Error {
-    fn encode(self) -> Packet {
-        match self {
-            Error::Closed => JsValue::NULL,
-            Error::Failed(message) => message.into(),
-        }
-        .encode()
-    }
-
-    fn decode(value: JsValue) -> Result<Self> {
-        if value.is_null() {
-            return Ok(Error::Closed);
-        }
-        value
-            .as_string()
-            .map(Error::Failed)
-            .ok_or_else(|| invalid_message(value))
-    }
-}
-
 fn tagged(tag: bool, mut packet: Packet) -> Packet {
     packet.value = Array::of2(&tag.into(), &packet.value).into();
     packet
 }
 
 fn untag(value: JsValue) -> Result<(bool, JsValue)> {
-    let values = value.dyn_into::<Array>().map_err(invalid_message)?;
-    let tag = values.get(0);
-    Ok((
-        tag.as_bool().ok_or_else(|| invalid_message(tag))?,
-        values.get(1),
-    ))
+    let [tag, value] = decode_fields(value)?;
+    Ok((tag.as_bool().ok_or_else(|| invalid_message(tag))?, value))
 }
 
 fn invalid_message(_: JsValue) -> Error {

@@ -11,9 +11,30 @@
 //! choose their request types, handlers and limits.
 #![forbid(unsafe_code)]
 
+extern crate self as relocade_worker;
+
 mod message;
 mod requests;
 pub use message::Message;
+/// Composes field encodings for structs and enums. Native messages retain the
+/// blanket Send implementation. Browser enum tags follow declaration order;
+/// they are a same-build worker protocol, not a persistent storage format.
+///
+/// ```
+/// #[derive(relocade_worker::Message)]
+/// struct Reply<M> {
+///     module: M,
+///     metadata: Vec<u8>,
+/// }
+/// ```
+///
+/// Unions have no active-variant information to encode:
+///
+/// ```compile_fail
+/// #[derive(relocade_worker::Message)]
+/// union Untagged { word: u32, bytes: [u8; 4] }
+/// ```
+pub use relocade_worker_derive::Message;
 pub use requests::{RequestEndpoint, RequestWorker};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -21,7 +42,7 @@ pub mod native;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Message)]
 pub enum Error {
     Closed,
     Failed(String),

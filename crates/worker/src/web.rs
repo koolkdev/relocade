@@ -3,6 +3,11 @@ pub(crate) mod requests;
 pub use message::Packet;
 pub use wasm_bindgen::JsValue as Value;
 
+#[doc(hidden)]
+pub mod __private {
+    pub use super::message::{decode_fields, encode_fields};
+}
+
 use crate::{Error, Result};
 use js_sys::{Array, Promise};
 use std::future::Future;
