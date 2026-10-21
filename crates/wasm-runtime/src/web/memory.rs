@@ -35,9 +35,20 @@ impl SharedMemory {
 }
 
 impl WasmSharedMemory for SharedMemory {
+    fn write(&self, offset: u32, bytes: &[u8]) {
+        write(&self.0, offset, bytes);
+    }
+    fn byte_len(&self) -> u64 {
+        size(&self.0).expect("shared Wasm memory size") * 65536
+    }
+
     fn read(&self, offset: u32, bytes: &mut [u8]) {
         range(&self.0, offset, bytes.len()).copy_to(bytes);
     }
+}
+
+pub(super) fn write(memory: &WebAssembly::Memory, offset: u32, bytes: &[u8]) {
+    range(memory, offset, bytes.len()).copy_from(bytes);
 }
 
 pub(super) fn range(memory: &WebAssembly::Memory, offset: u32, len: usize) -> Uint8Array {

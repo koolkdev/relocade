@@ -77,7 +77,7 @@ impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
     }
 }
 
-/// An independently owned reader for shared linear memory. Reads may overlap
+/// An independently owned handle for shared linear memory. Reads may overlap
 /// guest or host writes and do not provide a consistent snapshot of a range.
 /// The range must be allocated and in bounds, as with [`WasmMemoryAccess`].
 ///
@@ -85,6 +85,9 @@ impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
 /// thread; the underlying shared WebAssembly.Memory can be sent to a worker.
 pub trait WasmSharedMemory: Clone + 'static {
     fn read(&self, offset: u32, bytes: &mut [u8]);
+    /// Transfers bytes without excluding other readers, writers or guest execution.
+    fn write(&self, offset: u32, bytes: &[u8]);
+    fn byte_len(&self) -> u64;
 }
 
 /// Scoped access to host state and live Wasm memory, during a callback or while
@@ -118,6 +121,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     type Function;
     /// An engine function handle, after its binding's signature has been checked.
     type ImportFunction: Clone;
+    /// Retains a shared allocation independently of this backend.
     type SharedMemory: WasmSharedMemory;
 
     /// Host state is borrowed only between Wasm calls. A browser backend may
@@ -143,9 +147,13 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// Shared memory requires a maximum. Import names are used only when linking.
     fn create_memory(&mut self, declaration: MemoryDeclaration) -> Result<Self::Memory>;
 
-    /// Obtains a reader that does not borrow the backend or its context.
+    /// Obtains an independently owned handle for shared memory.
     /// Returns `None` for private memory.
     fn shared_memory(&self, memory: &Self::Memory) -> Option<Self::SharedMemory>;
+
+    /// Attaches an existing shared allocation to this backend. The returned handle
+    /// belongs to this backend; the allocation remains shared with its other users.
+    fn import_shared_memory(&mut self, memory: &Self::SharedMemory) -> Self::Memory;
 
     /// Grows memory when needed to contain `byte_len` bytes, preserving its contents.
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()>;

@@ -81,6 +81,10 @@ impl<T: 'static> WasmBackend for Backend<T> {
         }
     }
 
+    fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
+        Memory::Shared(memory.clone())
+    }
+
     fn create_table(&mut self, minimum: u32) -> Result<Table> {
         Table::new(
             &mut self.store,
