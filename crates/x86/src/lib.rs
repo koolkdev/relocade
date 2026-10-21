@@ -70,7 +70,7 @@ pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;
 pub use segment::{
-    DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
+    Descriptor, DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
     SegmentDescriptorInfo, SegmentDescriptorKind, SegmentLimit, SegmentProfile,
 };
 pub use state::{

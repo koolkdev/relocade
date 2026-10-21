@@ -71,7 +71,7 @@ fn every_user_code_and_data_type_is_visible_including_execute_only_code() {
         tables.insert(0x27, descriptor);
         for selector in 0x24..=0x27 {
             let descriptor_info = tables.query_user_segment_descriptor(selector);
-            assert!(descriptor_info.visible);
+            assert!(descriptor_info.lar_valid);
             assert_eq!(descriptor_info.access_rights, access_rights);
             assert_eq!(descriptor_info.limit, 0xffff);
         }
@@ -106,7 +106,7 @@ fn visibility_uses_privilege_and_conformance_without_requiring_presence() {
             for selector in 0x24..=0x27 {
                 let descriptor_info = tables.query_user_segment_descriptor(selector);
                 if conforming || dpl == Ring3 {
-                    assert!(descriptor_info.visible);
+                    assert!(descriptor_info.lar_valid);
                     assert!(!descriptor_info.readable);
                     assert!(!descriptor_info.writable);
                     assert_eq!(
@@ -194,7 +194,8 @@ fn query_retains_descriptor_flags_and_expands_the_same_limit_as_a_load() {
         assert_eq!(
             tables.query_user_segment_descriptor(0x27),
             SegmentDescriptorInfo {
-                visible: true,
+                lar_valid: true,
+                lsl_valid: true,
                 readable: true,
                 writable: true,
                 access_rights: rights,
@@ -228,7 +229,7 @@ fn null_and_missing_selectors_are_invisible_but_local_zero_and_last_slots_exist(
     }
     for slot in [4, 0xfff8, 0xfffc] {
         for rpl in 0..4 {
-            assert!(tables.query_user_segment_descriptor(slot | rpl).visible);
+            assert!(tables.query_user_segment_descriptor(slot | rpl).lar_valid);
         }
     }
     tables.remove(0xffff);
