@@ -1,9 +1,9 @@
 mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosState, FileAccess};
+use relocade_dos::{Dos, DosServices, FileAccess};
 
-fn current_directory(dos: &mut Dos<Backend<DosState>>, drive: u16) -> Vec<u8> {
+fn current_directory(dos: &mut Dos<Backend<DosServices>>, drive: u16) -> Vec<u8> {
     dos.runtime().machine().cpu().set_si(0x400);
     dos.runtime()
         .machine()

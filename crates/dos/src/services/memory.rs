@@ -1,10 +1,10 @@
-use crate::{interrupt::return_result, memory, DosState};
+use crate::{interrupt::return_result, memory, DosServices};
 use relocade_runtime::HostCall;
 use relocade_x86::{ExecutionExit, Segment};
 use std::ops::ControlFlow;
 
 /// AH=48h: allocate BX paragraphs; return the segment in AX.
-pub(super) fn allocate(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+pub(super) fn allocate(call: &mut HostCall<'_, DosServices>) -> ControlFlow<ExecutionExit> {
     let paragraphs = call.cpu().bx();
     let result = memory::allocate(&mut call.memory(), paragraphs, memory::FIRST_SEGMENT);
     let result = result.map(|segment| call.cpu().set_ax(segment));
@@ -12,14 +12,14 @@ pub(super) fn allocate(call: &mut HostCall<'_, DosState>) -> ControlFlow<Executi
 }
 
 /// AH=49h: free the block whose data begins at ES:0000.
-pub(super) fn free(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+pub(super) fn free(call: &mut HostCall<'_, DosServices>) -> ControlFlow<ExecutionExit> {
     let segment = call.cpu().segment(Segment::Es).selector;
     let result = memory::free(&mut call.memory(), segment);
     return_result(call, result)
 }
 
 /// AH=4Ah: resize the block at ES:0000 to BX paragraphs.
-pub(super) fn resize(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+pub(super) fn resize(call: &mut HostCall<'_, DosServices>) -> ControlFlow<ExecutionExit> {
     let segment = call.cpu().segment(Segment::Es).selector;
     let paragraphs = call.cpu().bx();
     let result = memory::resize(&mut call.memory(), segment, paragraphs);

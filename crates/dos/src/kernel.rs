@@ -1,4 +1,4 @@
-use crate::{files::Files, memory, process, services, ServiceError};
+use crate::{interrupt, memory, services, DosServices};
 use relocade_machine::{MachineConfig, Memory};
 use relocade_runtime::{real_mode_interrupt::HOOK_STUB, Hook};
 use relocade_x86::{
@@ -8,31 +8,6 @@ use relocade_x86::{
 const KERNEL_SEGMENT: u16 = 0xf000;
 const INT20_ENTRY: u16 = 0x100;
 const INT21_ENTRY: u16 = 0x110;
-
-/// Mutable DOS state owned by the Wasm backend and shared by its service handlers.
-/// Initialize the backend with `RuntimeState::new(DosState::default())` before loading a program.
-#[derive(Default)]
-pub struct DosState {
-    pub(crate) files: Files,
-    pub(crate) dta_segment: u16,
-    pub(crate) dta_offset: u16,
-    pub(crate) exit_status: Option<Result<u8, ServiceError>>,
-}
-
-impl AsRef<relocade_bios::Keyboard> for DosState {
-    fn as_ref(&self) -> &relocade_bios::Keyboard {
-        &self.files.stdio.input
-    }
-}
-
-impl DosState {
-    pub(crate) fn reset_process(&mut self, psp_segment: u16) {
-        self.files.reset_handles();
-        self.dta_segment = psp_segment;
-        self.dta_offset = process::COMMAND_TAIL_OFFSET;
-        self.exit_status = None;
-    }
-}
 
 pub(crate) fn configuration() -> MachineConfig {
     const CONVENTIONAL_RAM_SIZE: u32 = 640 * 1024;
@@ -84,10 +59,10 @@ pub(crate) fn initialize(memory: &mut Memory<'_>) {
     }
 }
 
-pub(crate) fn hooks() -> [Hook<DosState>; 2] {
+pub(crate) fn hooks() -> [Hook<DosServices>; 2] {
     [
-        Hook::new(address(INT20_ENTRY), services::int20),
-        Hook::new(address(INT21_ENTRY), services::int21),
+        interrupt::hook(address(INT20_ENTRY), services::int20),
+        interrupt::hook(address(INT21_ENTRY), services::int21),
     ]
 }
 

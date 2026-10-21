@@ -1,15 +1,15 @@
 mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosState, FileAccess};
+use relocade_dos::{Dos, DosServices, FileAccess};
 
-fn attributes(dos: &mut Dos<Backend<DosState>>, path: &[u8]) -> u16 {
+fn attributes(dos: &mut Dos<Backend<DosServices>>, path: &[u8]) -> u16 {
     let cpu = path_service(dos, path, 0x4300, 0xffff);
     success(&cpu);
     cpu.registers.ecx as u16
 }
 
-fn found_attributes(dos: &mut Dos<Backend<DosState>>, path: &[u8], mask: u16) -> u8 {
+fn found_attributes(dos: &mut Dos<Backend<DosServices>>, path: &[u8], mask: u16) -> u8 {
     success(&path_service(dos, path, 0x4e00, mask));
     let mut byte = [0];
     dos.runtime()
