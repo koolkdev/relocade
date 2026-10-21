@@ -19,12 +19,12 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             Default::default(),
         )
         .unwrap();
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10300, b"DOS$")
             .unwrap();
-        assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
+        assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
         assert_eq!(dos.exit_status(), Some(Ok(0)));
         let screen = dos.screen();
         assert_eq!(screen.page, 1);
@@ -42,8 +42,8 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
         assert_eq!((screen.cursor.row, screen.cursor.column), (1, 6));
         assert_eq!(common::output(dos.stdout()), b"DOS"); // BIOS output is screen-only.
         let mut page_zero = [0; 2];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0xb80a4, &mut page_zero)
             .unwrap();
@@ -71,14 +71,14 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             Default::default(),
         )
         .unwrap();
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10300, b"Ready$")
             .unwrap();
-        let memory = dos.runtime().shared_memory();
+        let memory = dos.cpu().shared_memory();
         let mut input = dos.stdin();
-        let mut run = pin!(dos.runtime().run_async(100));
+        let mut run = pin!(dos.cpu().run_async(100));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(run.as_mut().poll(&mut cx).is_pending());
         let thread_memory = memory.clone();
@@ -113,8 +113,8 @@ fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
         let file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
         success(&service(&mut dos, 0x4600, file, 1, 0));
         let blank = dos.screen();
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10300, b"File$")
             .unwrap();
@@ -125,8 +125,8 @@ fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
         assert!(common::output(dos.stdout()).is_empty());
 
         let console = success(&path_service(&mut dos, b"CON", 0x3d02, 0));
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10300, b"E\r\nC")
             .unwrap();
@@ -140,8 +140,8 @@ fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
         service(&mut dos, 0x0600, 0, 0, u16::from(b'D'));
         // Raw AH=40h keeps control bytes that a cooked handle would stop at.
         success(&service(&mut dos, 0x4401, console, 0, 0x23));
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10300, b"\x1aR")
             .unwrap();

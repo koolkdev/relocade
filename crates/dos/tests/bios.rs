@@ -14,20 +14,20 @@ async fn check_bios_clock() {
     dos.load_com(&[0xcd, 0x1a, 0xeb, 0xfe], Default::default())
         .unwrap();
     let mut initial = [0xff; 5];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x46c, &mut initial)
         .unwrap();
     assert_eq!(initial, [0; 5]);
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .write(0x46c, &[0x78, 0x56, 0x12, 0, 1])
         .unwrap();
     for rollover in [1, 0] {
         {
-            let mut machine = dos.runtime().machine();
+            let mut machine = dos.cpu().context();
             let mut cpu = machine.cpu();
             cpu.set_eip(0x100);
             cpu.set_ax(0);
@@ -36,11 +36,8 @@ async fn check_bios_clock() {
             cpu.set_dx(0xffff);
             cpu.set_eflags(0x0a57); // OF, IF, ZF, AF, PF and CF.
         }
-        assert_eq!(
-            dos.runtime().run(10).unwrap(),
-            ExecutionExit::BudgetExhausted
-        );
-        let cpu = dos.runtime().machine().cpu().snapshot();
+        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+        let cpu = dos.cpu().context().cpu().snapshot();
         assert_eq!(cpu.registers.eax as u16, rollover);
         assert_eq!(cpu.registers.ebx as u16, 0xabcd);
         assert_eq!(cpu.registers.ecx as u16, 0x12);
@@ -48,25 +45,18 @@ async fn check_bios_clock() {
         assert_eq!(cpu.registers.esp as u16, 0xfffe);
         assert_eq!(cpu.flags.eflags(), 0x0a57); // Clock reads preserve flags.
         let mut data = [0; 5];
-        dos.runtime()
-            .machine()
-            .memory()
-            .read(0x46c, &mut data)
-            .unwrap();
+        dos.cpu().context().memory().read(0x46c, &mut data).unwrap();
         assert_eq!(data, [0x78, 0x56, 0x12, 0, 0]);
     }
     {
-        let mut machine = dos.runtime().machine();
+        let mut machine = dos.cpu().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ax(0xff42);
         cpu.set_eflags(0x0a56); // Same flags, with carry clear.
     }
-    assert_eq!(
-        dos.runtime().run(10).unwrap(),
-        ExecutionExit::BudgetExhausted
-    );
-    let cpu = dos.runtime().machine().cpu().snapshot();
+    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    let cpu = dos.cpu().context().cpu().snapshot();
     assert_eq!(cpu.registers.eax as u16, 0x8642);
     assert_eq!(cpu.flags.eflags(), 0x0a57); // Unsupported calls set only carry.
     assert_eq!(dos.exit_status(), None);

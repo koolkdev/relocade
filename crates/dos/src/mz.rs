@@ -1,7 +1,7 @@
 //! DOS MZ headers, relocation and entry state.
 
 use crate::{memory, process, LoadError, LoadOptions};
-use relocade_machine::Machine;
+use relocade_machine::CpuContext;
 use relocade_x86::{Segment, SegmentRegister};
 
 const HEADER_BYTES: usize = 28;
@@ -72,7 +72,7 @@ impl<'a> Image<'a> {
 }
 
 pub(crate) fn load(
-    machine: &mut Machine<'_>,
+    machine: &mut CpuContext<'_>,
     file: &[u8],
     options: &LoadOptions<'_>,
 ) -> Result<u16, LoadError> {

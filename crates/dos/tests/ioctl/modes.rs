@@ -44,8 +44,8 @@ fn raw_handle_output_preserves_control_bytes_and_cooked_output_still_expands_tab
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10400, b"A\t\x1aZ")
             .unwrap();

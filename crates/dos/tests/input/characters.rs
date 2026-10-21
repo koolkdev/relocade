@@ -10,21 +10,21 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
         for function in [0x01, 0x08] {
             dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
             {
-                let mut machine = dos.runtime().machine();
+                let mut machine = dos.cpu().context();
                 let mut cpu = machine.cpu();
                 cpu.set_ax(function << 8);
                 cpu.set_bx(0x1234);
                 cpu.set_eflags(0x643);
             }
-            assert_eq!(dos.runtime().run(10).unwrap(), ExecutionExit::Deferred);
+            assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
             assert!(common::output(dos.stdout()).is_empty());
             dos.stdin().write_all(b"KZ").unwrap();
             assert_eq!(
-                dos.runtime().run_async(10).await.unwrap(),
+                dos.cpu().run_async(10).await.unwrap(),
                 ExecutionExit::BudgetExhausted
             );
             {
-                let mut machine = dos.runtime().machine();
+                let mut machine = dos.cpu().context();
                 let cpu = machine.cpu();
                 assert_eq!(cpu.ax(), (function << 8) | u16::from(b'K'));
                 assert_eq!(cpu.bx(), 0x1234);

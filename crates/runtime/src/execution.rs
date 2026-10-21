@@ -1,8 +1,8 @@
-use crate::{Error, HostCall, Result, Runtime, RuntimeBackend, RuntimeState, Storage};
+use crate::{Cpu, Error, HostCall, Result, RuntimeBackend, RuntimeState, Storage};
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
+impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Runs until the budget is consumed at a block boundary, a guest exit
     /// occurs, or a host function requests a return. Whole blocks can exceed the
     /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
@@ -58,7 +58,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     }
 
     fn instruction_target(&mut self, instruction_budget: u64) -> u64 {
-        self.machine()
+        self.context()
             .cpu()
             .instruction_count()
             .saturating_add(instruction_budget)

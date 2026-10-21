@@ -1,5 +1,5 @@
 use relocade_machine::MachineConfig;
-use relocade_runtime::{real_mode_interrupt, Hook, Runtime, RuntimeState};
+use relocade_runtime::{real_mode_interrupt, Cpu, Hook, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments,
@@ -27,11 +27,11 @@ async fn check_interrupt_hooks() {
     // Non-Send state belongs to the backend, while hooks may capture immutable metadata.
     let calls = Rc::new(Cell::new(0));
     let backend = Backend::with_state(RuntimeState::new(calls)).unwrap();
-    let mut runtime = Runtime::new(backend, config).await.unwrap();
-    runtime.machine().cpu().set_sp(0xff00);
-    runtime.machine().cpu().set_eflags(0x202);
+    let mut runtime = Cpu::new(backend, config).await.unwrap();
+    runtime.context().cpu().set_sp(0xff00);
+    runtime.context().cpu().set_eflags(0x202);
     runtime
-        .machine()
+        .context()
         .memory()
         .write(
             0x100,
@@ -46,12 +46,12 @@ async fn check_interrupt_hooks() {
         )
         .unwrap();
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x84, &[0x20, 0, 0, 0x10])
         .unwrap();
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x10020, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
@@ -82,38 +82,38 @@ async fn check_interrupt_hooks() {
         .unwrap();
     assert_eq!(runtime.run(5).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.state().get(), 1);
-    assert_eq!(runtime.machine().cpu().ax(), 11);
-    assert_eq!(runtime.machine().cpu().segment(Segment::Cs).selector, 0);
-    assert_eq!(runtime.machine().cpu().eip(), 0x10e);
-    assert_eq!(runtime.machine().cpu().sp(), 0xff00);
-    assert_eq!(runtime.machine().cpu().eflags() & 0x201, 0x200);
+    assert_eq!(runtime.context().cpu().ax(), 11);
+    assert_eq!(runtime.context().cpu().segment(Segment::Cs).selector, 0);
+    assert_eq!(runtime.context().cpu().eip(), 0x10e);
+    assert_eq!(runtime.context().cpu().sp(), 0xff00);
+    assert_eq!(runtime.context().cpu().eflags() & 0x201, 0x200);
     assert_eq!(runtime.run(2).unwrap(), ExecutionExit::BudgetExhausted);
     let mut result = [0; 2];
-    runtime.machine().memory().read(0x202, &mut result).unwrap();
+    runtime.context().memory().read(0x202, &mut result).unwrap();
     assert_eq!(u16::from_le_bytes(result), 11);
 
     // Replace the IVT destination with guest code that chains to the original hook.
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x84, &[0, 5, 0, 0])
         .unwrap();
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x500, &[0x43, 0xea, 0x20, 0, 0, 0x10])
         .unwrap();
     assert_eq!(runtime.run(7).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.state().get(), 2);
-    assert_eq!(runtime.machine().cpu().bx(), 1);
-    assert_eq!(runtime.machine().cpu().eip(), 0x10e);
-    assert_eq!(runtime.machine().cpu().sp(), 0xff00);
-    assert_eq!(runtime.machine().cpu().instruction_count(), 14);
+    assert_eq!(runtime.context().cpu().bx(), 1);
+    assert_eq!(runtime.context().cpu().eip(), 0x10e);
+    assert_eq!(runtime.context().cpu().sp(), 0xff00);
+    assert_eq!(runtime.context().cpu().instruction_count(), 14);
 
-    runtime.machine().cpu().set_eip(0x400);
+    runtime.context().cpu().set_eip(0x400);
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::HostReturn);
-    assert_eq!(runtime.machine().cpu().instruction_count(), 14);
-    assert_eq!(runtime.machine().cpu().eip(), 0x400);
+    assert_eq!(runtime.context().cpu().instruction_count(), 14);
+    assert_eq!(runtime.context().cpu().eip(), 0x400);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

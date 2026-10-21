@@ -1,5 +1,5 @@
 use crate::{memory, process, LoadError, LoadOptions};
-use relocade_machine::Machine;
+use relocade_machine::CpuContext;
 
 // One segment holds the PSP, COM image and stack.
 const SEGMENT_SIZE: u32 = 64 * 1024;
@@ -7,7 +7,7 @@ const SEGMENT_SIZE: u32 = 64 * 1024;
 const STACK_OFFSET: u16 = (SEGMENT_SIZE - 2) as u16;
 
 pub(crate) fn load(
-    machine: &mut Machine<'_>,
+    machine: &mut CpuContext<'_>,
     image: &[u8],
     options: &LoadOptions<'_>,
 ) -> Result<u16, LoadError> {

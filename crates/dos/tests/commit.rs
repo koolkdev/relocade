@@ -20,17 +20,13 @@ fn commit_updates_metadata_without_closing_repositioning_or_releasing_sharing() 
         let writer = success(&path_service(&mut dos, b"DATA.BIN", 0x3d22, 0));
         let duplicate = success(&service(&mut dos, 0x4500, writer, 0, 0));
         let reader = success(&path_service(&mut dos, b"DATA.BIN", 0x3d40, 0));
-        dos.runtime()
-            .machine()
-            .memory()
-            .write(0x10400, b"X")
-            .unwrap();
+        dos.cpu().context().memory().write(0x10400, b"X").unwrap();
         success(&service(&mut dos, 0x4000, writer, 1, 0x400));
 
         // A separate read-only open has no pending metadata from the writer.
         success(&service(&mut dos, 0x6800, reader, 0, 0));
         assert_eq!(attributes(&mut dos, b"DATA.BIN"), 0x06);
-        dos.runtime().machine().cpu().set_eflags(0x0a57);
+        dos.cpu().context().cpu().set_eflags(0x0a57);
         // AH=6Ah aliases commit and returns AH=68h while preserving AL.
         let cpu = service(&mut dos, 0x6a37, duplicate, 0x1234, 0x5678);
         assert_eq!(success(&cpu), 0x6837);
@@ -44,8 +40,8 @@ fn commit_updates_metadata_without_closing_repositioning_or_releasing_sharing() 
         assert_eq!(success(&service(&mut dos, 0x4201, duplicate, 0, 0)), 1);
         assert_eq!(success(&service(&mut dos, 0x3f00, writer, 1, 0x500)), 1);
         let mut byte = [0];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10500, &mut byte)
             .unwrap();
@@ -80,11 +76,7 @@ fn commit_validates_handles_and_respects_device_and_replaced_file_identity() {
         }
         error(&service(&mut dos, 0x6a37, 5, 0, 0), 6);
         let old = success(&path_service(&mut dos, b"DATA.BIN", 0x3d42, 0));
-        dos.runtime()
-            .machine()
-            .memory()
-            .write(0x10400, b"X")
-            .unwrap();
+        dos.cpu().context().memory().write(0x10400, b"X").unwrap();
         success(&service(&mut dos, 0x4000, old, 1, 0x400));
         dos.mount_file("DATA.BIN", b"replacement".to_vec(), FileAccess::ReadOnly)
             .unwrap();
@@ -94,8 +86,8 @@ fn commit_validates_handles_and_respects_device_and_replaced_file_identity() {
         assert_eq!(dos.read_file("DATA.BIN").unwrap(), b"replacement");
         assert_eq!(success(&service(&mut dos, 0x3f00, old, 2, 0x500)), 2);
         let mut bytes = [0; 2];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10500, &mut bytes)
             .unwrap();

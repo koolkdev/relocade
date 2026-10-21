@@ -1,4 +1,4 @@
-use crate::{MachineConfig, MachineStorage};
+use crate::{CpuStorage, MachineConfig};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, SegmentRegister};
 use std::fmt;
 
@@ -46,12 +46,12 @@ pub trait ReadMemory {
 /// Guest physical memory through the configured map, including A20 aliases.
 /// RAM/ROM use backing storage. Holes and currently unattached MMIO return FF
 /// bytes; writes to ROM, holes and unattached MMIO are ignored.
-pub struct Memory<'a, S: MachineStorage + ?Sized = dyn MachineStorage + 'a> {
+pub struct Memory<'a, S: CpuStorage + ?Sized = dyn CpuStorage + 'a> {
     config: &'a MachineConfig,
     storage: &'a mut S,
 }
 
-impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
+impl<'a, S: CpuStorage + ?Sized> Memory<'a, S> {
     /// Borrows backing storage matching the configured map and capacity.
     pub fn new(config: &'a MachineConfig, storage: &'a mut S) -> Self {
         Self { config, storage }
@@ -148,7 +148,7 @@ impl<'a, S: MachineStorage + ?Sized> Memory<'a, S> {
     }
 }
 
-impl<S: MachineStorage + ?Sized> ReadMemory for Memory<'_, S> {
+impl<S: CpuStorage + ?Sized> ReadMemory for Memory<'_, S> {
     fn memory_map(&self) -> &PhysicalMemoryMap {
         self.config.memory_map()
     }

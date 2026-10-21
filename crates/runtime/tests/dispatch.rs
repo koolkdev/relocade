@@ -1,6 +1,6 @@
 use relocade_compiler::{Program, I32};
 use relocade_machine::MachineConfig;
-use relocade_runtime::{DispatchEntry, Runtime, RuntimeState};
+use relocade_runtime::{Cpu, DispatchEntry, RuntimeState};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -25,22 +25,22 @@ async fn check_dispatch_table() {
     )
     .unwrap();
     let backend = Backend::with_state(RuntimeState::new(())).unwrap();
-    let mut runtime = Runtime::new(backend, config).await.unwrap();
+    let mut runtime = Cpu::new(backend, config).await.unwrap();
     // JMP 0200. An uninstalled destination faults; only our callable writes the marker.
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x100, &[0xe9, 0xfd, 0])
         .unwrap();
     for address in [0x200, 0x250] {
         runtime
-            .machine()
+            .context()
             .memory()
             .write(address, &[0x0f, 0x0b])
             .unwrap(); // UD2
     }
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x300, &[0x40, 0xe9, 0xfc, 0xfd])
         .unwrap(); // INC AX; JMP 0100
@@ -68,10 +68,10 @@ async fn check_dispatch_table() {
     });
     runtime.install_module(&module, &entries).await.unwrap();
     assert_eq!(runtime.run(3).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.machine().cpu().ax(), 11);
-    assert_eq!(runtime.machine().cpu().eip(), 0x100);
+    assert_eq!(runtime.context().cpu().ax(), 11);
+    assert_eq!(runtime.context().cpu().eip(), 0x100);
     let mut marker = [0; 4];
-    runtime.machine().memory().read(0x400, &mut marker).unwrap();
+    runtime.context().memory().read(0x400, &mut marker).unwrap();
     assert_eq!(u32::from_le_bytes(marker), 10);
 
     let module = callable(20);
@@ -93,7 +93,7 @@ async fn check_dispatch_table() {
         .is_err());
     // Failure to resolve a later export must not replace the earlier entry.
     assert_eq!(runtime.run(3).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.machine().cpu().ax(), 22);
+    assert_eq!(runtime.context().cpu().ax(), 22);
     runtime
         .install_module(
             &module,
@@ -105,16 +105,16 @@ async fn check_dispatch_table() {
         .await
         .unwrap();
     assert_eq!(runtime.run(3).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.machine().cpu().ax(), 43);
-    assert_eq!(runtime.machine().cpu().eip(), 0x100);
-    assert_eq!(runtime.machine().cpu().instruction_count(), 9);
+    assert_eq!(runtime.context().cpu().ax(), 43);
+    assert_eq!(runtime.context().cpu().eip(), 0x100);
+    assert_eq!(runtime.context().cpu().instruction_count(), 9);
 
     // The final slot in the later batch also dispatches to its installed function.
-    runtime.machine().cpu().set_eip(0x250);
+    runtime.context().cpu().set_eip(0x250);
     assert_eq!(runtime.run(2).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.machine().cpu().ax(), 54);
-    assert_eq!(runtime.machine().cpu().eip(), 0x100);
-    assert_eq!(runtime.machine().cpu().instruction_count(), 11);
+    assert_eq!(runtime.context().cpu().ax(), 54);
+    assert_eq!(runtime.context().cpu().eip(), 0x100);
+    assert_eq!(runtime.context().cpu().instruction_count(), 11);
 }
 
 fn callable(increment: u32) -> Vec<u8> {
