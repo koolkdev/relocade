@@ -18,11 +18,11 @@ env:
 
 jobs:
   test:
-    name: Rust tests (workspace cache ${{ matrix.cache-workspace-crates }})
+    name: Rust tests (x86 opt-level ${{ matrix.x86-opt-level }})
     strategy:
       fail-fast: false
       matrix:
-        cache-workspace-crates: [false, true]
+        x86-opt-level: [0, 1]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -42,8 +42,8 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          key: cache-study-${{ matrix.cache-workspace-crates }}
-          cache-workspace-crates: ${{ matrix.cache-workspace-crates }}
+          key: cache-study-false
+          save-if: false
 
       - name: Cache compiled Wasm test modules
         uses: actions/cache@v6
@@ -54,15 +54,17 @@ jobs:
             wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-
 
       - name: Run workspace tests
+        env:
+          CARGO_LOG: cargo::core::compiler::fingerprint=info
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          cargo test --workspace --locked --timings
+          cargo test --workspace --locked --timings --config 'profile.test.package.relocade-x86.opt-level=${{ matrix.x86-opt-level }}'
 
       - name: Upload Rust build timings
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: cargo-timings-workspace-cache-${{ matrix.cache-workspace-crates }}-attempt-${{ github.run_attempt }}
+          name: cargo-timings-x86-opt-${{ matrix.x86-opt-level }}-attempt-${{ github.run_attempt }}
           path: target/cargo-timings/*.html
           if-no-files-found: warn
           retention-days: 14
