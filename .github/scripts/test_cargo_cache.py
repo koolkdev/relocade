@@ -1,6 +1,8 @@
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import time
 import unittest
@@ -97,6 +99,66 @@ class SourceTimestamps(unittest.TestCase):
                 self.assertEqual(restore(self.root, self.paths, self.manifest), 0)
                 self.assertEqual(self.source.stat().st_mtime_ns, self.new_time)
                 self.assertFalse(outputs.exists())
+
+
+@unittest.skipUnless(shutil.which("cargo"), "Cargo is required for the integration test")
+class CargoFreshness(unittest.TestCase):
+    def test_fresh_checkout_reuses_artifacts_but_a_real_edit_rebuilds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "Cargo.toml").write_text(
+                '[package]\nname="cache-probe"\nversion="0.0.0"\nedition="2021"\n'
+            )
+            (root / "build.rs").write_text(
+                'fn main() { println!("cargo:rerun-if-changed=build.rs"); '
+                'std::fs::write(std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap())'
+                '.join("generated.rs"), "const GENERATED: u32 = 7;").unwrap(); }\n'
+            )
+            source = root / "src/lib.rs"
+            code = (
+                'include!(concat!(env!("OUT_DIR"), "/generated.rs"));\n'
+                'fn value() -> u32 { GENERATED + 1 }\n'
+                '#[test] fn check() { assert_eq!(value(), '
+                'std::env::var("EXPECTED_VALUE").unwrap().parse::<u32>().unwrap()); }\n'
+            )
+            source.write_text(code)
+            paths = [Path("Cargo.toml"), Path("build.rs"), Path("src/lib.rs")]
+            manifest = root / "cache/source-mtimes.json"
+            env = os.environ.copy()
+            env.update(CARGO_TARGET_DIR=str(root / "target"), CARGO_INCREMENTAL="0")
+
+            def build(expected):
+                env["EXPECTED_VALUE"] = str(expected)
+                result = subprocess.run(
+                    ["cargo", "test", "--offline", "--message-format=json"],
+                    cwd=root, env=env, text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                artifacts = [json.loads(line) for line in result.stdout.splitlines()
+                             if line.startswith("{")]
+                fresh = [item["fresh"] for item in artifacts
+                         if item.get("reason") == "compiler-artifact"]
+                self.assertTrue(fresh)
+                return all(fresh)
+
+            snapshot(root, paths, manifest)
+            self.assertFalse(build(8))
+            for path in paths:
+                os.utime(root / path, None)
+            restore(root, paths, manifest)
+            self.assertTrue(build(8))
+
+            old_time = source.stat().st_mtime_ns
+            source.write_text(code.replace("GENERATED + 1", "GENERATED + 2"))
+            os.utime(source, ns=(old_time, old_time))
+            restore(root, paths, manifest)
+            snapshot(root, paths, manifest)
+            self.assertFalse(build(9))
+            for path in paths:
+                os.utime(root / path, None)
+            restore(root, paths, manifest)
+            self.assertTrue(build(9))
 
 
 if __name__ == "__main__":
