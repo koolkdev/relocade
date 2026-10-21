@@ -14,6 +14,8 @@ futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-compiler = { path = "../../crates/compiler" }
 relocade-runtime = { path = "../../crates/runtime" }
+relocade-machine = { path = "../../crates/machine" }
+relocade-x86 = { path = "../../crates/x86" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.129"

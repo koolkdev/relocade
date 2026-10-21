@@ -13,6 +13,17 @@ requests move in the task closure; browser module results use the library's
 existing `Post` transport with `serde-wasm-bindgen::preserve`. No custom message
 derive or transport is needed. Native modules cross as ordinary Send values.
 
+The CPU check creates a runtime inside one persistent task. While guest code
+loops, it reads a Rust command at an instruction-budget boundary and enters a
+hook that awaits input. A Rust oneshot channel wakes that same handler; its
+non-Send state and pending `run_async` future remain on the CPU thread. The task
+returns the final CPU snapshot and completes before its thread owner is dropped.
+
+This check uses shared Rust control while the worker is busy. A production CPU
+loop must also periodically return to the browser event loop for JavaScript
+events, including compiled-module delivery. This example does not choose that
+scheduling policy or add CPU stop/reload cancellation.
+
 Run the native check with the normal toolchain:
 
 ```sh
