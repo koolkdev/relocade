@@ -13,6 +13,7 @@ use std::{
 use web_thread::Thread;
 
 mod compiler;
+mod cpu;
 
 #[cfg(not(target_arch = "wasm32"))]
 use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
@@ -87,7 +88,8 @@ async fn check_threads() -> Result<(), String> {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn run_checks() -> Result<(), String> {
     check_threads().await?;
-    compiler::check().await
+    compiler::check().await?;
+    cpu::check().await
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -100,5 +102,10 @@ mod tests {
     #[test]
     fn compiled_modules_reach_another_execution_owner() {
         pollster::block_on(super::compiler::check()).unwrap();
+    }
+
+    #[test]
+    fn cpu_task_receives_commands_and_awaits_deferred_input() {
+        pollster::block_on(super::cpu::check()).unwrap();
     }
 }
