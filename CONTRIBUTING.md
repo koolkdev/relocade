@@ -54,12 +54,12 @@ tests run natively, alongside compiler and instruction correctness tests.
 All browser tests use the shared-memory Rust build, including atomics and TLS.
 The [browser suite](tests/browser/README.md) runs backend and renderer tests plus
 worker integration checks using one toolchain and build configuration. From
-`tests/browser`, install dependencies with `npm ci` and run `npm test` with Chrome
-and a matching ChromeDriver. See the suite's README for setup and focused runs.
+`tests/browser`, install dependencies with `npm ci` and run `npm test` with Chrome.
+See the suite's README for setup and focused runs.
 
-The shared [test entrypoint](tests/browser/test.mjs) configures Chrome's binary
-and software graphics for local runs and CI. Set
-`WASM_BINDGEN_TEST_WEBDRIVER_JSON` to override its WebDriver configuration.
+The shared [browser runner](tests/browser/browser-test.mjs) uses `CHROME_BINARY`
+and software WebGPU for local runs and CI. Vite supplies the worker bindings for
+both wasm-bindgen-test suites and worker integration checks.
 
 Compare generated Wasm bytes before timing a change; measure changed output with
 representative browser workloads and matching execution boundaries. Wasmtime

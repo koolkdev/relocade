@@ -6,6 +6,7 @@ export default defineConfig({
     resolve: {
         alias: {
             "web-thread:wasm-shim": fileURLToPath(new URL("./worker-shim.mjs", import.meta.url)),
+            "relocade:wasm-bindings": fileURLToPath(new URL("./pkg/relocade_browser_tests.js", import.meta.url)),
         },
     },
     server: {

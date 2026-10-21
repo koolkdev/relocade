@@ -75,11 +75,9 @@ jobs:
           cache: npm
           cache-dependency-path: tests/browser/package-lock.json
 
-      - name: Install Chrome and ChromeDriver
+      - name: Install Chrome
         id: chrome
         uses: browser-actions/setup-chrome@v2
-        with:
-          install-chromedriver: true
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -91,7 +89,6 @@ jobs:
 
       - name: Run browser tests
         env:
-          CHROMEDRIVER: ${{ steps.chrome.outputs.chromedriver-path }}
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
           npm --prefix tests/browser ci

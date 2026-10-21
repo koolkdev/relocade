@@ -7,7 +7,7 @@ const workspace = path.resolve(directory, "../..");
 const target = path.resolve(workspace, process.env.CARGO_TARGET_DIR ?? "target/browser");
 const env = {
     CARGO_TARGET_DIR: target,
-    CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: "wasm-bindgen-test-runner",
+    CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: `node ${path.join(directory, "wasm-test.mjs")}`,
     WASM_BINDGEN_TEST_TIMEOUT: process.env.WASM_BINDGEN_TEST_TIMEOUT ?? "120",
     CARGO_ENCODED_RUSTFLAGS: [
         "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",

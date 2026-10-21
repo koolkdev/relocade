@@ -2,10 +2,10 @@
 <meta charset="utf-8">
 <title>Relocade worker integration checks</title>
 <link rel="icon" href="data:,">
-<pre id="result">Running worker integration checks…</pre>
+<pre id="output">Running worker integration checks…</pre>
 <script type="module">
     import init, { rust_channels, shared_memory, compiled_modules } from "./pkg/relocade_browser_tests.js";
-    const result = document.querySelector("#result");
+    const result = document.querySelector("#output");
     window.checks = (async () => {
         try {
             await init();
