@@ -1,13 +1,38 @@
-//! Wasm engine operations used by the runtime. Compiled code may be reused across
-//! compatible backends. Instances bind to one backend's memories, tables and functions.
+//! Native and browser Wasm compilation, linking and execution.
+//!
+//! [`Backend`] uses Wasmtime on native targets and the browser WebAssembly APIs
+//! on wasm32. Compiled code may be reused across compatible backends. Instances
+//! bind to one backend's memories, tables and functions.
+//!
+//! ```
+//! use relocade_wasm_runtime::{Backend, WasmBackend};
+//!
+//! # async fn example() -> relocade_wasm_runtime::Result<()> {
+//! let mut backend = Backend::new()?;
+//! let module = backend.compile(b"\0asm\x01\0\0\0").await?;
+//! let instance = backend.instantiate(&module, &[]).await?;
+//! # Ok(())
+//! # }
+//! ```
+#![deny(unsafe_code)]
 
-use crate::Result;
 use relocade_compiler::{
-    abi::{Function, Memory},
+    abi::{Function, Memory as MemoryDeclaration},
     I64,
 };
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
+
+mod error;
+pub use error::{Error, Result};
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(target_arch = "wasm32")]
+mod web;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::{Backend, Context, Memory, Module, SharedMemory};
+#[cfg(target_arch = "wasm32")]
+pub use web::{Backend, Context, Memory, Module, SharedMemory};
 
 mod host;
 mod imports;
@@ -103,7 +128,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
 
     /// Allocates zeroed memory with the declaration's limits and sharing mode.
     /// Shared memory requires a maximum. Import names are used only when linking.
-    fn create_memory(&mut self, declaration: Memory) -> Result<Self::Memory>;
+    fn create_memory(&mut self, declaration: MemoryDeclaration) -> Result<Self::Memory>;
 
     /// Obtains a reader that does not borrow the backend or its context.
     /// Returns `None` for private memory.
@@ -142,7 +167,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     ///
     /// ```
     /// use relocade_compiler::{abi::Function, I16, I32};
-    /// use relocade_runtime::wasm::{HostFunction, WasmBackend};
+    /// use relocade_wasm_runtime::{HostFunction, WasmBackend};
     /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
     /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
     ///     let _ = backend.bind_host(READ, Box::new(|_, port, width| port + width));
@@ -152,7 +177,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// A callback with a different return type is rejected by Rust:
     /// ```compile_fail
     /// use relocade_compiler::{abi::Function, I16, I32};
-    /// use relocade_runtime::wasm::{HostFunction, WasmBackend};
+    /// use relocade_wasm_runtime::{HostFunction, WasmBackend};
     /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
     /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
     ///     let _ = backend.bind_host(READ, Box::new(|_, _, _| 0_i64));
@@ -161,7 +186,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// Parameter types must match too:
     /// ```compile_fail
     /// use relocade_compiler::{abi::Function, I32, I64};
-    /// use relocade_runtime::wasm::{HostFunction, WasmBackend};
+    /// use relocade_wasm_runtime::{HostFunction, WasmBackend};
     /// const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
     /// fn bind<B: HostFunction<fn(I32, I32, I64)>>(backend: &mut B) {
     ///     let _ = backend.bind_host(WRITE, Box::new(|_, _, _, value: i32| {}));

@@ -1,10 +1,7 @@
-use crate::backend;
 use futures_channel::oneshot;
 use relocade_compiler::abi::Memory;
-use relocade_runtime::{
-    wasm::{WasmBackend, WasmMemoryAccess, WasmSharedMemory},
-    worker::{Message, Thread},
-};
+use relocade_runtime::worker::{Message, Thread};
+use relocade_wasm_runtime::{Backend, WasmBackend, WasmMemoryAccess, WasmSharedMemory};
 use serde::{Deserialize, Serialize};
 
 const SHARED: Memory = Memory {
@@ -21,7 +18,7 @@ struct Reader<M> {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn shared_memory() -> Result<(), String> {
-    let mut backend = backend(()).map_err(|error| error.to_string())?;
+    let mut backend = Backend::new().map_err(|error| error.to_string())?;
     let memory = backend
         .create_memory(SHARED)
         .map_err(|error| error.to_string())?;

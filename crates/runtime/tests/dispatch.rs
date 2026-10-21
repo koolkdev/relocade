@@ -7,10 +7,7 @@ use relocade_x86::{
 };
 use std::mem::offset_of;
 
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use relocade_runtime_web::WebBackend as Backend;
+use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -27,10 +24,7 @@ async fn check_dispatch_table() {
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    #[cfg(not(target_arch = "wasm32"))]
     let backend = Backend::with_state(RuntimeState::new(())).unwrap();
-    #[cfg(target_arch = "wasm32")]
-    let backend = Backend::with_state(RuntimeState::new(()));
     let mut runtime = Runtime::new(backend, config).await.unwrap();
     // JMP 0200. An uninstalled destination faults; only our callable writes the marker.
     runtime

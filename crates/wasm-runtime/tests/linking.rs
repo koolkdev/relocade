@@ -2,7 +2,7 @@ use relocade_compiler::{
     abi::{Function, Memory, Table},
     Program, F64, I1, I16, I32, I64, I8,
 };
-use relocade_runtime::wasm::{WasmBackend, WasmContext, WasmMemoryAccess};
+use relocade_wasm_runtime::{WasmBackend, WasmContext, WasmMemoryAccess};
 
 const MEMORY: Memory = Memory::new("example", "memory", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);
@@ -12,10 +12,7 @@ const READ: Function<fn(I32, I32) -> I64> = Function::new("example", "read");
 const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
 const RUN: Function<fn() -> I64> = Function::new("example", "run");
 
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use relocade_runtime_web::WebBackend as Backend;
+use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -26,10 +23,7 @@ struct HostState {
 
 async fn check_stateful_callbacks() {
     let state = HostState { calls: 0 };
-    #[cfg(not(target_arch = "wasm32"))]
     let mut backend = Backend::with_state(state).unwrap();
-    #[cfg(target_arch = "wasm32")]
-    let mut backend = Backend::with_state(state);
     let memory = backend.create_memory(MEMORY).unwrap();
     let table = backend.create_table(1).unwrap();
     let entry = {
@@ -144,10 +138,7 @@ async fn check_scalar_callbacks() {
     const WIDE: Function<fn(I64) -> I64> = Function::new("scalar", "wide");
     const FLOAT: Function<fn(F64, I16) -> F64> = Function::new("scalar", "float");
 
-    #[cfg(not(target_arch = "wasm32"))]
     let mut backend = Backend::new().unwrap();
-    #[cfg(target_arch = "wasm32")]
-    let mut backend = Backend::new();
     let entry = {
         let mut program = Program::new();
         let narrow = program.import_function(NARROW);
@@ -212,10 +203,7 @@ async fn check_tuple_callbacks() {
     type Mixed = (I1, I8, I16, I32, I64, F64);
     const MIXED: Function<fn() -> Mixed> = Function::new("tuple", "mixed");
     const SINGLE: Function<fn() -> (I64,)> = Function::new("tuple", "single");
-    #[cfg(not(target_arch = "wasm32"))]
     let mut backend = Backend::new().unwrap();
-    #[cfg(target_arch = "wasm32")]
-    let mut backend = Backend::new();
     let memory = backend.create_memory(MEMORY).unwrap();
     let mut program = Program::new();
     let output = program.import_memory(MEMORY);

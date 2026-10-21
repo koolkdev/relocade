@@ -87,7 +87,7 @@ fn assets_compile_independently_and_slice_lengths_are_distinct() {
 fn failed_compilation_allows_retry() {
     let cache = ModuleCache::default();
     assert!(ready(cache.get_or_compile(ASSET, |_| async {
-        Err::<u32, _>(Error::wasm("compile", "invalid module"))
+        Err::<u32, _>(Error::new("compile", "invalid module"))
     }))
     .is_err());
     assert_eq!(

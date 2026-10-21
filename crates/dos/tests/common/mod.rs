@@ -3,7 +3,7 @@
 use relocade_dos::{Dos, DosState};
 
 use relocade_runtime::RuntimeState;
-pub type Backend<T> = relocade_runtime_wasmtime::WasmtimeBackend<RuntimeState<T>>;
+pub type Backend<T> = relocade_wasm_runtime::Backend<RuntimeState<T>>;
 
 pub async fn dos() -> Dos<Backend<DosState>> {
     let backend = Backend::with_state(RuntimeState::new(DosState::default())).unwrap();

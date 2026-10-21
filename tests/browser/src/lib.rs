@@ -8,18 +8,6 @@ pub use channels::rust_channels;
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
 
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use relocade_runtime_web::WebBackend as Backend;
-
-fn backend<T: 'static>(state: T) -> relocade_runtime::Result<Backend<T>> {
-    #[cfg(not(target_arch = "wasm32"))]
-    return Backend::with_state(state);
-    #[cfg(target_arch = "wasm32")]
-    Ok(Backend::with_state(state))
-}
-
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     #[test]

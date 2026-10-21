@@ -1,7 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
-use relocade_runtime::wasm::WasmBackend;
-use relocade_runtime_web::WebBackend;
+use relocade_wasm_runtime::Backend;
+use relocade_wasm_runtime::WasmBackend;
 use std::{
     future::Future,
     pin::pin,
@@ -15,9 +15,9 @@ const EMPTY_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 const NAMED_MODULE: &[u8] = b"\0asm\x01\0\0\0\x00\x02\x01x";
 
 async fn cached<T: 'static>(
-    backend: &WebBackend<T>,
+    backend: &Backend<T>,
     bytes: &'static [u8],
-) -> relocade_runtime_web::Module {
+) -> relocade_wasm_runtime::Module {
     backend
         .module_cache()
         .unwrap()
@@ -28,8 +28,8 @@ async fn cached<T: 'static>(
 
 #[wasm_bindgen_test]
 async fn backends_share_cached_modules_but_keep_host_state() {
-    let mut first = WebBackend::with_state(7);
-    let second = WebBackend::with_state("second");
+    let mut first = Backend::with_state(7).unwrap();
+    let second = Backend::with_state("second").unwrap();
     let first_module = cached(&first, EMPTY_MODULE).await;
     let second_module = cached(&second, EMPTY_MODULE).await;
     assert_eq!(first_module, second_module);
@@ -40,8 +40,8 @@ async fn backends_share_cached_modules_but_keep_host_state() {
 
 #[wasm_bindgen_test]
 async fn concurrent_requests_share_pending_compilation() {
-    let backend = WebBackend::new();
-    let cache = relocade_runtime::wasm::ModuleCache::default();
+    let backend = Backend::new().unwrap();
+    let cache = relocade_wasm_runtime::ModuleCache::default();
     let mut first = pin!(cache.get_or_compile(EMPTY_MODULE, |bytes| backend.compile(bytes)));
     assert!(first
         .as_mut()
@@ -57,7 +57,7 @@ async fn concurrent_requests_share_pending_compilation() {
 
 #[wasm_bindgen_test]
 async fn different_assets_use_distinct_modules() {
-    let backend = WebBackend::new();
+    let backend = Backend::new().unwrap();
     let empty = cached(&backend, EMPTY_MODULE).await;
     let named = cached(&backend, NAMED_MODULE).await;
     assert_ne!(empty, named);
@@ -65,7 +65,7 @@ async fn different_assets_use_distinct_modules() {
 
 #[wasm_bindgen_test]
 async fn ordinary_compilation_bypasses_the_shared_cache() {
-    let backend = WebBackend::new();
+    let backend = Backend::new().unwrap();
     let first = backend.compile(EMPTY_MODULE).await.unwrap();
     let retained = cached(&backend, EMPTY_MODULE).await;
     let second = backend.compile(EMPTY_MODULE).await.unwrap();

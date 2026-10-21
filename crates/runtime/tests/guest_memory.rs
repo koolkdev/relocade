@@ -5,10 +5,7 @@ use relocade_x86::{
     Segments,
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use relocade_runtime_web::WebBackend as Backend;
+use relocade_wasm_runtime::Backend;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -41,10 +38,7 @@ async fn check_guest_memory() {
         map,
     )
     .unwrap();
-    #[cfg(not(target_arch = "wasm32"))]
     let backend = Backend::with_state(RuntimeState::new(())).unwrap();
-    #[cfg(target_arch = "wasm32")]
-    let backend = Backend::with_state(RuntimeState::new(()));
     let mut runtime = Runtime::new(backend, config).await.unwrap();
     let reader = runtime.shared_memory();
     runtime

@@ -6,10 +6,7 @@ use relocade_x86::{
 };
 use std::{cell::Cell, ops::ControlFlow, rc::Rc};
 
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use relocade_runtime_web::WebBackend as Backend;
+use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -29,10 +26,7 @@ async fn check_interrupt_hooks() {
     .unwrap();
     // Non-Send state belongs to the backend, while hooks may capture immutable metadata.
     let calls = Rc::new(Cell::new(0));
-    #[cfg(not(target_arch = "wasm32"))]
     let backend = Backend::with_state(RuntimeState::new(calls)).unwrap();
-    #[cfg(target_arch = "wasm32")]
-    let backend = Backend::with_state(RuntimeState::new(calls));
     let mut runtime = Runtime::new(backend, config).await.unwrap();
     runtime.machine().cpu().set_sp(0xff00);
     runtime.machine().cpu().set_eflags(0x202);

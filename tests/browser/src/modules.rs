@@ -1,10 +1,9 @@
-use crate::{backend, Backend};
 use relocade_compiler::{abi::Function, Program, I64};
 use relocade_runtime::{
-    wasm::{WasmBackend, WasmContext},
     worker::{Message, Thread},
     Result,
 };
+use relocade_wasm_runtime::{Backend, WasmBackend, WasmContext};
 use std::{cell::Cell, rc::Rc};
 
 const VALUE: Function<fn() -> I64> = Function::new("test", "value");
@@ -24,7 +23,8 @@ fn lower() -> Result<Vec<u8>> {
 async fn execute(
     Message(module): Message<<Backend<()> as WasmBackend>::Module>,
 ) -> std::result::Result<(i64, i64), String> {
-    let mut backend = backend(Rc::new(Cell::new(40))).map_err(|error| error.to_string())?;
+    let mut backend =
+        Backend::with_state(Rc::new(Cell::new(40))).map_err(|error| error.to_string())?;
     let value = backend.bind_host(VALUE, Box::new(|caller| caller.state().get()));
     let instance = backend
         .instantiate(&module, &[value])
@@ -41,7 +41,7 @@ async fn execute(
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn compiled_modules() -> std::result::Result<(), String> {
-    let module = backend(())
+    let module = Backend::new()
         .map_err(|error| error.to_string())?
         .compile(&lower().map_err(|error| error.to_string())?)
         .await

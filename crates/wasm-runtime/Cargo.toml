@@ -1,5 +1,5 @@
 [package]
-name = "relocade-runtime-web"
+name = "relocade-wasm-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,23 +7,20 @@ publish.workspace = true
 
 [dependencies]
 relocade-compiler = { path = "../compiler" }
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wasmtime = { workspace = true, features = ["cache"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-relocade-runtime = { path = "../runtime" }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "=0.4.79"
 js-sys = "=0.3.106"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde-wasm-bindgen = "=0.6.5"
 
-[dev-dependencies]
-relocade-runtime = { path = "../runtime" }
-relocade-machine = { path = "../machine" }
-relocade-x86 = { path = "../x86" }
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pollster = "=1.0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "=0.3.79"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-relocade-runtime-wasmtime = { path = "../runtime-wasmtime" }
-pollster = "=1.0.1"

@@ -4,8 +4,8 @@ use relocade_compiler::{
     abi::{Function, Memory, Table},
     Program, I32, I64,
 };
-use relocade_runtime::wasm::{WasmBackend, WasmMemoryAccess};
-use relocade_runtime_wasmtime::WasmtimeBackend;
+use relocade_wasm_runtime::Backend;
+use relocade_wasm_runtime::{WasmBackend, WasmMemoryAccess};
 
 const SHARED: Memory = Memory::new("example", "shared", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);
@@ -17,7 +17,7 @@ const EXECUTE: Function<fn() -> I64> = Function::new("example", "execute");
 #[test]
 fn modules_share_live_memory_and_functions_after_linking() {
     pollster::block_on(async {
-        let mut backend = WasmtimeBackend::new().unwrap();
+        let mut backend = Backend::new().unwrap();
         let memory = backend.create_memory(SHARED).unwrap();
         let table = backend.create_table(1).unwrap();
         let entry = {

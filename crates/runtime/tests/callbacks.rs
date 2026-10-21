@@ -3,10 +3,8 @@ use relocade_compiler::{
     Program, I32, I64,
 };
 use relocade_machine::MachineConfig;
-use relocade_runtime::{
-    wasm::{WasmBackend, WasmMemoryAccess},
-    HostCall, RuntimeMemory, RuntimeState,
-};
+use relocade_runtime::{HostCall, RuntimeMemory, RuntimeState};
+use relocade_wasm_runtime::{WasmBackend, WasmMemoryAccess};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Registers, Segments,
@@ -21,10 +19,7 @@ const GUEST: Memory = Memory {
 const CALL: Function<fn() -> I32> = Function::new("host", "call");
 const RUN: Function<fn() -> I64> = Function::new("host", "run");
 
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use relocade_runtime_web::WebBackend as Backend;
+use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -78,10 +73,7 @@ async fn check_callback() {
     )
     .unwrap();
     let state = HostState { calls: 0 };
-    #[cfg(not(target_arch = "wasm32"))]
     let mut backend = Backend::with_state(RuntimeState::new(state)).unwrap();
-    #[cfg(target_arch = "wasm32")]
-    let mut backend = Backend::with_state(RuntimeState::new(state));
     let memory = RuntimeMemory::new(&mut backend, config).unwrap();
     let guest = memory.guest_memory().clone();
     let context = memory.context_memory().clone();

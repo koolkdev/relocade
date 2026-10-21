@@ -17,10 +17,7 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use relocade_runtime_web::WebBackend as Backend;
+use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -97,10 +94,7 @@ async fn check_pending_calls() {
     )
     .unwrap();
     let state = Rc::new(State::default());
-    #[cfg(not(target_arch = "wasm32"))]
     let backend = Backend::with_state(RuntimeState::new(state.clone())).unwrap();
-    #[cfg(target_arch = "wasm32")]
-    let backend = Backend::with_state(RuntimeState::new(state.clone()));
     let mut runtime = Runtime::new(backend, config).await.unwrap();
     runtime.machine().cpu().set_sp(0xff00);
     runtime.machine().cpu().set_eflags(0x202);
