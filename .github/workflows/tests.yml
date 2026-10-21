@@ -21,6 +21,8 @@ jobs:
     name: Rust tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -28,6 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
+        id: rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install software graphics driver
@@ -36,7 +39,26 @@ jobs:
           sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            .cargo-cache/source-mtimes.json
+          key: rust-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}-${{ github.sha }}
+          restore-keys: |
+            rust-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}-
+            rust-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-
+
+      - name: Restore unchanged source timestamps
+        run: python3 .github/scripts/cargo_cache.py restore .cargo-cache/source-mtimes.json
+
+      - name: Snapshot source timestamps
+        run: python3 .github/scripts/cargo_cache.py snapshot .cargo-cache/source-mtimes.json
+
+      - name: Check source timestamp restoration
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - name: Cache compiled Wasm test modules
         uses: actions/cache@v6
@@ -49,7 +71,17 @@ jobs:
       - name: Run workspace tests
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          cargo test --workspace --locked
+          rm -rf target/cargo-timings
+          cargo test --workspace --locked --timings
+
+      - name: Upload Rust build timings
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cargo-timings-attempt-${{ github.run_attempt }}
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
+          retention-days: 14
 
   web:
     name: Browser tests
