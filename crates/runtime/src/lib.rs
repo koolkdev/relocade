@@ -46,7 +46,7 @@ pub use hooks::Hook;
 use memory::Storage;
 pub use memory::{RuntimeMemory, SharedMemory};
 use relocade_machine::{Machine, MachineConfig};
-use relocade_wasm_runtime::Import;
+use relocade_wasm_runtime::{Import, WasmCompiler};
 use relocade_x86::{abi, Compiler, EntryTable};
 pub use state::RuntimeState;
 use std::{
@@ -74,7 +74,8 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         let target = config.execution_target();
         let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
         let dispatcher = compiler.compile_dispatcher()?;
-        let dispatcher_module = backend.compile(&dispatcher.bytes).await?;
+        let wasm_compiler = backend.compiler();
+        let dispatcher_module = wasm_compiler.compile(&dispatcher.bytes).await?;
 
         let memory = RuntimeMemory::new(&mut backend, config)?;
         let dispatch_table = DispatchTable::new(&mut backend)?;
@@ -108,10 +109,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         let backend = &runtime.storage.access;
         let module = if let Some(cache) = backend.module_cache() {
             cache
-                .get_or_compile(bytes, |bytes| backend.compile(bytes))
+                .get_or_compile(bytes, |bytes| wasm_compiler.compile(bytes))
                 .await?
         } else {
-            backend.compile(bytes).await?
+            wasm_compiler.compile(bytes).await?
         };
         let instance = runtime.instantiate_module(&module, &[]).await?;
         let backend = &mut runtime.storage.access;
@@ -146,7 +147,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         bytes: &[u8],
         additional: &[Import<'_, B>],
     ) -> Result<B::Instance> {
-        let module = self.storage.access.compile(bytes).await?;
+        let module = self.storage.access.compiler().compile(bytes).await?;
         self.instantiate_module(&module, additional).await
     }
 

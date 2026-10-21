@@ -5,7 +5,7 @@ use relocade_compiler::{
     Program, I32, I64,
 };
 use relocade_wasm_runtime::Backend;
-use relocade_wasm_runtime::{WasmBackend, WasmMemoryAccess};
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmMemoryAccess};
 
 const SHARED: Memory = Memory::new("example", "shared", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);
@@ -31,7 +31,11 @@ fn modules_share_live_memory_and_functions_after_linking() {
                 })
                 .unwrap();
             ADVANCE.export(&mut producer, advance).unwrap();
-            let module = backend.compile(&producer.compile().unwrap()).await.unwrap();
+            let module = backend
+                .compiler()
+                .compile(&producer.compile().unwrap())
+                .await
+                .unwrap();
             let instance = backend
                 .instantiate(&module, &[backend.bind(SHARED, &memory)])
                 .await
@@ -54,7 +58,11 @@ fn modules_share_live_memory_and_functions_after_linking() {
                 })
                 .unwrap();
             EXECUTE.export(&mut consumer, execute).unwrap();
-            let module = backend.compile(&consumer.compile().unwrap()).await.unwrap();
+            let module = backend
+                .compiler()
+                .compile(&consumer.compile().unwrap())
+                .await
+                .unwrap();
             let imports = [
                 backend.bind(SHARED, &memory),
                 backend.bind(FUNCTIONS, &table),

@@ -1,7 +1,6 @@
 #![cfg(target_arch = "wasm32")]
 
-use relocade_wasm_runtime::Backend;
-use relocade_wasm_runtime::WasmBackend;
+use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
 use std::{
     future::Future,
     pin::pin,
@@ -18,10 +17,11 @@ async fn cached<T: 'static>(
     backend: &Backend<T>,
     bytes: &'static [u8],
 ) -> relocade_wasm_runtime::Module {
+    let compiler = backend.compiler();
     backend
         .module_cache()
         .unwrap()
-        .get_or_compile(bytes, |bytes| backend.compile(bytes))
+        .get_or_compile(bytes, |bytes| compiler.compile(bytes))
         .await
         .unwrap()
 }
@@ -41,13 +41,14 @@ async fn backends_share_cached_modules_but_keep_host_state() {
 #[wasm_bindgen_test]
 async fn concurrent_requests_share_pending_compilation() {
     let backend = Backend::new().unwrap();
+    let compiler = backend.compiler();
     let cache = relocade_wasm_runtime::ModuleCache::default();
-    let mut first = pin!(cache.get_or_compile(EMPTY_MODULE, |bytes| backend.compile(bytes)));
+    let mut first = pin!(cache.get_or_compile(EMPTY_MODULE, |bytes| compiler.compile(bytes)));
     assert!(first
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))
         .is_pending());
-    let mut second = pin!(cache.get_or_compile(EMPTY_MODULE, |bytes| backend.compile(bytes)));
+    let mut second = pin!(cache.get_or_compile(EMPTY_MODULE, |bytes| compiler.compile(bytes)));
     assert!(second
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))
@@ -66,9 +67,9 @@ async fn different_assets_use_distinct_modules() {
 #[wasm_bindgen_test]
 async fn ordinary_compilation_bypasses_the_shared_cache() {
     let backend = Backend::new().unwrap();
-    let first = backend.compile(EMPTY_MODULE).await.unwrap();
+    let first = backend.compiler().compile(EMPTY_MODULE).await.unwrap();
     let retained = cached(&backend, EMPTY_MODULE).await;
-    let second = backend.compile(EMPTY_MODULE).await.unwrap();
+    let second = backend.compiler().compile(EMPTY_MODULE).await.unwrap();
     assert_ne!(first, second);
     assert_ne!(first, retained);
     assert_ne!(second, retained);

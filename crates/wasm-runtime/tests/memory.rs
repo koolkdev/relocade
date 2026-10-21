@@ -2,7 +2,7 @@ use relocade_compiler::{
     abi::{Function, Memory},
     Program, I32, I64,
 };
-use relocade_wasm_runtime::{WasmBackend, WasmMemoryAccess, WasmSharedMemory};
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmMemoryAccess, WasmSharedMemory};
 
 use relocade_wasm_runtime::Backend;
 #[cfg(target_arch = "wasm32")]
@@ -41,7 +41,11 @@ async fn check_shared_memory() {
         })
         .unwrap();
     RUN.export(&mut program, run).unwrap();
-    let module = backend.compile(&program.compile().unwrap()).await.unwrap();
+    let module = backend
+        .compiler()
+        .compile(&program.compile().unwrap())
+        .await
+        .unwrap();
     let callback_memory = memory.clone();
     let imports = [
         backend.bind(SHARED, &memory),
