@@ -1,11 +1,11 @@
 mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosState, FileAccess};
+use relocade_dos::{Dos, DosServices, FileAccess};
 use relocade_x86::{CpuState, Segment, SegmentRegister};
 
 fn temporary(
-    dos: &mut Dos<Backend<DosState>>,
+    dos: &mut Dos<Backend<DosServices>>,
     directory: &[u8],
     attributes: u16,
 ) -> (CpuState, Vec<u8>) {

@@ -68,16 +68,16 @@
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
 //! The host chooses the Wasm backend and controls execution through
-//! [`Dos::runtime`]. Create the backend with its `with_state` constructor and
-//! `RuntimeState::new(DosState::default())`.
+//! [`Dos::runtime`]. Pass the backend's `with_state` constructor to [`Dos::new`];
+//! DOS creates its environment state and gives the backend a service handle.
 //!
 //! ```no_run
-//! # async fn example<B>(backend: B) -> Result<(), Box<dyn std::error::Error>>
-//! # where B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosState>>
+//! # async fn example<B>(create_backend: impl FnOnce(relocade_runtime::RuntimeState<relocade_dos::DosServices>) -> relocade_runtime::Result<B>) -> Result<(), Box<dyn std::error::Error>>
+//! # where B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosServices>>
 //! # {
 //! use std::io::Read;
 //!
-//! let mut dos = relocade_dos::Dos::new(backend).await?;
+//! let mut dos = relocade_dos::Dos::new(create_backend).await?;
 //! let mut disk = relocade_vfs::MemoryFileSystem::new();
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
@@ -103,30 +103,41 @@ mod mz;
 mod path;
 mod process;
 mod services;
+mod state;
 mod stdio;
 
 pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
-pub use kernel::DosState;
 pub use load::LoadOptions;
 use relocade_runtime::{Runtime, RuntimeBackend, RuntimeState};
+pub use state::DosServices;
+use state::DosState;
+use std::{cell::RefCell, rc::Rc};
 
-/// A DOS environment and its runtime, with space for one loaded program.
-pub struct Dos<B: RuntimeBackend<State = RuntimeState<DosState>>> {
+/// A DOS environment that owns its service state for one guest program.
+pub struct Dos<B: RuntimeBackend<State = RuntimeState<DosServices>>> {
+    state: Rc<RefCell<DosState>>,
     runtime: Runtime<B>,
 }
 
-impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
+impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
+    /// Calls the supplied backend constructor with a handle to this environment.
     /// Load a program before entering guest execution.
-    pub async fn new(backend: B) -> relocade_runtime::Result<Self> {
+    pub async fn new<E: Into<relocade_runtime::Error>>(
+        create_backend: impl FnOnce(RuntimeState<DosServices>) -> Result<B, E>,
+    ) -> relocade_runtime::Result<Self> {
+        let state = Rc::new(RefCell::new(DosState::default()));
+        let services = DosServices::new(Rc::clone(&state));
+        let backend = create_backend(RuntimeState::new(services))
+            .map_err(Into::<relocade_runtime::Error>::into)?;
         let mut runtime = Runtime::new(backend, kernel::configuration()).await?;
         kernel::initialize(&mut runtime.machine().memory());
         relocade_bios::initialize(&mut runtime.machine().memory());
         runtime
             .install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
             .await?;
-        Ok(Self { runtime })
+        Ok(Self { state, runtime })
     }
 
     /// Loads a COM image of 1..=65,278 bytes and initializes its PSP, stack and CPU.
@@ -135,7 +146,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     pub fn load_com(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
         let psp_segment = com::load(&mut self.runtime.machine(), image, &options)?;
         self.runtime.cancel_pending_call();
-        self.runtime.state_mut().reset_process(psp_segment);
+        self.state.borrow_mut().reset_process(psp_segment);
         Ok(())
     }
 
@@ -146,7 +157,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     pub fn load_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
         let psp_segment = mz::load(&mut self.runtime.machine(), image, &options)?;
         self.runtime.cancel_pending_call();
-        self.runtime.state_mut().reset_process(psp_segment);
+        self.state.borrow_mut().reset_process(psp_segment);
         Ok(())
     }
 
@@ -160,7 +171,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
         letter: char,
         filesystem: relocade_vfs::MemoryFileSystem,
     ) -> std::io::Result<()> {
-        self.runtime.state_mut().files.mount(letter, filesystem)
+        self.state.borrow_mut().files.mount(letter, filesystem)
     }
 
     /// Supplies bytes at an ASCII path on a mounted drive with an initial read-only attribute.
@@ -175,8 +186,8 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
         contents: Vec<u8>,
         access: FileAccess,
     ) -> Result<(), MountError> {
-        self.runtime
-            .state_mut()
+        self.state
+            .borrow_mut()
             .files
             .mount_file(path, contents, access)
     }
@@ -185,7 +196,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// Like mount_file, relative paths start at the root and default to C:.
     /// Returns None for invalid paths or files that do not exist.
     pub fn read_file(&self, path: &str) -> Option<Vec<u8>> {
-        self.runtime.state().files.read_file(path)
+        self.state.borrow().files.read_file(path)
     }
 
     pub fn runtime(&mut self) -> &mut Runtime<B> {
@@ -194,7 +205,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
 
     /// None until a DOS service terminates the process or reports a service error.
     pub fn exit_status(&self) -> Option<Result<u8, ServiceError>> {
-        self.runtime.state().exit_status
+        self.state.borrow().exit_status
     }
 
     /// Returns an owned console input writer. Bytes use the guest's encoding.
@@ -204,12 +215,12 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// input and output; existing stream handles remain connected to the console.
     ///
     /// ```no_run
-    /// # async fn example<B>(backend: B) -> Result<(), Box<dyn std::error::Error>>
-    /// # where B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosState>>
+    /// # async fn example<B>(create_backend: impl FnOnce(relocade_runtime::RuntimeState<relocade_dos::DosServices>) -> relocade_runtime::Result<B>) -> Result<(), Box<dyn std::error::Error>>
+    /// # where B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosServices>>
     /// # {
     /// use std::io::Write;
     ///
-    /// let mut dos = relocade_dos::Dos::new(backend).await?;
+    /// let mut dos = relocade_dos::Dos::new(create_backend).await?;
     /// dos.load_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let mut input = dos.stdin();
     /// // An event handler can retain this writer while the runtime waits.
@@ -221,7 +232,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// # }
     /// ```
     pub fn stdin(&self) -> impl std::io::Write + Clone + 'static {
-        self.runtime.state().files.stdio.input.clone()
+        self.state.borrow().files.stdio.input.clone()
     }
 
     /// Returns the input queue shared by BIOS INT 16h and DOS console reads.
@@ -229,7 +240,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// The handle can be retained while `run_async` awaits keyboard input.
     ///
     /// ```no_run
-    /// # fn example<B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosState>>>(dos: &relocade_dos::Dos<B>) {
+    /// # fn example<B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosServices>>>(dos: &relocade_dos::Dos<B>) {
     /// dos.keyboard().push(relocade_bios::KeyStroke {
     ///     character: b'a',
     ///     scan_code: 0x1e,
@@ -237,7 +248,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// # }
     /// ```
     pub fn keyboard(&self) -> relocade_bios::Keyboard {
-        self.runtime.state().as_ref().clone()
+        self.state.borrow().files.stdio.input.clone()
     }
 
     /// Copies the active 80-by-25 color text page and its cursor for a renderer.
@@ -252,8 +263,8 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// It can be used while `run_async` waits. DOS redirection follows the handle's
     /// destination, so bytes redirected to a file do not appear here.
     pub fn stdout(&self) -> impl std::io::Read + Clone + 'static {
-        self.runtime
-            .state()
+        self.state
+            .borrow()
             .files
             .stdio
             .output(stdio::OutputStream::Stdout)
@@ -263,8 +274,8 @@ impl<B: RuntimeBackend<State = RuntimeState<DosState>>> Dos<B> {
     /// Returns an owned reader that drains standard error, separately from stdout.
     /// Like stdout, an empty buffer returns zero and reads do not block.
     pub fn stderr(&self) -> impl std::io::Read + Clone + 'static {
-        self.runtime
-            .state()
+        self.state
+            .borrow()
             .files
             .stdio
             .output(stdio::OutputStream::Stderr)

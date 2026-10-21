@@ -1,11 +1,11 @@
 mod common;
 
 use common::Backend;
-use relocade_dos::{Dos, DosState};
+use relocade_dos::{Dos, DosServices};
 use relocade_x86::{CpuState, ExecutionExit, Segment, SegmentRegister};
 
 fn service(
-    dos: &mut Dos<Backend<DosState>>,
+    dos: &mut Dos<Backend<DosServices>>,
     function: u8,
     paragraphs: u16,
     segment: u16,

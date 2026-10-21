@@ -1,11 +1,11 @@
 mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosState, FileAccess, MountError};
+use relocade_dos::{Dos, DosServices, FileAccess, MountError};
 use relocade_vfs::MemoryFileSystem;
 use std::io::ErrorKind;
 
-fn read_guest_file(dos: &mut Dos<Backend<DosState>>, path: &[u8]) -> Vec<u8> {
+fn read_guest_file(dos: &mut Dos<Backend<DosServices>>, path: &[u8]) -> Vec<u8> {
     let handle = success(&path_service(dos, path, 0x3d00, 0));
     let length = success(&service(dos, 0x3f00, handle, 32, 0x500));
     let mut bytes = vec![0; usize::from(length)];
@@ -18,7 +18,7 @@ fn read_guest_file(dos: &mut Dos<Backend<DosState>>, path: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn dta(dos: &mut Dos<Backend<DosState>>) -> [u8; 43] {
+fn dta(dos: &mut Dos<Backend<DosServices>>) -> [u8; 43] {
     let mut bytes = [0; 43];
     dos.runtime()
         .machine()

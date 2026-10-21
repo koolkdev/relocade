@@ -9,7 +9,7 @@ mod memory;
 mod search;
 mod system;
 
-use crate::{files::CreateMode, DosState, ServiceError};
+use crate::{files::CreateMode, state::DosState, DosServices, ServiceError};
 use relocade_runtime::HostCall;
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
@@ -59,74 +59,88 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
-pub(crate) fn int21(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+pub(crate) fn int21(
+    call: &mut HostCall<'_, DosServices>,
+    state: &mut DosState,
+) -> ControlFlow<ExecutionExit> {
     match call.cpu().ah() {
-        DIRECT_CONSOLE_IO => console::direct_io(call),
+        DIRECT_CONSOLE_IO => console::direct_io(call, state),
         READ_CHARACTER_ECHO | READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
-            console::read_character(call)
+            console::read_character(call, state)
         }
-        WRITE_CHARACTER => console::write_character(call),
-        WRITE_STRING => console::write_string(call),
-        READ_BUFFERED => console::read_buffered(call),
-        INPUT_STATUS => console::input_status(call),
-        FLUSH_INPUT => console::flush_input(call),
-        SELECT_DRIVE => directories::select_drive(call),
-        GET_DRIVE => directories::get_drive(call),
+        WRITE_CHARACTER => console::write_character(call, state),
+        WRITE_STRING => console::write_string(call, state),
+        READ_BUFFERED => console::read_buffered(call, state),
+        INPUT_STATUS => console::input_status(call, state),
+        FLUSH_INPUT => console::flush_input(call, state),
+        SELECT_DRIVE => directories::select_drive(call, state),
+        GET_DRIVE => directories::get_drive(call, state),
         SET_VECTOR => system::set_vector(call),
         GET_VERSION => system::version(call),
         GET_VECTOR => system::get_vector(call),
-        CREATE_DIRECTORY => directories::create_directory(call),
-        REMOVE_DIRECTORY => directories::remove_directory(call),
-        CHANGE_DIRECTORY => directories::change_directory(call),
-        GET_DIRECTORY => directories::get_directory(call),
-        SET_DTA => search::set_dta(call),
-        GET_DTA => search::get_dta(call),
-        FIND_FIRST => search::find_first(call),
-        FIND_NEXT => search::find_next(call),
-        CREATE_HANDLE => files::create(call, CreateMode::TruncateExisting),
-        CREATE_TEMPORARY_HANDLE => files::create_temporary(call),
-        CREATE_NEW_HANDLE => files::create(call, CreateMode::FailIfExists),
-        RENAME_FILE => files::rename(call),
-        OPEN_HANDLE => files::open(call),
-        CLOSE_HANDLE => files::close(call),
-        COMMIT_HANDLE | COMMIT_HANDLE_ALIAS => files::commit(call),
-        READ_HANDLE => files::read(call),
-        WRITE_HANDLE => files::write(call),
-        DELETE_FILE => files::delete(call),
-        SEEK_HANDLE => files::seek(call),
-        FILE_ATTRIBUTES => files::attributes(call),
-        IOCTL => ioctl::ioctl(call),
-        DUPLICATE_HANDLE => files::duplicate(call),
-        FORCE_DUPLICATE_HANDLE => files::force_duplicate(call),
+        CREATE_DIRECTORY => directories::create_directory(call, state),
+        REMOVE_DIRECTORY => directories::remove_directory(call, state),
+        CHANGE_DIRECTORY => directories::change_directory(call, state),
+        GET_DIRECTORY => directories::get_directory(call, state),
+        SET_DTA => search::set_dta(call, state),
+        GET_DTA => search::get_dta(call, state),
+        FIND_FIRST => search::find_first(call, state),
+        FIND_NEXT => search::find_next(call, state),
+        CREATE_HANDLE => files::create(call, state, CreateMode::TruncateExisting),
+        CREATE_TEMPORARY_HANDLE => files::create_temporary(call, state),
+        CREATE_NEW_HANDLE => files::create(call, state, CreateMode::FailIfExists),
+        RENAME_FILE => files::rename(call, state),
+        OPEN_HANDLE => files::open(call, state),
+        CLOSE_HANDLE => files::close(call, state),
+        COMMIT_HANDLE | COMMIT_HANDLE_ALIAS => files::commit(call, state),
+        READ_HANDLE => files::read(call, state),
+        WRITE_HANDLE => files::write(call, state),
+        DELETE_FILE => files::delete(call, state),
+        SEEK_HANDLE => files::seek(call, state),
+        FILE_ATTRIBUTES => files::attributes(call, state),
+        IOCTL => ioctl::ioctl(call, state),
+        DUPLICATE_HANDLE => files::duplicate(call, state),
+        FORCE_DUPLICATE_HANDLE => files::force_duplicate(call, state),
         ALLOCATE_MEMORY => memory::allocate(call),
         FREE_MEMORY => memory::free(call),
         RESIZE_MEMORY => memory::resize(call),
-        TERMINATE_PROCESS => terminate_process(call),
+        TERMINATE_PROCESS => terminate_process(call, state),
         LONG_FILENAME => files::long_filename(call),
-        function => return_to_host(call, Err(ServiceError::UnsupportedFunction(function))),
+        function => return_to_host(
+            call,
+            state,
+            Err(ServiceError::UnsupportedFunction(function)),
+        ),
     }
 }
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
-fn terminate_process(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
+fn terminate_process(
+    call: &mut HostCall<'_, DosServices>,
+    state: &mut DosState,
+) -> ControlFlow<ExecutionExit> {
     let code = call.cpu().al();
-    return_to_host(call, Ok(code))
+    return_to_host(call, state, Ok(code))
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) fn int20(call: &mut HostCall<'_, DosState>) -> ControlFlow<ExecutionExit> {
-    return_to_host(call, Ok(0))
+pub(crate) fn int20(
+    call: &mut HostCall<'_, DosServices>,
+    state: &mut DosState,
+) -> ControlFlow<ExecutionExit> {
+    return_to_host(call, state, Ok(0))
 }
 
 fn return_to_host(
-    call: &mut HostCall<'_, DosState>,
+    call: &mut HostCall<'_, DosServices>,
+    state: &mut DosState,
     status: Result<u8, ServiceError>,
 ) -> ControlFlow<ExecutionExit> {
     if status.is_ok() {
         // The only process has exited; all of its conventional memory is free.
         crate::memory::reset(&mut call.memory());
-        call.state_mut().files.close_all();
+        state.files.close_all();
     }
-    call.state_mut().exit_status = Some(status);
+    state.exit_status = Some(status);
     ControlFlow::Break(ExecutionExit::HostReturn)
 }

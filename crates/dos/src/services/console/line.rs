@@ -2,13 +2,17 @@ use super::output::{write_cooked_character, CharacterOutput};
 use crate::{
     error::DosError,
     files::{Device, HandleType},
-    DosState,
+    interrupt::{self, return_result},
+    state::DosState,
+    DosServices,
 };
 use relocade_runtime::HostCall;
+use relocade_x86::ExecutionExit;
+use std::ops::ControlFlow;
 
 /// A line being edited, including its final carriage return once complete.
 pub(super) struct LineInput {
-    pub(super) bytes: Vec<u8>,
+    bytes: Vec<u8>,
     capacity: u8,
     input_handle: u16,
     echo: CharacterOutput,
@@ -29,43 +33,63 @@ impl LineInput {
         }
     }
 
+    /// Reads queued input and defers for missing characters until the line is complete.
+    pub(super) fn read(
+        mut self,
+        call: &mut HostCall<'_, DosServices>,
+        state: &mut DosState,
+        complete: impl FnOnce(
+                &mut HostCall<'_, DosServices>,
+                &mut DosState,
+                Vec<u8>,
+            ) -> ControlFlow<ExecutionExit>
+            + 'static,
+    ) -> ControlFlow<ExecutionExit> {
+        match self.read_available(call, state) {
+            Ok(true) => return complete(call, state, self.bytes),
+            Ok(false) => {}
+            Err(error) => return return_result(call, Err(error)),
+        }
+        let input = match state.files.wait_for_character(self.input_handle) {
+            Ok(input) => input,
+            Err(error) => return return_result(call, Err(error)),
+        };
+        interrupt::defer(call, input, move |call, state, byte| {
+            if self.accept(call, state, byte) {
+                complete(call, state, self.bytes)
+            } else {
+                self.read(call, state, complete)
+            }
+        })
+    }
+
     /// Consumes queued input, returning true when Enter completes the line.
-    pub(super) fn read_available(
+    fn read_available(
         &mut self,
-        call: &mut HostCall<'_, DosState>,
+        call: &mut HostCall<'_, DosServices>,
+        state: &mut DosState,
     ) -> Result<bool, DosError> {
         // NUL returns zero forever, so it cannot complete a line. Wait without spinning.
         if matches!(
-            call.state().files.readable_handle_type(self.input_handle)?,
+            state.files.readable_handle_type(self.input_handle)?,
             HandleType::Device(Device::Null)
         ) {
             return Ok(false);
         }
-        while let Some(byte) = call.state_mut().files.read_character(self.input_handle)? {
-            if self.accept(call, byte) {
+        while let Some(byte) = state.files.read_character(self.input_handle)? {
+            if self.accept(call, state, byte) {
                 return Ok(true);
             }
         }
         Ok(false)
     }
 
-    pub(super) async fn read_remaining(
+    fn accept(
         &mut self,
-        call: &mut HostCall<'_, DosState>,
-    ) -> Result<(), DosError> {
-        loop {
-            let byte = call
-                .state()
-                .files
-                .wait_for_character(self.input_handle)?
-                .await;
-            if self.accept(call, byte) || self.read_available(call)? {
-                return Ok(());
-            }
-        }
-    }
-
-    fn accept(&mut self, call: &mut HostCall<'_, DosState>, byte: u8) -> bool {
+        call: &mut HostCall<'_, DosServices>,
+        state: &mut DosState,
+        byte: u8,
+    ) -> bool {
         if self.extended_key {
             self.extended_key = false;
             return false;
@@ -75,41 +99,41 @@ impl LineInput {
             0 => self.extended_key = true,
             b'\r' => {
                 self.bytes.push(byte);
-                self.echo(call, b"\r");
+                self.echo(call, state, b"\r");
                 return true;
             }
             // Discard a leading LF left over from redirected CRLF input.
             b'\n' => {
                 if !first {
-                    self.echo(call, b"\r\n");
+                    self.echo(call, state, b"\r\n");
                 }
             }
             8 | 127 => {
                 if let Some(byte) = self.bytes.pop() {
-                    self.echo(call, b"\x08 \x08");
+                    self.echo(call, state, b"\x08 \x08");
                     if byte < b' ' && byte != b'\t' {
-                        self.echo(call, b"\x08 \x08");
+                        self.echo(call, state, b"\x08 \x08");
                     }
                 }
             }
             _ if self.bytes.len() == usize::from(self.capacity) - 1 => {
-                self.echo(call, b"\x07");
+                self.echo(call, state, b"\x07");
             }
             _ => {
                 self.bytes.push(byte);
                 if byte < b' ' && byte != b'\t' {
-                    self.echo(call, &[b'^', byte + b'@']);
+                    self.echo(call, state, &[b'^', byte + b'@']);
                 } else {
-                    self.echo(call, &[byte]);
+                    self.echo(call, state, &[byte]);
                 }
             }
         }
         false
     }
 
-    fn echo(&self, call: &mut HostCall<'_, DosState>, bytes: &[u8]) {
+    fn echo(&self, call: &mut HostCall<'_, DosServices>, state: &mut DosState, bytes: &[u8]) {
         for &byte in bytes {
-            write_cooked_character(call, self.echo, byte);
+            write_cooked_character(call, state, self.echo, byte);
         }
     }
 }

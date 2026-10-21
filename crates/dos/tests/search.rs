@@ -1,10 +1,10 @@
 mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosState, FileAccess};
+use relocade_dos::{Dos, DosServices, FileAccess};
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 
-fn dta(dos: &mut Dos<Backend<DosState>>, address: u32) -> [u8; 43] {
+fn dta(dos: &mut Dos<Backend<DosServices>>, address: u32) -> [u8; 43] {
     let mut data = [0; 43];
     dos.runtime()
         .machine()
@@ -20,7 +20,7 @@ fn found_name(data: &[u8; 43]) -> &str {
     std::str::from_utf8(&bytes[..end]).unwrap()
 }
 
-fn names(dos: &mut Dos<Backend<DosState>>, pattern: &[u8], attributes: u16) -> Vec<String> {
+fn names(dos: &mut Dos<Backend<DosServices>>, pattern: &[u8], attributes: u16) -> Vec<String> {
     let mut cpu = path_service(dos, pattern, 0x4e00, attributes);
     let mut names = Vec::new();
     while cpu.flags.eflags() & 1 == 0 {

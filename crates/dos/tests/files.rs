@@ -1,7 +1,7 @@
 mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosState, FileAccess, MountError};
+use relocade_dos::{Dos, DosServices, FileAccess, MountError};
 use relocade_x86::{CpuState, ExecutionExit};
 
 async fn check_file_program() {
@@ -41,15 +41,15 @@ async fn check_file_program() {
     }
 }
 
-fn open(dos: &mut Dos<Backend<DosState>>, path: &[u8], mode: u8) -> CpuState {
+fn open(dos: &mut Dos<Backend<DosServices>>, path: &[u8], mode: u8) -> CpuState {
     path_service(dos, path, 0x3d00 | u16::from(mode), 0)
 }
 
-fn create(dos: &mut Dos<Backend<DosState>>, path: &[u8], attributes: u16) -> CpuState {
+fn create(dos: &mut Dos<Backend<DosServices>>, path: &[u8], attributes: u16) -> CpuState {
     path_service(dos, path, 0x3c00, attributes)
 }
 
-fn buffer(dos: &mut Dos<Backend<DosState>>) -> [u8; 8] {
+fn buffer(dos: &mut Dos<Backend<DosServices>>) -> [u8; 8] {
     let mut bytes = [0; 8];
     dos.runtime()
         .machine()
@@ -159,7 +159,7 @@ fn standard_handles_can_be_closed_reused_and_reset() {
     pollster::block_on(check_standard_handles());
 }
 
-fn seek(dos: &mut Dos<Backend<DosState>>, handle: u16, origin: u8, offset: i32) -> CpuState {
+fn seek(dos: &mut Dos<Backend<DosServices>>, handle: u16, origin: u8, offset: i32) -> CpuState {
     service(
         dos,
         0x4200 | u16::from(origin),
@@ -173,7 +173,7 @@ fn position(cpu: &CpuState) -> u32 {
     u32::from(success(cpu)) | ((cpu.registers.edx & 0xffff) << 16)
 }
 
-fn write(dos: &mut Dos<Backend<DosState>>, handle: u16, bytes: &[u8]) -> CpuState {
+fn write(dos: &mut Dos<Backend<DosServices>>, handle: u16, bytes: &[u8]) -> CpuState {
     dos.runtime()
         .machine()
         .memory()
