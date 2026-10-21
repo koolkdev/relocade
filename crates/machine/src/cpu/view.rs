@@ -4,13 +4,13 @@ use relocade_x86::{
 };
 use std::mem::offset_of;
 
-use crate::{ConfigurationError, CpuStorage, MachineConfig};
+use crate::{ConfigurationError, CpuConfig, CpuStorage};
 
 /// A live view of published CPU state. Each register access transfers only its
 /// own bytes; there is no cached snapshot or deferred writeback.
 /// Guest execution must remain stopped for the lifetime of this view.
 pub struct CpuView<'a, S: CpuStorage + ?Sized = dyn CpuStorage + 'a> {
-    config: &'a MachineConfig,
+    config: &'a CpuConfig,
     storage: &'a mut S,
 }
 
@@ -31,7 +31,7 @@ macro_rules! register {
 
 impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     /// Borrows initialized CPU storage compatible with the execution target.
-    pub fn new(config: &'a MachineConfig, storage: &'a mut S) -> Self {
+    pub fn new(config: &'a CpuConfig, storage: &'a mut S) -> Self {
         Self { config, storage }
     }
 
@@ -110,7 +110,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     /// Replaces a visible selector and its loaded cache without descriptor loading.
     ///
     /// # Panics
-    /// Panics before writing if the cache violates the machine's execution profile.
+    /// Panics before writing if the cache violates this CPU's execution profile.
     #[track_caller]
     pub fn set_segment(&mut self, segment: Segment, value: SegmentRegister) {
         let profile = self.config.execution_target().profile;
@@ -176,7 +176,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     /// Restores a compatible CPU snapshot without changing the execution budget.
     ///
     /// # Errors
-    /// Returns an error without writing if the snapshot violates the machine's
+    /// Returns an error without writing if the snapshot violates this CPU's
     /// execution target.
     pub fn restore(&mut self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
         crate::config::validate_cpu(self.config.execution_target(), snapshot)?;

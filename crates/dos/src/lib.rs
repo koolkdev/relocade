@@ -131,7 +131,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
         let services = DosServices::new(Rc::clone(&state));
         let backend = create_backend(RuntimeState::new(services))
             .map_err(Into::<relocade_machine::Error>::into)?;
-        let mut cpu = Cpu::new(backend, kernel::configuration()).await?;
+        let mut cpu = Cpu::new(backend, kernel::configuration(), kernel::cpu()).await?;
         kernel::initialize(&mut cpu.context().memory());
         relocade_bios::initialize(&mut cpu.context().memory());
         cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))

@@ -1,5 +1,6 @@
-use relocade_machine::{Cpu, RuntimeState};
-use relocade_machine::{MachineConfig, MemoryError, ReadMemory};
+mod support;
+use relocade_machine::RuntimeState;
+use relocade_machine::{MemoryError, ReadMemory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -27,7 +28,7 @@ async fn check_guest_memory() {
     ])
     .unwrap();
     map.set_a20_enabled(false);
-    let config = MachineConfig::new(
+    let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
@@ -39,7 +40,7 @@ async fn check_guest_memory() {
     )
     .unwrap();
     let backend = Backend::with_state(RuntimeState::new(())).unwrap();
-    let mut runtime = Cpu::new(backend, config).await.unwrap();
+    let mut runtime = support::create_cpu(backend, config).await.unwrap();
     let reader = runtime.shared_memory();
     runtime
         .context()

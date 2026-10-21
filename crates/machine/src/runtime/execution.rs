@@ -92,7 +92,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             backend: &mut context,
             bindings,
         };
-        let mut call = HostCall::new(&self.config, &mut access);
+        let mut call = HostCall::new(&self.config, &self.machine_config, &mut access);
         let result = handler.run(&mut call).await;
         self.host_call_incomplete = false;
         result

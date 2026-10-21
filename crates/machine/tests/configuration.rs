@@ -1,39 +1,36 @@
-use relocade_machine::{ConfigurationError, MachineConfig};
+use relocade_machine::{ConfigurationError, CpuConfig, MachineConfig, RuntimeMemory};
+use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, ExecutionTarget, PhysicalMapping, PhysicalMemoryMap,
-    SegmentProfile, Segments,
+    SegmentProfile,
 };
 
 fn target() -> ExecutionTarget {
     Compiler::new(ExecutionProfile::Real16).target()
 }
 
-fn cpu() -> CpuState {
-    CpuState {
-        segments: Segments::real_mode(),
-        ..CpuState::default()
-    }
+#[test]
+fn cpu_must_match_the_execution_profile() {
+    assert!(matches!(
+        CpuConfig::new(target(), CpuState::default()),
+        Err(ConfigurationError::IncompatibleCpu)
+    ));
 }
 
 #[test]
-fn cpu_and_profile_must_match_the_physical_configuration() {
+fn memory_map_must_match_the_execution_profile() {
+    let mut backend = Backend::new().unwrap();
+    let config = MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap();
+    let protected = CpuConfig::new(
+        Compiler::new(SegmentProfile::Flat32).target(),
+        CpuState::default(),
+    )
+    .unwrap();
     assert!(matches!(
-        MachineConfig::new(
-            target(),
-            CpuState::default(),
-            0,
-            PhysicalMemoryMap::new([]).unwrap()
-        ),
-        Err(ConfigurationError::IncompatibleCpu)
-    ));
-    assert!(matches!(
-        MachineConfig::new(
-            Compiler::new(SegmentProfile::Flat32).target(),
-            CpuState::default(),
-            0,
-            PhysicalMemoryMap::new([]).unwrap(),
-        ),
-        Err(ConfigurationError::UnsupportedProfile)
+        RuntimeMemory::new(&mut backend, config, protected),
+        Err(relocade_machine::Error::Configuration(
+            ConfigurationError::UnsupportedProfile
+        ))
     ));
 }
 
@@ -44,7 +41,7 @@ fn backing_capacity_is_independent_of_mapped_guest_addresses() {
         PhysicalMapping::Rom { backing_offset: 0 },
     )])
     .unwrap();
-    let config = MachineConfig::new(target(), cpu(), 0x20000, map).unwrap();
+    let config = MachineConfig::new(0x20000, map).unwrap();
     assert_eq!(config.memory_size(), 0x20000);
     assert_eq!(
         config.memory_map().get(0xfffff),
@@ -52,8 +49,6 @@ fn backing_capacity_is_independent_of_mapped_guest_addresses() {
             backing_offset: 0xffff
         }
     );
-    assert_eq!(config.execution_target(), target());
-    assert!(target().profile.is_compatible_with(&config.cpu().segments));
 }
 
 #[test]
@@ -66,7 +61,7 @@ fn validation_includes_rom_backing_hidden_by_a20() {
     )])
     .unwrap();
     assert!(matches!(
-        MachineConfig::new(target(), cpu(), 0x2fff, map),
+        MachineConfig::new(0x2fff, map),
         Err(ConfigurationError::InsufficientMemory)
     ));
 }
@@ -82,13 +77,13 @@ fn backing_can_reach_the_end_of_the_32_bit_address_space() {
         )])
         .unwrap()
     };
-    assert!(MachineConfig::new(target(), cpu(), 1 << 32, map()).is_ok());
+    assert!(MachineConfig::new(1 << 32, map()).is_ok());
     assert!(matches!(
-        MachineConfig::new(target(), cpu(), (1 << 32) - 1, map()),
+        MachineConfig::new((1 << 32) - 1, map()),
         Err(ConfigurationError::InsufficientMemory)
     ));
     assert!(matches!(
-        MachineConfig::new(target(), cpu(), (1 << 32) + 1, map()),
+        MachineConfig::new((1 << 32) + 1, map()),
         Err(ConfigurationError::InvalidMemorySize)
     ));
 }

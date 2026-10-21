@@ -1,5 +1,5 @@
-use super::{access::CpuAccess, RuntimeMemory, RuntimeState};
-use crate::{CpuStorage, CpuView, MachineConfig, Memory};
+use crate::{runtime::access::CpuAccess, RuntimeMemory, RuntimeState};
+use crate::{CpuConfig, CpuStorage, CpuView, MachineConfig, Memory};
 use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
 use std::{future::Future, ops::ControlFlow, pin::Pin};
@@ -10,18 +10,27 @@ mod tests;
 /// Access to CPU, guest memory and environment state for a host handler.
 /// This view borrows live CPU and memory; edits apply immediately.
 pub struct HostCall<'a, T = ()> {
+    cpu: &'a CpuConfig,
     config: &'a MachineConfig,
     access: &'a mut dyn HostAccess<T>,
 }
 
 impl<'a, T> HostCall<'a, T> {
-    pub(crate) fn new(config: &'a MachineConfig, access: &'a mut dyn HostAccess<T>) -> Self {
-        Self { config, access }
+    pub(crate) fn new(
+        cpu: &'a CpuConfig,
+        config: &'a MachineConfig,
+        access: &'a mut dyn HostAccess<T>,
+    ) -> Self {
+        Self {
+            cpu,
+            config,
+            access,
+        }
     }
 
     /// Borrows the CPU that entered this host call.
     pub fn cpu(&mut self) -> CpuView<'_> {
-        CpuView::new(self.config, self.access)
+        CpuView::new(self.cpu, self.access)
     }
 
     /// Borrows the machine's shared guest memory through its configured map.
@@ -103,7 +112,7 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
     /// Lends the published CPU, guest memory and environment state
     /// to a synchronous host handler. The caller must publish CPU state before
     /// access and observe edits afterward. Ordinary port/MMIO imports do not
-    /// provide this boundary. Guest reentry is unsupported.
+    /// provide this boundary. Reentering this CPU from its callback is unsupported.
     /// Earlier edits remain applied if the handler returns an error.
     pub fn with_host_call<T, C: WasmContext<State = RuntimeState<T>, Memory = M>, R>(
         &self,
@@ -114,6 +123,10 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
             backend: context,
             bindings: self.clone(),
         };
-        handler(&mut HostCall::new(&self.config, &mut access))
+        handler(&mut HostCall::new(
+            &self.config,
+            &self.machine_config,
+            &mut access,
+        ))
     }
 }

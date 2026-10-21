@@ -1,5 +1,6 @@
-use relocade_machine::{real_mode_interrupt, Cpu, Error, Hook, RuntimeState};
-use relocade_machine::{MachineConfig, ReadMemory};
+mod support;
+use relocade_machine::ReadMemory;
+use relocade_machine::{real_mode_interrupt, Error, Hook, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -82,7 +83,7 @@ impl Wake for WakeCount {
 }
 
 async fn check_pending_calls() {
-    let config = MachineConfig::new(
+    let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
@@ -95,7 +96,7 @@ async fn check_pending_calls() {
     .unwrap();
     let state = Rc::new(State::default());
     let backend = Backend::with_state(RuntimeState::new(state.clone())).unwrap();
-    let mut runtime = Cpu::new(backend, config).await.unwrap();
+    let mut runtime = support::create_cpu(backend, config).await.unwrap();
     runtime.context().cpu().set_sp(0xff00);
     runtime.context().cpu().set_eflags(0x202);
     runtime

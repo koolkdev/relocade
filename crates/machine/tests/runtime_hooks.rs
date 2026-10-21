@@ -1,5 +1,6 @@
-use relocade_machine::MachineConfig;
-use relocade_machine::{real_mode_interrupt, Cpu, Hook, RuntimeState};
+mod support;
+
+use relocade_machine::{real_mode_interrupt, Hook, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments,
@@ -12,7 +13,7 @@ use relocade_wasm_runtime::Backend;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn check_interrupt_hooks() {
-    let config = MachineConfig::new(
+    let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
@@ -27,7 +28,7 @@ async fn check_interrupt_hooks() {
     // Non-Send state belongs to the backend, while hooks may capture immutable metadata.
     let calls = Rc::new(Cell::new(0));
     let backend = Backend::with_state(RuntimeState::new(calls)).unwrap();
-    let mut runtime = Cpu::new(backend, config).await.unwrap();
+    let mut runtime = support::create_cpu(backend, config).await.unwrap();
     runtime.context().cpu().set_sp(0xff00);
     runtime.context().cpu().set_eflags(0x202);
     runtime
