@@ -97,4 +97,4 @@ jobs:
                   "args": ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
               }}, output)
           PY
-          cargo test -p relocade-runtime-web -p relocade-renderer --target wasm32-unknown-unknown --tests --locked
+          cargo test -p relocade-worker -p relocade-runtime-web -p relocade-renderer --target wasm32-unknown-unknown --tests --locked
