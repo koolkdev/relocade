@@ -4,17 +4,20 @@ use relocade_compiler::{
 };
 use relocade_machine::MachineConfig;
 use relocade_runtime::{
-    wasm::{WasmBackend, WasmContext, WasmMemoryAccess},
-    with_host_call, HostCall, RuntimeState,
+    wasm::{WasmBackend, WasmMemoryAccess},
+    HostCall, RuntimeMemory, RuntimeState,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Registers, Segments,
 };
-use std::{mem::offset_of, rc::Rc};
+use std::mem::offset_of;
 
 const CONTEXT: Memory = Memory::new("host", "context", 1);
-const GUEST: Memory = Memory::new("host", "guest", 1);
+const GUEST: Memory = Memory {
+    module: "host",
+    ..relocade_x86::abi::GUEST
+};
 const CALL: Function<fn() -> I32> = Function::new("host", "call");
 const RUN: Function<fn() -> I64> = Function::new("host", "run");
 
@@ -27,7 +30,6 @@ use relocade_runtime_web::WebBackend as Backend;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 struct HostState {
-    config: Rc<MachineConfig>,
     calls: u32,
 }
 
@@ -75,22 +77,14 @@ async fn check_callback() {
         .unwrap(),
     )
     .unwrap();
-    let state = HostState {
-        config: Rc::new(config),
-        calls: 0,
-    };
+    let state = HostState { calls: 0 };
     #[cfg(not(target_arch = "wasm32"))]
     let mut backend = Backend::with_state(RuntimeState::new(state)).unwrap();
     #[cfg(target_arch = "wasm32")]
     let mut backend = Backend::with_state(RuntimeState::new(state));
-    // Creation order differs from module import order: handles belong to the backend.
-    let guest = backend.create_memory(GUEST).unwrap();
-    let context = backend
-        .create_memory(Memory {
-            maximum: Some(1),
-            ..CONTEXT
-        })
-        .unwrap();
+    let memory = RuntimeMemory::new(&mut backend, config).unwrap();
+    let guest = memory.guest_memory().clone();
+    let context = memory.context_memory().clone();
     backend.write_memory(
         &context,
         0,
@@ -132,22 +126,14 @@ async fn check_callback() {
         .unwrap();
     RUN.export(&mut program, run).unwrap();
     let module = backend.compile(&program.compile().unwrap()).await.unwrap();
-    let callback_context = context.clone();
-    let callback_guest = guest.clone();
+    let callback_memory = memory.clone();
     let imports = [
         backend.bind(CONTEXT, &context),
         backend.bind(GUEST, &guest),
         backend.bind_host(
             CALL,
             Box::new(move |mut caller| {
-                let config = Rc::clone(&caller.state().data.config);
-                with_host_call(
-                    &config,
-                    &mut caller,
-                    callback_context.clone(),
-                    callback_guest.clone(),
-                    host_handler,
-                );
+                callback_memory.with_host_call(&mut caller, host_handler);
                 0
             }),
         ),
@@ -181,14 +167,7 @@ async fn check_callback() {
     // The same live CPU/memory/state view is available without entering Wasm.
     {
         let mut access = backend.context();
-        let config = Rc::clone(&access.state().data.config);
-        with_host_call(
-            &config,
-            &mut access,
-            context.clone(),
-            guest.clone(),
-            host_handler,
-        );
+        memory.with_host_call(&mut access, host_handler);
     }
     assert_eq!(backend.state().data.calls, 3);
     let mut bytes = [0; ExecutionContext::BYTE_LEN];

@@ -1,4 +1,4 @@
-use crate::{storage::Storage, wasm::WasmContext, RuntimeState};
+use crate::{memory::Storage, wasm::WasmContext, RuntimeMemory, RuntimeState};
 use relocade_machine::{Cpu, MachineConfig, MachineStorage, Memory};
 use relocade_x86::ExecutionExit;
 use std::{future::Future, ops::ControlFlow, pin::Pin};
@@ -98,30 +98,21 @@ impl<T, C: WasmContext<State = RuntimeState<T>>> HostStorage<T> for Storage<&mut
     }
 }
 
-/// Lends CPU, guest memory and environment state to a synchronous host handler,
-/// using the same live views as `Runtime::machine`.
-///
-/// The binding supplies the calling CPU's execution-context memory, the machine
-/// configuration and guest memory. The access view can come from a host callback
-/// or `WasmBackend::context` while stopped. Memory handles are moved into this
-/// call; their contents stay in the engine. Guest code must publish CPU state
-/// before access and observe changes afterward.
-/// Ordinary port/MMIO imports do not provide that boundary. Guest reentry is
-/// unsupported. Segment edits and snapshot restores validate before writing.
-///
-/// Returns the handler's result directly. Earlier CPU and memory edits remain
-/// applied if the handler returns an error.
-pub fn with_host_call<T, C: WasmContext<State = RuntimeState<T>>, R>(
-    config: &MachineConfig,
-    access: &mut C,
-    context: C::Memory,
-    guest: C::Memory,
-    handler: impl FnOnce(&mut HostCall<'_, T>) -> R,
-) -> R {
-    let mut storage = Storage {
-        access,
-        context,
-        guest,
-    };
-    handler(&mut HostCall::new(config, &mut storage))
+impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
+    /// Lends the published CPU, guest memory and environment state
+    /// to a synchronous host handler. The caller must publish CPU state before
+    /// access and observe edits afterward. Ordinary port/MMIO imports do not
+    /// provide this boundary. Guest reentry is unsupported.
+    /// Earlier edits remain applied if the handler returns an error.
+    pub fn with_host_call<T, C: WasmContext<State = RuntimeState<T>, Memory = M>, R>(
+        &self,
+        access: &mut C,
+        handler: impl FnOnce(&mut HostCall<'_, T>) -> R,
+    ) -> R {
+        let mut storage = Storage {
+            access,
+            memory: self.clone(),
+        };
+        handler(&mut HostCall::new(&self.config, &mut storage))
+    }
 }
