@@ -78,8 +78,8 @@ Its default, `u64::MAX`, is practically unbounded.
 Set `cpu_model` to the guest's configured capabilities before execution and keep it
 fixed for that guest. Interpreters read it for instruction admission and CPUID;
 JIT blocks specialize to it. CPU snapshot replacement preserves this field.
-The model is a little-endian 32-bit capability mask at byte offset 496; use
-`ExecutionContext::to_bytes()` to encode it. The complete context is 504 bytes,
+The model is a little-endian 32-bit capability mask at byte offset 544; use
+`ExecutionContext::to_bytes()` to encode it. The complete context is 552 bytes,
 including four zero padding bytes. Existing backing must be reinitialized when
 updating generated modules to this layout.
 
@@ -433,7 +433,7 @@ of `ExecutionContext`. Copy exactly `CpuState::BYTE_LEN` bytes at
 `offset_of!(ExecutionContext, cpu)`, preserving the surrounding execution controls.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
 payloads, raw segment fields, x87 and XMM encodings. The image is
-`CpuState::BYTE_LEN` (488) bytes:
+`CpuState::BYTE_LEN` (536) bytes:
 
 | Byte offset | Contents |
 | ---: | --- |
@@ -455,6 +455,10 @@ payloads, raw segment fields, x87 and XMM encodings. The image is
 | 352 | u32 packed MXCSR. |
 | 356 | Four reserved bytes. |
 | 360 | Eight 16-byte XMM slots, XMM0 through XMM7, low byte first. |
+| 488 | Eight-byte GDTR: u32 base, u16 inclusive byte limit, two reserved bytes. |
+| 496 | Eight-byte IDTR, with the same layout as GDTR. |
+| 504 | Sixteen-byte loaded LDTR cache: u32 base, u32 inclusive byte limit, u16 selector, u8 usable, one reserved byte, u32 access rights. |
+| 520 | Sixteen-byte loaded TR cache, with the same layout as LDTR. |
 
 `X87Control` keeps each exception mask in bit 0 of its named byte: invalid,
 denormal, zero divide, overflow, underflow and precision. A set mask suppresses
@@ -482,6 +486,16 @@ selector and six bytes: usable, readable, writable, executable, expand-down and
 D/B (`big`). Constructors and resolver callbacks use 0 or 1 for boolean fields;
 snapshot conversion preserves every byte verbatim.
 These are loaded caches, not packed GDT/LDT descriptors.
+
+GDTR, IDTR, LDTR and TR are direct architectural fields of `CpuState`.
+`DescriptorTableRegister` represents GDTR/IDTR; `SystemSegmentRegister` retains the
+visible selector and loaded attributes of LDTR/TR. Its access rights use the
+same upper-descriptor bit positions as LAR. Editing a table entry does not reload
+LDTR, TR or ordinary segment caches. No privileged table-load instructions,
+protected interrupt delivery or task switching are implemented.
+
+Real16 requires IDTR base zero and limit `03FF`; the host CPU view rejects edits
+or restores that violate this contract.
 
 The flag image is storage, not architectural EFLAGS. Status-source kind zero reads
 the low bits of the six stored status bytes. Subtraction kinds 1/5/9, addition
@@ -513,7 +527,8 @@ assert_eq!(CpuState::from_bytes(image), cpu);
 `CpuState::default()` installs flat segment caches with zero visible selectors
 and initializes x87 control fields to represent `037F`, status to zero and the
 tag word to `FFFF` (all eight registers empty).
-Other fields are zero. It is a host execution configuration, not a processor
+IDTR defaults to base zero and limit `03FF`; GDTR and the unusable LDTR/TR caches
+are zero. It is a host execution configuration, not a processor
 reset or a segment-load operation. `filled` and `from_bytes` preserve literal
 images; an all-zero image has unusable segment caches. Hosts using protected-mode far CALL/RET must initialize CS with a valid return
 selector and provide its descriptor.
@@ -781,12 +796,12 @@ skip range-check construction, including ordinary Flat32 accesses.
 The runtime owns profile compatibility and must preserve it when changing segment
 caches. `ExecutionProfile::is_segment_compatible` checks a proposed cache without
 reading the other segments. Host edits through `Cpu::set_segment` panic if the new
-cache violates the configured profile; `Cpu::restore` applies the same rule to
-the complete snapshot. Descriptor callbacks must likewise enforce the profile
-before returning a cache for a guest segment load. The dispatcher and
-interpreter gateway rely on this invariant and do not recheck it on entry. Any
-future profile transition, including replacing compiled entries and links, belongs
-to the runtime.
+cache violates the configured profile. `Cpu::restore` validates the complete
+snapshot and returns a `ConfigurationError` without writing if it is incompatible.
+Descriptor callbacks must likewise enforce the profile before returning a cache
+for a guest segment load. The dispatcher and interpreter gateway rely on this
+invariant and do not recheck it on entry. Any future profile transition, including
+replacing compiled entries and links, belongs to the runtime.
 
 Snapshot blocks check their complete compiled fetch span against current CS at
 entry, before any instruction effects. This includes the last byte of the final

@@ -1,4 +1,4 @@
-use relocade_machine::{Machine, MachineConfig, MachineStorage, MemoryError};
+use relocade_machine::{ConfigurationError, Machine, MachineConfig, MachineStorage, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, SegmentRegister, Segments, StatusSourceState,
@@ -96,22 +96,30 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     let mut cpu = machine.cpu();
     let snapshot = CpuState {
         segments: Segments::real_mode(),
+        idtr: relocade_x86::DescriptorTableRegister::REAL_MODE_IDTR,
+        ldtr: relocade_x86::SystemSegmentRegister::default(),
+        tr: relocade_x86::SystemSegmentRegister::default(),
         ..CpuState::filled(0xa5)
     };
-    cpu.restore(&snapshot);
+    cpu.restore(&snapshot).unwrap();
     assert_eq!(cpu.snapshot(), snapshot);
-    assert_eq!(&context.borrow()[488..496], &998_u64.to_le_bytes());
-    assert_eq!(&context.borrow()[496..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(&context.borrow()[536..544], &998_u64.to_le_bytes());
+    assert_eq!(&context.borrow()[544..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
 }
 
 #[test]
-#[should_panic(expected = "CPU snapshot violates execution target")]
-fn incompatible_snapshot_restores_panic() {
+fn restore_rejects_incompatible_segments_without_writing() {
     let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
     let mut machine = Machine::new(&config, &mut storage);
-    let mut snapshot = *config.cpu();
+    let before = machine.cpu().snapshot();
+    let mut snapshot = before;
+    snapshot.registers.eax = 0x1234_5678;
     snapshot.segments.cs.base = 1;
-    machine.cpu().restore(&snapshot);
+    assert_eq!(
+        machine.cpu().restore(&snapshot),
+        Err(ConfigurationError::IncompatibleCpu)
+    );
+    assert_eq!(machine.cpu().snapshot(), before);
 }
 
 #[test]
@@ -147,7 +155,7 @@ fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
     };
     snapshot.flags.bytes.df = 1;
     snapshot.registers.eax = 0x1234_5678;
-    machine.cpu().restore(&snapshot);
+    machine.cpu().restore(&snapshot).unwrap();
     assert!(machine.cpu().carry());
     assert_eq!(machine.cpu().eflags(), 0x457);
     assert_eq!(machine.cpu().snapshot(), snapshot); // Reading does not materialize.
@@ -328,4 +336,31 @@ fn invalid_spans_fail_before_any_transfer() {
     );
     memory.read(u32::MAX, &mut byte).unwrap();
     assert_eq!(byte, [0xff]);
+}
+
+#[test]
+fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
+    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = Machine::new(&config, &mut storage);
+    let before = machine.cpu().snapshot();
+    let changed = relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff);
+    assert_eq!(
+        machine.cpu().set_idtr(changed),
+        Err(ConfigurationError::InvalidTableRegister)
+    );
+    assert_eq!(machine.cpu().snapshot(), before);
+}
+
+#[test]
+fn restore_rejects_incompatible_idtr_without_writing() {
+    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = Machine::new(&config, &mut storage);
+    let before = machine.cpu().snapshot();
+    let mut snapshot = before;
+    snapshot.idtr = relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff);
+    assert_eq!(
+        machine.cpu().restore(&snapshot),
+        Err(ConfigurationError::InvalidTableRegister)
+    );
+    assert_eq!(machine.cpu().snapshot(), before);
 }

@@ -14,8 +14,9 @@ pub use context::ExecutionContext;
 pub(super) use cpu::Cpu;
 pub use exit::ExecutionExit;
 pub use layout::{
-    CpuState, FlagBytes, FlagsState, Registers, SegmentRegister, Segments, SimdState,
-    StatusSourceState, X87Control, X87Register, X87State, X87Status,
+    CpuState, DescriptorTableRegister, FlagBytes, FlagsState, Registers, SegmentRegister, Segments,
+    SimdState, StatusSourceState, SystemSegmentRegister, X87Control, X87Register, X87State,
+    X87Status,
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
