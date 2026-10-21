@@ -9,7 +9,7 @@ fn rename(dos: &mut Dos<Backend<DosServices>>, from: &[u8], to: &[u8]) -> CpuSta
     const SEGMENT: u16 = 0x2000;
     const OFFSET: u16 = 0xfffc;
     {
-        let mut machine = dos.runtime().machine();
+        let mut machine = dos.cpu().context();
         machine.cpu().set_segment(
             Segment::Es,
             SegmentRegister::real_mode(Segment::Es, SEGMENT),
@@ -34,7 +34,7 @@ fn rename_moves_contents_and_attributes_using_es_di() {
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"OLD.BIN", 0x4301, 0x07));
 
-        dos.runtime().machine().cpu().set_eflags(0x0a57);
+        dos.cpu().context().cpu().set_eflags(0x0a57);
         let cpu = rename(&mut dos, b"old.bin", b"c:..\\saves\\new.bin");
         success(&cpu);
         assert_eq!(cpu.flags.eflags(), 0x0a56);
@@ -47,8 +47,8 @@ fn rename_moves_contents_and_attributes_using_es_di() {
         error(&path_service(&mut dos, b"OLD.BIN", 0x4e00, 0x06), 18);
         success(&path_service(&mut dos, b"\\SAVES\\NEW.BIN", 0x4e00, 0x06));
         let mut dta = [0; 43];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10080, &mut dta)
             .unwrap();

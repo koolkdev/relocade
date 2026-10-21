@@ -6,7 +6,7 @@ use relocade_x86::ExecutionExit;
 fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        let memory = dos.runtime().shared_memory();
+        let memory = dos.cpu().shared_memory();
         let screen = TextScreen::read(&memory);
         assert_eq!(screen.page, 0);
         assert_eq!(
@@ -26,8 +26,8 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
             }; 80 * 25]
         );
         let mut geometry = [0; 6];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x449, &mut geometry)
             .unwrap();
@@ -43,10 +43,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
             Default::default(),
         )
         .unwrap();
-        assert_eq!(
-            dos.runtime().run(10).unwrap(),
-            ExecutionExit::BudgetExhausted
-        );
+        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
         let screen = TextScreen::read(&memory);
         assert_eq!(
             screen.cells[0],
@@ -66,7 +63,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
 
         // A different active page and its cursor are read from the BIOS data area.
         {
-            let mut machine = dos.runtime().machine();
+            let mut machine = dos.cpu().context();
             let mut memory = machine.memory();
             memory.write(0x462, &[3]).unwrap();
             memory.write(0x456, &[79, 24]).unwrap();

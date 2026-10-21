@@ -28,7 +28,7 @@ pub fn service(
     dx: u16,
 ) -> CpuState {
     {
-        let mut machine = dos.runtime().machine();
+        let mut machine = dos.cpu().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
@@ -36,11 +36,8 @@ pub fn service(
         cpu.set_cx(cx);
         cpu.set_dx(dx);
     }
-    assert_eq!(
-        dos.runtime().run(10).unwrap(),
-        ExecutionExit::BudgetExhausted
-    );
-    dos.runtime().machine().cpu().snapshot()
+    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    dos.cpu().context().cpu().snapshot()
 }
 
 pub fn path_service(
@@ -51,8 +48,8 @@ pub fn path_service(
 ) -> CpuState {
     let mut terminated = path.to_vec();
     terminated.push(0);
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .write(0x10300, &terminated)
         .unwrap();

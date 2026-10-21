@@ -12,8 +12,8 @@ fn attributes(dos: &mut Dos<Backend<DosServices>>, path: &[u8]) -> u16 {
 fn found_attributes(dos: &mut Dos<Backend<DosServices>>, path: &[u8], mask: u16) -> u8 {
     success(&path_service(dos, path, 0x4e00, mask));
     let mut byte = [0];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x10080 + 21, &mut byte)
         .unwrap();
@@ -27,9 +27,9 @@ async fn check_file_attributes() {
     dos.mount_file("LOCKED.DAT", vec![], FileAccess::ReadOnly)
         .unwrap();
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    dos.runtime().machine().cpu().set_eflags(0x0a57);
+    dos.cpu().context().cpu().set_eflags(0x0a57);
     assert_eq!(attributes(&mut dos, b"LOCKED.DAT"), 0x21);
-    assert_eq!(dos.runtime().machine().cpu().eflags(), 0x0a56);
+    assert_eq!(dos.cpu().context().cpu().eflags(), 0x0a56);
     assert_eq!(attributes(&mut dos, b"C:\\"), 0x10);
     success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
     assert_eq!(attributes(&mut dos, b"file.bin"), 0x20);
@@ -44,11 +44,7 @@ async fn check_file_attributes() {
     assert_eq!(success(&path_service(&mut dos, b"FILE.BIN", 0x3d40, 0)), 6);
 
     // Permissions change future opens; existing read/write handles keep their rights.
-    dos.runtime()
-        .machine()
-        .memory()
-        .write(0x10400, b"x")
-        .unwrap();
+    dos.cpu().context().memory().write(0x10400, b"x").unwrap();
     assert_eq!(success(&service(&mut dos, 0x4000, 5, 1, 0x400)), 1);
     error(&service(&mut dos, 0x4000, 6, 1, 0x400), 5);
     success(&path_service(&mut dos, b"FILE.BIN", 0x4301, 0x06));
@@ -106,11 +102,7 @@ async fn check_archive_on_close() {
     dos.mount_file("DATA.BIN", b"abc".to_vec(), FileAccess::ReadWrite)
         .unwrap();
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    dos.runtime()
-        .machine()
-        .memory()
-        .write(0x10400, b"x")
-        .unwrap();
+    dos.cpu().context().memory().write(0x10400, b"x").unwrap();
     success(&path_service(&mut dos, b"DATA.BIN", 0x4301, 0x06));
 
     // A failed write must not make an otherwise unmodified handle dirty.

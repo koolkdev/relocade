@@ -1,24 +1,24 @@
 //! Execution of one guest, independent of the host Wasm engine.
 //!
-//! [`Runtime::new`] prepares an interpreter and dispatcher and initializes
-//! backend storage from [`MachineConfig`]. [`Runtime::machine`] lends access to
+//! [`Cpu::new`] prepares an interpreter and dispatcher and initializes
+//! backend storage from [`MachineConfig`]. [`Cpu::context`] lends access to
 //! the stopped CPU and mapped memory, both backed directly by Wasm storage.
 //! CPU edits take effect immediately. Preparation is asynchronous
-//! for native and web engines. [`Runtime::run_async`] can await host operations
+//! for native and web engines. [`Cpu::run_async`] can await host operations
 //! between synchronous Wasm calls.
 //!
 //! ```
 //! use relocade_machine::MachineConfig;
-//! use relocade_runtime::{Runtime, RuntimeBackend, RuntimeState};
+//! use relocade_runtime::{Cpu, RuntimeBackend, RuntimeState};
 //!
 //! async fn example<B: RuntimeBackend<State = RuntimeState>>(
 //!     backend: B,
 //!     config: MachineConfig,
 //! ) -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut runtime = Runtime::new(backend, config).await?;
-//!     runtime.machine().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
+//!     let mut runtime = Cpu::new(backend, config).await?;
+//!     runtime.context().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //!     let exit = runtime.run(100)?;
-//!     let ax = runtime.machine().cpu().ax();
+//!     let ax = runtime.context().cpu().ax();
 //!     # let _ = (exit, ax);
 //!     Ok(())
 //! }
@@ -45,7 +45,7 @@ pub use error::{Error, Result};
 pub use hooks::Hook;
 use memory::Storage;
 pub use memory::{RuntimeMemory, SharedMemory};
-use relocade_machine::{Machine, MachineConfig};
+use relocade_machine::{CpuContext, MachineConfig};
 use relocade_wasm_runtime::{Import, WasmCompiler};
 use relocade_x86::{abi, Compiler, EntryTable};
 pub use state::RuntimeState;
@@ -56,7 +56,7 @@ use std::{
 
 /// One running guest and its engine resources. CPU and memory access belongs to
 /// the machine; this owner prepares code and controls entry into execution.
-pub struct Runtime<B: RuntimeBackend> {
+pub struct Cpu<B: RuntimeBackend> {
     config: Arc<MachineConfig>,
     storage: Storage<B>,
     dispatch: B::Function,
@@ -66,7 +66,7 @@ pub struct Runtime<B: RuntimeBackend> {
     host_call_incomplete: bool,
 }
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
+impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Prepares code and allocates zeroed backing with the configured CPU and map.
     /// The runtime retains the backend and its live storage for subsequent calls.
     /// Port and MMIO reads currently return all ones; their writes are ignored.
@@ -173,8 +173,8 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
     }
 
     /// Borrows the stopped machine. CPU and memory writes take effect immediately.
-    pub fn machine(&mut self) -> Machine<'_> {
-        Machine::new(&self.config, &mut self.storage)
+    pub fn context(&mut self) -> CpuContext<'_> {
+        CpuContext::new(&self.config, &mut self.storage)
     }
 
     /// Shares guest memory with a reader that can outlive this runtime. Native

@@ -1,5 +1,5 @@
 use relocade_machine::{MachineConfig, MemoryError, ReadMemory};
-use relocade_runtime::{Runtime, RuntimeState};
+use relocade_runtime::{Cpu, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -39,21 +39,21 @@ async fn check_guest_memory() {
     )
     .unwrap();
     let backend = Backend::with_state(RuntimeState::new(())).unwrap();
-    let mut runtime = Runtime::new(backend, config).await.unwrap();
+    let mut runtime = Cpu::new(backend, config).await.unwrap();
     let reader = runtime.shared_memory();
     runtime
-        .machine()
+        .context()
         .memory()
         .write_backing(0x1000, &[0x12, 0x34])
         .unwrap();
     // MOV word [0FFE],0741; JMP to the next instruction.
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x100, &[0xc7, 0x06, 0xfe, 0x0f, 0x41, 0x07, 0xeb, 0])
         .unwrap();
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
-    runtime.machine().memory().write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
+    runtime.context().memory().write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
     let mut bytes = [0; 4];
     reader.read(0xffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0x41, 7, 0x12, 0x34]);

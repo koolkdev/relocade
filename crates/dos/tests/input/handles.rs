@@ -21,22 +21,22 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         let output_file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
         success(&service(&mut dos, 0x4600, output_file, 1, 0));
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10400, b"untouched")
             .unwrap();
         // A zero-length read returns immediately even with no console input.
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 0, 0x400)), 0);
         let mut unchanged = [0; 9];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut unchanged)
             .unwrap();
         assert_eq!(&unchanged, b"untouched");
         {
-            let mut machine = dos.runtime().machine();
+            let mut machine = dos.cpu().context();
             let mut cpu = machine.cpu();
             cpu.set_eip(0x100);
             cpu.set_ax(0x3f00);
@@ -48,7 +48,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         {
-            let mut run = pin!(dos.runtime().run_async(20));
+            let mut run = pin!(dos.cpu().run_async(20));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"ab\x08C").unwrap();
@@ -61,7 +61,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             ));
         }
         {
-            let mut machine = dos.runtime().machine();
+            let mut machine = dos.cpu().context();
             machine.memory().read(0x10400, &mut unchanged).unwrap();
             assert_eq!(&unchanged, b"aCtouched");
             let cpu = machine.cpu();
@@ -84,8 +84,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, console, 0, 0x400)), 0);
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         let mut byte = [0];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut byte)
             .unwrap();
@@ -96,16 +96,16 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         success(&service(&mut dos, 0x4600, file, 0, 0));
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 4, 0x400)), 4);
         let mut file_bytes = [0; 4];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut file_bytes)
             .unwrap();
         assert_eq!(&file_bytes, b"F\x1a\r\n");
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 4, 0x400)), 0);
         assert_eq!(success(&service(&mut dos, 0x3f00, console, 8, 0x400)), 1);
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut byte)
             .unwrap();
@@ -116,8 +116,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         for expected in [b"one\r\n", b"two\r\n"] {
             assert_eq!(success(&service(&mut dos, 0x3f00, console, 100, 0x400)), 5);
             let mut bytes = [0; 5];
-            dos.runtime()
-                .machine()
+            dos.cpu()
+                .context()
                 .memory()
                 .read(0x10400, &mut bytes)
                 .unwrap();
@@ -136,8 +136,8 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
         dos.stdin().write_all(b"X\r").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 500, 0x400)), 129);
         let mut bytes = [0; 129];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut bytes)
             .unwrap();
@@ -150,8 +150,8 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
         dos.stdin().write_all(b"\x1a\r").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 0);
         let mut unchanged = [0; 129];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut unchanged)
             .unwrap();
@@ -187,8 +187,8 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
 
             // Character output through an alias leaves EOF set, unlike AH=40h.
             success(&service(&mut dos, 0x4600, console, 1, 0));
-            dos.runtime()
-                .machine()
+            dos.cpu()
+                .context()
                 .memory()
                 .write(0x10420, b"message$")
                 .unwrap();
@@ -197,11 +197,7 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             assert_eq!(common::output(dos.stdout()), b"message!");
             assert_eq!(success(&service(&mut dos, 0x3f00, console, 10, 0x400)), 0);
 
-            dos.runtime()
-                .machine()
-                .memory()
-                .write(0x10400, b"!")
-                .unwrap();
+            dos.cpu().context().memory().write(0x10400, b"!").unwrap();
             assert_eq!(success(&service(&mut dos, 0x4000, file, 1, 0x400)), 1);
             assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 0);
             // Closing/replacing a handle slot does not reset the shared open record.
@@ -225,8 +221,8 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             }
             assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 6);
             let mut bytes = [0; 6];
-            dos.runtime()
-                .machine()
+            dos.cpu()
+                .context()
                 .memory()
                 .read(0x10400, &mut bytes)
                 .unwrap();
@@ -256,8 +252,8 @@ fn program_reload_clears_the_console_line_remainder() {
         assert!(dos.load_com(&[], Default::default()).is_err());
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         let mut byte = [0];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut byte)
             .unwrap();
@@ -266,8 +262,8 @@ fn program_reload_clears_the_console_line_remainder() {
         input.write_all(b"new\r").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 20, 0x400)), 5);
         let mut bytes = [0; 5];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut bytes)
             .unwrap();

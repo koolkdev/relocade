@@ -52,13 +52,13 @@ execution-task ownership, UI messaging and scheduling for an interactive embeddi
 
 Cargo generates four interpreter modules on the build host, one for each execution
 profile. Each exports `step` and `run`. `relocade-interpreter::module(profile)`
-returns their embedded Wasm bytes, and `Runtime::new` uses them in both native and
+returns their embedded Wasm bytes, and `Cpu::new` uses them in both native and
 web builds. Starting a guest does not regenerate the interpreter. The backend
 still compiles the portable Wasm to native code when loading it.
 
 `backend.compiler()` returns an independent `WasmCompiler` handle. Its
 `compile(bytes)` method compiles any module without borrowing the backend's live
-instances or host state. Runtime startup retains only the four interpreter assets
+instances or host state. Cpu startup retains only the four interpreter assets
 in a shared `ModuleCache`, using that same compilation method on a cache miss.
 Dispatcher and guest modules go directly to `compile`.
 Backends provide optional cache storage through `module_cache()` and share it only

@@ -9,8 +9,8 @@ fn read_guest_file(dos: &mut Dos<Backend<DosServices>>, path: &[u8]) -> Vec<u8> 
     let handle = success(&path_service(dos, path, 0x3d00, 0));
     let length = success(&service(dos, 0x3f00, handle, 32, 0x500));
     let mut bytes = vec![0; usize::from(length)];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x10500, &mut bytes)
         .unwrap();
@@ -20,8 +20,8 @@ fn read_guest_file(dos: &mut Dos<Backend<DosServices>>, path: &[u8]) -> Vec<u8> 
 
 fn dta(dos: &mut Dos<Backend<DosServices>>) -> [u8; 43] {
     let mut bytes = [0; 43];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x10080, &mut bytes)
         .unwrap();
@@ -72,7 +72,7 @@ fn mounted_drives_have_independent_directories_and_file_operations() {
         ] {
             assert_eq!(read_guest_file(&mut dos, path), expected);
         }
-        dos.runtime().machine().cpu().set_eflags(0x0a57);
+        dos.cpu().context().cpu().set_eflags(0x0a57);
         let cpu = service(&mut dos, 0x0e00, 0, 0, 3);
         assert_eq!(cpu.registers.eax as u8, 5);
         assert_eq!(cpu.flags.eflags(), 0x0a57);
@@ -88,11 +88,11 @@ fn mounted_drives_have_independent_directories_and_file_operations() {
             service(&mut dos, 0x0e00, 0, 0, number);
             assert_eq!(service(&mut dos, 0x1900, 0, 0, 0).registers.eax as u8, 3);
         }
-        dos.runtime().machine().cpu().set_si(0x500);
+        dos.cpu().context().cpu().set_si(0x500);
         success(&service(&mut dos, 0x4700, 0, 0, 4));
         let mut directory = [0; 5];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10500, &mut directory)
             .unwrap();
@@ -115,15 +115,15 @@ fn mounted_drives_have_independent_directories_and_file_operations() {
         assert_eq!(cpu.registers.ecx as u16, 0x20);
 
         // Rename uses the current drive for an omitted prefix and cannot cross drives.
-        dos.runtime().machine().cpu().set_di(0x600);
-        dos.runtime()
-            .machine()
+        dos.cpu().context().cpu().set_di(0x600);
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10600, b"C:NEW.DAT\0")
             .unwrap();
         error(&path_service(&mut dos, b"NEW.DAT", 0x5600, 0), 17);
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10600, b"D:MOVED.DAT\0")
             .unwrap();
@@ -137,8 +137,8 @@ fn mounted_drives_have_independent_directories_and_file_operations() {
         let handle = success(&path_service(&mut dos, b"", 0x5a00, 0));
         success(&service(&mut dos, 0x3e00, handle, 0, 0));
         let mut generated = [0; 10];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10300, &mut generated)
             .unwrap();
@@ -183,8 +183,8 @@ fn remounting_preserves_handles_and_invalidates_only_that_drives_searches() {
         assert_eq!(found_name(&c_search), b"A.DAT");
         service(&mut dos, 0x0e00, 0, 0, 3);
         // Restoring D's search after a C: search and drive change keeps D's identity.
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10080, &old_search)
             .unwrap();
@@ -215,14 +215,14 @@ fn remounting_preserves_handles_and_invalidates_only_that_drives_searches() {
 
         // A new search must not make an old DTA valid again after replacement.
         success(&path_service(&mut dos, b"DATA/*.DAT", 0x4e00, 0));
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10080, &old_search)
             .unwrap();
         error(&service(&mut dos, 0x4f00, 0, 0, 0), 18);
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10080, &c_search)
             .unwrap();

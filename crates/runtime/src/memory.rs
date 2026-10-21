@@ -5,7 +5,7 @@ pub use shared::SharedMemory;
 
 use crate::Result;
 use relocade_compiler::abi::Memory;
-use relocade_machine::{MachineConfig, MachineStorage};
+use relocade_machine::{CpuStorage, MachineConfig};
 use relocade_wasm_runtime::{Import, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, ExecutionContext};
 use std::{mem::offset_of, sync::Arc};
@@ -97,7 +97,7 @@ impl<A: WasmMemoryAccess> Storage<A> {
     }
 }
 
-impl<A: WasmMemoryAccess> MachineStorage for Storage<A> {
+impl<A: WasmMemoryAccess> CpuStorage for Storage<A> {
     fn read_cpu(&self, offset: u32, bytes: &mut [u8]) {
         self.access.read_memory(
             &self.memory.context,

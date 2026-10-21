@@ -16,7 +16,7 @@
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
 //! eight-column stops. An empty input source returns
 //! [`relocade_x86::ExecutionExit::Deferred`] from a synchronous run. Use
-//! [`Runtime::run_async`] to await input and complete the pending read.
+//! [`Cpu::run_async`] to await input and complete the pending read.
 //! AH=0Bh and IOCTL AX=4406h query input without consuming it; AX=4407h reports
 //! output readiness. Console status describes queued keys, not a buffered line.
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
@@ -68,7 +68,7 @@
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
 //! The host chooses the Wasm backend and controls execution through
-//! [`Dos::runtime`]. Pass the backend's `with_state` constructor to [`Dos::new`];
+//! [`Dos::cpu`]. Pass the backend's `with_state` constructor to [`Dos::new`];
 //! DOS creates its environment state and gives the backend a service handle.
 //!
 //! ```no_run
@@ -82,7 +82,7 @@
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
 //! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
-//! assert_eq!(dos.runtime().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
+//! assert_eq!(dos.cpu().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
 //! let mut output = Vec::new();
 //! dos.stdout().read_to_end(&mut output)?;
@@ -109,7 +109,7 @@ mod stdio;
 pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
-use relocade_runtime::{Runtime, RuntimeBackend, RuntimeState};
+use relocade_runtime::{Cpu, RuntimeBackend, RuntimeState};
 pub use state::DosServices;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
@@ -117,7 +117,7 @@ use std::{cell::RefCell, rc::Rc};
 /// A DOS environment that owns its service state for one guest program.
 pub struct Dos<B: RuntimeBackend<State = RuntimeState<DosServices>>> {
     state: Rc<RefCell<DosState>>,
-    runtime: Runtime<B>,
+    cpu: Cpu<B>,
 }
 
 impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
@@ -131,21 +131,20 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
         let services = DosServices::new(Rc::clone(&state));
         let backend = create_backend(RuntimeState::new(services))
             .map_err(Into::<relocade_runtime::Error>::into)?;
-        let mut runtime = Runtime::new(backend, kernel::configuration()).await?;
-        kernel::initialize(&mut runtime.machine().memory());
-        relocade_bios::initialize(&mut runtime.machine().memory());
-        runtime
-            .install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
+        let mut cpu = Cpu::new(backend, kernel::configuration()).await?;
+        kernel::initialize(&mut cpu.context().memory());
+        relocade_bios::initialize(&mut cpu.context().memory());
+        cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
             .await?;
-        Ok(Self { state, runtime })
+        Ok(Self { state, cpu })
     }
 
     /// Loads a COM image of 1..=65,278 bytes and initializes its PSP, stack and CPU.
     /// Replaces the process allocation and clears buffered I/O and exit status.
     /// Invalid images or options leave the existing program and its state unchanged.
     pub fn load_com(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
-        let psp_segment = com::load(&mut self.runtime.machine(), image, &options)?;
-        self.runtime.cancel_pending_call();
+        let psp_segment = com::load(&mut self.cpu.context(), image, &options)?;
+        self.cpu.cancel_pending_call();
         self.state.borrow_mut().reset_process(psp_segment);
         Ok(())
     }
@@ -155,8 +154,8 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// Invalid images or options leave the existing program and its state unchanged.
     /// Overlay loading is not supported.
     pub fn load_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
-        let psp_segment = mz::load(&mut self.runtime.machine(), image, &options)?;
-        self.runtime.cancel_pending_call();
+        let psp_segment = mz::load(&mut self.cpu.context(), image, &options)?;
+        self.cpu.cancel_pending_call();
         self.state.borrow_mut().reset_process(psp_segment);
         Ok(())
     }
@@ -199,8 +198,8 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
         self.state.borrow().files.read_file(path)
     }
 
-    pub fn runtime(&mut self) -> &mut Runtime<B> {
-        &mut self.runtime
+    pub fn cpu(&mut self) -> &mut Cpu<B> {
+        &mut self.cpu
     }
 
     /// None until a DOS service terminates the process or reports a service error.
@@ -223,8 +222,8 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// let mut dos = relocade_dos::Dos::new(create_backend).await?;
     /// dos.load_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let mut input = dos.stdin();
-    /// // An event handler can retain this writer while the runtime waits.
-    /// let run = dos.runtime().run_async(100);
+    /// // An event handler can retain this writer while the cpu waits.
+    /// let run = dos.cpu().run_async(100);
     /// input.write_all(b"y")?;
     /// run.await?;
     /// assert_eq!(dos.exit_status(), Some(Ok(b'y')));
@@ -255,7 +254,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// DOS CON output, BIOS video services and direct guest writes all update
     /// this memory. File redirection does not write to the screen.
     pub fn screen(&mut self) -> relocade_bios::TextScreen {
-        relocade_bios::TextScreen::read(&self.runtime.machine().memory())
+        relocade_bios::TextScreen::read(&self.cpu.context().memory())
     }
 
     /// Returns an owned reader that drains currently buffered standard output.

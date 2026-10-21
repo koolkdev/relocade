@@ -2,7 +2,7 @@ use relocade_compiler::{abi::Function, Program, I64};
 use relocade_x86::{abi, ExecutionExit};
 use std::ops::ControlFlow;
 
-use crate::{DispatchEntry, HostCall, Result, Runtime, RuntimeBackend, RuntimeState};
+use crate::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
 
 type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync;
 
@@ -46,7 +46,7 @@ impl<T> Hook<T> {
     }
 }
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
+impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Generates and installs ordinary callable entries, each with its own direct
     /// host import. Dispatch neither classifies hooks nor calls a hook registry.
     ///

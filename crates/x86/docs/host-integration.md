@@ -795,8 +795,8 @@ dynamic indices load the selected backing field. Known permissions and full limi
 skip range-check construction, including ordinary Flat32 accesses.
 The runtime owns profile compatibility and must preserve it when changing segment
 caches. `ExecutionProfile::is_segment_compatible` checks a proposed cache without
-reading the other segments. Host edits through `Cpu::set_segment` panic if the new
-cache violates the configured profile. `Cpu::restore` validates the complete
+reading the other segments. Host edits through `CpuView::set_segment` panic if the new
+cache violates the configured profile. `CpuView::restore` validates the complete
 snapshot and returns a `ConfigurationError` without writing if it is incompatible.
 Descriptor callbacks must likewise enforce the profile before returning a cache
 for a guest segment load. The dispatcher and interpreter gateway rely on this

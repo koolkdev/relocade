@@ -35,7 +35,7 @@ async fn check_file_program() {
     // Program replacement keeps mounts and resets the program's file handles.
     for _ in 0..2 {
         dos.load_com(&program, Default::default()).unwrap();
-        assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
+        assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
         assert_eq!(dos.exit_status(), Some(Ok(0)));
         assert_eq!(common::output(dos.stdout()), b"file\r\n");
     }
@@ -51,8 +51,8 @@ fn create(dos: &mut Dos<Backend<DosServices>>, path: &[u8], attributes: u16) -> 
 
 fn buffer(dos: &mut Dos<Backend<DosServices>>) -> [u8; 8] {
     let mut bytes = [0; 8];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x10200, &mut bytes)
         .unwrap();
@@ -83,8 +83,8 @@ async fn check_handles() {
     assert_eq!(success(&service(&mut dos, 0x3f00, 6, 1, 0x200)), 1);
     assert_eq!(buffer(&mut dos)[0], b'a'); // Independent cursor.
     assert_eq!(success(&service(&mut dos, 0x3f00, 5, 0, 0x200)), 0);
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .write(0x10200, b"!!!!!!!!")
         .unwrap();
@@ -174,11 +174,7 @@ fn position(cpu: &CpuState) -> u32 {
 }
 
 fn write(dos: &mut Dos<Backend<DosServices>>, handle: u16, bytes: &[u8]) -> CpuState {
-    dos.runtime()
-        .machine()
-        .memory()
-        .write(0x10200, bytes)
-        .unwrap();
+    dos.cpu().context().memory().write(0x10200, bytes).unwrap();
     service(dos, 0x4000, handle, bytes.len() as u16, 0x200)
 }
 
@@ -258,7 +254,7 @@ async fn check_writes() {
 
     dos.load_com(&[0xb8, 0, 0x4c, 0xcd, 0x21], Default::default())
         .unwrap();
-    assert_eq!(dos.runtime().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYc\0\0\0");
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     error(&write(&mut dos, 5, b"!"), 6); // Prior program's handles have closed.
@@ -336,7 +332,7 @@ async fn check_save_program() {
     program.resize(0x50, 0);
     program.extend_from_slice(b"saved");
     dos.load_com(&program, Default::default()).unwrap();
-    assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(dos.read_file(r"C:\save.dat").unwrap(), b"saved");
 }

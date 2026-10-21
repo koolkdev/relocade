@@ -6,7 +6,7 @@ use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 async fn check_system_services() {
     let mut dos = common::dos().await;
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    dos.runtime().machine().cpu().set_eflags(0x0a56); // OF, IF, ZF, AF and PF.
+    dos.cpu().context().cpu().set_eflags(0x0a56); // OF, IF, ZF, AF and PF.
     error(&service(&mut dos, 0x3e00, 0xffff, 0, 0), 6); // Set carry.
     let cpu = service(&mut dos, 0x3000, 0x1234, 0x5678, 0x9abc);
     assert_eq!(cpu.registers.eax as u16, 5);
@@ -19,15 +19,15 @@ async fn check_system_services() {
     assert_eq!(cpu.registers.ebx as u16, 0);
 
     // A non-normalized pointer survives a set/get round trip exactly.
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .cpu()
         .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1234));
     let cpu = service(&mut dos, 0x25ff, 0, 0, 0xfedc);
     assert_eq!(cpu.flags.eflags() & 1, 1);
     let mut vector = [0; 4];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x3fc, &mut vector)
         .unwrap();
@@ -64,11 +64,11 @@ async fn check_guest_interrupt_vector() {
     program.resize(0x20, 0);
     program.extend_from_slice(&[0xb8, 0x34, 0x12, 0xcf]); // MOV AX,1234; IRET
     dos.load_com(&program, Default::default()).unwrap();
-    assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     let mut result = [0; 2];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x10300, &mut result)
         .unwrap();

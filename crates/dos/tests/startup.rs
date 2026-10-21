@@ -33,23 +33,23 @@ async fn check_command_tails() {
                 dos.load_com(&image, options).unwrap();
             }
             let mut bytes = [0; 128];
-            dos.runtime()
-                .machine()
+            dos.cpu()
+                .context()
                 .memory()
                 .read(0x10080, &mut bytes)
                 .unwrap();
             assert_eq!(bytes[0] as usize, tail.len());
             assert_eq!(&bytes[1..1 + tail.len()], tail);
             assert_eq!(bytes[1 + tail.len()], 13);
-            assert_eq!(dos.runtime().run(100).unwrap(), ExecutionExit::HostReturn);
+            assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
             assert_eq!(dos.exit_status(), Some(Ok(0)));
             assert_eq!(common::output(dos.stdout()), tail);
         }
 
-        let cpu = dos.runtime().machine().cpu().snapshot();
+        let cpu = dos.cpu().context().cpu().snapshot();
         let mut before = [0; 256];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10000, &mut before)
             .unwrap();
@@ -63,10 +63,10 @@ async fn check_command_tails() {
             dos.load_com(&image, options)
         };
         assert_eq!(result, Err(LoadError::CommandTailTooLong));
-        assert_eq!(dos.runtime().machine().cpu().snapshot(), cpu);
+        assert_eq!(dos.cpu().context().cpu().snapshot(), cpu);
         let mut after = [0; 256];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10000, &mut after)
             .unwrap();

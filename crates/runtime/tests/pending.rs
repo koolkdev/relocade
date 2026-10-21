@@ -1,5 +1,5 @@
 use relocade_machine::{MachineConfig, ReadMemory};
-use relocade_runtime::{real_mode_interrupt, Error, Hook, Runtime, RuntimeState};
+use relocade_runtime::{real_mode_interrupt, Cpu, Error, Hook, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -95,21 +95,21 @@ async fn check_pending_calls() {
     .unwrap();
     let state = Rc::new(State::default());
     let backend = Backend::with_state(RuntimeState::new(state.clone())).unwrap();
-    let mut runtime = Runtime::new(backend, config).await.unwrap();
-    runtime.machine().cpu().set_sp(0xff00);
-    runtime.machine().cpu().set_eflags(0x202);
+    let mut runtime = Cpu::new(backend, config).await.unwrap();
+    runtime.context().cpu().set_sp(0xff00);
+    runtime.context().cpu().set_eflags(0x202);
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x100, &[0xcd, 0x21, 0x40, 0xeb, 0xfb]) // INT 21h; INC AX; JMP 0100
         .unwrap();
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x84, &[0, 2, 0, 0])
         .unwrap();
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
@@ -143,11 +143,11 @@ async fn check_pending_calls() {
 
     assert_eq!(runtime.run(6).unwrap(), ExecutionExit::Deferred);
     let reader = runtime.shared_memory();
-    let suspended = runtime.machine().cpu().snapshot();
+    let suspended = runtime.context().cpu().snapshot();
     assert_eq!(suspended.instruction_count, 1);
     assert_eq!(suspended.registers.esp, 0xfefa);
     assert_eq!(runtime.run(100).unwrap(), ExecutionExit::Deferred);
-    assert_eq!(runtime.machine().cpu().snapshot(), suspended);
+    assert_eq!(runtime.context().cpu().snapshot(), suspended);
     assert_eq!(
         runtime.run_async(0).await.unwrap(),
         ExecutionExit::BudgetExhausted
@@ -184,7 +184,7 @@ async fn check_pending_calls() {
     assert_eq!(state.first_awaits.get(), 2);
     assert_eq!(state.completed.get(), 2);
     assert_eq!(state.dropped.get(), 2);
-    let cpu = runtime.machine().cpu().snapshot();
+    let cpu = runtime.context().cpu().snapshot();
     assert_eq!(cpu.instruction_count, 6);
     assert_eq!(cpu.eip, 0x102);
     assert_eq!(cpu.registers.eax, 1);
@@ -192,7 +192,7 @@ async fn check_pending_calls() {
     assert_eq!(cpu.registers.esp, 0xff00);
     assert_eq!(cpu.flags.eflags(), 0x202);
     let mut bytes = [0; 2];
-    runtime.machine().memory().read(0x300, &mut bytes).unwrap();
+    runtime.context().memory().read(0x300, &mut bytes).unwrap();
     assert_eq!(bytes, [70, 0]);
 
     assert_eq!(runtime.run(10).unwrap(), ExecutionExit::Deferred);
@@ -202,15 +202,15 @@ async fn check_pending_calls() {
 
     // Dropping an active handler releases its borrows and rejects accidental
     // replay. Effects performed before cancellation remain visible.
-    runtime.machine().cpu().set_eip(0x100);
-    runtime.machine().cpu().set_sp(0xff00);
+    runtime.context().cpu().set_eip(0x100);
+    runtime.context().cpu().set_sp(0xff00);
     {
         let mut run = pin!(runtime.run_async(10));
         assert!(run.as_mut().poll(&mut cx).is_pending());
         state.send(&[55]);
         assert!(run.as_mut().poll(&mut cx).is_pending());
     }
-    assert_eq!(runtime.machine().cpu().bx(), 55);
+    assert_eq!(runtime.context().cpu().bx(), 55);
     assert_eq!(state.dropped.get(), 4);
     assert!(matches!(runtime.run(1), Err(Error::CancelledHostCall)));
     assert!(matches!(
@@ -221,17 +221,17 @@ async fn check_pending_calls() {
     assert_eq!(state.completed.get(), 2);
 
     // The embedding can replace the continuation and clear the interrupted call.
-    runtime.machine().cpu().set_eip(0x400);
+    runtime.context().cpu().set_eip(0x400);
     runtime.cancel_pending_call();
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x400, &[0xeb, 0xfe])
         .unwrap();
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
-    let count = runtime.machine().cpu().instruction_count();
+    let count = runtime.context().cpu().instruction_count();
     runtime
-        .machine()
+        .context()
         .memory()
         .write(0x500, &[0x0f, 0x0b]) // UD2: completing must not enter the guest.
         .unwrap();
@@ -255,9 +255,9 @@ async fn check_pending_calls() {
         runtime.run_async(1).await.unwrap(),
         ExecutionExit::HostReturn
     );
-    assert_eq!(runtime.machine().cpu().cx(), 100);
-    assert_eq!(runtime.machine().cpu().eip(), 0x500);
-    assert_eq!(runtime.machine().cpu().instruction_count(), count);
+    assert_eq!(runtime.context().cpu().cx(), 100);
+    assert_eq!(runtime.context().cpu().eip(), 0x500);
+    assert_eq!(runtime.context().cpu().instruction_count(), count);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

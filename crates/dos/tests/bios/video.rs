@@ -13,7 +13,7 @@ fn video(
     dx: u16,
 ) -> CpuState {
     {
-        let mut machine = dos.runtime().machine();
+        let mut machine = dos.cpu().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
@@ -22,11 +22,8 @@ fn video(
         cpu.set_dx(dx);
         cpu.set_eflags(0x643);
     }
-    assert_eq!(
-        dos.runtime().run(15).unwrap(),
-        ExecutionExit::BudgetExhausted
-    );
-    let cpu = dos.runtime().machine().cpu().snapshot();
+    assert_eq!(dos.cpu().run(15).unwrap(), ExecutionExit::BudgetExhausted);
+    let cpu = dos.cpu().context().cpu().snapshot();
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
     assert_eq!(cpu.flags.eflags(), 0x643);
     cpu
@@ -70,8 +67,8 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
             }
         );
         let mut page_offset = [0; 2];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x44e, &mut page_offset)
             .unwrap();
@@ -113,8 +110,8 @@ fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
         video(&mut dos, 0x0951, 0x001e, 50, 0);
         for address in [0xb8f9e, 0xb8fa0, 0xb8ffe, 0xb9000] {
             let mut cell = [0; 2];
-            dos.runtime()
-                .machine()
+            dos.cpu()
+                .context()
                 .memory()
                 .read(address, &mut cell)
                 .unwrap();
@@ -124,8 +121,8 @@ fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
         assert_eq!(cursor.registers.edx as u16, 0x184f);
         video(&mut dos, 0x0a4b, 0, 50, 0);
         let mut cell = [0; 2];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0xb9000, &mut cell)
             .unwrap();
@@ -140,8 +137,8 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
         dos.load_com(PROGRAM, Default::default()).unwrap();
         for (row, text) in [b"1234", b"5678", b"abcd"].into_iter().enumerate() {
             let bytes: Vec<_> = text.iter().flat_map(|&byte| [byte, 0x17]).collect();
-            dos.runtime()
-                .machine()
+            dos.cpu()
+                .context()
                 .memory()
                 .write(0xb8000 + row as u32 * 160, &bytes)
                 .unwrap();
@@ -186,8 +183,8 @@ fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.load_com(PROGRAM, Default::default()).unwrap();
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0xb8f00, &[b' ', 0x2a])
             .unwrap();

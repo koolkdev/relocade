@@ -11,7 +11,7 @@ fn service(
     segment: u16,
 ) -> CpuState {
     {
-        let mut machine = dos.runtime().machine();
+        let mut machine = dos.cpu().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ah(function);
@@ -21,11 +21,8 @@ fn service(
             SegmentRegister::real_mode(Segment::Es, segment),
         );
     }
-    assert_eq!(
-        dos.runtime().run(10).unwrap(),
-        ExecutionExit::BudgetExhausted
-    );
-    dos.runtime().machine().cpu().snapshot()
+    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    dos.cpu().context().cpu().snapshot()
 }
 
 fn assert_success(cpu: &CpuState) {
@@ -61,8 +58,8 @@ async fn check_memory_services() {
     assert_success(&service(&mut dos, 0x49, 0, 0x2012));
     assert_success(&service(&mut dos, 0x4a, 0x40, 0x2001));
     let mut mcb = [0; 5];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x20000, &mut mcb)
         .unwrap();
@@ -76,8 +73,8 @@ async fn check_memory_services() {
     let cpu = service(&mut dos, 0x4a, 0xffff, 0x2001);
     assert_error(&cpu, 8);
     assert_eq!(cpu.registers.ebx as u16, 0x7ffd);
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x20000, &mut mcb)
         .unwrap();
@@ -94,19 +91,11 @@ async fn check_memory_services() {
     assert_success(&cpu); // Free blocks coalesced, including their header paragraphs.
     assert_eq!(cpu.registers.eax as u16, 0x2001);
 
-    dos.runtime()
-        .machine()
-        .memory()
-        .write(0xfff0, b"!")
-        .unwrap();
+    dos.cpu().context().memory().write(0xfff0, b"!").unwrap();
     assert_error(&service(&mut dos, 0x48, 1, 0), 7);
     dos.load_com(&[0xc3], Default::default()).unwrap(); // Loading resets the arena; RET terminates.
-    assert_eq!(dos.runtime().run(10).unwrap(), ExecutionExit::HostReturn);
-    dos.runtime()
-        .machine()
-        .memory()
-        .read(0xfff0, &mut mcb)
-        .unwrap();
+    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    dos.cpu().context().memory().read(0xfff0, &mut mcb).unwrap();
     assert_eq!(mcb, [b'Z', 0, 0, 0, 0x90]); // All root-process memory released.
 }
 

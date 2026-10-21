@@ -18,7 +18,7 @@ async fn check_deletion() {
     success(&service(&mut dos, 0x3e00, handle, 0, 0));
     error(&path_service(&mut dos, b"FILE.BIN", 0x4100, 0), 5);
     success(&service(&mut dos, 0x3e00, duplicate, 0, 0));
-    dos.runtime().machine().cpu().set_eflags(0x0a57);
+    dos.cpu().context().cpu().set_eflags(0x0a57);
     let cpu = path_service(&mut dos, b"c:file.bin", 0x4100, 0);
     success(&cpu);
     assert_eq!(cpu.flags.eflags(), 0x0a56);

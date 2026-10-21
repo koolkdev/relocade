@@ -2,11 +2,11 @@ use crate::callback::DeferredCall;
 use std::ops::{Deref, DerefMut};
 
 /// Backend-owned state for one runtime, including a queued async host handler.
-/// Pass this to the backend's `with_state` constructor. Runtime and host-call
+/// Pass this to the backend's `with_state` constructor. Cpu and host-call
 /// accessors lend `data` directly. Neither the data nor pending work needs Send.
 #[derive(Default)]
 pub struct RuntimeState<T = ()> {
-    /// Environment data lent by `Runtime::state` and `HostCall::state`.
+    /// Environment data lent by `Cpu::state` and `HostCall::state`.
     pub data: T,
     pub(crate) pending: Option<Box<dyn DeferredCall<T>>>,
 }

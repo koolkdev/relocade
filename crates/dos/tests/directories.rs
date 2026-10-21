@@ -4,16 +4,16 @@ use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosServices, FileAccess};
 
 fn current_directory(dos: &mut Dos<Backend<DosServices>>, drive: u16) -> Vec<u8> {
-    dos.runtime().machine().cpu().set_si(0x400);
-    dos.runtime()
-        .machine()
+    dos.cpu().context().cpu().set_si(0x400);
+    dos.cpu()
+        .context()
         .memory()
         .write(0x10400, &[0xff; 64])
         .unwrap();
     assert_eq!(success(&service(dos, 0x4700, 0, 0, drive)), 0x0100);
     let mut buffer = [0; 64];
-    dos.runtime()
-        .machine()
+    dos.cpu()
+        .context()
         .memory()
         .read(0x10400, &mut buffer)
         .unwrap();
@@ -48,8 +48,8 @@ async fn check_directory_paths() {
             expected.len() as u16
         );
         let mut bytes = vec![0; expected.len()];
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .read(0x10400, &mut bytes)
             .unwrap();
@@ -140,7 +140,7 @@ async fn check_directory_changes() {
     assert_eq!(dos.read_file("FILE.DAT").unwrap(), b"keep");
 
     success(&path_service(&mut dos, b"C:SAVE", 0x3b00, 0));
-    dos.runtime().machine().cpu().set_eflags(0x0a57);
+    dos.cpu().context().cpu().set_eflags(0x0a57);
     let cpu = path_service(&mut dos, b"SLOT", 0x3900, 0);
     success(&cpu);
     assert_eq!(cpu.flags.eflags(), 0x0a56);

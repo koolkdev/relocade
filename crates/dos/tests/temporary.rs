@@ -16,7 +16,7 @@ fn temporary(
     buffer[..directory.len()].copy_from_slice(directory);
     buffer[directory.len()] = 0;
     {
-        let mut machine = dos.runtime().machine();
+        let mut machine = dos.cpu().context();
         machine.cpu().set_segment(
             Segment::Ds,
             SegmentRegister::real_mode(Segment::Ds, SEGMENT),
@@ -27,7 +27,7 @@ fn temporary(
         }
     }
     let cpu = service(dos, 0x5a00, 0, attributes, OFFSET);
-    let mut machine = dos.runtime().machine();
+    let mut machine = dos.cpu().context();
     for (index, byte) in buffer.iter_mut().enumerate() {
         let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));
         machine
@@ -56,7 +56,7 @@ fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
             .unwrap();
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
         success(&path_service(&mut dos, b"TMP/00000001", 0x3900, 0));
-        dos.runtime().machine().cpu().set_eflags(0x0a57);
+        dos.cpu().context().cpu().set_eflags(0x0a57);
         let (cpu, buffer) = temporary(&mut dos, b"c:\\tmp\\", 0x07);
         let handle = success(&cpu);
         assert_eq!(handle, 5);
@@ -76,8 +76,8 @@ fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
         success(&cpu);
         assert_eq!(cpu.registers.ecx as u16, 0x27);
 
-        dos.runtime()
-            .machine()
+        dos.cpu()
+            .context()
             .memory()
             .write(0x10400, b"saved")
             .unwrap();
