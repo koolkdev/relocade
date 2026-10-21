@@ -2,8 +2,9 @@
 
 use relocade_compiler::{abi::Function, Program, I64};
 use relocade_runtime::{
-    compiler_worker::{self, CompiledModule, Thread},
+    compiler_worker,
     wasm::{WasmBackend, WasmContext},
+    worker::{StructuredClone, Thread},
     Error, Result,
 };
 use std::{
@@ -63,12 +64,12 @@ fn lower(request: Request) -> Result<Vec<u8>> {
 }
 
 async fn execute(
-    compilation: CompiledModule<<Backend<Rc<Cell<i64>>> as WasmBackend>::Module>,
+    StructuredClone(module): StructuredClone<<Backend<Rc<Cell<i64>>> as WasmBackend>::Module>,
 ) -> std::result::Result<(i64, i64), String> {
     let mut backend = backend().map_err(|error| error.to_string())?;
     let value = backend.bind_host(VALUE, Box::new(|caller| caller.state().get()));
     let instance = backend
-        .instantiate(&compilation.module, &[value])
+        .instantiate(&module, &[value])
         .await
         .map_err(|error| error.to_string())?;
     let run = backend

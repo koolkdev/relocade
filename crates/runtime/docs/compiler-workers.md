@@ -5,13 +5,13 @@ handler with `web-thread-select`. The embedding owns the library's `Thread` and
 uses its existing task API:
 
 ```rust,ignore
-use relocade_runtime::compiler_worker::{self, Thread};
+use relocade_runtime::{compiler_worker, worker::{StructuredClone, Thread}};
 
 let compiler = Thread::new();
 let task = compiler.run((), move |()| {
     compiler_worker::compile(create_backend, move || lower(request))
 });
-let module = task.await??.module;
+let StructuredClone(module) = task.await??;
 ```
 
 `create_backend` returns `runtime::Result<B>` and runs on the compiler thread.
@@ -21,11 +21,15 @@ future created inside the worker need not be. Both platforms use the same handle
 Wasmtime backends share their existing engine, so returned modules can be linked
 by another execution owner.
 
-`CompiledModule<M>` implements the library's `Post` transport. Native modules
-move as Rust values; browser modules use structured cloning through
-`serde_wasm_bindgen::preserve`. Ordinary Rust requests need no serialization or
-message derive. Errors are task-local string diagnostics and leave the thread
-available for another job.
+`worker::StructuredClone<T>` implements the library's `Post` transport. Native
+values move as Rust values; browser objects use structured cloning through
+`serde_wasm_bindgen::preserve`. The wrapper carries compiled modules here and can
+also carry other cloneable JavaScript objects, such as shared
+`WebAssembly.Memory`. It does not handle objects requiring a transfer list.
+The `worker` feature exposes it and `Thread` independently; `compiler-worker`
+enables that feature too. Ordinary Rust requests need no serialization or message
+derive. Errors are task-local string diagnostics and leave the thread available
+for another job.
 
 The execution owner instantiates the module with its private imports and retains
 its callbacks, CPU, memory and dispatch table. Compiler tasks do not capture live

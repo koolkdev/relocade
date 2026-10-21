@@ -6,7 +6,8 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-compiler-worker = ["dep:web-thread", "dep:serde", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
+compiler-worker = ["worker"]
+worker = ["dep:web-thread", "dep:serde", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
 
 [dependencies]
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"], optional = true }

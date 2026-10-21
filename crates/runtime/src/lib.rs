@@ -37,6 +37,8 @@ mod memory;
 pub mod real_mode_interrupt;
 mod state;
 pub mod wasm;
+#[cfg(feature = "worker")]
+pub mod worker;
 
 pub use backend::RuntimeBackend;
 pub use callback::HostCall;
