@@ -17,7 +17,7 @@ try {
     await page.waitForFunction(() => window.checks !== undefined);
     await Promise.race([
         page.evaluate(() => window.checks),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Compiler worker checks timed out")), 120_000).unref()),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Worker integration checks timed out")), 120_000).unref()),
     ]);
     console.log(await page.locator("#result").textContent());
 } finally {

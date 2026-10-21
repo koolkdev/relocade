@@ -1288,6 +1288,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-browser-tests"
+version = "0.0.0"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "pollster",
+ "relocade-compiler",
+ "relocade-runtime",
+ "relocade-runtime-wasmtime",
+ "relocade-runtime-web",
+ "serde",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "relocade-compiler"
 version = "0.0.0"
 dependencies = [
@@ -1297,19 +1313,6 @@ dependencies = [
  "wasm-encoder 0.254.0",
  "wasmparser 0.224.1",
  "wasmtime",
-]
-
-[[package]]
-name = "relocade-compiler-worker-tests"
-version = "0.0.0"
-dependencies = [
- "pollster",
- "relocade-compiler",
- "relocade-runtime",
- "relocade-runtime-wasmtime",
- "relocade-runtime-web",
- "wasm-bindgen",
- "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -1360,8 +1363,6 @@ dependencies = [
  "relocade-machine",
  "relocade-x86",
  "serde",
- "serde-wasm-bindgen",
- "wasm-bindgen",
  "web-thread-select",
 ]
 
@@ -1388,6 +1389,8 @@ dependencies = [
  "relocade-runtime",
  "relocade-runtime-wasmtime",
  "relocade-x86",
+ "serde",
+ "serde-wasm-bindgen",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

@@ -1,5 +1,5 @@
 [package]
-name = "relocade-compiler-worker-tests"
+name = "relocade-browser-tests"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,8 +9,11 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+futures-channel = "=0.3.34"
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-compiler = { path = "../../crates/compiler" }
 relocade-runtime = { path = "../../crates/runtime", features = ["compiler-worker"] }
+serde = { version = "=1.0.229", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 relocade-runtime-web = { path = "../../crates/runtime-web" }

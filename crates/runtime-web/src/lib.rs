@@ -32,7 +32,7 @@ pub use memory::SharedMemory;
 /// One guest's instances, callbacks and host state.
 pub struct WebBackend<T = ()> {
     store: Rc<RefCell<Store<T>>>,
-    modules: Rc<ModuleCache<WebAssembly::Module>>,
+    modules: Rc<ModuleCache<Module>>,
     // Rust must retain the closures for as long as guest modules can call them.
     callbacks: Vec<Box<dyn Any>>,
 }
@@ -53,6 +53,12 @@ impl<T> Store<T> {
 #[derive(Clone, Debug)]
 pub struct Memory(usize);
 
+/// Compiled code whose JavaScript handle can be posted to another worker.
+/// Equality compares handle identity, including across clones of this value.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct Module(#[serde(with = "serde_wasm_bindgen::preserve")] WebAssembly::Module);
+
 /// A resolved `() -> i64` export, kept distinct from raw host function handles.
 pub struct Function(JsFunction);
 
@@ -71,7 +77,7 @@ impl Default for WebBackend {
 impl<T: 'static> WebBackend<T> {
     pub fn with_state(state: T) -> Self {
         thread_local! {
-            static MODULES: Rc<ModuleCache<WebAssembly::Module>> =
+            static MODULES: Rc<ModuleCache<Module>> =
                 Rc::new(ModuleCache::default());
         }
         Self {
@@ -88,7 +94,7 @@ impl<T: 'static> WebBackend<T> {
 impl<T: 'static> WasmBackend for WebBackend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
-    type Module = WebAssembly::Module;
+    type Module = Module;
     type Instance = WebAssembly::Instance;
     type Table = WebAssembly::Table;
     type Function = Function;
@@ -111,7 +117,7 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
         let bytes = Uint8Array::from(bytes);
         JsFuture::from(WebAssembly::compile(&bytes))
             .await
-            .map(|module| module.unchecked_into())
+            .map(|module| Module(module.unchecked_into()))
             .map_err(|error| js_error("compile Wasm", error))
     }
 
@@ -198,7 +204,7 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
             };
             set(&namespace, import.name(), &value)?;
         }
-        JsFuture::from(WebAssembly::instantiate_module(module, &bindings))
+        JsFuture::from(WebAssembly::instantiate_module(&module.0, &bindings))
             .await
             .map(|instance| instance.unchecked_into())
             .map_err(|error| js_error("instantiate Wasm", error))

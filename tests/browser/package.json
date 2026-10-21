@@ -1,10 +1,11 @@
 {
-  "name": "relocade-compiler-worker-tests",
+  "name": "relocade-browser-tests",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node browser-test.mjs",
+    "test": "node test.mjs",
+    "test:workers": "node browser-test.mjs",
     "dev": "vite --host 127.0.0.1"
   },
   "devDependencies": {

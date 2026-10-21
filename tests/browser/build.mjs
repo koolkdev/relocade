@@ -4,10 +4,11 @@ import path from "node:path";
 
 const directory = fileURLToPath(new URL(".", import.meta.url));
 const workspace = path.resolve(directory, "../..");
-const target = path.resolve(workspace, process.env.CARGO_TARGET_DIR ?? "target/threaded");
+const target = path.resolve(workspace, process.env.CARGO_TARGET_DIR ?? "target/browser");
 const env = {
-    ...process.env,
     CARGO_TARGET_DIR: target,
+    CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: "wasm-bindgen-test-runner",
+    WASM_BINDGEN_TEST_TIMEOUT: process.env.WASM_BINDGEN_TEST_TIMEOUT ?? "120",
     CARGO_ENCODED_RUSTFLAGS: [
         "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
         "-C", "link-arg=--shared-memory",
@@ -23,16 +24,27 @@ const env = {
 };
 
 function run(command, args) {
-    const result = spawnSync(command, args, { cwd: workspace, env, stdio: "inherit" });
+    const result = spawnSync(command, args, {
+        cwd: workspace, env: { ...process.env, ...env }, stdio: "inherit",
+    });
     if (result.error) throw result.error;
     if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-run("cargo", [
-    "+nightly-2026-10-20", "build", "--locked", "-p", "relocade-compiler-worker-tests",
-    "--target", "wasm32-unknown-unknown", "-Z", "build-std=std,panic_abort",
-]);
-run("wasm-bindgen", [
-    path.join(target, "wasm32-unknown-unknown/debug/relocade_compiler_worker_tests.wasm"),
-    "--target", "web", "--out-dir", path.join(directory, "pkg"), "--no-typescript",
-]);
+export function cargo(command, args) {
+    run("cargo", [
+        "+nightly-2026-10-20", command, "--locked",
+        "--target", "wasm32-unknown-unknown", "-Z", "build-std=std,panic_abort",
+        ...args,
+    ]);
+}
+
+export function build() {
+    cargo("build", ["-p", "relocade-browser-tests"]);
+    run("wasm-bindgen", [
+        path.join(target, "wasm32-unknown-unknown/debug/relocade_browser_tests.wasm"),
+        "--target", "web", "--out-dir", path.join(directory, "pkg"), "--no-typescript",
+    ]);
+}
+
+if (import.meta.main) build();

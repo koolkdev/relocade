@@ -5,7 +5,7 @@
 //! The library owns task delivery and completion; execution owners retain their
 //! instances, imports, CPU and memory.
 
-use crate::{wasm::WasmBackend, worker::StructuredClone, Result};
+use crate::{wasm::WasmBackend, worker::Message, Result};
 
 /// Lowers owned input and compiles the resulting Wasm inside a worker task.
 ///
@@ -16,11 +16,11 @@ use crate::{wasm::WasmBackend, worker::StructuredClone, Result};
 pub async fn compile<B: WasmBackend>(
     create_backend: impl FnOnce() -> Result<B>,
     lower: impl FnOnce() -> Result<Vec<u8>>,
-) -> std::result::Result<StructuredClone<B::Module>, String> {
+) -> std::result::Result<Message<B::Module>, String> {
     let compile = async {
         let bytes = lower()?;
         let module = create_backend()?.compile(&bytes).await?;
-        Ok::<_, crate::Error>(StructuredClone(module))
+        Ok::<_, crate::Error>(Message(module))
     };
     compile.await.map_err(|error| error.to_string())
 }

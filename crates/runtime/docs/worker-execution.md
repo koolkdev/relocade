@@ -2,8 +2,10 @@
 
 The intended interactive embedding uses one persistent async task owning the
 guest environment, runtime and active service for the program's lifetime. In a
-browser, this task lives in a worker alongside message handlers. Worker support
-is deferred; this note records its intended ownership and scheduling.
+browser, this task lives in a worker alongside message handlers. The
+[worker transport](workers.md) supplies threads and messages. The persistent CPU
+execution loop remains deferred; this note records its intended ownership and
+scheduling.
 
 ```text
 UI --input/control messages--> worker message handlers

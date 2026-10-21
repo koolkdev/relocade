@@ -3,8 +3,19 @@ use relocade_runtime::{wasm::WasmSharedMemory, Result};
 use wasm_bindgen::JsCast;
 
 /// An independent reader for a shared WebAssembly.Memory.
-#[derive(Clone)]
-pub struct SharedMemory(WebAssembly::Memory);
+#[derive(Clone, serde::Serialize)]
+#[serde(transparent)]
+pub struct SharedMemory(#[serde(with = "serde_wasm_bindgen::preserve")] WebAssembly::Memory);
+
+impl<'de> serde::Deserialize<'de> for SharedMemory {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let memory = serde_wasm_bindgen::preserve::deserialize(deserializer)?;
+        Self::from_memory(memory)
+            .ok_or_else(|| serde::de::Error::custom("expected shared WebAssembly.Memory"))
+    }
+}
 
 impl SharedMemory {
     /// Accepts a shared memory, including one received through worker postMessage.

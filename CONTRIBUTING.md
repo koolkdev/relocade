@@ -51,21 +51,15 @@ Browser tests exercise the production web runtime: live CPU and memory access,
 callbacks, scalar carriers, module linking and dispatch. DOS and VFS behavior
 tests run natively, alongside compiler and instruction correctness tests.
 
-The optional shared-memory compiler worker has a separate threaded build and
-focused browser check; see [its test fixture](tests/compiler-worker/README.md).
+All browser tests use the shared-memory Rust build, including atomics and TLS.
+The [browser suite](tests/browser/README.md) runs backend and renderer tests plus
+worker integration checks using one toolchain and build configuration. From
+`tests/browser`, install dependencies with `npm ci` and run `npm test` with Chrome
+and a matching ChromeDriver. See the suite's README for setup and focused runs.
 
-Install Chrome and a matching ChromeDriver, then run:
-
-```sh
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.129 --locked
-CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
-CHROMEDRIVER=/path/to/chromedriver \
-cargo test -p relocade-runtime-web --target wasm32-unknown-unknown --tests --locked
-```
-
-CI configures Chrome's binary path through `WASM_BINDGEN_TEST_WEBDRIVER_JSON`;
-see [.github/workflows/tests.yml](.github/workflows/tests.yml) for that setup.
+The shared [test entrypoint](tests/browser/test.mjs) configures Chrome's binary
+and software graphics for local runs and CI. Set
+`WASM_BINDGEN_TEST_WEBDRIVER_JSON` to override its WebDriver configuration.
 
 Compare generated Wasm bytes before timing a change; measure changed output with
 representative browser workloads and matching execution boundaries. Wasmtime

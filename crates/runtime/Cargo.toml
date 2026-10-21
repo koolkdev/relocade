@@ -7,17 +7,13 @@ publish.workspace = true
 
 [features]
 compiler-worker = ["worker"]
-worker = ["dep:web-thread", "dep:serde", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
+worker = ["dep:web-thread", "dep:serde"]
 
 [dependencies]
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"], optional = true }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-interpreter = { path = "../interpreter" }
 relocade-machine = { path = "../machine" }
 relocade-x86 = { path = "../x86" }
 relocade-compiler = { path = "../compiler" }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-serde = { version = "=1.0.229", features = ["derive"], optional = true }
-serde-wasm-bindgen = { version = "=0.6.5", optional = true }
-wasm-bindgen = { version = "=0.2.129", optional = true }
