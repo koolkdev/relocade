@@ -1321,6 +1321,7 @@ dependencies = [
  "relocade-compiler",
  "relocade-interpreter",
  "relocade-machine",
+ "relocade-worker",
  "relocade-x86",
 ]
 
@@ -1346,6 +1347,7 @@ dependencies = [
  "relocade-machine",
  "relocade-runtime",
  "relocade-runtime-wasmtime",
+ "relocade-worker",
  "relocade-x86",
  "wasm-bindgen",
  "wasm-bindgen-futures",

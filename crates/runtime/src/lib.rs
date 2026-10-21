@@ -27,6 +27,7 @@
 
 mod backend;
 mod callback;
+pub mod compiler_worker;
 mod dispatch;
 mod error;
 mod execution;
