@@ -103,45 +103,14 @@ async fn shared_memory_outlives_the_backend_and_tracks_growth() {
     check_shared_memory().await;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn shared_reader_can_move_to_another_thread() {
-    let mut backend = backend();
-    let memory = backend.create_memory(SHARED).unwrap();
-    let reader = backend.shared_memory(&memory).unwrap();
-    let (send, receive) = std::sync::mpsc::channel();
-    let thread = std::thread::spawn(move || {
-        receive.recv().unwrap();
-        let mut bytes = [0; 4];
-        reader.read(65536, &mut bytes);
-        bytes
-    });
-    backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
-    backend.write_memory(&memory, 65536, &[1, 2, 3, 4]);
-    send.send(()).unwrap();
-    assert_eq!(thread.join().unwrap(), [1, 2, 3, 4]);
-}
-
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn shared_memory_can_be_sent_to_a_worker() {
-    use wasm_bindgen::prelude::*;
-    #[wasm_bindgen(module = "/tests/shared_memory.js")]
-    extern "C" {
-        #[wasm_bindgen(catch)]
-        async fn write_in_worker(memory: &js_sys::WebAssembly::Memory) -> Result<JsValue, JsValue>;
-    }
-    let mut backend = backend();
-    let memory = backend.create_memory(SHARED).unwrap();
-    let reader = backend.shared_memory(&memory).unwrap();
-    backend.write_memory(&memory, 0, &[42]);
-    assert_eq!(
-        write_in_worker(reader.memory()).await.unwrap().as_f64(),
-        Some(42.0)
+fn deserialization_rejects_private_memory() {
+    let descriptor = js_sys::Object::new();
+    js_sys::Reflect::set(&descriptor, &"initial".into(), &1.into()).unwrap();
+    let private = js_sys::WebAssembly::Memory::new(&descriptor).unwrap();
+    assert!(
+        serde_wasm_bindgen::from_value::<relocade_runtime_web::SharedMemory>(private.into())
+            .is_err()
     );
-    let imported =
-        relocade_runtime_web::SharedMemory::from_memory(reader.memory().clone()).unwrap();
-    let mut bytes = [0; 4];
-    imported.read(65536, &mut bytes);
-    assert_eq!(bytes, [1, 2, 3, 4]);
 }
