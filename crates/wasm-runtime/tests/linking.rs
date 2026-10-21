@@ -2,7 +2,7 @@ use relocade_compiler::{
     abi::{Function, Memory, Table},
     Program, F64, I1, I16, I32, I64, I8,
 };
-use relocade_wasm_runtime::{WasmBackend, WasmContext, WasmMemoryAccess};
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess};
 
 const MEMORY: Memory = Memory::new("example", "memory", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);
@@ -49,7 +49,11 @@ async fn check_stateful_callbacks() {
             })
             .unwrap();
         advance_export.export(&mut producer, advance).unwrap();
-        let module = backend.compile(&producer.compile().unwrap()).await.unwrap();
+        let module = backend
+            .compiler()
+            .compile(&producer.compile().unwrap())
+            .await
+            .unwrap();
         let read_memory = memory.clone();
         let write_memory = memory.clone();
         let imports = [
@@ -88,7 +92,11 @@ async fn check_stateful_callbacks() {
             })
             .unwrap();
         RUN.export(&mut consumer, run).unwrap();
-        let module = backend.compile(&consumer.compile().unwrap()).await.unwrap();
+        let module = backend
+            .compiler()
+            .compile(&consumer.compile().unwrap())
+            .await
+            .unwrap();
         let instance = backend
             .instantiate(
                 &module,
@@ -154,7 +162,11 @@ async fn check_scalar_callbacks() {
             })
             .unwrap();
         RUN.export(&mut program, run).unwrap();
-        let module = backend.compile(&program.compile().unwrap()).await.unwrap();
+        let module = backend
+            .compiler()
+            .compile(&program.compile().unwrap())
+            .await
+            .unwrap();
         let imports = [
             backend.bind_host(
                 NARROW,
@@ -223,7 +235,11 @@ async fn check_tuple_callbacks() {
         })
         .unwrap();
     RUN.export(&mut program, run).unwrap();
-    let module = backend.compile(&program.compile().unwrap()).await.unwrap();
+    let module = backend
+        .compiler()
+        .compile(&program.compile().unwrap())
+        .await
+        .unwrap();
     let imports = [
         backend.bind(MEMORY, &memory),
         backend.bind_host(

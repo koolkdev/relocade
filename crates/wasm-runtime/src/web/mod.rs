@@ -1,4 +1,6 @@
-use crate::{Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmMemoryAccess};
+use crate::{
+    Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmCompiler, WasmMemoryAccess,
+};
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::{
     abi::{self, Function as FunctionDeclaration},
@@ -48,6 +50,22 @@ pub struct Memory(usize);
 #[serde(transparent)]
 pub struct Module(#[serde(with = "serde_wasm_bindgen::preserve")] WebAssembly::Module);
 
+/// A stateless compiler that uses the calling JavaScript thread's WebAssembly API.
+#[derive(Clone)]
+pub struct Compiler;
+
+impl WasmCompiler for Compiler {
+    type Module = Module;
+
+    async fn compile(&self, bytes: &[u8]) -> Result<Module> {
+        let bytes = Uint8Array::from(bytes);
+        JsFuture::from(WebAssembly::compile(&bytes))
+            .await
+            .map(|module| Module(module.unchecked_into()))
+            .map_err(|error| js_error("compile Wasm", error))
+    }
+}
+
 /// A resolved `() -> i64` export, kept distinct from raw host function handles.
 pub struct Function(JsFunction);
 
@@ -78,6 +96,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
     type Module = Module;
+    type Compiler = Compiler;
     type Instance = WebAssembly::Instance;
     type Table = WebAssembly::Table;
     type Function = Function;
@@ -96,12 +115,8 @@ impl<T: 'static> WasmBackend for Backend<T> {
         Context(self.store.borrow_mut())
     }
 
-    async fn compile(&self, bytes: &[u8]) -> Result<Self::Module> {
-        let bytes = Uint8Array::from(bytes);
-        JsFuture::from(WebAssembly::compile(&bytes))
-            .await
-            .map(|module| Module(module.unchecked_into()))
-            .map_err(|error| js_error("compile Wasm", error))
+    fn compiler(&self) -> Compiler {
+        Compiler
     }
 
     fn module_cache(&self) -> Option<&ModuleCache<Self::Module>> {

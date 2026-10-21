@@ -4,7 +4,7 @@ use relocade_compiler::{
 };
 use relocade_machine::MachineConfig;
 use relocade_runtime::{HostCall, RuntimeMemory, RuntimeState};
-use relocade_wasm_runtime::{WasmBackend, WasmMemoryAccess};
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmMemoryAccess};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Registers, Segments,
@@ -117,7 +117,11 @@ async fn check_callback() {
         })
         .unwrap();
     RUN.export(&mut program, run).unwrap();
-    let module = backend.compile(&program.compile().unwrap()).await.unwrap();
+    let module = backend
+        .compiler()
+        .compile(&program.compile().unwrap())
+        .await
+        .unwrap();
     let callback_memory = memory.clone();
     let imports = [
         backend.bind(CONTEXT, &context),

@@ -13,6 +13,7 @@ pub use wasmtime::Module;
 mod compilation;
 mod host;
 mod memory;
+pub use compilation::Compiler;
 pub use host::Context;
 pub use memory::{Memory, SharedMemory};
 
@@ -42,6 +43,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
     type Module = Module;
+    type Compiler = Compiler;
     type Instance = Instance;
     type Table = Table;
     type Function = TypedFunc<(), i64>;
@@ -60,9 +62,8 @@ impl<T: 'static> WasmBackend for Backend<T> {
         Context(self.store.as_context_mut())
     }
 
-    /// Native compilation completes synchronously on the calling thread.
-    async fn compile(&self, bytes: &[u8]) -> Result<Module> {
-        Module::new(self.store.engine(), bytes).map_err(|error| Error::new("compile Wasm", error))
+    fn compiler(&self) -> Compiler {
+        self.compilation.compiler()
     }
 
     fn module_cache(&self) -> Option<&ModuleCache<Module>> {

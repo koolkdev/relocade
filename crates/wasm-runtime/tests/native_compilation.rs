@@ -1,17 +1,17 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use relocade_wasm_runtime::Backend;
-use relocade_wasm_runtime::WasmBackend;
+use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
 
 const EMPTY_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 const NAMED_MODULE: &[u8] = b"\0asm\x01\0\0\0\x00\x02\x01x";
 
 fn cached<T>(backend: &Backend<T>, bytes: &'static [u8]) -> wasmtime::Module {
+    let compiler = backend.compiler();
     pollster::block_on(
         backend
             .module_cache()
             .unwrap()
-            .get_or_compile(bytes, |bytes| backend.compile(bytes)),
+            .get_or_compile(bytes, |bytes| compiler.compile(bytes)),
     )
     .unwrap()
 }
@@ -53,9 +53,9 @@ fn different_assets_use_distinct_modules() {
 #[test]
 fn ordinary_compilation_bypasses_the_shared_cache() {
     let backend = Backend::new().unwrap();
-    let first = pollster::block_on(backend.compile(EMPTY_MODULE)).unwrap();
+    let first = pollster::block_on(backend.compiler().compile(EMPTY_MODULE)).unwrap();
     let retained = cached(&backend, EMPTY_MODULE);
-    let second = pollster::block_on(backend.compile(EMPTY_MODULE)).unwrap();
+    let second = pollster::block_on(backend.compiler().compile(EMPTY_MODULE)).unwrap();
     assert!(!wasmtime::Module::same(&first, &second));
     assert!(!wasmtime::Module::same(&first, &retained));
     assert!(!wasmtime::Module::same(&second, &retained));
@@ -64,6 +64,6 @@ fn ordinary_compilation_bypasses_the_shared_cache() {
 #[test]
 fn failed_compilation_does_not_prevent_later_modules_from_loading() {
     let backend = Backend::new().unwrap();
-    assert!(pollster::block_on(backend.compile(b"invalid Wasm")).is_err());
-    assert!(pollster::block_on(backend.compile(EMPTY_MODULE)).is_ok());
+    assert!(pollster::block_on(backend.compiler().compile(b"invalid Wasm")).is_err());
+    assert!(pollster::block_on(backend.compiler().compile(EMPTY_MODULE)).is_ok());
 }

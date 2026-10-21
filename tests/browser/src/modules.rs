@@ -3,7 +3,7 @@ use relocade_runtime::{
     worker::{Message, Thread},
     Result,
 };
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmContext};
+use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
 use std::{cell::Cell, rc::Rc};
 
 const VALUE: Function<fn() -> I64> = Function::new("test", "value");
@@ -43,6 +43,7 @@ async fn execute(
 pub async fn compiled_modules() -> std::result::Result<(), String> {
     let module = Backend::new()
         .map_err(|error| error.to_string())?
+        .compiler()
         .compile(&lower().map_err(|error| error.to_string())?)
         .await
         .map_err(|error| error.to_string())?;

@@ -1,6 +1,19 @@
-use crate::{Error, ModuleCache, Result};
+use crate::{Error, ModuleCache, Result, WasmCompiler};
 use std::sync::OnceLock;
 use wasmtime::{Config, Engine, Module};
+
+/// An engine handle that compiles independently of guest stores and host state.
+#[derive(Clone)]
+pub struct Compiler(Engine);
+
+impl WasmCompiler for Compiler {
+    type Module = Module;
+
+    /// Native compilation completes synchronously on the calling thread.
+    async fn compile(&self, bytes: &[u8]) -> Result<Module> {
+        Module::new(&self.0, bytes).map_err(|error| Error::new("compile Wasm", error))
+    }
+}
 
 /// Couples shared compiled modules to the engine that can instantiate them.
 pub(super) struct Compilation {
@@ -40,5 +53,9 @@ pub(super) fn shared() -> Result<&'static Compilation> {
 impl Compilation {
     pub(super) fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    pub(super) fn compiler(&self) -> Compiler {
+        Compiler(self.engine.clone())
     }
 }

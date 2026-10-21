@@ -21,6 +21,8 @@ that subset. The project is under development; the crates are not published.
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
+| [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
+| [relocade-runtime](crates/runtime/src/lib.rs) | Guest execution, dispatch, hooks and worker tasks. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
@@ -54,9 +56,11 @@ returns their embedded Wasm bytes, and `Runtime::new` uses them in both native a
 web builds. Starting a guest does not regenerate the interpreter. The backend
 still compiles the portable Wasm to native code when loading it.
 
-`WasmBackend::compile(bytes)` compiles any module. Runtime startup retains only the
-four interpreter assets in a shared `ModuleCache`, using that same compilation
-method on a cache miss. Dispatcher and guest modules go directly to `compile`.
+`backend.compiler()` returns an independent `WasmCompiler` handle. Its
+`compile(bytes)` method compiles any module without borrowing the backend's live
+instances or host state. Runtime startup retains only the four interpreter assets
+in a shared `ModuleCache`, using that same compilation method on a cache miss.
+Dispatcher and guest modules go directly to `compile`.
 Backends provide optional cache storage through `module_cache()` and share it only
 with compatible engines. Native backends share a Wasmtime engine and cache within
 the process; browser backends share a cache within the same worker. The common

@@ -5,11 +5,12 @@
 //! bind to one backend's memories, tables and functions.
 //!
 //! ```
-//! use relocade_wasm_runtime::{Backend, WasmBackend};
+//! use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
 //!
 //! # async fn example() -> relocade_wasm_runtime::Result<()> {
 //! let mut backend = Backend::new()?;
-//! let module = backend.compile(b"\0asm\x01\0\0\0").await?;
+//! let compiler = backend.compiler();
+//! let module = compiler.compile(b"\0asm\x01\0\0\0").await?;
 //! let instance = backend.instantiate(&module, &[]).await?;
 //! # Ok(())
 //! # }
@@ -30,9 +31,9 @@ mod native;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{Backend, Context, Memory, Module, SharedMemory};
+pub use native::{Backend, Compiler, Context, Memory, Module, SharedMemory};
 #[cfg(target_arch = "wasm32")]
-pub use web::{Backend, Context, Memory, Module, SharedMemory};
+pub use web::{Backend, Compiler, Context, Memory, Module, SharedMemory};
 
 mod host;
 mod imports;
@@ -40,6 +41,17 @@ mod module_cache;
 pub use host::{HostFunction, HostSignature, HostValue};
 pub use imports::{Import, ImportBinding, ImportValue};
 pub use module_cache::ModuleCache;
+
+/// Compiles Wasm bytes without borrowing a backend or retaining its host state.
+/// The handle can move to another thread; create and await its futures there.
+/// Futures and compiled modules need not be `Send` because browser engine
+/// objects belong to the JavaScript thread that creates them.
+pub trait WasmCompiler: Clone + Send + 'static {
+    type Module: Clone + 'static;
+
+    /// Compiles on the calling thread without creating a guest instance.
+    fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
+}
 
 /// Access to linear memory through a Wasm backend or its scoped context.
 /// Handles belong to that engine. Transfers require an allocated, in-bounds
@@ -98,7 +110,8 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     where
         Self: 'a;
     /// Cloning a module shares compiled code without creating a guest instance.
-    type Module: Clone;
+    type Module: Clone + 'static;
+    type Compiler: WasmCompiler<Module = Self::Module>;
     type Instance;
     type Table: 'static;
     /// An exported function with signature `() -> i64`.
@@ -116,12 +129,12 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// across an await, but must be dropped before calling into Wasm again.
     fn context(&mut self) -> Self::Context<'_>;
 
-    /// Compiles Wasm bytes into code that can be instantiated with private imports.
-    fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
+    /// Returns an independent compiler whose modules this backend can instantiate.
+    fn compiler(&self) -> Self::Compiler;
 
     /// Optional storage for modules that callers choose to retain.
     /// Share it only between backends that can instantiate each other's modules.
-    /// Ordinary `compile` calls do not populate this cache.
+    /// Ordinary [`WasmCompiler::compile`] calls do not populate this cache.
     fn module_cache(&self) -> Option<&ModuleCache<Self::Module>> {
         None
     }
