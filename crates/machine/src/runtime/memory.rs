@@ -3,9 +3,9 @@
 mod shared;
 pub use shared::SharedMemory;
 
-use crate::Result;
+use super::Result;
+use crate::{CpuStorage, MachineConfig};
 use relocade_compiler::abi::Memory;
-use relocade_machine::{CpuStorage, MachineConfig};
 use relocade_wasm_runtime::{Import, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, ExecutionContext};
 use std::{mem::offset_of, sync::Arc};

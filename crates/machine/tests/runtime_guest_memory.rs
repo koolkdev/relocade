@@ -1,5 +1,5 @@
+use relocade_machine::{Cpu, RuntimeState};
 use relocade_machine::{MachineConfig, MemoryError, ReadMemory};
-use relocade_runtime::{Cpu, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,

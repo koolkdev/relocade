@@ -10,7 +10,6 @@ relocade-bios = { path = "../bios" }
 relocade-vfs = { path = "../vfs" }
 relocade-x86 = { path = "../x86" }
 relocade-machine = { path = "../machine" }
-relocade-runtime = { path = "../runtime" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 relocade-wasm-runtime = { path = "../wasm-runtime" }

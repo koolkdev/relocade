@@ -1,7 +1,7 @@
 //! INT 10h services for the initial 80-by-25 color text mode.
 
 use crate::screen::{self, ScrollDirection, Window};
-use relocade_runtime::{real_mode_interrupt, HostCall};
+use relocade_machine::{real_mode_interrupt, HostCall};
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 

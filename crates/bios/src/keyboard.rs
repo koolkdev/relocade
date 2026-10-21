@@ -1,6 +1,6 @@
 //! Host-fed keyboard input shared by BIOS keystrokes and DOS character reads.
 
-use relocade_runtime::{real_mode_interrupt, HostCall};
+use relocade_machine::{real_mode_interrupt, HostCall};
 use relocade_x86::ExecutionExit;
 use std::{
     cell::RefCell,

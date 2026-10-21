@@ -9,7 +9,7 @@
 //!
 //! ```
 //! use relocade_machine::MachineConfig;
-//! use relocade_runtime::{Cpu, RuntimeBackend, RuntimeState};
+//! use relocade_machine::{Cpu, RuntimeBackend, RuntimeState};
 //!
 //! async fn example<B: RuntimeBackend<State = RuntimeState>>(
 //!     backend: B,
@@ -37,6 +37,7 @@ mod state;
 #[cfg(feature = "worker")]
 pub mod worker;
 
+use crate::{CpuContext, MachineConfig};
 pub use backend::RuntimeBackend;
 pub use callback::HostCall;
 pub use dispatch::DispatchEntry;
@@ -45,7 +46,6 @@ pub use error::{Error, Result};
 pub use hooks::Hook;
 use memory::Storage;
 pub use memory::{RuntimeMemory, SharedMemory};
-use relocade_machine::{CpuContext, MachineConfig};
 use relocade_wasm_runtime::{Import, WasmCompiler};
 use relocade_x86::{abi, Compiler, EntryTable};
 pub use state::RuntimeState;

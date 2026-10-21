@@ -34,6 +34,7 @@
 mod config;
 mod cpu;
 mod memory;
+pub mod runtime;
 
 pub use config::{ConfigurationError, MachineConfig};
 pub use cpu::{CpuContext, CpuView};
@@ -49,3 +50,10 @@ pub trait CpuStorage {
     fn read_backing(&self, offset: u32, bytes: &mut [u8]);
     fn write_backing(&mut self, offset: u32, bytes: &[u8]);
 }
+
+#[cfg(feature = "worker")]
+pub use runtime::worker;
+pub use runtime::{
+    real_mode_interrupt, Cpu, DispatchEntry, Error, Hook, HostCall, Result, RuntimeBackend,
+    RuntimeMemory, RuntimeState, SharedMemory,
+};

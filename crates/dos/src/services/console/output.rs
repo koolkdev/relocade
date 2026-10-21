@@ -7,7 +7,7 @@ use crate::{
     stdio::OutputStream,
     DosServices,
 };
-use relocade_runtime::HostCall;
+use relocade_machine::HostCall;
 
 #[derive(Clone, Copy)]
 pub(super) enum CharacterOutput {

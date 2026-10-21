@@ -72,8 +72,8 @@
 //! DOS creates its environment state and gives the backend a service handle.
 //!
 //! ```no_run
-//! # async fn example<B>(create_backend: impl FnOnce(relocade_runtime::RuntimeState<relocade_dos::DosServices>) -> relocade_runtime::Result<B>) -> Result<(), Box<dyn std::error::Error>>
-//! # where B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosServices>>
+//! # async fn example<B>(create_backend: impl FnOnce(relocade_machine::RuntimeState<relocade_dos::DosServices>) -> relocade_machine::Result<B>) -> Result<(), Box<dyn std::error::Error>>
+//! # where B: relocade_machine::RuntimeBackend<State = relocade_machine::RuntimeState<relocade_dos::DosServices>>
 //! # {
 //! use std::io::Read;
 //!
@@ -109,7 +109,7 @@ mod stdio;
 pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
-use relocade_runtime::{Cpu, RuntimeBackend, RuntimeState};
+use relocade_machine::{Cpu, RuntimeBackend, RuntimeState};
 pub use state::DosServices;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
@@ -124,13 +124,13 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
     /// Calls the supplied backend constructor with a handle to this environment.
     /// Load a program before entering guest execution.
-    pub async fn new<E: Into<relocade_runtime::Error>>(
+    pub async fn new<E: Into<relocade_machine::Error>>(
         create_backend: impl FnOnce(RuntimeState<DosServices>) -> Result<B, E>,
-    ) -> relocade_runtime::Result<Self> {
+    ) -> relocade_machine::Result<Self> {
         let state = Rc::new(RefCell::new(DosState::default()));
         let services = DosServices::new(Rc::clone(&state));
         let backend = create_backend(RuntimeState::new(services))
-            .map_err(Into::<relocade_runtime::Error>::into)?;
+            .map_err(Into::<relocade_machine::Error>::into)?;
         let mut cpu = Cpu::new(backend, kernel::configuration()).await?;
         kernel::initialize(&mut cpu.context().memory());
         relocade_bios::initialize(&mut cpu.context().memory());
@@ -214,8 +214,8 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// input and output; existing stream handles remain connected to the console.
     ///
     /// ```no_run
-    /// # async fn example<B>(create_backend: impl FnOnce(relocade_runtime::RuntimeState<relocade_dos::DosServices>) -> relocade_runtime::Result<B>) -> Result<(), Box<dyn std::error::Error>>
-    /// # where B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosServices>>
+    /// # async fn example<B>(create_backend: impl FnOnce(relocade_machine::RuntimeState<relocade_dos::DosServices>) -> relocade_machine::Result<B>) -> Result<(), Box<dyn std::error::Error>>
+    /// # where B: relocade_machine::RuntimeBackend<State = relocade_machine::RuntimeState<relocade_dos::DosServices>>
     /// # {
     /// use std::io::Write;
     ///
@@ -239,7 +239,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// The handle can be retained while `run_async` awaits keyboard input.
     ///
     /// ```no_run
-    /// # fn example<B: relocade_runtime::RuntimeBackend<State = relocade_runtime::RuntimeState<relocade_dos::DosServices>>>(dos: &relocade_dos::Dos<B>) {
+    /// # fn example<B: relocade_machine::RuntimeBackend<State = relocade_machine::RuntimeState<relocade_dos::DosServices>>>(dos: &relocade_dos::Dos<B>) {
     /// dos.keyboard().push(relocade_bios::KeyStroke {
     ///     character: b'a',
     ///     scan_code: 0x1e,

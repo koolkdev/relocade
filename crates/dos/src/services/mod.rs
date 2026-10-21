@@ -10,7 +10,7 @@ mod search;
 mod system;
 
 use crate::{files::CreateMode, state::DosState, DosServices, ServiceError};
-use relocade_runtime::HostCall;
+use relocade_machine::HostCall;
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 

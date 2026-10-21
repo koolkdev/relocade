@@ -2,7 +2,7 @@ use super::files::read_path;
 use crate::{
     error::DosError, files::FIND_DATA_BYTES, interrupt::return_result, state::DosState, DosServices,
 };
-use relocade_runtime::{real_mode_interrupt::return_from_interrupt, HostCall};
+use relocade_machine::{real_mode_interrupt::return_from_interrupt, HostCall};
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::ops::ControlFlow;
 

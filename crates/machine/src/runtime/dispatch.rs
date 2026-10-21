@@ -1,6 +1,6 @@
 //! Installation of callable Wasm functions at guest linear addresses.
 
-use crate::Result;
+use super::Result;
 use relocade_compiler::abi::Function;
 use relocade_wasm_runtime::WasmBackend;
 use relocade_x86::{abi, EntryTable};

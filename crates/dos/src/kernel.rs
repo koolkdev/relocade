@@ -1,6 +1,6 @@
 use crate::{interrupt, memory, services, DosServices};
+use relocade_machine::{real_mode_interrupt::HOOK_STUB, Hook};
 use relocade_machine::{MachineConfig, Memory};
-use relocade_runtime::{real_mode_interrupt::HOOK_STUB, Hook};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };

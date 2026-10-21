@@ -42,6 +42,6 @@ The same worker checks also run on native threads:
 cargo test -p relocade-browser-tests --locked
 ```
 
-See the [worker guide](../../crates/runtime/docs/workers.md) for message and
+See the [worker guide](../../crates/machine/docs/workers.md) for message and
 resource ownership. Add future cross-thread integration checks here so CPU,
 renderer and device workers share this setup.

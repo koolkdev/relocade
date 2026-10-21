@@ -1,7 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use relocade_machine::MachineConfig;
-use relocade_runtime::{Cpu, RuntimeState};
+use relocade_machine::{Cpu, RuntimeState};
 use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,

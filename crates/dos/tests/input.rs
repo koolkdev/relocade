@@ -114,7 +114,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         assert!(dos.load_mz(b"invalid", Default::default()).is_err());
         assert!(matches!(
             dos.cpu().run(10),
-            Err(relocade_runtime::Error::CancelledHostCall)
+            Err(relocade_machine::Error::CancelledHostCall)
         ));
         dos.load_mz(&mz, Default::default()).unwrap();
         assert_eq!(

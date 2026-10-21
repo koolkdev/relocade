@@ -1,6 +1,6 @@
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::poll_fn, StreamExt};
-use relocade_runtime::worker::Thread;
+use relocade_machine::worker::Thread;
 use std::{
     cell::Cell,
     rc::Rc,

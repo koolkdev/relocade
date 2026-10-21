@@ -1,4 +1,4 @@
-use crate::callback::DeferredCall;
+use super::callback::DeferredCall;
 use std::ops::{Deref, DerefMut};
 
 /// Backend-owned state for one runtime, including a queued async host handler.

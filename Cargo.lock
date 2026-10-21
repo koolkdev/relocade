@@ -1283,7 +1283,6 @@ name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
  "relocade-machine",
- "relocade-runtime",
  "relocade-x86",
 ]
 
@@ -1295,7 +1294,7 @@ dependencies = [
  "futures-util",
  "pollster",
  "relocade-compiler",
- "relocade-runtime",
+ "relocade-machine",
  "relocade-wasm-runtime",
  "serde",
  "wasm-bindgen",
@@ -1321,7 +1320,6 @@ dependencies = [
  "pollster",
  "relocade-bios",
  "relocade-machine",
- "relocade-runtime",
  "relocade-vfs",
  "relocade-wasm-runtime",
  "relocade-x86",
@@ -1338,7 +1336,15 @@ dependencies = [
 name = "relocade-machine"
 version = "0.0.0"
 dependencies = [
+ "futures-util",
+ "pollster",
+ "relocade-compiler",
+ "relocade-interpreter",
+ "relocade-wasm-runtime",
  "relocade-x86",
+ "serde",
+ "wasm-bindgen-test",
+ "web-thread-select",
 ]
 
 [[package]]
@@ -1350,22 +1356,6 @@ dependencies = [
  "relocade-bios",
  "wasm-bindgen-test",
  "wgpu",
-]
-
-[[package]]
-name = "relocade-runtime"
-version = "0.0.0"
-dependencies = [
- "futures-util",
- "pollster",
- "relocade-compiler",
- "relocade-interpreter",
- "relocade-machine",
- "relocade-wasm-runtime",
- "relocade-x86",
- "serde",
- "wasm-bindgen-test",
- "web-thread-select",
 ]
 
 [[package]]

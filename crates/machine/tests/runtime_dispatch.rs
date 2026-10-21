@@ -1,6 +1,6 @@
 use relocade_compiler::{Program, I32};
 use relocade_machine::MachineConfig;
-use relocade_runtime::{Cpu, DispatchEntry, RuntimeState};
+use relocade_machine::{Cpu, DispatchEntry, RuntimeState};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,

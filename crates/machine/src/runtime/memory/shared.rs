@@ -1,4 +1,4 @@
-use relocade_machine::{MachineConfig, MemoryError, ReadMemory};
+use crate::{MachineConfig, MemoryError, ReadMemory};
 use relocade_wasm_runtime::WasmSharedMemory;
 use relocade_x86::PhysicalMemoryMap;
 use std::sync::Arc;

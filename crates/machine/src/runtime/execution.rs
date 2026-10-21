@@ -1,4 +1,4 @@
-use crate::{Cpu, Error, HostCall, Result, RuntimeBackend, RuntimeState, Storage};
+use super::{Cpu, Error, HostCall, Result, RuntimeBackend, RuntimeState, Storage};
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 

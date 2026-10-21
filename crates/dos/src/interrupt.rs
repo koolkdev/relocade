@@ -1,5 +1,5 @@
 use crate::{error::DosError, state::DosState, DosServices};
-use relocade_runtime::{real_mode_interrupt, Hook, HostCall};
+use relocade_machine::{real_mode_interrupt, Hook, HostCall};
 use relocade_x86::ExecutionExit;
 use std::{future::Future, ops::ControlFlow};
 

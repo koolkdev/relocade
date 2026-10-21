@@ -1,5 +1,5 @@
+use crate::ConfigurationError;
 use relocade_compiler::BuildError;
-use relocade_machine::ConfigurationError;
 use std::fmt;
 
 /// Host setup/execution errors, separate from architectural guest exits.
