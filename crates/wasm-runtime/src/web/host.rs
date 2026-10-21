@@ -1,7 +1,7 @@
-use super::{Memory, Store, WebBackend};
+use super::{Backend, Memory, Store};
+use crate::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
 use js_sys::{Array, Function as JsFunction};
 use relocade_compiler::{Results, ValueType};
-use relocade_runtime::wasm::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
 use std::{cell::RefMut, rc::Rc};
 use wasm_bindgen::{
     closure::Closure,
@@ -60,7 +60,7 @@ tuple_result!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
 
 macro_rules! host_function {
     ($($parameter:ident : $argument:ident),*) => {
-        impl<T, R, $($parameter),*> HostFunction<fn($($parameter),*) -> R> for WebBackend<T>
+        impl<T, R, $($parameter),*> HostFunction<fn($($parameter),*) -> R> for Backend<T>
         where
             T: 'static,
             R: Results + HostValue,

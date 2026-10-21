@@ -1,7 +1,8 @@
 //! Installation of callable Wasm functions at guest linear addresses.
 
-use crate::{wasm::WasmBackend, Result};
+use crate::Result;
 use relocade_compiler::abi::Function;
+use relocade_wasm_runtime::WasmBackend;
 use relocade_x86::{abi, EntryTable};
 
 /// An ordinary `() -> i64` export to publish at a guest linear address.

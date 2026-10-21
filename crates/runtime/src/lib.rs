@@ -34,7 +34,6 @@ mod hooks;
 mod memory;
 pub mod real_mode_interrupt;
 mod state;
-pub mod wasm;
 #[cfg(feature = "worker")]
 pub mod worker;
 
@@ -47,13 +46,13 @@ pub use hooks::Hook;
 use memory::Storage;
 pub use memory::{RuntimeMemory, SharedMemory};
 use relocade_machine::{Machine, MachineConfig};
+use relocade_wasm_runtime::Import;
 use relocade_x86::{abi, Compiler, EntryTable};
 pub use state::RuntimeState;
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use wasm::Import;
 
 /// One running guest and its engine resources. CPU and memory access belongs to
 /// the machine; this owner prepares code and controls entry into execution.
@@ -166,7 +165,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Runtime<B> {
         ]);
         imports.extend(self.host_imports.iter().cloned());
         imports.extend(additional.iter().cloned());
-        backend.instantiate(module, &imports).await
+        backend
+            .instantiate(module, &imports)
+            .await
+            .map_err(Into::into)
     }
 
     /// Borrows the stopped machine. CPU and memory writes take effect immediately.

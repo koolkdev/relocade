@@ -1,4 +1,4 @@
-use relocade_runtime::{wasm::ModuleCache, Error, Result};
+use crate::{Error, ModuleCache, Result};
 use std::sync::OnceLock;
 use wasmtime::{Config, Engine, Module};
 
@@ -34,7 +34,7 @@ pub(super) fn shared() -> Result<&'static Compilation> {
                 .map_err(|error| format!("{error:#}"))
         })
         .as_ref()
-        .map_err(|error| Error::wasm("create Wasmtime engine", error))
+        .map_err(|error| Error::new("create Wasmtime engine", error))
 }
 
 impl Compilation {

@@ -1296,8 +1296,7 @@ dependencies = [
  "pollster",
  "relocade-compiler",
  "relocade-runtime",
- "relocade-runtime-wasmtime",
- "relocade-runtime-web",
+ "relocade-wasm-runtime",
  "serde",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -1323,8 +1322,8 @@ dependencies = [
  "relocade-bios",
  "relocade-machine",
  "relocade-runtime",
- "relocade-runtime-wasmtime",
  "relocade-vfs",
+ "relocade-wasm-runtime",
  "relocade-x86",
 ]
 
@@ -1358,42 +1357,15 @@ name = "relocade-runtime"
 version = "0.0.0"
 dependencies = [
  "futures-util",
+ "pollster",
  "relocade-compiler",
  "relocade-interpreter",
  "relocade-machine",
+ "relocade-wasm-runtime",
  "relocade-x86",
  "serde",
- "web-thread-select",
-]
-
-[[package]]
-name = "relocade-runtime-wasmtime"
-version = "0.0.0"
-dependencies = [
- "pollster",
- "relocade-compiler",
- "relocade-machine",
- "relocade-runtime",
- "relocade-x86",
- "wasmtime",
-]
-
-[[package]]
-name = "relocade-runtime-web"
-version = "0.0.0"
-dependencies = [
- "js-sys",
- "pollster",
- "relocade-compiler",
- "relocade-machine",
- "relocade-runtime",
- "relocade-runtime-wasmtime",
- "relocade-x86",
- "serde",
- "serde-wasm-bindgen",
- "wasm-bindgen",
- "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "web-thread-select",
 ]
 
 [[package]]
@@ -1407,6 +1379,22 @@ dependencies = [
 [[package]]
 name = "relocade-vfs"
 version = "0.0.0"
+
+[[package]]
+name = "relocade-wasm-runtime"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "pollster",
+ "relocade-compiler",
+ "serde",
+ "serde-wasm-bindgen",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "wasmtime",
+]
 
 [[package]]
 name = "relocade-x86"

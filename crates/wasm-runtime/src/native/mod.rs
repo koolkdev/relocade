@@ -1,38 +1,14 @@
-//! Wasmtime implementation of the runtime's Wasm engine interface.
-//!
-//! ```
-//! use relocade_machine::MachineConfig;
-//! use relocade_runtime::{Runtime, RuntimeState};
-//! use relocade_runtime_wasmtime::WasmtimeBackend;
-//! use relocade_x86::{Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let target = Compiler::new(ExecutionProfile::Real16).target();
-//! let cpu = CpuState { eip: 0x100, segments: Segments::real_mode(), ..CpuState::default() };
-//! let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
-//! let config = MachineConfig::new(target, cpu, 0x10000, map)?;
-//! let mut runtime = Runtime::new(WasmtimeBackend::with_state(RuntimeState::new(()))?, config).await?;
-//! runtime.machine().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
-//! assert_eq!(runtime.run(1)?, ExecutionExit::BudgetExhausted);
-//! assert_eq!(runtime.machine().cpu().eax(), 42);
-//! # Ok(())
-//! # }
-//! ```
-#![deny(unsafe_code)]
-#![cfg(not(target_arch = "wasm32"))]
-
+use crate::{Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmMemoryAccess};
 use relocade_compiler::{
     abi::{self, Function},
     I64,
 };
-use relocade_runtime::{
-    wasm::{Import, ImportValue, ModuleCache, WasmBackend, WasmMemoryAccess},
-    Error, Result,
-};
 use std::ops::{Deref, DerefMut};
 use wasmtime::{
-    AsContextMut, Func, Instance, Linker, Module, Ref, RefType, Store, Table, TableType, TypedFunc,
+    AsContextMut, Func, Instance, Linker, Ref, RefType, Store, Table, TableType, TypedFunc,
 };
+
+pub use wasmtime::Module;
 
 mod compilation;
 mod host;
@@ -41,18 +17,18 @@ pub use host::Context;
 pub use memory::{Memory, SharedMemory};
 
 /// One store for guest instances and their imports. Runtime owns execution policy.
-pub struct WasmtimeBackend<T: 'static = ()> {
+pub struct Backend<T: 'static = ()> {
     store: Store<T>,
     compilation: &'static compilation::Compilation,
 }
 
-impl WasmtimeBackend {
+impl Backend {
     pub fn new() -> Result<Self> {
         Self::with_state(())
     }
 }
 
-impl<T: 'static> WasmtimeBackend<T> {
+impl<T: 'static> Backend<T> {
     pub fn with_state(state: T) -> Result<Self> {
         let compilation = compilation::shared()?;
         Ok(Self {
@@ -62,7 +38,7 @@ impl<T: 'static> WasmtimeBackend<T> {
     }
 }
 
-impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
+impl<T: 'static> WasmBackend for Backend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
     type Module = Module;
@@ -86,7 +62,7 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
 
     /// Native compilation completes synchronously on the calling thread.
     async fn compile(&self, bytes: &[u8]) -> Result<Module> {
-        Module::new(self.store.engine(), bytes).map_err(|error| Error::wasm("compile Wasm", error))
+        Module::new(self.store.engine(), bytes).map_err(|error| Error::new("compile Wasm", error))
     }
 
     fn module_cache(&self) -> Option<&ModuleCache<Module>> {
@@ -110,7 +86,7 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
             TableType::new(RefType::FUNCREF, minimum, None),
             Ref::Func(None),
         )
-        .map_err(|error| Error::wasm("create Wasm table", error))
+        .map_err(|error| Error::new("create Wasm table", error))
     }
 
     fn ensure_table_size(&mut self, table: &Table, minimum: u32) -> Result<()> {
@@ -119,7 +95,7 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
         if minimum > current {
             table
                 .grow(&mut self.store, minimum - current, Ref::Func(None))
-                .map_err(|error| Error::wasm("grow Wasm table", error))?;
+                .map_err(|error| Error::new("grow Wasm table", error))?;
         }
         Ok(())
     }
@@ -145,11 +121,11 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
                     linker.define(&self.store, module, name, *function)
                 }
             }
-            .map_err(|error| Error::wasm("bind Wasm import", error))?;
+            .map_err(|error| Error::new("bind Wasm import", error))?;
         }
         linker
             .instantiate(&mut self.store, module)
-            .map_err(|error| Error::wasm("instantiate Wasm", error))
+            .map_err(|error| Error::new("instantiate Wasm", error))
     }
 
     fn function(
@@ -159,7 +135,7 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
     ) -> Result<Self::Function> {
         instance
             .get_typed_func(&mut self.store, declaration.name)
-            .map_err(|error| Error::wasm("resolve Wasm function", error))
+            .map_err(|error| Error::new("resolve Wasm function", error))
     }
 
     fn import_function(&self, function: &Self::Function) -> Func {
@@ -178,17 +154,17 @@ impl<T: 'static> WasmBackend for WasmtimeBackend<T> {
                 u64::from(index),
                 Ref::Func(Some(*function.func())),
             )
-            .map_err(|error| Error::wasm("set Wasm table function", error))
+            .map_err(|error| Error::new("set Wasm table function", error))
     }
 
     fn call(&mut self, function: &Self::Function) -> Result<i64> {
         function
             .call(&mut self.store, ())
-            .map_err(|error| Error::wasm("call Wasm function", error))
+            .map_err(|error| Error::new("call Wasm function", error))
     }
 }
 
-impl<T: 'static> WasmMemoryAccess for WasmtimeBackend<T> {
+impl<T: 'static> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {

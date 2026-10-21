@@ -2,15 +2,15 @@
 
 use relocade_machine::{MachineConfig, MemoryError};
 use relocade_runtime::{Runtime, RuntimeState};
-use relocade_runtime_wasmtime::WasmtimeBackend;
+use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
     PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
 };
 
-fn create(config: MachineConfig) -> Runtime<WasmtimeBackend<RuntimeState>> {
+fn create(config: MachineConfig) -> Runtime<Backend<RuntimeState>> {
     pollster::block_on(Runtime::new(
-        WasmtimeBackend::with_state(RuntimeState::default()).unwrap(),
+        Backend::with_state(RuntimeState::default()).unwrap(),
         config,
     ))
     .unwrap()
@@ -30,7 +30,7 @@ fn configuration() -> MachineConfig {
     .unwrap()
 }
 
-fn runtime(code: &[u8]) -> Runtime<WasmtimeBackend<RuntimeState>> {
+fn runtime(code: &[u8]) -> Runtime<Backend<RuntimeState>> {
     let mut runtime = create(configuration());
     runtime.machine().memory().write(0x100, code).unwrap();
     runtime

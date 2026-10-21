@@ -1,5 +1,5 @@
 use super::*;
-use crate::wasm::WasmMemoryAccess;
+use relocade_wasm_runtime::WasmMemoryAccess;
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMemoryMap, Segment, Segments,
 };

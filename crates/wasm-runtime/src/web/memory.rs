@@ -1,5 +1,5 @@
+use crate::{Result, WasmSharedMemory};
 use js_sys::{Reflect, SharedArrayBuffer, Uint8Array, WebAssembly};
-use relocade_runtime::{wasm::WasmSharedMemory, Result};
 use wasm_bindgen::JsCast;
 
 /// An independent reader for a shared WebAssembly.Memory.

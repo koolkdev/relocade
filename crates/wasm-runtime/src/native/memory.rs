@@ -1,5 +1,5 @@
+use crate::{Error, Result, WasmSharedMemory};
 use relocade_compiler::abi;
-use relocade_runtime::{wasm::WasmSharedMemory, Error, Result};
 use std::sync::atomic::{AtomicU8, Ordering};
 use wasmtime::{AsContext, AsContextMut, Extern, MemoryType};
 
@@ -18,21 +18,21 @@ impl Memory {
     pub(super) fn new(mut store: impl AsContextMut, declaration: abi::Memory) -> Result<Self> {
         if declaration.shared {
             let maximum = declaration.maximum.ok_or_else(|| {
-                Error::wasm("create Wasm memory", "shared memory requires a maximum")
+                Error::new("create Wasm memory", "shared memory requires a maximum")
             })?;
             wasmtime::SharedMemory::new(
                 store.as_context().engine(),
                 MemoryType::shared(declaration.minimum, maximum),
             )
             .map(|memory| Self::Shared(SharedMemory(memory)))
-            .map_err(|error| Error::wasm("create Wasm memory", error))
+            .map_err(|error| Error::new("create Wasm memory", error))
         } else {
             wasmtime::Memory::new(
                 &mut store,
                 MemoryType::new(declaration.minimum, declaration.maximum),
             )
             .map(Self::Private)
-            .map_err(|error| Error::wasm("create Wasm memory", error))
+            .map_err(|error| Error::new("create Wasm memory", error))
         }
     }
 
@@ -69,7 +69,7 @@ impl Memory {
             // Another owner may have grown shared memory since the size check.
             if let Err(error) = growth {
                 if self.size(&store) < pages {
-                    return Err(Error::wasm("grow Wasm memory", error));
+                    return Err(Error::new("grow Wasm memory", error));
                 }
             }
         }

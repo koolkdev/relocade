@@ -1,19 +1,8 @@
-//! Browser implementation of the runtime's Wasm engine interface.
-//!
-//! Compilation and instantiation use the asynchronous WebAssembly APIs. Guest
-//! calls are synchronous. Callbacks borrow host state only while running and
-//! access guest memory through its current buffer, including after memory growth.
-#![forbid(unsafe_code)]
-#![cfg(target_arch = "wasm32")]
-
+use crate::{Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmMemoryAccess};
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::{
     abi::{self, Function as FunctionDeclaration},
     I64,
-};
-use relocade_runtime::{
-    wasm::{Import, ImportValue, ModuleCache, WasmBackend, WasmMemoryAccess},
-    Error, Result,
 };
 use std::{
     any::Any,
@@ -30,7 +19,7 @@ pub use host::Context;
 pub use memory::SharedMemory;
 
 /// One guest's instances, callbacks and host state.
-pub struct WebBackend<T = ()> {
+pub struct Backend<T = ()> {
     store: Rc<RefCell<Store<T>>>,
     modules: Rc<ModuleCache<Module>>,
     // Rust must retain the closures for as long as guest modules can call them.
@@ -62,36 +51,30 @@ pub struct Module(#[serde(with = "serde_wasm_bindgen::preserve")] WebAssembly::M
 /// A resolved `() -> i64` export, kept distinct from raw host function handles.
 pub struct Function(JsFunction);
 
-impl WebBackend {
-    pub fn new() -> Self {
+impl Backend {
+    pub fn new() -> Result<Self> {
         Self::with_state(())
     }
 }
 
-impl Default for WebBackend {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T: 'static> WebBackend<T> {
-    pub fn with_state(state: T) -> Self {
+impl<T: 'static> Backend<T> {
+    pub fn with_state(state: T) -> Result<Self> {
         thread_local! {
             static MODULES: Rc<ModuleCache<Module>> =
                 Rc::new(ModuleCache::default());
         }
-        Self {
+        Ok(Self {
             store: Rc::new(RefCell::new(Store {
                 state,
                 memories: Vec::new(),
             })),
             modules: MODULES.with(Rc::clone),
             callbacks: Vec::new(),
-        }
+        })
     }
 }
 
-impl<T: 'static> WasmBackend for WebBackend<T> {
+impl<T: 'static> WasmBackend for Backend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
     type Module = Module;
@@ -245,7 +228,7 @@ impl<T: 'static> WasmBackend for WebBackend<T> {
     }
 }
 
-impl<T> WasmMemoryAccess for WebBackend<T> {
+impl<T> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
@@ -276,7 +259,7 @@ fn set(object: &Object, name: &str, value: &JsValue) -> Result<()> {
 }
 
 fn js_error(operation: &'static str, error: JsValue) -> Error {
-    Error::wasm(
+    Error::new(
         operation,
         error.as_string().unwrap_or_else(|| format!("{error:?}")),
     )

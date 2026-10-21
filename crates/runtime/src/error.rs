@@ -7,22 +7,9 @@ use std::fmt;
 pub enum Error {
     Generate(BuildError),
     Configuration(ConfigurationError),
-    Wasm {
-        operation: &'static str,
-        message: String,
-    },
+    Wasm(relocade_wasm_runtime::Error),
     InvalidExit(u64),
     CancelledHostCall,
-}
-
-impl Error {
-    /// Retains an engine diagnostic without exposing platform-specific types.
-    pub fn wasm(operation: &'static str, error: impl fmt::Display) -> Self {
-        Self::Wasm {
-            operation,
-            message: format!("{error:#}"),
-        }
-    }
 }
 
 impl fmt::Display for Error {
@@ -30,7 +17,7 @@ impl fmt::Display for Error {
         match self {
             Self::Generate(error) => write!(f, "generate execution module: {error}"),
             Self::Configuration(error) => error.fmt(f),
-            Self::Wasm { operation, message } => write!(f, "{operation}: {message}"),
+            Self::Wasm(error) => error.fmt(f),
             Self::InvalidExit(word) => write!(f, "invalid guest exit word {word:#018x}"),
             Self::CancelledHostCall => {
                 write!(
@@ -47,6 +34,7 @@ impl std::error::Error for Error {
         match self {
             Self::Generate(error) => Some(error),
             Self::Configuration(error) => Some(error),
+            Self::Wasm(error) => Some(error),
             _ => None,
         }
     }
@@ -61,6 +49,12 @@ impl From<BuildError> for Error {
 impl From<ConfigurationError> for Error {
     fn from(error: ConfigurationError) -> Self {
         Self::Configuration(error)
+    }
+}
+
+impl From<relocade_wasm_runtime::Error> for Error {
+    fn from(error: relocade_wasm_runtime::Error) -> Self {
+        Self::Wasm(error)
     }
 }
 

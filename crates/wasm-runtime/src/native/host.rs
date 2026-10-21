@@ -1,11 +1,11 @@
-use super::{Memory, WasmtimeBackend};
+use super::{Backend, Memory};
+use crate::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
 use relocade_compiler::{Results, ValueType};
-use relocade_runtime::wasm::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
 use wasmtime::{AsContextMut, Func, StoreContextMut, WasmRet, WasmTy};
 
 macro_rules! host_function {
     ($($parameter:ident : $argument:ident),*) => {
-        impl<T, R, $($parameter),*> HostFunction<fn($($parameter),*) -> R> for WasmtimeBackend<T>
+        impl<T, R, $($parameter),*> HostFunction<fn($($parameter),*) -> R> for Backend<T>
         where
             T: 'static,
             R: Results + HostValue,

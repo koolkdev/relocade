@@ -13,5 +13,5 @@ relocade-machine = { path = "../machine" }
 relocade-runtime = { path = "../runtime" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-relocade-runtime-wasmtime = { path = "../runtime-wasmtime" }
+relocade-wasm-runtime = { path = "../wasm-runtime" }
 pollster = "=1.0.1"

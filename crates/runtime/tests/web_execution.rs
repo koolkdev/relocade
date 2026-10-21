@@ -2,7 +2,7 @@
 
 use relocade_machine::MachineConfig;
 use relocade_runtime::{Runtime, RuntimeState};
-use relocade_runtime_web::WebBackend;
+use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
     PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -23,7 +23,7 @@ async fn runtime_executes_with_live_cpu_and_memory() {
     let map =
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
     let config = MachineConfig::new(target, cpu, 0x10000, map).unwrap();
-    let mut runtime = Runtime::new(WebBackend::with_state(RuntimeState::new(())), config)
+    let mut runtime = Runtime::new(Backend::with_state(RuntimeState::new(())).unwrap(), config)
         .await
         .unwrap();
     runtime

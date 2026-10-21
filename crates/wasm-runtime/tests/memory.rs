@@ -2,12 +2,9 @@ use relocade_compiler::{
     abi::{Function, Memory},
     Program, I32, I64,
 };
-use relocade_runtime::wasm::{WasmBackend, WasmMemoryAccess, WasmSharedMemory};
+use relocade_wasm_runtime::{WasmBackend, WasmMemoryAccess, WasmSharedMemory};
 
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_runtime_wasmtime::WasmtimeBackend as Backend;
-#[cfg(target_arch = "wasm32")]
-use relocade_runtime_web::WebBackend as Backend;
+use relocade_wasm_runtime::Backend;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -19,19 +16,8 @@ const SHARED: Memory = Memory {
 const WRITE: Function<fn() -> I32> = Function::new("example", "write");
 const RUN: Function<fn() -> I64> = Function::new("example", "run");
 
-fn backend() -> Backend {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        Backend::new().unwrap()
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        Backend::new()
-    }
-}
-
 async fn check_shared_memory() {
-    let mut backend = backend();
+    let mut backend = Backend::new().unwrap();
     let private = backend
         .create_memory(Memory {
             shared: false,
@@ -110,7 +96,7 @@ fn deserialization_rejects_private_memory() {
     js_sys::Reflect::set(&descriptor, &"initial".into(), &1.into()).unwrap();
     let private = js_sys::WebAssembly::Memory::new(&descriptor).unwrap();
     assert!(
-        serde_wasm_bindgen::from_value::<relocade_runtime_web::SharedMemory>(private.into())
+        serde_wasm_bindgen::from_value::<relocade_wasm_runtime::SharedMemory>(private.into())
             .is_err()
     );
 }
