@@ -4,11 +4,11 @@ mod shared;
 pub use shared::SharedMemory;
 
 use super::Result;
-use crate::{CpuStorage, MachineConfig};
+use crate::MachineConfig;
 use relocade_compiler::abi::Memory;
-use relocade_wasm_runtime::{Import, WasmBackend, WasmMemoryAccess};
+use relocade_wasm_runtime::{Import, WasmBackend};
 use relocade_x86::{abi, ExecutionContext};
-use std::{mem::offset_of, sync::Arc};
+use std::sync::Arc;
 
 /// The runtime's initialized Wasm memories. This owner allocates backend memory
 /// from the machine configuration and supplies module bindings and scoped host
@@ -78,44 +78,5 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
             backend.bind(abi::GUEST, &self.guest),
             backend.bind(abi::PHYSICAL_MAP, &self.mapping),
         ]
-    }
-}
-
-/// Routes transfers through a backend or its scoped context, without caching CPU state.
-pub(crate) struct Storage<A: WasmMemoryAccess> {
-    pub access: A,
-    pub memory: RuntimeMemory<A::Memory>,
-}
-
-impl<A: WasmMemoryAccess> Storage<A> {
-    pub fn set_instruction_target(&mut self, target: u64) {
-        self.access.write_memory(
-            &self.memory.context,
-            offset_of!(ExecutionContext, instruction_target) as u32,
-            &target.to_le_bytes(),
-        );
-    }
-}
-
-impl<A: WasmMemoryAccess> CpuStorage for Storage<A> {
-    fn read_cpu(&self, offset: u32, bytes: &mut [u8]) {
-        self.access.read_memory(
-            &self.memory.context,
-            offset_of!(ExecutionContext, cpu) as u32 + offset,
-            bytes,
-        );
-    }
-    fn write_cpu(&mut self, offset: u32, bytes: &[u8]) {
-        self.access.write_memory(
-            &self.memory.context,
-            offset_of!(ExecutionContext, cpu) as u32 + offset,
-            bytes,
-        );
-    }
-    fn read_backing(&self, offset: u32, bytes: &mut [u8]) {
-        self.access.read_memory(&self.memory.guest, offset, bytes);
-    }
-    fn write_backing(&mut self, offset: u32, bytes: &[u8]) {
-        self.access.write_memory(&self.memory.guest, offset, bytes);
     }
 }

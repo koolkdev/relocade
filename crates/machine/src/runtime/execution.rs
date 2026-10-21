@@ -1,4 +1,4 @@
-use super::{Cpu, Error, HostCall, Result, RuntimeBackend, RuntimeState, Storage};
+use super::{Cpu, CpuAccess, Error, HostCall, Result, RuntimeBackend, RuntimeState};
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
@@ -52,7 +52,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Use when replacing a suspended program or its continuation.
     /// Cancellation does not undo side effects already performed by the operation.
     pub fn cancel_pending_call(&mut self) {
-        let pending = self.storage.access.state_mut().pending.take();
+        let pending = self.access.backend.state_mut().pending.take();
         self.host_call_incomplete = false;
         drop(pending);
     }
@@ -69,32 +69,30 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             return Err(Error::CancelledHostCall);
         }
         // A previous synchronous run may already have stopped at a deferred call.
-        if self.storage.access.state().pending.is_some() {
+        if self.access.backend.state().pending.is_some() {
             return Ok(ExecutionExit::Deferred);
         }
-        self.storage.set_instruction_target(target);
-        let word = self.storage.access.call(&self.dispatch)? as u64;
-        ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
+        self.dispatch.run(&mut self.access, target)
     }
 
     async fn run_deferred(&mut self) -> ControlFlow<ExecutionExit> {
         // Release the backend's state guard before borrowing it for the handler.
         let handler = self
-            .storage
             .access
+            .backend
             .state_mut()
             .pending
             .take()
             .expect("deferred exit must have a handler");
         // Cancellation leaves this set so a later run cannot replay the hook.
         self.host_call_incomplete = true;
-        let memory = self.storage.memory.clone();
-        let mut access = self.storage.access.context();
-        let mut storage = Storage {
-            access: &mut access,
-            memory,
+        let bindings = self.access.bindings.clone();
+        let mut context = self.access.backend.context();
+        let mut access = CpuAccess {
+            backend: &mut context,
+            bindings,
         };
-        let mut call = HostCall::new(&self.config, &mut storage);
+        let mut call = HostCall::new(&self.config, &mut access);
         let result = handler.run(&mut call).await;
         self.host_call_incomplete = false;
         result

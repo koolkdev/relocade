@@ -25,12 +25,15 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod access;
 mod backend;
 mod callback;
+mod code;
 mod dispatch;
 mod error;
 mod execution;
 mod hooks;
+mod io;
 mod memory;
 pub mod real_mode_interrupt;
 mod state;
@@ -38,91 +41,42 @@ mod state;
 pub mod worker;
 
 use crate::{CpuContext, MachineConfig};
+use access::CpuAccess;
 pub use backend::RuntimeBackend;
 pub use callback::HostCall;
+use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
-use dispatch::DispatchTable;
 pub use error::{Error, Result};
 pub use hooks::Hook;
-use memory::Storage;
 pub use memory::{RuntimeMemory, SharedMemory};
-use relocade_wasm_runtime::{Import, WasmCompiler};
-use relocade_x86::{abi, Compiler, EntryTable};
+use relocade_wasm_runtime::WasmCompiler;
 pub use state::RuntimeState;
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
 
-/// One running guest and its engine resources. CPU and memory access belongs to
-/// the machine; this owner prepares code and controls entry into execution.
+/// One guest CPU and its engine resources, executable dispatch and pending calls.
 pub struct Cpu<B: RuntimeBackend> {
     config: Arc<MachineConfig>,
-    storage: Storage<B>,
-    dispatch: B::Function,
-    interpret: B::Function,
-    dispatch_table: DispatchTable<B>,
-    host_imports: Vec<Import<'static, B>>,
+    access: CpuAccess<B>,
+    dispatch: Dispatch<B>,
     host_call_incomplete: bool,
 }
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
-    /// Prepares code and allocates zeroed backing with the configured CPU and map.
-    /// The runtime retains the backend and its live storage for subsequent calls.
+    /// Allocates the configured CPU and memory and links its executable dispatch.
     /// Port and MMIO reads currently return all ones; their writes are ignored.
     pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self> {
-        let target = config.execution_target();
-        let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
-        let dispatcher = compiler.compile_dispatcher()?;
-        let wasm_compiler = backend.compiler();
-        let dispatcher_module = wasm_compiler.compile(&dispatcher.bytes).await?;
-
-        let memory = RuntimeMemory::new(&mut backend, config)?;
-        let dispatch_table = DispatchTable::new(&mut backend)?;
-        let host_imports = vec![
-            backend.bind_host(abi::READ_PORT, Box::new(|_, _, _| -1)),
-            backend.bind_host(abi::WRITE_PORT, Box::new(|_, _, _, _| {})),
-            backend.bind_host(abi::READ_MMIO, Box::new(|_, _, _| -1)),
-            backend.bind_host(abi::WRITE_MMIO, Box::new(|_, _, _, _| {})),
-        ];
-        let mut imports = memory.imports(&backend).to_vec();
-        imports.extend([
-            backend.bind(abi::EXECUTION_ENTRIES, &dispatch_table.memory),
-            backend.bind(abi::EXECUTION_FUNCTIONS, &dispatch_table.functions),
-        ]);
-        let dispatcher_instance = backend.instantiate(&dispatcher_module, &imports).await?;
-        let dispatch = backend.function(&dispatcher_instance, abi::DISPATCH)?;
-        let interpret = backend.function(&dispatcher_instance, abi::INTERPRET)?;
-        let mut runtime = Self {
-            config: Arc::clone(&memory.config),
-            storage: Storage {
-                access: backend,
-                memory,
-            },
+        let bindings = RuntimeMemory::new(&mut backend, config)?;
+        let host_imports = io::unconnected_imports(&mut backend);
+        let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
+        Ok(Self {
+            config: Arc::clone(&bindings.config),
+            access: CpuAccess { backend, bindings },
             dispatch,
-            interpret,
-            dispatch_table,
-            host_imports,
             host_call_incomplete: false,
-        };
-        let bytes = relocade_interpreter::module(target.profile);
-        let backend = &runtime.storage.access;
-        let module = if let Some(cache) = backend.module_cache() {
-            cache
-                .get_or_compile(bytes, |bytes| wasm_compiler.compile(bytes))
-                .await?
-        } else {
-            wasm_compiler.compile(bytes).await?
-        };
-        let instance = runtime.instantiate_module(&module, &[]).await?;
-        let backend = &mut runtime.storage.access;
-        let function = backend.function(&instance, abi::RUN)?;
-        backend.set_table_function(
-            &runtime.dispatch_table.functions,
-            EntryTable::INTERPRETER_SLOT,
-            &function,
-        )?;
-        Ok(runtime)
+        })
     }
 
     /// Links a module to this runtime and publishes its callable exports.
@@ -137,44 +91,15 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let instance = self.instantiate(bytes, &[]).await?;
-        self.dispatch_table
-            .install(&mut self.storage.access, &instance, entries)
-    }
-
-    async fn instantiate(
-        &mut self,
-        bytes: &[u8],
-        additional: &[Import<'_, B>],
-    ) -> Result<B::Instance> {
-        let module = self.storage.access.compiler().compile(bytes).await?;
-        self.instantiate_module(&module, additional).await
-    }
-
-    async fn instantiate_module(
-        &mut self,
-        module: &B::Module,
-        additional: &[Import<'_, B>],
-    ) -> Result<B::Instance> {
-        let backend = &mut self.storage.access;
-        let mut imports = self.storage.memory.imports(backend).to_vec();
-        imports.extend([
-            backend.bind(abi::EXECUTION_ENTRIES, &self.dispatch_table.memory),
-            backend.bind(abi::EXECUTION_FUNCTIONS, &self.dispatch_table.functions),
-            backend.bind(abi::DISPATCH, &self.dispatch),
-            backend.bind(abi::INTERPRET, &self.interpret),
-        ]);
-        imports.extend(self.host_imports.iter().cloned());
-        imports.extend(additional.iter().cloned());
-        backend
-            .instantiate(module, &imports)
+        let module = self.access.backend.compiler().compile(bytes).await?;
+        self.dispatch
+            .install(&mut self.access, &module, &[], entries)
             .await
-            .map_err(Into::into)
     }
 
     /// Borrows the stopped machine. CPU and memory writes take effect immediately.
     pub fn context(&mut self) -> CpuContext<'_> {
-        CpuContext::new(&self.config, &mut self.storage)
+        CpuContext::new(&self.config, &mut self.access)
     }
 
     /// Shares guest memory with a reader that can outlive this runtime. Native
@@ -183,19 +108,19 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     pub fn shared_memory(&self) -> SharedMemory<B::SharedMemory> {
         SharedMemory::new(
             &self.config,
-            self.storage
-                .access
-                .shared_memory(&self.storage.memory.guest)
+            self.access
+                .backend
+                .shared_memory(&self.access.bindings.guest)
                 .expect("guest backing is shared"),
         )
     }
 
     /// Borrows the environment state between guest calls. Drop the borrow before running.
     pub fn state(&self) -> impl Deref<Target = T> + '_ {
-        state::Data(self.storage.access.state())
+        state::Data(self.access.backend.state())
     }
 
     pub fn state_mut(&mut self) -> impl DerefMut<Target = T> + '_ {
-        state::Data(self.storage.access.state_mut())
+        state::Data(self.access.backend.state_mut())
     }
 }

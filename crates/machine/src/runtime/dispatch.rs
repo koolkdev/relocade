@@ -1,9 +1,12 @@
-//! Installation of callable Wasm functions at guest linear addresses.
+//! Links executable modules and owns dispatch for one CPU.
 
-use super::Result;
-use relocade_compiler::abi::Function;
-use relocade_wasm_runtime::WasmBackend;
-use relocade_x86::{abi, EntryTable};
+mod table;
+
+use super::{access::CpuAccess, code};
+use crate::{Error, Result, RuntimeMemory};
+use relocade_wasm_runtime::{Import, WasmBackend};
+use relocade_x86::{abi, ExecutionExit};
+use table::DispatchTable;
 
 /// An ordinary `() -> i64` export to publish at a guest linear address.
 pub struct DispatchEntry<'a> {
@@ -11,66 +14,89 @@ pub struct DispatchEntry<'a> {
     pub export: &'a str,
 }
 
-/// Owns the guest-address map and shared Wasm function table.
-pub(crate) struct DispatchTable<B: WasmBackend> {
-    pub memory: B::Memory,
-    pub functions: B::Table,
-    addresses: EntryTable,
-    next_slot: u32,
-    capacity: u32,
+/// Bound dispatcher, interpreter, host imports and callable entries for one CPU.
+/// Keeps module linking and publication together so every entry uses the same
+/// runtime bindings and execution table.
+pub(crate) struct Dispatch<B: WasmBackend> {
+    dispatch: B::Function,
+    interpret: B::Function,
+    table: DispatchTable<B>,
+    host_imports: Vec<Import<'static, B>>,
 }
 
-impl<B: WasmBackend> DispatchTable<B> {
-    pub fn new(backend: &mut B) -> Result<Self> {
-        let memory = backend.create_memory(abi::EXECUTION_ENTRIES)?;
-        let addresses = EntryTable::default();
-        backend.write_memory(&memory, 0, &addresses.to_bytes());
+impl<B: WasmBackend> Dispatch<B> {
+    pub(crate) async fn new(
+        backend: &mut B,
+        bindings: &RuntimeMemory<B::Memory>,
+        host_imports: Vec<Import<'static, B>>,
+    ) -> Result<Self> {
+        let target = bindings.configuration().execution_target();
+        let module = code::dispatcher(backend, target).await?;
+        // Link the dispatcher first; the interpreter imports its entry points.
+        let dispatch = Self::link_dispatcher(backend, bindings, &module, host_imports).await?;
+        let module = code::interpreter(backend, target).await?;
+        let instance = dispatch
+            .instantiate(backend, bindings, &module, &[])
+            .await?;
+        dispatch.table.install_interpreter(backend, &instance)?;
+        Ok(dispatch)
+    }
+
+    async fn link_dispatcher(
+        backend: &mut B,
+        bindings: &RuntimeMemory<B::Memory>,
+        module: &B::Module,
+        host_imports: Vec<Import<'static, B>>,
+    ) -> Result<Self> {
+        let table = DispatchTable::new(backend)?;
+        let mut imports = bindings.imports(backend).to_vec();
+        imports.extend(table.imports(backend));
+        let instance = backend.instantiate(module, &imports).await?;
         Ok(Self {
-            memory,
-            functions: backend.create_table(abi::EXECUTION_FUNCTIONS.minimum)?,
-            addresses,
-            next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
-            capacity: abi::EXECUTION_FUNCTIONS.minimum,
+            dispatch: backend.function(&instance, abi::DISPATCH)?,
+            interpret: backend.function(&instance, abi::INTERPRET)?,
+            table,
+            host_imports,
         })
     }
 
-    pub fn install(
+    pub(crate) fn run(&mut self, access: &mut CpuAccess<B>, target: u64) -> Result<ExecutionExit> {
+        access.set_instruction_target(target);
+        let word = access.backend.call(&self.dispatch)? as u64;
+        ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
+    }
+
+    pub(crate) async fn install(
         &mut self,
-        backend: &mut B,
-        instance: &B::Instance,
+        access: &mut CpuAccess<B>,
+        module: &B::Module,
+        additional: &[Import<'_, B>],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        // Resolve every export before changing existing callable slots.
-        let mut addresses = self.addresses.clone();
-        let mut next_slot = self.next_slot;
-        let mut functions = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let function = backend.function(instance, Function::new("", entry.export))?;
-            let slot = addresses.get(entry.address).unwrap_or_else(|| {
-                let slot = next_slot;
-                next_slot = next_slot
-                    .checked_add(1)
-                    .expect("Wasm function table capacity");
-                slot
-            });
-            addresses.insert(entry.address, slot);
-            functions.push((slot, function));
-        }
-        let bytes = addresses.to_bytes();
-        // Reserve both resources before replacing any live function slots.
-        if next_slot > self.capacity {
-            let capacity = next_slot.max(self.capacity.saturating_mul(2));
-            backend.ensure_table_size(&self.functions, capacity)?;
-            self.capacity = capacity;
-        }
-        backend.ensure_memory_size(&self.memory, bytes.len() as u64)?;
-        for (slot, function) in functions {
-            backend.set_table_function(&self.functions, slot, &function)?;
-        }
-        // All functions exist before their addresses become visible to dispatch.
-        backend.write_memory(&self.memory, 0, &bytes);
-        self.addresses = addresses;
-        self.next_slot = next_slot;
-        Ok(())
+        let instance = self
+            .instantiate(&mut access.backend, &access.bindings, module, additional)
+            .await?;
+        self.table.install(&mut access.backend, &instance, entries)
+    }
+
+    async fn instantiate(
+        &self,
+        backend: &mut B,
+        bindings: &RuntimeMemory<B::Memory>,
+        module: &B::Module,
+        additional: &[Import<'_, B>],
+    ) -> Result<B::Instance> {
+        let mut imports = bindings.imports(backend).to_vec();
+        imports.extend(self.table.imports(backend));
+        imports.extend([
+            backend.bind(abi::DISPATCH, &self.dispatch),
+            backend.bind(abi::INTERPRET, &self.interpret),
+        ]);
+        imports.extend(self.host_imports.iter().cloned());
+        imports.extend(additional.iter().cloned());
+        backend
+            .instantiate(module, &imports)
+            .await
+            .map_err(Into::into)
     }
 }
