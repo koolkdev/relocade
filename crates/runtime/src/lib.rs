@@ -27,6 +27,8 @@
 
 mod backend;
 mod callback;
+#[cfg(feature = "compiler-worker")]
+pub mod compiler_worker;
 mod dispatch;
 mod error;
 mod execution;

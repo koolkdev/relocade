@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Relocade compiler worker checks</title>
+<link rel="icon" href="data:,">
+<pre id="result">Running compiler worker checks…</pre>
+<script type="module">
+    import init, { run_checks } from "./pkg/relocade_compiler_worker_tests.js";
+    const result = document.querySelector("#result");
+    window.checks = (async () => {
+        try {
+            await init();
+            await run_checks();
+            result.textContent = "Compiler worker checks passed.";
+        } catch (error) {
+            result.textContent = `Compiler worker checks failed: ${error}`;
+            throw error;
+        }
+    })();
+</script>

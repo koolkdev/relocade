@@ -51,6 +51,9 @@ Browser tests exercise the production web runtime: live CPU and memory access,
 callbacks, scalar carriers, module linking and dispatch. DOS and VFS behavior
 tests run natively, alongside compiler and instruction correctness tests.
 
+The optional shared-memory compiler worker has a separate threaded build and
+focused browser check; see [its test fixture](tests/compiler-worker/README.md).
+
 Install Chrome and a matching ChromeDriver, then run:
 
 ```sh

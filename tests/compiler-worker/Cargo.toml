@@ -1,0 +1,24 @@
+[package]
+name = "relocade-compiler-worker-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+relocade-compiler = { path = "../../crates/compiler" }
+relocade-runtime = { path = "../../crates/runtime", features = ["compiler-worker"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+relocade-runtime-web = { path = "../../crates/runtime-web" }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "=0.4.79"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+relocade-runtime-wasmtime = { path = "../../crates/runtime-wasmtime" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pollster = "=1.0.1"
