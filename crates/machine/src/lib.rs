@@ -2,7 +2,7 @@
 //!
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
 //! size and the fixed physical map. Execution backends provide storage; [`CpuContext`] borrows that storage to
-//! expose the current CPU and [`Memory`] with the machine's access policy.
+//! expose the current CPU and [`MemoryView`] with the machine's access policy.
 //!
 //! ```
 //! use relocade_machine::{CpuConfig, MachineConfig};
@@ -36,25 +36,25 @@ mod config;
 mod cpu;
 mod memory;
 pub mod runtime;
+mod storage;
 
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{CpuContext, CpuView};
-pub use memory::{Memory, MemoryError, ReadMemory};
+pub use memory::{Memory, MemoryError, MemoryView};
+pub use storage::MemoryStorage;
 
 /// Transfers to the CPU and guest memory supplied by the runtime. CPU offsets
 /// are relative to the start of `CpuState` in the execution context.
 /// Writes take effect immediately; implementations must not cache a CPU snapshot.
 /// Backing transfers receive ranges already checked against configured capacity.
-pub trait CpuStorage {
+pub trait CpuStorage: MemoryStorage {
     fn read_cpu(&self, offset: u32, bytes: &mut [u8]);
     fn write_cpu(&mut self, offset: u32, bytes: &[u8]);
-    fn read_backing(&self, offset: u32, bytes: &mut [u8]);
-    fn write_backing(&mut self, offset: u32, bytes: &[u8]);
 }
 
 #[cfg(feature = "worker")]
 pub use runtime::worker;
 pub use runtime::{
     real_mode_interrupt, Cpu, DispatchEntry, Error, Hook, HostCall, Result, RuntimeBackend,
-    RuntimeMemory, RuntimeState, SharedMemory,
+    RuntimeMemory, RuntimeState,
 };

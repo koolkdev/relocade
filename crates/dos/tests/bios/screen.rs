@@ -6,8 +6,9 @@ use relocade_x86::ExecutionExit;
 fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        let memory = dos.cpu().shared_memory();
-        let screen = TextScreen::read(&memory);
+        let mut memory = dos.cpu().memory();
+        let view = memory.view();
+        let screen = TextScreen::read(&view);
         assert_eq!(screen.page, 0);
         assert_eq!(
             screen.cursor,
@@ -44,7 +45,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
         )
         .unwrap();
         assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
-        let screen = TextScreen::read(&memory);
+        let screen = TextScreen::read(&view);
         assert_eq!(
             screen.cells[0],
             TextCell {
@@ -69,7 +70,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
             memory.write(0x456, &[79, 24]).unwrap();
             memory.write(0xbbf9e, &[b'Z', 0x2f]).unwrap();
         }
-        let page = TextScreen::read(&memory);
+        let page = TextScreen::read(&view);
         assert_eq!(page.page, 3);
         assert_eq!(page.cursor.row, 24);
         assert_eq!(page.cursor.column, 79);

@@ -1,6 +1,6 @@
 //! DOS services choose whether a transfer stops at or wraps around a segment end.
 
-use relocade_machine::Memory;
+use relocade_machine::MemoryView;
 use relocade_x86::SegmentRegister;
 
 const SEGMENT_BYTES: usize = 0x10000;
@@ -12,7 +12,7 @@ pub(super) fn transfer_count(offset: u16, count: u16) -> usize {
 
 /// DOS byte-string copies advance a 16-bit offset, wrapping within the segment.
 pub(super) fn write_wrapping(
-    memory: &mut Memory<'_>,
+    memory: &mut MemoryView<'_>,
     segment: &SegmentRegister,
     mut offset: u16,
     mut bytes: &[u8],

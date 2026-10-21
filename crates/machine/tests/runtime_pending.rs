@@ -1,5 +1,4 @@
 mod support;
-use relocade_machine::ReadMemory;
 use relocade_machine::{real_mode_interrupt, Error, Hook, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -143,7 +142,8 @@ async fn check_pending_calls() {
         .unwrap();
 
     assert_eq!(runtime.run(6).unwrap(), ExecutionExit::Deferred);
-    let reader = runtime.shared_memory();
+    let mut shared = runtime.memory();
+    let reader = shared.view();
     let suspended = runtime.context().cpu().snapshot();
     assert_eq!(suspended.instruction_count, 1);
     assert_eq!(suspended.registers.esp, 0xfefa);

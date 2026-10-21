@@ -1,6 +1,6 @@
 //! An 80-by-25 color text screen stored in guest memory.
 
-use relocade_machine::{Memory, ReadMemory};
+use relocade_machine::MemoryView;
 
 /// Physical start of color text memory.
 pub const TEXT_MEMORY_START: u32 = 0xb8000;
@@ -53,7 +53,7 @@ impl TextScreen {
 
     /// Samples the active page and cursor. When execution runs concurrently,
     /// individual cells and cursor metadata may reflect different moments.
-    pub fn read(memory: &(impl ReadMemory + ?Sized)) -> Self {
+    pub fn read(memory: &MemoryView<'_>) -> Self {
         let page = active_page(memory);
         let mut bytes = [0; Self::COLUMNS * Self::ROWS * 2];
         memory
@@ -83,14 +83,14 @@ impl TextScreen {
 /// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
 /// CR, LF and backspace move the cursor; other glyphs retain cell attributes.
 /// This updates guest video memory and BIOS cursor data without a host output stream.
-pub fn write_text(memory: &mut Memory<'_>, bytes: &[u8]) {
+pub fn write_text(memory: &mut MemoryView<'_>, bytes: &[u8]) {
     let page = active_page(memory);
     for &byte in bytes {
         teletype(memory, page, byte);
     }
 }
 
-pub(super) fn active_page(memory: &(impl ReadMemory + ?Sized)) -> u8 {
+pub(super) fn active_page(memory: &MemoryView<'_>) -> u8 {
     // The initial color text aperture has four pages.
     memory.read_u8(ACTIVE_PAGE).expect("active video page") & 3
 }
@@ -99,7 +99,7 @@ pub(super) fn valid_page(page: u8) -> bool {
     u32::from(page) < TEXT_MEMORY_BYTES / PAGE_BYTES
 }
 
-pub(super) fn select_page(memory: &mut Memory<'_>, page: u8) {
+pub(super) fn select_page(memory: &mut MemoryView<'_>, page: u8) {
     memory
         .write_u8(ACTIVE_PAGE, page)
         .expect("active video page");
@@ -108,13 +108,13 @@ pub(super) fn select_page(memory: &mut Memory<'_>, page: u8) {
         .expect("video page offset");
 }
 
-pub(super) fn cursor_position(memory: &(impl ReadMemory + ?Sized), page: u8) -> u16 {
+pub(super) fn cursor_position(memory: &MemoryView<'_>, page: u8) -> u16 {
     memory
         .read_u16(CURSORS + u32::from(page) * 2)
         .expect("video cursor")
 }
 
-pub(super) fn set_cursor_position(memory: &mut Memory<'_>, page: u8, position: u16) {
+pub(super) fn set_cursor_position(memory: &mut MemoryView<'_>, page: u8, position: u16) {
     memory
         .write_u16(CURSORS + u32::from(page) * 2, position)
         .expect("video cursor");
@@ -126,7 +126,7 @@ fn cell_address(page: u8, row: u8, column: u8) -> u32 {
         + (u32::from(row) * TextScreen::COLUMNS as u32 + u32::from(column)) * 2
 }
 
-pub(super) fn read_cell(memory: &mut Memory<'_>, page: u8) -> [u8; 2] {
+pub(super) fn read_cell(memory: &MemoryView<'_>, page: u8) -> [u8; 2] {
     let [column, row] = cursor_position(memory, page).to_le_bytes();
     let mut cell = [0; 2];
     if usize::from(row) < TextScreen::ROWS && usize::from(column) < TextScreen::COLUMNS {
@@ -138,7 +138,7 @@ pub(super) fn read_cell(memory: &mut Memory<'_>, page: u8) -> [u8; 2] {
 }
 
 pub(super) fn write_repeated(
-    memory: &mut Memory<'_>,
+    memory: &mut MemoryView<'_>,
     page: u8,
     character: u8,
     attribute: Option<u8>,
@@ -172,7 +172,7 @@ pub(super) enum ScrollDirection {
 }
 
 pub(super) fn scroll(
-    memory: &mut Memory<'_>,
+    memory: &mut MemoryView<'_>,
     page: u8,
     window: Window,
     lines: u8,
@@ -219,7 +219,7 @@ pub(super) fn scroll(
     }
 }
 
-fn teletype(memory: &mut Memory<'_>, page: u8, character: u8) {
+fn teletype(memory: &mut MemoryView<'_>, page: u8, character: u8) {
     let [mut column, mut row] = cursor_position(memory, page).to_le_bytes();
     if usize::from(row) >= TextScreen::ROWS || usize::from(column) >= TextScreen::COLUMNS {
         return;
@@ -263,7 +263,7 @@ fn teletype(memory: &mut Memory<'_>, page: u8, character: u8) {
     set_cursor_position(memory, page, u16::from_le_bytes([column, row]));
 }
 
-pub(super) fn initialize(memory: &mut Memory<'_>) {
+pub(super) fn initialize(memory: &mut MemoryView<'_>) {
     memory.write_u8(MODE, 3).expect("video mode");
     memory
         .write_u16(COLUMNS, TextScreen::COLUMNS as u16)

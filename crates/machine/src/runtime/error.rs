@@ -1,4 +1,4 @@
-use crate::ConfigurationError;
+use crate::{ConfigurationError, MemoryError};
 use relocade_compiler::BuildError;
 use std::fmt;
 
@@ -7,6 +7,7 @@ use std::fmt;
 pub enum Error {
     Generate(BuildError),
     Configuration(ConfigurationError),
+    Memory(MemoryError),
     Wasm(relocade_wasm_runtime::Error),
     InvalidExit(u64),
     CancelledHostCall,
@@ -17,6 +18,7 @@ impl fmt::Display for Error {
         match self {
             Self::Generate(error) => write!(f, "generate execution module: {error}"),
             Self::Configuration(error) => error.fmt(f),
+            Self::Memory(error) => error.fmt(f),
             Self::Wasm(error) => error.fmt(f),
             Self::InvalidExit(word) => write!(f, "invalid guest exit word {word:#018x}"),
             Self::CancelledHostCall => {
@@ -34,6 +36,7 @@ impl std::error::Error for Error {
         match self {
             Self::Generate(error) => Some(error),
             Self::Configuration(error) => Some(error),
+            Self::Memory(error) => Some(error),
             Self::Wasm(error) => Some(error),
             _ => None,
         }
@@ -55,6 +58,12 @@ impl From<ConfigurationError> for Error {
 impl From<relocade_wasm_runtime::Error> for Error {
     fn from(error: relocade_wasm_runtime::Error) -> Self {
         Self::Wasm(error)
+    }
+}
+
+impl From<MemoryError> for Error {
+    fn from(error: MemoryError) -> Self {
+        Self::Memory(error)
     }
 }
 

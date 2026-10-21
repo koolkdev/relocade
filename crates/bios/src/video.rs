@@ -60,7 +60,7 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionE
             );
         }
         0x08 => {
-            let cell = screen::read_cell(&mut call.memory(), page);
+            let cell = screen::read_cell(&call.memory(), page);
             call.cpu().set_ax(u16::from_le_bytes(cell));
         }
         0x09 | 0x0a => screen::write_repeated(

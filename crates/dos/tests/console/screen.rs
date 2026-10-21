@@ -76,13 +76,13 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             .memory()
             .write(0x10300, b"Ready$")
             .unwrap();
-        let memory = dos.cpu().shared_memory();
+        let mut memory = dos.cpu().memory();
         let mut input = dos.stdin();
         let mut run = pin!(dos.cpu().run_async(100));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(run.as_mut().poll(&mut cx).is_pending());
-        let thread_memory = memory.clone();
-        let screen = std::thread::spawn(move || TextScreen::read(&thread_memory))
+        let mut thread_memory = memory.clone();
+        let screen = std::thread::spawn(move || TextScreen::read(&thread_memory.view()))
             .join()
             .unwrap();
         assert_eq!(
@@ -99,7 +99,7 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             run.as_mut().poll(&mut cx),
             Poll::Ready(Ok(ExecutionExit::HostReturn))
         ));
-        let screen = TextScreen::read(&memory);
+        let screen = TextScreen::read(&memory.view());
         assert_eq!(screen.cells[5].character, b'X');
         assert_eq!(screen.cursor.column, 6);
     });

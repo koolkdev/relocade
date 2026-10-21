@@ -12,7 +12,7 @@ mod text_renderer;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::Memory;
+use relocade_machine::MemoryView;
 use relocade_machine::{real_mode_interrupt, Hook, HostCall};
 use relocade_x86::ExecutionExit;
 pub use screen::{
@@ -34,7 +34,7 @@ const MIDNIGHT_ROLLOVER: u32 = 0x470;
 /// Initializes the clock data, BIOS vectors and their ROM return instructions.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
 /// Color text memory at [`TEXT_MEMORY_START`] must also have RAM backing.
-pub fn initialize(memory: &mut Memory<'_>) {
+pub fn initialize(memory: &mut MemoryView<'_>) {
     screen::initialize(memory);
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
