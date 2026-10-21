@@ -50,11 +50,7 @@ impl Memory {
             Self::Private(memory) => memory
                 .write(store, offset as usize, bytes)
                 .expect("in-bounds Wasm memory range"),
-            Self::Shared(memory) => {
-                for (cell, byte) in memory.range(offset, bytes.len()).iter().zip(bytes) {
-                    cell.store(*byte, Ordering::Relaxed);
-                }
-            }
+            Self::Shared(memory) => memory.write(offset, bytes),
         }
     }
 
@@ -92,6 +88,15 @@ impl Memory {
 }
 
 impl WasmSharedMemory for SharedMemory {
+    fn write(&self, offset: u32, bytes: &[u8]) {
+        for (cell, byte) in self.range(offset, bytes.len()).iter().zip(bytes) {
+            cell.store(*byte, Ordering::Relaxed);
+        }
+    }
+    fn byte_len(&self) -> u64 {
+        self.0.size() * 65536
+    }
+
     fn read(&self, offset: u32, bytes: &mut [u8]) {
         for (cell, byte) in self.range(offset, bytes.len()).iter().zip(bytes) {
             *byte = cell.load(Ordering::Relaxed);

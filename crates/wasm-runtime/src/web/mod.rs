@@ -142,6 +142,13 @@ impl<T: 'static> WasmBackend for Backend<T> {
         SharedMemory::from_memory(self.store.borrow().memory(memory).clone())
     }
 
+    fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
+        let mut store = self.store.borrow_mut();
+        let handle = Memory(store.memories.len());
+        store.memories.push(memory.memory().clone());
+        handle
+    }
+
     fn create_table(&mut self, minimum: u32) -> Result<Self::Table> {
         let descriptor = Object::new();
         set(&descriptor, "initial", &minimum.into())?;
@@ -263,7 +270,7 @@ impl<T> WasmMemoryAccess for Store<T> {
     }
 
     fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory::range(self.memory(memory), offset, bytes.len()).copy_from(bytes);
+        memory::write(self.memory(memory), offset, bytes);
     }
 }
 
