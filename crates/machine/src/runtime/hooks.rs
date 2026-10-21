@@ -1,4 +1,5 @@
 use relocade_compiler::{abi::Function, Program, I64};
+use relocade_wasm_runtime::WasmCompiler;
 use relocade_x86::{abi, ExecutionExit};
 use std::ops::ControlFlow;
 
@@ -73,11 +74,11 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
                 body.tail_call(dispatch, &[])
             })?;
             program.export(name, function)?;
-            let memory = self.storage.memory.clone();
-            imports.push(self.storage.access.bind_host(
+            let bindings = self.access.bindings.clone();
+            imports.push(self.access.backend.bind_host(
                 declaration,
                 Box::new(move |mut caller| {
-                    let flow = memory.with_host_call(&mut caller, |call| (hook.handler)(call));
+                    let flow = bindings.with_host_call(&mut caller, |call| (hook.handler)(call));
                     match flow {
                         ControlFlow::Continue(()) => 0,
                         ControlFlow::Break(exit) => exit.to_bits() as i64,
@@ -89,8 +90,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
                 export: name,
             });
         }
-        let instance = self.instantiate(&program.compile()?, &imports).await?;
-        self.dispatch_table
-            .install(&mut self.storage.access, &instance, &entries)
+        let bytes = program.compile()?;
+        let module = self.access.backend.compiler().compile(&bytes).await?;
+        self.dispatch
+            .install(&mut self.access, &module, &imports, &entries)
+            .await
     }
 }

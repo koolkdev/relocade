@@ -1,4 +1,4 @@
-use super::{memory::Storage, RuntimeMemory, RuntimeState};
+use super::{access::CpuAccess, RuntimeMemory, RuntimeState};
 use crate::{CpuStorage, CpuView, MachineConfig, Memory};
 use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
@@ -8,34 +8,34 @@ use std::{future::Future, ops::ControlFlow, pin::Pin};
 mod tests;
 
 /// Access to CPU, guest memory and environment state for a host handler.
-/// This view borrows existing storage; edits apply immediately.
+/// This view borrows live CPU and memory; edits apply immediately.
 pub struct HostCall<'a, T = ()> {
     config: &'a MachineConfig,
-    storage: &'a mut dyn HostStorage<T>,
+    access: &'a mut dyn HostAccess<T>,
 }
 
 impl<'a, T> HostCall<'a, T> {
-    pub(crate) fn new(config: &'a MachineConfig, storage: &'a mut dyn HostStorage<T>) -> Self {
-        Self { config, storage }
+    pub(crate) fn new(config: &'a MachineConfig, access: &'a mut dyn HostAccess<T>) -> Self {
+        Self { config, access }
     }
 
     /// Borrows the CPU that entered this host call.
     pub fn cpu(&mut self) -> CpuView<'_> {
-        CpuView::new(self.config, self.storage)
+        CpuView::new(self.config, self.access)
     }
 
     /// Borrows the machine's shared guest memory through its configured map.
     pub fn memory(&mut self) -> Memory<'_> {
-        Memory::new(self.config, self.storage)
+        Memory::new(self.config, self.access)
     }
 
     /// The environment state owned by this backend.
     pub fn state(&self) -> &T {
-        &self.storage.state().data
+        &self.access.state().data
     }
 
     pub fn state_mut(&mut self) -> &mut T {
-        &mut self.storage.state_mut().data
+        &mut self.access.state_mut().data
     }
 
     /// Defers an async handler until the generated guest call has returned.
@@ -55,10 +55,10 @@ impl<'a, T> HostCall<'a, T> {
         F: AsyncFnOnce(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + 'static,
     {
         assert!(
-            self.storage.state().pending.is_none(),
+            self.access.state().pending.is_none(),
             "host call already deferred"
         );
-        self.storage.state_mut().pending = Some(Box::new(handler));
+        self.access.state_mut().pending = Some(Box::new(handler));
         ControlFlow::Break(ExecutionExit::Deferred)
     }
 }
@@ -84,18 +84,18 @@ where
 }
 
 // Erase the backend's scoped access type while retaining its typed environment state.
-pub(crate) trait HostStorage<T>: CpuStorage {
+pub(crate) trait HostAccess<T>: CpuStorage {
     fn state(&self) -> &RuntimeState<T>;
     fn state_mut(&mut self) -> &mut RuntimeState<T>;
 }
 
-impl<T, C: WasmContext<State = RuntimeState<T>>> HostStorage<T> for Storage<&mut C> {
+impl<T, C: WasmContext<State = RuntimeState<T>>> HostAccess<T> for CpuAccess<&mut C> {
     fn state(&self) -> &RuntimeState<T> {
-        self.access.state()
+        self.backend.state()
     }
 
     fn state_mut(&mut self) -> &mut RuntimeState<T> {
-        self.access.state_mut()
+        self.backend.state_mut()
     }
 }
 
@@ -107,13 +107,13 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
     /// Earlier edits remain applied if the handler returns an error.
     pub fn with_host_call<T, C: WasmContext<State = RuntimeState<T>, Memory = M>, R>(
         &self,
-        access: &mut C,
+        context: &mut C,
         handler: impl FnOnce(&mut HostCall<'_, T>) -> R,
     ) -> R {
-        let mut storage = Storage {
-            access,
-            memory: self.clone(),
+        let mut access = CpuAccess {
+            backend: context,
+            bindings: self.clone(),
         };
-        handler(&mut HostCall::new(&self.config, &mut storage))
+        handler(&mut HostCall::new(&self.config, &mut access))
     }
 }
