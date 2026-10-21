@@ -8,14 +8,15 @@
 //! between synchronous Wasm calls.
 //!
 //! ```
-//! use relocade_machine::MachineConfig;
+//! use relocade_machine::{CpuConfig, MachineConfig};
 //! use relocade_machine::{Cpu, RuntimeBackend, RuntimeState};
 //!
 //! async fn example<B: RuntimeBackend<State = RuntimeState>>(
 //!     backend: B,
 //!     config: MachineConfig,
+//!     cpu: CpuConfig,
 //! ) -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut runtime = Cpu::new(backend, config).await?;
+//!     let mut runtime = Cpu::new(backend, config, cpu).await?;
 //!     runtime.context().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //!     let exit = runtime.run(100)?;
 //!     let ax = runtime.context().cpu().ax();
@@ -40,7 +41,7 @@ mod state;
 #[cfg(feature = "worker")]
 pub mod worker;
 
-use crate::{CpuContext, MachineConfig};
+use crate::{CpuConfig, CpuContext, MachineConfig};
 use access::CpuAccess;
 pub use backend::RuntimeBackend;
 pub use callback::HostCall;
@@ -58,7 +59,8 @@ use std::{
 
 /// One guest CPU and its engine resources, executable dispatch and pending calls.
 pub struct Cpu<B: RuntimeBackend> {
-    config: Arc<MachineConfig>,
+    config: Arc<CpuConfig>,
+    machine_config: Arc<MachineConfig>,
     access: CpuAccess<B>,
     dispatch: Dispatch<B>,
     host_call_incomplete: bool,
@@ -67,12 +69,13 @@ pub struct Cpu<B: RuntimeBackend> {
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Allocates the configured CPU and memory and links its executable dispatch.
     /// Port and MMIO reads currently return all ones; their writes are ignored.
-    pub async fn new(mut backend: B, config: MachineConfig) -> Result<Self> {
-        let bindings = RuntimeMemory::new(&mut backend, config)?;
+    pub async fn new(mut backend: B, config: MachineConfig, cpu: CpuConfig) -> Result<Self> {
+        let bindings = RuntimeMemory::new(&mut backend, config, cpu)?;
         let host_imports = io::unconnected_imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         Ok(Self {
             config: Arc::clone(&bindings.config),
+            machine_config: Arc::clone(&bindings.machine_config),
             access: CpuAccess { backend, bindings },
             dispatch,
             host_call_incomplete: false,
@@ -99,7 +102,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
 
     /// Borrows the stopped machine. CPU and memory writes take effect immediately.
     pub fn context(&mut self) -> CpuContext<'_> {
-        CpuContext::new(&self.config, &mut self.access)
+        CpuContext::new(&self.config, &self.machine_config, &mut self.access)
     }
 
     /// Shares guest memory with a reader that can outlive this runtime. Native
@@ -107,7 +110,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// WebAssembly.Memory to a worker. CPU and dispatch storage remain private.
     pub fn shared_memory(&self) -> SharedMemory<B::SharedMemory> {
         SharedMemory::new(
-            &self.config,
+            &self.machine_config,
             self.access
                 .backend
                 .shared_memory(&self.access.bindings.guest)

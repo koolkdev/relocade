@@ -1,23 +1,25 @@
 #![cfg(not(target_arch = "wasm32"))]
+mod support;
+use support::Configuration;
 
+use relocade_machine::MemoryError;
 use relocade_machine::{Cpu, RuntimeState};
-use relocade_machine::{MachineConfig, MemoryError};
 use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
     PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
 };
 
-fn create(config: MachineConfig) -> Cpu<Backend<RuntimeState>> {
-    pollster::block_on(Cpu::new(
+fn create(config: Configuration) -> Cpu<Backend<RuntimeState>> {
+    pollster::block_on(support::create_cpu(
         Backend::with_state(RuntimeState::default()).unwrap(),
         config,
     ))
     .unwrap()
 }
 
-fn configuration() -> MachineConfig {
-    MachineConfig::new(
+fn configuration() -> Configuration {
+    support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
@@ -168,8 +170,13 @@ fn guest_access_uses_the_map_and_open_bus() {
     ])
     .unwrap();
     let initial = configuration();
-    let config =
-        MachineConfig::new(initial.execution_target(), *initial.cpu(), 0x3000, map).unwrap();
+    let config = support::configuration(
+        initial.cpu.execution_target(),
+        *initial.cpu.cpu(),
+        0x3000,
+        map,
+    )
+    .unwrap();
     let mut runtime = create(config);
     // MOV AX,[8000]; INC AX; MOV [8000],AX; IN AL,80; MOV BX,[9000]; JMP next
     runtime
@@ -237,10 +244,10 @@ fn prepared_code_uses_configured_cpu_features() {
     let target = Compiler::new(ExecutionProfile::Real16)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
         .target();
-    let disabled = MachineConfig::new(
+    let disabled = support::configuration(
         target,
-        *initial.cpu(),
-        initial.memory_size(),
+        *initial.cpu.cpu(),
+        initial.machine.memory_size(),
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();

@@ -4,7 +4,7 @@ mod shared;
 pub use shared::SharedMemory;
 
 use super::Result;
-use crate::MachineConfig;
+use crate::{CpuConfig, MachineConfig};
 use relocade_compiler::abi::Memory;
 use relocade_wasm_runtime::{Import, WasmBackend};
 use relocade_x86::{abi, ExecutionContext};
@@ -15,14 +15,20 @@ use std::sync::Arc;
 /// access. Architectural access policy belongs to `relocade_machine`.
 #[derive(Clone)]
 pub struct RuntimeMemory<M> {
-    pub(crate) config: Arc<MachineConfig>,
+    pub(crate) config: Arc<CpuConfig>,
+    pub(crate) machine_config: Arc<MachineConfig>,
     pub(crate) context: M,
     pub(crate) guest: M,
     pub(crate) mapping: M,
 }
 
 impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
-    pub fn new<B: WasmBackend<Memory = M>>(backend: &mut B, config: MachineConfig) -> Result<Self> {
+    pub fn new<B: WasmBackend<Memory = M>>(
+        backend: &mut B,
+        machine_config: MachineConfig,
+        config: CpuConfig,
+    ) -> Result<Self> {
+        machine_config.validate_for(config.execution_target().profile)?;
         let context = backend.create_memory(Memory {
             maximum: Some(1),
             ..abi::EXECUTION_CONTEXT
@@ -37,12 +43,12 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
             }
             .to_bytes(),
         );
-        let guest_pages = config.memory_size().div_ceil(65536).max(1) as u32;
+        let guest_pages = machine_config.memory_size().div_ceil(65536).max(1) as u32;
         let guest = backend.create_memory(Memory {
             minimum: guest_pages,
             ..abi::GUEST
         })?;
-        let mapping_bytes = config.memory_map().to_bytes();
+        let mapping_bytes = machine_config.memory_map().to_bytes();
         let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
         let mapping = backend.create_memory(Memory {
             minimum: mapping_pages,
@@ -52,13 +58,14 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
         backend.write_memory(&mapping, 0, &mapping_bytes);
         Ok(Self {
             config: Arc::new(config),
+            machine_config: Arc::new(machine_config),
             context,
             guest,
             mapping,
         })
     }
 
-    pub fn configuration(&self) -> &MachineConfig {
+    pub fn configuration(&self) -> &CpuConfig {
         &self.config
     }
     pub fn context_memory(&self) -> &M {

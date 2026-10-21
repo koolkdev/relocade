@@ -1,9 +1,11 @@
+use relocade_machine::RuntimeMemory;
+mod support;
 use relocade_compiler::{
     abi::{Function, Memory},
     Program, I32, I64,
 };
-use relocade_machine::MachineConfig;
-use relocade_machine::{HostCall, RuntimeMemory, RuntimeState};
+
+use relocade_machine::{HostCall, RuntimeState};
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmMemoryAccess};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -54,7 +56,7 @@ async fn check_callback() {
         segments: Segments::real_mode(),
         ..CpuState::default()
     };
-    let config = MachineConfig::new(
+    let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16)
             .with_cpu_model(model)
             .target(),
@@ -74,7 +76,7 @@ async fn check_callback() {
     .unwrap();
     let state = HostState { calls: 0 };
     let mut backend = Backend::with_state(RuntimeState::new(state)).unwrap();
-    let memory = RuntimeMemory::new(&mut backend, config).unwrap();
+    let memory = RuntimeMemory::new(&mut backend, config.machine, config.cpu).unwrap();
     let guest = memory.guest_memory().clone();
     let context = memory.context_memory().clone();
     backend.write_memory(

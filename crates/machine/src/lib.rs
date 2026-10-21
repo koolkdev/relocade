@@ -1,17 +1,18 @@
 //! Initial machine configuration and scoped access to live guest state.
 //!
-//! [`MachineConfig`] describes the initial CPU, backing size and fixed physical
-//! map. Execution backends provide storage; [`CpuContext`] borrows that storage to
+//! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
+//! size and the fixed physical map. Execution backends provide storage; [`CpuContext`] borrows that storage to
 //! expose the current CPU and [`Memory`] with the machine's access policy.
 //!
 //! ```
-//! use relocade_machine::MachineConfig;
+//! use relocade_machine::{CpuConfig, MachineConfig};
 //! use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
 //!
 //! let target = Compiler::new(ExecutionProfile::Real16).target();
 //! let cpu = CpuState { eip: 0x100, segments: Segments::real_mode(), ..CpuState::default() };
 //! let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
-//! let config = MachineConfig::new(target, cpu, 2 * 1024 * 1024, map)?;
+//! let cpu = CpuConfig::new(target, cpu)?;
+//! let config = MachineConfig::new(2 * 1024 * 1024, map)?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -36,7 +37,7 @@ mod cpu;
 mod memory;
 pub mod runtime;
 
-pub use config::{ConfigurationError, MachineConfig};
+pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{CpuContext, CpuView};
 pub use memory::{Memory, MemoryError, ReadMemory};
 

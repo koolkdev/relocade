@@ -44,17 +44,17 @@ fn callbacks_apply_compatible_segment_edits() {
         segments: Segments::real_mode(),
         ..CpuState::default()
     };
-    let config = MachineConfig::new(
+    let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16)
             .with_cpu_model(model)
             .target(),
         cpu,
-        0,
-        PhysicalMemoryMap::new([]).unwrap(),
     )
     .unwrap();
+    let machine_config = MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap();
     let memory = RuntimeMemory {
         config: Arc::new(config),
+        machine_config: Arc::new(machine_config),
         context: (),
         guest: (),
         mapping: (),

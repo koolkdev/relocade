@@ -1,6 +1,6 @@
 use crate::{interrupt, memory, services, DosServices};
 use relocade_machine::{real_mode_interrupt::HOOK_STUB, Hook};
-use relocade_machine::{MachineConfig, Memory};
+use relocade_machine::{CpuConfig, CpuStorage, MachineConfig, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
@@ -33,19 +33,21 @@ pub(crate) fn configuration() -> MachineConfig {
         ),
     ])
     .expect("fixed DOS memory map");
-    MachineConfig::new(
+    MachineConfig::new(u64::from(MEMORY_SIZE), map).expect("fixed DOS memory map")
+}
+
+pub(crate) fn cpu() -> CpuConfig {
+    CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             segments: Segments::real_mode(),
             ..CpuState::default()
         },
-        u64::from(MEMORY_SIZE),
-        map,
     )
-    .expect("fixed real-mode DOS configuration")
+    .expect("fixed real-mode DOS CPU")
 }
 
-pub(crate) fn initialize(memory: &mut Memory<'_>) {
+pub(crate) fn initialize(memory: &mut Memory<'_, impl CpuStorage + ?Sized>) {
     memory::reset(memory);
     for (vector, offset) in [(0x20, INT20_ENTRY), (0x21, INT21_ENTRY)] {
         let [lo, hi] = offset.to_le_bytes();
