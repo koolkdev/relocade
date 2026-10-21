@@ -1365,6 +1365,19 @@ name = "relocade-vfs"
 version = "0.0.0"
 
 [[package]]
+name = "relocade-worker"
+version = "0.0.0"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "js-sys",
+ "pollster",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "relocade-x86"
 version = "0.0.0"
 dependencies = [
