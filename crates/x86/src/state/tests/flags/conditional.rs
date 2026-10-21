@@ -283,7 +283,7 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
                         let current = StatusSource::<I8>::Logic { result: 42.into() };
                         state.write_flags(&mut body, FlagChange::from(current).when(pending))?;
                         let mut child = None;
-                        body.if_(false, |mut arm| {
+                        body.if_(true, |mut arm| {
                             child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
                             Ok(())
                         })?;

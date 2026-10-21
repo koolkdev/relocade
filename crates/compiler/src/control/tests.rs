@@ -1,6 +1,7 @@
-use crate::{BuildError, FunctionImport, MemoryImport, Program, Signature, Type, I32, I8};
+use crate::{BuildError, FunctionImport, MemoryImport, Program, Signature, Type, I1, I32, I8};
 use wasmparser::{Parser, Payload};
 
+mod construction;
 mod exits;
 mod labels;
 
@@ -15,27 +16,30 @@ fn a_failed_else_branch_discards_both_arms_without_closing_the_parent() {
         shared: false,
     });
     let signature = Signature {
-        parameters: vec![],
+        parameters: vec![Type::I1],
         results: vec![Type::I32],
     };
     let target = program.import_function(FunctionImport {
         module: "test".into(),
         name: "target".into(),
-        signature: signature.clone(),
+        signature: Signature {
+            parameters: vec![],
+            results: signature.results.clone(),
+        },
     });
     let function = program.declare(signature);
     program
         .define(function, |mut body| {
             assert_eq!(
                 body.if_else(
-                    true,
+                    body.parameter::<I1>(0)?,
                     |mut branch| {
                         branch.store::<I32>(memory, 0, 9)?;
                         branch.call::<I32>(target, &[])?;
                         branch.if_(true, |inner| inner.tail_call(target, &[]))
                     },
                     |branch| {
-                        branch.parameter::<I32>(0)?;
+                        branch.parameter::<I32>(1)?;
                         Ok(())
                     },
                 ),
@@ -86,7 +90,7 @@ fn completing_a_child_keeps_parent_values_open_until_the_function_completes() {
     program
         .define(function, |mut body| {
             let value = body.value::<I32>(7).unwrap();
-            body.if_(false, |branch| branch.return_(&value)).unwrap();
+            body.if_(true, |branch| branch.return_(&value)).unwrap();
             let result = value.add(1);
             retained = Some((result.clone(), body.arena.clone()));
             body.return_(&result)
@@ -111,19 +115,22 @@ fn an_ignored_yield_error_discards_both_arms_without_retaining_their_imports() {
         shared: false,
     });
     let signature = Signature {
-        parameters: vec![],
+        parameters: vec![Type::I1],
         results: vec![Type::I32],
     };
     let target = program.import_function(FunctionImport {
         module: "test".into(),
         name: "target".into(),
-        signature: signature.clone(),
+        signature: Signature {
+            parameters: vec![],
+            results: signature.results.clone(),
+        },
     });
     let function = program.declare(signature);
     program
         .define(function, |mut body| {
             let result = body.if_value::<I32>(
-                true,
+                body.parameter::<I1>(0)?,
                 |mut arm| {
                     arm.store::<I32>(memory, 0, 9)?;
                     arm.yield_(7)

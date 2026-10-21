@@ -10,6 +10,9 @@ use crate::{
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+mod path;
+pub(super) use path::Path;
+
 #[derive(Clone)]
 pub(super) struct FunctionArena(Rc<RefCell<Option<Construction>>>);
 struct Construction {
@@ -133,12 +136,12 @@ impl FunctionArena {
     pub(super) fn complete_join(
         &self,
         target: BlockId,
-        sources: &[BlockId],
+        sources: impl IntoIterator<Item = BlockId>,
     ) -> Result<Vec<usize>, BuildError> {
         self.with_graph(|graph| {
             let mut incoming = Vec::new();
             let mut seen = vec![false; graph.blocks.len()];
-            let mut pending = sources.to_vec();
+            let mut pending: Vec<_> = sources.into_iter().collect();
             while let Some(block) = pending.pop() {
                 if block == target || std::mem::replace(&mut seen[block.0], true) {
                     continue;
@@ -151,9 +154,6 @@ impl FunctionArena {
                     }
                 }
             }
-            if incoming.is_empty() && !graph.blocks[target.0].parameters.is_empty() {
-                return Err(BuildError::MissingBranchValue);
-            }
             for (component, &parameter) in graph.blocks[target.0].parameters.iter().enumerate() {
                 if let Some(bounds) = incoming
                     .iter()
@@ -163,8 +163,10 @@ impl FunctionArena {
                     graph.values.bounds[parameter] = bounds;
                 }
             }
-            Ok(graph.blocks[target.0].parameters.clone())
-        })?
+            // A join with no incoming edges is unreachable. Its parameters are
+            // valid only in that unreachable continuation and need no producer.
+            graph.blocks[target.0].parameters.clone()
+        })
     }
     pub(super) fn child_scope(&self, parent: usize) -> Result<usize, BuildError> {
         let mut arena = self.0.borrow_mut();

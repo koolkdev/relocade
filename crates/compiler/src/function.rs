@@ -1,6 +1,6 @@
 //! Function construction, pending blocks and definition publication.
 use crate::{
-    arena::FunctionArena,
+    arena::{FunctionArena, Path},
     body::{BlockId, Exit, Layout, Operation},
     control::JoinTarget,
     Argument, Arguments, BuildError, Func, FunctionKind, IntType, Program, Signature, Type, Val,
@@ -38,6 +38,7 @@ pub(super) struct PendingBlock {
     pub(super) entry: BlockId,
     pub(super) current: BlockId,
     pub(super) layout: Vec<Layout>,
+    pub(super) path: Path,
     ending: Ending,
 }
 
@@ -54,6 +55,7 @@ impl PendingBlock {
             entry: block,
             current: block,
             layout: Vec::new(),
+            path: Path::default(),
             ending: Ending::Fallthrough,
         }
     }

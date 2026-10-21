@@ -61,7 +61,7 @@ fn folded_division_operands_and_results_keep_the_original_child_visibility() {
         let memory = fixture.memory("state", &[7, 0, 0, 0]);
         let module = fixture.function(&[], &[Type::I32], |mut body| {
             let mut retained = None;
-            body.if_(false, |mut child| {
+            body.if_(true, |mut child| {
                 let input = child.load::<I32>(memory, 0)?.and(0).add(1);
                 let result = kind.apply(&input, 1);
                 let expected = if matches!(kind, Kind::DivUnsigned | Kind::DivSigned) {
@@ -92,7 +92,7 @@ fn folded_division_operands_and_results_keep_the_original_child_visibility() {
                 body.value(kind.apply(0, &child_input)).err(),
                 Some(BuildError::OutOfScope)
             );
-            body.if_(false, |sibling| {
+            body.if_(true, |sibling| {
                 assert_eq!(
                     sibling.value(kind.apply(&child_result, 1)).err(),
                     Some(BuildError::OutOfScope)
