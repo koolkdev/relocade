@@ -5,7 +5,7 @@
 //! IRET, which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
 
-use super::HostCall;
+use crate::HostCall;
 use relocade_x86::{ExecutionExit, Segment};
 use std::ops::ControlFlow;
 

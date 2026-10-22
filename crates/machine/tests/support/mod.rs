@@ -47,6 +47,32 @@ impl Storage {
     }
 }
 
+pub fn initializing_module(offset: u32, bytes: &[u8]) -> Vec<u8> {
+    use wasm_encoder::{ConstExpr, DataSection, ImportSection, MemoryType, Module};
+    let mut module = Module::new();
+    let mut imports = ImportSection::new();
+    imports.import(
+        "relocade",
+        "guest",
+        MemoryType {
+            minimum: 1,
+            maximum: Some(65536),
+            memory64: false,
+            shared: true,
+            page_size_log2: None,
+        },
+    );
+    module.section(&imports);
+    let mut data = DataSection::new();
+    data.active(
+        0,
+        &ConstExpr::i32_const(offset as i32),
+        bytes.iter().copied(),
+    );
+    module.section(&data);
+    module.finish()
+}
+
 /// Initial state for a test's machine and its first CPU.
 pub struct Configuration {
     pub cpu: CpuConfig,
@@ -69,11 +95,12 @@ pub async fn create_cpu<
     T: 'static,
     B: relocade_machine::RuntimeBackend<State = relocade_machine::RuntimeState<T>>,
 >(
-    backend: B,
+    mut backend: B,
     Configuration {
         cpu,
         machine: config,
     }: Configuration,
 ) -> relocade_machine::Result<relocade_machine::Cpu<B>> {
-    relocade_machine::Cpu::new(backend, config, cpu).await
+    let machine = relocade_machine::Machine::new(&mut backend, config)?;
+    machine.create_cpu(backend, cpu).await
 }

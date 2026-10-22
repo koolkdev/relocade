@@ -1,4 +1,5 @@
-use super::{Cpu, CpuAccess, Error, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::storage::BackendStorage;
+use crate::{Cpu, Error, HostCall, Result, RuntimeBackend, RuntimeState};
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
@@ -16,8 +17,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
         }
-        let target = self.instruction_target(instruction_budget);
-        self.enter(target)
+        self.start(instruction_budget).map(|(_, exit)| exit)
     }
 
     /// Runs with the same instruction budget as `run`, waiting for deferred host
@@ -25,7 +25,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Other host returns and guest exits are returned to the embedding.
     ///
     /// Generated guest calls remain synchronous. Async handlers borrow the
-    /// stopped runtime after the guest call returns, then dispatch resumes at
+    /// stopped CPU after the guest call returns, then dispatch resumes at
     /// the continuation they set. Keep this same future alive across waits.
     ///
     /// Dropping it during an async handler cancels that handler without undoing
@@ -37,8 +37,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
         }
-        let target = self.instruction_target(instruction_budget);
-        let mut exit = self.enter(target)?;
+        let (target, mut exit) = self.start(instruction_budget)?;
         while exit == ExecutionExit::Deferred {
             exit = match self.run_deferred().await {
                 ControlFlow::Continue(()) => self.enter(target)?,
@@ -52,16 +51,20 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Use when replacing a suspended program or its continuation.
     /// Cancellation does not undo side effects already performed by the operation.
     pub fn cancel_pending_call(&mut self) {
-        let pending = self.access.backend.state_mut().pending.take();
+        let pending = self.backend.state_mut().pending.take();
         self.host_call_incomplete = false;
         drop(pending);
     }
 
     fn instruction_target(&mut self, instruction_budget: u64) -> u64 {
-        self.context()
-            .cpu()
+        self.view()
             .instruction_count()
             .saturating_add(instruction_budget)
+    }
+
+    fn start(&mut self, budget: u64) -> Result<(u64, ExecutionExit)> {
+        let target = self.instruction_target(budget);
+        Ok((target, self.enter(target)?))
     }
 
     fn enter(&mut self, target: u64) -> Result<ExecutionExit> {
@@ -69,16 +72,15 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             return Err(Error::CancelledHostCall);
         }
         // A previous synchronous run may already have stopped at a deferred call.
-        if self.access.backend.state().pending.is_some() {
+        if self.backend.state().pending.is_some() {
             return Ok(ExecutionExit::Deferred);
         }
-        self.dispatch.run(&mut self.access, target)
+        self.dispatch.run(&mut self.backend, &self.bindings, target)
     }
 
     async fn run_deferred(&mut self) -> ControlFlow<ExecutionExit> {
         // Release the backend's state guard before borrowing it for the handler.
         let handler = self
-            .access
             .backend
             .state_mut()
             .pending
@@ -86,13 +88,13 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             .expect("deferred exit must have a handler");
         // Cancellation leaves this set so a later run cannot replay the hook.
         self.host_call_incomplete = true;
-        let bindings = self.access.bindings.clone();
-        let mut context = self.access.backend.context();
-        let mut access = CpuAccess {
-            backend: &mut context,
-            bindings,
-        };
-        let mut call = HostCall::new(&self.config, &self.machine_config, &mut access);
+        let mut context = self.backend.context();
+        let mut storage = BackendStorage::new(&mut context, &self.bindings);
+        let mut call = HostCall::new(
+            &self.bindings.config,
+            self.machine.configuration(),
+            &mut storage,
+        );
         let result = handler.run(&mut call).await;
         self.host_call_incomplete = false;
         result

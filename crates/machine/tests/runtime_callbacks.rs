@@ -1,4 +1,4 @@
-use relocade_machine::RuntimeMemory;
+use relocade_machine::Machine;
 mod support;
 use relocade_compiler::{
     abi::{Function, Memory},
@@ -76,7 +76,10 @@ async fn check_callback() {
     .unwrap();
     let state = HostState { calls: 0 };
     let mut backend = Backend::with_state(RuntimeState::new(state)).unwrap();
-    let memory = RuntimeMemory::new(&mut backend, config.machine, config.cpu).unwrap();
+    let memory = Machine::new(&mut backend, config.machine)
+        .unwrap()
+        .bind_cpu(&mut backend, config.cpu)
+        .unwrap();
     let guest = memory.guest_memory().clone();
     let context = memory.context_memory().clone();
     backend.write_memory(
