@@ -11,7 +11,7 @@ pub fn configuration(
     target: relocade_x86::ExecutionTarget,
     cpu: relocade_x86::CpuState,
     size: u64,
-    map: relocade_x86::PhysicalMemoryMap,
+    map: impl Into<machine::MemoryMap>,
 ) -> Result<Configuration, machine::ConfigurationError> {
     Ok(Configuration {
         cpu: CpuConfig::new(target, cpu)?,

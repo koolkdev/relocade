@@ -1,12 +1,19 @@
-use relocade_machine::{ConfigurationError, CpuConfig, Machine, MachineConfig};
+use relocade_machine::{ConfigurationError, CpuConfig, Machine, MachineConfig, PagedMemoryMap};
 use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, ExecutionTarget, PhysicalMapping, PhysicalMemoryMap,
-    SegmentProfile,
+    SegmentProfile, Segments,
 };
 
 fn target() -> ExecutionTarget {
     Compiler::new(ExecutionProfile::Real16).target()
+}
+
+fn cpu() -> CpuState {
+    CpuState {
+        segments: Segments::real_mode(),
+        ..CpuState::default()
+    }
 }
 
 #[test]
@@ -33,10 +40,22 @@ fn memory_map_must_match_the_execution_profile() {
     assert!(matches!(
         physical.bind_cpu(&mut backend, protected),
         Err(relocade_machine::Error::Configuration(
-            ConfigurationError::UnsupportedProfile
+            ConfigurationError::MemoryMapMismatch
         ))
     ));
     assert_eq!(physical.cpu_count(), 0);
+    let paged = Machine::new(
+        &mut backend,
+        MachineConfig::new(0, PagedMemoryMap::default()).unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        paged.bind_cpu(&mut backend, CpuConfig::new(target(), cpu()).unwrap()),
+        Err(relocade_machine::Error::Configuration(
+            ConfigurationError::MemoryMapMismatch
+        ))
+    ));
+    assert_eq!(paged.cpu_count(), 0);
 }
 
 #[test]
@@ -49,7 +68,10 @@ fn backing_capacity_is_independent_of_mapped_guest_addresses() {
     let config = MachineConfig::new(0x20000, map).unwrap();
     assert_eq!(config.memory_size(), 0x20000);
     assert_eq!(
-        config.memory_map().get(0xfffff),
+        match config.memory_map() {
+            relocade_machine::MemoryMap::Physical(map) => map.get(0xfffff),
+            _ => unreachable!(),
+        },
         PhysicalMapping::Rom {
             backing_offset: 0xffff
         }

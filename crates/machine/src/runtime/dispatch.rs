@@ -8,6 +8,12 @@ use relocade_wasm_runtime::{Import, WasmBackend};
 use relocade_x86::{abi, ExecutionExit};
 use table::DispatchTable;
 
+#[derive(Clone, Copy)]
+pub(crate) enum EntryKind {
+    Generated,
+    Hook,
+}
+
 /// An ordinary `() -> i64` export to publish at a guest linear address.
 pub struct DispatchEntry<'a> {
     pub address: u32,
@@ -67,6 +73,8 @@ impl<B: WasmBackend> Dispatch<B> {
         bindings: &CpuBindings<B::Memory>,
         target: u64,
     ) -> Result<ExecutionExit> {
+        let generation = bindings.mapping_generation(backend);
+        self.table.synchronize(backend, generation);
         bindings.set_instruction_target(backend, target);
         let word = backend.call(&self.dispatch)? as u64;
         ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
@@ -79,11 +87,14 @@ impl<B: WasmBackend> Dispatch<B> {
         module: &B::Module,
         additional: &[Import<'_, B>],
         entries: &[DispatchEntry<'_>],
+        kind: EntryKind,
     ) -> Result<()> {
+        let generation = bindings.mapping_generation(backend);
+        self.table.synchronize(backend, generation);
         let instance = self
             .instantiate(backend, bindings, module, additional)
             .await?;
-        self.table.install(backend, &instance, entries)
+        self.table.install(backend, &instance, entries, kind)
     }
 
     async fn instantiate(

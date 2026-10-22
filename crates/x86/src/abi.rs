@@ -14,11 +14,15 @@ pub const GUEST: Memory = Memory {
     ..Memory::new("relocade", "guest", 1)
 };
 pub const PHYSICAL_MAP: Memory = Memory::new("relocade", "physicalMap", 1);
-pub const PAGE_TABLE: Memory = Memory::new(
-    "relocade",
-    "machine",
-    crate::memory::page_table::BYTE_LEN / 65536,
-);
+pub const PAGE_TABLE: Memory = Memory {
+    maximum: Some(crate::memory::page_table::BYTE_LEN / 65536),
+    shared: true,
+    ..Memory::new(
+        "relocade",
+        "machine",
+        crate::memory::page_table::BYTE_LEN / 65536,
+    )
+};
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
 pub const EXECUTION_FUNCTIONS: Table<fn() -> I64> = Table::new("relocade", "executionFunctions", 2);
 

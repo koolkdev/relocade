@@ -54,9 +54,11 @@ fn interpreter_step_exposes_host_abis() {
                     match import.ty {
                         TypeRef::Memory(memory) => {
                             assert!(!memory.memory64);
-                            assert_eq!(memory.shared, import.name == "guest");
-                            if memory.shared {
-                                assert_eq!(memory.maximum, Some(65536));
+                            assert_eq!(memory.shared, matches!(import.name, "guest" | "machine"));
+                            match import.name {
+                                "guest" => assert_eq!(memory.maximum, Some(65536)),
+                                "machine" => assert_eq!(memory.maximum, Some(64)),
+                                _ => {}
                             }
                             memories.push((import.name.to_owned(), memory.initial));
                         }

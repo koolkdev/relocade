@@ -17,7 +17,7 @@ let exit = task.await?;
 ```
 
 The machine sends its shared Wasm allocations together and preserves its shared
-Rust runtime, CPU membership and address policy. The backend and bound instances
+Rust runtime, CPU membership and code identity. The backend and bound instances
 are created on the receiving worker. This does not impose a scheduling policy;
 the application still owns the thread and the execution task.
 

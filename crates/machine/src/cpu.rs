@@ -8,8 +8,12 @@ pub(crate) use membership::Membership;
 pub use view::CpuView;
 
 use crate::{
-    runtime::{dispatch::Dispatch, io, StateData},
-    CpuBindings, DispatchEntry, Machine, Memory, Result, RuntimeBackend, RuntimeState,
+    runtime::{
+        dispatch::{Dispatch, EntryKind},
+        io, StateData,
+    },
+    CpuBindings, DispatchEntry, Error, Machine, Memory, MemoryVersion, Result, RuntimeBackend,
+    RuntimeState,
 };
 use relocade_wasm_runtime::WasmCompiler;
 use std::ops::{Deref, DerefMut};
@@ -92,16 +96,30 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// publication and continuation. Addresses are linear CS.base + EIP, before
     /// paging/A20. Installing an existing address replaces its function.
     ///
-    /// The caller must preserve the module's execution assumptions and replace
-    /// captured code when guest bytes change.
+    /// Capture `version` with source bytes using `Memory::snapshot`, before
+    /// compilation. A changed mapping or another address space returns StaleCode.
+    /// The caller must still replace captured code when guest bytes change.
+    /// Modules must follow the x86 import ABI, including read-only access to the
+    /// imported page table during initialization and execution.
     pub async fn install_module(
         &mut self,
+        version: &MemoryVersion,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let module = self.backend.compiler().compile(bytes).await?;
+        if !self.bindings.matches_version(&self.backend, version) {
+            return Err(Error::StaleCode);
+        }
         self.dispatch
-            .install(&mut self.backend, &self.bindings, &module, &[], entries)
+            .install(
+                &mut self.backend,
+                &self.bindings,
+                &module,
+                &[],
+                entries,
+                EntryKind::Generated,
+            )
             .await
     }
 

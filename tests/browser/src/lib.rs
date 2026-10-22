@@ -4,11 +4,13 @@ mod channels;
 mod memory;
 mod modules;
 mod ownership;
+mod paging;
 
 pub use channels::rust_channels;
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
 pub use ownership::shared_address_space;
+pub use paging::shared_page_tables;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
@@ -30,5 +32,10 @@ mod tests {
     #[test]
     fn address_spaces_allow_overlapping_access_between_workers() {
         pollster::block_on(super::ownership::shared_address_space()).unwrap();
+    }
+
+    #[test]
+    fn page_tables_are_shared_between_workers() {
+        pollster::block_on(super::paging::shared_page_tables()).unwrap();
     }
 }

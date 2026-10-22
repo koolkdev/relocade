@@ -38,7 +38,7 @@ impl TestModule {
         );
         let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
         let guest = SharedBytes::new(1, 1);
-        let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
+        let machine = SharedBytes::new(64, 64);
         let context = crate::ExecutionContext {
             cpu_model: self
                 .target
@@ -52,7 +52,7 @@ impl TestModule {
             guest.write(*offset, bytes);
         }
         for (offset, bytes) in &input.machine {
-            machine.write(&mut store, *offset as usize, bytes).unwrap();
+            machine.write(*offset, bytes);
         }
         let guest_before: Arc<[u8]> = guest.read(0, 65536).into();
         // CPU-only observers without host mapping edits cannot change machine
@@ -65,12 +65,16 @@ impl TestModule {
                 .patches_before_calls
                 .iter()
                 .any(|patches| !patches.machine.is_empty());
-        let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
+        let machine_before =
+            observes_machine.then(|| Arc::<[u8]>::from(machine.read(0, 64 * 65536)));
         let mut linker = Linker::new(engine);
         ports::register(&mut linker);
-        for (name, memory) in [("executionContext", cpu), ("machine", machine)] {
-            linker.define(&store, "relocade", name, memory).unwrap();
-        }
+        linker
+            .define(&store, "relocade", "executionContext", cpu)
+            .unwrap();
+        linker
+            .define(&store, "relocade", "machine", machine.memory().clone())
+            .unwrap();
         linker
             .define(&store, "relocade", "guest", guest.memory().clone())
             .unwrap();
@@ -80,6 +84,7 @@ impl TestModule {
         let dispatch_guest_before = guest_before.clone();
         let dispatch_machine_before = machine_before.clone();
         let dispatch_guest = guest.clone();
+        let dispatch_machine = machine.clone();
         linker
             .func_wrap(
                 "relocade",
@@ -93,7 +98,7 @@ impl TestModule {
                     };
                     let unchanged = dispatch_machine_before
                         .as_ref()
-                        .is_none_or(|before| &**before == machine.data(&caller));
+                        .is_none_or(|before| &**before == dispatch_machine.read(0, 64 * 65536));
                     caller.data_mut().machine_unchanged &= unchanged;
                     caller.data_mut().events.push(Event::Dispatch { snapshot });
                     dispatch_return
@@ -183,6 +188,7 @@ impl TestModule {
             let handoff_guest_before = guest_before.clone();
             let handoff_machine_before = machine_before.clone();
             let handoff_guest = guest.clone();
+            let handoff_machine = machine.clone();
             linker
                 .func_wrap(
                     "relocade",
@@ -196,7 +202,7 @@ impl TestModule {
                         };
                         let unchanged = handoff_machine_before
                             .as_ref()
-                            .is_none_or(|before| &**before == machine.data(&caller));
+                            .is_none_or(|before| &**before == handoff_machine.read(0, 64 * 65536));
                         caller.data_mut().machine_unchanged &= unchanged;
                         caller.data_mut().events.push(Event::Interpret { snapshot });
                         dispatch_return
@@ -218,10 +224,11 @@ impl TestModule {
         let mut results = vec![::wasmtime::Val::I32(0); entry.ty(&store).results().len()];
         for call in 0..invocations {
             if let Some(patches) = input.patches_before_calls.get(call) {
-                for (memory, edits) in [(cpu, &patches.cpu), (machine, &patches.machine)] {
-                    for (offset, bytes) in edits {
-                        memory.write(&mut store, *offset as usize, bytes).unwrap();
-                    }
+                for (offset, bytes) in &patches.cpu {
+                    cpu.write(&mut store, *offset as usize, bytes).unwrap();
+                }
+                for (offset, bytes) in &patches.machine {
+                    machine.write(*offset, bytes);
                 }
                 for (offset, bytes) in &patches.guest {
                     guest.write(*offset, bytes);
@@ -239,7 +246,7 @@ impl TestModule {
             };
             let unchanged = machine_before
                 .as_ref()
-                .is_none_or(|before| &**before == machine.data(&store));
+                .is_none_or(|before| &**before == machine.read(0, 64 * 65536));
             store.data_mut().machine_unchanged &= unchanged;
             store
                 .data_mut()

@@ -34,7 +34,7 @@ impl Default for Shared {
 }
 
 impl<S: WasmSharedMemory> Machine<S> {
-    /// Allocates the machine's shared backing with its address policy.
+    /// Allocates the machine's shared backing and mappings.
     pub fn new<B: WasmBackend<SharedMemory = S>>(
         backend: &mut B,
         config: MachineConfig,
@@ -45,10 +45,15 @@ impl<S: WasmSharedMemory> Machine<S> {
         })
     }
 
-    /// Creates a separate machine with its own address policy over existing backing.
-    pub fn with_backing(config: MachineConfig, backing: S) -> Result<Self> {
+    /// Creates a separate machine over existing backing, with its own mappings
+    /// and code identity.
+    pub fn with_backing<B: WasmBackend<SharedMemory = S>>(
+        backend: &mut B,
+        config: MachineConfig,
+        backing: S,
+    ) -> Result<Self> {
         Ok(Self {
-            memory: Memory::with_backing(Arc::new(config), backing)?,
+            memory: Memory::with_backing(backend, config, backing)?,
             shared: Arc::default(),
         })
     }
@@ -68,7 +73,7 @@ impl<S: WasmSharedMemory> Machine<S> {
     }
 
     /// Creates an independently executable CPU in this machine.
-    /// Guest bytes are preserved.
+    /// Guest bytes and shared tables are preserved.
     pub async fn create_cpu<
         T: 'static,
         B: RuntimeBackend<State = RuntimeState<T>, SharedMemory = S>,

@@ -21,6 +21,10 @@ impl EntryTable {
         self.0.get(&address).copied()
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.0.iter().map(|(&address, &slot)| (address, slot))
+    }
+
     /// Publishes a callable slot. Zero is reserved for empty rows.
     pub fn insert(&mut self, address: u32, slot: u32) -> Option<u32> {
         assert_ne!(slot, 0, "slot zero is reserved for empty rows");

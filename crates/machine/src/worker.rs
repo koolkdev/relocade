@@ -32,12 +32,13 @@ impl Machine<SharedMemory> {
         task: impl FnOnce(Self) -> F + Send + 'static,
     ) -> web_thread::SendTask<F::Output> {
         let config = Arc::clone(&self.memory.config);
+        let identity = Arc::clone(&self.memory.identity);
         let shared = Arc::clone(&self.shared);
         thread.run_send(
-            Message(self.memory.backing().clone()),
-            move |Message(backing)| {
-                let memory =
-                    Memory::with_backing(config, backing).expect("transported machine allocations");
+            Message(self.memory.shared_resources()),
+            move |Message(resources)| {
+                let memory = Memory::from_resources(config, resources, identity)
+                    .expect("transported machine allocations");
                 task(Self { memory, shared })
             },
         )

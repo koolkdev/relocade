@@ -71,14 +71,20 @@ profile, private registers, loaded caches, dispatch entries and pending calls.
 Shared-memory access is not serialized. `machine.memory()` provides a
 shared handle for devices and displays without borrowing a CPU.
 
+`PagedMemoryMap` configures protected-user mappings. Host reads and writes use
+the live table; the embedding coordinates changes with its users. Remapping
+invalidates generated entries on each CPU before its next execution, while host
+hooks survive. Capture source bytes and their mapping version using
+`Memory::snapshot` before compiling and installing generated code.
+
 The `runtime` module owns code preparation, dispatch and execution. Machine-wide
 runtime state reuses generated dispatcher bytes by target; bound Wasm instances
 stay with each CPU. The generic Wasm backend remains a separate crate.
-`Machine::create_cpu` currently executes Real16. `Machine::bind_cpu` allocates a
-private CPU context for custom Wasm integrations; `CpuBindings` supplies memory
-imports and scoped host calls.
+`Machine::create_cpu` currently executes Real16. Custom protected embeddings use
+`Machine::bind_cpu`, whose `CpuBindings` supplies memory imports and scoped host
+calls; they provide their own execution and descriptor callbacks.
 See [shared memory](crates/machine/docs/shared-memory.md) for multiple CPUs,
-memory views and worker transport.
+code snapshot versions and worker transport.
 
 ## Build and test
 

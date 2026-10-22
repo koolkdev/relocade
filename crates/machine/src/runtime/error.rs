@@ -11,6 +11,7 @@ pub enum Error {
     Wasm(relocade_wasm_runtime::Error),
     InvalidExit(u64),
     CancelledHostCall,
+    StaleCode,
 }
 
 impl fmt::Display for Error {
@@ -21,6 +22,9 @@ impl fmt::Display for Error {
             Self::Memory(error) => error.fmt(f),
             Self::Wasm(error) => error.fmt(f),
             Self::InvalidExit(word) => write!(f, "invalid guest exit word {word:#018x}"),
+            Self::StaleCode => {
+                f.write_str("compiled code belongs to another address space or mapping generation")
+            }
             Self::CancelledHostCall => {
                 write!(
                     f,
