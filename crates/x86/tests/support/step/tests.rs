@@ -1,17 +1,11 @@
 use super::{CallPatches, Input, TestModule};
 use crate::SegmentProfile;
-use relocade_compiler::{MemoryImport, Program, Signature, Type, I32};
+use relocade_compiler::{Program, Signature, Type, I32};
 
 #[test]
 fn machine_changes_are_observed_before_a_later_call_restores_them() {
     let mut program = Program::new();
-    let machine = program.import_memory(MemoryImport {
-        module: "relocade".into(),
-        name: "machine".into(),
-        minimum: 64,
-        maximum: None,
-        shared: false,
-    });
+    let machine = program.import_memory(crate::abi::PAGE_TABLE);
     let toggle = program
         .function(
             Signature {

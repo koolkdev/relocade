@@ -1,17 +1,19 @@
 use super::ConfigurationError;
-use relocade_x86::PhysicalMemoryMap;
+use crate::MemoryMap;
+use relocade_x86::ExecutionProfile;
 use std::sync::Arc;
 
 /// Initial backing capacity and mappings, independent of a CPU's state.
 #[derive(Clone)]
 pub struct MachineConfig {
     memory_size: u64,
-    map: Arc<PhysicalMemoryMap>,
+    map: Arc<MemoryMap>,
 }
 
 impl MachineConfig {
     /// Validates backing capacity without allocating memory.
-    pub fn new(memory_size: u64, map: PhysicalMemoryMap) -> Result<Self, ConfigurationError> {
+    pub fn new(memory_size: u64, map: impl Into<MemoryMap>) -> Result<Self, ConfigurationError> {
+        let map = map.into();
         if memory_size > 1 << 32 {
             return Err(ConfigurationError::InvalidMemorySize);
         }
@@ -24,12 +26,13 @@ impl MachineConfig {
         })
     }
 
-    pub(crate) fn validate_for(
-        &self,
-        profile: relocade_x86::ExecutionProfile,
-    ) -> Result<(), ConfigurationError> {
-        if profile != relocade_x86::ExecutionProfile::Real16 {
-            return Err(ConfigurationError::UnsupportedProfile);
+    pub(crate) fn validate_for(&self, profile: ExecutionProfile) -> Result<(), ConfigurationError> {
+        if !matches!(
+            (profile, self.memory_map()),
+            (ExecutionProfile::Real16, MemoryMap::Physical(_))
+                | (ExecutionProfile::Protected(_), MemoryMap::Paged(_))
+        ) {
+            return Err(ConfigurationError::MemoryMapMismatch);
         }
         Ok(())
     }
@@ -38,7 +41,7 @@ impl MachineConfig {
         self.memory_size
     }
 
-    pub fn memory_map(&self) -> &PhysicalMemoryMap {
+    pub fn memory_map(&self) -> &MemoryMap {
         &self.map
     }
 }

@@ -99,6 +99,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
                 &module,
                 &imports,
                 &entries,
+                crate::runtime::dispatch::EntryKind::Hook,
             )
             .await
     }

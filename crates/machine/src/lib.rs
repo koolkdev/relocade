@@ -25,6 +25,7 @@
 mod config;
 mod cpu;
 mod machine;
+mod mapping;
 mod memory;
 pub mod runtime;
 #[cfg(feature = "worker")]
@@ -33,7 +34,8 @@ pub mod worker;
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{Cpu, CpuContext, CpuId, CpuView};
 pub use machine::Machine;
-pub use memory::{Memory, MemoryError, MemoryView};
+pub use mapping::{MappingError, MemoryMap, PagedMemoryMap};
+pub use memory::{Memory, MemoryError, MemoryVersion, MemoryView};
 pub use runtime::{
     real_mode_interrupt, CpuBindings, DispatchEntry, Error, Hook, HostCall, Result, RuntimeBackend,
     RuntimeState,

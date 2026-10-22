@@ -3,7 +3,7 @@ use relocade_wasm_runtime::WasmMemoryAccess;
 mod control;
 
 use crate::Result;
-use crate::{cpu::Membership, CpuConfig, CpuId, Machine, MachineConfig};
+use crate::{cpu::Membership, CpuConfig, CpuId, Machine, MachineConfig, MemoryMap};
 use relocade_compiler::abi::Memory;
 use relocade_wasm_runtime::{Import, WasmBackend};
 use relocade_x86::{abi, ExecutionContext};
@@ -20,6 +20,8 @@ pub struct CpuBindings<M> {
     pub(crate) context: M,
     pub(crate) guest: M,
     pub(crate) mapping: M,
+    pub(crate) revision: M,
+    pub(crate) identity: Arc<()>,
 }
 
 impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
@@ -47,14 +49,23 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
             .to_bytes(),
         );
         let guest = backend.import_shared_memory(memory.backing());
-        let bytes = memory.configuration().memory_map().to_bytes();
-        let pages = bytes.len().div_ceil(65536).max(1) as u32;
-        let mapping = backend.create_memory(Memory {
-            minimum: pages,
-            maximum: Some(pages),
-            ..abi::PHYSICAL_MAP
-        })?;
-        backend.write_memory(&mapping, 0, &bytes);
+        let revision = backend.import_shared_memory(&memory.resources.revision);
+        let mapping = match memory.configuration().memory_map() {
+            MemoryMap::Paged(_) => {
+                backend.import_shared_memory(memory.resources.mapping.as_ref().expect("page table"))
+            }
+            MemoryMap::Physical(map) => {
+                let bytes = map.to_bytes();
+                let pages = bytes.len().div_ceil(65536).max(1) as u32;
+                let mapping = backend.create_memory(Memory {
+                    minimum: pages,
+                    maximum: Some(pages),
+                    ..abi::PHYSICAL_MAP
+                })?;
+                backend.write_memory(&mapping, 0, &bytes);
+                mapping
+            }
+        };
         Ok(Self {
             config: Arc::new(config),
             machine_config: Arc::clone(&memory.config),
@@ -62,6 +73,8 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
             context,
             guest,
             mapping,
+            revision,
+            identity: Arc::clone(&memory.identity),
         })
     }
 
@@ -77,6 +90,17 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
             backing: backend
                 .shared_memory(&self.guest)
                 .expect("shared backing memory"),
+            mapping: match self.machine_config.memory_map() {
+                MemoryMap::Physical(_) => None,
+                MemoryMap::Paged(_) => Some(
+                    backend
+                        .shared_memory(&self.mapping)
+                        .expect("shared page table"),
+                ),
+            },
+            revision: backend
+                .shared_memory(&self.revision)
+                .expect("shared revision memory"),
         }
     }
 
@@ -90,7 +114,7 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
         &self.guest
     }
 
-    /// Binds the CPU, guest backing and physical translation memory.
+    /// Binds the CPU, guest backing and address translation memory.
     pub fn imports<'a, B: WasmBackend<Memory = M> + 'a>(
         &'a self,
         backend: &B,
@@ -98,7 +122,13 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
         [
             backend.bind(abi::EXECUTION_CONTEXT, &self.context),
             backend.bind(abi::GUEST, &self.guest),
-            backend.bind(abi::PHYSICAL_MAP, &self.mapping),
+            backend.bind(
+                match self.machine_config.memory_map() {
+                    MemoryMap::Physical(_) => abi::PHYSICAL_MAP,
+                    MemoryMap::Paged(_) => abi::PAGE_TABLE,
+                },
+                &self.mapping,
+            ),
         ]
     }
 }

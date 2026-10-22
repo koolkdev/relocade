@@ -57,6 +57,36 @@ pub const fn encode_entry(backing_offset: u32, writable: bool) -> Option<[u8; 4]
     Some((backing_offset | PRESENT | if writable { WRITABLE } else { 0 }).to_le_bytes())
 }
 
+/// Decoded host mapping. The backing offset is page aligned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PageMapping {
+    pub backing_offset: u32,
+    pub writable: bool,
+}
+
+pub fn decode_entry(bytes: [u8; 4]) -> Option<PageMapping> {
+    let entry = u32::from_le_bytes(bytes);
+    (entry & PRESENT != 0).then_some(PageMapping {
+        backing_offset: entry & FRAME_MASK,
+        writable: entry & WRITABLE != 0,
+    })
+}
+
+/// Applies the same present/write policy as generated memory accesses. The
+/// current host map has no user/supervisor or execute-disable permission bits.
+pub fn resolve_entry(bytes: [u8; 4], address: u32, write: bool) -> Result<u32, crate::Exception> {
+    let mapping = decode_entry(bytes);
+    match mapping {
+        Some(mapping) if !write || mapping.writable => {
+            Ok(mapping.backing_offset | (address & PAGE_OFFSET))
+        }
+        _ => Err(crate::Exception::PageFault {
+            linear_address: address,
+            error_code: u32::from(mapping.is_some()) | (u32::from(write) << 1),
+        }),
+    }
+}
+
 // A resolved range carries its first frame and permissions, or the denied page.
 // These private flags distinguish scattered backing and a denial on a later page.
 pub(super) const SCATTERED: u32 = 4;

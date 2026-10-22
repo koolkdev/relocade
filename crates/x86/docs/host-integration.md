@@ -342,9 +342,10 @@ or asynchronous interrupt polling within the repetition.
 ## Imported memories
 
 All imports belong to the `relocade` module. Memories are distinct Wasm objects;
-only `guest` is shared. Sizes below are minimum counts of 64-KiB Wasm pages.
+`guest` and `machine` are shared. Sizes below are minimum counts of 64-KiB Wasm pages.
 The `guest` import declares a maximum of 65536 pages. Its supplied memory must
 have a maximum no larger than that and enough initial capacity for all backing.
+The `machine` page table has a fixed maximum of 64 pages.
 
 | Import | Minimum pages | Contents |
 | --- | ---: | --- |
@@ -375,7 +376,21 @@ that invariant is a host error, not a guest page fault.
 
 Use [`page_table::entry_offset`] and [`page_table::encode_entry`] to prepare
 individual entry writes. Writing [`page_table::UNMAPPED_ENTRY`] removes a mapping.
-The host owns the table storage and applies updates between guest execution calls.
+The host owns the table storage. Generated and authored execution modules must
+treat it as read-only, including active data segments and start functions.
+`PagedMemoryMap` builds the initial image; `machine.memory().view()`
+provides `map_pages` and `unmap_pages` to edit the live image. Machines share this table across
+CPU contexts and independent readers. The embedding coordinates mapping edits
+with those users; memory access does not acquire a runtime lock.
+Host reads and writes consult that same image
+and check the entire span before transferring bytes. The model supplies presence
+and write permission, with separate fetch fault reporting. It does not walk guest
+CR3 tables or model supervisor pages, NX, accessed or dirty page bits.
+
+Runtime code installation requires the version captured with source bytes by
+`Memory::snapshot`. A remap invalidates generated dispatch entries in each
+attached CPU before its next execution. Host hooks retain their entries. Raw
+backend embeddings supply their own mapping coordination and invalidation.
 
 Segment translation precedes this protected-mode backing-map lookup.
 Linear addresses wrap at 32 bits, and a span

@@ -1,6 +1,6 @@
 mod support;
 
-use relocade_machine::{Cpu, Hook, Machine, RuntimeState};
+use relocade_machine::{Cpu, Error, Hook, Machine, RuntimeState};
 use relocade_machine::{CpuConfig, MachineConfig};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -89,6 +89,7 @@ async fn check_shared_access() {
     let space = Machine::new(&mut owner, configuration()).unwrap();
     // Address spaces can apply different mappings to the same allocation.
     let alias = Machine::with_backing(
+        &mut owner,
         MachineConfig::new(
             0x2000,
             PhysicalMemoryMap::new([
@@ -149,4 +150,42 @@ fn shared_backing_allows_access_from_another_cpu() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn shared_backing_allows_access_from_another_cpu() {
     check_shared_access().await;
+}
+
+async fn check_code_identity() {
+    let mut owner = backend(());
+    let space = Machine::new(&mut owner, configuration()).unwrap();
+    let alias = Machine::with_backing(
+        &mut owner,
+        configuration(),
+        space.memory().backing().clone(),
+    )
+    .unwrap();
+    let other_version = alias.memory().snapshot(0, &mut []).unwrap();
+    let mut runtime = space.create_cpu(owner, cpu(0)).await.unwrap();
+    let initializer = support::initializing_module(0x200, &[0x55]);
+    assert!(matches!(
+        runtime
+            .install_module(&other_version, &initializer, &[])
+            .await,
+        Err(Error::StaleCode)
+    ));
+    assert_eq!(space.memory().view().read_u8(0x200).unwrap(), 0);
+    let version = runtime.memory().snapshot(0, &mut []).unwrap();
+    runtime
+        .install_module(&version, &initializer, &[])
+        .await
+        .unwrap();
+    assert_eq!(space.memory().view().read_u8(0x200).unwrap(), 0x55);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn code_versions_reject_other_address_spaces_before_initialization() {
+    pollster::block_on(check_code_identity());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn code_versions_reject_other_address_spaces_before_initialization() {
+    check_code_identity().await;
 }

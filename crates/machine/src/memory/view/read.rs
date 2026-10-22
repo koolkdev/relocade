@@ -1,4 +1,5 @@
 use super::{page_span, range_fits, segment_address, MemoryError, MemoryView};
+use crate::MemoryMap;
 use relocade_x86::{PhysicalMapping, SegmentRegister};
 
 impl MemoryView<'_> {
@@ -7,7 +8,29 @@ impl MemoryView<'_> {
         if !range_fits(address, bytes.len(), 1 << 32) {
             return Err(MemoryError::AddressRange);
         }
-        let map = self.config.memory_map();
+        let MemoryMap::Physical(map) = self.config.memory_map() else {
+            super::paged::check_pages(
+                self.mapping.as_ref().expect("page table"),
+                address,
+                bytes.len(),
+                false,
+            )
+            .map_err(MemoryError::PageFault)?;
+            while !bytes.is_empty() {
+                let count = page_span(address, bytes.len());
+                let (part, rest) = bytes.split_at_mut(count);
+                let backing = super::paged::page_address(
+                    self.mapping.as_ref().expect("page table"),
+                    address,
+                    false,
+                )
+                .expect("page mappings must remain unchanged during a transfer");
+                self.backing.read(backing, part);
+                address = address.wrapping_add(count as u32);
+                bytes = rest;
+            }
+            return Ok(());
+        };
         while !bytes.is_empty() {
             let count = page_span(address, bytes.len());
             let (part, rest) = bytes.split_at_mut(count);
@@ -38,16 +61,22 @@ impl MemoryView<'_> {
         Ok(u16::from_le_bytes(bytes))
     }
 
-    /// Reads a contiguous span through a real-mode segment cache.
-    /// Checks the entire span before copying; never wraps or truncates the offset.
-    /// Physical mappings, including A20, apply after segment translation.
+    /// Reads a complete span through a loaded segment cache, then the active map.
+    /// Protected mode enforces usability, readability and expand-down bounds.
+    /// Host slices never wrap or truncate their segment offset or linear span.
     pub fn read_segment(
         &self,
         segment: &SegmentRegister,
         offset: u32,
         bytes: &mut [u8],
     ) -> Result<(), MemoryError> {
-        let address = segment_address(segment, offset, bytes.len())?;
+        let address = segment_address(
+            segment,
+            offset,
+            bytes.len(),
+            self.config.memory_map(),
+            false,
+        )?;
         self.read(address, bytes)
     }
 

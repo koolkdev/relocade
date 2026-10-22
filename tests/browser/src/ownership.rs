@@ -73,6 +73,8 @@ async fn check() -> Result<(), Box<dyn std::error::Error>> {
     let mut backend = Backend::with_state(RuntimeState::new(()))?;
     let space = Machine::new(&mut backend, configuration())?;
     space.memory().view().write(0x100, &[0xeb, 0xfe])?;
+    let version = space.memory().snapshot(0, &mut [])?;
+    let worker_version = version.clone();
     let thread = Thread::new();
     let (ready, started) = oneshot::channel();
     let resume = Arc::new(AtomicBool::new(false));
@@ -81,7 +83,7 @@ async fn check() -> Result<(), Box<dyn std::error::Error>> {
         let backend = Backend::with_state(RuntimeState::new(Some(ready))).unwrap();
         let mut runtime = imported.create_cpu(backend, cpu()).await.unwrap();
         runtime
-            .install_module(&initializing_module(), &[])
+            .install_module(&worker_version, &initializing_module(), &[])
             .await
             .unwrap();
         runtime
@@ -109,7 +111,7 @@ async fn check() -> Result<(), Box<dyn std::error::Error>> {
     let all_cpus = space.cpu_count();
     let initial = space.memory().view().read_u16(0x200)?;
     let initializer = initializing_module();
-    peer.install_module(&initializer, &[]).await?;
+    peer.install_module(&version, &initializer, &[]).await?;
     let initialized = space.memory().view().read_u16(0x200)?;
     let exit = peer.run(1)?;
     let instruction_count = peer.context().cpu().instruction_count();

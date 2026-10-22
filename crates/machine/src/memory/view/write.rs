@@ -1,4 +1,5 @@
 use super::{page_span, range_fits, segment_address, MemoryError, MemoryView};
+use crate::MemoryMap;
 use relocade_x86::{PhysicalMapping, SegmentRegister};
 
 impl MemoryView<'_> {
@@ -7,9 +8,14 @@ impl MemoryView<'_> {
         if !range_fits(address, bytes.len(), 1 << 32) {
             return Err(MemoryError::AddressRange);
         }
+        let MemoryMap::Physical(map) = self.config.memory_map() else {
+            return self
+                .write_paged(address, bytes)
+                .map_err(MemoryError::PageFault);
+        };
         while !bytes.is_empty() {
             let count = page_span(address, bytes.len());
-            if let PhysicalMapping::Ram { backing_offset } = self.config.memory_map().get(address) {
+            if let PhysicalMapping::Ram { backing_offset } = map.get(address) {
                 self.backing.write(backing_offset, &bytes[..count]);
             }
             address = address.wrapping_add(count as u32);
@@ -28,16 +34,16 @@ impl MemoryView<'_> {
         self.write(address, &value.to_le_bytes())
     }
 
-    /// Writes a contiguous span through a real-mode segment cache.
-    /// As with execution in real mode, the limit applies but protected-mode access
-    /// permissions do not: a CS-relative write is allowed.
+    /// Writes through a loaded segment cache and the active map. Protected mode
+    /// checks write permission; real mode permits writes through any segment.
     pub fn write_segment(
         &mut self,
         segment: &SegmentRegister,
         offset: u32,
         bytes: &[u8],
     ) -> Result<(), MemoryError> {
-        let address = segment_address(segment, offset, bytes.len())?;
+        let address =
+            segment_address(segment, offset, bytes.len(), self.config.memory_map(), true)?;
         self.write(address, bytes)
     }
 

@@ -12,6 +12,8 @@ pub use configuration::*;
 pub struct Fixture {
     pub context: [u8; ExecutionContext::BYTE_LEN],
     backing: Vec<u8>,
+    mapping: Vec<u8>,
+    revision: [u8; 8],
 }
 
 impl Fixture {
@@ -24,6 +26,8 @@ impl Fixture {
             }
             .to_bytes(),
             backing: vec![0; config.memory_size() as usize],
+            mapping: config.memory_map().to_bytes(),
+            revision: [0; 8],
         }
     }
 
@@ -33,6 +37,9 @@ impl Fixture {
             MemoryView {
                 config: &config.machine,
                 backing: MemoryBytes::new(&mut self.backing),
+                mapping: matches!(config.machine.memory_map(), crate::MemoryMap::Paged(_))
+                    .then(|| MemoryBytes::new(&mut self.mapping)),
+                revision: MemoryBytes::new(&mut self.revision),
             },
         )
     }

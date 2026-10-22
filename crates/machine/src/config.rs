@@ -9,6 +9,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigurationError {
     UnsupportedProfile,
+    MemoryMapMismatch,
     IncompatibleCpu,
     InvalidMemorySize,
     InsufficientMemory,
@@ -21,10 +22,11 @@ impl fmt::Display for ConfigurationError {
             Self::InvalidTableRegister => {
                 "CPU table registers do not satisfy the execution profile"
             }
-            Self::UnsupportedProfile => "physical machine configuration requires real mode",
+            Self::UnsupportedProfile => "execution profile is not supported by the runtime",
+            Self::MemoryMapMismatch => "memory map does not match the execution profile",
             Self::IncompatibleCpu => "CPU segment caches do not satisfy the execution target",
             Self::InvalidMemorySize => "memory_size exceeds the 4-GiB backing address space",
-            Self::InsufficientMemory => "physical mappings exceed memory_size",
+            Self::InsufficientMemory => "memory mappings exceed memory_size",
         })
     }
 }
