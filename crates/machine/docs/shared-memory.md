@@ -1,6 +1,6 @@
 # Shared guest memory
 
-`Machine` owns the shared address space for its CPUs.
+`Machine` owns the address space and CPU membership.
 Each `Cpu` retains its machine and owns its private architectural context, Wasm
 bindings, dispatch entries, callbacks and pending host calls. `Memory` is
 a property of the machine; its backing is the existing shared-memory handle
@@ -21,7 +21,9 @@ second.run(budget)?;
 
 CPU creation allocates fresh architectural storage and preserves existing guest
 bytes. CPU handles own their resources, so running or awaiting a CPU does not
-borrow the machine. Cloning a machine retains the same shared owners.
+borrow the machine. Cloning a machine retains the same shared owners. CPU IDs
+are unique within that machine; `cpu_count()` counts live contexts, including
+bindings retained by host callbacks.
 
 `Machine::with_backing(config, machine.memory().backing().clone())`
 creates another machine with its own map over the same allocation. The physical

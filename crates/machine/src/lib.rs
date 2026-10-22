@@ -1,6 +1,6 @@
 //! Machines with shared guest memory and independently executable CPUs.
 //!
-//! [`Machine`] owns the guest memory shared by its CPUs.
+//! [`Machine`] owns the guest memory and CPU membership.
 //! Each [`Cpu`] retains its machine and owns its backend, live registers, dispatch
 //! bindings and pending host calls. Running a CPU does not borrow the machine.
 //! [`CpuContext`] and [`CpuView`] lend access to a stopped CPU's live storage.
@@ -31,7 +31,7 @@ pub mod runtime;
 pub use runtime::worker;
 
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
-pub use cpu::{Cpu, CpuContext, CpuView};
+pub use cpu::{Cpu, CpuContext, CpuId, CpuView};
 pub use machine::Machine;
 pub use memory::{Memory, MemoryError, MemoryView};
 pub use runtime::{

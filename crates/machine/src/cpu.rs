@@ -1,7 +1,10 @@
 mod context;
+mod membership;
 mod view;
 
 pub use context::CpuContext;
+pub use membership::CpuId;
+pub(crate) use membership::Membership;
 pub use view::CpuView;
 
 use crate::{
@@ -23,6 +26,9 @@ pub struct Cpu<B: RuntimeBackend> {
 }
 
 impl<B: RuntimeBackend> Cpu<B> {
+    pub fn id(&self) -> CpuId {
+        self.bindings.id()
+    }
     pub fn machine(&self) -> &Machine<B::SharedMemory> {
         &self.machine
     }
