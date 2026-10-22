@@ -24,6 +24,7 @@
 
 mod config;
 mod cpu;
+mod descriptors;
 mod machine;
 mod mapping;
 mod memory;
@@ -33,6 +34,7 @@ pub mod worker;
 
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{Cpu, CpuContext, CpuId, CpuView};
+pub use descriptors::{DescriptorError, DescriptorMemory, Descriptors, ResolvedSegment};
 pub use machine::Machine;
 pub use mapping::{MappingError, MemoryMap, PagedMemoryMap};
 pub use memory::{Memory, MemoryError, MemoryVersion, MemoryView};

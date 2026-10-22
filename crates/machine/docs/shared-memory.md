@@ -32,6 +32,25 @@ losing shared policy. The runtime module shares generated dispatcher code by
 target. Engine module caches remain with the backend; instantiated functions,
 installed entries and host state remain private to each CPU.
 
+The memory handle also owns dedicated descriptor bytes. `DescriptorMemory::new`
+builds an initial GDT/LDT image. Pass a reference to
+`CpuConfig::with_descriptor_memory` to seed that CPU's GDTR/LDTR, then move the
+image into `MachineConfig::with_descriptor_memory`. Attaching another CPU
+imports the live tables without reapplying that image. Each CPU retains its own
+table registers and loaded segment caches.
+
+`machine.memory().descriptors().read_at(offset)` and `write_at(offset, descriptor)` access
+descriptor bytes without borrowing a CPU. `cpu.context().descriptors()` and
+`HostCall::descriptors()` also support selector lookup through that CPU's current
+GDTR/LDTR. Table edits do not reload caches.
+
+`resolve_user_segment` returns a `ResolvedSegment` holding its original storage
+and descriptor address. Inspect `cache()` for remaining checks, then consume
+`complete()` to set the descriptor's accessed bit and obtain the cache to install.
+Dropping it leaves the descriptor unchanged. Resolution returns architectural
+`Exception` values on failure. Retaining a resolved load does not exclude access
+through another owner of the shared descriptor storage.
+
 `machine.memory()` and `cpu.memory()` return a cloneable `Memory` handle.
 It can edit live bytes and tables, and can outlive all CPUs without replacing the
 machine’s owned memory association:
@@ -109,7 +128,7 @@ add atomicity or a scheduling policy.
 
 With the `worker` feature, `machine.on_worker(&thread, task)` gives a task the
 same machine on a native or browser worker. Create the CPU's backend inside the
-task. The handoff transports backing, page tables and revision
+task. The handoff transports backing, page tables, descriptors and revision
 storage together, preserving live bytes and mappings. Shared-memory handles
 preserve their JavaScript resources during structured cloning. Runtime state,
 CPU membership and code-version identity remain shared Rust owners, so a source

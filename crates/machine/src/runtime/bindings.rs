@@ -20,6 +20,7 @@ pub struct CpuBindings<M> {
     pub(crate) context: M,
     pub(crate) guest: M,
     pub(crate) mapping: M,
+    pub(crate) descriptors: M,
     pub(crate) revision: M,
     pub(crate) identity: Arc<()>,
 }
@@ -50,6 +51,7 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
         );
         let guest = backend.import_shared_memory(memory.backing());
         let revision = backend.import_shared_memory(&memory.resources.revision);
+        let descriptors = backend.import_shared_memory(&memory.resources.descriptors);
         let mapping = match memory.configuration().memory_map() {
             MemoryMap::Paged(_) => {
                 backend.import_shared_memory(memory.resources.mapping.as_ref().expect("page table"))
@@ -73,6 +75,7 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
             context,
             guest,
             mapping,
+            descriptors,
             revision,
             identity: Arc::clone(&memory.identity),
         })
@@ -101,6 +104,9 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
             revision: backend
                 .shared_memory(&self.revision)
                 .expect("shared revision memory"),
+            descriptors: backend
+                .shared_memory(&self.descriptors)
+                .expect("shared descriptors memory"),
         }
     }
 

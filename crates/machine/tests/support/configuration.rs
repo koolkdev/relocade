@@ -19,6 +19,18 @@ pub fn configuration(
     })
 }
 
+pub fn with_descriptors(
+    Configuration { cpu, machine }: Configuration,
+    tables: relocade_x86::DescriptorTables,
+    ldt: Option<u16>,
+) -> Result<Configuration, machine::DescriptorError> {
+    let image = machine::DescriptorMemory::new(tables, ldt)?;
+    Ok(Configuration {
+        cpu: cpu.with_descriptor_memory(&image)?,
+        machine: machine.with_descriptor_memory(image)?,
+    })
+}
+
 pub async fn create_cpu<
     T: 'static,
     B: machine::RuntimeBackend<State = machine::RuntimeState<T>>,

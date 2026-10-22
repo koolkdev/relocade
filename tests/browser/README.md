@@ -9,10 +9,10 @@ and worker bootstrap used by browser applications.
 The worker checks cover Rust channel wakeups after a task returns Pending,
 independent TLS and worker-local Rc state, shared-memory messages that preserve
 later growth and writes, compiled-module handoff between execution owners, and
-shared guest backing accessible during another CPU's execution. Live page tables
-preserve their bytes across worker transport; the test coordinates remapping
-between reader operations. Machine identity and CPU membership remain shared
-across workers while execution contexts remain private.
+shared guest backing accessible during another CPU's execution. Live page and
+descriptor tables preserve their bytes across worker transport; the test
+coordinates remapping between reader operations. Machine identity and CPU membership
+remain shared across workers while execution contexts remain private.
 
 From this directory:
 

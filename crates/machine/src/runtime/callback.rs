@@ -1,5 +1,5 @@
 use crate::{CpuBindings, CpuContext, RuntimeState};
-use crate::{CpuView, MemoryView};
+use crate::{CpuView, Descriptors, MemoryView};
 use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
 use std::{future::Future, ops::ControlFlow, pin::Pin};
@@ -27,6 +27,11 @@ impl<'a, T> HostCall<'a, T> {
     /// Borrows the machine's shared guest memory through its configured map.
     pub fn memory(&mut self) -> MemoryView<'_> {
         self.context.memory()
+    }
+
+    /// Uses this CPU's table registers to access shared descriptor storage.
+    pub fn descriptors(&mut self) -> Descriptors<'_> {
+        self.context.descriptors()
     }
 
     /// The environment state owned by this backend.

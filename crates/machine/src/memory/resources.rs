@@ -1,7 +1,7 @@
 use super::version;
 use crate::MemoryView;
 use crate::Result;
-use crate::{ConfigurationError, MachineConfig, MemoryMap};
+use crate::{ConfigurationError, DescriptorMemory, MachineConfig, MemoryMap};
 use relocade_wasm_runtime::{MemoryBytes, WasmSharedMemory};
 
 /// Shared guest allocations. Views borrow these handles; worker handoff clones
@@ -12,6 +12,7 @@ use relocade_wasm_runtime::{MemoryBytes, WasmSharedMemory};
 pub(crate) struct MemoryResources<S: WasmSharedMemory> {
     pub(crate) backing: S,
     pub(crate) mapping: Option<S>,
+    pub(crate) descriptors: S,
     pub(crate) revision: S,
 }
 
@@ -22,12 +23,14 @@ impl<S: WasmSharedMemory> MemoryResources<S> {
             backing: MemoryBytes::shared(&self.backing),
             mapping: self.mapping.as_ref().map(MemoryBytes::shared),
             revision: MemoryBytes::shared(&self.revision),
+            descriptors: MemoryBytes::shared(&self.descriptors),
         }
     }
 
     pub(crate) fn validate(&self, config: &MachineConfig) -> Result<()> {
         if self.backing.byte_len() < config.memory_size()
             || self.revision.byte_len() < version::BYTE_LEN
+            || self.descriptors.byte_len() < u64::from(DescriptorMemory::BYTE_LEN)
         {
             return Err(ConfigurationError::InsufficientMemory.into());
         }

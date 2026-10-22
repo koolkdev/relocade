@@ -24,4 +24,8 @@ impl<'a> CpuContext<'a> {
     pub fn memory(&mut self) -> MemoryView<'_> {
         self.memory.reborrow()
     }
+
+    pub fn descriptors(&mut self) -> crate::Descriptors<'_> {
+        crate::Descriptors::new(self.memory.descriptors.reborrow(), self.cpu.reborrow())
+    }
 }

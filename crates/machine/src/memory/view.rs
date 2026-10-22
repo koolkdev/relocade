@@ -16,6 +16,7 @@ pub struct MemoryView<'a> {
     pub(crate) backing: MemoryBytes<'a>,
     pub(crate) mapping: Option<MemoryBytes<'a>>,
     pub(crate) revision: MemoryBytes<'a>,
+    pub(crate) descriptors: MemoryBytes<'a>,
 }
 
 impl<'a> MemoryView<'a> {
@@ -25,7 +26,13 @@ impl<'a> MemoryView<'a> {
             backing: self.backing.reborrow(),
             mapping: self.mapping.as_mut().map(MemoryBytes::reborrow),
             revision: self.revision.reborrow(),
+            descriptors: self.descriptors.reborrow(),
         }
+    }
+
+    /// Borrows descriptor bytes independently of CPU table registers.
+    pub fn descriptors(&mut self) -> crate::Descriptors<'_, ()> {
+        crate::Descriptors::new(self.descriptors.reborrow(), ())
     }
 
     /// Configured backing capacity, excluding Wasm-page rounding.

@@ -14,6 +14,7 @@ pub struct Fixture {
     backing: Vec<u8>,
     mapping: Vec<u8>,
     revision: [u8; 8],
+    descriptors: Vec<u8>,
 }
 
 impl Fixture {
@@ -28,6 +29,10 @@ impl Fixture {
             backing: vec![0; config.memory_size() as usize],
             mapping: config.memory_map().to_bytes(),
             revision: [0; 8],
+            descriptors: config.descriptor_memory().map_or_else(
+                || vec![0; crate::DescriptorMemory::BYTE_LEN as usize],
+                |image| image.to_bytes().to_vec(),
+            ),
         }
     }
 
@@ -40,6 +45,7 @@ impl Fixture {
                 mapping: matches!(config.machine.memory_map(), crate::MemoryMap::Paged(_))
                     .then(|| MemoryBytes::new(&mut self.mapping)),
                 revision: MemoryBytes::new(&mut self.revision),
+                descriptors: MemoryBytes::new(&mut self.descriptors),
             },
         )
     }

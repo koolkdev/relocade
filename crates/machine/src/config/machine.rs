@@ -1,5 +1,5 @@
 use super::ConfigurationError;
-use crate::MemoryMap;
+use crate::{DescriptorError, DescriptorMemory, MemoryMap};
 use relocade_x86::ExecutionProfile;
 use std::sync::Arc;
 
@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub struct MachineConfig {
     memory_size: u64,
     map: Arc<MemoryMap>,
+    descriptors: Option<Arc<DescriptorMemory>>,
 }
 
 impl MachineConfig {
@@ -23,6 +24,7 @@ impl MachineConfig {
         Ok(Self {
             memory_size,
             map: Arc::new(map),
+            descriptors: None,
         })
     }
 
@@ -43,5 +45,22 @@ impl MachineConfig {
 
     pub fn memory_map(&self) -> &MemoryMap {
         &self.map
+    }
+
+    /// Sets the initial descriptor image without changing any CPU's registers.
+    pub fn with_descriptor_memory(
+        mut self,
+        image: DescriptorMemory,
+    ) -> Result<Self, DescriptorError> {
+        if !matches!(self.memory_map(), MemoryMap::Paged(_)) {
+            return Err(DescriptorError::RealMode);
+        }
+        self.descriptors = Some(Arc::new(image));
+        Ok(self)
+    }
+
+    /// No image means the descriptor allocation starts zeroed.
+    pub fn descriptor_memory(&self) -> Option<&DescriptorMemory> {
+        self.descriptors.as_deref()
     }
 }

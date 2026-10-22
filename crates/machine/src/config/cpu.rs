@@ -1,4 +1,5 @@
 use super::ConfigurationError;
+use crate::{DescriptorError, DescriptorMemory};
 use relocade_x86::{
     CpuState, DescriptorTableRegister, ExecutionProfile, ExecutionTarget, SystemSegmentRegister,
 };
@@ -22,6 +23,19 @@ impl CpuConfig {
 
     pub fn cpu(&self) -> &CpuState {
         &self.cpu
+    }
+
+    /// Seeds only GDTR/LDTR from an image destined for the shared address space.
+    /// Segment caches and other CPUs' table registers remain independent.
+    pub fn with_descriptor_memory(
+        mut self,
+        image: &DescriptorMemory,
+    ) -> Result<Self, DescriptorError> {
+        if self.target.profile == ExecutionProfile::Real16 {
+            return Err(DescriptorError::RealMode);
+        }
+        image.initialize_cpu(&mut self.cpu);
+        Ok(self)
     }
 }
 

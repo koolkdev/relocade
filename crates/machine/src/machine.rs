@@ -34,7 +34,7 @@ impl Default for Shared {
 }
 
 impl<S: WasmSharedMemory> Machine<S> {
-    /// Allocates the machine's shared backing and mappings.
+    /// Allocates the machine's shared backing, mappings and descriptor storage.
     pub fn new<B: WasmBackend<SharedMemory = S>>(
         backend: &mut B,
         config: MachineConfig,
@@ -45,8 +45,8 @@ impl<S: WasmSharedMemory> Machine<S> {
         })
     }
 
-    /// Creates a separate machine over existing backing, with its own mappings
-    /// and code identity.
+    /// Creates a separate machine over existing backing, with its own mappings,
+    /// descriptor storage and code identity.
     pub fn with_backing<B: WasmBackend<SharedMemory = S>>(
         backend: &mut B,
         config: MachineConfig,
