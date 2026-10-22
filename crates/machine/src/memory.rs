@@ -2,7 +2,7 @@ mod view;
 pub use view::{MemoryError, MemoryView};
 
 use crate::{ConfigurationError, MachineConfig, Result};
-use relocade_wasm_runtime::WasmSharedMemory;
+use relocade_wasm_runtime::{MemoryBytes, WasmSharedMemory};
 use std::sync::Arc;
 
 /// Owned guest memory and its address policy, independent of CPU execution.
@@ -35,6 +35,6 @@ impl<S: WasmSharedMemory> Memory<S> {
 
     /// Borrows a read/write view of this handle without borrowing a CPU.
     pub fn view(&mut self) -> MemoryView<'_> {
-        MemoryView::new(&self.config, &mut self.backing)
+        MemoryView::new(&self.config, MemoryBytes::shared(&self.backing))
     }
 }

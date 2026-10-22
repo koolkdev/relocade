@@ -10,7 +10,7 @@ impl MemoryView<'_> {
         while !bytes.is_empty() {
             let count = page_span(address, bytes.len());
             if let PhysicalMapping::Ram { backing_offset } = self.config.memory_map().get(address) {
-                self.storage.write_backing(backing_offset, &bytes[..count]);
+                self.bytes.write(backing_offset, &bytes[..count]);
             }
             address = address.wrapping_add(count as u32);
             bytes = &bytes[count..];
@@ -46,7 +46,7 @@ impl MemoryView<'_> {
         if !range_fits(offset, bytes.len(), self.backing_size()) {
             return Err(MemoryError::BackingRange);
         }
-        self.storage.write_backing(offset, bytes);
+        self.bytes.write(offset, bytes);
         Ok(())
     }
 }

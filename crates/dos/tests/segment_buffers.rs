@@ -1,13 +1,13 @@
 mod common;
 
 use common::{path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosServices, FileAccess};
+use relocade_dos::{Dos, FileAccess};
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::io::Write;
 
 const BASE: u32 = 0x30000;
 
-fn use_data_segment(dos: &mut Dos<Backend<DosServices>>) {
+fn use_data_segment(dos: &mut Dos<Backend>) {
     // Keep buffers away from the program and interrupt stack.
     dos.cpu()
         .context()
@@ -15,11 +15,11 @@ fn use_data_segment(dos: &mut Dos<Backend<DosServices>>) {
         .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x3000));
 }
 
-fn write_memory(dos: &mut Dos<Backend<DosServices>>, address: u32, bytes: &[u8]) {
+fn write_memory(dos: &mut Dos<Backend>, address: u32, bytes: &[u8]) {
     dos.cpu().context().memory().write(address, bytes).unwrap();
 }
 
-fn read_memory<const N: usize>(dos: &mut Dos<Backend<DosServices>>, address: u32) -> [u8; N] {
+fn read_memory<const N: usize>(dos: &mut Dos<Backend>, address: u32) -> [u8; N] {
     let mut bytes = [0; N];
     dos.cpu()
         .context()

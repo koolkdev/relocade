@@ -1,5 +1,5 @@
 mod support;
-use relocade_machine::{real_mode_interrupt, Error, Hook, RuntimeState};
+use relocade_machine::{real_mode_interrupt, Error, Hook, HostAction};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -94,7 +94,7 @@ async fn check_pending_calls() {
     )
     .unwrap();
     let state = Rc::new(State::default());
-    let backend = Backend::with_state(RuntimeState::new(state.clone())).unwrap();
+    let backend = Backend::with_state(()).unwrap();
     let mut runtime = support::create_cpu(backend, config).await.unwrap();
     runtime.context().cpu().set_sp(0xff00);
     runtime.context().cpu().set_eflags(0x202);
@@ -113,11 +113,12 @@ async fn check_pending_calls() {
         .memory()
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
+    let hook_state = Rc::clone(&state);
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x200, |call| {
-            call.state().started.set(call.state().started.get() + 1);
-            let operation = Operation(call.state().clone());
-            call.defer(async move |call| {
+        .install_hooks([Hook::new(0x200, move |_| {
+            hook_state.started.set(hook_state.started.get() + 1);
+            let operation = Operation(Rc::clone(&hook_state));
+            HostAction::wait(async move |call| {
                 let sum = {
                     // The CPU view itself stays borrowed through both awaits.
                     let mut cpu = call.cpu();
@@ -132,8 +133,8 @@ async fn check_pending_calls() {
                     cpu.set_bx(sum);
                     sum
                 };
+                operation.0.completed.set(operation.0.completed.get() + 1);
                 drop(operation);
-                call.state().completed.set(call.state().completed.get() + 1);
                 call.memory().write(0x300, &sum.to_le_bytes()).unwrap();
                 real_mode_interrupt::return_from_interrupt(call)
             })
@@ -241,13 +242,13 @@ async fn check_pending_calls() {
             // The continuation need not name this hook. Awaiting and completing
             // the service must not enter guest code at this address.
             call.cpu().set_eip(0x500);
-            call.defer(async |call| {
+            HostAction::wait(async |call| {
                 let value = std::future::ready(99).await;
                 call.cpu().set_bx(value);
                 let value = std::future::ready(value + 1).await;
                 assert_eq!(call.cpu().bx(), 99);
                 call.cpu().set_cx(value);
-                std::ops::ControlFlow::Break(ExecutionExit::HostReturn)
+                HostAction::Exit(ExecutionExit::HostReturn)
             })
         })])
         .await

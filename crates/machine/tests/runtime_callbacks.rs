@@ -1,11 +1,11 @@
-use relocade_machine::RuntimeMemory;
+use relocade_machine::CpuBindings;
 mod support;
 use relocade_compiler::{
     abi::{Function, Memory},
     Program, I32, I64,
 };
 
-use relocade_machine::{HostCall, RuntimeState};
+use relocade_machine::CpuContext;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmMemoryAccess};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -31,7 +31,7 @@ struct HostState {
 }
 
 // The same handler accesses the calling CPU and guest memory on both backends.
-fn host_handler(call: &mut HostCall<'_, HostState>) {
+fn host_handler(call: &mut CpuContext<'_>) {
     let mut bytes = [0; 4];
     call.memory().read(0x1020, &mut bytes).unwrap();
     let result = call.cpu().eax() + u32::from_le_bytes(bytes);
@@ -40,7 +40,6 @@ fn host_handler(call: &mut HostCall<'_, HostState>) {
     call.cpu().set_eip(eip + 2);
     call.memory().write(0x1024, &result.to_le_bytes()).unwrap();
     call.memory().write(0x20, &[0xff]).unwrap(); // ROM ignores guest writes.
-    call.state_mut().calls += 1;
 }
 
 async fn check_callback() {
@@ -75,8 +74,8 @@ async fn check_callback() {
     )
     .unwrap();
     let state = HostState { calls: 0 };
-    let mut backend = Backend::with_state(RuntimeState::new(state)).unwrap();
-    let memory = RuntimeMemory::new(&mut backend, config.machine, config.cpu).unwrap();
+    let mut backend = Backend::with_state(state).unwrap();
+    let memory = CpuBindings::new(&mut backend, config.machine, config.cpu).unwrap();
     let guest = memory.guest_memory().clone();
     let context = memory.context_memory().clone();
     backend.write_memory(
@@ -131,7 +130,8 @@ async fn check_callback() {
         backend.bind_host(
             CALL,
             Box::new(move |mut caller| {
-                callback_memory.with_host_call(&mut caller, host_handler);
+                callback_memory.with_context(&mut caller, host_handler);
+                relocade_wasm_runtime::WasmContext::state_mut(&mut caller).calls += 1;
                 0
             }),
         ),
@@ -143,7 +143,7 @@ async fn check_callback() {
             backend.call(&function).unwrap(),
             i64::from(value) | (i64::from(value) << 32)
         );
-        assert_eq!(backend.state().data.calls, calls);
+        assert_eq!(backend.state().calls, calls);
         let mut bytes = [0; ExecutionContext::BYTE_LEN];
         backend.read_memory(&context, 0, &mut bytes);
         expected_cpu.registers.eax = value as u32;
@@ -162,12 +162,13 @@ async fn check_callback() {
         assert_eq!(byte, [0xa5]);
     }
 
-    // The same live CPU/memory/state view is available without entering Wasm.
+    // The same live CPU/memory view is available without entering Wasm.
     {
         let mut access = backend.context();
-        memory.with_host_call(&mut access, host_handler);
+        memory.with_context(&mut access, host_handler);
+        relocade_wasm_runtime::WasmContext::state_mut(&mut access).calls += 1;
     }
-    assert_eq!(backend.state().data.calls, 3);
+    assert_eq!(backend.state().calls, 3);
     let mut bytes = [0; ExecutionContext::BYTE_LEN];
     backend.read_memory(&context, 0, &mut bytes);
     expected_cpu.registers.eax = 77;

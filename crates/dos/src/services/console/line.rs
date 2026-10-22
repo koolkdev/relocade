@@ -4,11 +4,9 @@ use crate::{
     files::{Device, HandleType},
     interrupt::{self, return_result},
     state::DosState,
-    DosServices,
 };
-use relocade_machine::HostCall;
-use relocade_x86::ExecutionExit;
-use std::ops::ControlFlow;
+use relocade_machine::{CpuContext, HostAction};
+use std::rc::Rc;
 
 /// A line being edited, including its final carriage return once complete.
 pub(super) struct LineInput {
@@ -36,25 +34,20 @@ impl LineInput {
     /// Reads queued input and defers for missing characters until the line is complete.
     pub(super) fn read(
         mut self,
-        call: &mut HostCall<'_, DosServices>,
-        state: &mut DosState,
-        complete: impl FnOnce(
-                &mut HostCall<'_, DosServices>,
-                &mut DosState,
-                Vec<u8>,
-            ) -> ControlFlow<ExecutionExit>
-            + 'static,
-    ) -> ControlFlow<ExecutionExit> {
+        call: &mut CpuContext<'_>,
+        state: &Rc<DosState>,
+        complete: impl FnOnce(&mut CpuContext<'_>, &Rc<DosState>, Vec<u8>) -> HostAction + 'static,
+    ) -> HostAction {
         match self.read_available(call, state) {
             Ok(true) => return complete(call, state, self.bytes),
             Ok(false) => {}
             Err(error) => return return_result(call, Err(error)),
         }
-        let input = match state.files.wait_for_character(self.input_handle) {
+        let input = match state.files.borrow().wait_for_character(self.input_handle) {
             Ok(input) => input,
             Err(error) => return return_result(call, Err(error)),
         };
-        interrupt::defer(call, input, move |call, state, byte| {
+        interrupt::defer(state, input, move |call, state, byte| {
             if self.accept(call, state, byte) {
                 complete(call, state, self.bytes)
             } else {
@@ -66,17 +59,22 @@ impl LineInput {
     /// Consumes queued input, returning true when Enter completes the line.
     fn read_available(
         &mut self,
-        call: &mut HostCall<'_, DosServices>,
-        state: &mut DosState,
+        call: &mut CpuContext<'_>,
+        state: &Rc<DosState>,
     ) -> Result<bool, DosError> {
         // NUL returns zero forever, so it cannot complete a line. Wait without spinning.
         if matches!(
-            state.files.readable_handle_type(self.input_handle)?,
+            state
+                .files
+                .borrow()
+                .readable_handle_type(self.input_handle)?,
             HandleType::Device(Device::Null)
         ) {
             return Ok(false);
         }
-        while let Some(byte) = state.files.read_character(self.input_handle)? {
+        loop {
+            let byte = state.files.borrow_mut().read_character(self.input_handle)?;
+            let Some(byte) = byte else { break };
             if self.accept(call, state, byte) {
                 return Ok(true);
             }
@@ -84,12 +82,7 @@ impl LineInput {
         Ok(false)
     }
 
-    fn accept(
-        &mut self,
-        call: &mut HostCall<'_, DosServices>,
-        state: &mut DosState,
-        byte: u8,
-    ) -> bool {
+    fn accept(&mut self, call: &mut CpuContext<'_>, state: &Rc<DosState>, byte: u8) -> bool {
         if self.extended_key {
             self.extended_key = false;
             return false;
@@ -131,7 +124,7 @@ impl LineInput {
         false
     }
 
-    fn echo(&self, call: &mut HostCall<'_, DosServices>, state: &mut DosState, bytes: &[u8]) {
+    fn echo(&self, call: &mut CpuContext<'_>, state: &Rc<DosState>, bytes: &[u8]) {
         for &byte in bytes {
             write_cooked_character(call, state, self.echo, byte);
         }

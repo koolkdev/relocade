@@ -9,10 +9,10 @@ mod memory;
 mod search;
 mod system;
 
-use crate::{files::CreateMode, state::DosState, DosServices, ServiceError};
-use relocade_machine::HostCall;
+use crate::{files::CreateMode, state::DosState, ServiceError};
+use relocade_machine::{CpuContext, HostAction};
 use relocade_x86::ExecutionExit;
-use std::ops::ControlFlow;
+use std::rc::Rc;
 
 const READ_CHARACTER_ECHO: u8 = 0x01;
 const WRITE_CHARACTER: u8 = 0x02;
@@ -59,10 +59,7 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
-pub(crate) fn int21(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(crate) fn int21(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     match call.cpu().ah() {
         DIRECT_CONSOLE_IO => console::direct_io(call, state),
         READ_CHARACTER_ECHO | READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
@@ -115,32 +112,26 @@ pub(crate) fn int21(
 }
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
-fn terminate_process(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+fn terminate_process(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     let code = call.cpu().al();
     return_to_host(call, state, Ok(code))
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) fn int20(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(crate) fn int20(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     return_to_host(call, state, Ok(0))
 }
 
 fn return_to_host(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
+    call: &mut CpuContext<'_>,
+    state: &Rc<DosState>,
     status: Result<u8, ServiceError>,
-) -> ControlFlow<ExecutionExit> {
+) -> HostAction {
     if status.is_ok() {
         // The only process has exited; all of its conventional memory is free.
         crate::memory::reset(&mut call.memory());
-        state.files.close_all();
+        state.files.borrow_mut().close_all();
     }
-    state.exit_status = Some(status);
-    ControlFlow::Break(ExecutionExit::HostReturn)
+    state.exit_status.set(Some(status));
+    HostAction::Exit(ExecutionExit::HostReturn)
 }

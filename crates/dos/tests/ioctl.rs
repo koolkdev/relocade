@@ -3,10 +3,10 @@ mod common;
 mod modes;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosServices, FileAccess};
+use relocade_dos::{Dos, FileAccess};
 use std::io::Write;
 
-fn information(dos: &mut Dos<Backend<DosServices>>, handle: u16) -> u16 {
+fn information(dos: &mut Dos<Backend>, handle: u16) -> u16 {
     let cpu = service(dos, 0x4400, handle, 0, 0xffff);
     assert_eq!(success(&cpu), cpu.registers.edx as u16);
     cpu.registers.edx as u16

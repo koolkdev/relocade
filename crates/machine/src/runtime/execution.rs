@@ -1,8 +1,17 @@
-use super::{Cpu, CpuAccess, Error, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::{
+    dispatch::DispatchOutcome, Cpu, Error, HostAction, HostOperation, Result, RuntimeBackend,
+};
+use crate::CpuContext;
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
+pub(super) enum Execution {
+    Ready,
+    Pending(HostOperation),
+    Interrupted,
+}
+
+impl<B: RuntimeBackend> Cpu<B> {
     /// Runs until the budget is consumed at a block boundary, a guest exit
     /// occurs, or a host function requests a return. Whole blocks can exceed the
     /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
@@ -52,9 +61,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Use when replacing a suspended program or its continuation.
     /// Cancellation does not undo side effects already performed by the operation.
     pub fn cancel_pending_call(&mut self) {
-        let pending = self.access.backend.state_mut().pending.take();
-        self.host_call_incomplete = false;
-        drop(pending);
+        self.execution = Execution::Ready;
     }
 
     fn instruction_target(&mut self, instruction_budget: u64) -> u64 {
@@ -65,36 +72,56 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     }
 
     fn enter(&mut self, target: u64) -> Result<ExecutionExit> {
-        if self.host_call_incomplete {
-            return Err(Error::CancelledHostCall);
+        match self.execution {
+            Execution::Interrupted => return Err(Error::CancelledHostCall),
+            Execution::Pending(_) => return Ok(ExecutionExit::Deferred),
+            Execution::Ready => {}
         }
-        // A previous synchronous run may already have stopped at a deferred call.
-        if self.access.backend.state().pending.is_some() {
-            return Ok(ExecutionExit::Deferred);
+        self.bindings
+            .set_instruction_target(&mut self.backend, target);
+        loop {
+            let action = match self.dispatch.run(&mut self.backend)? {
+                DispatchOutcome::Exit(exit) => return Ok(exit),
+                DispatchOutcome::Hook(handler) => {
+                    let mut context =
+                        CpuContext::new(self.bindings.cpu(&mut self.backend), self.memory.view());
+                    handler(&mut context)
+                }
+            };
+            if let ControlFlow::Break(exit) = self.apply_action(action) {
+                return Ok(exit);
+            }
         }
-        self.dispatch.run(&mut self.access, target)
+    }
+
+    fn apply_action(&mut self, action: HostAction) -> ControlFlow<ExecutionExit> {
+        match action {
+            HostAction::Continue => ControlFlow::Continue(()),
+            HostAction::Exit(exit) => {
+                assert_ne!(
+                    exit,
+                    ExecutionExit::Deferred,
+                    "waiting requires an owned host operation"
+                );
+                ControlFlow::Break(exit)
+            }
+            HostAction::Await(operation) => {
+                self.execution = Execution::Pending(operation);
+                ControlFlow::Break(ExecutionExit::Deferred)
+            }
+        }
     }
 
     async fn run_deferred(&mut self) -> ControlFlow<ExecutionExit> {
-        // Release the backend's state guard before borrowing it for the handler.
-        let handler = self
-            .access
-            .backend
-            .state_mut()
-            .pending
-            .take()
-            .expect("deferred exit must have a handler");
-        // Cancellation leaves this set so a later run cannot replay the hook.
-        self.host_call_incomplete = true;
-        let bindings = self.access.bindings.clone();
-        let mut context = self.access.backend.context();
-        let mut access = CpuAccess {
-            backend: &mut context,
-            bindings,
+        // Dropping the run future leaves Interrupted set and drops the operation,
+        // so another run cannot replay side effects or enter its unfinished return.
+        let Execution::Pending(operation) =
+            std::mem::replace(&mut self.execution, Execution::Interrupted)
+        else {
+            unreachable!("deferred exit must have an owned operation");
         };
-        let mut call = HostCall::new(&self.config, &self.machine_config, &mut access);
-        let result = handler.run(&mut call).await;
-        self.host_call_incomplete = false;
-        result
+        let action = operation.run(&mut self.context()).await;
+        self.execution = Execution::Ready;
+        self.apply_action(action)
     }
 }

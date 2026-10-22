@@ -13,7 +13,7 @@ use std::{
     ops::{Deref, DerefMut},
     rc::Rc,
 };
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 mod host;
@@ -69,6 +69,17 @@ impl WasmCompiler for Compiler {
 
 /// A resolved `() -> i64` export, kept distinct from raw host function handles.
 pub struct Function(JsFunction);
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(extends = JsFunction, typescript_type = "Function")]
+    type I64Function;
+
+    // The export's signature already specifies i64. Return it directly across
+    // the JS boundary instead of allocating and checking an intermediate JsValue.
+    #[wasm_bindgen(method, structural, catch, js_name = call)]
+    fn call_i64(this: &I64Function, receiver: &JsValue) -> std::result::Result<i64, JsValue>;
+}
 
 impl Backend {
     pub fn new() -> Result<Self> {
@@ -238,11 +249,11 @@ impl<T: 'static> WasmBackend for Backend<T> {
     }
 
     fn call(&mut self, function: &Function) -> Result<i64> {
-        let value = function
+        function
             .0
-            .call0(&JsValue::UNDEFINED)
-            .map_err(|error| js_error("call Wasm function", error))?;
-        i64::try_from(value).map_err(|error| js_error("read Wasm i64 result", error))
+            .unchecked_ref::<I64Function>()
+            .call_i64(&JsValue::UNDEFINED)
+            .map_err(|error| js_error("call Wasm function", error))
     }
 }
 

@@ -1,7 +1,6 @@
 #![cfg(target_arch = "wasm32")]
 mod support;
 
-use relocade_machine::RuntimeState;
 use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
@@ -23,10 +22,9 @@ async fn runtime_executes_with_live_cpu_and_memory() {
     let map =
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
     let config = support::configuration(target, cpu, 0x10000, map).unwrap();
-    let mut runtime =
-        support::create_cpu(Backend::with_state(RuntimeState::new(())).unwrap(), config)
-            .await
-            .unwrap();
+    let mut runtime = support::create_cpu(Backend::with_state(()).unwrap(), config)
+        .await
+        .unwrap();
     runtime
         .context()
         .memory()

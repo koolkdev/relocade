@@ -13,12 +13,10 @@ mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::MemoryView;
-use relocade_machine::{real_mode_interrupt, Hook, HostCall};
-use relocade_x86::ExecutionExit;
+use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HostAction};
 pub use screen::{
     write_text, TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
-use std::ops::ControlFlow;
 pub use text_renderer::TextRenderer;
 
 const BIOS_SEGMENT: u16 = 0xf000;
@@ -55,16 +53,18 @@ pub fn initialize(memory: &mut MemoryView<'_>) {
 }
 
 /// Returns hooks for installation alongside another environment's hooks.
-/// The environment lends the same keyboard used by its console input.
-pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 3] {
+/// Pass the same keyboard handle used by the embedding and its console input.
+pub fn hooks(keyboard: Keyboard) -> [Hook; 3] {
     [
         Hook::new(CLOCK_ADDRESS, clock),
-        Hook::new(KEYBOARD_ADDRESS, keyboard::interrupt),
+        Hook::new(KEYBOARD_ADDRESS, move |context| {
+            keyboard::interrupt(context, &keyboard)
+        }),
         Hook::new(VIDEO_ADDRESS, video::interrupt),
     ]
 }
 
-fn clock<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> {
+fn clock(call: &mut CpuContext<'_>) -> HostAction {
     if call.cpu().ah() == 0 {
         let mut data = [0; 5];
         call.memory()

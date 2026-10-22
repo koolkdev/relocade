@@ -9,30 +9,29 @@ use crate::{
     services::buffers::transfer_count,
     state::DosState,
     stdio::OutputStream,
-    DosServices,
 };
-use relocade_machine::HostCall;
-use relocade_x86::{ExecutionExit, Segment};
-use std::ops::ControlFlow;
+use relocade_machine::{CpuContext, HostAction};
+use relocade_x86::Segment;
+use std::rc::Rc;
 
 // DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
 const CONSOLE_LINE_CAPACITY: u8 = 128;
 
 /// AH=3Fh: read an edited line or the requested raw byte count, according to the handle.
 pub(in crate::services) fn read_handle(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
+    call: &mut CpuContext<'_>,
+    state: &Rc<DosState>,
     stream: OutputStream,
-) -> ControlFlow<ExecutionExit> {
+) -> HostAction {
     let handle = call.cpu().bx();
-    if state.files.console_eof(handle) {
+    if state.files.borrow().console_eof(handle) {
         call.cpu().set_ax(0);
         return return_result(call, Ok(()));
     }
-    if state.files.console_raw(handle) {
+    if state.files.borrow().console_raw(handle) {
         return read_raw(call, state);
     }
-    if call.cpu().cx() == 0 || !state.files.stdio.console_line.is_empty() {
+    if call.cpu().cx() == 0 || !state.files.borrow_mut().stdio.console_line.is_empty() {
         return return_handle_buffer(call, state);
     }
     let line = LineInput::new(
@@ -46,49 +45,43 @@ pub(in crate::services) fn read_handle(
 }
 
 fn return_handle_line(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
+    call: &mut CpuContext<'_>,
+    state: &Rc<DosState>,
     mut bytes: Vec<u8>,
     stream: OutputStream,
-) -> ControlFlow<ExecutionExit> {
+) -> HostAction {
     let handle = call.cpu().bx();
     let eof = bytes.first() == Some(&0x1a);
-    state.files.set_console_eof(handle, eof);
+    state.files.borrow_mut().set_console_eof(handle, eof);
     write_console(call, state, stream, b"\n");
     // Ctrl-Z at the start of a console line reports EOF.
     if !eof {
         bytes.push(b'\n');
-        state.files.stdio.console_line.extend(bytes);
+        state.files.borrow_mut().stdio.console_line.extend(bytes);
     }
     return_handle_buffer(call, state)
 }
 
-fn return_handle_buffer(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+fn return_handle_buffer(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     let cpu = call.cpu();
     let count = transfer_count(cpu.dx(), cpu.cx());
-    let line = &mut state.files.stdio.console_line;
+    let line = &mut state.files.borrow_mut().stdio.console_line;
     let count = count.min(line.len());
     let bytes: Vec<_> = line.drain(..count).collect();
     return_bytes(call, &bytes)
 }
 
-fn read_raw(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+fn read_raw(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     let cpu = call.cpu();
     let count = transfer_count(cpu.dx(), cpu.cx());
-    let input = state.files.stdio.input.clone();
+    let input = state.files.borrow_mut().stdio.input.clone();
     let mut bytes = Vec::with_capacity(count);
     while bytes.len() < count {
         match input.try_read_character() {
             Some(byte) => bytes.push(byte),
             None => {
                 return interrupt::defer(
-                    call,
+                    state,
                     async move {
                         // A raw console read waits for CX bytes, including control characters.
                         while bytes.len() < count {
@@ -104,7 +97,7 @@ fn read_raw(
     return_bytes(call, &bytes)
 }
 
-fn return_bytes(call: &mut HostCall<'_, DosServices>, bytes: &[u8]) -> ControlFlow<ExecutionExit> {
+fn return_bytes(call: &mut CpuContext<'_>, bytes: &[u8]) -> HostAction {
     if !bytes.is_empty() {
         let cpu = call.cpu();
         let offset = cpu.dx();

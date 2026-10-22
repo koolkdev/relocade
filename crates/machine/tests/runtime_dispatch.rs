@@ -1,7 +1,7 @@
 mod support;
 use relocade_compiler::{Program, I32};
 
-use relocade_machine::{DispatchEntry, RuntimeState};
+use relocade_machine::DispatchEntry;
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -25,7 +25,7 @@ async fn check_dispatch_table() {
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    let backend = Backend::with_state(RuntimeState::new(())).unwrap();
+    let backend = Backend::with_state(()).unwrap();
     let mut runtime = support::create_cpu(backend, config).await.unwrap();
     // JMP 0200. An uninstalled destination faults; only our callable writes the marker.
     runtime

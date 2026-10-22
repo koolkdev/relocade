@@ -1,6 +1,6 @@
 use crate::common;
 use relocade_bios::{KeyStroke, ShiftState};
-use relocade_dos::{Dos, DosServices};
+use relocade_dos::Dos;
 use relocade_x86::{CpuState, ExecutionExit};
 use std::{
     future::Future,
@@ -16,7 +16,7 @@ use std::{
 // BIOS INT 16h/JMP $, followed by DOS INT 21h/JMP $.
 const PROGRAM: &[u8] = &[0xcd, 0x16, 0xeb, 0xfe, 0xcd, 0x21, 0xeb, 0xfe];
 
-fn invoke(dos: &mut Dos<common::Backend<DosServices>>, ip: u32, ax: u16) -> CpuState {
+fn invoke(dos: &mut Dos<common::Backend>, ip: u32, ax: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
         let mut cpu = machine.cpu();

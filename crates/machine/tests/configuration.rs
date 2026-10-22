@@ -1,4 +1,4 @@
-use relocade_machine::{ConfigurationError, CpuConfig, MachineConfig, RuntimeMemory};
+use relocade_machine::{ConfigurationError, CpuBindings, CpuConfig, MachineConfig};
 use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, ExecutionTarget, PhysicalMapping, PhysicalMemoryMap,
@@ -27,7 +27,7 @@ fn memory_map_must_match_the_execution_profile() {
     )
     .unwrap();
     assert!(matches!(
-        RuntimeMemory::new(&mut backend, config, protected),
+        CpuBindings::new(&mut backend, config, protected),
         Err(relocade_machine::Error::Configuration(
             ConfigurationError::UnsupportedProfile
         ))

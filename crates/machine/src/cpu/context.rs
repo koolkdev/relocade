@@ -1,28 +1,16 @@
-use crate::{CpuConfig, CpuStorage, CpuView, MachineConfig, MemoryView};
+use crate::{CpuView, MemoryView};
 use relocade_x86::ExecutionTarget;
 
-/// Scoped access to one stopped CPU and its guest memory. Other CPUs may share
-/// the memory. Both views read and write live storage directly.
+/// Borrowed views of one stopped CPU and its shared guest memory.
+/// Register edits and memory transfers apply directly to their respective owners.
 pub struct CpuContext<'a> {
-    cpu: &'a CpuConfig,
-    config: &'a MachineConfig,
-    storage: &'a mut dyn CpuStorage,
+    cpu: CpuView<'a>,
+    memory: MemoryView<'a>,
 }
 
 impl<'a> CpuContext<'a> {
-    /// Binds access to initialized storage. Its images and capacities must match
-    /// `config`; CPU state must satisfy the configured execution target. Host
-    /// CPU edits enforce compatibility before publishing changes.
-    pub fn new(
-        cpu: &'a CpuConfig,
-        config: &'a MachineConfig,
-        storage: &'a mut dyn CpuStorage,
-    ) -> Self {
-        Self {
-            cpu,
-            config,
-            storage,
-        }
+    pub fn new(cpu: CpuView<'a>, memory: MemoryView<'a>) -> Self {
+        Self { cpu, memory }
     }
 
     pub fn execution_target(&self) -> ExecutionTarget {
@@ -30,10 +18,10 @@ impl<'a> CpuContext<'a> {
     }
 
     pub fn cpu(&mut self) -> CpuView<'_> {
-        CpuView::new(self.cpu, self.storage)
+        self.cpu.reborrow()
     }
 
     pub fn memory(&mut self) -> MemoryView<'_> {
-        MemoryView::new(self.config, self.storage)
+        self.memory.reborrow()
     }
 }
