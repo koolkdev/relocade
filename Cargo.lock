@@ -1344,6 +1344,7 @@ dependencies = [
  "relocade-x86",
  "serde",
  "wasm-bindgen-test",
+ "wasm-encoder 0.254.0",
  "web-thread-select",
 ]
 

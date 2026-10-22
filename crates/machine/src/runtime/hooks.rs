@@ -1,9 +1,10 @@
+use super::storage::BackendStorage;
 use relocade_compiler::{abi::Function, Program, I64};
 use relocade_wasm_runtime::WasmCompiler;
 use relocade_x86::{abi, ExecutionExit};
 use std::ops::ControlFlow;
 
-use super::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
+use crate::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
 
 type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync;
 
@@ -54,7 +55,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Entries begin with CPU state already published by the predecessor. They
     /// cache no CPU values across the host call. Hooks do not retire guest
     /// instructions; continuing execution retains the current instruction target.
-    /// Handlers must not reenter guest execution. They may use `HostCall::defer`
+    /// Handlers must not reenter this CPU. They may use `HostCall::defer`
     /// to await owned work and complete in Rust before guest execution resumes.
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
         let hooks: Vec<_> = hooks.into_iter().collect();
@@ -74,11 +75,16 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
                 body.tail_call(dispatch, &[])
             })?;
             program.export(name, function)?;
-            let bindings = self.access.bindings.clone();
-            imports.push(self.access.backend.bind_host(
+            let bindings = self.bindings.clone();
+            imports.push(self.backend.bind_host(
                 declaration,
                 Box::new(move |mut caller| {
-                    let flow = bindings.with_host_call(&mut caller, |call| (hook.handler)(call));
+                    let mut storage = BackendStorage::new(&mut caller, &bindings);
+                    let flow = (hook.handler)(&mut HostCall::new(
+                        &bindings.config,
+                        &bindings.machine_config,
+                        &mut storage,
+                    ));
                     match flow {
                         ControlFlow::Continue(()) => 0,
                         ControlFlow::Break(exit) => exit.to_bits() as i64,
@@ -91,9 +97,15 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             });
         }
         let bytes = program.compile()?;
-        let module = self.access.backend.compiler().compile(&bytes).await?;
+        let module = self.backend.compiler().compile(&bytes).await?;
         self.dispatch
-            .install(&mut self.access, &module, &imports, &entries)
+            .install(
+                &mut self.backend,
+                &self.bindings,
+                &module,
+                &imports,
+                &entries,
+            )
             .await
     }
 }

@@ -391,12 +391,10 @@ Alignment is determined after segment translation. All operand bytes pass write
 checks before the update, including a failed comparison. Ordinary loads, stores
 and unlocked updates retain ordinary Wasm accesses; no extra fences are inserted.
 
-Execution has one guest CPU and one writer to guest backing. Host writes run
-synchronously in callbacks or between guest entries; concurrent observers may
-read but must tolerate partial updates. Unaligned protected-mode locked operands
-use checked reads and writes under this contract, which prevents guest
-interleaving. Concurrent CPUs or writing bus masters will require coordination
-for unaligned locked operands as well as the surrounding ordinary accesses.
+Unaligned protected-mode locked operands currently use checked ordinary reads
+and writes. They do not provide atomicity against concurrent guest or host writes.
+Shared-memory ownership adds no global writer lock; supporting these operations
+across simultaneous writers requires further work.
 Rejected LOCK combinations and register forms of memory-only instructions remain
 unsupported encodings, reported through the unsupported-instruction path rather
 than #UD.
@@ -405,7 +403,7 @@ than #UD.
 
 Explicit LFENCE, SFENCE and MFENCE instructions use Wasm's full atomic fence.
 This supplies stronger ordering than the individual load/store fences require;
-it does not change the single-writer contract or model speculative execution.
+it does not model speculative execution.
 
 MOVNTPS, MOVNTPD, MOVNTDQ, MOVNTQ and MOVNTI use the ordinary checked memory
 write path. Their non-temporal cache hints do not alter host routing or introduce
@@ -959,9 +957,9 @@ Descriptor callbacks read only current GDTR/LDTR and descriptor bytes. They do
 not require publication of other CPU fields, and must not inspect those fields,
 mutate guest RAM/page mappings or reenter execution. Resolution is pure; only
 `completeSegmentLoad` changes table bytes. GDTR, LDTR and descriptor contents
-must stay unchanged between resolution and completion. Host edits occur while
-execution is stopped. Descriptor edits affect future loads and queries while
-loaded caches retain their prior contents.
+are not protected by an address-space lock. The callbacks leave the CPU's table
+registers unchanged; other owners can access the shared descriptor bytes. Edits
+affect future loads and queries while loaded caches retain their prior contents.
 
 ## Descriptor queries
 

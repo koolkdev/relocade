@@ -129,9 +129,10 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     ) -> relocade_machine::Result<Self> {
         let state = Rc::new(RefCell::new(DosState::default()));
         let services = DosServices::new(Rc::clone(&state));
-        let backend = create_backend(RuntimeState::new(services))
+        let mut backend = create_backend(RuntimeState::new(services))
             .map_err(Into::<relocade_machine::Error>::into)?;
-        let mut cpu = Cpu::new(backend, kernel::configuration(), kernel::cpu()).await?;
+        let machine = relocade_machine::Machine::new(&mut backend, kernel::configuration())?;
+        let mut cpu = machine.create_cpu(backend, kernel::cpu()).await?;
         kernel::initialize(&mut cpu.context().memory());
         relocade_bios::initialize(&mut cpu.context().memory());
         cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
@@ -222,7 +223,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// let mut dos = relocade_dos::Dos::new(create_backend).await?;
     /// dos.load_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let mut input = dos.stdin();
-    /// // An event handler can retain this writer while the cpu waits.
+    /// // An event handler can retain this writer while the CPU waits.
     /// let run = dos.cpu().run_async(100);
     /// input.write_all(b"y")?;
     /// run.await?;

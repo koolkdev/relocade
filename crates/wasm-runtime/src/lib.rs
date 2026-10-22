@@ -37,9 +37,11 @@ pub use web::{Backend, Compiler, Context, Memory, Module, SharedMemory};
 
 mod host;
 mod imports;
+mod memory_bytes;
 mod module_cache;
 pub use host::{HostFunction, HostSignature, HostValue};
 pub use imports::{Import, ImportBinding, ImportValue};
+pub use memory_bytes::MemoryBytes;
 pub use module_cache::ModuleCache;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
@@ -60,13 +62,22 @@ pub trait WasmMemoryAccess {
     /// A handle to engine-owned memory that host functions can capture. Access to
     /// the contents still requires the owning backend or its scoped context.
     type Memory: Clone + Send + Sync + 'static;
+    /// Retains a shared allocation independently of its backend.
+    type SharedMemory: WasmSharedMemory;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
     fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]);
+
+    /// Borrows live bytes while this backend or callback remains stopped.
+    fn memory_bytes<'a>(&'a mut self, memory: &'a Self::Memory) -> MemoryBytes<'a>;
+
+    /// Returns an independent handle for shared memory, or `None` for private memory.
+    fn shared_memory(&self, memory: &Self::Memory) -> Option<Self::SharedMemory>;
 }
 
 impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
     type Memory = A::Memory;
+    type SharedMemory = A::SharedMemory;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
         (**self).read_memory(memory, offset, bytes);
@@ -74,6 +85,14 @@ impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
 
     fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
         (**self).write_memory(memory, offset, bytes);
+    }
+
+    fn memory_bytes<'a>(&'a mut self, memory: &'a Self::Memory) -> MemoryBytes<'a> {
+        (**self).memory_bytes(memory)
+    }
+
+    fn shared_memory(&self, memory: &Self::Memory) -> Option<Self::SharedMemory> {
+        (**self).shared_memory(memory)
     }
 }
 
@@ -98,6 +117,12 @@ pub trait WasmContext: WasmMemoryAccess {
 
     fn state(&self) -> &Self::State;
     fn state_mut(&mut self) -> &mut Self::State;
+
+    /// Borrows memory and environment state together, preserving their disjointness.
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Self::Memory,
+    ) -> (MemoryBytes<'a>, &'a mut Self::State);
 }
 
 /// One Wasm resource owner. Preparation futures, environment state and handles
@@ -109,7 +134,11 @@ pub trait WasmContext: WasmMemoryAccess {
 /// valid after the original module and instance handles are dropped.
 pub trait WasmBackend: WasmMemoryAccess + Sized {
     type State: 'static;
-    type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
+    type Context<'a>: WasmContext<
+        State = Self::State,
+        Memory = Self::Memory,
+        SharedMemory = Self::SharedMemory,
+    >
     where
         Self: 'a;
     /// Cloning a module shares compiled code without creating a guest instance.
@@ -121,8 +150,6 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     type Function;
     /// An engine function handle, after its binding's signature has been checked.
     type ImportFunction: Clone;
-    /// Retains a shared allocation independently of this backend.
-    type SharedMemory: WasmSharedMemory;
 
     /// Host state is borrowed only between Wasm calls. A browser backend may
     /// return a borrow guard; drop it before calling into Wasm.
@@ -146,10 +173,6 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// Allocates zeroed memory with the declaration's limits and sharing mode.
     /// Shared memory requires a maximum. Import names are used only when linking.
     fn create_memory(&mut self, declaration: MemoryDeclaration) -> Result<Self::Memory>;
-
-    /// Obtains an independently owned handle for shared memory.
-    /// Returns `None` for private memory.
-    fn shared_memory(&self, memory: &Self::Memory) -> Option<Self::SharedMemory>;
 
     /// Attaches an existing shared allocation to this backend. The returned handle
     /// belongs to this backend; the allocation remains shared with its other users.

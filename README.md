@@ -21,8 +21,8 @@ that subset. The project is under development; the crates are not published.
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
+| [relocade-machine](crates/machine/src/lib.rs) | Machine resources, CPUs, mapped memory, runtime execution and worker integration. |
 | [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
-| [relocade-machine](crates/machine/src/lib.rs) | CPU views, execution, dispatch, hooks and worker tasks. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
@@ -48,24 +48,54 @@ Both contracts are included in the x86 crate's generated API documentation.
 The [future worker design](crates/machine/docs/worker-execution.md) describes
 execution-task ownership, UI messaging and scheduling for an interactive embedding.
 
+## Configure a machine
+
+`Machine` owns the address space and creates independently executable CPUs.
+`MachineConfig` describes shared backing and mappings; `CpuConfig` describes one
+CPU's target and initial architectural state.
+
+```rust
+use relocade_machine::{CpuConfig, Machine, MachineConfig};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
+
+let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
+let config = MachineConfig::new(0x10000, map)?;
+let cpu_config = CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(),
+    CpuState { segments: Segments::real_mode(), ..CpuState::default() })?;
+let machine = Machine::new(&mut backend, config)?;
+let mut cpu = machine.create_cpu(backend, cpu_config).await?;
+```
+
+`cpu.context()` lends live CPU and memory views. Each CPU keeps its execution
+profile, private registers, loaded caches, dispatch entries and pending calls.
+Shared-memory access is not serialized. `machine.memory()` provides a
+shared handle for devices and displays without borrowing a CPU.
+
+The `runtime` module owns code preparation, dispatch and execution. Bound Wasm
+instances stay with each CPU. The generic Wasm backend remains a separate crate.
+`Machine::create_cpu` currently executes Real16. `Machine::bind_cpu` allocates a
+private CPU context for custom Wasm integrations; `CpuBindings` supplies memory
+imports and scoped host calls.
+See [shared memory](crates/machine/docs/shared-memory.md) for multiple CPUs,
+memory views and worker transport.
+
 ## Build and test
 
 Cargo generates four interpreter modules on the build host, one for each execution
 profile. Each exports `step` and `run`. `relocade-interpreter::module(profile)`
-returns their embedded Wasm bytes, and `Cpu::new` uses them in both native and
+returns their embedded Wasm bytes, and `Machine::create_cpu` uses them in both native and
 web builds. Starting a guest does not regenerate the interpreter. The backend
 still compiles the portable Wasm to native code when loading it.
 
 `backend.compiler()` returns an independent `WasmCompiler` handle. Its
 `compile(bytes)` method compiles any module without borrowing the backend's live
-instances or host state. Cpu startup retains only the four interpreter assets
+instances or host state. Runtime startup retains only the four interpreter assets
 in a shared `ModuleCache`, using that same compilation method on a cache miss.
 Dispatcher and guest modules go directly to `compile`.
 Backends provide optional cache storage through `module_cache()` and share it only
 with compatible engines. Native backends share a Wasmtime engine and cache within
 the process; browser backends share a cache within the same worker. The common
-cache coordinates concurrent requests and retries failures. Each runtime keeps
-its own instances, memory and host state.
+cache coordinates concurrent requests and retries failures. Each CPU keeps its own instances, register storage and host state.
 
 Wasmtime's default disk cache also reuses compiled code across processes; its
 standard cache configuration controls the location and eviction. If cache
