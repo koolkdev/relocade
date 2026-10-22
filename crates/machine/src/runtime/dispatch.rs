@@ -2,7 +2,7 @@
 
 mod table;
 
-use super::code;
+use super::{code, Runtime};
 use crate::{CpuBindings, Error, Result};
 use relocade_wasm_runtime::{Import, WasmBackend};
 use relocade_x86::{abi, ExecutionExit};
@@ -28,10 +28,11 @@ impl<B: WasmBackend> Dispatch<B> {
     pub(crate) async fn new(
         backend: &mut B,
         bindings: &CpuBindings<B::Memory>,
+        runtime: &Runtime,
         host_imports: Vec<Import<'static, B>>,
     ) -> Result<Self> {
         let target = bindings.configuration().execution_target();
-        let module = code::dispatcher(backend, target).await?;
+        let module = runtime.dispatcher(backend, target).await?;
         // Link the dispatcher first; the interpreter imports its entry points.
         let dispatch = Self::link_dispatcher(backend, bindings, &module, host_imports).await?;
         let module = code::interpreter(backend, target).await?;

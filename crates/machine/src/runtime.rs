@@ -1,6 +1,7 @@
 //! Executable dispatch, per-CPU execution and host integration.
 //!
-//! Wasm modules use the backend's existing engine cache. Bound instances,
+//! Machine-wide runtime state retains generated dispatcher code by execution
+//! target. Wasm modules use the backend's existing engine cache. Bound instances,
 //! function tables and continuations belong to each CPU's execution context.
 
 mod backend;
@@ -20,6 +21,7 @@ pub mod worker;
 pub use backend::RuntimeBackend;
 pub use bindings::CpuBindings;
 pub use callback::HostCall;
+pub(crate) use code::Runtime;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
 pub use hooks::Hook;
