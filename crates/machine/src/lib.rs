@@ -1,6 +1,6 @@
 //! Machines with shared guest memory and independently executable CPUs.
 //!
-//! [`Machine`] owns the guest memory shared by its CPUs.
+//! [`Machine`] owns the guest memory and CPU membership.
 //! Each [`Cpu`] retains its machine and owns its backend, live registers, dispatch
 //! bindings and pending host calls. Running a CPU does not borrow the machine.
 //! [`CpuContext`] and [`CpuView`] lend access to a stopped CPU's live storage.
@@ -27,23 +27,17 @@ mod cpu;
 mod machine;
 mod memory;
 pub mod runtime;
-mod storage;
 #[cfg(feature = "worker")]
 pub use runtime::worker;
 
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
-pub use cpu::{Cpu, CpuContext, CpuView};
+pub use cpu::{Cpu, CpuContext, CpuId, CpuView};
 pub use machine::Machine;
 pub use memory::{Memory, MemoryError, MemoryView};
 pub use runtime::{
     real_mode_interrupt, CpuBindings, DispatchEntry, Error, Hook, HostCall, Result, RuntimeBackend,
     RuntimeState,
 };
-pub use storage::MemoryStorage;
 
-/// Transfers to the private CPU context and shared guest storage. CPU offsets
-/// are relative to `CpuState`; writes must update live storage immediately.
-pub trait CpuStorage: MemoryStorage {
-    fn read_cpu(&self, offset: u32, bytes: &mut [u8]);
-    fn write_cpu(&mut self, offset: u32, bytes: &[u8]);
-}
+#[cfg(test)]
+mod tests;

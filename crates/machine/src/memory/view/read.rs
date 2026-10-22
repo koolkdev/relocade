@@ -14,7 +14,7 @@ impl MemoryView<'_> {
             match map.get(address) {
                 PhysicalMapping::Ram { backing_offset }
                 | PhysicalMapping::Rom { backing_offset } => {
-                    self.storage.read_backing(backing_offset, part);
+                    self.backing.read(backing_offset, part);
                 }
                 PhysicalMapping::Unmapped | PhysicalMapping::Mmio => part.fill(0xff),
             }
@@ -56,7 +56,7 @@ impl MemoryView<'_> {
         if !range_fits(offset, bytes.len(), self.backing_size()) {
             return Err(MemoryError::BackingRange);
         }
-        self.storage.read_backing(offset, bytes);
+        self.backing.read(offset, bytes);
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 # Shared guest memory
 
-`Machine` owns the shared address space for its CPUs.
+`Machine` owns the address space and CPU membership.
 Each `Cpu` retains its machine and owns its private architectural context, Wasm
 bindings, dispatch entries, callbacks and pending host calls. `Memory` is
 a property of the machine; its backing is the existing shared-memory handle
@@ -21,7 +21,9 @@ second.run(budget)?;
 
 CPU creation allocates fresh architectural storage and preserves existing guest
 bytes. CPU handles own their resources, so running or awaiting a CPU does not
-borrow the machine. Cloning a machine retains the same shared owners.
+borrow the machine. Cloning a machine retains the same shared owners. CPU IDs
+are unique within that machine; `cpu_count()` counts live contexts, including
+bindings retained by host callbacks.
 
 `Machine::with_backing(config, machine.memory().backing().clone())`
 creates another machine with its own map over the same allocation. The physical
@@ -55,17 +57,25 @@ handle whose lifetime is independent of execution.
 `cpu.view()` borrows published CPU registers directly. Use `cpu.context()` when
 passing CPU and guest-memory access together.
 
-`CpuContext::cpu()` and `HostCall::cpu()` return `CpuView`, the corresponding
-borrowed view of architectural CPU state. `Cpu` directly owns its Wasm backend,
-CPU bindings and dispatch resources. It implements `CpuStorage` and
-`MemoryStorage` for host access while execution is stopped. A host callback uses
-a temporary `BackendStorage` that borrows the runtime context and CPU bindings.
-Both paths use the bindings' byte-transfer operations. Register interpretation
-and guest memory policy belong to the public views.
+`CpuView` borrows live private CPU bytes, and `MemoryView` borrows the machine's
+shared allocations. Register interpretation and guest memory policy belong to
+these views. `Cpu` owns its backend, bindings and dispatch resources;
+`Memory` owns the shared backing and any live tables.
 
-`CpuContext` retains an execution target and immutable memory configuration while
-borrowing live storage. Cloning that configuration shares its existing map;
-it does not copy CPU state or guest bytes.
+`CpuContext` contains a CPU view and a memory view. `HostCall` groups those same
+views with a borrow of the environment state. Both lend shorter views to helpers:
+
+```rust
+fn set_result(cpu: &mut CpuView<'_>, value: u32) {
+    cpu.set_eax(value);
+}
+
+set_result(&mut cpu.view(), 42);
+```
+
+The backend lends private memory bytes while execution is stopped. Shared
+allocations lend bytes independently of a backend. Views retain those borrows;
+constructing or reborrowing a view allocates no storage and copies no guest state.
 
 Send the existing backend handle with `worker::Message(memory.backing().clone())`.
 The worker transport preserves the shared allocation. On the receiver, attach

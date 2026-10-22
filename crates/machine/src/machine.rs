@@ -2,7 +2,10 @@ use crate::{
     Cpu, CpuBindings, CpuConfig, MachineConfig, Memory, Result, RuntimeBackend, RuntimeState,
 };
 use relocade_wasm_runtime::{WasmBackend, WasmSharedMemory};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 /// Shared resources and CPU lifecycle for one emulated machine.
 /// Clones refer to the same machine. A CPU retains that ownership while its
@@ -10,6 +13,21 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct Machine<S: WasmSharedMemory> {
     pub(crate) memory: Memory<S>,
+    pub(crate) shared: Arc<Shared>,
+}
+
+pub(crate) struct Shared {
+    pub cpus: AtomicUsize,
+    pub next_cpu: AtomicUsize,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            cpus: AtomicUsize::new(0),
+            next_cpu: AtomicUsize::new(0),
+        }
+    }
 }
 
 impl<S: WasmSharedMemory> Machine<S> {
@@ -20,6 +38,7 @@ impl<S: WasmSharedMemory> Machine<S> {
     ) -> Result<Self> {
         Ok(Self {
             memory: Memory::new(backend, config)?,
+            shared: Arc::default(),
         })
     }
 
@@ -27,6 +46,7 @@ impl<S: WasmSharedMemory> Machine<S> {
     pub fn with_backing(config: MachineConfig, backing: S) -> Result<Self> {
         Ok(Self {
             memory: Memory::with_backing(Arc::new(config), backing)?,
+            shared: Arc::default(),
         })
     }
 
@@ -37,6 +57,11 @@ impl<S: WasmSharedMemory> Machine<S> {
     /// replaced. The returned handle can edit live memory and outlive this handle.
     pub fn memory(&self) -> Memory<S> {
         self.memory.clone()
+    }
+
+    /// Number of live CPU contexts, including bindings retained by host callbacks.
+    pub fn cpu_count(&self) -> usize {
+        self.shared.cpus.load(Ordering::Relaxed)
     }
 
     /// Creates an independently executable CPU in this machine.

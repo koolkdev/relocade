@@ -37,13 +37,17 @@ fn configuration() -> MachineConfig {
 async fn check_private_cpus() {
     let mut first_backend = backend(10_u32);
     let space = Machine::new(&mut first_backend, configuration()).unwrap();
+    assert_eq!(space.cpu_count(), 0);
     let mut first = space.create_cpu(first_backend, cpu(0)).await.unwrap();
+    assert_eq!(space.cpu_count(), 1);
     first
         .context()
         .memory()
         .write(0x100, &[0x40, 0xa3, 0, 2, 0xeb, 0xfa])
         .unwrap();
     let mut second = space.create_cpu(backend(20_u32), cpu(100)).await.unwrap();
+    assert_eq!(space.cpu_count(), 2);
+    assert_ne!(first.id(), second.id());
     assert_eq!(first.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(space.memory().view().read_u16(0x200).unwrap(), 1);
     assert_eq!(second.context().cpu().eax(), 100);
@@ -72,7 +76,9 @@ async fn check_private_cpus() {
     let mut shared = space.memory();
     let reader = shared.view();
     drop(space);
+    assert_eq!(second.machine().cpu_count(), 2);
     drop(first);
+    assert_eq!(second.machine().cpu_count(), 1);
     assert_eq!(second.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     drop(second);
     assert_eq!(reader.read_u16(0x200).unwrap(), 103);

@@ -36,6 +36,7 @@ fn memory_map_must_match_the_execution_profile() {
             ConfigurationError::UnsupportedProfile
         ))
     ));
+    assert_eq!(physical.cpu_count(), 0);
 }
 
 #[test]

@@ -1,7 +1,9 @@
-mod storage;
+use crate::memory::resources::MemoryResources;
+use relocade_wasm_runtime::WasmMemoryAccess;
+mod control;
 
 use crate::Result;
-use crate::{CpuConfig, Machine, MachineConfig};
+use crate::{cpu::Membership, CpuConfig, CpuId, Machine, MachineConfig};
 use relocade_compiler::abi::Memory;
 use relocade_wasm_runtime::{Import, WasmBackend};
 use relocade_x86::{abi, ExecutionContext};
@@ -14,6 +16,7 @@ use std::sync::Arc;
 pub struct CpuBindings<M> {
     pub(crate) config: Arc<CpuConfig>,
     pub(crate) machine_config: Arc<MachineConfig>,
+    pub(crate) membership: Arc<Membership>,
     pub(crate) context: M,
     pub(crate) guest: M,
     pub(crate) mapping: M,
@@ -55,10 +58,26 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
         Ok(Self {
             config: Arc::new(config),
             machine_config: Arc::clone(&memory.config),
+            membership: Membership::new(&machine.shared),
             context,
             guest,
             mapping,
         })
+    }
+
+    pub fn id(&self) -> CpuId {
+        self.membership.id
+    }
+
+    pub(crate) fn shared_resources<A: WasmMemoryAccess<Memory = M>>(
+        &self,
+        backend: &A,
+    ) -> MemoryResources<A::SharedMemory> {
+        MemoryResources {
+            backing: backend
+                .shared_memory(&self.guest)
+                .expect("shared backing memory"),
+        }
     }
 
     pub fn configuration(&self) -> &CpuConfig {

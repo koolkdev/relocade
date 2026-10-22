@@ -1,14 +1,12 @@
-use support::Configuration;
-mod support;
-use relocade_machine::{ConfigurationError, CpuContext, MemoryError};
+use super::support::Fixture;
+use super::support::{self, Configuration};
+use crate::{ConfigurationError, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment,
     SegmentRegister, Segments, StatusSourceState,
 };
-use std::rc::Rc;
-use support::Storage;
 
-fn configuration(map: PhysicalMemoryMap) -> (Configuration, Storage) {
+fn configuration(map: PhysicalMemoryMap) -> (Configuration, Fixture) {
     let model =
         relocade_x86::CpuModel::default().with_feature(relocade_x86::CpuFeature::Cmov, false);
     let cpu = CpuState {
@@ -24,59 +22,60 @@ fn configuration(map: PhysicalMemoryMap) -> (Configuration, Storage) {
         map,
     )
     .unwrap();
-    let storage = Storage::new(&config.cpu, &config.machine);
-    (config, storage)
+    let fixture = Fixture::new(&config.cpu, &config.machine);
+    (config, fixture)
 }
 
 #[test]
 fn register_access_is_live_and_preserves_aliases() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let context = Rc::clone(&storage.context);
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
-    let mut cpu = machine.cpu();
-    cpu.set_eax(0x1234_5678);
-    cpu.set_ax(0xabcd);
-    cpu.set_al(0xef);
-    cpu.set_ah(0x98);
-    // Observe writes while the view is still borrowed: no drop/flush is needed.
-    assert_eq!(&context.borrow()[28..32], &[0xef, 0x98, 0x34, 0x12]);
-    assert_eq!(cpu.eax(), 0x1234_98ef);
-    context.borrow_mut()[28] = 0x42;
-    assert_eq!(cpu.ax(), 0x9842);
-    assert_eq!(cpu.al(), 0x42);
-    assert_eq!(cpu.ah(), 0x98);
-    cpu.set_eip(0x100);
-    assert_eq!(&context.borrow()[60..64], &[0, 1, 0, 0]);
-    assert_eq!(
-        *storage.cpu_reads.borrow(),
-        [(28, 4), (28, 2), (28, 1), (29, 1)]
-    );
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    {
+        let mut context = fixture.view(&config);
+        let mut cpu = context.cpu();
+        cpu.set_eax(0x1234_5678);
+        cpu.set_ax(0xabcd);
+        cpu.set_al(0xef);
+        cpu.set_ah(0x98);
+        assert_eq!(cpu.eax(), 0x1234_98ef);
+    }
+    assert_eq!(&fixture.context[28..32], &[0xef, 0x98, 0x34, 0x12]);
+    fixture.context[28] = 0x42;
+    {
+        let mut context = fixture.view(&config);
+        let mut cpu = context.cpu();
+        assert_eq!(cpu.ax(), 0x9842);
+        assert_eq!(cpu.al(), 0x42);
+        assert_eq!(cpu.ah(), 0x98);
+        cpu.set_eip(0x100);
+    }
+    assert_eq!(&fixture.context[60..64], &[0, 1, 0, 0]);
     assert_eq!(config.cpu.cpu().eip, 0);
 }
 
 #[test]
 fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let context = Rc::clone(&storage.context);
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
-    let mut cpu = machine.cpu();
-    let snapshot = CpuState {
-        segments: Segments::real_mode(),
-        idtr: relocade_x86::DescriptorTableRegister::REAL_MODE_IDTR,
-        ldtr: relocade_x86::SystemSegmentRegister::default(),
-        tr: relocade_x86::SystemSegmentRegister::default(),
-        ..CpuState::filled(0xa5)
-    };
-    cpu.restore(&snapshot).unwrap();
-    assert_eq!(cpu.snapshot(), snapshot);
-    assert_eq!(&context.borrow()[536..544], &998_u64.to_le_bytes());
-    assert_eq!(&context.borrow()[544..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    {
+        let mut context = fixture.view(&config);
+        let mut cpu = context.cpu();
+        let snapshot = CpuState {
+            segments: Segments::real_mode(),
+            idtr: relocade_x86::DescriptorTableRegister::REAL_MODE_IDTR,
+            ldtr: relocade_x86::SystemSegmentRegister::default(),
+            tr: relocade_x86::SystemSegmentRegister::default(),
+            ..CpuState::filled(0xa5)
+        };
+        cpu.restore(&snapshot).unwrap();
+        assert_eq!(cpu.snapshot(), snapshot);
+    }
+    assert_eq!(&fixture.context[536..544], &998_u64.to_le_bytes());
+    assert_eq!(&fixture.context[544..], &[0xfd, 1, 0, 0, 0, 0, 0, 0]);
 }
 
 #[test]
 fn restore_rejects_incompatible_segments_without_writing() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = fixture.view(&config);
     let before = machine.cpu().snapshot();
     let mut snapshot = before;
     snapshot.registers.eax = 0x1234_5678;
@@ -90,8 +89,8 @@ fn restore_rejects_incompatible_segments_without_writing() {
 
 #[test]
 fn segment_edits_preserve_the_execution_profile() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = fixture.view(&config);
     let mut cpu = machine.cpu();
     let ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     cpu.set_segment(Segment::Ds, ds);
@@ -101,8 +100,8 @@ fn segment_edits_preserve_the_execution_profile() {
 #[test]
 #[should_panic(expected = "segment Ds violates execution profile Real16")]
 fn incompatible_segment_edits_panic() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = fixture.view(&config);
     let mut ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     ds.base = 0;
     machine.cpu().set_segment(Segment::Ds, ds);
@@ -110,8 +109,8 @@ fn incompatible_segment_edits_panic() {
 
 #[test]
 fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = fixture.view(&config);
     let mut snapshot = *config.cpu.cpu();
     snapshot.flags.status_source = StatusSourceState {
         kind: 2, // ADD byte: ff + 1 => CF, PF, AF, ZF.
@@ -147,8 +146,8 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
         (0x3000..=0x3fff, PhysicalMapping::Mmio),
     ])
     .unwrap();
-    let (config, mut storage) = configuration(map);
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(map);
+    let mut machine = fixture.view(&config);
     let mut memory = machine.memory();
     memory.write_backing(0, &[0xaa, 0xbb]).unwrap();
     memory.write(0xffe, &[1, 2, 3, 4]).unwrap();
@@ -186,8 +185,8 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
         ])
         .unwrap();
         map.set_a20_enabled(enabled);
-        let (config, mut storage) = configuration(map);
-        let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+        let (config, mut fixture) = configuration(map);
+        let mut machine = fixture.view(&config);
         let mut memory = machine.memory();
         memory.write(0x100000, &[0x5a]).unwrap();
         let mut byte = [0];
@@ -216,8 +215,8 @@ fn segment_transfers_check_the_whole_span_before_copying() {
         ),
     ])
     .unwrap();
-    let (config, mut storage) = configuration(map);
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(map);
+    let mut machine = fixture.view(&config);
     let mut memory = machine.memory();
     let ds = SegmentRegister::real_mode(Segment::Ds, 0);
     memory.write(0xfffe, b"ABCD").unwrap();
@@ -260,8 +259,8 @@ fn real_mode_segment_transfers_allow_cs_writes_and_preserve_rom_policy() {
         ),
     ])
     .unwrap();
-    let (config, mut storage) = configuration(map);
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(map);
+    let mut machine = fixture.view(&config);
     let mut memory = machine.memory();
     let cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
     memory.write_backing(0x1000, b"CD").unwrap();
@@ -273,8 +272,8 @@ fn real_mode_segment_transfers_allow_cs_writes_and_preserve_rom_policy() {
 
 #[test]
 fn invalid_spans_fail_before_any_transfer() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = fixture.view(&config);
     let mut memory = machine.memory();
     assert_eq!(memory.backing_size(), 0x3000);
     memory.write_backing(0x2fff, &[0x42]).unwrap();
@@ -306,8 +305,8 @@ fn invalid_spans_fail_before_any_transfer() {
 
 #[test]
 fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = fixture.view(&config);
     let before = machine.cpu().snapshot();
     let changed = relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff);
     assert_eq!(
@@ -319,8 +318,8 @@ fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
 
 #[test]
 fn restore_rejects_incompatible_idtr_without_writing() {
-    let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
-    let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
+    let (config, mut fixture) = configuration(PhysicalMemoryMap::new([]).unwrap());
+    let mut machine = fixture.view(&config);
     let before = machine.cpu().snapshot();
     let mut snapshot = before;
     snapshot.idtr = relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff);
