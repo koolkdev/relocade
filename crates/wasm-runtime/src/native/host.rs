@@ -1,5 +1,5 @@
-use super::{Backend, Memory};
-use crate::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
+use super::{Backend, Memory, SharedMemory};
+use crate::{HostFunction, HostValue, MemoryBytes, WasmContext, WasmMemoryAccess};
 use relocade_compiler::{Results, ValueType};
 use wasmtime::{AsContextMut, Func, StoreContextMut, WasmRet, WasmTy};
 
@@ -47,6 +47,18 @@ impl<T: 'static> WasmContext for Context<'_, T> {
 
 impl<T: 'static> WasmMemoryAccess for Context<'_, T> {
     type Memory = Memory;
+    type SharedMemory = SharedMemory;
+
+    fn memory_bytes<'a>(&'a mut self, memory: &'a Memory) -> MemoryBytes<'a> {
+        memory.bytes(&mut self.0)
+    }
+
+    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
+        match memory {
+            Memory::Private(_) => None,
+            Memory::Shared(memory) => Some(memory.clone()),
+        }
+    }
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
         memory.read(&self.0, offset, bytes);

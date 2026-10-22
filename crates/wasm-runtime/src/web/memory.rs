@@ -47,11 +47,11 @@ impl WasmSharedMemory for SharedMemory {
     }
 }
 
-pub(super) fn write(memory: &WebAssembly::Memory, offset: u32, bytes: &[u8]) {
+pub(crate) fn write(memory: &WebAssembly::Memory, offset: u32, bytes: &[u8]) {
     range(memory, offset, bytes.len()).copy_from(bytes);
 }
 
-pub(super) fn range(memory: &WebAssembly::Memory, offset: u32, len: usize) -> Uint8Array {
+pub(crate) fn range(memory: &WebAssembly::Memory, offset: u32, len: usize) -> Uint8Array {
     // Growth detaches private buffers and leaves old shared buffers with their
     // original length. Obtain the current buffer for every transfer.
     Uint8Array::new_with_byte_offset_and_length(

@@ -1,5 +1,6 @@
 use crate::{
-    Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmCompiler, WasmMemoryAccess,
+    Error, Import, ImportValue, MemoryBytes, ModuleCache, Result, WasmBackend, WasmCompiler,
+    WasmMemoryAccess,
 };
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::{
@@ -16,7 +17,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 mod host;
-mod memory;
+pub(crate) mod memory;
 pub use host::Context;
 pub use memory::SharedMemory;
 
@@ -101,7 +102,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type Table = WebAssembly::Table;
     type Function = Function;
     type ImportFunction = JsFunction;
-    type SharedMemory = SharedMemory;
 
     fn state(&self) -> impl Deref<Target = T> {
         Ref::map(self.store.borrow(), |store| &store.state)
@@ -136,10 +136,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
         let handle = Memory(store.memories.len());
         store.memories.push(memory);
         Ok(handle)
-    }
-
-    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
-        SharedMemory::from_memory(self.store.borrow().memory(memory).clone())
     }
 
     fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
@@ -252,6 +248,15 @@ impl<T: 'static> WasmBackend for Backend<T> {
 
 impl<T> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
+    type SharedMemory = SharedMemory;
+
+    fn memory_bytes<'a>(&'a mut self, memory: &'a Memory) -> MemoryBytes<'a> {
+        MemoryBytes::web(self.store.borrow().memory(memory).clone())
+    }
+
+    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
+        self.store.borrow().shared_memory(memory)
+    }
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
         self.store.borrow().read_memory(memory, offset, bytes);
@@ -264,6 +269,15 @@ impl<T> WasmMemoryAccess for Backend<T> {
 
 impl<T> WasmMemoryAccess for Store<T> {
     type Memory = Memory;
+    type SharedMemory = SharedMemory;
+
+    fn memory_bytes<'a>(&'a mut self, memory: &'a Memory) -> MemoryBytes<'a> {
+        MemoryBytes::web(self.memory(memory).clone())
+    }
+
+    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
+        SharedMemory::from_memory(self.memory(memory).clone())
+    }
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
         memory::range(self.memory(memory), offset, bytes.len()).copy_to(bytes);

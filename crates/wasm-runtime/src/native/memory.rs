@@ -1,4 +1,4 @@
-use crate::{Error, Result, WasmSharedMemory};
+use crate::{Error, MemoryBytes, Result, WasmSharedMemory};
 use relocade_compiler::abi;
 use std::sync::atomic::{AtomicU8, Ordering};
 use wasmtime::{AsContext, AsContextMut, Extern, MemoryType};
@@ -15,6 +15,16 @@ pub enum Memory {
 pub struct SharedMemory(wasmtime::SharedMemory);
 
 impl Memory {
+    pub(super) fn bytes<'a, T: 'static>(
+        &'a self,
+        store: impl Into<wasmtime::StoreContextMut<'a, T>>,
+    ) -> MemoryBytes<'a> {
+        match self {
+            Self::Private(memory) => MemoryBytes::new(memory.data_mut(store)),
+            Self::Shared(memory) => MemoryBytes::shared(memory),
+        }
+    }
+
     pub(super) fn new(mut store: impl AsContextMut, declaration: abi::Memory) -> Result<Self> {
         if declaration.shared {
             let maximum = declaration.maximum.ok_or_else(|| {
