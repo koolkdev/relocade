@@ -48,49 +48,52 @@ Both contracts are included in the x86 crate's generated API documentation.
 The [future worker design](crates/machine/docs/worker-execution.md) describes
 execution-task ownership, UI messaging and scheduling for an interactive embedding.
 
-## Configure a machine
+## Configure a protected user machine
 
 `Machine` owns the address space and creates independently executable CPUs.
-`MachineConfig` describes shared backing and mappings; `CpuConfig` describes one
-CPU's target and initial architectural state.
+`MachineConfig` describes shared backing, mappings and descriptor bytes;
+`CpuConfig` describes one CPU's target and initial architectural state.
+Physical maps support Real16, and paged maps support protected profiles.
 
 ```rust
-use relocade_machine::{CpuConfig, Machine, MachineConfig};
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
+use relocade_machine::{CpuConfig, DescriptorMemory, Machine, MachineConfig, PagedMemoryMap};
+use relocade_x86::{Compiler, CpuState, DescriptorTables, SegmentProfile};
 
-let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
-let config = MachineConfig::new(0x10000, map)?;
-let cpu_config = CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(),
-    CpuState { segments: Segments::real_mode(), ..CpuState::default() })?;
-let machine = Machine::new(&mut backend, config)?;
+let mut pages = PagedMemoryMap::default();
+pages.map(0x400000..=0x40ffff, 0, true)?;
+let descriptors = DescriptorMemory::new(DescriptorTables::default(), None)?;
+let cpu_config = CpuConfig::new(
+    Compiler::new(SegmentProfile::Flat32).target(), CpuState::default(),
+)?.with_descriptor_memory(&descriptors)?;
+let machine_config = MachineConfig::new(0x10000, pages)?
+    .with_descriptor_memory(descriptors)?;
+let machine = Machine::new(&mut backend, machine_config)?;
 let mut cpu = machine.create_cpu(backend, cpu_config).await?;
 ```
 
-`cpu.context()` lends live CPU and memory views. Each CPU keeps its execution
-profile, private registers, loaded caches, dispatch entries and pending calls.
-Shared-memory access is not serialized. `machine.memory()` provides a
-shared handle for devices and displays without borrowing a CPU.
+`cpu.context()` lends CPU, memory and descriptor views. Host calls use the same
+views through `HostCall`; descriptor edits leave loaded segment caches intact.
+Each CPU keeps its configured execution profile. `CpuView::set_segment` and
+guest segment resolution panic if a proposed cache violates that profile.
+Profile switching is not supported. GDTR, IDTR and the loaded LDTR/TR caches are
+direct `CpuState` fields. Descriptor tables occupy dedicated Wasm memory, so they
+reserve no guest addresses. Page mappings are host-managed; guest CR3 walking
+and privilege transitions remain outside this user-mode runtime.
 
-`PagedMemoryMap` configures protected-user mappings. Host reads and writes use
-the live table; the embedding coordinates changes with its users. Remapping
-invalidates generated entries on each CPU before its next execution, while host
-hooks survive. Capture source bytes and their mapping version using
-`Memory::snapshot` before compiling and installing generated code.
-
-`DescriptorMemory` builds an initial dedicated GDT/LDT image. Seed CPU table
-registers with `CpuConfig::with_descriptor_memory`, then supply the shared bytes
-with `MachineConfig::with_descriptor_memory`. `CpuContext::descriptors` and
-`HostCall::descriptors` resolve selectors using that CPU's GDTR/LDTR; the shared
-address space also provides access by offset. Edits leave loaded caches intact.
-
-The `runtime` module owns code preparation, dispatch and execution. Machine-wide
-runtime state reuses generated dispatcher bytes by target; bound Wasm instances
-stay with each CPU. The generic Wasm backend remains a separate crate.
-`Machine::create_cpu` currently executes Real16. Custom protected embeddings use
-`Machine::bind_cpu`, whose `CpuBindings` supplies memory imports and scoped host
-calls; they provide their own execution and descriptor callbacks.
+CPUs retain their machine while owning private registers, loaded caches, dispatch
+entries and pending host calls. Shared-memory access is not serialized. The
+embedding coordinates mapping changes; remapping invalidates generated entries
+on each CPU before its next execution, while host hooks survive.
 See [shared memory](crates/machine/docs/shared-memory.md) for multiple CPUs,
 code snapshot versions and worker transport.
+
+The `runtime` module owns code preparation, dispatch and execution. Machine-wide
+runtime state reuses generated dispatcher bytes by execution target; bound Wasm
+instances stay with each CPU. The generic Wasm backend remains a separate crate.
+For custom embeddings, `Machine::bind_cpu` allocates a private CPU context and
+returns `CpuBindings`. Its `imports` supplies memory bindings and `with_host_call`
+lends published CPU, mapped memory, descriptors and environment state to a
+callback. Raw port and MMIO callbacks do not provide that publication boundary.
 
 ## Build and test
 

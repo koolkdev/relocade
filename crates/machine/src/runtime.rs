@@ -8,6 +8,7 @@ mod backend;
 mod bindings;
 mod callback;
 mod code;
+pub(crate) mod descriptors;
 pub(crate) mod dispatch;
 mod error;
 mod execution;

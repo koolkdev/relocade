@@ -9,6 +9,7 @@ pub use view::CpuView;
 
 use crate::{
     runtime::{
+        descriptors,
         dispatch::{Dispatch, EntryKind},
         io, StateData,
     },
@@ -69,12 +70,8 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         mut backend: B,
         bindings: CpuBindings<B::Memory>,
     ) -> Result<Self> {
-        if bindings.configuration().execution_target().profile
-            != relocade_x86::ExecutionProfile::Real16
-        {
-            return Err(crate::ConfigurationError::UnsupportedProfile.into());
-        }
-        let host_imports = io::unconnected_imports(&mut backend);
+        let mut host_imports = io::unconnected_imports(&mut backend);
+        host_imports.extend(descriptors::imports(&mut backend, &bindings));
         let dispatch = Dispatch::new(
             &mut backend,
             &bindings,

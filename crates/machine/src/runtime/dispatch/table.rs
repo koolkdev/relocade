@@ -5,6 +5,9 @@ use relocade_wasm_runtime::{Import, WasmBackend};
 use relocade_x86::{abi, EntryTable};
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+mod tests;
+
 /// Owns the guest-address map and Wasm function table for one CPU.
 pub(super) struct DispatchTable<B: WasmBackend> {
     memory: B::Memory,
