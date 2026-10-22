@@ -19,10 +19,14 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 struct HostState {
     calls: i32,
+    writes: i32,
 }
 
 async fn check_stateful_callbacks() {
-    let state = HostState { calls: 0 };
+    let state = HostState {
+        calls: 0,
+        writes: 0,
+    };
     let mut backend = Backend::with_state(state).unwrap();
     let memory = backend.create_memory(MEMORY).unwrap();
     let table = backend.create_table(1).unwrap();
@@ -65,16 +69,20 @@ async fn check_stateful_callbacks() {
             ),
             backend.bind_host(
                 READ,
-                Box::new(move |caller, offset, _| {
+                Box::new(move |mut caller, offset, _| {
                     let mut bytes = [0; 8];
-                    caller.read_memory(&read_memory, offset as u32, &mut bytes);
+                    caller
+                        .memory_bytes(&read_memory)
+                        .read(offset as u32, &mut bytes);
                     i64::from_le_bytes(bytes)
                 }),
             ),
             backend.bind_host(
                 WRITE,
                 Box::new(move |mut caller, offset, _, value| {
-                    caller.write_memory(&write_memory, offset as u32, &value.to_le_bytes());
+                    let (mut memory, state) = caller.memory_and_state(&write_memory);
+                    memory.write(offset as u32, &value.to_le_bytes());
+                    state.writes += 1;
                 }),
             ),
         ];
@@ -115,10 +123,14 @@ async fn check_stateful_callbacks() {
     let mut memory_size = 65536;
     for initial in [0x20_0000_0000_0001_i64, -0x20_0000_0000_0021_i64] {
         backend.state_mut().calls = 0;
-        backend.write_memory(&memory, 0, &initial.to_le_bytes());
+        backend.state_mut().writes = 0;
+        backend
+            .memory_bytes(&memory)
+            .write(0, &initial.to_le_bytes());
         for (calls, increment) in [(2, 3), (4, 10)] {
             assert_eq!(backend.call(&entry).unwrap(), initial + increment);
             assert_eq!(backend.state().calls, calls);
+            assert_eq!(backend.state().writes, calls);
             let mut bytes = [0; 8];
             backend.read_memory(&memory, 0, &mut bytes);
             assert_eq!(i64::from_le_bytes(bytes), initial + increment);

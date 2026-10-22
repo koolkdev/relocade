@@ -1,4 +1,6 @@
+use super::SharedMemory;
 use super::{Backend, Memory, Store};
+use crate::MemoryBytes;
 use crate::{HostFunction, HostValue, WasmContext, WasmMemoryAccess};
 use js_sys::{Array, Function as JsFunction};
 use relocade_compiler::{Results, ValueType};
@@ -101,10 +103,24 @@ impl<T> WasmContext for Context<'_, T> {
     fn state_mut(&mut self) -> &mut T {
         &mut self.0.state
     }
+
+    fn memory_and_state<'a>(&'a mut self, memory: &'a Memory) -> (MemoryBytes<'a>, &'a mut T) {
+        let bytes = MemoryBytes::web(self.0.memory(memory).clone());
+        (bytes, &mut self.0.state)
+    }
 }
 
 impl<T> WasmMemoryAccess for Context<'_, T> {
     type Memory = Memory;
+    type SharedMemory = SharedMemory;
+
+    fn memory_bytes<'a>(&'a mut self, memory: &'a Memory) -> MemoryBytes<'a> {
+        self.0.memory_bytes(memory)
+    }
+
+    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
+        self.0.shared_memory(memory)
+    }
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
         self.0.read_memory(memory, offset, bytes);
