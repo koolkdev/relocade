@@ -1,12 +1,11 @@
 #![allow(dead_code)]
 
-use relocade_dos::{Dos, DosServices};
+use relocade_dos::Dos;
 
-use relocade_machine::RuntimeState;
-pub type Backend<T> = relocade_wasm_runtime::Backend<RuntimeState<T>>;
+pub type Backend = relocade_wasm_runtime::Backend<()>;
 
-pub async fn dos() -> Dos<Backend<DosServices>> {
-    Dos::new(Backend::with_state).await.unwrap()
+pub async fn dos() -> Dos<Backend> {
+    Dos::new(Backend::with_state(()).unwrap()).await.unwrap()
 }
 
 pub fn output(mut stream: impl std::io::Read) -> Vec<u8> {
@@ -20,13 +19,7 @@ use relocade_x86::{CpuState, ExecutionExit};
 // INT 21h followed by JMP $ lets each host assertion inspect the IRET result.
 pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
 
-pub fn service(
-    dos: &mut Dos<Backend<DosServices>>,
-    ax: u16,
-    bx: u16,
-    cx: u16,
-    dx: u16,
-) -> CpuState {
+pub fn service(dos: &mut Dos<Backend>, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
         let mut cpu = machine.cpu();
@@ -40,12 +33,7 @@ pub fn service(
     dos.cpu().context().cpu().snapshot()
 }
 
-pub fn path_service(
-    dos: &mut Dos<Backend<DosServices>>,
-    path: &[u8],
-    ax: u16,
-    cx: u16,
-) -> CpuState {
+pub fn path_service(dos: &mut Dos<Backend>, path: &[u8], ax: u16, cx: u16) -> CpuState {
     let mut terminated = path.to_vec();
     terminated.push(0);
     dos.cpu()

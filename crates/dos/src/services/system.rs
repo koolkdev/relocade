@@ -1,12 +1,10 @@
 //! DOS version and interrupt-vector services used during program startup.
 
-use crate::DosServices;
-use relocade_machine::{real_mode_interrupt::return_from_interrupt, HostCall};
-use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
-use std::ops::ControlFlow;
+use relocade_machine::{real_mode_interrupt::return_from_interrupt, CpuContext, HostAction};
+use relocade_x86::{Segment, SegmentRegister};
 
 /// AH=30h: report DOS 5.00, with no serial number or special version flags.
-pub(super) fn version(call: &mut HostCall<'_, DosServices>) -> ControlFlow<ExecutionExit> {
+pub(super) fn version(call: &mut CpuContext<'_>) -> HostAction {
     let mut cpu = call.cpu();
     let version_flags = cpu.al() == 1;
     cpu.set_ax(5); // AL is the major version, AH the minor version.
@@ -16,7 +14,7 @@ pub(super) fn version(call: &mut HostCall<'_, DosServices>) -> ControlFlow<Execu
 }
 
 /// AH=25h: set AL's interrupt vector to DS:DX.
-pub(super) fn set_vector(call: &mut HostCall<'_, DosServices>) -> ControlFlow<ExecutionExit> {
+pub(super) fn set_vector(call: &mut CpuContext<'_>) -> HostAction {
     let cpu = call.cpu();
     let address = u32::from(cpu.al()) * 4;
     let [offset_lo, offset_hi] = cpu.dx().to_le_bytes();
@@ -28,7 +26,7 @@ pub(super) fn set_vector(call: &mut HostCall<'_, DosServices>) -> ControlFlow<Ex
 }
 
 /// AH=35h: return AL's current interrupt vector in ES:BX.
-pub(super) fn get_vector(call: &mut HostCall<'_, DosServices>) -> ControlFlow<ExecutionExit> {
+pub(super) fn get_vector(call: &mut CpuContext<'_>) -> HostAction {
     let address = u32::from(call.cpu().al()) * 4;
     let mut vector = [0; 4];
     call.memory()

@@ -5,26 +5,25 @@
 //! IRET, which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
 
-use super::HostCall;
-use relocade_x86::{ExecutionExit, Segment};
-use std::ops::ControlFlow;
+use crate::{CpuContext, HostAction};
+use relocade_x86::Segment;
 
 /// NOP reserves the hook entry; IRET performs the interrupt return in the guest.
 pub const HOOK_STUB: [u8; 2] = [0x90, 0xcf];
 
 /// Changes carry in the saved FLAGS, preserving every other flag.
 /// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
-pub fn set_carry<T>(call: &mut HostCall<'_, T>, carry: bool) {
+pub fn set_carry(call: &mut CpuContext<'_>, carry: bool) {
     set_flag(call, 1, carry);
 }
 
 /// Changes zero in the saved FLAGS, preserving every other flag.
 /// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
-pub fn set_zero<T>(call: &mut HostCall<'_, T>, zero: bool) {
+pub fn set_zero(call: &mut CpuContext<'_>, zero: bool) {
     set_flag(call, 1 << 6, zero);
 }
 
-fn set_flag<T>(call: &mut HostCall<'_, T>, mask: u8, value: bool) {
+fn set_flag(call: &mut CpuContext<'_>, mask: u8, value: bool) {
     // INT pushed FLAGS, CS, IP. Updating live flags would be undone by IRET.
     let cpu = call.cpu();
     let address = cpu.segment(Segment::Ss).base + u32::from(cpu.sp().wrapping_add(4));
@@ -40,9 +39,9 @@ fn set_flag<T>(call: &mut HostCall<'_, T>, mask: u8, value: bool) {
 
 /// Resumes at the IRET in [`HOOK_STUB`], preserving the interrupt frame.
 /// The current CS:IP must point to the stub's hook entry.
-pub fn return_from_interrupt<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> {
+pub fn return_from_interrupt(call: &mut CpuContext<'_>) -> HostAction {
     let mut cpu = call.cpu();
     let iret_ip = (cpu.eip() as u16).wrapping_add(1);
     cpu.set_eip(u32::from(iret_ip));
-    ControlFlow::Continue(())
+    HostAction::Continue
 }

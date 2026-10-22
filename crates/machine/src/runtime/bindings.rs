@@ -1,17 +1,17 @@
-//! Wasm memory resources and scoped access for runtime execution.
+//! CPU and guest-memory bindings for Wasm modules and published callbacks.
 
 use super::Result;
-use crate::{CpuConfig, MachineConfig};
+use crate::{CpuConfig, CpuContext, CpuView, MachineConfig, MemoryView};
 use relocade_compiler::abi::Memory;
-use relocade_wasm_runtime::{Import, WasmBackend};
+use relocade_wasm_runtime::{Import, MemoryBytes, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, ExecutionContext};
-use std::sync::Arc;
+use std::{mem::offset_of, sync::Arc};
 
-/// The runtime's initialized Wasm memories. This owner allocates backend memory
-/// from the machine configuration and supplies module bindings and scoped host
-/// access. Architectural access policy belongs to `relocade_machine`.
+/// Initialized CPU, guest backing and physical-map bindings for one backend.
+/// Supplies module imports and access to published CPU state. Architectural
+/// access policy belongs to the CPU and memory views.
 #[derive(Clone)]
-pub struct RuntimeMemory<M> {
+pub struct CpuBindings<M> {
     pub(crate) config: Arc<CpuConfig>,
     pub(crate) machine_config: Arc<MachineConfig>,
     pub(crate) context: M,
@@ -19,7 +19,7 @@ pub struct RuntimeMemory<M> {
     pub(crate) mapping: M,
 }
 
-impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
+impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
     pub fn new<B: WasmBackend<Memory = M>>(
         backend: &mut B,
         machine_config: MachineConfig,
@@ -70,6 +70,41 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
     }
     pub fn guest_memory(&self) -> &M {
         &self.guest
+    }
+
+    pub(crate) fn cpu<'a, A: WasmMemoryAccess<Memory = M>>(
+        &'a self,
+        backend: &'a mut A,
+    ) -> CpuView<'a> {
+        CpuView::new(&self.config, backend.memory_bytes(&self.context))
+    }
+
+    pub(crate) fn set_instruction_target<A: WasmMemoryAccess<Memory = M>>(
+        &self,
+        backend: &mut A,
+        target: u64,
+    ) {
+        backend.write_memory(
+            &self.context,
+            offset_of!(ExecutionContext, instruction_target) as u32,
+            &target.to_le_bytes(),
+        );
+    }
+
+    /// Lends published CPU state and mapped guest memory to a host callback.
+    /// The caller must publish CPU state before access and observe edits afterward.
+    /// Port/MMIO imports do not provide this boundary. Guest execution must remain
+    /// stopped until the views are released. Earlier edits survive handler errors.
+    pub fn with_context<A: WasmMemoryAccess<Memory = M>, R>(
+        &self,
+        backend: &mut A,
+        handler: impl FnOnce(&mut CpuContext<'_>) -> R,
+    ) -> R {
+        let guest = backend
+            .shared_memory(&self.guest)
+            .expect("guest backing is shared");
+        let memory = MemoryView::new(&self.machine_config, MemoryBytes::shared(&guest));
+        handler(&mut CpuContext::new(self.cpu(backend), memory))
     }
 
     /// Binds the CPU, guest backing and physical translation memory.

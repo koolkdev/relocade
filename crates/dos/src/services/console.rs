@@ -2,14 +2,14 @@ use super::{buffers::write_wrapping, return_to_host};
 use crate::{
     interrupt::{self, return_result},
     state::DosState,
-    DosServices, ServiceError,
+    ServiceError,
 };
 use relocade_machine::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
-    HostCall,
+    CpuContext, HostAction,
 };
-use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
-use std::ops::ControlFlow;
+use relocade_x86::{Segment, SegmentRegister};
+use std::rc::Rc;
 
 mod handles;
 mod line;
@@ -20,12 +20,9 @@ pub(super) use output::write_handle;
 use output::{write_characters, write_cooked_character, CharacterOutput};
 
 /// AH=0Ch: flush stdin, then invoke the input service selected by AL.
-pub(super) fn flush_input(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn flush_input(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     // DOS proceeds to the requested service even if the flush failed.
-    let _ = state.files.flush_input(0);
+    let _ = state.files.borrow_mut().flush_input(0);
     let function = call.cpu().al();
     if matches!(
         function,
@@ -45,27 +42,21 @@ pub(super) fn flush_input(
 }
 
 /// AH=0Bh: report stdin availability without consuming input or changing flags.
-pub(super) fn input_status(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn input_status(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     // Closed stdin falls back to the console; AH=0Bh has no handle-error return.
-    let available = state
-        .files
+    let files = state.files.borrow();
+    let available = files
         .input_available(0)
-        .unwrap_or_else(|_| state.files.stdio.input.has_input());
+        .unwrap_or_else(|_| files.stdio.input.has_input());
     call.cpu().set_al(if available { 0xff } else { 0 });
     return_from_interrupt(call)
 }
 
 /// AH=06h: DL=FFh polls stdin without echo; other values write a byte to stdout.
-pub(super) fn direct_io(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn direct_io(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     let byte = call.cpu().dl();
     if byte == 0xff {
-        let result = state.files.read_character(0);
+        let result = state.files.borrow_mut().read_character(0);
         let character = match result {
             Ok(character) => character,
             Err(error) => return return_result(call, Err(error)),
@@ -81,15 +72,13 @@ pub(super) fn direct_io(
 }
 
 /// AH=01h/07h/08h: wait for one character, echoing through stdout for AH=01h.
-pub(super) fn read_character(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn read_character(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     let echo = call.cpu().ah() == super::READ_CHARACTER_ECHO;
-    match state.files.read_character(0) {
+    let character = state.files.borrow_mut().read_character(0);
+    match character {
         Ok(Some(byte)) => return_character(call, state, byte, echo),
-        Ok(None) => match state.files.wait_for_character(0) {
-            Ok(input) => interrupt::defer(call, input, move |call, state, byte| {
+        Ok(None) => match state.files.borrow().wait_for_character(0) {
+            Ok(input) => interrupt::defer(state, input, move |call, state, byte| {
                 return_character(call, state, byte, echo)
             }),
             Err(error) => return_result(call, Err(error)),
@@ -99,11 +88,11 @@ pub(super) fn read_character(
 }
 
 fn return_character(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
+    call: &mut CpuContext<'_>,
+    state: &Rc<DosState>,
     byte: u8,
     echo: bool,
-) -> ControlFlow<ExecutionExit> {
+) -> HostAction {
     if echo {
         write_cooked_character(call, state, CharacterOutput::Stdout, byte);
     }
@@ -112,10 +101,7 @@ fn return_character(
 }
 
 /// AH=02h: write DL through stdout; AL is the last output byte.
-pub(super) fn write_character(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn write_character(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     let byte = call.cpu().dl();
     let last = write_cooked_character(call, state, CharacterOutput::Stdout, byte);
     call.cpu().set_al(last);
@@ -123,10 +109,7 @@ pub(super) fn write_character(
 }
 
 /// AH=0Ah: edit a line into DS:DX's buffer, whose capacity includes the final CR.
-pub(super) fn read_buffered(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn read_buffered(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     let segment = call.cpu().segment(Segment::Ds);
     let offset = call.cpu().dx();
     let mut capacity = [0];
@@ -143,11 +126,11 @@ pub(super) fn read_buffered(
 }
 
 fn return_line(
-    call: &mut HostCall<'_, DosServices>,
+    call: &mut CpuContext<'_>,
     segment: &SegmentRegister,
     offset: u16,
     bytes: &[u8],
-) -> ControlFlow<ExecutionExit> {
+) -> HostAction {
     let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
     let mut memory = call.memory();
     write_wrapping(&mut memory, segment, offset.wrapping_add(1), &[count]);
@@ -156,10 +139,7 @@ fn return_line(
 }
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
-pub(super) fn write_string(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn write_string(call: &mut CpuContext<'_>, state: &Rc<DosState>) -> HostAction {
     let segment = call.cpu().segment(Segment::Ds);
     let start = call.cpu().dx();
     for index in 0..=u16::MAX {

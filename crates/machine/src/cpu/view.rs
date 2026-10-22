@@ -1,17 +1,18 @@
 use relocade_x86::{
-    CpuState, DescriptorTableRegister, FlagsState, Segment, SegmentRegister, Segments,
-    SystemSegmentRegister,
+    CpuState, DescriptorTableRegister, ExecutionContext, ExecutionTarget, FlagsState, Segment,
+    SegmentRegister, Segments, SystemSegmentRegister,
 };
 use std::mem::offset_of;
 
-use crate::{ConfigurationError, CpuConfig, CpuStorage};
+use crate::{ConfigurationError, CpuConfig};
+use relocade_wasm_runtime::MemoryBytes;
 
 /// A live view of published CPU state. Each register access transfers only its
 /// own bytes; there is no cached snapshot or deferred writeback.
 /// Guest execution must remain stopped for the lifetime of this view.
-pub struct CpuView<'a, S: CpuStorage + ?Sized = dyn CpuStorage + 'a> {
-    config: &'a CpuConfig,
-    storage: &'a mut S,
+pub struct CpuView<'a> {
+    target: ExecutionTarget,
+    bytes: MemoryBytes<'a>,
 }
 
 macro_rules! register {
@@ -21,7 +22,7 @@ macro_rules! register {
         }
 
         pub fn $set(&mut self, value: $type) {
-            self.storage.write_cpu(
+            self.write(
                 (offset_of!(CpuState, registers.$field) + $byte) as u32,
                 &value.to_le_bytes(),
             );
@@ -29,10 +30,24 @@ macro_rules! register {
     };
 }
 
-impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
-    /// Borrows initialized CPU storage compatible with the execution target.
-    pub fn new(config: &'a CpuConfig, storage: &'a mut S) -> Self {
-        Self { config, storage }
+impl<'a> CpuView<'a> {
+    /// Borrows an initialized execution-context image compatible with the target.
+    pub fn new(config: &CpuConfig, bytes: MemoryBytes<'a>) -> Self {
+        Self {
+            target: config.execution_target(),
+            bytes,
+        }
+    }
+
+    pub fn execution_target(&self) -> ExecutionTarget {
+        self.target
+    }
+
+    pub(crate) fn reborrow(&mut self) -> CpuView<'_> {
+        CpuView {
+            target: self.target,
+            bytes: self.bytes.reborrow(),
+        }
     }
 
     register!(eax, set_eax, u32, eax, 0);
@@ -65,8 +80,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     }
 
     pub fn set_eip(&mut self, value: u32) {
-        self.storage
-            .write_cpu(offset_of!(CpuState, eip) as u32, &value.to_le_bytes());
+        self.write(offset_of!(CpuState, eip) as u32, &value.to_le_bytes());
     }
 
     pub fn instruction_count(&self) -> u64 {
@@ -74,7 +88,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     }
 
     pub fn set_instruction_count(&mut self, value: u64) {
-        self.storage.write_cpu(
+        self.write(
             offset_of!(CpuState, instruction_count) as u32,
             &value.to_le_bytes(),
         );
@@ -90,8 +104,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     pub fn set_eflags(&mut self, value: u32) {
         let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
         flags.set_eflags(value);
-        self.storage
-            .write_cpu(offset_of!(CpuState, flags) as u32, &flags.to_bytes());
+        self.write(offset_of!(CpuState, flags) as u32, &flags.to_bytes());
     }
 
     pub fn carry(&self) -> bool {
@@ -113,13 +126,12 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     /// Panics before writing if the cache violates this CPU's execution profile.
     #[track_caller]
     pub fn set_segment(&mut self, segment: Segment, value: SegmentRegister) {
-        let profile = self.config.execution_target().profile;
+        let profile = self.target.profile;
         assert!(
             profile.is_segment_compatible(segment, &value),
             "segment {segment:?} violates execution profile {profile:?}"
         );
-        self.storage
-            .write_cpu(segment_offset(segment) as u32, &value.to_bytes());
+        self.write(segment_offset(segment) as u32, &value.to_bytes());
     }
 
     pub fn segments(&self) -> Segments {
@@ -131,8 +143,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     }
 
     pub fn set_gdtr(&mut self, value: DescriptorTableRegister) {
-        self.storage
-            .write_cpu(offset_of!(CpuState, gdtr) as u32, &value.to_bytes());
+        self.write(offset_of!(CpuState, gdtr) as u32, &value.to_bytes());
     }
 
     pub fn idtr(&self) -> DescriptorTableRegister {
@@ -140,9 +151,8 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     }
 
     pub fn set_idtr(&mut self, value: DescriptorTableRegister) -> Result<(), ConfigurationError> {
-        crate::config::validate_idtr(self.config.execution_target().profile, value)?;
-        self.storage
-            .write_cpu(offset_of!(CpuState, idtr) as u32, &value.to_bytes());
+        crate::config::validate_idtr(self.target.profile, value)?;
+        self.write(offset_of!(CpuState, idtr) as u32, &value.to_bytes());
         Ok(())
     }
 
@@ -152,8 +162,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
 
     pub fn set_ldtr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
         crate::config::validate_system_segment(value, true)?;
-        self.storage
-            .write_cpu(offset_of!(CpuState, ldtr) as u32, &value.to_bytes());
+        self.write(offset_of!(CpuState, ldtr) as u32, &value.to_bytes());
         Ok(())
     }
 
@@ -163,8 +172,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
 
     pub fn set_tr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
         crate::config::validate_system_segment(value, false)?;
-        self.storage
-            .write_cpu(offset_of!(CpuState, tr) as u32, &value.to_bytes());
+        self.write(offset_of!(CpuState, tr) as u32, &value.to_bytes());
         Ok(())
     }
 
@@ -179,14 +187,22 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     /// Returns an error without writing if the snapshot violates this CPU's
     /// execution target.
     pub fn restore(&mut self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
-        crate::config::validate_cpu(self.config.execution_target(), snapshot)?;
-        self.storage.write_cpu(0, &snapshot.to_bytes());
+        crate::config::validate_cpu(self.target, snapshot)?;
+        self.write(0, &snapshot.to_bytes());
         Ok(())
+    }
+
+    fn write(&mut self, offset: u32, bytes: &[u8]) {
+        self.bytes
+            .write(offset_of!(ExecutionContext, cpu) as u32 + offset, bytes);
     }
 
     fn read<const N: usize>(&self, offset: usize) -> [u8; N] {
         let mut bytes = [0; N];
-        self.storage.read_cpu(offset as u32, &mut bytes);
+        self.bytes.read(
+            (offset_of!(ExecutionContext, cpu) + offset) as u32,
+            &mut bytes,
+        );
         bytes
     }
 }

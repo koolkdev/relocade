@@ -21,8 +21,8 @@ screen while a deferred input operation owns the runtime context. The same
 `MemoryView` supports reads through `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
-`CpuContext::memory()` and `HostCall::memory()` return `MemoryView` directly.
-Their views borrow the stopped CPU or callback; `cpu.memory()` returns an owned
+`CpuContext::memory()` returns `MemoryView` directly, including inside host hooks.
+The view borrows the stopped CPU or callback; `cpu.memory()` returns an owned
 handle whose lifetime is independent of execution.
 
 Share the existing backend handle with `worker::Message(memory.backing().clone())`.

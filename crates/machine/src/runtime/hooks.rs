@@ -1,44 +1,34 @@
-use relocade_compiler::{abi::Function, Program, I64};
-use relocade_wasm_runtime::WasmCompiler;
-use relocade_x86::{abi, ExecutionExit};
-use std::ops::ControlFlow;
+use crate::{Cpu, CpuContext, HostAction, Result, RuntimeBackend};
 
-use super::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
+pub(super) type Handler = dyn FnMut(&mut CpuContext<'_>) -> HostAction;
 
-type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync;
-
-/// A host function reached at a guest linear address through ordinary dispatch.
-/// `T` is the backend's environment state, borrowed through the caller.
+/// A Rust handler reached at a guest linear address through ordinary dispatch.
+/// Its captures own the service handles it needs; they do not need Send or Sync.
 ///
 /// ```
-/// use std::ops::ControlFlow;
-/// use relocade_machine::{Hook, HostCall};
+/// use std::{cell::Cell, rc::Rc};
+/// use relocade_machine::{Hook, HostAction};
 /// use relocade_x86::ExecutionExit;
 ///
-/// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> ControlFlow<ExecutionExit> {
-///     let code = call.cpu().al();
-///     *call.state_mut() = Some(code);
-///     ControlFlow::Break(ExecutionExit::HostReturn)
-/// }
-/// let hook = Hook::new(0xf0100, terminate);
+/// let status = Rc::new(Cell::new(None));
+/// let result = Rc::clone(&status);
+/// let hook = Hook::new(0xf0100, move |context| {
+///     result.set(Some(context.cpu().al()));
+///     HostAction::Exit(ExecutionExit::HostReturn)
+/// });
 /// ```
-pub struct Hook<T = ()> {
-    address: u32,
-    handler: Box<Handler<T>>,
+pub struct Hook {
+    pub(super) address: u32,
+    pub(super) handler: Box<Handler>,
 }
 
-impl<T> Hook<T> {
-    /// On Continue, the handler must set the guest continuation in CPU state.
-    /// Break returns its execution exit without changing that state.
-    /// To defer work, return the result of [`HostCall::defer`], which queues the
-    /// required handler. Returning `ExecutionExit::Deferred` without a queued
-    /// handler is a programming error.
-    /// Interrupt/ABI return conventions belong to the handler's environment.
-    /// Captures must be Send + Sync. Mutable environment data belongs in the
-    /// caller's state, which does not need to be Send or Sync.
+impl Hook {
+    /// A continuing handler sets the guest continuation in CPU state. Interrupt
+    /// and ABI return conventions belong to the service. To wait, return an owned
+    /// operation from [`HostAction::wait`].
     pub fn new(
         address: u32,
-        handler: impl Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync + 'static,
+        handler: impl FnMut(&mut CpuContext<'_>) -> HostAction + 'static,
     ) -> Self {
         Self {
             address,
@@ -47,53 +37,15 @@ impl<T> Hook<T> {
     }
 }
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
-    /// Generates and installs ordinary callable entries, each with its own direct
-    /// host import. Dispatch neither classifies hooks nor calls a hook registry.
-    ///
-    /// Entries begin with CPU state already published by the predecessor. They
-    /// cache no CPU values across the host call. Hooks do not retire guest
-    /// instructions; continuing execution retains the current instruction target.
-    /// Handlers must not reenter guest execution. They may use `HostCall::defer`
-    /// to await owned work and complete in Rust before guest execution resumes.
-    pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
-        let hooks: Vec<_> = hooks.into_iter().collect();
-        let names: Vec<_> = (0..hooks.len())
-            .map(|index| format!("hook_{index}"))
-            .collect();
-        let mut program = Program::new();
-        let dispatch = program.import_function(abi::DISPATCH);
-        let mut imports = Vec::new();
-        let mut entries = Vec::new();
-        for (hook, name) in hooks.into_iter().zip(&names) {
-            let declaration: Function<fn() -> I64> = Function::new("hooks", name);
-            let import = program.import_function(declaration);
-            let function = program.function(abi::RUN.signature(), |mut body| {
-                let exit = body.call::<I64>(import, &[])?;
-                body.if_(exit.ne(0), |stop| stop.return_(exit))?;
-                body.tail_call(dispatch, &[])
-            })?;
-            program.export(name, function)?;
-            let bindings = self.access.bindings.clone();
-            imports.push(self.access.backend.bind_host(
-                declaration,
-                Box::new(move |mut caller| {
-                    let flow = bindings.with_host_call(&mut caller, |call| (hook.handler)(call));
-                    match flow {
-                        ControlFlow::Continue(()) => 0,
-                        ControlFlow::Break(exit) => exit.to_bits() as i64,
-                    }
-                }),
-            ));
-            entries.push(DispatchEntry {
-                address: hook.address,
-                export: name,
-            });
-        }
-        let bytes = program.compile()?;
-        let module = self.access.backend.compiler().compile(&bytes).await?;
+impl<B: RuntimeBackend> Cpu<B> {
+    /// Installs address entries that return to the CPU's Rust execution loop.
+    /// Handlers receive the predecessor's published CPU state. Hooks do not retire
+    /// guest instructions; continuing and waiting retain the current target.
+    /// Replacing an entry releases its previous handler. Already queued operations
+    /// keep their own captures independently of hook replacement.
+    pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
         self.dispatch
-            .install(&mut self.access, &module, &imports, &entries)
+            .install_hooks(&mut self.backend, &self.bindings, hooks)
             .await
     }
 }

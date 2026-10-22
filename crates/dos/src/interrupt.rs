@@ -1,44 +1,23 @@
-use crate::{error::DosError, state::DosState, DosServices};
-use relocade_machine::{real_mode_interrupt, Hook, HostCall};
-use relocade_x86::ExecutionExit;
-use std::{future::Future, ops::ControlFlow};
+use crate::{error::DosError, state::DosState};
+use relocade_machine::{real_mode_interrupt, CpuContext, HostAction};
+use std::{future::Future, rc::Rc};
 
-/// Borrows the DOS environment for an interrupt and its nested services.
-pub(crate) fn hook(
-    address: u32,
-    handler: fn(&mut HostCall<'_, DosServices>, &mut DosState) -> ControlFlow<ExecutionExit>,
-) -> Hook<DosServices> {
-    Hook::new(address, move |call| invoke(call, handler))
-}
-
-fn invoke(
-    call: &mut HostCall<'_, DosServices>,
-    handler: impl FnOnce(&mut HostCall<'_, DosServices>, &mut DosState) -> ControlFlow<ExecutionExit>,
-) -> ControlFlow<ExecutionExit> {
-    let services = call.state().clone();
-    let mut state = services.borrow_mut();
-    handler(call, &mut state)
-}
-
-/// Waits without borrowing DOS state, then lends it to the continuation.
-/// A continuation may defer again while keeping the current interrupt frame.
+/// Waits without borrowing DOS files, then resumes the same interrupt frame.
+/// The owned continuation keeps its environment alive and may wait again.
 pub(crate) fn defer<T: 'static>(
-    call: &mut HostCall<'_, DosServices>,
+    state: &Rc<DosState>,
     input: impl Future<Output = T> + 'static,
-    resume: impl FnOnce(&mut HostCall<'_, DosServices>, &mut DosState, T) -> ControlFlow<ExecutionExit>
-        + 'static,
-) -> ControlFlow<ExecutionExit> {
-    call.defer(async move |call| {
+    resume: impl FnOnce(&mut CpuContext<'_>, &Rc<DosState>, T) -> HostAction + 'static,
+) -> HostAction {
+    let state = Rc::clone(state);
+    HostAction::wait(async move |context| {
         let value = input.await;
-        invoke(call, |call, state| resume(call, state, value))
+        resume(context, &state, value)
     })
 }
 
 /// Returns a DOS result through the interrupt frame, preserving other flags.
-pub(crate) fn return_result(
-    call: &mut HostCall<'_, DosServices>,
-    result: Result<(), DosError>,
-) -> ControlFlow<ExecutionExit> {
+pub(crate) fn return_result(call: &mut CpuContext<'_>, result: Result<(), DosError>) -> HostAction {
     if let Err(error) = result {
         call.cpu().set_ax(error.code());
         if let DosError::InsufficientMemory { available } = error {

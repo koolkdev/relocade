@@ -1,18 +1,19 @@
 mod support;
 
-use relocade_machine::{real_mode_interrupt, Hook, RuntimeState};
+use relocade_compiler::Program;
+use relocade_machine::{real_mode_interrupt, DispatchEntry, Hook, HostAction};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments,
 };
-use std::{cell::Cell, ops::ControlFlow, rc::Rc};
+use std::{cell::Cell, rc::Rc};
 
 use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn check_interrupt_hooks() {
+async fn cpu() -> relocade_machine::Cpu<Backend<()>> {
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -25,10 +26,14 @@ async fn check_interrupt_hooks() {
             .unwrap(),
     )
     .unwrap();
-    // Non-Send state belongs to the backend, while hooks may capture immutable metadata.
+    support::create_cpu(Backend::with_state(()).unwrap(), config)
+        .await
+        .unwrap()
+}
+
+async fn check_interrupt_hooks() {
     let calls = Rc::new(Cell::new(0));
-    let backend = Backend::with_state(RuntimeState::new(calls)).unwrap();
-    let mut runtime = support::create_cpu(backend, config).await.unwrap();
+    let mut runtime = cpu().await;
     runtime.context().cpu().set_sp(0xff00);
     runtime.context().cpu().set_eflags(0x202);
     runtime
@@ -57,10 +62,11 @@ async fn check_interrupt_hooks() {
         .write(0x10020, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     let increment = 1;
+    let hook_calls = Rc::clone(&calls);
     runtime
         .install_hooks([
-            Hook::<Rc<Cell<u32>>>::new(0x10020, move |call| {
-                call.state().set(call.state().get() + increment);
+            Hook::new(0x10020, move |call| {
+                hook_calls.set(hook_calls.get() + increment);
                 assert_eq!(call.cpu().segment(Segment::Cs).selector, 0x1000);
                 assert_eq!(call.cpu().eip(), 0x20);
                 assert_eq!(call.cpu().sp(), 0xfefa);
@@ -77,12 +83,12 @@ async fn check_interrupt_hooks() {
                 real_mode_interrupt::set_carry(call, false);
                 real_mode_interrupt::return_from_interrupt(call)
             }),
-            Hook::new(0x400, |_| ControlFlow::Break(ExecutionExit::HostReturn)),
+            Hook::new(0x400, |_| HostAction::Exit(ExecutionExit::HostReturn)),
         ])
         .await
         .unwrap();
     assert_eq!(runtime.run(5).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.state().get(), 1);
+    assert_eq!(calls.get(), 1);
     assert_eq!(runtime.context().cpu().ax(), 11);
     assert_eq!(runtime.context().cpu().segment(Segment::Cs).selector, 0);
     assert_eq!(runtime.context().cpu().eip(), 0x10e);
@@ -105,7 +111,7 @@ async fn check_interrupt_hooks() {
         .write(0x500, &[0x43, 0xea, 0x20, 0, 0, 0x10])
         .unwrap();
     assert_eq!(runtime.run(7).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.state().get(), 2);
+    assert_eq!(calls.get(), 2);
     assert_eq!(runtime.context().cpu().bx(), 1);
     assert_eq!(runtime.context().cpu().eip(), 0x10e);
     assert_eq!(runtime.context().cpu().sp(), 0xff00);
@@ -115,6 +121,93 @@ async fn check_interrupt_hooks() {
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(runtime.context().cpu().instruction_count(), 14);
     assert_eq!(runtime.context().cpu().eip(), 0x400);
+}
+
+async fn check_hook_replacement() {
+    let mut runtime = cpu().await;
+    runtime.context().cpu().set_eip(0x400);
+    // A queued operation owns its captures independently of the installed hook.
+    let original = Rc::new(());
+    let original_lifetime = Rc::downgrade(&original);
+    runtime
+        .install_hooks([Hook::new(0x400, move |_| {
+            let operation = Rc::clone(&original);
+            HostAction::wait(async move |context| {
+                assert_eq!(Rc::strong_count(&operation), 1);
+                context.cpu().set_ax(42);
+                HostAction::Exit(ExecutionExit::HostReturn)
+            })
+        })])
+        .await
+        .unwrap();
+    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::Deferred);
+
+    let replacement = Rc::new(());
+    let replacement_lifetime = Rc::downgrade(&replacement);
+    let mut calls = 0;
+    runtime
+        .install_hooks([Hook::new(0x400, move |context| {
+            assert_eq!(Rc::strong_count(&replacement), 1);
+            calls += 1;
+            context.cpu().set_bx(calls);
+            HostAction::Exit(ExecutionExit::HostReturn)
+        })])
+        .await
+        .unwrap();
+    assert!(original_lifetime.upgrade().is_some());
+    assert_eq!(
+        runtime.run_async(1).await.unwrap(),
+        ExecutionExit::HostReturn
+    );
+    assert!(original_lifetime.upgrade().is_none());
+    assert_eq!(runtime.context().cpu().ax(), 42);
+    assert_eq!(runtime.context().cpu().bx(), 0); // The replacement has not run yet.
+    for count in 1..=2 {
+        assert_eq!(runtime.run(1).unwrap(), ExecutionExit::HostReturn);
+        assert_eq!(runtime.context().cpu().bx(), count);
+    }
+
+    let mut program = Program::new();
+    let entry = program
+        .function(relocade_x86::abi::RUN.signature(), |body| {
+            body.return_(ExecutionExit::HostReturn.to_bits())
+        })
+        .unwrap();
+    program.export("return", entry).unwrap();
+    let bytes = program.compile().unwrap();
+    assert!(runtime
+        .install_module(
+            &bytes,
+            &[
+                DispatchEntry {
+                    address: 0x400,
+                    export: "return"
+                },
+                DispatchEntry {
+                    address: 0x500,
+                    export: "missing"
+                },
+            ]
+        )
+        .await
+        .is_err());
+    assert!(replacement_lifetime.upgrade().is_some());
+    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(runtime.context().cpu().bx(), 3);
+
+    runtime
+        .install_module(
+            &bytes,
+            &[DispatchEntry {
+                address: 0x400,
+                export: "return",
+            }],
+        )
+        .await
+        .unwrap();
+    assert!(replacement_lifetime.upgrade().is_none());
+    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(runtime.context().cpu().instruction_count(), 0);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -127,4 +220,16 @@ fn interrupt_hooks_return_through_guest_frames_and_allow_chaining() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn interrupt_hooks_return_through_guest_frames_and_allow_chaining() {
     check_interrupt_hooks().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn replacing_hooks_releases_captures_and_preserves_owned_operations() {
+    pollster::block_on(check_hook_replacement());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn replacing_hooks_releases_captures_and_preserves_owned_operations() {
+    check_hook_replacement().await;
 }
