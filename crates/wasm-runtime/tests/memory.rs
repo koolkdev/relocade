@@ -53,9 +53,10 @@ async fn check_shared_memory() {
             WRITE,
             Box::new(move |mut context| {
                 let mut bytes = [0; 4];
-                context.read_memory(&callback_memory, 0, &mut bytes);
+                let mut memory = context.memory_bytes(&callback_memory);
+                memory.read(0, &mut bytes);
                 assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12]);
-                context.write_memory(&callback_memory, 4, &[0xab, 0xcd, 0xef, 0]);
+                memory.write(4, &[0xab, 0xcd, 0xef, 0]);
                 0
             }),
         ),
@@ -69,7 +70,7 @@ async fn check_shared_memory() {
     // A pending host service can hold this context while another owner reads.
     {
         let mut context = backend.context();
-        context.write_memory(&memory, 65534, &[1, 2, 3, 4]);
+        context.memory_bytes(&memory).write(65534, &[1, 2, 3, 4]);
         let mut bytes = [0; 4];
         reader.read(65534, &mut bytes);
         assert_eq!(bytes, [1, 2, 3, 4]);
