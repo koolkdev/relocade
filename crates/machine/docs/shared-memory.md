@@ -1,6 +1,6 @@
 # Shared guest memory
 
-`Machine` owns the address space and CPU membership.
+`Machine` owns shared resources, CPU membership and runtime code management.
 Each `Cpu` retains its machine and owns its private architectural context, Wasm
 bindings, dispatch entries, callbacks and pending host calls. `Memory` is
 a property of the machine; its backing is the existing shared-memory handle
@@ -28,7 +28,8 @@ bindings retained by host callbacks.
 `Machine::with_backing(config, machine.memory().backing().clone())`
 creates another machine with its own map over the same allocation. The physical
 map is immutable; its Wasm representation can be private to each CPU without
-losing shared policy. Engine module caches remain with the backend; instantiated functions,
+losing shared policy. The runtime module shares generated dispatcher code by
+target. Engine module caches remain with the backend; instantiated functions,
 installed entries and host state remain private to each CPU.
 
 `machine.memory()` and `cpu.memory()` return a cloneable `Memory` handle.

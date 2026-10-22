@@ -71,7 +71,13 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             return Err(crate::ConfigurationError::UnsupportedProfile.into());
         }
         let host_imports = io::unconnected_imports(&mut backend);
-        let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
+        let dispatch = Dispatch::new(
+            &mut backend,
+            &bindings,
+            &machine.shared.runtime,
+            host_imports,
+        )
+        .await?;
         Ok(Self {
             machine,
             backend,

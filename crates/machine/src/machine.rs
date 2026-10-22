@@ -1,5 +1,6 @@
 use crate::{
-    Cpu, CpuBindings, CpuConfig, MachineConfig, Memory, Result, RuntimeBackend, RuntimeState,
+    runtime::Runtime, Cpu, CpuBindings, CpuConfig, MachineConfig, Memory, Result, RuntimeBackend,
+    RuntimeState,
 };
 use relocade_wasm_runtime::{WasmBackend, WasmSharedMemory};
 use std::sync::{
@@ -17,6 +18,7 @@ pub struct Machine<S: WasmSharedMemory> {
 }
 
 pub(crate) struct Shared {
+    pub runtime: Runtime,
     pub cpus: AtomicUsize,
     pub next_cpu: AtomicUsize,
 }
@@ -24,6 +26,7 @@ pub(crate) struct Shared {
 impl Default for Shared {
     fn default() -> Self {
         Self {
+            runtime: Runtime::default(),
             cpus: AtomicUsize::new(0),
             next_cpu: AtomicUsize::new(0),
         }

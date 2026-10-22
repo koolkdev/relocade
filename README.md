@@ -71,8 +71,9 @@ profile, private registers, loaded caches, dispatch entries and pending calls.
 Shared-memory access is not serialized. `machine.memory()` provides a
 shared handle for devices and displays without borrowing a CPU.
 
-The `runtime` module owns code preparation, dispatch and execution. Bound Wasm
-instances stay with each CPU. The generic Wasm backend remains a separate crate.
+The `runtime` module owns code preparation, dispatch and execution. Machine-wide
+runtime state reuses generated dispatcher bytes by target; bound Wasm instances
+stay with each CPU. The generic Wasm backend remains a separate crate.
 `Machine::create_cpu` currently executes Real16. `Machine::bind_cpu` allocates a
 private CPU context for custom Wasm integrations; `CpuBindings` supplies memory
 imports and scoped host calls.

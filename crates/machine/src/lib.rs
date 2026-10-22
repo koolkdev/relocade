@@ -1,6 +1,6 @@
 //! Machines with shared guest memory and independently executable CPUs.
 //!
-//! [`Machine`] owns the guest memory and CPU membership.
+//! [`Machine`] owns the guest memory, CPU membership and runtime code management.
 //! Each [`Cpu`] retains its machine and owns its backend, live registers, dispatch
 //! bindings and pending host calls. Running a CPU does not borrow the machine.
 //! [`CpuContext`] and [`CpuView`] lend access to a stopped CPU's live storage.
