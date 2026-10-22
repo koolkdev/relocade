@@ -77,6 +77,12 @@ invalidates generated entries on each CPU before its next execution, while host
 hooks survive. Capture source bytes and their mapping version using
 `Memory::snapshot` before compiling and installing generated code.
 
+`DescriptorMemory` builds an initial dedicated GDT/LDT image. Seed CPU table
+registers with `CpuConfig::with_descriptor_memory`, then supply the shared bytes
+with `MachineConfig::with_descriptor_memory`. `CpuContext::descriptors` and
+`HostCall::descriptors` resolve selectors using that CPU's GDTR/LDTR; the shared
+address space also provides access by offset. Edits leave loaded caches intact.
+
 The `runtime` module owns code preparation, dispatch and execution. Machine-wide
 runtime state reuses generated dispatcher bytes by target; bound Wasm instances
 stay with each CPU. The generic Wasm backend remains a separate crate.

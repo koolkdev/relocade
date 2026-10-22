@@ -507,8 +507,9 @@ same upper-descriptor bit positions as LAR. Editing a table entry does not reloa
 LDTR, TR or ordinary segment caches. No privileged table-load instructions,
 protected interrupt delivery or task switching are implemented.
 
-Real16 requires IDTR base zero and limit `03FF`; the host CPU view rejects edits
-or restores that violate this contract.
+The machine runtime interprets descriptor-table bases as offsets in its dedicated
+descriptor memory, described below. Real16 requires IDTR base zero and limit
+`03FF`; the host CPU view rejects edits or restores that violate this contract.
 
 The flag image is storage, not architectural EFLAGS. Status-source kind zero reads
 the low bits of the six stored status bytes. Subtraction kinds 1/5/9, addition
@@ -930,13 +931,42 @@ and the instruction entries in [Volume 2A](https://www.intel.com/content/dam/sup
 and [Volume 2B](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366721.pdf).
 RET's two-slot capacity follows the corrected [Volume 2 RET entry](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
 
-## Segment resolver
+## Descriptor storage and segment resolver
 
-`Descriptor` preserves an eight-byte legacy descriptor. The existing
-`SegmentDescriptor` builder and `DescriptorTables` load/query paths share this
-packed decoder. Typed code/data construction sets A=1 and L=0; raw descriptors
-retain their system types and flag bits. The host supplies stable descriptor
-storage separate from guest addresses for the callbacks below.
+`Machine::create_cpu` currently accepts Real16 only. Protected execution requires
+an embedding to bind the descriptor callbacks described below.
+
+`relocade-machine` defines a dedicated 128-KiB descriptor address space, separate
+from guest backing, guest linear addresses and page-lookup memory. GDTR.base and
+the loaded LDTR.base select byte offsets in that space. Descriptor lookup checks
+the complete eight-byte entry against the current table limit and storage bounds;
+an unusable LDTR rejects local selectors. No guest pages need to be reserved or
+mapped for these tables. IDTR/TR are retained CPU state for later consumers;
+this runtime does not yet use them to deliver protected interrupts or switch tasks.
+The machine's `Memory` shares these bytes across CPUs, while each CPU owns
+its table registers and loaded caches.
+
+`DescriptorMemory::new` packs a `DescriptorTables` construction image.
+It places the GDT at offset zero and the LDT at `10000`,
+gives each table 8192 slots, and seeds GDTR and the loaded LDTR. A supplied LDT
+selector must name an unused, nonnull GDT slot. `CpuConfig::with_descriptor_memory`
+seeds the CPU's table registers; `MachineConfig::with_descriptor_memory`
+provides the image when creating the machine's address space. Creating later CPUs
+preserves those shared bytes. `SegmentDescriptor` is the existing
+typed code/data builder; converting it to an eight-byte `Descriptor` sets A=1 and
+L=0. Raw `Descriptor::from_bytes` also preserves system types and flag bits for
+queries. Live `CpuContext::descriptors` and `HostCall::descriptors` read and edit the
+same bytes. `write` follows current table registers; `write_at` addresses storage
+directly. Neither operation changes loaded caches or table bounds.
+`Memory::descriptors` exposes offset access without borrowing a CPU.
+Reads and edits do not lock the shared descriptor storage.
+
+Native callers receive a `ResolvedSegment` from `resolve_user_segment`. Its
+`cache()` supports remaining instruction checks; consuming `complete()` updates
+the descriptor if needed and returns the cache to install. The load retains its
+original storage and slot, so completion addresses the descriptor resolved by
+that CPU. Dropping the resolved load leaves bytes unchanged. Resolution reports
+architectural `Exception` values.
 
 Protected-mode segment loads call
 `relocade.resolveSegment(segment: i32, selector: i32)`, returning twelve Wasm i32
@@ -1005,7 +1035,7 @@ without either permission, and code is never writable. LAR/LSL preserve the
 destination on failure and truncate successful results to operand width. All four
 instructions change only ZF among flags.
 
-Queries use the same descriptor view as loads.
+Queries use the same canonical GDTR/loaded LDTR and dedicated storage as loads.
 The callback returns `SegmentDescriptorInfo` values without loading a segment,
 setting A, or faulting for a rejected selector. Guest operand reads can still
 fault before the callback runs. The `DescriptorTables` builder offers the same

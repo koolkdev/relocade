@@ -4,7 +4,7 @@ pub(crate) mod resources;
 pub(crate) mod version;
 
 use crate::Result;
-use crate::{ConfigurationError, MachineConfig, MemoryMap};
+use crate::{ConfigurationError, Descriptors, MachineConfig, MemoryMap};
 use relocade_compiler::abi::Memory as WasmMemory;
 use relocade_wasm_runtime::{MemoryBytes, WasmBackend, WasmSharedMemory};
 use relocade_x86::abi;
@@ -74,11 +74,23 @@ impl<S: WasmSharedMemory> Memory<S> {
         let revision = backend
             .shared_memory(&revision)
             .expect("shared table version");
+        let descriptors = backend.create_memory(WasmMemory {
+            shared: true,
+            maximum: Some(2),
+            ..WasmMemory::new("relocade", "descriptors", 2)
+        })?;
+        if let Some(image) = config.descriptor_memory() {
+            backend.write_memory(&descriptors, 0, image.to_bytes());
+        }
+        let descriptors = backend
+            .shared_memory(&descriptors)
+            .expect("shared descriptor memory");
         Self::from_resources(
             Arc::new(config),
             MemoryResources {
                 backing,
                 mapping,
+                descriptors,
                 revision,
             },
             Arc::new(()),
@@ -117,6 +129,11 @@ impl<S: WasmSharedMemory> Memory<S> {
     /// Borrows a read/write view of this handle without borrowing a CPU.
     pub fn view(&mut self) -> MemoryView<'_> {
         self.resources.view(&self.config)
+    }
+
+    /// Borrows shared descriptor bytes by offset, without borrowing a CPU.
+    pub fn descriptors(&mut self) -> Descriptors<'_, ()> {
+        Descriptors::new(MemoryBytes::shared(&self.resources.descriptors), ())
     }
 
     /// Copies mapped source bytes and records the current mapping version.
