@@ -1,4 +1,6 @@
+pub(crate) mod resources;
 mod view;
+use resources::MemoryResources;
 pub use view::{MemoryError, MemoryView};
 
 use crate::{ConfigurationError, MachineConfig, Result};
@@ -13,7 +15,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct Memory<S: WasmSharedMemory> {
     pub(crate) config: Arc<MachineConfig>,
-    backing: S,
+    pub(crate) resources: MemoryResources<S>,
 }
 
 impl<S: WasmSharedMemory> Memory<S> {
@@ -33,18 +35,21 @@ impl<S: WasmSharedMemory> Memory<S> {
         if backing.byte_len() < config.memory_size() {
             return Err(ConfigurationError::InsufficientMemory.into());
         }
-        Ok(Self { config, backing })
+        Ok(Self {
+            config,
+            resources: MemoryResources { backing },
+        })
     }
 
     pub fn configuration(&self) -> &MachineConfig {
         &self.config
     }
     pub fn backing(&self) -> &S {
-        &self.backing
+        &self.resources.backing
     }
 
     /// Borrows a read/write view of this handle without borrowing a CPU.
     pub fn view(&mut self) -> MemoryView<'_> {
-        MemoryView::new(&self.config, &mut self.backing)
+        self.resources.view(&self.config)
     }
 }

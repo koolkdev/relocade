@@ -27,7 +27,6 @@ mod cpu;
 mod machine;
 mod memory;
 pub mod runtime;
-mod storage;
 #[cfg(feature = "worker")]
 pub use runtime::worker;
 
@@ -39,11 +38,6 @@ pub use runtime::{
     real_mode_interrupt, CpuBindings, DispatchEntry, Error, Hook, HostCall, Result, RuntimeBackend,
     RuntimeState,
 };
-pub use storage::MemoryStorage;
 
-/// Transfers to the private CPU context and shared guest storage. CPU offsets
-/// are relative to `CpuState`; writes must update live storage immediately.
-pub trait CpuStorage: MemoryStorage {
-    fn read_cpu(&self, offset: u32, bytes: &mut [u8]);
-    fn write_cpu(&mut self, offset: u32, bytes: &[u8]);
-}
+#[cfg(test)]
+mod tests;
