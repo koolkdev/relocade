@@ -78,9 +78,11 @@ The backend lends private memory bytes while execution is stopped. Shared
 allocations lend bytes independently of a backend. Views retain those borrows;
 constructing or reborrowing a view allocates no storage and copies no guest state.
 
-Send the existing backend handle with `worker::Message(memory.backing().clone())`.
-The worker transport preserves the shared allocation. On the receiver, attach
-the handle with `Machine::with_backing` using the same configuration.
+With the `worker` feature, `machine.on_worker(&thread, task)` gives a task the
+same machine on a native or browser worker. Create the CPU's backend inside the
+task. The handoff preserves shared guest backing and the machine’s address policy. Shared-memory handles
+preserve their JavaScript resources during structured cloning. Runtime state and CPU membership remain shared Rust owners.
+See the [worker guide](workers.md) for thread setup and integration checks.
 
 Browser sharing requires cross-origin isolation, typically with
 `Cross-Origin-Opener-Policy: same-origin` and

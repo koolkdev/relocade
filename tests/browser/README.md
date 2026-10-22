@@ -1,14 +1,16 @@
 # Browser tests
 
 All browser tests use the same threaded Rust build: shared host memory, atomics,
-and per-thread TLS. `npm test` runs the existing wasm-runtime, runtime and renderer tests
+and per-thread TLS. `npm test` runs the wasm-runtime, machine and renderer tests
 with wasm-bindgen-test, then the worker integration checks. Both stages run
 through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
 
 The worker checks cover Rust channel wakeups after a task returns Pending,
 independent TLS and worker-local Rc state, shared-memory messages that preserve
-later growth and writes, and compiled-module handoff between execution owners.
+later growth and writes, compiled-module handoff between execution owners, and
+shared guest backing accessible during another CPU's execution. Machine identity and CPU membership
+remain shared across workers while execution contexts remain private.
 
 From this directory:
 

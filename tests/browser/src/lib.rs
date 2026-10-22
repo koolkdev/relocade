@@ -3,10 +3,12 @@
 mod channels;
 mod memory;
 mod modules;
+mod ownership;
 
 pub use channels::rust_channels;
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
+pub use ownership::shared_address_space;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
@@ -23,5 +25,10 @@ mod tests {
     #[test]
     fn compiled_modules_link_to_private_worker_state() {
         pollster::block_on(super::modules::compiled_modules()).unwrap();
+    }
+
+    #[test]
+    fn address_spaces_allow_overlapping_access_between_workers() {
+        pollster::block_on(super::ownership::shared_address_space()).unwrap();
     }
 }

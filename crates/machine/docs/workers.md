@@ -1,8 +1,25 @@
 # Worker tasks and messages
 
-Enable the runtime's `worker` feature for `runtime::worker::{Thread, Message}`.
+Enable `relocade-machine`'s `worker` feature for `worker::{Thread, Message}`.
 `Thread` is the published `web-thread-select` library's task owner. The embedding
 creates threads and keeps them alive until their tasks finish.
+
+`Machine::on_worker` runs a task with the same machine's resources and CPU
+membership. It is available for the built-in native and browser backends:
+
+```rust,ignore
+let task = machine.on_worker(&thread, move |machine| async move {
+    let backend = Backend::with_state(RuntimeState::new(environment))?;
+    let mut cpu = machine.create_cpu(backend, cpu_config).await?;
+    cpu.run_async(budget).await
+});
+let exit = task.await?;
+```
+
+The machine sends its shared Wasm allocations together and preserves its shared
+Rust runtime, CPU membership and address policy. The backend and bound instances
+are created on the receiving worker. This does not impose a scheduling policy;
+the application still owns the thread and the execution task.
 
 Rust commands and shared state use Send closure captures and ordinary Rust
 channels. Worker-local futures, backends and state can contain non-Send values
@@ -52,7 +69,8 @@ The shared build setup and browser checks live in
 operations; worker integration checks exercise channel wakeups, shared-memory
 messages and compiled-module handoff.
 
-Await accepted work before dropping its thread. Browser bootstrap failure
+Await accepted work before dropping its thread. Abrupt browser worker destruction
+can strand Rust owners, including CPU membership; it is not CPU cleanup. Browser bootstrap failure
 reporting and thread allocation reclamation are tracked in
 [#439](https://github.com/koolkdev/relocade/issues/439). Receiving posted messages
 requires an event-loop task opportunity on the receiving browser thread.
