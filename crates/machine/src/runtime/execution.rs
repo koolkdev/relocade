@@ -14,6 +14,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// also return Deferred without polling it; use `run_async` to wait and resume.
     /// An interrupted async handler returns `Error::CancelledHostCall` until
     /// the embedding replaces its continuation and clears the pending call.
+    ///
+    /// # Panics
+    /// Descriptor callbacks panic if a guest segment load violates the configured
+    /// execution profile. The runtime does not switch profiles during execution.
     pub fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
@@ -34,6 +38,9 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Before resuming, replace the guest continuation (for example, load a new
     /// program) and clear the interrupted call with `cancel_pending_call`.
     /// Zero does not enter Wasm or poll pending work.
+    ///
+    /// # Panics
+    /// Profile violations follow [`Self::run`].
     pub async fn run_async(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);

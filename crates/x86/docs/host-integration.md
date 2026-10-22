@@ -933,9 +933,6 @@ RET's two-slot capacity follows the corrected [Volume 2 RET entry](https://cdrdv
 
 ## Descriptor storage and segment resolver
 
-`Machine::create_cpu` currently accepts Real16 only. Protected execution requires
-an embedding to bind the descriptor callbacks described below.
-
 `relocade-machine` defines a dedicated 128-KiB descriptor address space, separate
 from guest backing, guest linear addresses and page-lookup memory. GDTR.base and
 the loaded LDTR.base select byte offsets in that space. Descriptor lookup checks
@@ -998,7 +995,7 @@ selector. It commits CS, EIP, flags and the stack pointer only after all checks
 succeed. An entry NT flag of one requests an unsupported task return before
 ordinary stack access. Restoring NT from the frame affects a later IRET.
 
-Descriptor callbacks read only current GDTR/LDTR and descriptor bytes. They do
+The runtime callbacks read only current GDTR/LDTR and descriptor bytes. They do
 not require publication of other CPU fields, and must not inspect those fields,
 mutate guest RAM/page mappings or reenter execution. Resolution is pure; only
 `completeSegmentLoad` changes table bytes. GDTR, LDTR and descriptor contents
