@@ -14,7 +14,6 @@ mod hooks;
 pub(crate) mod io;
 pub mod real_mode_interrupt;
 mod state;
-mod storage;
 #[cfg(feature = "worker")]
 pub mod worker;
 

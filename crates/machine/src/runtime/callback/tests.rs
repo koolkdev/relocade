@@ -1,53 +1,8 @@
 use super::*;
-use relocade_wasm_runtime::{MemoryBytes, WasmMemoryAccess};
+use crate::tests::support::{self, Fixture};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMemoryMap, Segment, Segments,
 };
-use std::{cell::Cell, sync::Arc};
-
-struct Caller {
-    context: [u8; ExecutionContext::BYTE_LEN],
-    reads: Cell<usize>,
-    state: RuntimeState,
-}
-
-impl WasmContext for Caller {
-    type State = RuntimeState;
-
-    fn state(&self) -> &RuntimeState {
-        &self.state
-    }
-
-    fn state_mut(&mut self) -> &mut RuntimeState {
-        &mut self.state
-    }
-
-    fn memory_and_state<'a>(&'a mut self, _: &'a ()) -> (MemoryBytes<'a>, &'a mut RuntimeState) {
-        (MemoryBytes::new(&mut self.context), &mut self.state)
-    }
-}
-
-impl WasmMemoryAccess for Caller {
-    type Memory = ();
-    type SharedMemory = relocade_wasm_runtime::SharedMemory;
-
-    fn memory_bytes<'a>(&'a mut self, _: &'a ()) -> MemoryBytes<'a> {
-        MemoryBytes::new(&mut self.context)
-    }
-
-    fn shared_memory(&self, _: &()) -> Option<Self::SharedMemory> {
-        None
-    }
-
-    fn read_memory(&self, _: &(), offset: u32, bytes: &mut [u8]) {
-        self.reads.set(self.reads.get() + 1);
-        bytes.copy_from_slice(&self.context[offset as usize..][..bytes.len()]);
-    }
-
-    fn write_memory(&mut self, _: &(), offset: u32, bytes: &[u8]) {
-        self.context[offset as usize..][..bytes.len()].copy_from_slice(bytes);
-    }
-}
 
 #[test]
 fn callbacks_apply_compatible_segment_edits() {
@@ -57,56 +12,35 @@ fn callbacks_apply_compatible_segment_edits() {
         segments: Segments::real_mode(),
         ..CpuState::default()
     };
-    let config = CpuConfig::new(
+    let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16)
             .with_cpu_model(model)
             .target(),
         cpu,
+        0,
+        PhysicalMemoryMap::new([]).unwrap(),
     )
     .unwrap();
-    let machine_config = MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap();
-    let memory = CpuBindings {
-        config: Arc::new(config),
-        machine_config: Arc::new(machine_config),
-        context: (),
-        guest: (),
-        mapping: (),
-    };
-    let mut caller = Caller {
-        context: ExecutionContext {
-            cpu,
-            instruction_target: 998,
-            cpu_model: model,
-        }
-        .to_bytes(),
-        reads: Cell::new(0),
-        state: RuntimeState::default(),
-    };
-
-    let value = memory.with_host_call(&mut caller, |call| {
-        call.cpu().set_ax(41);
-        17
-    });
-    assert_eq!(value, 17);
-    assert_eq!(caller.reads.get(), 0);
-
-    memory.with_host_call(&mut caller, |call| {
+    let mut fixture = Fixture::new(&config.cpu, &config.machine);
+    let mut state = RuntimeState::<()>::default();
+    {
+        let mut call = HostCall::new(fixture.view(&config), &mut state);
         call.cpu().set_ax(42);
         call.cpu().set_segment(
             Segment::Cs,
             relocade_x86::SegmentRegister::real_mode(Segment::Cs, 0x1000),
         );
-    });
+    }
     let mut expected = cpu;
     expected.registers.eax = 42;
     expected.segments.cs = relocade_x86::SegmentRegister::real_mode(Segment::Cs, 0x1000);
     assert_eq!(
-        caller.context,
+        fixture.context,
         ExecutionContext {
             cpu: expected,
             instruction_target: 998,
-            cpu_model: model
+            cpu_model: model,
         }
-        .to_bytes()
+        .to_bytes(),
     );
 }

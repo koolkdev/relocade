@@ -1,4 +1,6 @@
-mod storage;
+use crate::memory::resources::MemoryResources;
+use relocade_wasm_runtime::WasmMemoryAccess;
+mod control;
 
 use crate::Result;
 use crate::{CpuConfig, Machine, MachineConfig};
@@ -59,6 +61,17 @@ impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
             guest,
             mapping,
         })
+    }
+
+    pub(crate) fn shared_resources<A: WasmMemoryAccess<Memory = M>>(
+        &self,
+        backend: &A,
+    ) -> MemoryResources<A::SharedMemory> {
+        MemoryResources {
+            backing: backend
+                .shared_memory(&self.guest)
+                .expect("shared backing memory"),
+        }
     }
 
     pub fn configuration(&self) -> &CpuConfig {

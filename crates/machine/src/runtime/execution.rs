@@ -1,5 +1,6 @@
-use super::storage::BackendStorage;
 use crate::{Cpu, Error, HostCall, Result, RuntimeBackend, RuntimeState};
+use crate::{CpuContext, CpuView};
+use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
 use std::ops::ControlFlow;
 
@@ -88,13 +89,14 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             .expect("deferred exit must have a handler");
         // Cancellation leaves this set so a later run cannot replay the hook.
         self.host_call_incomplete = true;
+        let memory = self.bindings.shared_resources(&self.backend);
         let mut context = self.backend.context();
-        let mut storage = BackendStorage::new(&mut context, &self.bindings);
-        let mut call = HostCall::new(
-            &self.bindings.config,
-            self.machine.configuration(),
-            &mut storage,
+        let (bytes, state) = context.memory_and_state(&self.bindings.context);
+        let views = CpuContext::new(
+            CpuView::new(&self.bindings.config, bytes),
+            memory.view(self.machine.configuration()),
         );
+        let mut call = HostCall::new(views, state);
         let result = handler.run(&mut call).await;
         self.host_call_incomplete = false;
         result

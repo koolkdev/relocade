@@ -1,7 +1,8 @@
+use relocade_wasm_runtime::MemoryBytes;
 mod read;
 mod write;
 
-use crate::{MachineConfig, MemoryStorage};
+use crate::MachineConfig;
 use relocade_x86::{PhysicalMemoryMap, SegmentRegister};
 use std::fmt;
 
@@ -10,14 +11,16 @@ use std::fmt;
 /// bytes; writes to ROM, holes and unattached MMIO are ignored.
 /// The view borrows one storage handle; other shared handles remain usable.
 pub struct MemoryView<'a> {
-    config: &'a MachineConfig,
-    storage: &'a mut dyn MemoryStorage,
+    pub(crate) config: &'a MachineConfig,
+    pub(crate) backing: MemoryBytes<'a>,
 }
 
 impl<'a> MemoryView<'a> {
-    /// Borrows backing storage matching the configured map and capacity.
-    pub fn new(config: &'a MachineConfig, storage: &'a mut dyn MemoryStorage) -> Self {
-        Self { config, storage }
+    pub(crate) fn reborrow(&mut self) -> MemoryView<'_> {
+        MemoryView {
+            config: self.config,
+            backing: self.backing.reborrow(),
+        }
     }
 
     /// Configured backing capacity, excluding Wasm-page rounding.

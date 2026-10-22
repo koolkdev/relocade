@@ -1,5 +1,4 @@
 mod context;
-mod storage;
 mod view;
 
 pub use context::CpuContext;
@@ -35,16 +34,21 @@ impl<B: RuntimeBackend> Cpu<B> {
 
     /// Borrows the published registers of this stopped CPU.
     pub fn view(&mut self) -> CpuView<'_> {
-        CpuView::for_target(self.bindings.configuration().execution_target(), self)
+        CpuView::new(
+            self.bindings.configuration(),
+            self.backend.memory_bytes(&self.bindings.context),
+        )
     }
 
     /// Borrows this stopped CPU and its shared guest memory. Other CPUs can run
     /// independently.
     pub fn context(&mut self) -> CpuContext<'_> {
-        CpuContext::with_configuration(
-            self.bindings.configuration().execution_target(),
-            self.machine.configuration().clone(),
-            self,
+        CpuContext::new(
+            CpuView::new(
+                self.bindings.configuration(),
+                self.backend.memory_bytes(&self.bindings.context),
+            ),
+            self.machine.memory.view(),
         )
     }
 }

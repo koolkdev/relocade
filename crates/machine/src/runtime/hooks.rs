@@ -1,4 +1,3 @@
-use super::storage::BackendStorage;
 use relocade_compiler::{abi::Function, Program, I64};
 use relocade_wasm_runtime::WasmCompiler;
 use relocade_x86::{abi, ExecutionExit};
@@ -79,12 +78,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             imports.push(self.backend.bind_host(
                 declaration,
                 Box::new(move |mut caller| {
-                    let mut storage = BackendStorage::new(&mut caller, &bindings);
-                    let flow = (hook.handler)(&mut HostCall::new(
-                        &bindings.config,
-                        &bindings.machine_config,
-                        &mut storage,
-                    ));
+                    let flow = bindings.with_host_call(&mut caller, |call| (hook.handler)(call));
                     match flow {
                         ControlFlow::Continue(()) => 0,
                         ControlFlow::Break(exit) => exit.to_bits() as i64,
