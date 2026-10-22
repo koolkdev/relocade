@@ -1,60 +1,49 @@
-//! Initial machine configuration and scoped access to live guest state.
+//! Machines with shared guest memory and independently executable CPUs.
 //!
-//! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
-//! size and the fixed physical map. Execution backends provide storage; [`CpuContext`] borrows that storage to
-//! expose the current CPU and [`MemoryView`] with the machine's access policy.
-//!
-//! ```
-//! use relocade_machine::{CpuConfig, MachineConfig};
-//! use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
-//!
-//! let target = Compiler::new(ExecutionProfile::Real16).target();
-//! let cpu = CpuState { eip: 0x100, segments: Segments::real_mode(), ..CpuState::default() };
-//! let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
-//! let cpu = CpuConfig::new(target, cpu)?;
-//! let config = MachineConfig::new(2 * 1024 * 1024, map)?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! ```
-//!
-//! Live access reads only the requested CPU fields. Use a snapshot explicitly
-//! when saving or inspecting the complete CPU, including floating-point state.
+//! [`Machine`] owns the guest memory shared by its CPUs.
+//! Each [`Cpu`] retains its machine and owns its backend, live registers, dispatch
+//! bindings and pending host calls. Running a CPU does not borrow the machine.
+//! [`CpuContext`] and [`CpuView`] lend access to a stopped CPU's live storage.
 //!
 //! ```
-//! # use relocade_machine::CpuContext;
-//! # fn update(machine: &mut CpuContext<'_>) -> Result<(), Box<dyn std::error::Error>> {
-//! let ax = machine.cpu().ax();
-//! machine.memory().write(0x200, &ax.to_le_bytes())?;
-//! machine.cpu().set_ax(ax.wrapping_add(1));
-//! let saved = machine.cpu().snapshot();
-//! machine.cpu().restore(&saved)?;
-//! # Ok(())
-//! # }
+//! use relocade_machine::{CpuConfig, Machine, MachineConfig, RuntimeBackend, RuntimeState};
+//!
+//! async fn example<B: RuntimeBackend<State = RuntimeState>>(
+//!     mut backend: B, config: MachineConfig, cpu: CpuConfig,
+//! ) -> Result<(), Box<dyn std::error::Error>> {
+//!     let machine = Machine::new(&mut backend, config)?;
+//!     machine.memory().view().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
+//!     let mut cpu = machine.create_cpu(backend, cpu).await?;
+//!     let exit = cpu.run(100)?;
+//!     let ax = cpu.context().cpu().ax();
+//!     # let _ = (exit, ax);
+//!     Ok(())
+//! }
 //! ```
 #![forbid(unsafe_code)]
 
 mod config;
 mod cpu;
+mod machine;
 mod memory;
 pub mod runtime;
 mod storage;
+#[cfg(feature = "worker")]
+pub use runtime::worker;
 
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
-pub use cpu::{CpuContext, CpuView};
+pub use cpu::{Cpu, CpuContext, CpuView};
+pub use machine::Machine;
 pub use memory::{Memory, MemoryError, MemoryView};
+pub use runtime::{
+    real_mode_interrupt, CpuBindings, DispatchEntry, Error, Hook, HostCall, Result, RuntimeBackend,
+    RuntimeState,
+};
 pub use storage::MemoryStorage;
 
-/// Transfers to the CPU and guest memory supplied by the runtime. CPU offsets
-/// are relative to the start of `CpuState` in the execution context.
-/// Writes take effect immediately; implementations must not cache a CPU snapshot.
-/// Backing transfers receive ranges already checked against configured capacity.
+/// Transfers to the private CPU context and shared guest storage. CPU offsets
+/// are relative to `CpuState`; writes must update live storage immediately.
 pub trait CpuStorage: MemoryStorage {
     fn read_cpu(&self, offset: u32, bytes: &mut [u8]);
     fn write_cpu(&mut self, offset: u32, bytes: &[u8]);
 }
-
-#[cfg(feature = "worker")]
-pub use runtime::worker;
-pub use runtime::{
-    real_mode_interrupt, Cpu, DispatchEntry, Error, Hook, HostCall, Result, RuntimeBackend,
-    RuntimeMemory, RuntimeState,
-};

@@ -17,6 +17,9 @@ relocade-interpreter = { path = "../interpreter" }
 relocade-x86 = { path = "../x86" }
 relocade-compiler = { path = "../compiler" }
 
+[dev-dependencies]
+wasm-encoder.workspace = true
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"
 

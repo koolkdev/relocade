@@ -1,17 +1,17 @@
-//! Wasm memory resources and scoped access for runtime execution.
+mod storage;
 
-use super::Result;
-use crate::{CpuConfig, MachineConfig};
+use crate::Result;
+use crate::{CpuConfig, Machine, MachineConfig};
 use relocade_compiler::abi::Memory;
 use relocade_wasm_runtime::{Import, WasmBackend};
 use relocade_x86::{abi, ExecutionContext};
 use std::sync::Arc;
 
-/// The runtime's initialized Wasm memories. This owner allocates backend memory
-/// from the machine configuration and supplies module bindings and scoped host
-/// access. Architectural access policy belongs to `relocade_machine`.
+/// One CPU's context and bindings to guest memory. The context is private;
+/// guest backing belongs to the independently owned memory handle.
+/// Architectural access policy belongs to `relocade_machine`.
 #[derive(Clone)]
-pub struct RuntimeMemory<M> {
+pub struct CpuBindings<M> {
     pub(crate) config: Arc<CpuConfig>,
     pub(crate) machine_config: Arc<MachineConfig>,
     pub(crate) context: M,
@@ -19,13 +19,16 @@ pub struct RuntimeMemory<M> {
     pub(crate) mapping: M,
 }
 
-impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
-    pub fn new<B: WasmBackend<Memory = M>>(
+impl<M: Clone + Send + Sync + 'static> CpuBindings<M> {
+    pub(crate) fn new<B: WasmBackend<Memory = M>>(
         backend: &mut B,
-        machine_config: MachineConfig,
         config: CpuConfig,
+        machine: &Machine<B::SharedMemory>,
     ) -> Result<Self> {
-        machine_config.validate_for(config.execution_target().profile)?;
+        let memory = &machine.memory;
+        memory
+            .configuration()
+            .validate_for(config.execution_target().profile)?;
         let context = backend.create_memory(Memory {
             maximum: Some(1),
             ..abi::EXECUTION_CONTEXT
@@ -40,22 +43,18 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
             }
             .to_bytes(),
         );
-        let guest_pages = machine_config.memory_size().div_ceil(65536).max(1) as u32;
-        let guest = backend.create_memory(Memory {
-            minimum: guest_pages,
-            ..abi::GUEST
-        })?;
-        let mapping_bytes = machine_config.memory_map().to_bytes();
-        let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
+        let guest = backend.import_shared_memory(memory.backing());
+        let bytes = memory.configuration().memory_map().to_bytes();
+        let pages = bytes.len().div_ceil(65536).max(1) as u32;
         let mapping = backend.create_memory(Memory {
-            minimum: mapping_pages,
-            maximum: Some(mapping_pages),
+            minimum: pages,
+            maximum: Some(pages),
             ..abi::PHYSICAL_MAP
         })?;
-        backend.write_memory(&mapping, 0, &mapping_bytes);
+        backend.write_memory(&mapping, 0, &bytes);
         Ok(Self {
             config: Arc::new(config),
-            machine_config: Arc::new(machine_config),
+            machine_config: Arc::clone(&memory.config),
             context,
             guest,
             mapping,

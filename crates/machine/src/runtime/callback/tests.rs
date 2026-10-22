@@ -65,7 +65,7 @@ fn callbacks_apply_compatible_segment_edits() {
     )
     .unwrap();
     let machine_config = MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap();
-    let memory = RuntimeMemory {
+    let memory = CpuBindings {
         config: Arc::new(config),
         machine_config: Arc::new(machine_config),
         context: (),
