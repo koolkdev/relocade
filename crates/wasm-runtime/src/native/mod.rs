@@ -1,4 +1,6 @@
-use crate::{Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmMemoryAccess};
+use crate::{
+    Error, Import, ImportValue, MemoryBytes, ModuleCache, Result, WasmBackend, WasmMemoryAccess,
+};
 use relocade_compiler::{
     abi::{self, Function},
     I64,
@@ -48,7 +50,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type Table = Table;
     type Function = TypedFunc<(), i64>;
     type ImportFunction = Func;
-    type SharedMemory = SharedMemory;
 
     fn state(&self) -> impl Deref<Target = T> {
         self.store.data()
@@ -72,13 +73,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
 
     fn create_memory(&mut self, declaration: abi::Memory) -> Result<Memory> {
         Memory::new(&mut self.store, declaration)
-    }
-
-    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
-        match memory {
-            Memory::Private(_) => None,
-            Memory::Shared(memory) => Some(memory.clone()),
-        }
     }
 
     fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
@@ -171,6 +165,18 @@ impl<T: 'static> WasmBackend for Backend<T> {
 
 impl<T: 'static> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
+    type SharedMemory = SharedMemory;
+
+    fn memory_bytes<'a>(&'a mut self, memory: &'a Memory) -> MemoryBytes<'a> {
+        memory.bytes(&mut self.store)
+    }
+
+    fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
+        match memory {
+            Memory::Private(_) => None,
+            Memory::Shared(memory) => Some(memory.clone()),
+        }
+    }
 
     fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
         memory.read(&self.store, offset, bytes);

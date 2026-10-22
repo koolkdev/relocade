@@ -1,5 +1,5 @@
 use super::*;
-use relocade_wasm_runtime::WasmMemoryAccess;
+use relocade_wasm_runtime::{MemoryBytes, WasmMemoryAccess};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMemoryMap, Segment, Segments,
 };
@@ -25,6 +25,15 @@ impl WasmContext for Caller {
 
 impl WasmMemoryAccess for Caller {
     type Memory = ();
+    type SharedMemory = relocade_wasm_runtime::SharedMemory;
+
+    fn memory_bytes<'a>(&'a mut self, _: &'a ()) -> MemoryBytes<'a> {
+        MemoryBytes::new(&mut self.context)
+    }
+
+    fn shared_memory(&self, _: &()) -> Option<Self::SharedMemory> {
+        None
+    }
 
     fn read_memory(&self, _: &(), offset: u32, bytes: &mut [u8]) {
         self.reads.set(self.reads.get() + 1);
