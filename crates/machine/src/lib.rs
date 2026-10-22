@@ -28,7 +28,7 @@ mod machine;
 mod memory;
 pub mod runtime;
 #[cfg(feature = "worker")]
-pub use runtime::worker;
+pub mod worker;
 
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{Cpu, CpuContext, CpuId, CpuView};

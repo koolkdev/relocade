@@ -1296,9 +1296,11 @@ dependencies = [
  "relocade-compiler",
  "relocade-machine",
  "relocade-wasm-runtime",
+ "relocade-x86",
  "serde",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-encoder 0.254.0",
 ]
 
 [[package]]

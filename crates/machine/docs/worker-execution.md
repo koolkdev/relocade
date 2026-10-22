@@ -1,7 +1,7 @@
 # Worker execution
 
 The intended interactive embedding uses one persistent async task owning the
-guest environment, runtime and active service for the program's lifetime. In a
+guest environment, CPU and active service for the program's lifetime. In a
 browser, this task lives in a worker alongside message handlers. The
 [worker transport](workers.md) supplies threads and messages. The persistent CPU
 execution loop remains deferred; this note records its intended ownership and
@@ -13,15 +13,15 @@ UI --input/control messages--> worker message handlers
                                queues and wakeups
                                       |
                                execution task
-                               owns DOS + runtime
+                               owns DOS + CPU
 ```
 
 For a blocking console read, the execution task awaits input after the guest
 returns. A worker message handler receives input bytes and writes them through an
 owned stdin handle, waking the same task. The handle accesses an independent
-queue, so delivering input does not borrow the runtime. Browser stream handles
+queue, so delivering input does not borrow the CPU. Browser stream handles
 stay inside the worker; messages carry bytes across the thread boundary. A native
-embedding can use channels and a task on the runtime's owning thread.
+embedding can use channels and a task on the CPU's owning thread.
 
 Worker creation, UI messaging and task lifetime belong to the embedding
 application. The runtime owns execution and service completion; the web and

@@ -15,8 +15,6 @@ mod hooks;
 pub(crate) mod io;
 pub mod real_mode_interrupt;
 mod state;
-#[cfg(feature = "worker")]
-pub mod worker;
 
 pub use backend::RuntimeBackend;
 pub use bindings::CpuBindings;
