@@ -37,17 +37,17 @@ fn selector_access_faults_preserve_esp_cache_and_both_halves_of_split_stores() {
                 image.data(0xa000, &[0xf3]);
             }
             // No resolver response: faults must precede the host call and every write.
-            check_one(
+            Scenario::new(
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
-                &[],
-                Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit,
-                },
-            );
+            )
+            .step(Step {
+                cpu: image.cpu,
+                ram: &[],
+                exit,
+            })
+            .check();
         }
     }
 }
@@ -99,17 +99,20 @@ fn a_failed_pop_resolution_does_not_commit_the_stack_advance() {
                 },
             );
         }
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, segment, selector)],
             Step {
                 cpu: image.cpu,
                 ram: &[],
                 exit,
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -131,10 +134,6 @@ fn a_pop_fault_publishes_earlier_register_flags_store_and_retirement_progress() 
             ..descriptor(0x9000, SegmentDefaultSize::Bits16)
         },
     );
-    let mut input = image.input();
-    input
-        .segment_resolutions
-        .push(SegmentResolution::new(&tables, Segment::Ss, 0x27));
     let mut cpu = image.cpu;
     cpu.registers.eax = 2;
     cpu.flags.status_source.kind = 10;
@@ -155,28 +154,20 @@ fn a_pop_fault_publishes_earlier_register_flags_store_and_retirement_progress() 
         ram,
         exit: Exit::Dispatch(cpu.eip),
     };
-    let fault = || Step {
+    let fault = Step {
         cpu,
-        ram,
+        ram: &[],
         exit: Exit::StackFault { error: 0x24 },
     };
-    let event = Event::ResolveSegment {
-        segment: 2,
-        selector: 0x27,
-    };
-    let mut wanted = expected(&image, &[first, second, fault()]);
-    wanted.events.insert(4, event.clone());
-    assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
-    let mut blocks = BlockModules::default();
-    let block = blocks.get(
-        &image.cpu,
-        &code,
-        3,
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
-    let mut wanted = expected(&image, &[fault()]);
-    wanted.events.insert(0, event);
-    assert_eq!(block.observe(&input, 1), wanted);
+        &code,
+        &image,
+    )
+    .step(first)
+    .step(second)
+    .resolve(&[SegmentResolution::new(&tables, Segment::Ss, 0x27)], fault)
+    .check();
 }
 
 #[test]
@@ -217,10 +208,12 @@ fn extended_segment_opcodes_obey_fetch_fault_and_instruction_length_boundaries()
     cpu.registers.esp = 0x4002;
     cpu.eip = 0x2000;
     cpu.instruction_count = 0;
-    check_one(
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
+    )
+    .resolve(
         &[SegmentResolution::new(
             &DescriptorTables::default(),
             Segment::Gs,
@@ -231,5 +224,6 @@ fn extended_segment_opcodes_obey_fetch_fault_and_instruction_length_boundaries()
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
         },
-    );
+    )
+    .check();
 }

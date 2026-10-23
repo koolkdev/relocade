@@ -38,17 +38,20 @@ fn failed_resolution_preserves_all_cpu_state_and_reports_the_shared_fault() {
                 },
             );
         }
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, segment, selector)],
             Step {
                 cpu: image.cpu,
                 ram: &[],
                 exit,
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -70,17 +73,17 @@ fn operand_faults_precede_resolution_and_split_stores_do_not_partially_write() {
             }
         };
         // An empty response script also proves the resolver was never called.
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
-            &[],
-            Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit,
-            },
-        );
+        )
+        .step(Step {
+            cpu: image.cpu,
+            ram: &[],
+            exit,
+        })
+        .check();
     }
     let code = [0x8c, 0x03]; // MOV [EBX],ES across a read-only second page.
     let mut image = Image::new(&code);
@@ -89,20 +92,20 @@ fn operand_faults_precede_resolution_and_split_stores_do_not_partially_write() {
     image.map(5, 0xa000, false);
     image.data(0x8fff, &[0xa5]);
     image.data(0xa000, &[0x5a]);
-    check_one(
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
-        &[],
-        Step {
-            cpu: image.cpu,
-            ram: &[],
-            exit: Exit::PageFault {
-                address: 0x5000,
-                error: 3,
-            },
+    )
+    .step(Step {
+        cpu: image.cpu,
+        ram: &[],
+        exit: Exit::PageFault {
+            address: 0x5000,
+            error: 3,
         },
-    );
+    })
+    .check();
 }
 
 #[test]
@@ -121,10 +124,6 @@ fn a_resolver_fault_publishes_earlier_register_flags_store_and_retirement_progre
             ..descriptor(0x9000, SegmentDefaultSize::Bits16)
         },
     );
-    let mut input = image.input();
-    input
-        .segment_resolutions
-        .push(SegmentResolution::new(&tables, Segment::Ss, 0x27));
     let mut cpu = image.cpu;
     cpu.registers.eax = 1;
     cpu.eip = 0x1005;
@@ -153,28 +152,21 @@ fn a_resolver_fault_publishes_earlier_register_flags_store_and_retirement_progre
         ram,
         exit: Exit::Dispatch(cpu.eip),
     };
-    let fault = || Step {
+    let fault = Step {
         cpu,
-        ram,
+        ram: &[],
         exit: Exit::StackFault { error: 0x24 },
     };
-    let event = Event::ResolveSegment {
-        segment: 2,
-        selector: 0x27,
-    };
-    let mut wanted = expected(&image, &[first, second, third, fault()]);
-    wanted.events.insert(6, event.clone());
-    assert_eq!(TestModule::interpreter().observe(&input, 4), wanted);
-    let mut blocks = BlockModules::default();
-    let block = blocks.get(
-        &image.cpu,
-        &code,
-        4,
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
-    let mut wanted = expected(&image, &[fault()]);
-    wanted.events.insert(0, event);
-    assert_eq!(block.observe(&input, 1), wanted);
+        &code,
+        &image,
+    )
+    .step(first)
+    .step(second)
+    .step(third)
+    .resolve(&[SegmentResolution::new(&tables, Segment::Ss, 0x27)], fault)
+    .check();
 }
 
 #[test]

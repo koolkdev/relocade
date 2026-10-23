@@ -30,17 +30,16 @@ fn register_forms_use_low_words_in_both_code_sizes_with_or_without_overrides() {
         let mut image = image(code, profile);
         image.cpu.registers[source] = 0xabcd_ffff;
         let cpu = completed(&image, code.len(), true);
-        check_one(
-            profile,
-            code,
-            &image,
-            &[SegmentQuery::new(&tables, 0xffff)],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, code, &image)
+            .query(
+                &[SegmentQuery::new(&tables, 0xffff)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }
 
@@ -60,17 +59,16 @@ fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrid
             image.data(0x8ffe, &[0x27, 0xf3]);
             // A widened read would touch the unmapped next page.
             let cpu = completed(&image, code.len(), true);
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[SegmentQuery::new(&tables, 0xf327)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .query(
+                    &[SegmentQuery::new(&tables, 0xf327)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                )
+                .check();
         }
     }
     for extension in [4, 5] {
@@ -86,17 +84,16 @@ fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrid
         image.data(0x8fff, &[0x27]);
         image.data(0xa000, &[0xf3]);
         let cpu = completed(&image, code.len(), true);
-        check_one(
-            profile,
-            &code,
-            &image,
-            &[SegmentQuery::new(&tables, 0xf327)],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, &code, &image)
+            .query(
+                &[SegmentQuery::new(&tables, 0xf327)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }
 
@@ -132,17 +129,13 @@ fn source_segment_and_page_faults_precede_permission_queries_and_flag_changes() 
                 }
             };
             // No scripted query proves that neither the host nor ZF was touched.
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[],
-                Step {
+            Scenario::new(profile, &code, &image)
+                .step(Step {
                     cpu: image.cpu,
                     ram: &[],
                     exit,
-                },
-            );
+                })
+                .check();
         }
     }
 }

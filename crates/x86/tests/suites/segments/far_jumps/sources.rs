@@ -36,17 +36,20 @@ fn memory_pointers_read_exact_spans_and_split_offset_or_selector_fields() {
         cpu.segments.cs = loaded(0x27, 0x9000, u32::MAX, SegmentRegister::flat_code32(0));
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -76,17 +79,20 @@ fn indirect_jumps_resolve_the_source_using_the_old_address_and_segment_state() {
         cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -111,16 +117,19 @@ fn pointer_fields_continue_beyond_the_starting_16_bit_offset_and_wrap_linear_32_
         cpu.segments.cs = loaded(0x27, 0x9000, u32::MAX, SegmentRegister::flat_code32(0));
         cpu.eip = 0x9234_5678;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }

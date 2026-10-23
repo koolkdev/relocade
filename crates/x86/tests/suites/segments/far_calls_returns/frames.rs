@@ -110,17 +110,16 @@ fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
         cpu.registers.esp = if word { 0x1234_9004 } else { 0x1234_9000 };
         cpu.instruction_count = 0;
         let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
-        check_one(
-            profile,
-            code,
-            &image,
-            &[SegmentResolution::new(&table, Segment::Cs, 0x24)],
-            Step {
-                cpu,
-                ram: &[(if word { 0x8004 } else { 0x8000 }, &saved)],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, code, &image)
+            .resolve(
+                &[SegmentResolution::new(&table, Segment::Cs, 0x24)],
+                Step {
+                    cpu,
+                    ram: &[(if word { 0x8004 } else { 0x8000 }, &saved)],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }
 
@@ -182,17 +181,16 @@ fn return_forms_pop_two_slots_and_discard_unsigned_cleanup_without_accessing_it(
                 (false, Some(_), false) => 0x1234_9007,
             };
             cpu.instruction_count = 0;
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[SegmentResolution::new(&tables(u32::MAX), Segment::Cs, 0x27)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .resolve(
+                    &[SegmentResolution::new(&tables(u32::MAX), Segment::Cs, 0x27)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                )
+                .check();
         }
     }
 }
@@ -288,17 +286,20 @@ fn complete_frame_capacity_and_selector_transfer_extent_are_distinct() {
             } else {
                 vec![]
             };
-            check_one(
+            Scenario::new(
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
+            )
+            .resolve(
                 &resolutions,
                 Step {
                     cpu,
                     ram: &ram,
                     exit,
                 },
-            );
+            )
+            .check();
         }
     }
 }

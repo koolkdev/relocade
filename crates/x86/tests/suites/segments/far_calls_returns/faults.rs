@@ -38,17 +38,20 @@ fn call_checks_descriptor_then_stack_capacity_then_target_then_stack_paging() {
                     ..descriptor(0xc000, target_limit, SegmentDefaultSize::Bits32)
                 },
             );
-            check_one(
+            Scenario::new(
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
+            )
+            .resolve(
                 &[SegmentResolution::new(&table, Segment::Cs, 0x27)],
                 Step {
                     cpu: image.cpu,
                     ram: &[],
                     exit,
                 },
-            );
+            )
+            .check();
         }
     }
 }
@@ -126,17 +129,20 @@ fn every_frame_page_is_proved_before_stores_or_selector_resolution_for_return() 
                 } else {
                     vec![SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)]
                 };
-                check_one(
+                Scenario::new(
                     ExecutionProfile::Protected(SegmentProfile::Flat32),
                     &code,
                     &image,
+                )
+                .resolve(
                     &resolutions,
                     Step {
                         cpu: image.cpu,
                         ram: &[],
                         exit: Exit::PageFault { address, error },
                     },
-                );
+                )
+                .check();
             }
         }
     }
@@ -255,17 +261,20 @@ fn return_requires_rpl_three_before_reusing_code_descriptor_rules_and_limit_chec
             } else {
                 vec![]
             };
-            check_one(
+            Scenario::new(
                 ExecutionProfile::Protected(SegmentProfile::Flat32),
                 &code,
                 &image,
+            )
+            .resolve(
                 &resolutions,
                 Step {
                     cpu,
                     ram: &[],
                     exit,
                 },
-            );
+            )
+            .check();
         }
     }
 }
@@ -287,10 +296,6 @@ fn faults_publish_earlier_register_flag_memory_and_retirement_progress() {
         image.cpu.registers.eax = 1;
         image.cpu.registers.ebx = 0x9000;
         image.data(0x8004, &[0x27, 0]);
-        let mut input = image.input();
-        input
-            .segment_resolutions
-            .push(SegmentResolution::new(&tables(1), Segment::Cs, 0x27));
         let mut cpu = image.cpu;
         cpu.registers.eax = 2;
         cpu.flags.status_source.kind = 10;
@@ -311,27 +316,22 @@ fn faults_publish_earlier_register_flag_memory_and_retirement_progress() {
             ram,
             exit: Exit::Dispatch(cpu.eip),
         };
-        let fault = || Step {
+        let fault = Step {
             cpu,
-            ram,
+            ram: &[],
             exit: Exit::GeneralProtection { error: 0 },
         };
-        let event = Event::ResolveSegment {
-            segment: 1,
-            selector: 0x27,
-        };
-        let mut wanted = expected(&image, &[first, second, fault()]);
-        wanted.events.insert(4, event.clone());
-        assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
-        let mut blocks = BlockModules::default();
-        let module = blocks.get(
-            &image.cpu,
-            &code,
-            3,
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
-        );
-        let mut wanted = expected(&image, &[fault()]);
-        wanted.events.insert(0, event);
-        assert_eq!(module.observe(&input, 1), wanted);
+            &code,
+            &image,
+        )
+        .step(first)
+        .step(second)
+        .resolve(
+            &[SegmentResolution::new(&tables(1), Segment::Cs, 0x27)],
+            fault,
+        )
+        .check();
     }
 }

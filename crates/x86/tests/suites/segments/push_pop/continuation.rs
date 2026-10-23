@@ -46,32 +46,35 @@ fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() 
         };
         cpu.eip = 0x1001;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Ss, 0x27)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
         image.cpu = cpu;
         cpu.registers.esp = if old_big { 0x1fffc } else { 0xabcc_fffc };
         cpu.eip = 0x1002;
         cpu.instruction_count = 1;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code[1..],
             &image,
-            &[],
-            Step {
-                cpu,
-                ram: &[(0xcffc, &[0x78, 0x56, 0x34, 0x12])],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        )
+        .step(Step {
+            cpu,
+            ram: &[(0xcffc, &[0x78, 0x56, 0x34, 0x12])],
+            exit: Exit::Dispatch(cpu.eip),
+        })
+        .check();
     }
 }
 
@@ -86,10 +89,6 @@ fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
         image.data(0x8000, &[0x27, 0]);
         let mut tables = DescriptorTables::default();
         tables.insert(0x27, descriptor(0x9000, SegmentDefaultSize::Bits16));
-        let mut input = image.input();
-        input
-            .segment_resolutions
-            .push(SegmentResolution::new(&tables, segment, 0x27));
         let mut cpu = image.cpu;
         cpu.registers.esp = 0x4004;
         cpu.segments[segment] = SegmentRegister {
@@ -101,33 +100,26 @@ fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
         };
         cpu.eip += opcode.len() as u32;
         cpu.instruction_count = 0;
-        let mut wanted = expected(
+        let mut blocks = BlockModules::default();
+        Scenario::new(
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            &code,
             &image,
-            &[Step {
+        )
+        .resolve(
+            &[SegmentResolution::new(&tables, segment, 0x27)],
+            Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
-            }],
-        );
-        wanted.events.insert(
-            0,
-            Event::ResolveSegment {
-                segment: segment as i32,
-                selector: 0x27,
             },
-        );
-        let mut blocks = BlockModules::default();
-        for module in [
-            blocks.get(
-                &image.cpu,
-                &code,
-                2,
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
-            ),
-            TestModule::interpreter(),
-        ] {
-            assert_eq!(module.observe(&input, 1), wanted);
-        }
+        )
+        .check_with_block(blocks.get(
+            &image.cpu,
+            &code,
+            2,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+        ));
     }
 }
 
@@ -140,12 +132,6 @@ fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
     image.cpu.registers.esp = 0x4104;
     image.map(4, 0x8000, true);
     image.data(0x8100, &[0xa5; 4]);
-    let mut input = image.input();
-    input.segment_resolutions.push(SegmentResolution::new(
-        &DescriptorTables::default(),
-        Segment::Es,
-        3,
-    ));
     let mut cpu = image.cpu;
     cpu.registers.esp = 0x4100;
     cpu.eip = 0x1001;
@@ -161,26 +147,24 @@ fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
     cpu.eip = 0x1002;
     cpu.instruction_count = 1;
     assert!(!ExecutionProfile::Protected(SegmentProfile::Flat32).is_compatible_with(&cpu.segments));
-    let last = || Step {
+    let last = Step {
         cpu,
-        ram,
+        ram: &[],
         exit: Exit::Dispatch(cpu.eip),
     };
-    let event = Event::ResolveSegment {
-        segment: 0,
-        selector: 3,
-    };
-    let mut wanted = expected(&image, &[first, last()]);
-    wanted.events.insert(2, event.clone());
-    assert_eq!(TestModule::interpreter().observe(&input, 2), wanted);
-    let mut blocks = BlockModules::default();
-    let block = blocks.get(
-        &image.cpu,
-        &code,
-        2,
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
-    let mut wanted = expected(&image, &[last()]);
-    wanted.events.insert(0, event);
-    assert_eq!(block.observe(&input, 1), wanted);
+        &code,
+        &image,
+    )
+    .step(first)
+    .resolve(
+        &[SegmentResolution::new(
+            &DescriptorTables::default(),
+            Segment::Es,
+            3,
+        )],
+        last,
+    )
+    .check();
 }

@@ -31,17 +31,20 @@ fn indirect_calls_read_entry_esp_and_source_bytes_before_pushing_through_ss() {
             cpu.registers.esp = 0x9000;
             cpu.instruction_count = 0;
             let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
-            check_one(
+            Scenario::new(
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
+            )
+            .resolve(
                 &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
                 Step {
                     cpu,
                     ram: &[(0x8000, &saved)],
                     exit: Exit::Dispatch(cpu.eip),
                 },
-            );
+            )
+            .check();
         }
     }
 }
@@ -90,17 +93,17 @@ fn the_whole_indirect_pointer_faults_before_resolution_or_return_frame_access() 
             if mapped {
                 image.map(4, 0x8000, false);
             }
-            check_one(
+            Scenario::new(
                 ExecutionProfile::Protected(SegmentProfile::Segmented32),
                 &code,
                 &image,
-                &[],
-                Step {
-                    cpu: image.cpu,
-                    ram: &[],
-                    exit,
-                },
-            );
+            )
+            .step(Step {
+                cpu: image.cpu,
+                ram: &[],
+                exit,
+            })
+            .check();
         }
     }
 }
@@ -117,15 +120,18 @@ fn return_ignores_address_and_segment_overrides_for_its_stack() {
     cpu.eip = 0x200;
     cpu.registers.esp = 0x9008;
     cpu.instruction_count = 0;
-    check_one(
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
+    )
+    .resolve(
         &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
         Step {
             cpu,
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
         },
-    );
+    )
+    .check();
 }

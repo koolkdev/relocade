@@ -28,34 +28,40 @@ fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
         cpu.instruction_count = 0;
         let saved = pointer(word, 0x1000 + call.len() as u32, 0x1b);
         let saved_address = if word { 0x8004 } else { 0x8000 };
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &call,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&table, Segment::Cs, 0x27)],
             Step {
                 cpu,
                 ram: &[(saved_address, &saved)],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
         image.cpu = cpu;
         image.data(saved_address, &saved);
         cpu.segments.cs = loaded(0x1b, 0, u32::MAX, SegmentRegister::flat_code32(0));
         cpu.eip = 0x1000 + call.len() as u32;
         cpu.registers.esp = 0x9008;
         cpu.instruction_count = 1;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented16),
             &return_code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&table, Segment::Cs, 0x1b)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -72,19 +78,19 @@ fn return_operand_size_selects_the_frame_layout_independently_of_the_caller() {
             &[6, 0x10, 0x1b, 0, 0xa5, 0xa5, 0xa5, 0xa5][..]
         };
         image.data(0x8000, saved);
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
-            &[],
-            Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::GeneralProtection {
-                    error: if word { 0 } else { 0xa5a4 },
-                },
+        )
+        .step(Step {
+            cpu: image.cpu,
+            ram: &[],
+            exit: Exit::GeneralProtection {
+                error: if word { 0 } else { 0xa5a4 },
             },
-        );
+        })
+        .check();
     }
 }
 
@@ -108,17 +114,20 @@ fn call_saves_the_complete_fallthrough_at_operand_width() {
         } else {
             &[(0x8000, &[3, 0, 0x35, 0x12, 0x1b, 0])]
         };
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
             Step {
                 cpu,
                 ram,
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -134,10 +143,6 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
         let mut image = image_with_stack(&code, if returning { 0x9000 } else { 0x9008 });
         image.cpu.segments.cs.limit = 0x1000 + instruction.len() as u32 - 1;
         image.data(0x8000, &pointer(false, 0x200, 0x27));
-        let mut input = image.input();
-        input
-            .segment_resolutions
-            .push(SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27));
         let mut cpu = image.cpu;
         cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x200;
@@ -149,35 +154,26 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
         } else {
             vec![(0x8000, saved.as_slice())]
         };
-        let mut wanted = expected(
+        let mut blocks = BlockModules::default();
+        Scenario::new(
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            &code,
             &image,
-            &[Step {
+        )
+        .resolve(
+            &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
+            Step {
                 cpu,
                 ram: &ram,
                 exit: Exit::Dispatch(cpu.eip),
-            }],
-        );
-        wanted.events.insert(
-            0,
-            Event::ResolveSegment {
-                segment: 1,
-                selector: 0x27,
             },
-        );
-        let mut blocks = BlockModules::default();
-        for module in [
-            blocks.get(
-                &image.cpu,
-                &code,
-                2,
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            ),
-            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-                SegmentProfile::Segmented32,
-            )),
-        ] {
-            assert_eq!(module.observe(&input, 1), wanted);
-        }
+        )
+        .check_with_block(blocks.get(
+            &image.cpu,
+            &code,
+            2,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+        ));
         // The transfer has retired even though no page backs its destination.
         image.cpu = cpu;
         if !returning {

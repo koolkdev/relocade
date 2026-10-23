@@ -28,17 +28,20 @@ fn both_immediate_fields_cross_code_pages_and_ignore_the_address_size_prefix() {
         cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x5678;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -108,17 +111,20 @@ fn a_fifteen_byte_jump_completes_without_fetching_a_sixteenth_byte() {
                 cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
                 cpu.eip = 0x5678;
                 cpu.instruction_count = 0;
-                check_one(
+                Scenario::new(
                     ExecutionProfile::Protected(SegmentProfile::Flat32),
                     &code,
                     &image,
+                )
+                .resolve(
                     &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
                     Step {
                         cpu,
                         ram: &[],
                         exit: Exit::Dispatch(cpu.eip),
                     },
-                );
+                )
+                .check();
             }
         }
     }

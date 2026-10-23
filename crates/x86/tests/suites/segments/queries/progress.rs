@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::dispatch;
 use crate::SegmentProfile;
 
 #[test]
@@ -24,17 +25,16 @@ fn successful_and_failed_queries_change_only_zf_among_pending_arithmetic_flags()
             cpu.flags.bytes.af = 1;
             cpu.flags.bytes.sf = 1;
             cpu.flags.bytes.of = 1;
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[SegmentQuery::new(&tables, selector)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .query(
+                    &[SegmentQuery::new(&tables, selector)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                )
+                .check();
         }
     }
 }
@@ -64,10 +64,6 @@ fn descriptor_queries_continue_in_one_block_and_a_later_fault_keeps_their_result
             ..descriptor(0, SegmentDefaultSize::Bits16)
         },
     );
-    let mut input = image.input();
-    input.segment_queries = [0x27, 0x27, 0x33]
-        .map(|selector| SegmentQuery::new(&tables, selector))
-        .to_vec();
     let mut states = [image.cpu; 5];
     let mut cpu = image.cpu;
     for (index, state) in states.iter_mut().enumerate() {
@@ -85,40 +81,21 @@ fn descriptor_queries_continue_in_one_block_and_a_later_fault_keeps_their_result
         cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
         *state = cpu;
     }
-    let mut steps: Vec<_> = states
-        .iter()
-        .map(|&cpu| Step {
+    Scenario::new(profile, &code, &image)
+        .query(&[SegmentQuery::new(&tables, 0x27)], dispatch(states[0]))
+        .step(dispatch(states[1]))
+        .query(&[SegmentQuery::new(&tables, 0x27)], dispatch(states[2]))
+        .step(dispatch(states[3]))
+        .query(&[SegmentQuery::new(&tables, 0x33)], dispatch(states[4]))
+        .step(Step {
             cpu,
             ram: &[],
-            exit: Exit::Dispatch(cpu.eip),
+            exit: Exit::PageFault {
+                address: 0x4000,
+                error: 0,
+            },
         })
-        .collect();
-    let fault = || Step {
-        cpu,
-        ram: &[],
-        exit: Exit::PageFault {
-            address: 0x4000,
-            error: 0,
-        },
-    };
-    steps.push(fault());
-    let mut wanted = expected(&image, &steps);
-    for (index, selector) in [(0, 0x27), (5, 0x27), (10, 0x33)] {
-        wanted
-            .events
-            .insert(index, Event::QuerySegmentDescriptor { selector });
-    }
-    assert_eq!(TestModule::interpreter().observe(&input, 6), wanted);
-
-    let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 6, profile);
-    let mut wanted = expected(&image, &[fault()]);
-    for (index, selector) in [0x27, 0x27, 0x33].into_iter().enumerate() {
-        wanted
-            .events
-            .insert(index, Event::QuerySegmentDescriptor { selector });
-    }
-    assert_eq!(block.observe(&input, 1), wanted);
+        .check();
 }
 
 #[test]
@@ -154,26 +131,13 @@ fn current_table_rights_and_limits_are_observed_without_changing_loaded_caches()
             } else {
                 tables.remove(0x27);
             }
-            let mut input = image.input();
-            input.segment_queries.push(SegmentQuery::new(&tables, 0x27));
             let mut cpu = completed(&image, code.len(), replacement.is_some());
             if replacement.is_some() {
                 cpu.registers.ecx = if opcode == 2 { rights } else { limit };
             }
-            let mut wanted = expected(
-                &image,
-                &[Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                }],
-            );
-            wanted
-                .events
-                .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
-            for module in [block, TestModule::interpreter()] {
-                assert_eq!(module.observe(&input, 1), wanted);
-            }
+            Scenario::new(profile, &code, &image)
+                .query(&[SegmentQuery::new(&tables, 0x27)], dispatch(cpu))
+                .check_with_block(block);
         }
     }
 }

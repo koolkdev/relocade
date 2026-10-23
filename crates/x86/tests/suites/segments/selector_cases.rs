@@ -1,45 +1,10 @@
 //! Shared admission and observations for instructions that transfer selectors.
 
-use crate::support::{
-    blocks::BlockModules,
-    machine::{expected, Image, Step},
-    step::{Event, SegmentResolution, TestModule},
-};
+use crate::support::machine::Image;
 use relocade_x86::{
     ExecutionProfile, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentLimit,
     SegmentProfile, SegmentRegister,
 };
-
-pub(super) fn check_one(
-    profile: ExecutionProfile,
-    code: &[u8],
-    image: &Image,
-    resolutions: &[SegmentResolution],
-    step: Step<'_>,
-) {
-    let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, code, 1, profile);
-    let mut input = image.input();
-    input.segment_resolutions = resolutions.to_vec();
-    let mut wanted = expected(image, &[step]);
-    for (index, reply) in resolutions.iter().enumerate() {
-        wanted.events.insert(
-            index,
-            Event::ResolveSegment {
-                segment: reply.segment as i32,
-                selector: i32::from(reply.selector),
-            },
-        );
-    }
-    for module in [block, TestModule::interpreter_with_profile(profile)] {
-        assert_eq!(
-            module.observe(&input, 1),
-            wanted,
-            "{} {profile:?} {code:02x?}",
-            module.entry,
-        );
-    }
-}
 
 pub(super) fn descriptor(base: u32, size: SegmentDefaultSize) -> SegmentDescriptor {
     SegmentDescriptor::new(

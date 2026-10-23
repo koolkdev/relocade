@@ -1,11 +1,7 @@
 //! Shared observations for instructions that query a selector without loading it.
 
 use super::selector_cases::code_defaults;
-use crate::support::{
-    blocks::BlockModules,
-    machine::{expected, Image, Step},
-    step::{Event, SegmentQuery, TestModule},
-};
+use crate::support::machine::Image;
 use crate::{CpuState, ExecutionProfile};
 
 pub(super) fn image(code: &[u8], profile: ExecutionProfile) -> Image {
@@ -27,34 +23,4 @@ pub(super) fn completed(image: &Image, len: usize, zf: bool) -> CpuState {
     cpu.eip += len as u32;
     cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
     cpu
-}
-
-pub(super) fn check_one(
-    profile: ExecutionProfile,
-    code: &[u8],
-    image: &Image,
-    queries: &[SegmentQuery],
-    step: Step<'_>,
-) {
-    let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, code, 1, profile);
-    let mut input = image.input();
-    input.segment_queries = queries.to_vec();
-    let mut wanted = expected(image, &[step]);
-    for (index, query) in queries.iter().enumerate() {
-        wanted.events.insert(
-            index,
-            Event::QuerySegmentDescriptor {
-                selector: i32::from(query.selector),
-            },
-        );
-    }
-    for module in [block, TestModule::interpreter_with_profile(profile)] {
-        assert_eq!(
-            module.observe(&input, 1),
-            wanted,
-            "{} {profile:?} {code:02x?}",
-            module.entry
-        );
-    }
 }
