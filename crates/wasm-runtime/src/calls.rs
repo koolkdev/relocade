@@ -31,6 +31,28 @@ pub struct Function<B: ExportFunction<S>, S: CallSignature> {
 }
 
 impl<B: ExportFunction<S>, S: CallSignature> Function<B, S> {
+    /// Enters Wasm through an existing execution owner. The mutable reborrow
+    /// excludes host access for the duration of the call. Callbacks belonging
+    /// to this backend reborrow the execution owner while the guest is suspended.
+    ///
+    /// Host state cannot stay borrowed while entering Wasm:
+    /// ```compile_fail
+    /// use relocade_wasm_runtime::{Backend, Function, WasmBackend, WasmContext};
+    /// fn wrong(backend: &mut Backend<u32>, function: &Function<Backend<u32>, fn()>) {
+    ///     let mut execution = backend.execution();
+    ///     let state = execution.state_mut();
+    ///     function.call(&mut execution, ());
+    ///     *state = 1;
+    /// }
+    /// ```
+    pub fn call(
+        &self,
+        execution: &mut B::Execution<'_>,
+        arguments: Value<S::Parameters>,
+    ) -> Value<S::Return> {
+        B::invoke_function(execution, &self.handle, arguments)
+    }
+
     pub(crate) fn new(handle: B::Handle) -> Self {
         Self {
             handle,
@@ -52,7 +74,7 @@ pub trait ExportFunction<S: CallSignature>: WasmBackend {
     ) -> Result<Self::Handle>;
 
     fn invoke_function(
-        &mut self,
+        execution: &mut Self::Execution<'_>,
         function: &Self::Handle,
         arguments: Value<S::Parameters>,
     ) -> Value<S::Return>;

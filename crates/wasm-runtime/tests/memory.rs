@@ -66,11 +66,17 @@ async fn check_shared_memory() {
     assert!(backend.ensure_memory_size(&memory, 4 * 65536).is_err());
     // A pending host service can hold this context while another owner reads.
     {
-        let mut context = backend.context();
+        let mut context = backend.execution();
         context.write_memory(&memory, 65534, &[1, 2, 3, 4]);
         let mut bytes = [0; 4];
         reader.read(65534, &mut bytes);
         assert_eq!(bytes, [1, 2, 3, 4]);
+        for _ in 0..2 {
+            context.write_memory(&memory, 0, &[0; 8]);
+            assert_eq!(run.call(&mut context, ()), 0x00efcdab12345678);
+            context.read_memory(&memory, 4, &mut bytes);
+            assert_eq!(bytes, [0xab, 0xcd, 0xef, 0]);
+        }
     }
     drop(backend);
     // The reader owns the allocation, including its newly grown portion.

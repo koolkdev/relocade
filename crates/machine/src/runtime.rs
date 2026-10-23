@@ -89,6 +89,8 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     ///
     /// The caller must maintain the module's execution assumptions and invalidate
     /// or replace captured code when guest bytes or mappings change.
+    /// Module start functions must not enter guest dispatch or host hooks;
+    /// execution belongs to `run` and `run_async`.
     pub async fn install_module(
         &mut self,
         bytes: &[u8],

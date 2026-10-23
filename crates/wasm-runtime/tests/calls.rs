@@ -104,10 +104,12 @@ async fn check_rust_calls() {
     assert!(backend
         .function(&instance, Function::<fn() -> i64>::new("rust", "missing"))
         .is_err());
-    for _ in 0..2 {
-        assert_eq!(backend.call(&single, ()), (0x20_0000_0000_0001,));
-        backend.call(&consume, (u32::MAX,));
-        assert_eq!(*backend.state(), u32::MAX);
+    let mut execution = backend.execution();
+    for value in [17, u32::MAX] {
+        *execution.state_mut() = 0;
+        assert_eq!(single.call(&mut execution, ()), (0x20_0000_0000_0001,));
+        consume.call(&mut execution, (value,));
+        assert_eq!(*execution.state(), value);
     }
 }
 

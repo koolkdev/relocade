@@ -36,9 +36,9 @@ mod native;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{Backend, Compiler, Context, Memory, Module, SharedMemory};
+pub use native::{Backend, Compiler, Context, Execution, Memory, Module, SharedMemory};
 #[cfg(target_arch = "wasm32")]
-pub use web::{Backend, Compiler, Context, Memory, Module, SharedMemory};
+pub use web::{Backend, Compiler, Context, Execution, Memory, Module, SharedMemory};
 
 mod calls;
 mod host;
@@ -97,14 +97,26 @@ pub trait WasmSharedMemory: Clone + 'static {
     fn byte_len(&self) -> u64;
 }
 
-/// Scoped access to host state and live Wasm memory, during a callback or while
-/// execution is stopped. A stopped view may be held across an await; drop it
-/// before entering Wasm again. Callback views cannot outlive their callback.
+/// Access to host state and live Wasm memory. Callback views cannot outlive
+/// their callback. An execution owner can retain access between calls and
+/// across awaits; its borrows must end before it enters Wasm again.
 pub trait WasmContext: WasmMemoryAccess {
     type State;
 
     fn state(&self) -> &Self::State;
     fn state_mut(&mut self) -> &mut Self::State;
+}
+
+impl<C: WasmContext + ?Sized> WasmContext for &mut C {
+    type State = C::State;
+
+    fn state(&self) -> &Self::State {
+        (**self).state()
+    }
+
+    fn state_mut(&mut self) -> &mut Self::State {
+        (**self).state_mut()
+    }
 }
 
 /// One Wasm resource owner. Preparation futures, environment state and handles
@@ -117,6 +129,10 @@ pub trait WasmContext: WasmMemoryAccess {
 pub trait WasmBackend: WasmMemoryAccess + Sized {
     type State: 'static;
     type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
+    where
+        Self: 'a;
+    /// Owns exclusive access across calls and lends it to synchronous callbacks.
+    type Execution<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
     where
         Self: 'a;
     /// Cloning a module shares compiled code without creating a guest instance.
@@ -134,9 +150,10 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     fn state(&self) -> impl Deref<Target = Self::State>;
     fn state_mut(&mut self) -> impl DerefMut<Target = Self::State>;
 
-    /// Borrows the stopped backend's state and memory. The view may be held
-    /// across an await, but must be dropped before calling into Wasm again.
-    fn context(&mut self) -> Self::Context<'_>;
+    /// Borrows the backend for execution and host access between calls. Use
+    /// [`Function::call`] to enter Wasm through this owner. It may be held
+    /// across an await while the guest is stopped.
+    fn execution(&mut self) -> Self::Execution<'_>;
 
     /// Returns an independent compiler whose modules this backend can instantiate.
     fn compiler(&self) -> Self::Compiler;
@@ -330,6 +347,6 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     where
         Self: ExportFunction<S>,
     {
-        self.invoke_function(&function.handle, arguments)
+        function.call(&mut self.execution(), arguments)
     }
 }

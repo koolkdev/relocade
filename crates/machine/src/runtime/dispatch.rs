@@ -60,9 +60,13 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
         })
     }
 
-    pub(crate) fn run(&mut self, access: &mut CpuAccess<B>, target: u64) -> ExecutionExit {
+    pub(crate) fn run(
+        &self,
+        access: &mut CpuAccess<B::Execution<'_>, &RuntimeMemory<B::Memory>>,
+        target: u64,
+    ) -> ExecutionExit {
         access.set_instruction_target(target);
-        access.backend.call(&self.dispatch, ())
+        self.dispatch.call(&mut access.backend, ())
     }
 
     pub(crate) async fn install(

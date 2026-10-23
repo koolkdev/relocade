@@ -21,11 +21,11 @@ where
     }
 
     fn invoke_function(
-        &mut self,
+        execution: &mut Self::Execution<'_>,
         function: &Self::Handle,
         arguments: Value<S::Parameters>,
     ) -> Value<S::Return> {
-        function.call(arguments)
+        execution.call(|| function.call(arguments))
     }
 
     fn function_import(&self, function: &Self::Handle) -> JsFunction {

@@ -1,4 +1,9 @@
-use super::{Cpu, CpuAccess, Error, HookResult, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::{
+    dispatch::Dispatch, Cpu, CpuAccess, Error, HookResult, HostCall, Result, RuntimeBackend,
+    RuntimeMemory, RuntimeState,
+};
+use crate::CpuView;
+use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
@@ -15,8 +20,9 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
         }
-        let target = self.instruction_target(instruction_budget);
-        self.enter(target)
+        let mut execution = self.execution();
+        let target = execution.instruction_target(instruction_budget);
+        execution.enter(target)
     }
 
     /// Runs with the same instruction budget as `run`, waiting for deferred host
@@ -36,11 +42,12 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
         }
-        let target = self.instruction_target(instruction_budget);
-        let mut exit = self.enter(target)?;
+        let mut execution = self.execution();
+        let target = execution.instruction_target(instruction_budget);
+        let mut exit = execution.enter(target)?;
         while exit == ExecutionExit::Deferred {
-            exit = match self.run_deferred().await {
-                HookResult::Continue => self.enter(target)?,
+            exit = match execution.run_deferred().await {
+                HookResult::Continue => execution.enter(target)?,
                 HookResult::Exit(exit) => exit,
             };
         }
@@ -56,15 +63,45 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         drop(pending);
     }
 
+    fn execution(&mut self) -> Execution<'_, T, B> {
+        let mut backend = self.access.backend.execution();
+        assert!(!backend.state().running, "CPU run already active");
+        backend.state_mut().running = true;
+        Execution {
+            access: CpuAccess {
+                backend,
+                bindings: &self.access.bindings,
+            },
+            dispatch: &self.dispatch,
+            host_call_incomplete: &mut self.host_call_incomplete,
+        }
+    }
+}
+
+/// Retains the CPU's backend and bindings through guest calls and deferred
+/// host work. Each synchronous call lends access to its callbacks; between
+/// calls the same owner lends the stopped CPU to the deferred handler.
+struct Execution<'a, T: 'static, B: RuntimeBackend<State = RuntimeState<T>> + 'a> {
+    access: CpuAccess<B::Execution<'a>, &'a RuntimeMemory<B::Memory>>,
+    dispatch: &'a Dispatch<B>,
+    host_call_incomplete: &'a mut bool,
+}
+
+impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Drop for Execution<'_, T, B> {
+    fn drop(&mut self) {
+        self.access.backend.state_mut().running = false;
+    }
+}
+
+impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Execution<'_, T, B> {
     fn instruction_target(&mut self, instruction_budget: u64) -> u64 {
-        self.context()
-            .cpu()
+        CpuView::new(&self.access.bindings.config, &mut self.access)
             .instruction_count()
             .saturating_add(instruction_budget)
     }
 
     fn enter(&mut self, target: u64) -> Result<ExecutionExit> {
-        if self.host_call_incomplete {
+        if *self.host_call_incomplete {
             return Err(Error::CancelledHostCall);
         }
         // A previous synchronous run may already have stopped at a deferred call.
@@ -75,7 +112,6 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     }
 
     async fn run_deferred(&mut self) -> HookResult {
-        // Release the backend's state guard before borrowing it for the handler.
         let handler = self
             .access
             .backend
@@ -84,16 +120,11 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             .take()
             .expect("deferred exit must have a handler");
         // Cancellation leaves this set so a later run cannot replay the hook.
-        self.host_call_incomplete = true;
-        let bindings = self.access.bindings.clone();
-        let mut context = self.access.backend.context();
-        let mut access = CpuAccess {
-            backend: &mut context,
-            bindings,
-        };
-        let mut call = HostCall::new(&self.config, &self.machine_config, &mut access);
+        *self.host_call_incomplete = true;
+        let bindings = self.access.bindings;
+        let mut call = HostCall::new(&bindings.config, &bindings.machine_config, &mut self.access);
         let result = handler.run(&mut call).await;
-        self.host_call_incomplete = false;
+        *self.host_call_incomplete = false;
         result
     }
 }

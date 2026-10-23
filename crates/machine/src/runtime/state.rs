@@ -9,6 +9,9 @@ pub struct RuntimeState<T = ()> {
     /// Environment data lent by `Cpu::state` and `HostCall::state`.
     pub data: T,
     pub(crate) pending: Option<Box<dyn DeferredCall<T>>>,
+    // Only the CPU's execution owner sets this. Module start functions can
+    // reach imports while linking, but must not enter machine host handlers.
+    pub(crate) running: bool,
 }
 
 impl<T> RuntimeState<T> {
@@ -16,6 +19,7 @@ impl<T> RuntimeState<T> {
         Self {
             data,
             pending: None,
+            running: false,
         }
     }
 }

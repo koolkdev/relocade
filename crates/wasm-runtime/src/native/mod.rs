@@ -11,6 +11,7 @@ mod host;
 mod memory;
 pub use compilation::Compiler;
 pub use host::Context;
+pub use host::Context as Execution;
 pub use memory::{Memory, SharedMemory};
 
 /// One store for guest instances and their imports. Runtime owns execution policy.
@@ -38,6 +39,7 @@ impl<T: 'static> Backend<T> {
 impl<T: 'static> WasmBackend for Backend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
+    type Execution<'a> = Execution<'a, T>;
     type Module = Module;
     type Compiler = Compiler;
     type Instance = Instance;
@@ -53,7 +55,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
         self.store.data_mut()
     }
 
-    fn context(&mut self) -> Context<'_, T> {
+    fn execution(&mut self) -> Execution<'_, T> {
         Context(self.store.as_context_mut())
     }
 

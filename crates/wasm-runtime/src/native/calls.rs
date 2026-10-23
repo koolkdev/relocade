@@ -22,12 +22,12 @@ where
     }
 
     fn invoke_function(
-        &mut self,
+        execution: &mut Self::Execution<'_>,
         function: &Self::Handle,
         arguments: Value<S::Parameters>,
     ) -> Value<S::Return> {
         let result = function
-            .call(&mut self.store, lower_flat::<S::Parameters>(arguments))
+            .call(&mut execution.0, lower_flat::<S::Parameters>(arguments))
             .expect("Wasm execution trapped");
         lift_flat::<S::Return>(result).expect("invalid Wasm ABI value")
     }

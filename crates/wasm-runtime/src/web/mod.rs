@@ -4,7 +4,7 @@ use crate::{
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::abi;
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Ref, RefMut},
     ops::{Deref, DerefMut},
     rc::Rc,
 };
@@ -12,14 +12,16 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 mod calls;
+mod execution;
 mod host;
 mod memory;
-pub use host::Context;
+use execution::Owner;
+pub use execution::{Context, Execution};
 pub use memory::SharedMemory;
 
 /// One guest's instances, callbacks and host state.
 pub struct Backend<T = ()> {
-    store: Rc<RefCell<Store<T>>>,
+    store: Rc<Owner<T>>,
     modules: Rc<ModuleCache<Module>>,
 }
 
@@ -74,7 +76,7 @@ impl<T: 'static> Backend<T> {
                 Rc::new(ModuleCache::default());
         }
         Ok(Self {
-            store: Rc::new(RefCell::new(Store {
+            store: Rc::new(Owner::new(Store {
                 state,
                 memories: Vec::new(),
             })),
@@ -86,6 +88,7 @@ impl<T: 'static> Backend<T> {
 impl<T: 'static> WasmBackend for Backend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
+    type Execution<'a> = Execution<'a, T>;
     type Module = Module;
     type Compiler = Compiler;
     type Instance = WebAssembly::Instance;
@@ -94,15 +97,15 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type SharedMemory = SharedMemory;
 
     fn state(&self) -> impl Deref<Target = T> {
-        Ref::map(self.store.borrow(), |store| &store.state)
+        Ref::map(self.store.data.borrow(), |store| &store.state)
     }
 
     fn state_mut(&mut self) -> impl DerefMut<Target = T> {
-        RefMut::map(self.store.borrow_mut(), |store| &mut store.state)
+        RefMut::map(self.store.data.borrow_mut(), |store| &mut store.state)
     }
 
-    fn context(&mut self) -> Context<'_, T> {
-        Context(self.store.borrow_mut())
+    fn execution(&mut self) -> Execution<'_, T> {
+        self.store.execution()
     }
 
     fn compiler(&self) -> Compiler {
@@ -122,18 +125,18 @@ impl<T: 'static> WasmBackend for Backend<T> {
         }
         let memory = WebAssembly::Memory::new(&descriptor)
             .map_err(|error| js_error("create Wasm memory", error))?;
-        let mut store = self.store.borrow_mut();
+        let mut store = self.store.data.borrow_mut();
         let handle = Memory(store.memories.len());
         store.memories.push(memory);
         Ok(handle)
     }
 
     fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
-        SharedMemory::from_memory(self.store.borrow().memory(memory).clone())
+        SharedMemory::from_memory(self.store.data.borrow().memory(memory).clone())
     }
 
     fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
-        let mut store = self.store.borrow_mut();
+        let mut store = self.store.data.borrow_mut();
         let handle = Memory(store.memories.len());
         store.memories.push(memory.memory().clone());
         handle
@@ -157,7 +160,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
     }
 
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()> {
-        let store = self.store.borrow();
+        let store = self.store.data.borrow();
         let memory = store.memory(memory);
         let pages = byte_len.div_ceil(65536);
         let current = memory::size(memory)?;
@@ -193,7 +196,9 @@ impl<T: 'static> WasmBackend for Backend<T> {
                 namespace.unchecked_into::<Object>()
             };
             let value: JsValue = match import.value() {
-                ImportValue::Memory(memory) => self.store.borrow().memory(memory).clone().into(),
+                ImportValue::Memory(memory) => {
+                    self.store.data.borrow().memory(memory).clone().into()
+                }
                 ImportValue::Table(table) => (*table).clone().into(),
                 ImportValue::Function(function) => function.clone().into(),
             };
@@ -221,11 +226,14 @@ impl<T> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        self.store.borrow().read_memory(memory, offset, bytes);
+        self.store.data.borrow().read_memory(memory, offset, bytes);
     }
 
     fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        self.store.borrow_mut().write_memory(memory, offset, bytes);
+        self.store
+            .data
+            .borrow_mut()
+            .write_memory(memory, offset, bytes);
     }
 }
 

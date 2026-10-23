@@ -39,6 +39,53 @@ fn runtime(code: &[u8]) -> Cpu<Backend<RuntimeState>> {
 }
 
 #[test]
+#[should_panic(expected = "host handler requires an active CPU run")]
+fn module_start_cannot_enter_machine_hooks() {
+    use relocade_machine::{Hook, HookResult};
+    use wasm_encoder::{
+        CodeSection, EntityType, FunctionSection, ImportSection, Instruction, Module, StartSection,
+        TypeSection, ValType,
+    };
+
+    let mut cpu = create(configuration());
+    pollster::block_on(cpu.install_hooks([Hook::new(0x100, |_| {
+        HookResult::Exit(ExecutionExit::HostReturn)
+    })]))
+    .unwrap();
+    // Leave a live dispatch destination and an unconsumed instruction target.
+    assert_eq!(cpu.run(100).unwrap(), ExecutionExit::HostReturn);
+
+    let dispatch = relocade_x86::abi::DISPATCH;
+    let results = dispatch.signature().results;
+    assert!(results.iter().all(|ty| *ty == relocade_compiler::Type::I32));
+    let mut types = TypeSection::new();
+    types
+        .ty()
+        .function([], std::iter::repeat_n(ValType::I32, results.len()));
+    types.ty().function([], []);
+    let mut imports = ImportSection::new();
+    imports.import(dispatch.module, dispatch.name, EntityType::Function(0));
+    let mut functions = FunctionSection::new();
+    functions.function(1);
+    let mut body = wasm_encoder::Function::new([]);
+    body.instruction(&Instruction::Call(0));
+    for _ in results {
+        body.instruction(&Instruction::Drop);
+    }
+    body.instruction(&Instruction::End);
+    let mut code = CodeSection::new();
+    code.function(&body);
+    let mut module = Module::new();
+    module
+        .section(&types)
+        .section(&imports)
+        .section(&functions)
+        .section(&StartSection { function_index: 1 })
+        .section(&code);
+    pollster::block_on(cpu.install_module(&module.finish(), &[])).unwrap();
+}
+
+#[test]
 fn budget_checks_resume_at_block_boundaries() {
     let mut runtime = runtime(&[0x40, 0x43, 0xeb, 0xfc]); // INC AX; INC BX; JMP 0100
     let initial = runtime.context().cpu().snapshot();

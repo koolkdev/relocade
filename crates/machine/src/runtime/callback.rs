@@ -2,13 +2,11 @@ use crate::{runtime::access::CpuAccess, HookResult, RuntimeMemory, RuntimeState}
 use crate::{CpuConfig, CpuStorage, CpuView, MachineConfig, MemoryView};
 use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
-use std::{future::Future, pin::Pin};
-
-#[cfg(test)]
-mod tests;
+use std::{borrow::Borrow, future::Future, pin::Pin};
 
 /// Access to CPU, guest memory and environment state for a host handler.
-/// This view borrows live CPU and memory; edits apply immediately.
+/// Only `Cpu::run` and `Cpu::run_async` lend this view to installed hooks and
+/// deferred handlers. It borrows live CPU and memory; edits apply immediately.
 pub struct HostCall<'a, T = ()> {
     cpu: &'a CpuConfig,
     config: &'a MachineConfig,
@@ -21,6 +19,10 @@ impl<'a, T> HostCall<'a, T> {
         config: &'a MachineConfig,
         access: &'a mut dyn HostAccess<T>,
     ) -> Self {
+        assert!(
+            access.state().running,
+            "host handler requires an active CPU run"
+        );
         Self {
             cpu,
             config,
@@ -98,35 +100,16 @@ pub(crate) trait HostAccess<T>: CpuStorage {
     fn state_mut(&mut self) -> &mut RuntimeState<T>;
 }
 
-impl<T, C: WasmContext<State = RuntimeState<T>>> HostAccess<T> for CpuAccess<&mut C> {
+impl<T, C, M> HostAccess<T> for CpuAccess<C, M>
+where
+    C: WasmContext<State = RuntimeState<T>>,
+    M: Borrow<RuntimeMemory<C::Memory>>,
+{
     fn state(&self) -> &RuntimeState<T> {
         self.backend.state()
     }
 
     fn state_mut(&mut self) -> &mut RuntimeState<T> {
         self.backend.state_mut()
-    }
-}
-
-impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
-    /// Lends the published CPU, guest memory and environment state
-    /// to a synchronous host handler. The caller must publish CPU state before
-    /// access and observe edits afterward. Ordinary port/MMIO imports do not
-    /// provide this boundary. Reentering this CPU from its callback is unsupported.
-    /// Earlier edits remain applied if the handler returns an error.
-    pub fn with_host_call<T, C: WasmContext<State = RuntimeState<T>, Memory = M>, R>(
-        &self,
-        context: &mut C,
-        handler: impl FnOnce(&mut HostCall<'_, T>) -> R,
-    ) -> R {
-        let mut access = CpuAccess {
-            backend: context,
-            bindings: self.clone(),
-        };
-        handler(&mut HostCall::new(
-            &self.config,
-            &self.machine_config,
-            &mut access,
-        ))
     }
 }

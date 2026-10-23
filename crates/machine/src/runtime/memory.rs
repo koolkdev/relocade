@@ -8,8 +8,8 @@ use relocade_x86::{abi, ExecutionContext};
 use std::sync::Arc;
 
 /// The runtime's initialized Wasm memories. This owner allocates backend memory
-/// from the machine configuration and supplies module bindings and scoped host
-/// access. Architectural access policy belongs to `relocade_machine`.
+/// from the machine configuration and supplies module bindings. The CPU's
+/// execution owner lends host access during runs.
 #[derive(Clone)]
 pub struct RuntimeMemory<M> {
     pub(crate) config: Arc<CpuConfig>,
