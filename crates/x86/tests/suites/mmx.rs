@@ -210,19 +210,29 @@ fn mmx_encoding_extents() {
 fn check_binary(checks: &mut ImageSequences, opcode: u8, left: u64, right: u64, result: u64) {
     for memory in [false, true] {
         let code = [0x0f, opcode, if memory { 0x30 } else { 0xf2 }]; // mm6, mm2/[eax]
-        let mut image = image(&code);
-        write_register_bits(&mut image.cpu, 6, (left, 0x1234));
-        write_register_bits(&mut image.cpu, 2, (right, 0x5678));
-        image.cpu.registers.eax = 0x4ff8;
-        image.map(4, 0x8000, false);
-        image.data(0x8ff8, &right.to_le_bytes());
-        let mut cpu = complete(image.cpu, 3);
-        write_register_bits(&mut cpu, 6, (result, 0xffff));
-        checks.check(
-            "MMX binary operation uses all lanes and preserves unrelated state",
-            &code,
-            &image,
-            &[dispatch(cpu)],
-        );
+        check_binary_form(checks, code, left, right, result);
     }
+}
+
+fn check_binary_form(
+    checks: &mut ImageSequences,
+    code: [u8; 3],
+    left: u64,
+    right: u64,
+    result: u64,
+) {
+    let mut image = image(&code);
+    write_register_bits(&mut image.cpu, 6, (left, 0x1234));
+    write_register_bits(&mut image.cpu, 2, (right, 0x5678));
+    image.cpu.registers.eax = 0x4ff8;
+    image.map(4, 0x8000, false);
+    image.data(0x8ff8, &right.to_le_bytes());
+    let mut cpu = complete(image.cpu, 3);
+    write_register_bits(&mut cpu, 6, (result, 0xffff));
+    checks.check(
+        "MMX binary operation uses all lanes and preserves unrelated state",
+        &code,
+        &image,
+        &[dispatch(cpu)],
+    );
 }
