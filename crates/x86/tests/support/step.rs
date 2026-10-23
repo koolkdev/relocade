@@ -142,10 +142,15 @@ pub(crate) struct TestModule {
 
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
+        Self::from_bytes(&module.bytes, &module.entry, module.execution_target)
+    }
+
+    /// Selects an execution export from a module with any number of entries.
+    pub(crate) fn from_bytes(bytes: &[u8], entry: &str, target: Option<ExecutionTarget>) -> Self {
         Self {
-            module: Arc::new(Module::new(&module.bytes)),
-            entry: module.entry.clone(),
-            target: module.execution_target,
+            module: Arc::new(Module::new(bytes)),
+            entry: entry.into(),
+            target,
             interpreter: None,
         }
     }
