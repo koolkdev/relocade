@@ -6,23 +6,14 @@ mod lowering;
 mod placement;
 
 use crate::fixture::Fixture;
-use relocade_compiler::{IntType, Program, Signature, Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{IntType, Program, Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[test]
 fn population_counts_use_logical_bits_and_native_carrier_operations() {
     fn population<T: IntType>(program: &mut Program, name: &str) {
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![T::TYPE],
-                    results: vec![T::TYPE],
-                },
-                |body| {
-                    let input = body.parameter::<T>(0)?;
-                    body.return_(input.add(1).popcnt())
-                },
-            )
+            .function::<fn(T) -> T>(|body, (input,)| body.return_(input.add(1).popcnt()))
             .unwrap();
         program.export(name, function).unwrap();
     }
@@ -34,17 +25,7 @@ fn population_counts_use_logical_bits_and_native_carrier_operations() {
     population::<I64>(&mut fixture.program, "bits64");
     let xor = fixture
         .program
-        .function(
-            Signature {
-                parameters: vec![Type::I32; 2],
-                results: vec![Type::I32],
-            },
-            |body| {
-                let left = body.parameter::<I32>(0)?;
-                let right = body.parameter::<I32>(1)?;
-                body.return_(left.xor(right))
-            },
-        )
+        .function::<fn(u32, u32) -> u32>(|body, (left, right)| body.return_(left.xor(right)))
         .unwrap();
     fixture.program.export("xor", xor).unwrap();
     let module = fixture.compile();

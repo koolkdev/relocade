@@ -45,14 +45,15 @@ impl BlockBuilder<'_> {
     /// depending on child reads, calls or joins keep their child scope.
     ///
     /// ```
-    /// use relocade_compiler::{Program, Signature, Type, I32, I8};
+    /// use relocade_compiler::{I32, Program};
     /// let mut program = Program::new();
-    /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I8], results: vec![Type::I32],
-    /// }, |mut body| {
-    ///     let selector = body.parameter::<I8>(0)?;
+    /// let function = program.function::<fn(u8) -> u32>(|mut body, (selector,)| {
     ///     let value = body.switch_value::<I32, _>(&selector, &[2, 5], |arm, key| {
-    ///         arm.yield_(match key { Some(2) => 20, Some(5) => 50, _ => 0 })
+    ///         arm.yield_(match key {
+    ///             Some(2) => 20,
+    ///             Some(5) => 50,
+    ///             _ => 0,
+    ///         })
     ///     })?;
     ///     body.return_(value)
     /// })?;

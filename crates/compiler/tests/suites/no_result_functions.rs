@@ -14,8 +14,7 @@ fn shared_writer() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let writer = fixture
         .program
-        .function(signature(&[Type::I32], &[]), |mut body| {
-            let value = body.parameter::<I32>(0)?;
+        .function::<fn(u32)>(|mut body, (value,)| {
             body.store(state, 0, value)?;
             body.return_(())
         })
@@ -32,7 +31,7 @@ fn imported_tail() -> TestModule {
     let receive = fixture.callback("receive", signature(&[Type::I8, Type::I8], &[]), &[]);
     let relay = fixture
         .program
-        .function(signature(&[Type::I8], &[]), |body| {
+        .function::<fn(u8)>(|body, _| {
             let value = body.parameter::<I8>(0)?.add(1);
             body.tail_call(receive, &[(&value).into(), value.into()])
         })
@@ -49,14 +48,14 @@ fn mutating_call() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let mutator = fixture
         .program
-        .function(signature(&[], &[]), |mut body| {
+        .function::<fn()>(|mut body, ()| {
             body.store::<I32>(state, 0, 9)?;
             body.return_(())
         })
         .unwrap();
     let wrapper = fixture
         .program
-        .function(signature(&[], &[]), |body| body.tail_call(mutator, &[]))
+        .function::<fn()>(|body, ()| body.tail_call(mutator, &[]))
         .unwrap();
     fixture.function(&[], &[Type::I32], |mut body| {
         let before = body.load::<I32>(state, 0)?;
@@ -89,9 +88,7 @@ fn conditional_calls() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     let writer = fixture
         .program
-        .function(signature(&[Type::I32, Type::I32], &[]), |mut body| {
-            let first = body.parameter::<I32>(0)?;
-            let second = body.parameter::<I32>(1)?;
+        .function::<fn(u32, u32)>(|mut body, (first, second)| {
             body.store(state, 0, first)?;
             body.store(state, 4, second)?;
             body.return_(())

@@ -1,7 +1,7 @@
 use crate::fixture::{signature, Fixture};
 use crate::wasm::{Call, MemoryBytes, TestModule, Value};
 use relocade_compiler::{
-    BuildError, Func, FunctionImport, Mem, Program, Type, Val, I1, I16, I32, I64, I8,
+    BuildError, FunctionImport, Mem, Program, Type, Val, I1, I16, I32, I64, I8,
 };
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 

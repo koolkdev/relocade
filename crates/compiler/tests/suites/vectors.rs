@@ -95,14 +95,9 @@ fn vector_calls_selections_and_loop_backedges() {
     let memory = fixture.memory("state", &bytes);
     let helper = fixture
         .program
-        .function(
-            signature(&[Type::V128, Type::V128], &[Type::V128; 2]),
-            |body| {
-                let first = body.parameter::<V128>(0)?;
-                let second = body.parameter::<V128>(1)?;
-                body.return_((second, first))
-            },
-        )
+        .function::<fn(V128, V128) -> (V128, V128)>(|body, (first, second)| {
+            body.return_((second, first))
+        })
         .unwrap();
     let module = fixture.function(&[Type::I32], &[], |mut body| {
         let count = body.parameter::<I32>(0)?;
@@ -179,20 +174,8 @@ fn mixed_literal_calls_preserve_narrow_values_float_bits_and_vector_bits() {
     let memory = fixture.memory("state", &bytes);
     let helper = fixture
         .program
-        .function(
-            signature(
-                &[Type::I8, Type::F64, Type::F64, Type::V128],
-                &[Type::V128, Type::F64, Type::F64, Type::I8],
-            ),
-            |body| {
-                let results = (
-                    body.parameter::<V128>(3)?,
-                    body.parameter::<F64>(1)?,
-                    body.parameter::<F64>(2)?,
-                    body.parameter::<I8>(0)?,
-                );
-                body.return_(results)
-            },
+        .function::<fn(u8, f64, f64, V128) -> (V128, f64, f64, u8)>(
+            |body, (byte, first, second, vector)| body.return_((vector, first, second, byte)),
         )
         .unwrap();
     let module = fixture.function(&[Type::I32], &[], |mut body| {
@@ -251,7 +234,7 @@ fn vector_literals_require_vector_signatures() {
         (Argument::from(1), Type::V128, Type::I32),
     ] {
         let result =
-            Program::new().function(signature(&[], &[expected]), |body| body.return_(argument));
+            Program::new().raw_function(signature(&[], &[expected]), |body| body.return_(argument));
         assert_eq!(
             result.err(),
             Some(BuildError::TypeMismatch { expected, actual })

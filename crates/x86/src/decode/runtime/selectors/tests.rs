@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 
-use relocade_compiler::{Program, Signature, Type};
+use relocade_compiler::Program;
 use relocade_test_support::{engine, Module};
 use wasmparser::Validator;
 
@@ -37,26 +37,20 @@ fn check_dispatch(state: &DecodeState, opcode: u8, forms: Vec<&'static Form>) {
     let calls = RefCell::new(vec![0; forms.len()]);
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: vec![Type::I32],
-            },
-            |body| {
-                let modrm = body.parameter::<I32>(0)?.truncate::<I8>();
-                dispatch_modrm_form(body, &modrm, &forms, state, &|arm, form| {
-                    let index = form.map(|form| {
-                        let index = forms
-                            .iter()
-                            .position(|candidate| std::ptr::eq(*candidate, form))
-                            .unwrap();
-                        calls.borrow_mut()[index] += 1;
-                        index as u32
-                    });
-                    arm.return_(index.unwrap_or(u32::MAX))
-                })
-            },
-        )
+        .function::<fn(u32) -> u32>(|body, _| {
+            let modrm = body.parameter::<I32>(0)?.truncate::<I8>();
+            dispatch_modrm_form(body, &modrm, &forms, state, &|arm, form| {
+                let index = form.map(|form| {
+                    let index = forms
+                        .iter()
+                        .position(|candidate| std::ptr::eq(*candidate, form))
+                        .unwrap();
+                    calls.borrow_mut()[index] += 1;
+                    index as u32
+                });
+                arm.return_(index.unwrap_or(u32::MAX))
+            })
+        })
         .unwrap();
     program.export("select", function).unwrap();
     let bytes = program.compile().unwrap();

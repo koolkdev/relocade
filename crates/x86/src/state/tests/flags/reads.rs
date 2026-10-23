@@ -8,7 +8,7 @@ use crate::flags::{Flag, FlagChange};
 use crate::state::{Cpu, State};
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState};
-use relocade_compiler::{Program, Signature, Type, I1, I8};
+use relocade_compiler::{Program, I1, I8};
 
 fn assert_reads(module: &TestModule, initial: &CpuState, arguments: &[i32], expected: &[i32]) {
     let input = Input {
@@ -36,57 +36,51 @@ fn mixed_history(local_base: bool) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I1; 2],
-                results: vec![Type::I1; 14],
-            },
-            |mut body| {
-                let mut state = State::new(&cpu);
-                if local_base {
-                    state.write_flags(&mut body, ArithmeticOp::Add.apply::<I8>(127, 1).flags)?;
-                }
-                state.write_flag(&mut body, Flag::ZF, true)?;
-                let partial = body.parameter::<I1>(0)?;
-                state.write_flags(
-                    &mut body,
-                    FlagChange::partial([
-                        (Flag::CF, false.into()),
-                        (Flag::DF, true.into()),
-                        (Flag::TF, false.into()),
-                        (Flag::ID, true.into()),
-                    ])
-                    .when(partial),
-                )?;
-                let replace = body.parameter::<I1>(1)?;
-                state.write_flags(
-                    &mut body,
-                    FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() })
-                        .preserving(Flag::AF)
-                        .when(replace),
-                )?;
-                let flags = state.read_flags(
-                    &mut body,
-                    [
-                        Flag::DF,
-                        Flag::OF,
-                        Flag::AF,
-                        Flag::CF,
-                        Flag::ZF,
-                        Flag::DF,
-                        Flag::PF,
-                        Flag::SF,
-                        Flag::CF,
-                        Flag::TF,
-                        Flag::NT,
-                        Flag::AC,
-                        Flag::ID,
-                        Flag::TF,
-                    ],
-                )?;
-                body.return_(flags.to_vec())
-            },
-        )
+        .function::<fn(bool, bool) -> [bool; 14]>(|mut body, _| {
+            let mut state = State::new(&cpu);
+            if local_base {
+                state.write_flags(&mut body, ArithmeticOp::Add.apply::<I8>(127, 1).flags)?;
+            }
+            state.write_flag(&mut body, Flag::ZF, true)?;
+            let partial = body.parameter::<I1>(0)?;
+            state.write_flags(
+                &mut body,
+                FlagChange::partial([
+                    (Flag::CF, false.into()),
+                    (Flag::DF, true.into()),
+                    (Flag::TF, false.into()),
+                    (Flag::ID, true.into()),
+                ])
+                .when(partial),
+            )?;
+            let replace = body.parameter::<I1>(1)?;
+            state.write_flags(
+                &mut body,
+                FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() })
+                    .preserving(Flag::AF)
+                    .when(replace),
+            )?;
+            let flags = state.read_flags(
+                &mut body,
+                [
+                    Flag::DF,
+                    Flag::OF,
+                    Flag::AF,
+                    Flag::CF,
+                    Flag::ZF,
+                    Flag::DF,
+                    Flag::PF,
+                    Flag::SF,
+                    Flag::CF,
+                    Flag::TF,
+                    Flag::NT,
+                    Flag::AC,
+                    Flag::ID,
+                    Flag::TF,
+                ],
+            )?;
+            body.return_(flags.to_vec())
+        })
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {
@@ -136,45 +130,38 @@ fn cached_reads_and_writes() -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I1; 26],
-            },
-            |mut body| {
-                let mut state = State::new(&cpu);
-                let old_id = state.read_flag(&mut body, Flag::ID)?;
-                let mut results = vec![state.read_flag(&mut body, Flag::CF)?, old_id.clone()];
-                results.extend(state.read_flags(
-                    &mut body,
-                    [Flag::ZF, Flag::CF, Flag::DF, Flag::PF, Flag::CF, Flag::AF],
-                )?);
-                results.push(state.read_flag(&mut body, Flag::AF)?);
-                results
-                    .extend(state.read_flags(&mut body, [Flag::PF, Flag::AF, Flag::CF, Flag::ZF])?);
-                state.write_flags(
-                    &mut body,
-                    FlagChange::partial([
-                        (Flag::CF, false.into()),
-                        (Flag::ZF, true.into()),
-                        (Flag::DF, false.into()),
-                        (Flag::ID, false.into()),
-                    ]),
-                )?;
-                results.extend(state.read_flags(
-                    &mut body,
-                    [Flag::CF, Flag::ZF, Flag::AF, Flag::DF, Flag::CF],
-                )?);
-                state.write_flags(&mut body, ArithmeticOp::Add.apply::<I8>(127, 1).flags)?;
-                results.extend(state.read_flags(
-                    &mut body,
-                    [Flag::OF, Flag::CF, Flag::ZF, Flag::PF, Flag::SF, Flag::DF],
-                )?);
-                results.push(state.read_flag(&mut body, Flag::ID)?);
-                results.push(old_id);
-                body.return_(results)
-            },
-        )
+        .function::<fn() -> [bool; 26]>(|mut body, ()| {
+            let mut state = State::new(&cpu);
+            let old_id = state.read_flag(&mut body, Flag::ID)?;
+            let mut results = vec![state.read_flag(&mut body, Flag::CF)?, old_id.clone()];
+            results.extend(state.read_flags(
+                &mut body,
+                [Flag::ZF, Flag::CF, Flag::DF, Flag::PF, Flag::CF, Flag::AF],
+            )?);
+            results.push(state.read_flag(&mut body, Flag::AF)?);
+            results.extend(state.read_flags(&mut body, [Flag::PF, Flag::AF, Flag::CF, Flag::ZF])?);
+            state.write_flags(
+                &mut body,
+                FlagChange::partial([
+                    (Flag::CF, false.into()),
+                    (Flag::ZF, true.into()),
+                    (Flag::DF, false.into()),
+                    (Flag::ID, false.into()),
+                ]),
+            )?;
+            results.extend(state.read_flags(
+                &mut body,
+                [Flag::CF, Flag::ZF, Flag::AF, Flag::DF, Flag::CF],
+            )?);
+            state.write_flags(&mut body, ArithmeticOp::Add.apply::<I8>(127, 1).flags)?;
+            results.extend(state.read_flags(
+                &mut body,
+                [Flag::OF, Flag::CF, Flag::ZF, Flag::PF, Flag::SF, Flag::DF],
+            )?);
+            results.push(state.read_flag(&mut body, Flag::ID)?);
+            results.push(old_id);
+            body.return_(results)
+        })
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {

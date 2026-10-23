@@ -110,8 +110,7 @@ fn vector_width_survives_calls_and_joins_with_dirty_carriers() {
     let memory = fixture.memory("state", &initial);
     let helper = fixture
         .program
-        .function(signature(&[Type::V64], &[Type::V64, Type::V128]), |body| {
-            let input = body.parameter::<V64>(0)?;
+        .function::<fn(V64) -> (V64, V128)>(|body, (input,)| {
             body.return_((input.eq_lanes::<I16>(&input), input.zero_extend()))
         })
         .unwrap();
@@ -198,7 +197,7 @@ fn vector_signatures_admit_native_literals_at_their_logical_width() {
         (Argument::from(0_u128), Type::V64, Type::V128),
     ] {
         let error = Program::new()
-            .function(signature(&[], &[expected]), |body| body.return_(argument))
+            .raw_function(signature(&[], &[expected]), |body| body.return_(argument))
             .err();
         assert_eq!(error, Some(BuildError::TypeMismatch { expected, actual }));
     }

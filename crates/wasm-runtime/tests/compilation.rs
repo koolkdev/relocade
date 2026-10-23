@@ -14,7 +14,7 @@ async fn check_independent_compiler() {
     let mut program = Program::new();
     let value = program.import_function(VALUE);
     let run = program
-        .function(RUN.signature(), |mut body| {
+        .function::<fn() -> I64>(|mut body, ()| {
             let value = body.call::<I64>(value, &[])?;
             body.return_(value)
         })

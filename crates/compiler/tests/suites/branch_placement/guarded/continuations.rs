@@ -7,7 +7,7 @@ fn snapshot_with_continuation(source: Source) -> TestModule {
     let state = fixture.memory("state", &INITIAL);
     let reader = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |mut body| {
+        .function::<fn() -> u32>(|mut body, ()| {
             let value = body.load::<I32>(state, 0)?;
             body.return_(value)
         })

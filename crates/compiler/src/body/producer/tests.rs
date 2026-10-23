@@ -13,20 +13,14 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
         },
     });
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: vec![Type::I32, Type::I64],
-            },
-            |mut body| {
-                let input = body.parameter::<I32>(0)?;
-                let results = body.call::<(I32, I64)>(callee, &[input.add(7).argument()])?;
-                body.atomic_fence();
-                body.return_(results)
-            },
-        )
+        .function::<fn(u32) -> (u32, u64)>(|mut body, (input,)| {
+            let results = body.call::<(I32, I64)>(callee, &[input.add(7).argument()])?;
+            body.atomic_fence();
+            body.return_(results)
+        })
         .unwrap();
-    let FunctionKind::Defined(Some(graph)) = &program.functions[function.0].kind else {
+    let FunctionKind::Defined(Some(graph)) = &program.functions[crate::Func::from(function).0].kind
+    else {
         panic!("the function has a completed graph");
     };
     let &[call, fence] = graph.blocks[graph.entry.0].items.as_slice() else {
@@ -68,21 +62,13 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
 fn wide_components_expose_one_producer_with_ordered_results() {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I64; 2],
-                results: vec![Type::I64; 2],
-            },
-            |body| {
-                let (low, high) = body
-                    .parameter::<I64>(0)?
-                    .unsigned()
-                    .mul_wide(body.parameter::<I64>(1)?);
-                body.return_((high, low))
-            },
-        )
+        .function::<fn(u64, u64) -> (u64, u64)>(|body, (a, b)| {
+            let (low, high) = a.unsigned().mul_wide(b);
+            body.return_((high, low))
+        })
         .unwrap();
-    let FunctionKind::Defined(Some(graph)) = &program.functions[function.0].kind else {
+    let FunctionKind::Defined(Some(graph)) = &program.functions[crate::Func::from(function).0].kind
+    else {
         panic!("the function has a completed graph")
     };
     let super::super::Exit::Return(results) = &graph.blocks[0].exit else {

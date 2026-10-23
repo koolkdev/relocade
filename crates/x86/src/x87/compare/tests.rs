@@ -1,42 +1,36 @@
 use super::*;
 use crate::floating::BinaryFormat;
 use crate::{test_step as step, CompiledModule};
-use relocade_compiler::{Program, Signature, Type, I32, I64};
+use relocade_compiler::{Program, I32, I64};
 
 #[test]
 fn loaded_binary64_values_compare_without_source_exceptions() {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I64],
-                results: vec![Type::I32, Type::I64],
-            },
-            |body| {
-                let source = BinaryFormat::Binary64.decode(&body.parameter::<I64>(0)?);
-                let value = source.loaded_value();
-                let minimum_normal = BinaryFormat::Binary64
-                    .decode(&0x0010_0000_0000_0000_u64.into())
-                    .loaded_value();
-                let compared =
-                    BinaryOperands::new(&value, &minimum_normal).compare(ComparisonKind::Unordered);
-                // Ordering predicates have no contract for unordered operands.
-                let ordered = compared.unordered.eq(false);
-                let comparison = [
-                    ordered.and(compared.less),
-                    ordered.and(compared.equal),
-                    compared.unordered,
-                    compared.invalid,
-                    compared.denormal,
-                ]
-                .into_iter()
-                .enumerate()
-                .fold(Val::<I32>::from(0), |bits, (index, flag)| {
-                    bits.or(flag.unsigned().extend::<I32>().shl(index as u32))
-                });
-                body.return_((comparison, value.binary64_value().unwrap().to_bits()))
-            },
-        )
+        .function::<fn(u64) -> (u32, u64)>(|body, _| {
+            let source = BinaryFormat::Binary64.decode(&body.parameter::<I64>(0)?);
+            let value = source.loaded_value();
+            let minimum_normal = BinaryFormat::Binary64
+                .decode(&0x0010_0000_0000_0000_u64.into())
+                .loaded_value();
+            let compared =
+                BinaryOperands::new(&value, &minimum_normal).compare(ComparisonKind::Unordered);
+            // Ordering predicates have no contract for unordered operands.
+            let ordered = compared.unordered.eq(false);
+            let comparison = [
+                ordered.and(compared.less),
+                ordered.and(compared.equal),
+                compared.unordered,
+                compared.invalid,
+                compared.denormal,
+            ]
+            .into_iter()
+            .enumerate()
+            .fold(Val::<I32>::from(0), |bits, (index, flag)| {
+                bits.or(flag.unsigned().extend::<I32>().shl(index as u32))
+            });
+            body.return_((comparison, value.binary64_value().unwrap().to_bits()))
+        })
         .unwrap();
     program.export("classify", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {
@@ -79,39 +73,33 @@ fn binary32_promotion_preserves_ordering_and_source_exceptions() {
     for memory in [false, true] {
         let mut program = Program::new();
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I64, Type::I32],
-                    results: vec![Type::I32],
-                },
-                |body| {
-                    let left = BinaryFormat::Binary64
-                        .decode(&body.parameter::<I64>(0)?)
-                        .loaded_value();
-                    let right = BinaryFormat::Binary32
-                        .decode(&body.parameter::<I32>(1)?.unsigned().extend::<I64>());
-                    let operands = if memory {
-                        BinaryOperands::from_binary(&left, &right)
-                    } else {
-                        BinaryOperands::new(&left, &right.loaded_value())
-                    };
-                    let compared = operands.compare(ComparisonKind::Unordered);
-                    let ordered = compared.unordered.eq(false);
-                    let bits = [
-                        ordered.and(compared.less),
-                        ordered.and(compared.equal),
-                        compared.unordered,
-                        compared.invalid,
-                        compared.denormal,
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    .fold(Val::<I32>::from(0), |bits, (index, flag)| {
-                        bits.or(flag.unsigned().extend::<I32>().shl(index as u32))
-                    });
-                    body.return_(bits)
-                },
-            )
+            .function::<fn(u64, u32) -> u32>(|body, _| {
+                let left = BinaryFormat::Binary64
+                    .decode(&body.parameter::<I64>(0)?)
+                    .loaded_value();
+                let right = BinaryFormat::Binary32
+                    .decode(&body.parameter::<I32>(1)?.unsigned().extend::<I64>());
+                let operands = if memory {
+                    BinaryOperands::from_binary(&left, &right)
+                } else {
+                    BinaryOperands::new(&left, &right.loaded_value())
+                };
+                let compared = operands.compare(ComparisonKind::Unordered);
+                let ordered = compared.unordered.eq(false);
+                let bits = [
+                    ordered.and(compared.less),
+                    ordered.and(compared.equal),
+                    compared.unordered,
+                    compared.invalid,
+                    compared.denormal,
+                ]
+                .into_iter()
+                .enumerate()
+                .fold(Val::<I32>::from(0), |bits, (index, flag)| {
+                    bits.or(flag.unsigned().extend::<I32>().shl(index as u32))
+                });
+                body.return_(bits)
+            })
             .unwrap();
         program.export("compare", function).unwrap();
         let module = step::TestModule::new(&CompiledModule {
@@ -163,28 +151,22 @@ fn proven_exact_inputs_emit_native_ordering() {
     for integer in [false, true] {
         let mut program = Program::new();
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I32; 2],
-                    results: vec![Type::I1; 2],
-                },
-                |body| {
-                    let left = BinaryFormat::Binary32
-                        .decode(&body.parameter::<I32>(0)?.unsigned().extend::<I64>())
-                        .loaded_value();
-                    let input = body.parameter::<I32>(1)?;
-                    let right = if integer {
-                        crate::x87::ExtendedValue::from_signed_integer(&input)
-                    } else {
-                        BinaryFormat::Binary32
-                            .decode(&input.unsigned().extend::<I64>())
-                            .loaded_value()
-                    };
-                    let comparison =
-                        BinaryOperands::new(&left, &right).compare(ComparisonKind::Unordered);
-                    body.return_((comparison.less, comparison.equal))
-                },
-            )
+            .function::<fn(u32, u32) -> (bool, bool)>(|body, _| {
+                let left = BinaryFormat::Binary32
+                    .decode(&body.parameter::<I32>(0)?.unsigned().extend::<I64>())
+                    .loaded_value();
+                let input = body.parameter::<I32>(1)?;
+                let right = if integer {
+                    crate::x87::ExtendedValue::from_signed_integer(&input)
+                } else {
+                    BinaryFormat::Binary32
+                        .decode(&input.unsigned().extend::<I64>())
+                        .loaded_value()
+                };
+                let comparison =
+                    BinaryOperands::new(&left, &right).compare(ComparisonKind::Unordered);
+                body.return_((comparison.less, comparison.equal))
+            })
             .unwrap();
         program.export("compare", function).unwrap();
         let bytes = program.compile().unwrap();

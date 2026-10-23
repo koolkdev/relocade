@@ -1,7 +1,7 @@
 use super::*;
 use crate::x87::ExtendedValue;
 use crate::{test_step as step, CompiledModule};
-use relocade_compiler::{Program, Signature, Type, I32};
+use relocade_compiler::{Program, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 fn non_normal_classes(value: &ExtendedValue) -> [Val<I1>; 7] {
@@ -30,37 +30,31 @@ fn class_flags(value: &ExtendedValue) -> Val<I32> {
 fn known_normal_and_zero_values_reuse_classification_after_selection() {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I64, Type::I16, Type::I1, Type::I1],
-                results: vec![Type::I16, Type::I1, Type::I32, Type::I32],
-            },
-            |body| {
-                let normal = ExtendedValue::from_bits(ExtendedBits {
-                    significand: body.parameter::<I64>(0)?,
-                    sign_exponent: body.parameter::<I16>(1)?,
-                })
+        .function::<fn(u64, u16, bool, bool) -> (u16, bool, u32, u32)>(|body, _| {
+            let normal = ExtendedValue::from_bits(ExtendedBits {
+                significand: body.parameter::<I64>(0)?,
+                sign_exponent: body.parameter::<I16>(1)?,
+            })
+            .assume_class(KnownClass::normal());
+            let loaded = BinaryFormat::Binary64
+                .decode(&body.parameter::<I64>(0)?)
+                .loaded_value()
                 .assume_class(KnownClass::normal());
-                let loaded = BinaryFormat::Binary64
-                    .decode(&body.parameter::<I64>(0)?)
-                    .loaded_value()
-                    .assume_class(KnownClass::normal());
-                let zero = ExtendedValue::from_bits(ExtendedBits {
-                    significand: 0_u64.into(),
-                    sign_exponent: 0x8000.into(),
-                })
-                .assume_class(KnownClass::zero());
-                let value = normal
-                    .select(&body.parameter::<I1>(2)?, &loaded)
-                    .select(&body.parameter::<I1>(3)?, &zero);
-                body.return_((
-                    value.classification().tag(),
-                    value.classification().normal(),
-                    class_flags(&value),
-                    class_flags(&loaded),
-                ))
-            },
-        )
+            let zero = ExtendedValue::from_bits(ExtendedBits {
+                significand: 0_u64.into(),
+                sign_exponent: 0x8000.into(),
+            })
+            .assume_class(KnownClass::zero());
+            let value = normal
+                .select(&body.parameter::<I1>(2)?, &loaded)
+                .select(&body.parameter::<I1>(3)?, &zero);
+            body.return_((
+                value.classification().tag(),
+                value.classification().normal(),
+                class_flags(&value),
+                class_flags(&loaded),
+            ))
+        })
         .unwrap();
     program.export("classify", function).unwrap();
     let bytes = program.compile().unwrap();
@@ -80,19 +74,8 @@ fn known_normal_and_zero_values_reuse_classification_after_selection() {
 fn known_classes_survive_selection_and_indefinite_replacement() {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I64, Type::I16, Type::I1, Type::I1, Type::I1],
-                results: vec![
-                    Type::I16,
-                    Type::I1,
-                    Type::I32,
-                    Type::I16,
-                    Type::I1,
-                    Type::I32,
-                ],
-            },
-            |body| {
+        .function::<fn(u64, u16, bool, bool, bool) -> (u16, bool, u32, u16, bool, u32)>(
+            |body, _| {
                 let normal = ExtendedValue::from_bits(ExtendedBits {
                     significand: (1_u64 << 63).into(),
                     sign_exponent: 0x3fff.into(),
@@ -379,55 +362,41 @@ fn loaded_binary_values_share_classification_across_exact_representations() {
     ] {
         let mut program = Program::new();
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I64],
-                    results: vec![
-                        Type::I32,
-                        Type::I32,
-                        Type::I32,
-                        Type::I16,
-                        Type::I32,
-                        Type::I32,
-                        Type::I64,
-                    ],
-                },
-                |body| {
-                    let source = format.decode(&body.parameter::<I64>(0)?);
-                    let raw = source.classification();
-                    let source_classes = raw
-                        .zero()
-                        .unsigned()
-                        .extend::<I32>()
-                        .or(raw.finite().unsigned().extend::<I32>().shl(1))
-                        .or(raw.special_exponent().unsigned().extend::<I32>().shl(2))
-                        .or(raw.infinity().unsigned().extend::<I32>().shl(3))
-                        .or(raw.nan().unsigned().extend::<I32>().shl(4));
-                    let value = source.loaded_value();
-                    let expanded = ExtendedValue::from_bits(value.bits());
-                    let precision53 = value.clone().assume_precision53();
-                    let flags = |value: &ExtendedValue| {
-                        let class = value.classification();
-                        class_flags(value)
-                            .or(class.normal().unsigned().extend::<I32>().shl(7))
-                            .or(class.normal_or_zero().unsigned().extend::<I32>().shl(8))
-                    };
-                    let exceptions = source.denormal.unsigned().extend::<I32>().or(source
-                        .signaling_nan
-                        .unsigned()
-                        .extend::<I32>()
-                        .shl(1));
-                    body.return_((
-                        flags(&value),
-                        flags(&expanded),
-                        flags(&precision53),
-                        value.classification().tag(),
-                        exceptions,
-                        source_classes,
-                        value.exact_conversion(format).unwrap().bits,
-                    ))
-                },
-            )
+            .function::<fn(u64) -> (u32, u32, u32, u16, u32, u32, u64)>(|body, _| {
+                let source = format.decode(&body.parameter::<I64>(0)?);
+                let raw = source.classification();
+                let source_classes = raw
+                    .zero()
+                    .unsigned()
+                    .extend::<I32>()
+                    .or(raw.finite().unsigned().extend::<I32>().shl(1))
+                    .or(raw.special_exponent().unsigned().extend::<I32>().shl(2))
+                    .or(raw.infinity().unsigned().extend::<I32>().shl(3))
+                    .or(raw.nan().unsigned().extend::<I32>().shl(4));
+                let value = source.loaded_value();
+                let expanded = ExtendedValue::from_bits(value.bits());
+                let precision53 = value.clone().assume_precision53();
+                let flags = |value: &ExtendedValue| {
+                    let class = value.classification();
+                    class_flags(value)
+                        .or(class.normal().unsigned().extend::<I32>().shl(7))
+                        .or(class.normal_or_zero().unsigned().extend::<I32>().shl(8))
+                };
+                let exceptions = source.denormal.unsigned().extend::<I32>().or(source
+                    .signaling_nan
+                    .unsigned()
+                    .extend::<I32>()
+                    .shl(1));
+                body.return_((
+                    flags(&value),
+                    flags(&expanded),
+                    flags(&precision53),
+                    value.classification().tag(),
+                    exceptions,
+                    source_classes,
+                    value.exact_conversion(format).unwrap().bits,
+                ))
+            })
             .unwrap();
         program.export("classify", function).unwrap();
         let module = step::TestModule::new(&CompiledModule {

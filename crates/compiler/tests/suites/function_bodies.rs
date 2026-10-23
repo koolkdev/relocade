@@ -69,16 +69,10 @@ fn foreign_zero_is_rejected_without_poisoning_other_expressions() {
     let mut foreign_program = Program::new();
     let mut foreign_zero = None;
     foreign_program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |foreign_body| {
-                foreign_zero = Some(foreign_body.value::<I32>(0)?);
-                foreign_body.return_(0)
-            },
-        )
+        .function::<fn() -> u32>(|foreign_body, ()| {
+            foreign_zero = Some(foreign_body.value::<I32>(0)?);
+            foreign_body.return_(0)
+        })
         .unwrap();
     let foreign_zero = foreign_zero.unwrap();
     let mut program = Program::new();

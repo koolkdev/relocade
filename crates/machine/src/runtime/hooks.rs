@@ -78,17 +78,17 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             .map(|index| format!("hook_{index}"))
             .collect();
         let mut program = Program::new();
-        let dispatch = program.import_function(abi::DISPATCH);
+        let dispatch = abi::DISPATCH.import(&mut program);
         let mut imports = Vec::new();
         let mut entries = Vec::new();
         for (hook, name) in hooks.into_iter().zip(&names) {
             let declaration: Function<fn() -> HookResult> = Function::new("hooks", name);
             let import = declaration.import(&mut program);
-            let function = program.function(abi::RUN.signature(), |mut body| {
+            let function = program.function::<abi::ExecutionSignature>(|mut body, ()| {
                 import
                     .call(&mut body, ())?
                     .match_(&mut body, |body, result| match result {
-                        HookResultCase::Continue => body.tail_call(dispatch, &[]),
+                        HookResultCase::Continue => dispatch.tail_call(body, ()),
                         HookResultCase::Exit(exit) => body.return_(exit),
                     })?;
                 body.trap()

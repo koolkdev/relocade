@@ -11,7 +11,6 @@ mod functions;
 pub mod slots;
 mod types;
 mod values;
-pub use functions::TypedFunc;
 /// Derives named compiler values for a type with a portable ABI.
 ///
 /// Use `#[derive(relocade_wasm_bindings::WasmAbi, CompilerValue)]` on the Rust definition.
@@ -89,7 +88,12 @@ impl<
 
     /// Exports a defined or imported function after checking its logical signature.
     /// The module name is used when importing; exports use only the field name.
-    pub fn export(self, program: &mut Program, function: Func) -> Result<(), BuildError> {
+    pub fn export(
+        self,
+        program: &mut Program,
+        function: impl Into<Func>,
+    ) -> Result<(), BuildError> {
+        let function = function.into();
         let actual = &program
             .functions
             .get(function.0)
@@ -133,7 +137,7 @@ impl<
     }
 }
 
-fn signature<
+pub(crate) fn signature<
     S: FunctionSignature<
         Parameters: AbiType<Logical: crate::Results>,
         Return: AbiType<Logical: crate::Results>,

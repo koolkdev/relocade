@@ -9,22 +9,13 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     let cpu = Cpu::declare(&mut program);
     let mut access = SegmentReads::new(&cpu, profile);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32],
-                results: vec![Type::I32, Type::I32],
-            },
-            |mut body| {
-                let offset = body.parameter::<I32>(0)?;
-                let bytes = body.parameter::<I32>(1)?;
-                let check =
-                    access.check(&mut body, &segment.into(), &offset, bytes, Intent::Write)?;
-                body.return_((
-                    check.linear,
-                    check.denied.unwrap().unsigned().extend::<I32>(),
-                ))
-            },
-        )
+        .function::<fn(u32, u32) -> (u32, u32)>(|mut body, (offset, bytes)| {
+            let check = access.check(&mut body, &segment.into(), &offset, bytes, Intent::Write)?;
+            body.return_((
+                check.linear,
+                check.denied.unwrap().unsigned().extend::<I32>(),
+            ))
+        })
         .unwrap();
     program.export("probe", function).unwrap();
     TestModule::new(&CompiledModule {

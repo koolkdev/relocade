@@ -1,35 +1,5 @@
 use super::{AbiType, CompilerValue, Function, FunctionSignature, Values};
-use crate::{results, value::ValueSource, Arguments, BlockBuilder, BuildError, Func, Program};
-use std::marker::PhantomData;
-
-/// A generated function retaining its Rust signature for subsequent calls.
-/// Use it only with the program that declared it.
-pub struct TypedFunc<S> {
-    function: Func,
-    signature: PhantomData<S>,
-}
-
-impl<S> Copy for TypedFunc<S> {}
-
-impl<S> Clone for TypedFunc<S> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<S> TypedFunc<S> {
-    fn new(function: Func) -> Self {
-        Self {
-            function,
-            signature: PhantomData,
-        }
-    }
-
-    /// Obtains the same function for APIs that use an explicit logical signature.
-    pub fn untyped(self) -> Func {
-        self.function
-    }
-}
+use crate::{BlockBuilder, BuildError, Program, TypedFunc};
 
 impl<S: FunctionSignature<Parameters: CompilerValue, Return: AbiType<Logical: crate::Results>>>
     Function<'_, S>
@@ -51,19 +21,10 @@ impl<S: FunctionSignature<Parameters: CompilerValue, Return: AbiType<Logical: cr
         program: &mut Program,
         build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError>,
     ) -> Result<TypedFunc<S>, BuildError> {
-        program
-            .function(super::signature::<S>(), |body| {
-                body.program.export(self.name, body.function)?;
-                let mut index = 0;
-                let parameters =
-                    results::bind_sources::<<S::Parameters as AbiType>::Logical>(|ty| {
-                        let value = body.arena.parameter(ty, index);
-                        index += 1;
-                        ValueSource::from_definition(body.arena.clone(), value)
-                    });
-                build(body, S::Parameters::from_values(parameters))
-            })
-            .map(TypedFunc::new)
+        program.function::<S>(|body, parameters| {
+            body.program.export(self.name, body.function)?;
+            build(body, parameters)
+        })
     }
 }
 
@@ -77,29 +38,5 @@ impl<
     /// Imports a function while retaining its Rust signature for generated calls.
     pub fn import(self, program: &mut Program) -> TypedFunc<S> {
         TypedFunc::new(program.import_function(self))
-    }
-}
-impl<S: FunctionSignature<Return: CompilerValue>> TypedFunc<S> {
-    /// Calls this function and projects its results into the declared symbolic type.
-    /// Arguments retain the compiler's signature-directed literal conversion.
-    pub fn call(
-        self,
-        body: &mut BlockBuilder<'_>,
-        arguments: impl Into<Arguments>,
-    ) -> Result<Values<S::Return>, BuildError> {
-        let values =
-            body.call::<<S::Return as AbiType>::Logical>(self.function, &arguments.into().0)?;
-        Ok(S::Return::from_values(values))
-    }
-}
-
-impl<S> TypedFunc<S> {
-    /// Returns this function's results without retaining the caller's Wasm frame.
-    pub fn tail_call(
-        self,
-        body: BlockBuilder<'_>,
-        arguments: impl Into<Arguments>,
-    ) -> Result<(), BuildError> {
-        body.tail_call(self.function, &arguments.into().0)
     }
 }

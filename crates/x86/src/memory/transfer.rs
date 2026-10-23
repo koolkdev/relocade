@@ -4,7 +4,7 @@
 
 use crate::memory::TransferType;
 use relocade_compiler::{
-    BlockBuilder, BuildError, Func, MemoryType, Program, Signature, Type, Val, I32, I64, I8,
+    BlockBuilder, BuildError, Func, MemoryType, Program, Type, Val, I32, I64, I8,
 };
 
 use super::{page_table::physical_address, Access, Intent, VirtualMemory};
@@ -84,13 +84,11 @@ impl VirtualMemory {
         if let Some(function) = slot.get() {
             return Ok(function);
         }
-        let function = program.function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: vec![T::TYPE],
-            },
-            |body| self.define_scattered_reader::<T>(body),
-        )?;
+        let function = program
+            .function::<fn(u32) -> T>(|body, (linear,)| {
+                self.define_scattered_reader::<T>(body, linear)
+            })?
+            .into();
         slot.set(Some(function));
         Ok(function)
     }
@@ -100,13 +98,11 @@ impl VirtualMemory {
         if let Some(function) = slot.get() {
             return Ok(function);
         }
-        let function = program.function(
-            Signature {
-                parameters: vec![Type::I32, T::TYPE],
-                results: vec![],
-            },
-            |body| self.define_scattered_writer::<T>(body),
-        )?;
+        let function = program
+            .function::<fn(u32, T)>(|body, (linear, value)| {
+                self.define_scattered_writer::<T>(body, linear, value)
+            })?
+            .into();
         slot.set(Some(function));
         Ok(function)
     }
@@ -114,8 +110,8 @@ impl VirtualMemory {
     fn define_scattered_reader<T: TransferType>(
         &self,
         mut body: BlockBuilder<'_>,
+        linear: Val<I32>,
     ) -> Result<(), BuildError> {
-        let linear = body.parameter::<I32>(0)?;
         let value = T::read_parts(|part, bytes| {
             let mut value = Val::<I64>::from(0);
             for offset in 0..bytes {
@@ -132,9 +128,9 @@ impl VirtualMemory {
     fn define_scattered_writer<T: TransferType>(
         &self,
         mut body: BlockBuilder<'_>,
+        linear: Val<I32>,
+        value: Val<T>,
     ) -> Result<(), BuildError> {
-        let linear = body.parameter::<I32>(0)?;
-        let value = body.parameter::<T>(1)?;
         T::write_parts(&value, |part, bytes, value| {
             for offset in 0..bytes {
                 let address = linear.add(part + offset);

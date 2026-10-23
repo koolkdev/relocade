@@ -1,7 +1,7 @@
 //! Read-only logical flag observations for instruction test cases.
 
 use crate::FlagBytes;
-use relocade_compiler::{BuildError, Program, Signature, Type};
+use relocade_compiler::{BuildError, Program};
 
 use crate::flags::FlagMask;
 use crate::CompiledModule;
@@ -13,21 +13,15 @@ use super::Cpu;
 pub(crate) fn compile_flag_observer() -> Result<CompiledModule, BuildError> {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let observer = program.function(
-        Signature {
-            parameters: vec![],
-            results: vec![Type::I1; 6],
-        },
-        |mut body| {
-            let flags = cpu.read_flags(&mut body, FlagMask::STATUS)?;
-            body.return_(
-                flags
-                    .into_iter()
-                    .map(|flag| flag.expect("the complete flag mask requests every flag"))
-                    .collect::<Vec<_>>(),
-            )
-        },
-    )?;
+    let observer = program.function::<fn() -> [bool; 6]>(|mut body, ()| {
+        let flags = cpu.read_flags(&mut body, FlagMask::STATUS)?;
+        body.return_(
+            flags
+                .into_iter()
+                .map(|flag| flag.expect("the complete flag mask requests every flag"))
+                .collect::<Vec<_>>(),
+        )
+    })?;
     program.export("observe_flags", observer)?;
     Ok(CompiledModule {
         execution_target: None,

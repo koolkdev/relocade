@@ -240,36 +240,29 @@ fn returns_and_tail_calls_check_folded_argument_visibility() {
 fn legal_child_folds_discard_dead_loads_and_joins_gain_parent_visibility() {
     let (mut program, memory) = memory_program();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I1],
-                results: vec![Type::I32],
-            },
-            |mut body| {
-                let predicate = body.parameter::<I1>(0)?;
-                let joined = body.if_value::<I32>(
-                    predicate,
-                    |mut child| {
-                        let input = child.load::<I32>(memory, 65536)?;
-                        let zero = Val::<I32>::from(0);
-                        let shifted = zero
-                            .shl(&input)
-                            .add(zero.unsigned().shr(&input))
-                            .add(zero.signed().shr(&input))
-                            .add(input.and(0))
-                            .add(1);
-                        let compared = input.eq(&input).unsigned().extend::<I32>();
-                        let selected = Val::<I1>::from(false).select(&input, 9);
-                        let folded = child.value(shifted.add(compared).add(selected))?;
-                        assert!(folded.same_expression(&child.value::<I32>(11)?));
-                        child.yield_(folded)
-                    },
-                    |child| child.yield_(4),
-                )?;
-                let admitted = body.value(joined)?;
-                body.return_(admitted.add(1))
-            },
-        )
+        .function::<fn(bool) -> u32>(|mut body, (predicate,)| {
+            let joined = body.if_value::<I32>(
+                predicate,
+                |mut child| {
+                    let input = child.load::<I32>(memory, 65536)?;
+                    let zero = Val::<I32>::from(0);
+                    let shifted = zero
+                        .shl(&input)
+                        .add(zero.unsigned().shr(&input))
+                        .add(zero.signed().shr(&input))
+                        .add(input.and(0))
+                        .add(1);
+                    let compared = input.eq(&input).unsigned().extend::<I32>();
+                    let selected = Val::<I1>::from(false).select(&input, 9);
+                    let folded = child.value(shifted.add(compared).add(selected))?;
+                    assert!(folded.same_expression(&child.value::<I32>(11)?));
+                    child.yield_(folded)
+                },
+                |child| child.yield_(4),
+            )?;
+            let admitted = body.value(joined)?;
+            body.return_(admitted.add(1))
+        })
         .unwrap();
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();

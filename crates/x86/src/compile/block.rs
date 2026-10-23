@@ -116,7 +116,7 @@ impl Compiler {
             .then(|| Memory::declare(&mut program, profile))
             .transpose()?;
         let runtime = Runtime::declare(&mut program);
-        let function = program.function(crate::abi::RUN.signature(), |body| {
+        let function = program.function::<crate::abi::ExecutionSignature>(|body, ()| {
             let mut execution = ExecutionBuilder::new(
                 body,
                 &cpu,

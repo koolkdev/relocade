@@ -78,7 +78,7 @@ fn a_label_cannot_target_another_function_body() {
                     assert_eq!(
                         block
                             .program()
-                            .function(signature(), |other| other.branch(&label, 7))
+                            .raw_function(signature(), |other| other.branch(&label, 7))
                             .err(),
                         Some(BuildError::ForeignBody)
                     );

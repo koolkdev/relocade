@@ -22,13 +22,13 @@ fn indirect_tail_calls_use_the_live_slot_and_preserve_helper_effects() {
         results: vec![Type::I32],
     };
     let indirect = program
-        .function(signature.clone(), |body| {
+        .raw_function(signature.clone(), |body| {
             let slot = body.parameter::<I32>(0)?;
             body.tail_call_indirect(table, slot, &[41.into()])
         })
         .unwrap();
     let entry = program
-        .function(signature, |mut body| {
+        .raw_function(signature, |mut body| {
             let slot = body.parameter::<I32>(0)?;
             // Discarding the result must retain the indirect callee's unknown effects.
             body.call::<I32>(indirect, &[slot.into()])?;
@@ -81,16 +81,10 @@ fn indirect_calls_check_logical_types_and_prune_unused_tables() {
     let mut program = Program::new();
     let table = table(&mut program, Type::I8);
     let error = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |body| {
-                let value = body.value::<I32>(1)?;
-                body.tail_call_indirect(table, 0, &[value.into()])
-            },
-        )
+        .function::<fn() -> u32>(|body, ()| {
+            let value = body.value::<I32>(1)?;
+            body.tail_call_indirect(table, 0, &[value.into()])
+        })
         .unwrap_err();
     assert_eq!(
         error,
@@ -100,19 +94,13 @@ fn indirect_calls_check_logical_types_and_prune_unused_tables() {
         }
     );
     let entry = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |mut body| {
-                body.if_(false, |branch| {
-                    let byte = branch.value::<I8>(3)?;
-                    branch.tail_call_indirect(table, 1, &[byte.into()])
-                })?;
-                body.return_(5)
-            },
-        )
+        .function::<fn() -> u32>(|mut body, ()| {
+            body.if_(false, |branch| {
+                let byte = branch.value::<I8>(3)?;
+                branch.tail_call_indirect(table, 1, &[byte.into()])
+            })?;
+            body.return_(5)
+        })
         .unwrap();
     program.export("run", entry).unwrap();
     let bytes = program.compile().unwrap();
@@ -140,22 +128,12 @@ fn table_and_signature_indices_remain_independent_after_pruning() {
         },
     });
     let entry = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |body| body.tail_call_indirect(word, 1, &[9.into()]),
-        )
+        .function::<fn() -> u32>(|body, ()| body.tail_call_indirect(word, 1, &[9.into()]))
         .unwrap();
     let wide_entry = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-            |body| body.tail_call_indirect(wide, 0, &[0x1_0000_0000u64.into()]),
-        )
+        .function::<fn() -> u64>(|body, ()| {
+            body.tail_call_indirect(wide, 0, &[0x1_0000_0000u64.into()])
+        })
         .unwrap();
     program.export("word", entry).unwrap();
     program.export("wide", wide_entry).unwrap();

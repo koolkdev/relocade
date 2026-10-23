@@ -49,7 +49,7 @@ fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let helper = fixture
         .program
-        .function(signature(&[Type::I32], result.as_slice()), |mut body| {
+        .raw_function(signature(&[Type::I32], result.as_slice()), |mut body| {
             match behavior {
                 Pure::Trap => return body.trap(),
                 Pure::ReadTrap => {
@@ -57,9 +57,7 @@ fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
                     body.if_(invalid.eq(0), |arm| arm.trap())?;
                 }
                 Pure::VoidDescendant => {
-                    let trap = body
-                        .program()
-                        .function(signature(&[], &[]), |body| body.trap())?;
+                    let trap = body.program().function::<fn()>(|body, ()| body.trap())?;
                     body.call::<()>(trap, &[])?;
                 }
                 Pure::Empty | Pure::TrappingArgument => {}
@@ -131,7 +129,7 @@ fn effectful_call(result: Option<Type>, behavior: Effect) -> TestModule {
     };
     let wrapper = fixture
         .program
-        .function(signature(&[Type::I32], result.as_slice()), |mut body| {
+        .raw_function(signature(&[Type::I32], result.as_slice()), |mut body| {
             let input = body.parameter::<I32>(0)?;
             call_unused(&mut body, helper, result, &[input.into()])?;
             finish(body, result)

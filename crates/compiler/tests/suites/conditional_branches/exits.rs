@@ -7,7 +7,7 @@ fn different_tail_arguments(trap_on_taken: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let trapped_value = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |body| body.trap())
+        .function::<fn() -> u32>(|body, ()| body.trap())
         .unwrap();
     fixture.function(&[Type::I1], &[Type::I32], |mut body| {
         let choose = body.parameter::<I1>(0)?;
@@ -49,10 +49,7 @@ fn carried_call_result() -> TestModule {
     let mut fixture = Fixture::new();
     let increment = fixture
         .program
-        .function(signature(&[Type::I32], &[Type::I32]), |body| {
-            let value = body.parameter::<I32>(0)?;
-            body.return_(value.add(3))
-        })
+        .function::<fn(u32) -> u32>(|body, (value,)| body.return_(value.add(3)))
         .unwrap();
     fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let count = body.parameter::<I32>(0)?;
@@ -121,8 +118,7 @@ fn tail_writes() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let write = fixture
         .program
-        .function(signature(&[Type::I32], &[Type::I32]), |mut body| {
-            let value = body.parameter::<I32>(0)?;
+        .function::<fn(u32) -> u32>(|mut body, (value,)| {
             body.if_(value.ne(0), |mut arm| {
                 arm.store(state, 0, &value)?;
                 arm.return_(23)
@@ -215,8 +211,7 @@ fn an_unused_call_keeps_its_conditional_tail_call_effects() {
     );
     let helper = fixture
         .program
-        .function(signature(&[Type::I1], &[Type::I32]), |mut body| {
-            let choose = body.parameter::<I1>(0)?;
+        .function::<fn(bool) -> u32>(|mut body, (choose,)| {
             body.if_(choose, |arm| arm.tail_call(receive, &[11.into()]))?;
             body.return_(7)
         })
@@ -293,7 +288,7 @@ fn dead_conditional_result() -> TestModule {
     let mut fixture = Fixture::new();
     let trapped_value = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |body| body.trap())
+        .function::<fn() -> u32>(|body, ()| body.trap())
         .unwrap();
     fixture.function(&[Type::I1], &[Type::I32], |mut body| {
         let choose = body.parameter::<I1>(0)?;

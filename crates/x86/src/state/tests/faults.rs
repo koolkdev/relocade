@@ -9,7 +9,7 @@ fn conditional_fault(completed: u32) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I1, Type::I32, Type::I32],
                 results: crate::abi::RUN.signature().results,

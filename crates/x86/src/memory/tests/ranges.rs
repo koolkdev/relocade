@@ -8,7 +8,7 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
     )
     .unwrap();
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32, Type::I32],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(

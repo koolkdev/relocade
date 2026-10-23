@@ -3,47 +3,38 @@ use crate::{
     test_step::{Argument, Event, Input, Outcome, TestModule},
     CompiledModule, ExecutionProfile,
 };
-use relocade_compiler::{Program, Signature, Type, I16, I32};
+use relocade_compiler::{Program, I16};
 
 fn transfers(fill: bool) -> TestModule {
     let mut program = Program::new();
     let memory = Memory::declare(&mut program, ExecutionProfile::Real16).unwrap();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32, Type::I32],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let destination = body.parameter::<I32>(0)?;
-                let source = body.parameter::<I32>(1)?;
-                let bytes = body.parameter::<I32>(2)?;
-                let destination = memory.check_direct_access(
+        .function::<fn(u32, u32, u32) -> u64>(|mut body, (destination, source, bytes)| {
+            let destination = memory.check_direct_access(
+                &mut body,
+                &destination,
+                &bytes,
+                Intent::Write,
+                None,
+                None,
+            )?;
+            body.if_(&destination.unavailable, |denied| denied.return_(0u64))?;
+            if fill {
+                memory.fill::<I16>(&mut body, &destination.physical, &0x2211.into(), &bytes)?;
+            } else {
+                let source = memory.check_direct_access(
                     &mut body,
-                    &destination,
+                    &source,
                     &bytes,
-                    Intent::Write,
+                    Intent::Read,
                     None,
                     None,
                 )?;
-                body.if_(&destination.unavailable, |denied| denied.return_(0u64))?;
-                if fill {
-                    memory.fill::<I16>(&mut body, &destination.physical, &0x2211.into(), &bytes)?;
-                } else {
-                    let source = memory.check_direct_access(
-                        &mut body,
-                        &source,
-                        &bytes,
-                        Intent::Read,
-                        None,
-                        None,
-                    )?;
-                    body.if_(&source.unavailable, |denied| denied.return_(0u64))?;
-                    memory.copy(&mut body, &destination.physical, &source.physical, &bytes)?;
-                }
-                body.return_(1u64)
-            },
-        )
+                body.if_(&source.unavailable, |denied| denied.return_(0u64))?;
+                memory.copy(&mut body, &destination.physical, &source.physical, &bytes)?;
+            }
+            body.return_(1u64)
+        })
         .unwrap();
     program.export("transfer", function).unwrap();
     TestModule::new(&CompiledModule {

@@ -100,7 +100,7 @@ fn signed_arithmetic_wraps_and_compares_at_logical_widths() {
         build: impl FnOnce(&BlockBuilder<'_>) -> Val<T>,
     ) {
         let function = program
-            .function(
+            .raw_function(
                 Signature {
                     parameters: parameters.to_vec(),
                     results: vec![T::TYPE],

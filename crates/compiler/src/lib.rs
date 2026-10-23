@@ -9,16 +9,11 @@
 //! Build functions, choose their exports, then compile the module:
 //!
 //! ```
-//! use relocade_compiler::{Program, Signature, Type, I32};
+//! use relocade_compiler::Program;
 //!
 //! let mut program = Program::new();
-//! let increment = program.function(Signature {
-//!     parameters: vec![Type::I32],
-//!     results: vec![Type::I32],
-//! }, |body| {
-//!     let value = body.parameter::<I32>(0)?;
-//!     body.return_(value.add(1))
-//! })?;
+//! let increment =
+//!     program.function::<fn(u32) -> u32>(|body, (value,)| body.return_(value.add(1)))?;
 //! program.export("increment", increment)?;
 //! let bytes = program.compile()?;
 //! # Ok::<(), relocade_compiler::BuildError>(())
@@ -50,7 +45,7 @@ use body::FunctionGraph;
 pub use call::{FunctionImport, Table, TableImport};
 pub use control::{Label, LoopLabels};
 use expression::Expression;
-pub use function::BlockBuilder;
+pub use function::{BlockBuilder, TypedFunc};
 pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt, MemoryType};
 pub use results::{Arguments, Results};
 pub use types::{
@@ -62,6 +57,8 @@ pub use value::{
 };
 
 /// A function's ordered logical parameter and result types.
+/// Use with [`Program::raw_function`] when generation assembles the type lists.
+/// These are logical types, including `I1` and `I16`, rather than lowered Wasm types.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Signature {
     pub parameters: Vec<Type>,
@@ -203,7 +200,8 @@ impl Program {
         function
     }
 
-    pub fn export(&mut self, name: &str, function: Func) -> Result<(), BuildError> {
+    pub fn export(&mut self, name: &str, function: impl Into<Func>) -> Result<(), BuildError> {
+        let function = function.into();
         self.functions
             .get(function.0)
             .ok_or(BuildError::UnknownFunction)?;

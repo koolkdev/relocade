@@ -6,38 +6,31 @@ fn constant_queries_report_construction_folds_without_changing_code() {
     fn compile(query: bool) -> Vec<u8> {
         let mut program = Program::new();
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I32],
-                    results: vec![Type::I32],
-                },
-                |mut body| {
-                    let input = body.parameter::<I32>(0)?;
+            .function::<fn(u32) -> u32>(|mut body, (input,)| {
+                if query {
+                    assert_eq!(body.constant_bits::<I1>(3)?, Some(1));
+                    assert_eq!(body.constant_bits::<I8>(0x1ff)?, Some(255));
+                    assert_eq!(body.constant_bits::<I16>(-1)?, Some(65535));
+                    assert_eq!(body.constant_bits::<I32>(-1)?, Some(0xffff_ffff));
+                    assert_eq!(body.constant_bits::<I64>(u64::MAX)?, Some(u64::MAX));
+                    let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
+                    assert_eq!(narrow.constant_bits()?, Some(255));
+                    assert_eq!(body.constant_bits(narrow)?, Some(255));
+                    assert_eq!(input.mul(0).add(17).constant_bits()?, Some(17));
+                    assert_eq!(body.constant_bits(input.mul(0).add(17))?, Some(17));
+                    assert_eq!(body.constant_bits(&input)?, None);
+                    assert_eq!(body.constant_bits(input.add(1))?, None);
+                }
+                body.if_(input.eq(17), |branch| {
                     if query {
-                        assert_eq!(body.constant_bits::<I1>(3)?, Some(1));
-                        assert_eq!(body.constant_bits::<I8>(0x1ff)?, Some(255));
-                        assert_eq!(body.constant_bits::<I16>(-1)?, Some(65535));
-                        assert_eq!(body.constant_bits::<I32>(-1)?, Some(0xffff_ffff));
-                        assert_eq!(body.constant_bits::<I64>(u64::MAX)?, Some(u64::MAX));
-                        let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
-                        assert_eq!(narrow.constant_bits()?, Some(255));
-                        assert_eq!(body.constant_bits(narrow)?, Some(255));
-                        assert_eq!(input.mul(0).add(17).constant_bits()?, Some(17));
-                        assert_eq!(body.constant_bits(input.mul(0).add(17))?, Some(17));
-                        assert_eq!(body.constant_bits(&input)?, None);
-                        assert_eq!(body.constant_bits(input.add(1))?, None);
+                        // The guard becomes a constant fact only during placement.
+                        assert_eq!(branch.constant_bits(&input)?, None);
+                        assert_eq!(input.constant_bits()?, None);
                     }
-                    body.if_(input.eq(17), |branch| {
-                        if query {
-                            // The guard becomes a constant fact only during placement.
-                            assert_eq!(branch.constant_bits(&input)?, None);
-                            assert_eq!(input.constant_bits()?, None);
-                        }
-                        branch.return_(&input)
-                    })?;
-                    body.return_(input.add(1))
-                },
-            )
+                    branch.return_(&input)
+                })?;
+                body.return_(input.add(1))
+            })
             .unwrap();
         program.export("run", function).unwrap();
         program.compile().unwrap()
@@ -102,29 +95,13 @@ fn an_ignored_return_error_leaves_the_function_undefined_and_allows_retry() {
 fn completed_functions_can_be_called_and_exported_with_logical_signatures() {
     let mut program = Program::new();
     let is_zero = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: vec![Type::I1],
-            },
-            |body| {
-                let value = body.parameter::<I32>(0)?;
-                body.return_(value.eq(0))
-            },
-        )
+        .function::<fn(u32) -> bool>(|body, (value,)| body.return_(value.eq(0)))
         .unwrap();
     let run = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: vec![Type::I1],
-            },
-            |mut body| {
-                let input = body.parameter::<I32>(0)?;
-                let result = body.call::<I1>(is_zero, &[input.into()])?;
-                body.return_(result)
-            },
-        )
+        .function::<fn(u32) -> bool>(|mut body, (input,)| {
+            let result = body.call::<I1>(is_zero, &[input.into()])?;
+            body.return_(result)
+        })
         .unwrap();
     program.export("is_zero", is_zero).unwrap();
     program.export("run", run).unwrap();
@@ -157,29 +134,17 @@ fn a_callback_error_discards_even_a_completed_body_and_its_import_use() {
         shared: false,
     });
     let error = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |mut body| {
-                let value = body.load::<I32>(memory, 0)?;
-                body.return_(value)?;
-                Err(BuildError::BodyClosed)
-            },
-        )
+        .function::<fn() -> u32>(|mut body, ()| {
+            let value = body.load::<I32>(memory, 0)?;
+            body.return_(value)?;
+            Err(BuildError::BodyClosed)
+        })
         .unwrap_err();
     assert_eq!(error, BuildError::BodyClosed);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |body| body.return_(7),
-        )
+        .function::<fn() -> u32>(|body, ()| body.return_(7))
         .unwrap();
-    assert_eq!(function.0, 0);
+    assert_eq!(program.functions.len(), 1);
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
@@ -192,25 +157,13 @@ fn a_callback_error_discards_even_a_completed_body_and_its_import_use() {
 fn a_function_body_requires_a_terminal() {
     let mut program = Program::new();
     let error = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I1],
-            },
-            |_| Ok(()),
-        )
+        .function::<fn() -> bool>(|_, ()| Ok(()))
         .unwrap_err();
     assert_eq!(error, BuildError::MissingBody);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I1],
-            },
-            |body| body.return_(true),
-        )
+        .function::<fn() -> bool>(|body, ()| body.return_(true))
         .unwrap();
-    assert_eq!(function.0, 0);
+    assert_eq!(program.functions.len(), 1);
     program.export("run", function).unwrap();
     Validator::new()
         .validate_all(&program.compile().unwrap())
@@ -229,7 +182,7 @@ fn an_open_body_builds_a_helper_without_reopening_itself() {
         .define(outer, |mut body| {
             let error = body
                 .program()
-                .function(signature.clone(), |helper| {
+                .raw_function(signature.clone(), |helper| {
                     helper.trap()?;
                     Err(BuildError::BodyClosed)
                 })
@@ -242,7 +195,7 @@ fn an_open_body_builds_a_helper_without_reopening_itself() {
             let input = body.parameter::<I32>(0).unwrap();
             let helper = body
                 .program()
-                .function(signature, |helper| {
+                .raw_function(signature, |helper| {
                     let value = helper.parameter::<I32>(0)?;
                     helper.return_(value.eq(0))
                 })
@@ -279,12 +232,12 @@ fn a_failed_function_restores_forward_declarations_and_discards_appended_resourc
         results: vec![Type::I32],
     };
     let prior = program
-        .function(signature.clone(), |body| body.return_(11))
+        .raw_function(signature.clone(), |body| body.return_(11))
         .unwrap();
     program.export("prior", prior).unwrap();
     let forward = program.declare(signature.clone());
     let error = program
-        .function(signature.clone(), |mut body| {
+        .raw_function(signature.clone(), |mut body| {
             let memory = body.program().import_memory(MemoryImport {
                 module: "discarded".into(),
                 name: "memory".into(),
@@ -292,10 +245,12 @@ fn a_failed_function_restores_forward_declarations_and_discards_appended_resourc
                 maximum: None,
                 shared: false,
             });
-            let helper = body.program().function(signature.clone(), |mut helper| {
-                let value = helper.load::<I32>(memory, 0)?;
-                helper.return_(value)
-            })?;
+            let helper = body
+                .program()
+                .raw_function(signature.clone(), |mut helper| {
+                    let value = helper.load::<I32>(memory, 0)?;
+                    helper.return_(value)
+                })?;
             body.program().export("discarded", helper)?;
             body.program().define(forward, |mut forward_body| {
                 let value = forward_body.call::<I32>(helper, &[])?;
@@ -311,7 +266,9 @@ fn a_failed_function_restores_forward_declarations_and_discards_appended_resourc
     assert_eq!(program.exports.len(), 1);
     // Its discarded body referred to the removed helper and must not survive.
     program.define(forward, |body| body.return_(23)).unwrap();
-    let replacement = program.function(signature, |body| body.return_(7)).unwrap();
+    let replacement = program
+        .raw_function(signature, |body| body.return_(7))
+        .unwrap();
     assert_eq!(replacement.0, 2);
     program.export("discarded", replacement).unwrap();
     Validator::new()

@@ -23,7 +23,7 @@ fn removed_helpers() -> TestModule {
     });
     let leaf = fixture
         .program
-        .function(signature(&[], &[]), |mut body| {
+        .function::<fn()>(|mut body, ()| {
             body.store::<I32>(memory, 0, 99)?;
             body.call::<()>(called, &[])?;
             body.return_(())
@@ -31,7 +31,7 @@ fn removed_helpers() -> TestModule {
         .unwrap();
     let helper = fixture
         .program
-        .function(signature(&[], &[]), |mut body| {
+        .function::<fn()>(|mut body, ()| {
             body.call::<()>(leaf, &[])?;
             body.return_(())
         })

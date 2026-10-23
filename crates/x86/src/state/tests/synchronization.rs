@@ -143,38 +143,29 @@ fn synchronized_byte_registers() -> crate::CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32, Type::I1],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let index = body.parameter::<I32>(0)?;
-                let stop = body.parameter::<I1>(1)?;
-                let mut state = State::new(&cpu);
-                let old_high =
-                    state.read_register(&mut body, RegisterCode::from_code(4).view::<I8>())?;
-                state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
-                state.write_register(&mut body, Gpr32::Esp, 0x1357_9bdf)?;
-                state.write_register(&mut body, RegisterCode::from_code(4).view::<I8>(), 0xaa)?;
-                body.if_(stop, |mut branch| {
-                    state.publish(&mut branch, 0x1007, 2)?;
-                    branch.return_(7)
-                })?;
-                let before =
-                    state.read_register(&mut body, Register::<I8>::indexed(index.clone()))?;
-                state.write_register(&mut body, Register::<I8>::indexed(index), old_high.add(1))?;
-                let after = state.read_register(&mut body, Gpr32::Eax)?;
-                state.publish(&mut body, 0x1009, 3)?;
-                body.return_(
-                    before
-                        .unsigned()
-                        .extend::<I64>()
-                        .shl(32)
-                        .or(after.unsigned().extend::<I64>()),
-                )
-            },
-        )
+        .function::<fn(u32, bool) -> u64>(|mut body, (index, stop)| {
+            let mut state = State::new(&cpu);
+            let old_high =
+                state.read_register(&mut body, RegisterCode::from_code(4).view::<I8>())?;
+            state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
+            state.write_register(&mut body, Gpr32::Esp, 0x1357_9bdf)?;
+            state.write_register(&mut body, RegisterCode::from_code(4).view::<I8>(), 0xaa)?;
+            body.if_(stop, |mut branch| {
+                state.publish(&mut branch, 0x1007, 2)?;
+                branch.return_(7)
+            })?;
+            let before = state.read_register(&mut body, Register::<I8>::indexed(index.clone()))?;
+            state.write_register(&mut body, Register::<I8>::indexed(index), old_high.add(1))?;
+            let after = state.read_register(&mut body, Gpr32::Eax)?;
+            state.publish(&mut body, 0x1009, 3)?;
+            body.return_(
+                before
+                    .unsigned()
+                    .extend::<I64>()
+                    .shl(32)
+                    .or(after.unsigned().extend::<I64>()),
+            )
+        })
         .unwrap();
     program.export("run", function).unwrap();
     crate::CompiledModule {
@@ -238,47 +229,37 @@ fn synchronized_word_registers() -> crate::CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32, Type::I1],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let index = body.parameter::<I32>(0)?;
-                let stop = body.parameter::<I1>(1)?;
-                let mut state = State::new(&cpu);
-                let old_word =
-                    state.read_register(&mut body, Register::<I16>::named(Gpr32::Eax))?;
-                state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
-                state.write_register(&mut body, Gpr32::Edi, 0x1357_9bdf)?;
-                state.write_register(
-                    &mut body,
-                    Register::<I16>::named(Gpr32::Eax),
-                    old_word.add(1),
-                )?;
-                state.write_register(&mut body, RegisterCode::from_code(4).view::<I8>(), 0xaa)?;
-                body.if_(stop, |mut branch| {
-                    state.publish(&mut branch, 0x1009, 4)?;
-                    branch.return_(7)
-                })?;
-                let before =
-                    state.read_register(&mut body, Register::<I16>::indexed(index.clone()))?;
-                state.write_register(
-                    &mut body,
-                    Register::<I16>::indexed(index),
-                    old_word.add(0x3323),
-                )?;
-                let after = state.read_register(&mut body, Gpr32::Eax)?;
-                state.publish(&mut body, 0x100b, 5)?;
-                body.return_(
-                    before
-                        .unsigned()
-                        .extend::<I64>()
-                        .shl(32)
-                        .or(after.unsigned().extend::<I64>()),
-                )
-            },
-        )
+        .function::<fn(u32, bool) -> u64>(|mut body, (index, stop)| {
+            let mut state = State::new(&cpu);
+            let old_word = state.read_register(&mut body, Register::<I16>::named(Gpr32::Eax))?;
+            state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
+            state.write_register(&mut body, Gpr32::Edi, 0x1357_9bdf)?;
+            state.write_register(
+                &mut body,
+                Register::<I16>::named(Gpr32::Eax),
+                old_word.add(1),
+            )?;
+            state.write_register(&mut body, RegisterCode::from_code(4).view::<I8>(), 0xaa)?;
+            body.if_(stop, |mut branch| {
+                state.publish(&mut branch, 0x1009, 4)?;
+                branch.return_(7)
+            })?;
+            let before = state.read_register(&mut body, Register::<I16>::indexed(index.clone()))?;
+            state.write_register(
+                &mut body,
+                Register::<I16>::indexed(index),
+                old_word.add(0x3323),
+            )?;
+            let after = state.read_register(&mut body, Gpr32::Eax)?;
+            state.publish(&mut body, 0x100b, 5)?;
+            body.return_(
+                before
+                    .unsigned()
+                    .extend::<I64>()
+                    .shl(32)
+                    .or(after.unsigned().extend::<I64>()),
+            )
+        })
         .unwrap();
     program.export("run", function).unwrap();
     crate::CompiledModule {

@@ -2,10 +2,10 @@ use super::*;
 
 const INITIAL: [u8; 14] = [7, 0, 0, 0, 11, 0, 0, 0, 0, 0, 0, 0, 0xa5, 0x5a];
 
-fn reader(fixture: &mut Fixture, memory: Mem) -> Func {
+fn reader(fixture: &mut Fixture, memory: Mem) -> relocade_compiler::TypedFunc<fn() -> (u32, u32)> {
     fixture
         .program
-        .function(signature(&[], &[Type::I32, Type::I32]), |mut body| {
+        .function::<fn() -> (u32, u32)>(|mut body, ()| {
             let first = body.load::<I32>(memory, 0)?;
             let second = body.load::<I32>(memory, 4)?;
             body.return_((first, second))
@@ -143,7 +143,7 @@ fn a_boolean_result_and_a_later_value_share_the_snapshot_before_the_guard() {
     let memory = fixture.memory("state", &INITIAL);
     let helper = fixture
         .program
-        .function(signature(&[], &[Type::I1, Type::I32]), |mut body| {
+        .function::<fn() -> (bool, u32)>(|mut body, ()| {
             let condition = body.load::<I32>(memory, 0)?.eq(7);
             let result = body.load::<I32>(memory, 4)?;
             body.return_((condition, result))
@@ -168,14 +168,10 @@ fn a_pure_invocation_needed_in_only_one_arm_stays_on_that_control_path() {
     let mut fixture = Fixture::new();
     let helper = fixture
         .program
-        .function(
-            signature(&[Type::I1], &[Type::I32, Type::I64]),
-            |mut body| {
-                let fail = body.parameter::<I1>(0)?;
-                body.if_(fail, |arm| arm.trap())?;
-                body.return_((13, 17_u64))
-            },
-        )
+        .function::<fn(bool) -> (u32, u64)>(|mut body, (fail,)| {
+            body.if_(fail, |arm| arm.trap())?;
+            body.return_((13, 17_u64))
+        })
         .unwrap();
     let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
         let choose = body.parameter::<I1>(0)?;

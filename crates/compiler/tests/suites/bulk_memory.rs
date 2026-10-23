@@ -1,4 +1,4 @@
-use crate::fixture::{signature, Fixture};
+use crate::fixture::Fixture;
 use crate::wasm::TestModule;
 use relocade_compiler::{Type, I32};
 use wasmparser::{Operator, Parser, Payload};
@@ -55,14 +55,14 @@ fn calls_summarize_bulk_writes_and_keep_reader_snapshots() {
     let memory = fixture.memory("memory", &[7, 0, 0, 0, 9, 0, 0, 0]);
     let writer = fixture
         .program
-        .function(signature(&[], &[]), |mut body| {
+        .function::<fn()>(|mut body, ()| {
             body.memory_copy(memory, 0, memory, 4, 4)?;
             body.return_(())
         })
         .unwrap();
     let reader = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |mut body| {
+        .function::<fn() -> u32>(|mut body, ()| {
             let value = body.load::<I32>(memory, 0)?;
             body.return_(value)
         })

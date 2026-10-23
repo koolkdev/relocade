@@ -62,7 +62,7 @@ impl Fixture {
     ) -> TestModule {
         let run = self
             .program
-            .function(signature(parameters, results), build)
+            .raw_function(signature(parameters, results), build)
             .expect("build fixture function");
         self.finish(run)
     }
@@ -79,7 +79,7 @@ impl Fixture {
     }
 
     /// Complete a fixture whose bodies need explicit declarations or multiple functions.
-    pub fn finish(mut self, run: Func) -> TestModule {
+    pub fn finish(mut self, run: impl Into<Func>) -> TestModule {
         self.program
             .export("run", run)
             .expect("export fixture entry");

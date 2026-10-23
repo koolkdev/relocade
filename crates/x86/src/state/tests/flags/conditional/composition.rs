@@ -4,7 +4,7 @@ use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::CompiledModule;
 use crate::FlagBytes;
-use relocade_compiler::{Program, Signature, Type, I1, I32, I64, I8};
+use relocade_compiler::{Program, I1, I32, I64, I8};
 
 use super::super::fixture::{assert_result, initial_cpu};
 
@@ -15,42 +15,36 @@ fn every_predicate_must_hold_for_complete_and_partial_changes() {
             let mut program = Program::new();
             let cpu = Cpu::declare(&mut program);
             let function = program
-                .function(
-                    Signature {
-                        parameters: vec![Type::I1; 2],
-                        results: vec![Type::I64],
-                    },
-                    |mut body| {
-                        let mut state = State::new(&cpu);
-                        if pending_base {
-                            state.write_flags(
-                                &mut body,
-                                ArithmeticOp::Subtract.apply::<I32>(4, 5).flags,
-                            )?;
-                        }
-                        let first = body.parameter::<I1>(0)?;
-                        let second = body.parameter::<I1>(1)?;
-                        let change = if partial {
-                            FlagChange::partial([
-                                (StatusFlag::CF.into(), false.into()),
-                                (StatusFlag::OF.into(), true.into()),
-                            ])
-                        } else {
-                            ArithmeticOp::Add.apply::<I8>(127, 1).flags
-                        };
-                        state.write_flags(&mut body, change.when(first).when(second))?;
-                        let carry = state.condition(&mut body, Condition::B)?;
-                        let overflow = state.condition(&mut body, Condition::O)?;
-                        state.publish(&mut body, 0x1002, 1)?;
-                        body.return_(
-                            carry
-                                .unsigned()
-                                .extend::<I64>()
-                                .shl(1)
-                                .or(overflow.unsigned().extend::<I64>()),
-                        )
-                    },
-                )
+                .function::<fn(bool, bool) -> u64>(|mut body, _| {
+                    let mut state = State::new(&cpu);
+                    if pending_base {
+                        state.write_flags(
+                            &mut body,
+                            ArithmeticOp::Subtract.apply::<I32>(4, 5).flags,
+                        )?;
+                    }
+                    let first = body.parameter::<I1>(0)?;
+                    let second = body.parameter::<I1>(1)?;
+                    let change = if partial {
+                        FlagChange::partial([
+                            (StatusFlag::CF.into(), false.into()),
+                            (StatusFlag::OF.into(), true.into()),
+                        ])
+                    } else {
+                        ArithmeticOp::Add.apply::<I8>(127, 1).flags
+                    };
+                    state.write_flags(&mut body, change.when(first).when(second))?;
+                    let carry = state.condition(&mut body, Condition::B)?;
+                    let overflow = state.condition(&mut body, Condition::O)?;
+                    state.publish(&mut body, 0x1002, 1)?;
+                    body.return_(
+                        carry
+                            .unsigned()
+                            .extend::<I64>()
+                            .shl(1)
+                            .or(overflow.unsigned().extend::<I64>()),
+                    )
+                })
                 .unwrap();
             program.export("run", function).unwrap();
             let module = TestModule::new(&CompiledModule {
@@ -110,49 +104,42 @@ fn preserving_carry_keeps_the_predicate_in_either_order() {
                     let mut program = Program::new();
                     let cpu = Cpu::declare(&mut program);
                     let function = program
-                        .function(
-                            Signature {
-                                parameters: vec![Type::I1],
-                                results: vec![Type::I64],
-                            },
-                            |mut body| {
-                                let mut state = State::new(&cpu);
-                                if pending_base {
-                                    // 127+1 and 128+128 both overflow, with opposite CF.
-                                    let (left, right) =
-                                        if carry == 0 { (127, 1) } else { (128, 128) };
-                                    state.write_flags(
-                                        &mut body,
-                                        ArithmeticOp::Add.apply::<I8>(left, right).flags,
-                                    )?;
-                                }
-                                let predicate = body.parameter::<I1>(0)?;
-                                let change = if partial {
-                                    FlagChange::partial([
-                                        (StatusFlag::CF.into(), false.into()),
-                                        (StatusFlag::OF.into(), false.into()),
-                                    ])
-                                } else {
-                                    ArithmeticOp::Add.apply::<I8>(255, 1).flags
-                                };
-                                let change = if condition_first {
-                                    change.when(predicate).preserving(StatusFlag::CF)
-                                } else {
-                                    change.preserving(StatusFlag::CF).when(predicate)
-                                };
-                                state.write_flags(&mut body, change)?;
-                                let carry = state.condition(&mut body, Condition::B)?;
-                                let overflow = state.condition(&mut body, Condition::O)?;
-                                state.publish(&mut body, 0x1002, 1)?;
-                                body.return_(
-                                    carry
-                                        .unsigned()
-                                        .extend::<I64>()
-                                        .shl(1)
-                                        .or(overflow.unsigned().extend::<I64>()),
-                                )
-                            },
-                        )
+                        .function::<fn(bool) -> u64>(|mut body, _| {
+                            let mut state = State::new(&cpu);
+                            if pending_base {
+                                // 127+1 and 128+128 both overflow, with opposite CF.
+                                let (left, right) = if carry == 0 { (127, 1) } else { (128, 128) };
+                                state.write_flags(
+                                    &mut body,
+                                    ArithmeticOp::Add.apply::<I8>(left, right).flags,
+                                )?;
+                            }
+                            let predicate = body.parameter::<I1>(0)?;
+                            let change = if partial {
+                                FlagChange::partial([
+                                    (StatusFlag::CF.into(), false.into()),
+                                    (StatusFlag::OF.into(), false.into()),
+                                ])
+                            } else {
+                                ArithmeticOp::Add.apply::<I8>(255, 1).flags
+                            };
+                            let change = if condition_first {
+                                change.when(predicate).preserving(StatusFlag::CF)
+                            } else {
+                                change.preserving(StatusFlag::CF).when(predicate)
+                            };
+                            state.write_flags(&mut body, change)?;
+                            let carry = state.condition(&mut body, Condition::B)?;
+                            let overflow = state.condition(&mut body, Condition::O)?;
+                            state.publish(&mut body, 0x1002, 1)?;
+                            body.return_(
+                                carry
+                                    .unsigned()
+                                    .extend::<I64>()
+                                    .shl(1)
+                                    .or(overflow.unsigned().extend::<I64>()),
+                            )
+                        })
                         .unwrap();
                     program.export("run", function).unwrap();
                     let module = TestModule::new(&CompiledModule {

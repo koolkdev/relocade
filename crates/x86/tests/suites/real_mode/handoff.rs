@@ -11,10 +11,9 @@ use relocade_compiler::Program;
 fn handoff_registers_the_real_mode_interpreters_memory_imports() {
     // The caller only imports interpret; its Real16 callee requires physical memory.
     let mut program = Program::new();
-    let signature = crate::abi::INTERPRET.signature();
-    let interpret = program.import_function(crate::abi::INTERPRET);
+    let interpret = crate::abi::INTERPRET.import(&mut program);
     let entry = program
-        .function(signature, |body| body.tail_call(interpret, &[]))
+        .function::<crate::abi::ExecutionSignature>(|body, ()| interpret.tail_call(body, ()))
         .unwrap();
     program.export("enter", entry).unwrap();
     let module = TestModule::new(&relocade_x86::CompiledModule {

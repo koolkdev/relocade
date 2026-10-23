@@ -7,7 +7,7 @@ mod transfer;
 use std::cell::Cell;
 
 use relocade_compiler::{
-    BlockBuilder, BuildError, Func, Mem, MemoryInt, MemoryType, Program, Val, I32, I64,
+    BlockBuilder, BuildError, Func, Mem, MemoryInt, MemoryType, Program, TypedFunc, Val, I32,
 };
 
 use super::{Access, DirectRange, Intent};
@@ -19,8 +19,8 @@ pub(crate) struct PhysicalMemory {
     table: PhysicalTable,
     mmio_reader: Func,
     mmio_writer: Func,
-    reader: Cell<Option<Func>>,
-    writer: Cell<Option<Func>>,
+    reader: Cell<Option<TypedFunc<fn(u32, u32) -> u64>>>,
+    writer: Cell<Option<TypedFunc<fn(u32, u32, u64)>>>,
 }
 
 impl PhysicalMemory {
@@ -67,7 +67,7 @@ impl PhysicalMemory {
             |mut slow| {
                 let reader = self.reader(slow.program())?;
                 let value = T::read_parts(|offset, bytes| {
-                    slow.call::<I64>(reader, &[address.add(offset).into(), bytes.into()])
+                    reader.call(&mut slow, (address.add(offset), bytes))
                 })?;
                 slow.yield_(value)
             },
@@ -94,10 +94,7 @@ impl PhysicalMemory {
             |mut slow| {
                 let writer = self.writer(slow.program())?;
                 T::write_parts(value, |offset, bytes, part| {
-                    slow.call::<()>(
-                        writer,
-                        &[address.add(offset).into(), bytes.into(), part.into()],
-                    )
+                    writer.call(&mut slow, (address.add(offset), bytes, part))
                 })
             },
             |mut direct_body| direct_body.store_at::<T>(self.backing, direct.physical, 0, value),

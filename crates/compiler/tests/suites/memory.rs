@@ -432,17 +432,11 @@ fn private_and_shared_imports_preserve_declared_limits() {
             shared,
         });
         let run = program
-            .function(
-                Signature {
-                    parameters: vec![],
-                    results: vec![Type::I32],
-                },
-                |mut body| {
-                    body.store::<I32>(memory, 65536, 73)?;
-                    let value = body.load::<I32>(memory, 65536)?;
-                    body.return_(value)
-                },
-            )
+            .function::<fn() -> u32>(|mut body, ()| {
+                body.store::<I32>(memory, 65536, 73)?;
+                let value = body.load::<I32>(memory, 65536)?;
+                body.return_(value)
+            })
             .unwrap();
         program.export("run", run).unwrap();
         let module = TestModule::with_imports(

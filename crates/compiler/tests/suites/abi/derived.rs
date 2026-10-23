@@ -54,10 +54,8 @@ fn compiler_only_aggregates_cross_typed_parameters_calls_and_returns() {
     );
     assert_eq!(&signature.parameters[3..], &[Type::I16; 16]);
     let mut program = Program::new();
-    let echo = ECHO
-        .define(&mut program, |body, (header, batch)| {
-            body.return_((header, batch))
-        })
+    let echo = program
+        .function::<Echo>(|body, (header, batch)| body.return_((header, batch)))
         .unwrap();
     RUN.define(&mut program, |mut body, ()| {
         let header = HeaderValues::<V128> {

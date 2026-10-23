@@ -160,10 +160,10 @@ fn an_ignored_invalid_void_return_cannot_become_a_fallthrough_branch() {
 #[test]
 fn a_failed_no_result_body_rolls_back_its_helper_declarations() {
     let mut program = Program::new();
-    let failure = program.function(signature(&[], &[]), |mut body| {
+    let failure = program.function::<fn()>(|mut body, ()| {
         let helper = body
             .program()
-            .function(signature(&[], &[]), |body| body.return_(()))?;
+            .function::<fn()>(|body, ()| body.return_(()))?;
         body.call::<()>(helper, &[7.into()])?;
         body.return_(())
     });
@@ -175,7 +175,7 @@ fn a_failed_no_result_body_rolls_back_its_helper_declarations() {
         })
     );
     let run = program
-        .function(signature(&[], &[]), |body| body.return_(()))
+        .function::<fn()>(|body, ()| body.return_(()))
         .unwrap();
     program.export("run", run).unwrap();
     let bytes = program.compile().unwrap();

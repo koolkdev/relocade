@@ -58,6 +58,11 @@ fn failed_typed_definition_releases_its_export_name() {
     ));
     RUN.define(&mut program, |body, ()| body.return_(true))
         .unwrap();
+    assert_eq!(
+        RUN.define(&mut program, |body, ()| body.return_(false))
+            .unwrap_err(),
+        BuildError::DuplicateExport
+    );
     let module = TestModule::new(&program.compile().unwrap());
     assert_eq!(module.instantiate().call::<i32>(()).unwrap(), 1);
 }
@@ -81,10 +86,7 @@ fn exports_check_logical_types_before_registering_the_name() {
     const WIDE: Function<fn(I32) -> I32> = Function::new("example", "identity");
     let mut program = Program::new();
     let function = program
-        .function(WIDE.signature(), |body| {
-            let value = body.parameter::<I32>(0)?;
-            body.return_(value)
-        })
+        .function::<fn(I32) -> I32>(|body, (value,)| body.return_(value))
         .unwrap();
     assert_eq!(
         NARROW.export(&mut program, function),

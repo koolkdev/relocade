@@ -102,7 +102,7 @@ fn removed_writes_do_not_force_an_unused_helper_call() {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let helper = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |mut body| {
+        .function::<fn() -> u32>(|mut body, ()| {
             body.if_(false, |mut arm| arm.store::<I32>(state, 0, 99))?;
             body.return_(23)
         })

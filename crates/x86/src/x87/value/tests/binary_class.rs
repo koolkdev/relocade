@@ -26,13 +26,8 @@ fn native_classes_control_expansion_and_exact_store_range() {
         for right_known in [false, true] {
             let mut program = Program::new();
             let function = program
-                .function(
-                    Signature {
-                        parameters: vec![Type::I64, Type::I64, Type::I1, Type::I1],
-                        results: vec![Type::I64, Type::I16, Type::I64, Type::I1, Type::I16],
-                    },
-                    |body| {
-                        let bits = body.parameter::<I64>(0)?;
+                .function::<fn(u64, u64, bool, bool) -> (u64, u16, u64, bool, u16)>(
+                    |body, (bits, _, _, _)| {
                         let zero = bits.and(sign - 1).eq(0_u64);
                         let left = ExtendedValue::from_classified_binary(
                             format,

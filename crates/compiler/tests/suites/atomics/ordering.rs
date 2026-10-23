@@ -17,17 +17,11 @@ fn shared_imports_do_not_change_ordinary_memory_lowering() {
             shared,
         });
         let run = program
-            .function(
-                Signature {
-                    parameters: vec![],
-                    results: vec![Type::I32],
-                },
-                |mut body| {
-                    let value = body.load::<I32>(memory, 0)?;
-                    body.store::<I32>(memory, 4, 7)?;
-                    body.return_(value)
-                },
-            )
+            .function::<fn() -> u32>(|mut body, ()| {
+                let value = body.load::<I32>(memory, 0)?;
+                body.store::<I32>(memory, 4, 7)?;
+                body.return_(value)
+            })
             .unwrap();
         program.export("run", run).unwrap();
         program.compile().unwrap()
@@ -68,28 +62,28 @@ fn synchronization_orders_direct_reads_and_read_only_helpers_across_memories() {
             };
             let reader = fixture
                 .program
-                .function(signature.clone(), |mut body| {
+                .raw_function(signature.clone(), |mut body| {
                     let value = body.load::<I32>(data, 0)?;
                     body.return_(value)
                 })
                 .unwrap();
             let inner = fixture
                 .program
-                .function(signature.clone(), |mut body| {
+                .raw_function(signature.clone(), |mut body| {
                     body.atomic::<I32>(control, 0, 0)?.load()?;
                     body.return_(0)
                 })
                 .unwrap();
             let outer = fixture
                 .program
-                .function(signature.clone(), |mut body| {
+                .raw_function(signature.clone(), |mut body| {
                     body.call::<I32>(inner, &[])?;
                     body.return_(0)
                 })
                 .unwrap();
             let run = fixture
                 .program
-                .function(signature, |mut body| {
+                .raw_function(signature, |mut body| {
                     let before = if helper_reads {
                         body.call::<I32>(reader, &[])?
                     } else {

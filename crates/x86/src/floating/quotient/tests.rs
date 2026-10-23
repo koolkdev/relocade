@@ -2,24 +2,15 @@
 
 use super::*;
 use crate::{test_step as step, CompiledModule};
-use relocade_compiler::{Program, Signature, Type};
+use relocade_compiler::Program;
 
 fn check_scaled_division(narrow: bool) {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I64, Type::I64, Type::I32],
-                results: vec![Type::I64, Type::I64],
-            },
-            |mut body| {
-                let numerator = body.parameter::<I64>(0)?;
-                let denominator = body.parameter::<I64>(1)?;
-                let shift = body.parameter::<I32>(2)?;
-                let result = integer_division(&mut body, &numerator, denominator, &shift, narrow)?;
-                body.return_((result.quotient, result.remainder))
-            },
-        )
+        .function::<fn(u64, u64, u32) -> (u64, u64)>(|mut body, (numerator, denominator, shift)| {
+            let result = integer_division(&mut body, &numerator, denominator, &shift, narrow)?;
+            body.return_((result.quotient, result.remainder))
+        })
         .unwrap();
     program.export("divide", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {

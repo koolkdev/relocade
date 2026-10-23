@@ -25,7 +25,7 @@ mod tests;
 
 pub(crate) use cache::{PageCache, PageCacheInputs};
 
-use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, TypedFunc, Val, I1, I32};
 
 const PAGE_SHIFT: u32 = 12;
 const ENTRY_SHIFT: u32 = 2;
@@ -85,55 +85,55 @@ impl PageTable {
 
     /// Resolves every touched page of a nonempty span. The result carries its
     /// first frame and permissions, plus scattered backing, or the first denial.
-    pub(super) fn define_range_resolver(
+    pub(super) fn range_resolver(
         self,
-        mut body: BlockBuilder<'_>,
-    ) -> Result<(), BuildError> {
-        let start = body.parameter::<I32>(0)?;
-        let last_byte_offset = body.parameter::<I32>(1)?;
-        let first_entry = body.parameter::<I32>(2)?;
-        let required = body.parameter::<I32>(3)?;
-        body.if_(first_entry.and(&required).ne(&required), |arm| {
-            arm.return_(first_entry.and(FRAME_MASK | PRESENT | WRITABLE))
-        })?;
-        // Count page boundaries without overflowing start + last_byte_offset.
-        // The linear page address wraps independently while walking this count.
-        let boundaries = last_byte_offset.unsigned().shr(PAGE_SHIFT).add(
-            start
-                .and(PAGE_OFFSET)
-                .add(last_byte_offset.and(PAGE_OFFSET))
-                .unsigned()
-                .shr(PAGE_SHIFT),
-        );
-        let scattered = body.loop_::<(I32, I32, I1, I32), I1>(
-            (
-                start.and(FRAME_MASK),
-                first_entry.and(FRAME_MASK),
-                false,
-                boundaries,
-            ),
-            |mut page, labels, (address, frame, scattered, remaining)| {
-                page.branch_if(remaining.eq(0), &labels.exit, &scattered)?;
-                let next_address = address.add(PAGE_BYTES);
-                let entry = self.entry(&mut page, &next_address)?;
-                page.if_(entry.and(&required).ne(&required), |arm| {
-                    arm.return_(next_address.or(entry.and(PRESENT)).or(LATER_DENIAL))
+        program: &mut Program,
+    ) -> Result<TypedFunc<fn(u32, u32, u32, u32) -> u32>, BuildError> {
+        program.function::<fn(u32, u32, u32, u32) -> u32>(
+            |mut body, (start, last_byte_offset, first_entry, required)| {
+                body.if_(first_entry.and(&required).ne(&required), |arm| {
+                    arm.return_(first_entry.and(FRAME_MASK | PRESENT | WRITABLE))
                 })?;
-                page.branch(
-                    &labels.again,
+                // Count page boundaries without overflowing start + last_byte_offset.
+                // The linear page address wraps independently while walking this count.
+                let boundaries = last_byte_offset.unsigned().shr(PAGE_SHIFT).add(
+                    start
+                        .and(PAGE_OFFSET)
+                        .add(last_byte_offset.and(PAGE_OFFSET))
+                        .unsigned()
+                        .shr(PAGE_SHIFT),
+                );
+                let scattered = body.loop_::<(I32, I32, I1, I32), I1>(
                     (
-                        next_address,
-                        entry.and(FRAME_MASK),
-                        scattered.or(scattered_backing(&frame, &entry)),
-                        remaining.sub(1),
+                        start.and(FRAME_MASK),
+                        first_entry.and(FRAME_MASK),
+                        false,
+                        boundaries,
                     ),
+                    |mut page, labels, (address, frame, scattered, remaining)| {
+                        page.branch_if(remaining.eq(0), &labels.exit, &scattered)?;
+                        let next_address = address.add(PAGE_BYTES);
+                        let entry = self.entry(&mut page, &next_address)?;
+                        page.if_(entry.and(&required).ne(&required), |arm| {
+                            arm.return_(next_address.or(entry.and(PRESENT)).or(LATER_DENIAL))
+                        })?;
+                        page.branch(
+                            &labels.again,
+                            (
+                                next_address,
+                                entry.and(FRAME_MASK),
+                                scattered.or(scattered_backing(&frame, &entry)),
+                                remaining.sub(1),
+                            ),
+                        )
+                    },
+                )?;
+                body.return_(
+                    first_entry
+                        .and(FRAME_MASK | PRESENT | WRITABLE)
+                        .or(scattered.unsigned().extend::<I32>().shl(2)),
                 )
             },
-        )?;
-        body.return_(
-            first_entry
-                .and(FRAME_MASK | PRESENT | WRITABLE)
-                .or(scattered.unsigned().extend::<I32>().shl(2)),
         )
     }
 }

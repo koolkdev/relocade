@@ -8,7 +8,7 @@ fn field_module() -> TestModule {
     )
     .unwrap();
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
@@ -124,7 +124,7 @@ fn wide_field_modules() -> [TestModule; 2] {
         ("write_fields", Intent::Write),
     ] {
         let function = program
-            .function(
+            .raw_function(
                 Signature {
                     parameters: vec![Type::I32],
                     results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(

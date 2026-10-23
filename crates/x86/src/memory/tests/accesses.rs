@@ -12,7 +12,7 @@ fn write_then_read() -> TestModule {
     )
     .unwrap();
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32, Type::I32],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
@@ -149,7 +149,7 @@ fn narrower_updates_keep_their_width_and_require_write_permissions() {
         )
         .unwrap();
         let function = program
-            .function(
+            .raw_function(
                 Signature {
                     parameters: vec![Type::I32],
                     results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
@@ -252,7 +252,7 @@ fn later_pages_and_new_entries_use_current_mappings() {
     )
     .unwrap();
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32, Type::I32],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(

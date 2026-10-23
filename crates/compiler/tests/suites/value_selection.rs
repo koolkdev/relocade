@@ -1,4 +1,4 @@
-use crate::fixture::{signature, Fixture};
+use crate::fixture::Fixture;
 use crate::wasm::TestModule;
 
 use relocade_compiler::{BlockBuilder, Mem, Type, Val, I1, I32, I64, I8};
@@ -101,7 +101,7 @@ fn call_snapshot() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
     let mutate = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |mut body| {
+        .function::<fn() -> u32>(|mut body, ()| {
             body.store::<I32>(state, 0, 9)?;
             body.return_(11)
         })

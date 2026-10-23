@@ -5,7 +5,7 @@ use crate::{
     x87::ExtendedBits,
     CompiledModule, CpuState,
 };
-use relocade_compiler::{Program, Signature, Type, I64};
+use relocade_compiler::{Program, I64};
 use wasmparser::{Operator, Parser, Payload};
 
 fn module(
@@ -14,16 +14,10 @@ fn module(
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32, Type::I1],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let result = build(&mut body, &mut Registers::new(cpu.memory()))?;
-                body.return_(result)
-            },
-        )
+        .function::<fn(u32, bool) -> u64>(|mut body, _| {
+            let result = build(&mut body, &mut Registers::new(cpu.memory()))?;
+            body.return_(result)
+        })
         .unwrap();
     program.export("run", function).unwrap();
     CompiledModule {

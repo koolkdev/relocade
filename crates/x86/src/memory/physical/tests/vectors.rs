@@ -8,30 +8,24 @@ fn module(write: bool) -> TestModule {
     let mut program = Program::new();
     let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
     let function = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64, Type::I64],
-            },
-            |mut body| {
-                let access = memory.resolve_access(
-                    &mut body,
-                    &0x1ff8.into(),
-                    16,
-                    if write { Intent::Write } else { Intent::Read },
-                    None,
-                    Some(&mut exit::exception),
-                )?;
-                let value = if write {
-                    let value = Val::<V128>::from(0x100f0e0d0c0b0a09_0807060504030201_u128);
-                    memory.write(&mut body, &access, 0, &value)?;
-                    value
-                } else {
-                    memory.read::<V128>(&mut body, &access, 0)?
-                };
-                body.return_((value.extract_lane::<I64>(0), value.extract_lane::<I64>(1)))
-            },
-        )
+        .function::<fn() -> (u64, u64)>(|mut body, ()| {
+            let access = memory.resolve_access(
+                &mut body,
+                &0x1ff8.into(),
+                16,
+                if write { Intent::Write } else { Intent::Read },
+                None,
+                Some(&mut exit::exception),
+            )?;
+            let value = if write {
+                let value = Val::<V128>::from(0x100f0e0d0c0b0a09_0807060504030201_u128);
+                memory.write(&mut body, &access, 0, &value)?;
+                value
+            } else {
+                memory.read::<V128>(&mut body, &access, 0)?
+            };
+            body.return_((value.extract_lane::<I64>(0), value.extract_lane::<I64>(1)))
+        })
         .unwrap();
     program.export("run", function).unwrap();
     TestModule::new(&CompiledModule {
