@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::encoding::check_unsupported_at_page_end;
 use crate::SegmentProfile;
 
 #[test]
@@ -182,21 +183,7 @@ fn invalid_segment_encodings_are_rejected_before_address_bytes_or_source_access(
         for mode in [0, 3] {
             // Memory mode needs an unmapped disp32 after the ModRM byte.
             let code = [opcode, (mode << 6) | (extension << 3) | 5];
-            assert!(matches!(
-                relocade_x86::compile_block_from_bytes(0x1ffe, &code, 1),
-                Err(relocade_x86::BlockError::UnsupportedInstruction { .. })
-            ));
-            let mut image = Image::empty();
-            image.cpu.eip = 0x1ffe;
-            image.map(1, 0x3000, false);
-            image.data(0x3ffe, &code);
-            image.check_unchanged_exit(
-                TestModule::interpreter(),
-                &format!(
-                    "invalid segment move opcode={opcode:02x}, extension={extension}, mode={mode}"
-                ),
-                Exit::Other((8 << 48) | (u64::from(opcode) << 32) | 0x1ffe),
-            );
+            check_unsupported_at_page_end(&code, opcode);
         }
     }
 }

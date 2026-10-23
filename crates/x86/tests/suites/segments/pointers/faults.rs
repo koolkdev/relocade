@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::encoding::check_unsupported_at_page_end;
 use crate::SegmentProfile;
 
 #[test]
@@ -221,18 +222,6 @@ fn register_sources_are_rejected_by_both_decoders_before_execution() {
         let rm = 3;
         let mut code = opcode.to_vec();
         code.push(0xc0 | rm);
-        let mut image = Image::empty();
-        image.cpu.eip = 0x2000 - code.len() as u32;
-        image.map(1, 0x3000, false);
-        image.data(0x4000 - code.len() as u32, &code);
-        assert!(matches!(
-            relocade_x86::compile_block_from_bytes(image.cpu.eip, &code, 1),
-            Err(relocade_x86::BlockError::UnsupportedInstruction { .. })
-        ));
-        image.check_unchanged_exit(
-            TestModule::interpreter(),
-            &format!("pointer load rejects register source {code:02x?}"),
-            Exit::Other((8 << 48) | (u64::from(opcode[0]) << 32) | u64::from(image.cpu.eip)),
-        );
+        check_unsupported_at_page_end(&code, opcode[0]);
     }
 }
