@@ -124,7 +124,7 @@ async fn check_stateful_callbacks() {
         backend.write_memory(&memory, 0, &initial.to_le_bytes());
         // Each invocation adds four in the consumer, then the next two callback counts.
         for (calls, increment) in [(2, 7), (4, 18)] {
-            assert_eq!(backend.call(&entry).unwrap(), initial + increment);
+            assert_eq!(backend.call(&entry, ()), initial + increment);
             assert_eq!(backend.state().calls, calls);
             let mut bytes = [0; 8];
             backend.read_memory(&memory, 0, &mut bytes);
@@ -201,7 +201,7 @@ async fn check_scalar_callbacks() {
         backend.function(&instance, RUN).unwrap()
     };
     assert_eq!(
-        backend.call(&entry).unwrap(),
+        backend.call(&entry, ()),
         -0x20_0000_0000_0003_i64 ^ 1.75_f64.to_bits() as i64
     );
 }
@@ -257,7 +257,7 @@ async fn check_tuple_callbacks() {
     ];
     let instance = backend.instantiate(&module, &imports).await.unwrap();
     let entry = backend.function(&instance, RUN).unwrap();
-    assert_eq!(backend.call(&entry).unwrap(), 0x20_0000_0000_0003);
+    assert_eq!(backend.call(&entry, ()), 0x20_0000_0000_0003);
     let mut bytes = [0; 32];
     backend.read_memory(&memory, 0, &mut bytes);
     assert_eq!(

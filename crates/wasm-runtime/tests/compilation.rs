@@ -32,9 +32,9 @@ async fn check_independent_compiler() {
     let value = backend.bind_host(VALUE, Box::new(|caller| caller.state().get()));
     let instance = backend.instantiate(&module, &[value]).await.unwrap();
     let run = backend.function(&instance, RUN).unwrap();
-    assert_eq!(backend.call(&run).unwrap(), 42);
+    assert_eq!(backend.call(&run, ()), 42);
     backend.state().set(52);
-    assert_eq!(backend.call(&run).unwrap(), 52);
+    assert_eq!(backend.call(&run, ()), 52);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -4,7 +4,8 @@ mod table;
 
 use super::{access::CpuAccess, code};
 use crate::{Error, Result, RuntimeMemory};
-use relocade_wasm_runtime::{Import, WasmBackend};
+use relocade_compiler::I64;
+use relocade_wasm_runtime::{ExportFunction, Function, Import};
 use relocade_x86::{abi, ExecutionExit};
 use table::DispatchTable;
 
@@ -17,14 +18,14 @@ pub struct DispatchEntry<'a> {
 /// Bound dispatcher, interpreter, host imports and callable entries for one CPU.
 /// Keeps module linking and publication together so every entry uses the same
 /// runtime bindings and execution table.
-pub(crate) struct Dispatch<B: WasmBackend> {
-    dispatch: B::Function,
-    interpret: B::Function,
+pub(crate) struct Dispatch<B: ExportFunction<fn() -> I64>> {
+    dispatch: Function<B, fn() -> I64>,
+    interpret: Function<B, fn() -> I64>,
     table: DispatchTable<B>,
     host_imports: Vec<Import<'static, B>>,
 }
 
-impl<B: WasmBackend> Dispatch<B> {
+impl<B: ExportFunction<fn() -> I64>> Dispatch<B> {
     pub(crate) async fn new(
         backend: &mut B,
         bindings: &RuntimeMemory<B::Memory>,
@@ -62,7 +63,7 @@ impl<B: WasmBackend> Dispatch<B> {
 
     pub(crate) fn run(&mut self, access: &mut CpuAccess<B>, target: u64) -> Result<ExecutionExit> {
         access.set_instruction_target(target);
-        let word = access.backend.call(&self.dispatch)? as u64;
+        let word = access.backend.call(&self.dispatch, ()) as u64;
         ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
     }
 
