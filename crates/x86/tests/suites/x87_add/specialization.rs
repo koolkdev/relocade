@@ -1,7 +1,7 @@
 //! Normal and zero sums remain live; exceptional sums restart before effects.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{execution::CompiledExecution, machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
 fn live_arithmetic() {
@@ -33,8 +33,7 @@ fn live_arithmetic() {
 fn restart_state() {
     let code = [0xd8, 0xc9, 0xde, 0xc2];
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     let mut image = stack_image(&code, 0, 0xffc0);
     image.cpu.x87.status.precision = 0;
     write_value(&mut image.cpu, 0, (LEADING + 1, 0x3fff));
@@ -44,24 +43,16 @@ fn restart_state() {
     write_value(&mut first, 0, (0xc000_0000_0000_0002, 0x3fff));
     first.x87.status.precision = 1;
     first.x87.status.c1 = 1;
-    assert_eq!(
-        block.observe(&image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu: first,
-                ram: &[],
-                exit: Exit::Interpret
-            }]
-        )
-    );
+
     let mut second = complete_x87(first, 2, 0x06c2);
     second.x87.status.top = 1;
     second.x87.status.c1 = 0;
     second.x87.tag_word |= 3;
-    assert_eq!(
-        linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(second)])
+    checks.check_restart(
+        "addition restart retains the preceding multiplication",
+        &image,
+        &[dispatch(first)],
+        &dispatch(second),
     );
 }
 

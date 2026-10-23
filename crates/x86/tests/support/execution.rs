@@ -8,6 +8,9 @@ use super::{
     step::{Event, TestModule},
 };
 
+mod compiled;
+pub(crate) use compiled::CompiledExecution;
+
 #[cfg(test)]
 mod tests;
 

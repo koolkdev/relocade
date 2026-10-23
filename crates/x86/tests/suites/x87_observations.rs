@@ -8,6 +8,7 @@ mod precision;
 mod shape;
 
 use crate::support::{
+    execution::CompiledExecution,
     machine::{dispatch, expected, Exit, Step},
     step::TestModule,
     x87::{complete_x87, set_control, stack_image, write_value},
@@ -174,8 +175,7 @@ fn memory_arithmetic_uses_observed_modes() {
 fn mismatch_restarts_at_the_consumer() {
     let code = [0xb8, 7, 0, 0, 0, 0xd8, 0xc9];
     let compiled = compiler(3, 0).compile_block(0x1000, &code, 2).unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for (pc, rc) in [(0, 0), (3, 1)] {
         let mut image = stack_image(&code, 0, 0xfff0);
         image.cpu.x87.control.precision_control = pc;
@@ -186,22 +186,14 @@ fn mismatch_restarts_at_the_consumer() {
         restart.eip += 5;
         restart.instruction_count = restart.instruction_count.wrapping_add(1);
         restart.registers.eax = 7;
-        assert_eq!(
-            block.observe(&image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: restart,
-                    ram: &[],
-                    exit: Exit::Interpret
-                },]
-            )
-        );
+
         let mut result = complete_x87(restart, 2, 0x00c9);
         result.x87.status.c1 = 0;
-        assert_eq!(
-            linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_restart(
+            "mismatch restarts at the consumer",
+            &image,
+            &[dispatch(restart)],
+            &dispatch(result),
         );
     }
 }

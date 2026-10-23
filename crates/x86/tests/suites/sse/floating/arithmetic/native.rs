@@ -1,7 +1,7 @@
 //! Native scalar and packed arithmetic keep precise flags and an explicit restart domain.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::execution::CompiledExecution;
 use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
 struct NativeCase {
@@ -73,18 +73,15 @@ fn check(cases: &[NativeCase], restart: bool) {
                                 case.result[wide as usize],
                             );
                         }
-                        let wanted = expected(
-                            &image,
-                            &[Step {
-                                cpu,
-                                ram: &[],
-                                exit: if fault {
-                                    Exit::SimdFloatingPoint
-                                } else {
-                                    Exit::Dispatch(cpu.eip)
-                                },
-                            }],
-                        );
+                        let wanted = Step {
+                            cpu,
+                            ram: &[],
+                            exit: if fault {
+                                Exit::SimdFloatingPoint
+                            } else {
+                                Exit::Dispatch(cpu.eip)
+                            },
+                        };
                         for observed in [false, true] {
                             let compiler = Compiler::new(profile);
                             let compiler = if observed {
@@ -93,30 +90,12 @@ fn check(cases: &[NativeCase], restart: bool) {
                                 compiler
                             };
                             let compiled = compiler.compile_block(0x1000, &code, 2).unwrap();
-                            let block = TestModule::new(&compiled);
+                            let checks = CompiledExecution::new(&compiled);
+                            let name = format!("opcode={:x}, wide={wide}, packed={packed}, MXCSR={controls:x}, profile={profile:?}, observed={observed}", case.opcode);
                             if restart {
-                                assert_eq!(
-                                    block.observe(&image.input(), 1),
-                                    expected(
-                                        &image,
-                                        &[Step {
-                                            cpu: prior,
-                                            ram: &[],
-                                            exit: Exit::Interpret
-                                        }]
-                                    )
-                                );
-                                let linked = block.with_interpreter(
-                                    TestModule::interpreter_with_profile(profile),
-                                );
-                                assert_eq!(linked.observe(&image.input(), 1), wanted);
+                                checks.check_restart(&name, &image, &[dispatch(prior)], &wanted);
                             } else {
-                                assert_eq!(
-                                    block.observe( &image.input(), 1),
-                                    wanted,
-                                    "native {:x}, wide={wide}, packed={packed}, MXCSR={controls:x}, observed={observed}",
-                                    case.opcode
-                                );
+                                checks.check_native(&name, &image, &wanted);
                             }
                         }
                     }

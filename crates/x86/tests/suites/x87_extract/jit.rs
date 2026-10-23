@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::wasm::operators;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{execution::CompiledExecution, machine::expected, step::TestModule};
 use relocade_x86::Compiler;
 use wasmparser::Operator;
 
@@ -40,8 +40,7 @@ fn restart() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for (input, sig, exp, flag) in [
         ((0, 0x8000), (0, 0x8000), (LEAD, 0xffff), 4),
         ((1, 0), (LEAD, 0x3fff), (0x807a_0000_0000_0000, 0xc00d), 2),
@@ -54,11 +53,6 @@ fn restart() {
     ] {
         let mut image = stack_image(&CODE, 0, 0xffff);
         write_value(&mut image.cpu, 0, input);
-        image.check_unchanged_exit(
-            &block,
-            "FXTRACT restarts before either slot or TOP changes",
-            Exit::Interpret,
-        );
         let mut result = complete_x87(image.cpu, 2, 0x01f4);
         result.x87.status.c1 = 0;
         result.x87.status.top = 7;
@@ -67,9 +61,11 @@ fn restart() {
         result.x87.status.zero_divide = u8::from(flag == 4);
         write_value(&mut result, 0, exp);
         write_value(&mut result, 7, sig);
-        assert_eq!(
-            linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_restart(
+            "FXTRACT restarts before effects",
+            &image,
+            &[],
+            &dispatch(result),
         );
     }
 }

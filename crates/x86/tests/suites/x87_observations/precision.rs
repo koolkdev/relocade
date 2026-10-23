@@ -55,8 +55,7 @@ fn mismatch_restarts_before_arithmetic() {
     let compiled = masked_precision_compiler(3, 0)
         .compile_block(0x1000, &code, 2)
         .unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for mask in [1, 0] {
         let mut image = stack_image(&code, 0, 0xfff0);
         image.cpu.x87.control.precision_mask = mask;
@@ -67,17 +66,7 @@ fn mismatch_restarts_before_arithmetic() {
         restart.eip += 5;
         restart.instruction_count = restart.instruction_count.wrapping_add(1);
         restart.registers.eax = 7;
-        assert_eq!(
-            block.observe(&image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: restart,
-                    ram: &[],
-                    exit: Exit::Interpret,
-                }]
-            )
-        );
+
         let mut result = complete_x87(restart, 2, 0x00c9);
         result.x87.status.precision = 1;
         result.x87.status.c1 = 0;
@@ -86,9 +75,11 @@ fn mismatch_restarts_before_arithmetic() {
             result.x87.status.error_summary = 1;
             result.x87.status.busy = 1;
         }
-        assert_eq!(
-            linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_restart(
+            "mismatch restarts before arithmetic",
+            &image,
+            &[dispatch(restart)],
+            &dispatch(result),
         );
     }
 }
@@ -98,8 +89,7 @@ fn clearing_precision_invalidates_the_guard() {
     let compiled = masked_precision_compiler(3, 0)
         .compile_block(0x1000, &code, 3)
         .unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     let mut image = stack_image(&code, 0, 0xfff0);
     write_value(&mut image.cpu, 0, (LEADING + 1, 0x3fff));
     write_value(&mut image.cpu, 1, (LEADING + 1, 0x3fff));
@@ -109,23 +99,15 @@ fn clearing_precision_invalidates_the_guard() {
     restart.eip += 2;
     restart.instruction_count = restart.instruction_count.wrapping_add(1);
     restart.x87.status.precision = 0;
-    assert_eq!(
-        block.observe(&image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu: restart,
-                ram: &[],
-                exit: Exit::Interpret,
-            }]
-        )
-    );
+
     let mut result = complete_x87(restart, 2, 0x00c9);
     result.x87.status.precision = 1;
     write_value(&mut result, 0, (LEADING + 3, 0x3fff));
-    assert_eq!(
-        linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(result)])
+    checks.check_restart(
+        "clearing precision invalidates the guard",
+        &image,
+        &[dispatch(restart)],
+        &dispatch(result),
     );
 }
 

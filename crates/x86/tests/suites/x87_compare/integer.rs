@@ -1,7 +1,7 @@
 //! Integer sources convert exactly before the shared ordered comparison.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{execution::CompiledExecution, machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
 fn instruction(opcode: u8, pop: bool, address: u32) -> Vec<u8> {
@@ -210,8 +210,7 @@ fn compiled_sequence_and_restart() {
     // before overwriting the move's metadata or acquiring its memory pointer.
     let code = [vec![0xda, 0xc1], instruction(0xde, true, 0x4000)].concat();
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for masked in [false, true] {
         let mut image = initial_image(&code);
         image.cpu.flags.status_source.kind = 0;
@@ -226,17 +225,6 @@ fn compiled_sequence_and_restart() {
         image.data(0x8000, &1_i16.to_le_bytes());
         let mut prefix = complete_x87(image.cpu, 2, 0x02c1);
         write_value(&mut prefix, 7, SNAN);
-        assert_eq!(
-            block.observe(&image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: prefix,
-                    ram: &[],
-                    exit: Exit::Interpret
-                }]
-            )
-        );
         let mut result = completed(
             prefix,
             6,
@@ -250,9 +238,11 @@ fn compiled_sequence_and_restart() {
         );
         result.x87.data_offset = 0x4000;
         result.x87.data_selector = 0x23;
-        assert_eq!(
-            linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_restart(
+            "integer comparison restart preserves the preceding conditional move",
+            &image,
+            &[dispatch(prefix)],
+            &dispatch(result),
         );
     }
 }

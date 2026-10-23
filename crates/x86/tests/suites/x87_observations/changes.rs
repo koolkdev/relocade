@@ -6,8 +6,7 @@ use crate::support::x87::status;
 fn loaded_controls() {
     let code = [0xd8, 0xc9, 0xd9, 0x2d, 0, 0x40, 0, 0, 0xd8, 0xc9];
     let compiled = compiler(3, 0).compile_block(0x1000, &code, 3).unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for word in [0x037f, 0x036f, 0x007f, 0x0b7f] {
         let mut image = stack_image(&code, 0, 0xfff0);
         image.cpu.x87.status.precision = 0;
@@ -23,25 +22,13 @@ fn loaded_controls() {
         let mut result = complete_x87(restart, 2, 0x00c9);
         result.x87.status.c1 = 0;
         if word & 0x0f00 == 0x0300 {
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
-            );
+            checks.check_native("matching controls stay compiled", &image, &dispatch(result));
         } else {
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: restart,
-                        ram: &[],
-                        exit: Exit::Interpret
-                    },]
-                )
-            );
-            assert_eq!(
-                linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+            checks.check_restart(
+                "FLDCW changes the arithmetic consumer's observed controls",
+                &image,
+                &[dispatch(restart)],
+                &dispatch(result),
             );
         }
     }
@@ -56,8 +43,7 @@ fn initialized_controls() {
             compiler(pc, rc)
         };
         let compiled = compiler.compile_block(0x1000, &code, 3).unwrap();
-        let block = TestModule::new(&compiled);
-        let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+        let checks = CompiledExecution::new(&compiled);
         let mut image = stack_image(&code, 3, 0);
         set_control(
             &mut image.cpu.x87.control,
@@ -84,25 +70,13 @@ fn initialized_controls() {
         let mut result = complete_x87(loaded, 2, 0x00c8);
         write_value(&mut result, 7, (LEADING, 0x4001));
         if pc == 3 && rc == 0 && !precision_set {
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
-            );
+            checks.check_native("matching controls stay compiled", &image, &dispatch(result));
         } else {
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: loaded,
-                        ram: &[],
-                        exit: Exit::Interpret
-                    },]
-                )
-            );
-            assert_eq!(
-                linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+            checks.check_restart(
+                "FNINIT changes the arithmetic consumer's observed controls",
+                &image,
+                &[dispatch(loaded)],
+                &dispatch(result),
             );
         }
     }

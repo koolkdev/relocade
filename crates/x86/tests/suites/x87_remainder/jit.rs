@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::support::wasm::operators;
-use crate::support::{machine::expected, step::TestModule, x87::INDEFINITE};
+use crate::support::{
+    execution::CompiledExecution, machine::expected, step::TestModule, x87::INDEFINITE,
+};
 use relocade_x86::Compiler;
 use wasmparser::Operator;
 
@@ -93,8 +95,7 @@ fn restart(opcode: u8) {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &code, 1)
         .unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for (left, right, output, quotient, flags) in [
         ((LEAD, 0x7fff), (LEAD, 0x3fff), INDEFINITE, 0, 1),
         ((LEAD, 0x3fff), (0, 0), INDEFINITE, 0, 1),
@@ -105,19 +106,16 @@ fn restart(opcode: u8) {
         image.cpu.x87.status.precision = 0;
         write_value(&mut image.cpu, 0, left);
         write_value(&mut image.cpu, 1, right);
-        image.check_unchanged_exit(
-            &block,
-            "remainder restarts before current effects",
-            Exit::Interpret,
-        );
         let mut result = complete_x87(image.cpu, 2, fop);
         quotient_flags(&mut result, quotient);
         result.x87.status.invalid = u8::from(flags == 1);
         result.x87.status.denormal = u8::from(flags == 2);
         write_value(&mut result, 0, output);
-        assert_eq!(
-            linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_restart(
+            "remainder restarts before current effects",
+            &image,
+            &[],
+            &dispatch(result),
         );
     }
 
@@ -134,26 +132,15 @@ fn restart(opcode: u8) {
     prefix.x87.status.c1 = 0;
     write_value(&mut prefix, 7, (0, 0));
     write_value(&mut prefix, 6, (LEAD, 0x3fff));
-    assert_eq!(
-        TestModule::new(&compiled).observe(&image.input(), 1),
-        expected(
-            &image,
-            &[crate::support::machine::Step {
-                cpu: prefix,
-                ram: &[],
-                exit: Exit::Interpret,
-            }]
-        ),
-    );
     let mut result = complete_x87(prefix, 2, fop);
     result.x87.status.invalid = 1;
     quotient_flags(&mut result, 0);
     write_value(&mut result, 6, INDEFINITE);
-    assert_eq!(
-        TestModule::new(&compiled)
-            .with_interpreter(TestModule::interpreter())
-            .observe(&image.input(), 1),
-        expected(&image, &[dispatch(result)]),
+    CompiledExecution::new(&compiled).check_restart(
+        "remainder restart retains the two preceding pushes",
+        &image,
+        &[dispatch(prefix)],
+        &dispatch(result),
     );
 }
 
