@@ -1,9 +1,9 @@
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::initial_cpu;
 use crate::alu::ArithmeticOp;
 use crate::flags::{Condition, Flag, FlagChange, StatusFlag};
+use crate::state::tests::fixture::assert_result;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::CompiledModule;
 use crate::FlagBytes;
 use relocade_compiler::{Program, Signature, Type, I1, I64, I8};
 
@@ -46,11 +46,7 @@ fn conditional_direction_writes_preserve_the_original_byte_when_inactive() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     for kind in [0, 9] {
         for stored_direction in [0xfe, 0xff] {
             let mut initial = initial_cpu();
@@ -115,11 +111,7 @@ fn independent_conditional_carry_and_direction_changes_preserve_each_other() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     let mut initial = initial_cpu();
     initial.flags.bytes.df = 0xfe;
     for (carry, direction, result) in [(0, 0, 1), (0, 1, 3), (1, 0, 0), (1, 1, 2)] {
@@ -198,11 +190,7 @@ fn full_and_masked_arithmetic_sources_preserve_conditional_direction() {
                 )
                 .unwrap();
             program.export("run", function).unwrap();
-            let module = TestModule::new(&CompiledModule {
-                execution_target: None,
-                bytes: program.compile().unwrap(),
-                entry: "run".into(),
-            });
+            let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
             let mut initial = initial_cpu();
             initial.flags.bytes.df = 0xfe;
             for direction in [0, 1] {

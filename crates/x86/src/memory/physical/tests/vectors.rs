@@ -34,11 +34,7 @@ fn module(write: bool) -> TestModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-        execution_target: None,
-    })
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]

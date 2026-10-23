@@ -1,11 +1,11 @@
-use super::fixture::assert_result;
 use crate::alu::ArithmeticOp;
 use crate::flags::{Flag, FlagChange, StatusFlag};
 use crate::register::Register;
+use crate::state::tests::fixture::assert_result;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::FlagBytes;
-use crate::{CompiledModule, CpuState, Gpr32};
+use crate::{CpuState, Gpr32};
 use relocade_compiler::{Program, Signature, Type, I1, I32, I64, I8};
 
 fn initial_cpu() -> CpuState {
@@ -48,11 +48,7 @@ fn computed_direct_values_publish_only_their_canonical_byte() {
             )
             .unwrap();
         program.export("run", function).unwrap();
-        let module = TestModule::new(&CompiledModule {
-            execution_target: None,
-            bytes: program.compile().unwrap(),
-            entry: "run".into(),
-        });
+        let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
         let initial = initial_cpu();
         for (input, bit) in [(0, 0), (1, 1), (0x80, 0), (0x81, 1), (-1, 1)] {
             let mut expected = initial;
@@ -116,11 +112,7 @@ fn conditional_direct_publication_keeps_earlier_exits_and_raw_false_values() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     let initial = initial_cpu();
     for direction in [0, 1] {
         for active in [0, 1] {
@@ -198,11 +190,7 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
             )
             .unwrap();
         program.export("run", function).unwrap();
-        let module = TestModule::new(&CompiledModule {
-            execution_target: None,
-            bytes: program.compile().unwrap(),
-            entry: "run".into(),
-        });
+        let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
         let initial = initial_cpu();
         for (index, parent, value, before) in [
             (0, Gpr32::Eax, 0x1122_33bb, 0x44),
@@ -268,11 +256,7 @@ fn iopl_reads_and_definitions_use_two_bits_without_touching_other_flags() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     let mut initial = initial_cpu();
     initial.flags.bytes.iopl = 0xfe;
     for (input, logical) in [(0, 0), (1, 1), (2, 2), (3, 3), (0x80, 0), (0xff, 3)] {

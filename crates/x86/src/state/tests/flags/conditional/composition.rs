@@ -2,11 +2,11 @@ use crate::alu::ArithmeticOp;
 use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::CompiledModule;
 use crate::FlagBytes;
 use relocade_compiler::{Program, Signature, Type, I1, I32, I64, I8};
 
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::initial_cpu;
+use crate::state::tests::fixture::assert_result;
 
 #[test]
 fn every_predicate_must_hold_for_complete_and_partial_changes() {
@@ -53,11 +53,7 @@ fn every_predicate_must_hold_for_complete_and_partial_changes() {
                 )
                 .unwrap();
             program.export("run", function).unwrap();
-            let module = TestModule::new(&CompiledModule {
-                execution_target: None,
-                bytes: program.compile().unwrap(),
-                entry: "run".into(),
-            });
+            let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
             for kind in [0, 9] {
                 let mut initial = initial_cpu();
                 initial.flags.status_source.kind = kind;
@@ -155,11 +151,7 @@ fn preserving_carry_keeps_the_predicate_in_either_order() {
                         )
                         .unwrap();
                     program.export("run", function).unwrap();
-                    let module = TestModule::new(&CompiledModule {
-                        execution_target: None,
-                        bytes: program.compile().unwrap(),
-                        entry: "run".into(),
-                    });
+                    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
                     let mut initial = initial_cpu();
                     initial.flags.status_source.kind = 0;
                     initial.flags.bytes = FlagBytes {

@@ -4,16 +4,16 @@ use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::CompiledModule;
 use crate::FlagBytes;
 use relocade_compiler::{BuildError, Program, Signature, Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
-use super::fixture::{assert_result, initial_cpu};
+use super::fixture::initial_cpu;
+use crate::state::tests::fixture::assert_result;
 
 mod composition;
 
-fn conditional_publication(local_base: bool) -> CompiledModule {
+fn conditional_publication(local_base: bool) -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -71,18 +71,14 @@ fn conditional_publication(local_base: bool) -> CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
 fn conditional_flags_keep_earlier_exits_and_publish_only_the_last_active_source() {
     let initial = initial_cpu();
     for local_base in [false, true] {
-        let module = TestModule::new(&conditional_publication(local_base));
+        let module = conditional_publication(local_base);
         for first in [0, 1] {
             for second in [0, 1] {
                 for stop in [0, 1] {
@@ -156,11 +152,7 @@ fn preserving_or_consuming_carry_uses_the_selected_conditional_source() {
             )
             .unwrap();
         program.export("run", function).unwrap();
-        let module = TestModule::new(&CompiledModule {
-            execution_target: None,
-            bytes: program.compile().unwrap(),
-            entry: "run".into(),
-        });
+        let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
         let initial = initial_cpu();
         for replace in [0, 1] {
             let zero_result = preserve_carry || replace == 0;
@@ -223,13 +215,9 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
             )
             .unwrap();
         program.export("run", function).unwrap();
-        let compiled = CompiledModule {
-            execution_target: None,
-            bytes: program.compile().unwrap(),
-            entry: "run".into(),
-        };
+        let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
         let mut decisions = 0;
-        for payload in Parser::new(0).parse_all(&compiled.bytes) {
+        for payload in Parser::new(0).parse_all(module.bytes()) {
             if let Payload::CodeSectionEntry(body) = payload.unwrap() {
                 decisions += body
                     .get_operators_reader()
@@ -240,7 +228,6 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
             }
         }
         assert_eq!(decisions, usize::from(pending_history && !replace));
-        let module = TestModule::new(&compiled);
         let initial = initial_cpu();
         for pending in [0, 1] {
             let mut expected = initial;

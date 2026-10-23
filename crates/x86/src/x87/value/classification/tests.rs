@@ -1,6 +1,6 @@
 use super::*;
+use crate::test_step as step;
 use crate::x87::ExtendedValue;
-use crate::{test_step as step, CompiledModule};
 use relocade_compiler::{Program, Signature, Type, I32};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -124,11 +124,7 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
         )
         .unwrap();
     program.export("classify", function).unwrap();
-    let module = step::TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "classify".into(),
-        execution_target: None,
-    });
+    let module = step::TestModule::from_bytes(&program.compile().unwrap(), "classify");
     // Predicate bits: zero, denormal, special exponent, infinity, NaN, SNaN,
     // unsupported. Expectations come directly from these extended encodings.
     for (significand, exponent, tag, classes) in [
@@ -430,11 +426,7 @@ fn loaded_binary_values_share_classification_across_exact_representations() {
             )
             .unwrap();
         program.export("classify", function).unwrap();
-        let module = step::TestModule::new(&CompiledModule {
-            bytes: program.compile().unwrap(),
-            entry: "classify".into(),
-            execution_target: None,
-        });
+        let module = step::TestModule::from_bytes(&program.compile().unwrap(), "classify");
         // Predicate bits match class_flags, followed by normal and normal-or-zero.
         // Source classification bits: zero, finite, special exponent, infinity, NaN.
         // Exception bits separately record #D and SNaN evidence before loading.

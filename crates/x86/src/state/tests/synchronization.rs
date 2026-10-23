@@ -1,7 +1,8 @@
 use super::super::{Cpu, Register, State};
 use relocade_compiler::{Program, Signature, Type, I1, I16, I32};
 
-use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use super::fixture::assert_result;
+use crate::test_step::TestModule;
 
 use relocade_compiler::{I64, I8};
 
@@ -13,7 +14,7 @@ enum IndexSource {
     OldEax,
 }
 
-fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
+fn synchronized_registers(source: IndexSource) -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program.declare(Signature {
@@ -52,40 +53,7 @@ fn synchronized_registers(source: IndexSource) -> crate::CompiledModule {
         })
         .unwrap();
     program.export("run", function).unwrap();
-    crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
-}
-
-fn check_register_observation(
-    module: &TestModule,
-    initial: &CpuState,
-    arguments: [u32; 2],
-    expected_cpu: &CpuState,
-    result: i64,
-) {
-    let [index, stop] = arguments;
-    let input = Input {
-        arguments: vec![Argument::I32(index as i32), Argument::I32(stop as i32)],
-        ..Input::new(&initial.to_bytes())
-    };
-    assert_eq!(
-        module.observe(&input, 1),
-        Observation {
-            events: vec![Event::Return {
-                outcome: Outcome::Returned(vec![Argument::I64(result)]),
-                snapshot: Snapshot {
-                    cpu: expected_cpu.to_bytes().to_vec(),
-                    guest: None,
-                },
-            }],
-            guest_unchanged: true,
-            machine_unchanged: true,
-        },
-        "index {index}, stop {stop}"
-    );
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
@@ -105,7 +73,7 @@ fn register_synchronization_in_wasmtime() {
         instruction_count: u64::MAX,
         ..CpuState::filled(0xa5)
     };
-    let module = TestModule::new(&synchronized_registers(IndexSource::Parameter));
+    let module = synchronized_registers(IndexSource::Parameter);
     for (index, register, result) in [
         (0, Gpr32::Eax, 0x0000_002a_0000_0063_u64),
         (1, Gpr32::Ecx, 0x2222_2222_0000_002a),
@@ -121,25 +89,31 @@ fn register_synchronization_in_wasmtime() {
         expected.registers[register] = 99;
         expected.eip = 0x100a;
         expected.instruction_count = 1;
-        check_register_observation(&module, &initial, [index, 0], &expected, result as i64);
+        assert_result(
+            &module,
+            &initial,
+            &[index as i32, 0],
+            &expected,
+            result as i64,
+        );
     }
     let mut expected = initial;
     expected.registers.eax = 42;
     expected.eip = 0x1005;
     expected.instruction_count = 0;
-    check_register_observation(&module, &initial, [0, 1], &expected, 7);
+    assert_result(&module, &initial, &[0, 1], &expected, 7);
 
     initial.registers.eax = 5;
-    let module = TestModule::new(&synchronized_registers(IndexSource::OldEax));
+    let module = synchronized_registers(IndexSource::OldEax);
     let mut expected = initial;
     expected.registers.eax = 42;
     expected.registers.ebp = 99;
     expected.eip = 0x100a;
     expected.instruction_count = 1;
-    check_register_observation(&module, &initial, [0, 0], &expected, 0x6666_6666_0000_002a);
+    assert_result(&module, &initial, &[0, 0], &expected, 0x6666_6666_0000_002a);
 }
 
-fn synchronized_byte_registers() -> crate::CompiledModule {
+fn synchronized_byte_registers() -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -177,11 +151,7 @@ fn synchronized_byte_registers() -> crate::CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
@@ -201,7 +171,7 @@ fn byte_register_synchronization_in_wasmtime() {
         instruction_count: u64::MAX,
         ..CpuState::filled(0xa5)
     };
-    let module = TestModule::new(&synchronized_byte_registers());
+    let module = synchronized_byte_registers();
     for (index, parent, parent_value, before, eax) in [
         (0, Gpr32::Eax, 0x1122_aa00, 0x44_u64, 0x1122_aa00_u32),
         (1, Gpr32::Ecx, 0x2222_2200, 0x22, 0x1122_aa44),
@@ -218,10 +188,10 @@ fn byte_register_synchronization_in_wasmtime() {
         expected.registers[parent] = parent_value;
         expected.eip = 0x1009;
         expected.instruction_count = 2;
-        check_register_observation(
+        assert_result(
             &module,
             &initial,
-            [index, 0],
+            &[index as i32, 0],
             &expected,
             ((before << 32) | u64::from(eax)) as i64,
         );
@@ -231,10 +201,10 @@ fn byte_register_synchronization_in_wasmtime() {
     expected.registers.esp = 0x1357_9bdf;
     expected.eip = 0x1007;
     expected.instruction_count = 1;
-    check_register_observation(&module, &initial, [4, 1], &expected, 7);
+    assert_result(&module, &initial, &[4, 1], &expected, 7);
 }
 
-fn synchronized_word_registers() -> crate::CompiledModule {
+fn synchronized_word_registers() -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -281,11 +251,7 @@ fn synchronized_word_registers() -> crate::CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
@@ -305,7 +271,7 @@ fn word_register_synchronization_in_wasmtime() {
         instruction_count: u64::MAX,
         ..CpuState::filled(0xa5)
     };
-    let module = TestModule::new(&synchronized_word_registers());
+    let module = synchronized_word_registers();
     for (index, parent, parent_value, before, eax) in [
         (0, Gpr32::Eax, 0x1122_0000, 0xaade_u64, 0x1122_0000_u32),
         (1, Gpr32::Ecx, 0x2222_0000, 0x2222, 0x1122_aade),
@@ -323,10 +289,10 @@ fn word_register_synchronization_in_wasmtime() {
         expected.registers[parent] = parent_value;
         expected.eip = 0x100b;
         expected.instruction_count = 4;
-        check_register_observation(
+        assert_result(
             &module,
             &initial,
-            [index, 0],
+            &[index as i32, 0],
             &expected,
             ((before << 32) | u64::from(eax)) as i64,
         );
@@ -336,5 +302,5 @@ fn word_register_synchronization_in_wasmtime() {
     expected.registers.edi = 0x1357_9bdf;
     expected.eip = 0x1009;
     expected.instruction_count = 3;
-    check_register_observation(&module, &initial, [7, 1], &expected, 7);
+    assert_result(&module, &initial, &[7, 1], &expected, 7);
 }

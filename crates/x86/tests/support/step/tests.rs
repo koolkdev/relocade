@@ -26,11 +26,7 @@ fn machine_changes_are_observed_before_a_later_call_restores_them() {
         )
         .unwrap();
     program.export("toggle", toggle).unwrap();
-    let module = TestModule::new(&crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "toggle".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "toggle");
     let observation = module.observe(&Input::new(&[]), 2);
     // Two toggles restore the initial bytes, but the first return changed them.
     assert!(!observation.machine_unchanged);
@@ -51,11 +47,7 @@ fn host_edits_are_observed_without_module_memory_imports() {
         )
         .unwrap();
     program.export("entry", entry).unwrap();
-    let module = TestModule::new(&crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "entry".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "entry");
     let input = Input {
         observe_guest: true,
         patches_before_calls: vec![

@@ -4,13 +4,14 @@ use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::support::wasm::function_bodies;
 use crate::test_step::TestModule;
-use crate::{CompiledModule, FlagBytes};
+use crate::FlagBytes;
 use relocade_compiler::{
     BlockBuilder, BuildError, Program, Signature, Type, Val, I1, I32, I64, I8,
 };
 use wasmparser::{Operator, Validator};
 
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::initial_cpu;
+use crate::state::tests::fixture::assert_result;
 
 const SUB_FLAGS: [u8; 6] = [1, 1, 1, 0, 1, 0];
 const ZERO_FLAGS: [u8; 6] = [0, 1, 0, 1, 0, 0];
@@ -115,11 +116,7 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
             )
             .unwrap();
         program.export("run", function).unwrap();
-        let module = TestModule::new(&CompiledModule {
-            execution_target: None,
-            bytes: program.compile().unwrap(),
-            entry: "run".into(),
-        });
+        let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
         for kind in [0, 9] {
             let mut initial = initial_cpu();
             initial.flags.status_source.kind = kind;
@@ -239,11 +236,7 @@ fn overwritten_partial_changes_do_not_generate_obsolete_stored_reader_calls() {
         assert!(!consumer_ops(&bytes)
             .iter()
             .any(|operation| matches!(operation, Operator::Call { .. })));
-        let module = TestModule::new(&CompiledModule {
-            execution_target: None,
-            bytes,
-            entry: "run".into(),
-        });
+        let module = TestModule::from_bytes(&bytes, "run");
         let initial = initial_cpu();
         let mut expected = initial;
         if complete {
@@ -332,11 +325,7 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
             maximum, 2,
             "publication depth must not grow with {length} changes"
         );
-        let module = TestModule::new(&CompiledModule {
-            execution_target: None,
-            bytes,
-            entry: "run".into(),
-        });
+        let module = TestModule::from_bytes(&bytes, "run");
         let initial = initial_cpu();
         for selector in [-1, 0, 1, length as i32 - 2, length as i32 - 1] {
             let mut expected = initial;

@@ -1,9 +1,9 @@
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::initial_cpu;
 use crate::alu::ArithmeticOp;
 use crate::flags::{Condition, Flag, FlagChange};
+use crate::state::tests::fixture::assert_result;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::CompiledModule;
 use crate::FlagBytes;
 use relocade_compiler::{Program, Signature, Type, I1, I32, I64, I8};
 
@@ -69,11 +69,7 @@ fn exit_publication_freezes_both_flag_histories_without_poisoning_later_queries(
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     let mut initial = initial_cpu();
     initial.flags.bytes.df = 0xfe;
     for direction in [0, 1] {

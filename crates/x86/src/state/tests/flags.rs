@@ -1,7 +1,7 @@
 use crate::alu::ArithmeticOp;
 use crate::state::access::cpu_load;
 use crate::support::wasm::function_bodies;
-use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot};
+use crate::test_step::TestModule;
 use crate::{CpuState, Gpr32};
 
 mod conditional;
@@ -375,7 +375,7 @@ fn invalid_explicit_flags_leave_the_previous_source_unchanged() {
         .unwrap();
 }
 
-fn flags_after_register_synchronization() -> crate::CompiledModule {
+fn flags_after_register_synchronization() -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -407,16 +407,12 @@ fn flags_after_register_synchronization() -> crate::CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
 fn flag_publication_preserves_register_snapshots_in_wasmtime() {
-    let module = crate::test_step::TestModule::new(&flags_after_register_synchronization());
+    let module = flags_after_register_synchronization();
     let mut initial = CpuState::filled(0xa5);
     initial.registers.eax = 7;
     initial.registers.ecx = 9;
@@ -443,25 +439,7 @@ fn flag_publication_preserves_register_snapshots_in_wasmtime() {
                 expected.instruction_count = 1;
             }
             let result = if stop == 1 { 7 } else { 0 };
-            let input = Input {
-                arguments: vec![Argument::I32(index), Argument::I32(stop)],
-                ..Input::new(&initial.to_bytes())
-            };
-            assert_eq!(
-                module.observe(&input, 1),
-                Observation {
-                    events: vec![Event::Return {
-                        outcome: Outcome::Returned(vec![Argument::I64(result)]),
-                        snapshot: Snapshot {
-                            cpu: expected.to_bytes().to_vec(),
-                            guest: None,
-                        },
-                    }],
-                    guest_unchanged: true,
-                    machine_unchanged: true,
-                },
-                "index {index}, stop {stop}"
-            );
+            super::fixture::assert_result(&module, &initial, &[index, stop], &expected, result);
         }
     }
 }

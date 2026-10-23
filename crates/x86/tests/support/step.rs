@@ -140,9 +140,17 @@ pub(crate) struct TestModule {
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
         Self {
-            module: Arc::new(Module::new(&module.bytes)),
-            entry: module.entry.clone(),
             target: module.execution_target,
+            ..Self::from_bytes(&module.bytes, &module.entry)
+        }
+    }
+
+    /// Load a raw compiler fixture with no x86 execution target.
+    pub(crate) fn from_bytes(bytes: &[u8], entry: &str) -> Self {
+        Self {
+            module: Arc::new(Module::new(bytes)),
+            entry: entry.into(),
+            target: None,
             interpreter: None,
         }
     }

@@ -3,10 +3,10 @@ use crate::alu::{AnyStatusSource, StatusSource};
 use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::CompiledModule;
 use relocade_compiler::{AtLeast, MemoryInt, Program, Signature, Type, I1, I16, I32, I64, I8};
 
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::initial_cpu;
+use crate::state::tests::fixture::assert_result;
 
 #[test]
 fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
@@ -20,7 +20,7 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
         ("signed_less", Some(Condition::L)),
     ];
 
-    fn module<T: MemoryInt>() -> CompiledModule
+    fn module<T: MemoryInt>() -> TestModule
     where
         I32: AtLeast<T>,
         I64: AtLeast<T>,
@@ -60,19 +60,14 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
                 .unwrap();
             program.export(name, function).unwrap();
         }
-        CompiledModule {
-            execution_target: None,
-            bytes: program.compile().unwrap(),
-            entry: "result".into(),
-        }
+        TestModule::from_bytes(&program.compile().unwrap(), "result")
     }
 
-    for (module, minimum, maximum, positive_maximum) in [
+    for (mut module, minimum, maximum, positive_maximum) in [
         (module::<I8>(), 128, 255, 127),
         (module::<I16>(), 32768, 65535, 32767),
         (module::<I32>(), i32::MIN, -1, i32::MAX),
     ] {
-        let mut module = TestModule::new(&module);
         let initial = initial_cpu();
         for (left, right, carry, expected) in [
             (2, 1, 1, [1, 1, 0, 1, 0, 0, 0]),
@@ -124,11 +119,7 @@ fn changing_another_flag_retains_an_earlier_partial_change() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     let initial = initial_cpu();
     for input in [0, 14, 255, 254] {
         assert_result(&module, &initial, &[input], &initial, 1);

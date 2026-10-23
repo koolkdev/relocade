@@ -32,11 +32,7 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
         )
         .unwrap();
     program.export("checked", function).unwrap();
-    TestModule::new(&crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "checked".into(),
-    })
+    TestModule::from_bytes(&program.compile().unwrap(), "checked")
 }
 
 fn expect_resolution(module: &TestModule, input: &Input, expected: u64) {

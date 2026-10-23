@@ -1,7 +1,8 @@
 use super::super::{Cpu, State};
+use super::fixture::assert_result;
 use crate::register::{NamedRegister, Register, RegisterCode, RegisterOperand, RegisterType};
-use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use crate::{CompiledModule, CpuState, Gpr32, Registers};
+use crate::test_step::TestModule;
+use crate::{CpuState, Gpr32, Registers};
 use relocade_compiler::{Program, Signature, Type, I1, I16, I32, I64, I8};
 
 fn initial_cpu() -> CpuState {
@@ -26,35 +27,7 @@ fn initial_cpu() -> CpuState {
     cpu
 }
 
-fn assert_result(
-    module: &TestModule,
-    initial: &CpuState,
-    arguments: &[i32],
-    expected: &CpuState,
-    result: i64,
-) {
-    let input = Input {
-        arguments: arguments.iter().copied().map(Argument::I32).collect(),
-        ..Input::new(&initial.to_bytes())
-    };
-    assert_eq!(
-        module.observe(&input, 1),
-        Observation {
-            events: vec![Event::Return {
-                outcome: Outcome::Returned(vec![Argument::I64(result)]),
-                snapshot: Snapshot {
-                    cpu: expected.to_bytes().to_vec(),
-                    guest: None,
-                },
-            }],
-            guest_unchanged: true,
-            machine_unchanged: true,
-        },
-        "arguments {arguments:?}"
-    );
-}
-
-fn named_views<T: RegisterType>() -> CompiledModule {
+fn named_views<T: RegisterType>() -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -86,17 +59,13 @@ fn named_views<T: RegisterType>() -> CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
 fn named_views_preserve_parent_identity_in_wasmtime() {
     let initial = initial_cpu();
-    for (compiled, registers) in [
+    for (module, registers) in [
         (
             named_views::<I8>(),
             Registers {
@@ -143,11 +112,11 @@ fn named_views_preserve_parent_identity_in_wasmtime() {
             instruction_count: 1,
             ..initial
         };
-        assert_result(&TestModule::new(&compiled), &initial, &[], &expected, 7);
+        assert_result(&module, &initial, &[], &expected, 7);
     }
 }
 
-fn mixed_byte_views() -> CompiledModule {
+fn mixed_byte_views() -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -204,17 +173,13 @@ fn mixed_byte_views() -> CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
 fn named_and_encoded_byte_views_synchronize_in_wasmtime() {
     let initial = initial_cpu();
-    let module = TestModule::new(&mixed_byte_views());
+    let module = mixed_byte_views();
     for (code, parent, value, before) in [
         (0, Gpr32::Eax, 0x1122_bca8, 0x44_u64),
         (1, Gpr32::Ecx, 0x5162_73a8, 0xff),

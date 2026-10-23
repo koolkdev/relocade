@@ -1,5 +1,5 @@
 use super::*;
-use crate::{test_step as step, CompiledModule};
+use crate::test_step as step;
 use relocade_compiler::{Program, Signature, Type};
 
 mod binary_class;
@@ -47,11 +47,7 @@ fn precision53_views_agree_after_selection_and_indefinite_replacement() {
         )
         .unwrap();
     program.export("views", function).unwrap();
-    let module = step::TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "views".into(),
-        execution_target: None,
-    });
+    let module = step::TestModule::from_bytes(&program.compile().unwrap(), "views");
     for (significand, exponent, coefficient, tag, infinity) in [
         (0_u64, 0x8000, 0_u64, 1, 0),
         (0xa000_0000_0000_0000, 1, 0x3ff4_0000_0000_0000, 0, 0),
@@ -145,11 +141,7 @@ fn exact_binary64_views_follow_selection_and_indefinite_replacement() {
         )
         .unwrap();
     program.export("views", function).unwrap();
-    let module = step::TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "views".into(),
-        execution_target: None,
-    });
+    let module = step::TestModule::from_bytes(&program.compile().unwrap(), "views");
     for (integer, significand, exponent, native) in [
         (0, 0_u64, 0, 0_u64),
         (1, 0x8000_0000_0000_0000, 0x3fff, 0x3ff0_0000_0000_0000),

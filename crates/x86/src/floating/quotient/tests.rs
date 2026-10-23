@@ -1,7 +1,7 @@
 //! Independent integer division checks native correction and wide quotient digits.
 
 use super::*;
-use crate::{test_step as step, CompiledModule};
+use crate::test_step as step;
 use relocade_compiler::{Program, Signature, Type};
 
 fn check_scaled_division(narrow: bool) {
@@ -22,11 +22,7 @@ fn check_scaled_division(narrow: bool) {
         )
         .unwrap();
     program.export("divide", function).unwrap();
-    let module = step::TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "divide".into(),
-        execution_target: None,
-    });
+    let module = step::TestModule::from_bytes(&program.compile().unwrap(), "divide");
     let boundaries = [
         LEADING,
         LEADING + 1,

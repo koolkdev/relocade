@@ -12,7 +12,6 @@ use crate::{
     memory::{Intent, Memory},
     state::exit,
     test_step::{Argument, Event, Input, Outcome, TestModule},
-    CompiledModule,
 };
 
 fn define_transfers<T: MemoryInt + crate::memory::TransferType>(
@@ -103,11 +102,10 @@ fn widths(mmio: bool) {
         ),
     ] {
         for write in [false, true] {
-            let module = TestModule::new(&CompiledModule {
-                bytes: transfers().to_vec(),
-                entry: format!("{}{bits}", if write { "write" } else { "read" }),
-                execution_target: None,
-            });
+            let module = TestModule::from_bytes(
+                transfers(),
+                &format!("{}{bits}", if write { "write" } else { "read" }),
+            );
             let mut input = input();
             if mmio {
                 input.mmio_pages = vec![(1, 0x3000), (2, 0x5000)];
@@ -236,11 +234,7 @@ fn updates() {
             )
             .unwrap();
         program.export("update", function).unwrap();
-        let module = TestModule::new(&CompiledModule {
-            bytes: program.compile().unwrap(),
-            entry: "update".into(),
-            execution_target: None,
-        });
+        let module = TestModule::from_bytes(&program.compile().unwrap(), "update");
         let mut input = input();
         input.mmio_pages = vec![(1, 0x3000), (2, 0x5000), (8, 0x6000)];
         let observed = module.observe(&input, 1);

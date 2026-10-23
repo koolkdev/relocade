@@ -1,7 +1,7 @@
 use crate::{
     memory::{Intent, Memory},
     test_step::{Argument, Event, Input, Outcome, TestModule},
-    CompiledModule, ExecutionProfile,
+    ExecutionProfile,
 };
 use relocade_compiler::{Program, Signature, Type, I16, I32};
 
@@ -46,11 +46,7 @@ fn transfers(fill: bool) -> TestModule {
         )
         .unwrap();
     program.export("transfer", function).unwrap();
-    TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "transfer".into(),
-        execution_target: None,
-    })
+    TestModule::from_bytes(&program.compile().unwrap(), "transfer")
 }
 
 #[test]

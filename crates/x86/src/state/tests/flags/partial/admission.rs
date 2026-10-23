@@ -3,11 +3,11 @@ use crate::flags::{Flag, FlagChange, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::CompiledModule;
 use crate::FlagBytes;
 use relocade_compiler::{BuildError, Program, Signature, Type, I1, I32};
 
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::initial_cpu;
+use crate::state::tests::fixture::assert_result;
 
 #[test]
 fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
@@ -121,11 +121,7 @@ fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
                 )
                 .unwrap();
             program.export("run", function).unwrap();
-            let module = TestModule::new(&CompiledModule {
-                execution_target: None,
-                bytes: program.compile().unwrap(),
-                entry: "run".into(),
-            });
+            let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
             let initial = initial_cpu();
             for pending in [0, 1] {
                 let mut expected = initial;
@@ -179,11 +175,7 @@ fn empty_and_constant_false_partial_changes_preserve_the_stored_record() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     for kind in [0, 9] {
         let mut initial = initial_cpu();
         initial.flags.status_source.kind = kind;

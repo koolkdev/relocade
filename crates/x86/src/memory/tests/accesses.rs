@@ -32,11 +32,7 @@ fn write_then_read() -> TestModule {
         )
         .unwrap();
     program.export("write_then_read", function).unwrap();
-    TestModule::new(&crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "write_then_read".into(),
-    })
+    TestModule::from_bytes(&program.compile().unwrap(), "write_then_read")
 }
 
 fn check_sequence(module: &TestModule, input: &Input, result: u64, changes: Vec<(u32, u8)>) {
@@ -136,11 +132,7 @@ fn narrower_updates_keep_their_width_and_require_write_permissions() {
             )
             .unwrap();
         program.export("update", function).unwrap();
-        let module = TestModule::new(&crate::CompiledModule {
-            execution_target: None,
-            bytes: program.compile().unwrap(),
-            entry: "update".into(),
-        });
+        let module = TestModule::from_bytes(&program.compile().unwrap(), "update");
         for (address, first_permissions, second_permissions, result, changes) in [
             (
                 0x4000u32,
@@ -227,11 +219,7 @@ fn later_pages_and_new_entries_use_current_mappings() {
         )
         .unwrap();
     program.export("sum", function).unwrap();
-    let module = TestModule::new(&crate::CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "sum".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "sum");
     let input = Input {
         guest: [
             (0x8000, 0x11u32),

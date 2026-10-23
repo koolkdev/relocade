@@ -1,7 +1,7 @@
 //! Exact integer square roots independently check the native estimate and refinement.
 
 use super::*;
-use crate::{test_step as step, CompiledModule};
+use crate::test_step as step;
 use relocade_compiler::{Program, Signature, Type, I1, I64};
 
 #[test]
@@ -22,11 +22,7 @@ fn refined_root_and_rounding_evidence_match_integer_square_root() {
         )
         .unwrap();
     program.export("sqrt", function).unwrap();
-    let module = step::TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "sqrt".into(),
-        execution_target: None,
-    });
+    let module = step::TestModule::from_bytes(&program.compile().unwrap(), "sqrt");
     let mut values = vec![
         1 << 63,
         (1 << 63) + 1,

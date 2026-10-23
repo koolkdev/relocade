@@ -80,11 +80,7 @@ fn native_classes_control_expansion_and_exact_store_range() {
                         _ => false,
                     });
             assert_eq!(normalizes_subnormals, !right_known);
-            let module = step::TestModule::new(&CompiledModule {
-                bytes,
-                entry: "views".into(),
-                execution_target: None,
-            });
+            let module = step::TestModule::from_bytes(&bytes, "views");
             for (left, left_sig, left_exp) in [
                 (0_u64, 0_u64, 0_u16),
                 (sign, 0, 0x8000),
