@@ -1,5 +1,5 @@
 use super::*;
-use crate::support::encoding::check_length;
+use crate::support::encoding::{check_length, check_unsupported_at_page_end};
 use crate::SegmentProfile;
 use relocade_x86::SegmentRegister;
 use relocade_x86::{compile_block_from_bytes, BlockError};
@@ -156,20 +156,5 @@ fn byte_sixteen_and_register_mode_far_calls_are_rejected_before_data_access() {
             }
         }
     }
-    let code = [0xff, 0xdf];
-    let mut image = Image::new(&[]);
-    image.cpu.eip = 0x1ffe;
-    image.data(0x3ffe, &code);
-    assert_eq!(
-        compile_block_from_bytes(0x1ffe, &code, 1).err(),
-        Some(BlockError::UnsupportedInstruction {
-            address: 0x1ffe,
-            opcode: 0xff
-        })
-    );
-    image.check_unchanged_exit(
-        TestModule::interpreter(),
-        "far CALL rejects a register operand",
-        Exit::Other(0x0008_00ff_0000_1ffe),
-    );
+    check_unsupported_at_page_end(&[0xff, 0xdf], 0xff);
 }
