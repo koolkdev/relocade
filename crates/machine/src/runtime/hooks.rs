@@ -2,7 +2,7 @@ use relocade_compiler::{abi::Function, Program};
 use relocade_wasm_runtime::WasmCompiler;
 use relocade_x86::{abi, ExecutionExit};
 
-use super::{Cpu, CpuAccess, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
 
 /// Result of a synchronous or deferred host hook.
 /// The same type crosses generated hook entries through the shared Wasm ABI.
@@ -94,20 +94,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
                 body.trap()
             });
             program.export(name, function)?;
-            let bindings = self.access.bindings.clone();
-            imports.push(self.access.backend.bind_host(
+            let bindings = self.bindings.clone();
+            imports.push(self.backend.bind_host(
                 declaration,
-                Box::new(move |caller| {
-                    let mut access = CpuAccess {
-                        backend: caller,
-                        bindings: &bindings,
-                    };
-                    (hook.handler)(&mut HostCall::new(
-                        &bindings.config,
-                        &bindings.machine_config,
-                        &mut access,
-                    ))
-                }),
+                Box::new(move |mut caller| (hook.handler)(&mut bindings.host_call(&mut caller))),
             ));
             entries.push(DispatchEntry {
                 address: hook.address,
@@ -115,9 +105,15 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             });
         }
         let bytes = program.compile()?;
-        let module = self.access.backend.compiler().compile(&bytes).await?;
+        let module = self.backend.compiler().compile(&bytes).await?;
         self.dispatch
-            .install(&mut self.access, &module, &imports, &entries)
+            .install(
+                &mut self.backend,
+                &self.bindings,
+                &module,
+                &imports,
+                &entries,
+            )
             .await
     }
 }

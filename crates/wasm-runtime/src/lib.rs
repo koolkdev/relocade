@@ -43,10 +43,14 @@ pub use web::{Backend, Compiler, Context, Execution, Memory, Module, SharedMemor
 mod calls;
 mod host;
 mod imports;
+mod memory;
 mod module_cache;
 pub use calls::{CallSignature, ExportFunction, Function};
 pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
+pub use memory::{
+    MemoryAccess, MemoryStorage, SharedMemoryStorage, WasmMemoryAccess, WasmSharedMemory,
+};
 pub use module_cache::ModuleCache;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
@@ -60,43 +64,6 @@ pub trait WasmCompiler: Clone + Send + 'static {
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
 }
 
-/// Access to linear memory through a Wasm backend or its scoped context.
-/// Handles belong to that engine. Transfers require an allocated, in-bounds
-/// range; violating this storage invariant is a programming error.
-pub trait WasmMemoryAccess {
-    /// A handle to engine-owned memory that host functions can capture. Access to
-    /// the contents still requires the owning backend or its scoped context.
-    type Memory: Clone + Send + Sync + 'static;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]);
-}
-
-impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
-    type Memory = A::Memory;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        (**self).read_memory(memory, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        (**self).write_memory(memory, offset, bytes);
-    }
-}
-
-/// An independently owned handle for shared linear memory. Reads may overlap
-/// guest or host writes and do not provide a consistent snapshot of a range.
-/// The range must be allocated and in bounds, as with [`WasmMemoryAccess`].
-///
-/// Native handles can cross threads. Browser handles stay on their JavaScript
-/// thread; the underlying shared WebAssembly.Memory can be sent to a worker.
-pub trait WasmSharedMemory: Clone + 'static {
-    fn read(&self, offset: u32, bytes: &mut [u8]);
-    /// Transfers bytes without excluding other readers, writers or guest execution.
-    fn write(&self, offset: u32, bytes: &[u8]);
-    fn byte_len(&self) -> u64;
-}
-
 /// Access to host state and live Wasm memory. Callback views cannot outlive
 /// their callback. An execution owner can retain access between calls and
 /// across awaits; its borrows must end before it enters Wasm again.
@@ -105,6 +72,12 @@ pub trait WasmContext: WasmMemoryAccess {
 
     fn state(&self) -> &Self::State;
     fn state_mut(&mut self) -> &mut Self::State;
+
+    /// Lends disjoint memory and host state during one stopped phase.
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Self::Memory,
+    ) -> (MemoryAccess<'a>, &'a mut Self::State);
 }
 
 impl<C: WasmContext + ?Sized> WasmContext for &mut C {
@@ -117,10 +90,18 @@ impl<C: WasmContext + ?Sized> WasmContext for &mut C {
     fn state_mut(&mut self) -> &mut Self::State {
         (**self).state_mut()
     }
+
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Self::Memory,
+    ) -> (MemoryAccess<'a>, &'a mut Self::State) {
+        (**self).memory_and_state(memory)
+    }
 }
 
-/// One Wasm resource owner. Preparation futures, environment state and handles
-/// other than memory need not be `Send`. Memory is Wasm32 with
+/// One Wasm resource owner. Native memory handles are Send + Sync; browser
+/// resources stay on their JavaScript thread. Preparation futures and environment
+/// state need not be Send. Memory is Wasm32 with
 /// 64-KiB pages; tables contain nullable function references. Host callbacks are wrapped by
 /// [`HostFunction`]; callable exports retain their signature through [`ExportFunction`].
 ///
@@ -143,6 +124,9 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// An engine function handle produced by a typed binding.
     type ImportFunction: Clone;
     /// Retains a shared allocation independently of this backend.
+    #[cfg(not(target_arch = "wasm32"))]
+    type SharedMemory: WasmSharedMemory + Send + Sync;
+    #[cfg(target_arch = "wasm32")]
     type SharedMemory: WasmSharedMemory;
 
     /// Host state is borrowed only between Wasm calls. A browser backend may
@@ -214,8 +198,9 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// The shared ABI codec converts their Wasm representations, including
     /// zero-extension of signed narrow values. Logical marker declarations retain
     /// their canonical Rust carrier values.
-    /// Callbacks implement Fn + Send + Sync; mutable or non-Send environment state
-    /// is accessed through the context. Memory handles can be captured normally.
+    /// Native callbacks implement Fn + Send + Sync; browser callbacks stay on
+    /// their JavaScript thread. Mutable environment state is accessed through
+    /// the context. Memory handles can be captured normally.
     /// Linked modules retain callbacks for as long as they can call them.
     /// The import owns its handle without borrowing the backend.
     ///

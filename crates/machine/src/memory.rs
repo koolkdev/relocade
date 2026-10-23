@@ -34,7 +34,7 @@ impl<S: WasmSharedMemory> Memory<S> {
     }
 
     /// Borrows a read/write view of this handle without borrowing a CPU.
-    pub fn view(&mut self) -> MemoryView<'_> {
-        MemoryView::new(&self.config, &mut self.backing)
+    pub fn view(&self) -> MemoryView<'_> {
+        MemoryView::new(&self.config, self.backing.view())
     }
 }

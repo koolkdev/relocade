@@ -26,7 +26,6 @@
 //! ```
 #![forbid(unsafe_code)]
 
-mod access;
 mod backend;
 mod callback;
 mod code;
@@ -42,7 +41,6 @@ mod state;
 pub mod worker;
 
 use crate::{CpuConfig, CpuContext, MachineConfig, Memory};
-use access::CpuAccess;
 pub use backend::RuntimeBackend;
 pub use callback::HostCall;
 use dispatch::Dispatch;
@@ -52,16 +50,12 @@ pub use hooks::{Hook, HookResult, HookResultCase, HookResultValues};
 pub use memory::RuntimeMemory;
 use relocade_wasm_runtime::WasmCompiler;
 pub use state::RuntimeState;
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::ops::{Deref, DerefMut};
 
 /// One guest CPU and its engine resources, executable dispatch and pending calls.
 pub struct Cpu<B: RuntimeBackend> {
-    config: Arc<CpuConfig>,
-    machine_config: Arc<MachineConfig>,
-    access: CpuAccess<B>,
+    backend: B,
+    bindings: RuntimeMemory<B::Memory, B::SharedMemory>,
     dispatch: Dispatch<B>,
     host_call_incomplete: bool,
 }
@@ -74,9 +68,8 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         let host_imports = io::unconnected_imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         Ok(Self {
-            config: Arc::clone(&bindings.config),
-            machine_config: Arc::clone(&bindings.machine_config),
-            access: CpuAccess { backend, bindings },
+            backend,
+            bindings,
             dispatch,
             host_call_incomplete: false,
         })
@@ -96,15 +89,15 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let module = self.access.backend.compiler().compile(bytes).await?;
+        let module = self.backend.compiler().compile(bytes).await?;
         self.dispatch
-            .install(&mut self.access, &module, &[], entries)
+            .install(&mut self.backend, &self.bindings, &module, &[], entries)
             .await
     }
 
     /// Borrows the stopped CPU and guest memory. Writes take effect immediately.
     pub fn context(&mut self) -> CpuContext<'_> {
-        CpuContext::new(&self.config, &self.machine_config, &mut self.access)
+        self.bindings.context(&mut self.backend)
     }
 
     /// Shares guest memory through a handle that can outlive this runtime.
@@ -112,21 +105,18 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// shared allocation during worker transport. CPU and dispatch storage remain private.
     pub fn memory(&self) -> Memory<B::SharedMemory> {
         Memory::with_backing(
-            self.machine_config.as_ref().clone(),
-            self.access
-                .backend
-                .shared_memory(&self.access.bindings.guest)
-                .expect("guest backing is shared"),
+            self.bindings.machine_config.as_ref().clone(),
+            self.bindings.shared_guest.clone(),
         )
         .expect("guest backing matches the configured capacity")
     }
 
     /// Borrows the environment state between guest calls. Drop the borrow before running.
     pub fn state(&self) -> impl Deref<Target = T> + '_ {
-        state::Data(self.access.backend.state())
+        state::Data(self.backend.state())
     }
 
     pub fn state_mut(&mut self) -> impl DerefMut<Target = T> + '_ {
-        state::Data(self.access.backend.state_mut())
+        state::Data(self.backend.state_mut())
     }
 }

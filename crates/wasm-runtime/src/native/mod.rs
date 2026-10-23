@@ -1,4 +1,6 @@
-use crate::{Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmMemoryAccess};
+use crate::{
+    Error, Import, ImportValue, MemoryAccess, ModuleCache, Result, WasmBackend, WasmMemoryAccess,
+};
 use relocade_compiler::abi;
 use std::ops::{Deref, DerefMut};
 use wasmtime::{AsContextMut, Func, Instance, Linker, Ref, RefType, Store, Table, TableType};
@@ -140,11 +142,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
 impl<T: 'static> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
-    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory.read(&self.store, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory.write(&mut self.store, offset, bytes);
+    fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
+        memory.access(self.store.as_context_mut())
     }
 }

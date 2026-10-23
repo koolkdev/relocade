@@ -2,7 +2,7 @@
 
 mod table;
 
-use super::{access::CpuAccess, code};
+use super::code;
 use crate::{Result, RuntimeMemory};
 use relocade_wasm_runtime::{ExportFunction, Function, Import};
 use relocade_x86::{abi, ExecutionExit};
@@ -27,7 +27,7 @@ pub(crate) struct Dispatch<B: ExportFunction<abi::ExecutionSignature>> {
 impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
     pub(crate) async fn new(
         backend: &mut B,
-        bindings: &RuntimeMemory<B::Memory>,
+        bindings: &RuntimeMemory<B::Memory, B::SharedMemory>,
         host_imports: Vec<Import<'static, B>>,
     ) -> Result<Self> {
         let target = bindings.configuration().execution_target();
@@ -44,7 +44,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
 
     async fn link_dispatcher(
         backend: &mut B,
-        bindings: &RuntimeMemory<B::Memory>,
+        bindings: &RuntimeMemory<B::Memory, B::SharedMemory>,
         module: &B::Module,
         host_imports: Vec<Import<'static, B>>,
     ) -> Result<Self> {
@@ -60,32 +60,28 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
         })
     }
 
-    pub(crate) fn run(
-        &self,
-        access: &mut CpuAccess<B::Execution<'_>, &RuntimeMemory<B::Memory>>,
-        target: u64,
-    ) -> ExecutionExit {
-        access.set_instruction_target(target);
-        self.dispatch.call(&mut access.backend, ())
+    pub(crate) fn run(&self, execution: &mut B::Execution<'_>) -> ExecutionExit {
+        self.dispatch.call(execution, ())
     }
 
     pub(crate) async fn install(
         &mut self,
-        access: &mut CpuAccess<B>,
+        backend: &mut B,
+        bindings: &RuntimeMemory<B::Memory, B::SharedMemory>,
         module: &B::Module,
         additional: &[Import<'_, B>],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let instance = self
-            .instantiate(&mut access.backend, &access.bindings, module, additional)
+            .instantiate(backend, bindings, module, additional)
             .await?;
-        self.table.install(&mut access.backend, &instance, entries)
+        self.table.install(backend, &instance, entries)
     }
 
     async fn instantiate(
         &self,
         backend: &mut B,
-        bindings: &RuntimeMemory<B::Memory>,
+        bindings: &RuntimeMemory<B::Memory, B::SharedMemory>,
         module: &B::Module,
         additional: &[Import<'_, B>],
     ) -> Result<B::Instance> {

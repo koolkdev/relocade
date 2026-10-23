@@ -142,7 +142,7 @@ async fn check_pending_calls() {
         .unwrap();
 
     assert_eq!(runtime.run(6).unwrap(), ExecutionExit::Deferred);
-    let mut shared = runtime.memory();
+    let shared = runtime.memory();
     let reader = shared.view();
     let suspended = runtime.context().cpu().snapshot();
     assert_eq!(suspended.instruction_count, 1);

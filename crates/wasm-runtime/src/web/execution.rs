@@ -2,7 +2,7 @@
 #![allow(unsafe_code)]
 
 use super::{Memory, Store};
-use crate::{WasmContext, WasmMemoryAccess};
+use crate::{MemoryAccess, WasmContext, WasmMemoryAccess};
 use std::{
     cell::{Cell, RefCell, RefMut},
     ptr::NonNull,
@@ -116,17 +116,17 @@ impl<T> WasmContext for Execution<'_, T> {
     fn state_mut(&mut self) -> &mut T {
         &mut self.store.state
     }
+
+    fn memory_and_state<'a>(&'a mut self, memory: &'a Memory) -> (MemoryAccess<'a>, &'a mut T) {
+        (memory.access(), &mut self.store.state)
+    }
 }
 
 impl<T> WasmMemoryAccess for Execution<'_, T> {
     type Memory = Memory;
 
-    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        self.store.read_memory(memory, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        self.store.write_memory(memory, offset, bytes);
+    fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
+        memory.access()
     }
 }
 
@@ -140,16 +140,16 @@ impl<T> WasmContext for Context<'_, T> {
     fn state_mut(&mut self) -> &mut T {
         &mut self.store_mut().state
     }
+
+    fn memory_and_state<'a>(&'a mut self, memory: &'a Memory) -> (MemoryAccess<'a>, &'a mut T) {
+        (memory.access(), &mut self.store_mut().state)
+    }
 }
 
 impl<T> WasmMemoryAccess for Context<'_, T> {
     type Memory = Memory;
 
-    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        self.store().read_memory(memory, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        self.store_mut().write_memory(memory, offset, bytes);
+    fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
+        memory.access()
     }
 }

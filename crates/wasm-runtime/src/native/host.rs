@@ -1,11 +1,11 @@
 use super::{Backend, Memory};
-use crate::{HostFunction, HostSignature, WasmContext, WasmMemoryAccess};
+use crate::{HostFunction, HostSignature, MemoryAccess, WasmContext, WasmMemoryAccess};
 use relocade_wasm_bindings::{lift_flat, lower_flat, Flat, Value};
 use wasmtime::{AsContextMut, Caller, Func, Store, StoreContextMut, WasmRet, WasmTy};
 
 impl<T: 'static, S: HostSignature<Self> + 'static> HostFunction<S> for Backend<T>
 where
-    S::Callback: 'static,
+    S::Callback: Send + Sync + 'static,
     Flat<S::Parameters>: Parameters,
     Flat<S::Return>: WasmRet,
 {
@@ -61,16 +61,16 @@ impl<T: 'static> WasmContext for Context<'_, T> {
     fn state_mut(&mut self) -> &mut T {
         self.0.data_mut()
     }
+
+    fn memory_and_state<'a>(&'a mut self, memory: &'a Memory) -> (MemoryAccess<'a>, &'a mut T) {
+        memory.access_and_state(&mut self.0)
+    }
 }
 
 impl<T: 'static> WasmMemoryAccess for Context<'_, T> {
     type Memory = Memory;
 
-    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory.read(&self.0, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory.write(&mut self.0, offset, bytes);
+    fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
+        memory.access(self.0.as_context_mut())
     }
 }
