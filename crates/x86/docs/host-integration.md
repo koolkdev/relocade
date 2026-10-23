@@ -13,7 +13,7 @@ are named `run` or `step`; the callable dispatcher exports `dispatch`. All have
 the shared Rust signature `fn() -> ExecutionExit`.
 
 `Compiler::new(profile)` uses one execution profile and the default `CpuModel`
-for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
+for `compile_block`, `compile_blocks`, `compile_interpreter` and `compile_interpreter_step`.
 `with_cpu_model(model)` selects the same capabilities for every entry; `target()`
 returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
 functions use the default model without CPU observations.
@@ -22,6 +22,16 @@ Each module owns memory handles and generates access helpers on demand. The
 compiler decides which imports and helpers to retain from the generated bodies.
 Implicit accesses such as stack operations use the same owner as explicit memory
 operands. Instruction declarations do not predict memory usage.
+
+`compile_blocks(&[BlockSnapshot { start_eip, bytes, instruction_limit }, ...])`
+compiles several independently callable entries in one module. `CompiledBlocks`
+reports each entry's starting EIP, export name and exact consumed byte length in
+input order. Starting EIPs are CS-relative and advance with 32-bit wrapping.
+Repeated starts are rejected; an empty batch produces a module without exports.
+Supplied starts end other blocks only when reached between instructions. The caller
+must limit snapshots at registered execution boundaries absent from the batch.
+Every entry still publishes state and dispatches at its boundary, even when the
+successor is another entry in the same module.
 
 Every `CpuFeature` is implemented and enabled by default. For example,
 `CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables integer and
