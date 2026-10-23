@@ -37,7 +37,7 @@ use crate::{
 pub(super) struct ExecutionBuilder<'body, 'module> {
     body: BlockBuilder<'body>,
     state: State<'module>,
-    memory: Option<Accesses<'module>>,
+    memory: Accesses<'module>,
     segments: SegmentReads<'module>,
     target: ExecutionTarget,
     cpu_features: Val<I32>,
@@ -56,7 +56,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(super) fn new(
         body: BlockBuilder<'body>,
         cpu: &'module Cpu,
-        memory: Option<&'module Memory>,
+        memory: &'module Memory,
         runtime: Runtime,
         start: impl Into<Val<I32>>,
         target: ExecutionTarget,
@@ -65,7 +65,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         Ok(Self {
             body,
             state: State::new(cpu),
-            memory: memory.map(Memory::accesses),
+            memory: memory.accesses(),
             segments: SegmentReads::new(cpu, target.profile),
             target,
             cpu_features: target.cpu_model.bits().into(),
@@ -307,19 +307,16 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         bytes: u32,
         intent: Intent,
     ) -> Result<Access, BuildError> {
-        self.memory
-            .as_mut()
-            .expect("a memory access declares guest memory")
-            .resolve(
-                &mut self.body,
-                linear,
-                bytes,
-                intent,
-                |fault_body, exception| {
-                    self.state
-                        .fault(fault_body, &self.eip, self.completed, exception)
-                },
-            )
+        self.memory.resolve(
+            &mut self.body,
+            linear,
+            bytes,
+            intent,
+            |fault_body, exception| {
+                self.state
+                    .fault(fault_body, &self.eip, self.completed, exception)
+            },
+        )
     }
 
     /// Ends a block, checks its instruction target and dispatches its successor.

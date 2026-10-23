@@ -56,7 +56,7 @@ impl StringOperand {
         match &self.relative {
             Some(range) => {
                 let position = execution.read_address_register(self.index)?;
-                let memory = execution.memory.as_ref().unwrap().memory();
+                let memory = execution.memory.memory();
                 memory.load(
                     &mut execution.body,
                     &range.physical_start.add(position.sub(&range.offset_start)),
@@ -96,7 +96,7 @@ impl StringOperand {
                 let position = execution.read_address_register(self.index)?;
                 let address = range.physical_start.add(position.sub(&range.offset_start));
                 let value = read(execution)?;
-                let memory = execution.memory.as_ref().unwrap().memory();
+                let memory = execution.memory.memory();
                 memory.store(&mut execution.body, &address, &value)
             }
             None => {
@@ -120,7 +120,7 @@ impl ExecutionBuilder<'_, '_> {
         operands: &[StringOperand; N],
         count: &Val<I32>,
     ) -> Result<Option<ResolvedStrings<N>>, BuildError> {
-        if !self.memory.as_ref().unwrap().memory().has_stable_mappings() {
+        if !self.memory.memory().has_stable_mappings() {
             return Ok(None);
         }
         let bytes = count.mul(T::BYTES);
@@ -144,7 +144,7 @@ impl ExecutionBuilder<'_, '_> {
             starts.push(start);
         }
         let starts: [Val<I32>; N] = starts.try_into().unwrap_or_else(|_| unreachable!());
-        let memory = self.memory.as_ref().unwrap().memory();
+        let memory = self.memory.memory();
         let (available, physical) = self.body.if_value::<(I1, [I32; N])>(
             count.eq(0),
             |zero| zero.yield_((true, [0u32; N])),

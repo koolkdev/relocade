@@ -69,15 +69,15 @@ impl Memory {
         matches!(self, Self::Virtual(_))
     }
 
-    pub(crate) fn declare(
-        program: &mut Program,
-        profile: ExecutionProfile,
-    ) -> Result<Self, BuildError> {
+    /// Provides one module's memory handles and generates access helpers on demand.
+    /// Import and helper retention belong to the compiler.
+    pub(crate) fn declare(program: &mut Program, profile: ExecutionProfile) -> Self {
         match profile {
-            ExecutionProfile::Protected(_) => VirtualMemory::declare(program).map(Self::Virtual),
-            ExecutionProfile::Real16 => Ok(Self::Physical(PhysicalMemory::declare(program))),
+            ExecutionProfile::Protected(_) => Self::Virtual(VirtualMemory::declare(program)),
+            ExecutionProfile::Real16 => Self::Physical(PhysicalMemory::declare(program)),
         }
     }
+
     /// Probes direct backing after the caller's eligibility check. A true
     /// `denied` condition skips lookup and preserves the cache without faulting.
     /// With `None`, the caller has already established the span's eligibility.

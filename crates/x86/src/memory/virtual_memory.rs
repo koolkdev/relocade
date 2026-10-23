@@ -11,28 +11,34 @@ use super::page_table::PageTable;
 pub(crate) struct VirtualMemory {
     pub(super) guest: Mem,
     pub(super) table: PageTable,
-    pub(super) range_resolver: Func,
+    range_resolver: Cell<Option<Func>>,
     pub(super) scattered_readers: [Cell<Option<Func>>; 5],
     pub(super) scattered_writers: [Cell<Option<Func>>; 5],
 }
 
 impl VirtualMemory {
-    pub(super) fn declare(program: &mut Program) -> Result<Self, BuildError> {
-        let guest = program.import_memory(crate::abi::GUEST);
-        let table = PageTable::declare(program);
-        let range_resolver = program.function(
+    pub(super) fn declare(program: &mut Program) -> Self {
+        Self {
+            guest: program.import_memory(crate::abi::GUEST),
+            table: PageTable::declare(program),
+            range_resolver: Cell::new(None),
+            scattered_readers: std::array::from_fn(|_| Cell::new(None)),
+            scattered_writers: std::array::from_fn(|_| Cell::new(None)),
+        }
+    }
+
+    pub(super) fn range_resolver(&self, program: &mut Program) -> Result<Func, BuildError> {
+        if let Some(function) = self.range_resolver.get() {
+            return Ok(function);
+        }
+        let function = program.function(
             Signature {
                 parameters: vec![Type::I32, Type::I32, Type::I32, Type::I32],
                 results: vec![Type::I32],
             },
-            |body| table.define_range_resolver(body),
+            |body| self.table.define_range_resolver(body),
         )?;
-        Ok(Self {
-            guest,
-            table,
-            range_resolver,
-            scattered_readers: std::array::from_fn(|_| Cell::new(None)),
-            scattered_writers: std::array::from_fn(|_| Cell::new(None)),
-        })
+        self.range_resolver.set(Some(function));
+        Ok(function)
     }
 }

@@ -11,7 +11,6 @@ use crate::ExecutionProfile;
 instruction_families! {
     PUSH {
         execute: push;
-        effects: [memory_write];
         forms {
             0x50 +reg => word_or_dword(opcode_reg);
             0x68 => word_or_dword(imm);
@@ -21,7 +20,6 @@ instruction_families! {
     }
     POP {
         execute: pop;
-        effects: [memory_read];
         forms {
             0x58 +reg => word_or_dword(opcode_reg);
             0x8F /0 => word_or_dword(rm);
@@ -29,36 +27,30 @@ instruction_families! {
     }
     PUSHA {
         execute: push_all_registers::<_>;
-        effects: [memory_write];
         forms { 0x60 => word_or_dword(); }
     }
     POPA {
         execute: pop_all_registers::<_>;
-        effects: [memory_read];
         forms { 0x61 => word_or_dword(); }
     }
     PUSHF {
         execute: push_flags::<_>;
-        effects: [memory_write];
         forms {
             0x9C => word_or_dword();
         }
     }
     POPF {
         execute: pop_flags::<_>;
-        effects: [memory_read];
         forms {
             0x9D => word_or_dword();
         }
     }
     ENTER {
         execute: enter_frame::<_>;
-        effects: [memory_read, memory_write];
         forms { 0xC8 => word_or_dword(imm16, imm8); }
     }
     LEAVE {
         execute: leave_frame::<_>;
-        effects: [memory_read];
         forms { 0xC9 => word_or_dword(); }
     }
 }

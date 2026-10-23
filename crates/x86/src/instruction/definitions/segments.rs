@@ -55,7 +55,6 @@ instruction_families! {
     }
     PUSH_SEGMENT {
         execute: push_selector::<_>;
-        effects: [memory_write];
         forms {
             0x06 => word_or_dword(segment(Segment::Es));
             0x0E => word_or_dword(segment(Segment::Cs));
@@ -67,7 +66,7 @@ instruction_families! {
     }
     POP_SEGMENT {
         execute: pop_selector::<_>;
-        effects: [memory_read, segment_load];
+        effects: [segment_load];
         forms {
             0x07 => word_or_dword(segment(Segment::Es));
             0x17 => word_or_dword(segment(Segment::Ss));

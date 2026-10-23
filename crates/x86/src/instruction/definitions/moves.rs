@@ -36,7 +36,6 @@ instruction_families! {
     }
     XLAT {
         execute: translate_byte;
-        effects: [memory_read];
         forms {
             0xD7 => no_operands();
         }

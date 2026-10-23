@@ -39,7 +39,6 @@ instruction_families! {
     }
     MASKMOVQ {
         execute: store_masked;
-        effects: [memory_write];
         requires: [Sse];
         forms { NP 0x0f 0xf7 => operands(mm, register(mm_rm)); }
     }

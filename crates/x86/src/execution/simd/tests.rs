@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    memory::Memory,
     runtime::Runtime,
     state::Cpu,
     test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
@@ -10,6 +11,7 @@ use relocade_compiler::{Program, Signature, Type};
 fn exception_module(fallback_enabled: bool) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
+    let memory = Memory::declare(&mut program, SegmentProfile::Flat32.into());
     let runtime = Runtime::declare(&mut program);
     let function = program
         .function(
@@ -30,7 +32,7 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
                 let mut execution = ExecutionBuilder::new(
                     body,
                     &cpu,
-                    None,
+                    &memory,
                     runtime,
                     0x1000,
                     Compiler::new(SegmentProfile::Flat32).target(),
