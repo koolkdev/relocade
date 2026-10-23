@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::wasm::operators;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{execution::CompiledExecution, machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
 use wasmparser::Operator;
 
@@ -46,8 +46,7 @@ fn restart() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for (left, right, output, flags) in [
         ((LEAD, 1), (LEAD, 0xbfff), (LEAD >> 1, 0), 0),
         ((LEAD, 0x7ffe), (LEAD, 0x3fff), (LEAD, 0x7fff), 0x228),
@@ -57,15 +56,16 @@ fn restart() {
         image.cpu.x87.status.precision = 0;
         write_value(&mut image.cpu, 0, left);
         write_value(&mut image.cpu, 1, right);
-        image.check_unchanged_exit(&block, "FSCALE restarts before effects", Exit::Interpret);
         let mut result = complete_x87(image.cpu, 2, 0x01fd);
         result.x87.status.overflow = u8::from(flags & 8 != 0);
         result.x87.status.precision = u8::from(flags & 32 != 0);
         result.x87.status.c1 = u8::from(flags & 512 != 0);
         write_value(&mut result, 0, output);
-        assert_eq!(
-            linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_restart(
+            "FSCALE restarts before effects",
+            &image,
+            &[],
+            &dispatch(result),
         );
     }
     // Zero remains compiled even when the scale's finite magnitude is enormous.
@@ -74,10 +74,7 @@ fn restart() {
     write_value(&mut image.cpu, 1, (u64::MAX, 0x7ffe));
     let mut result = complete_x87(image.cpu, 2, 0x01fd);
     result.x87.status.c1 = 0;
-    assert_eq!(
-        block.observe(&image.input(), 1),
-        expected(&image, &[dispatch(result)])
-    );
+    checks.check_native("FSCALE admitted operand", &image, &dispatch(result));
 }
 
 #[test]

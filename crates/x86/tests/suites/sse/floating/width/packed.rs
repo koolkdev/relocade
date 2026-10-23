@@ -1,7 +1,7 @@
 //! Packed width conversion preserves lane effects and guards range boundaries.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::execution::CompiledExecution;
 use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
 fn lane_effects(frontend: Frontend) {
@@ -165,18 +165,15 @@ fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) 
                 lane(&mut cpu.simd.xmm[0], false, index, u64::from(bits));
             }
         }
-        let wanted = expected(
-            &image,
-            &[Step {
-                cpu,
-                ram: &[],
-                exit: if fault {
-                    Exit::SimdFloatingPoint
-                } else {
-                    Exit::Dispatch(cpu.eip)
-                },
-            }],
-        );
+        let wanted = Step {
+            cpu,
+            ram: &[],
+            exit: if fault {
+                Exit::SimdFloatingPoint
+            } else {
+                Exit::Dispatch(cpu.eip)
+            },
+        };
         for observed in [false, true] {
             let compiler = Compiler::new(profile);
             let compiler = if observed {
@@ -187,29 +184,15 @@ fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) 
             let compiled = compiler
                 .compile_block(0x1000, code, if restart { 2 } else { 1 })
                 .unwrap();
-            let block = TestModule::new(&compiled);
+            let checks = CompiledExecution::new(&compiled);
+            let name = format!(
+                "source={:x?}, MXCSR={:x}, profile={profile:?}, observed={observed}",
+                image.cpu.simd.xmm[1], image.cpu.simd.mxcsr
+            );
             if restart {
-                assert_eq!(
-                    block.observe(&image.input(), 1),
-                    expected(
-                        &image,
-                        &[Step {
-                            cpu: prior,
-                            ram: &[],
-                            exit: Exit::Interpret
-                        }]
-                    )
-                );
-                let linked = block.with_interpreter(TestModule::interpreter_with_profile(profile));
-                assert_eq!(linked.observe(&image.input(), 1), wanted);
+                checks.check_restart(&name, &image, &[dispatch(prior)], &wanted);
             } else {
-                assert_eq!(
-                    block.observe(&image.input(), 1),
-                    wanted,
-                    "source={:x?}, MXCSR={:x}, observed={observed}",
-                    image.cpu.simd.xmm[1],
-                    image.cpu.simd.mxcsr
-                );
+                checks.check_native(&name, &image, &wanted);
             }
         }
     }
@@ -279,7 +262,7 @@ fn native_widen() {
         for index in 0..2 {
             lane(&mut cpu.simd.xmm[0], true, index, result);
         }
-        let wanted = expected(&image, &[dispatch(cpu)]);
+        let wanted = dispatch(cpu);
         for observed in [false, true] {
             let compiler = Compiler::new(SegmentProfile::Flat32);
             let compiler = if observed {
@@ -288,23 +271,12 @@ fn native_widen() {
                 compiler
             };
             let compiled = compiler.compile_block(0x1000, &code, 2).unwrap();
-            let block = TestModule::new(&compiled);
+            let checks = CompiledExecution::new(&compiled);
+            let name = format!("source={source:x}, MXCSR={controls:x}, observed={observed}");
             if restart {
-                assert_eq!(
-                    block.observe(&image.input(), 1),
-                    expected(
-                        &image,
-                        &[Step {
-                            cpu: prior,
-                            ram: &[],
-                            exit: Exit::Interpret
-                        }]
-                    )
-                );
-                let linked = block.with_interpreter(TestModule::interpreter());
-                assert_eq!(linked.observe(&image.input(), 1), wanted);
+                checks.check_restart(&name, &image, &[dispatch(prior)], &wanted);
             } else {
-                assert_eq!(block.observe(&image.input(), 1), wanted);
+                checks.check_native(&name, &image, &wanted);
             }
         }
     }

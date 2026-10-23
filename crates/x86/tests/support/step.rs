@@ -130,6 +130,7 @@ pub(crate) struct Observation {
     pub(crate) machine_unchanged: bool,
 }
 
+#[derive(Clone)]
 pub(crate) struct TestModule {
     module: Arc<Module>,
     pub(crate) entry: String,

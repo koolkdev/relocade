@@ -1,7 +1,7 @@
 //! Native directed rounding preserves exact direction, sticky status and scalar isolation.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{execution::CompiledExecution, machine::expected, step::TestModule};
 use relocade_x86::Compiler;
 
 struct DirectionCase {
@@ -366,25 +366,15 @@ fn restart() {
         .specialize_on_cpu(&image.cpu)
         .compile_block(0x1000, &code, 2)
         .unwrap();
-    let module = TestModule::new(&compiled);
+    let checks = CompiledExecution::new(&compiled);
     let prior = retire(image.cpu, 1);
-    assert_eq!(
-        module.observe(&image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu: prior,
-                ram: &[],
-                exit: Exit::Interpret,
-            }]
-        )
-    );
     let mut cpu = retire(prior, 4);
     lane(&mut cpu.simd.xmm[0], false, 0, 0x0040_0000);
-    let linked = module.with_interpreter(TestModule::interpreter());
-    assert_eq!(
-        linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(cpu)])
+    checks.check_restart(
+        "directed multiplication restarts after the preceding NOP",
+        &image,
+        &[dispatch(prior)],
+        &dispatch(cpu),
     );
 }
 

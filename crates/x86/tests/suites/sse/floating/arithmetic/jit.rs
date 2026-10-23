@@ -1,7 +1,7 @@
 //! Arithmetic specialization restarts before effects in both execution modes.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::execution::CompiledExecution;
 use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
 #[test]
@@ -44,9 +44,7 @@ fn sse_arithmetic_compiled_and_restart() {
             let compiled = Compiler::new(profile)
                 .compile_block(0x1000, &code, 2)
                 .unwrap();
-            let block = TestModule::new(&compiled);
-            let linked = TestModule::new(&compiled)
-                .with_interpreter(TestModule::interpreter_with_profile(profile));
+            let checks = CompiledExecution::new(&compiled);
             for (right, controls, raised, result, restart) in cases {
                 let mut image = floating_image(&code, controls);
                 if profile == ExecutionProfile::Real16 {
@@ -65,34 +63,22 @@ fn sse_arithmetic_compiled_and_restart() {
                 if !fault {
                     lane(&mut cpu.simd.xmm[0], true, 0, result);
                 }
-                let wanted = expected(
-                    &image,
-                    &[Step {
-                        cpu,
-                        ram: &[],
-                        exit: if fault {
-                            Exit::SimdFloatingPoint
-                        } else {
-                            Exit::Dispatch(cpu.eip)
-                        },
-                    }],
-                );
+                let wanted = Step {
+                    cpu,
+                    ram: &[],
+                    exit: if fault {
+                        Exit::SimdFloatingPoint
+                    } else {
+                        Exit::Dispatch(cpu.eip)
+                    },
+                };
+                let name = format!("opcode={opcode:x}, profile={profile:?}, MXCSR={controls:x}");
                 if restart {
-                    assert_eq!(
-                        block.observe(&image.input(), 1),
-                        expected(
-                            &image,
-                            &[Step {
-                                cpu: prior,
-                                ram: &[],
-                                exit: Exit::Interpret
-                            }]
-                        )
-                    );
+                    checks.check_restart(&name, &image, &[dispatch(prior)], &wanted);
                 } else {
-                    assert_eq!(block.observe(&image.input(), 1), wanted);
+                    checks.check_native(&name, &image, &wanted);
+                    checks.check_linked(&name, &image, &wanted);
                 }
-                assert_eq!(linked.observe(&image.input(), 1), wanted);
             }
         }
     }

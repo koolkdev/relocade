@@ -4,7 +4,7 @@
 mod controls;
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{execution::CompiledExecution, machine::expected, step::TestModule};
 use relocade_x86::{
     compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile, Segments,
 };
@@ -77,9 +77,7 @@ fn precise_restart(profile: ExecutionProfile) {
         let compiled = Compiler::new(profile)
             .compile_block(0x1000, &code, 2)
             .unwrap();
-        let block = TestModule::new(&compiled);
-        let linked = TestModule::new(&compiled)
-            .with_interpreter(TestModule::interpreter_with_profile(profile));
+        let checks = CompiledExecution::new(&compiled);
         for masked in [false, true] {
             let mut image = floating_image(&code, if masked { 0x1f80 } else { 0x1e00 });
             if profile == ExecutionProfile::Real16 {
@@ -100,18 +98,6 @@ fn precise_restart(profile: ExecutionProfile) {
             prefix.flags.status_source.kind = 9;
             prefix.flags.status_source.left = 0;
             prefix.flags.status_source.right = 1;
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: prefix,
-                        ram: &[],
-                        exit: Exit::Interpret
-                    }]
-                ),
-                "restart preserves the completed CMP and leaves MXCSR/XMM unchanged"
-            );
 
             let mut cpu = if masked {
                 retire(prefix, instruction.len())
@@ -130,21 +116,19 @@ fn precise_restart(profile: ExecutionProfile) {
                     comparison_flags(&mut cpu, 0x45);
                 }
             }
-            assert_eq!(
-                linked.observe(&image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu,
-                        ram: &[],
-                        exit: if masked {
-                            Exit::Dispatch(cpu.eip)
-                        } else {
-                            Exit::SimdFloatingPoint
-                        },
-                    }]
-                ),
-                "interpreter completes the exception response, including all packed lanes"
+            checks.check_restart(
+                "comparison restart preserves CMP before completing all packed lanes",
+                &image,
+                &[dispatch(prefix)],
+                &Step {
+                    cpu,
+                    ram: &[],
+                    exit: if masked {
+                        Exit::Dispatch(cpu.eip)
+                    } else {
+                        Exit::SimdFloatingPoint
+                    },
+                },
             );
         }
     }
@@ -155,10 +139,7 @@ fn real_mode_ram() {
     let compiled = Compiler::new(ExecutionProfile::Real16)
         .compile_block(0x1000, &code, 1)
         .unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter_with_profile(
-        ExecutionProfile::Real16,
-    ));
+    let checks = CompiledExecution::new(&compiled);
     for (operand, mxcsr, flags, invalid, fault) in [
         (TWO[0], 0x1f80, 1, false, false),
         (SNAN[0], 0x1f80, 0x45, true, false),
@@ -187,21 +168,17 @@ fn real_mode_ram() {
                 Exit::Dispatch(cpu.eip)
             },
         };
-        let wanted = expected(&image, &[completed]);
         if invalid {
-            let restart = Step {
-                cpu: image.cpu,
-                ram: &[],
-                exit: Exit::Interpret,
-            };
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(&image, &[restart])
+            checks.check_restart(
+                "real-mode comparison operand exception",
+                &image,
+                &[],
+                &completed,
             );
         } else {
-            assert_eq!(block.observe(&image.input(), 1), wanted);
+            checks.check_native("real-mode comparison stays compiled", &image, &completed);
+            checks.check_linked("real-mode linked comparison", &image, &completed);
         }
-        assert_eq!(linked.observe(&image.input(), 1), wanted);
     }
 }
 

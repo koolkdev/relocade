@@ -1,7 +1,7 @@
 //! Scalar native narrowing admits only its low source and preserves upper bits.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::execution::CompiledExecution;
 use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
 fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
@@ -19,18 +19,15 @@ fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
     if !fault {
         lane(&mut cpu.simd.xmm[0], false, 0, case.result);
     }
-    let wanted = expected(
-        &image,
-        &[Step {
-            cpu,
-            ram: &[],
-            exit: if fault {
-                Exit::SimdFloatingPoint
-            } else {
-                Exit::Dispatch(cpu.eip)
-            },
-        }],
-    );
+    let wanted = Step {
+        cpu,
+        ram: &[],
+        exit: if fault {
+            Exit::SimdFloatingPoint
+        } else {
+            Exit::Dispatch(cpu.eip)
+        },
+    };
     for observed in [false, true] {
         let compiler = Compiler::new(profile);
         let compiler = if observed {
@@ -39,29 +36,15 @@ fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
             compiler
         };
         let compiled = compiler.compile_block(0x1000, &code, 2).unwrap();
-        let block = TestModule::new(&compiled);
+        let checks = CompiledExecution::new(&compiled);
+        let name = format!(
+            "source={:x}, MXCSR={:x}, profile={profile:?}, observed={observed}",
+            case.source, case.controls
+        );
         if restart {
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: prior,
-                        ram: &[],
-                        exit: Exit::Interpret,
-                    }]
-                )
-            );
-            let linked = block.with_interpreter(TestModule::interpreter_with_profile(profile));
-            assert_eq!(linked.observe(&image.input(), 1), wanted);
+            checks.check_restart(&name, &image, &[dispatch(prior)], &wanted);
         } else {
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                wanted,
-                "source={:x}, MXCSR={:x}, observed={observed}",
-                case.source,
-                case.controls
-            );
+            checks.check_native(&name, &image, &wanted);
         }
     }
 }

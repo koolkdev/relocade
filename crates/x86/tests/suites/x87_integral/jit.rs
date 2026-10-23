@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::wasm::operators;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{execution::CompiledExecution, machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
 use wasmparser::Operator;
 
@@ -75,8 +75,7 @@ fn full_precision_and_rejected_operands() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for (input, output, invalid, denormal, precision) in [
         ((LEAD, 0x7fff), (LEAD, 0x7fff), 0, 0, 0),
         ((LEAD + 1, 0xffff), (0xc000_0000_0000_0001, 0xffff), 1, 0, 0),
@@ -85,16 +84,17 @@ fn full_precision_and_rejected_operands() {
         let mut image = stack_image(&CODE, 0, 0xffff);
         image.cpu.x87.status.precision = 0;
         write_value(&mut image.cpu, 0, input);
-        image.check_unchanged_exit(&block, "FRNDINT restarts before effects", Exit::Interpret);
         let mut result = complete_x87(image.cpu, 2, 0x01fc);
         result.x87.status.c1 = 0;
         result.x87.status.invalid = invalid;
         result.x87.status.denormal = denormal;
         result.x87.status.precision = precision;
         write_value(&mut result, 0, output);
-        assert_eq!(
-            linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_restart(
+            "FRNDINT restarts before effects",
+            &image,
+            &[],
+            &dispatch(result),
         );
     }
     // Without CPU observations, all rounding modes stay compiled at full precision.
@@ -108,9 +108,10 @@ fn full_precision_and_rejected_operands() {
         result.x87.status.precision = 1;
         result.x87.status.c1 = u8::from(up);
         write_value(&mut result, 0, if up { (LEAD, 0x3fff) } else { (0, 0) });
-        assert_eq!(
-            block.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_native(
+            "FRNDINT dynamic rounding stays compiled",
+            &image,
+            &dispatch(result),
         );
     }
 }

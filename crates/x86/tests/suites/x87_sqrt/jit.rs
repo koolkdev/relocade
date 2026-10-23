@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::wasm::operators;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{execution::CompiledExecution, machine::expected, step::TestModule};
 use relocade_x86::{CompiledModule, Compiler, CpuState};
 use wasmparser::Operator;
 
@@ -145,8 +145,7 @@ fn restart() {
     let compiled = Compiler::new(SegmentProfile::Flat32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for (input, output, invalid, denormal) in [
         (Some((LEAD, 0xbfff)), INDEFINITE, 1, 0),
         (Some((2, 0)), (LEAD, 0x1fe1), 0, 1),
@@ -163,16 +162,17 @@ fn restart() {
         if let Some(input) = input {
             write_value(&mut image.cpu, 0, input);
         }
-        image.check_unchanged_exit(&block, "FSQRT restarts before effects", Exit::Interpret);
         let mut result = complete_x87(image.cpu, 2, 0x01fa);
         result.x87.status.c1 = 0;
         result.x87.status.invalid = invalid;
         result.x87.status.denormal = denormal;
         result.x87.status.stack_fault = u8::from(input.is_none());
         write_value(&mut result, 0, output);
-        assert_eq!(
-            linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+        checks.check_restart(
+            "FSQRT restarts before effects",
+            &image,
+            &[],
+            &dispatch(result),
         );
     }
     // An unobserved block admits all PC/RC modes and full-width normal operands.
@@ -188,10 +188,7 @@ fn restart() {
             result.x87.status.precision = u8::from(inexact);
             result.x87.status.c1 = u8::from(increment);
             write_value(&mut result, 0, output);
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
-            );
+            checks.check_native("FSQRT admitted operand", &image, &dispatch(result));
         }
     }
 }

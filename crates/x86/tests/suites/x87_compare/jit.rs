@@ -1,7 +1,9 @@
 //! Native ordering retains exact values; operand exceptions restart before effects.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule, x87::loaded_memory_operand};
+use crate::support::{
+    execution::CompiledExecution, machine::expected, step::TestModule, x87::loaded_memory_operand,
+};
 use relocade_x86::compile_block_from_bytes;
 
 fn native_values() {
@@ -102,8 +104,7 @@ fn operand_exception_restart() {
         let opcode = (u16::from(compare & 7) << 8) | 0x1d;
         let code = [0xdd, 0x05, 0, 0x40, 0, 0, compare, 0x1d, 8, 0x40, 0, 0];
         let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
-        let block = TestModule::new(&compiled);
-        let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+        let checks = CompiledExecution::new(&compiled);
         for (source, exception, relation) in [
             (quiet_nan, 1, UNORDERED),
             (signaling_nan, 1, UNORDERED),
@@ -120,25 +121,14 @@ fn operand_exception_restart() {
                 image.data(0x8000, &1.0_f64.to_bits().to_le_bytes());
                 image.data(0x8008, &source.to_le_bytes());
                 let first = loaded_memory_operand(image.cpu, 0x4000, ONE, 0x0505);
-                assert_eq!(
-                    block.observe(&image.input(), 1),
-                    expected(
-                        &image,
-                        &[Step {
-                            cpu: first,
-                            ram: &[],
-                            exit: Exit::Interpret,
-                        }]
-                    ),
-                    "restart retains the preceding load and its saved pointers"
-                );
                 let flags = exception | if masked { relation } else { 0x4100 | PENDING };
                 let mut result = completed(first, 6, opcode, flags, u8::from(masked));
                 result.x87.data_offset = 0x4008;
-                assert_eq!(
-                    linked.observe(&image.input(), 1),
-                    expected(&image, &[dispatch(result)]),
-                    "interpreter completes the excluded operand response"
+                checks.check_restart(
+                    "comparison restart retains the preceding load and its saved pointers",
+                    &image,
+                    &[dispatch(first)],
+                    &dispatch(result),
                 );
             }
         }

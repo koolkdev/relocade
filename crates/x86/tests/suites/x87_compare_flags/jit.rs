@@ -1,7 +1,9 @@
 //! Native comparisons publish flags; exception restarts preserve the preceding producer.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule, x87::loaded_memory_operand};
+use crate::support::{
+    execution::CompiledExecution, machine::expected, step::TestModule, x87::loaded_memory_operand,
+};
 use relocade_x86::compile_block_from_bytes;
 
 #[test]
@@ -80,8 +82,7 @@ fn native_and_extended_ordering() {
 fn operand_exception_restart() {
     let code = [0x39, 0xc8, 0xdf, 0xf1]; // CMP EAX, ECX; FCOMIP ST1
     let compiled = compile_block_from_bytes(0x1000, &code, 2).unwrap();
-    let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
+    let checks = CompiledExecution::new(&compiled);
     for (source, exception, relation) in [(QNAN, 1, 0x45), ((1, 0), 2, 0)] {
         for masked in [false, true] {
             let mut image = initial_image(&code);
@@ -98,17 +99,6 @@ fn operand_exception_restart() {
             prefix.flags.status_source.kind = 9;
             prefix.flags.status_source.left = 0;
             prefix.flags.status_source.right = 1;
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: prefix,
-                        ram: &[],
-                        exit: Exit::Interpret
-                    }]
-                )
-            );
             let result = completed(
                 prefix,
                 0x07f1,
@@ -116,9 +106,11 @@ fn operand_exception_restart() {
                 exception | if masked { 0 } else { 0x8080 },
                 u8::from(masked),
             );
-            assert_eq!(
-                linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+            checks.check_restart(
+                "comparison restart preserves the preceding flags producer",
+                &image,
+                &[dispatch(prefix)],
+                &dispatch(result),
             );
         }
     }
