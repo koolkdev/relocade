@@ -18,6 +18,11 @@ for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
 returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
 functions use the default model without CPU observations.
 
+Each module owns memory handles and generates access helpers on demand. The
+compiler decides which imports and helpers to retain from the generated bodies.
+Implicit accesses such as stack operations use the same owner as explicit memory
+operands. Instruction declarations do not predict memory usage.
+
 Every `CpuFeature` is implemented and enabled by default. For example,
 `CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables integer and
 x87 conditional moves and the x87 comparisons that set EFLAGS. Known encodings

@@ -59,10 +59,10 @@ impl OperandSpec {
     }
 }
 
+/// Properties used by x86 decoding and control-transfer handler adaptation.
+/// The compiler infers memory dependencies from the generated operations.
 #[derive(Clone, Copy)]
-pub(in crate::instruction) enum Effect {
-    MemoryRead,
-    MemoryWrite,
+pub(in crate::instruction) enum ExecutionEffect {
     ControlTransfer,
     SegmentLoad,
     /// Device callbacks may change instruction routing; resume through dispatch.
@@ -85,7 +85,7 @@ pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) opcode: Opcode,
     pub(in crate::instruction) operands: &'a [OperandSpec],
     pub(in crate::instruction) handlers: SizedHandlers<Handler>,
-    pub(in crate::instruction) effects: &'a [Effect],
+    pub(in crate::instruction) effects: &'a [ExecutionEffect],
     pub(in crate::instruction) availability: Availability,
     pub(in crate::instruction) features: &'static [crate::CpuFeature],
     pub(in crate::instruction) lockable: bool,
@@ -231,20 +231,7 @@ impl Declaration<'_> {
             word: bind_handler(self.handlers.word, bindings),
             dword: bind_handler(self.handlers.dword, bindings),
         };
-        let mut implicit_memory = false;
-        let mut ends_block = false;
-        index = 0;
-        while index < self.effects.len() {
-            match self.effects[index] {
-                Effect::MemoryRead | Effect::MemoryWrite => implicit_memory = true,
-                Effect::ControlTransfer
-                | Effect::SegmentLoad
-                | Effect::PortIo
-                | Effect::Serializing
-                | Effect::UnconditionalFault => ends_block = true,
-            }
-            index += 1;
-        }
+        let ends_block = !self.effects.is_empty();
         Form {
             opcode: self.opcode.byte,
             mask: if opcode_register { 0xf8 } else { 0xff },
@@ -258,7 +245,6 @@ impl Declaration<'_> {
             },
             handlers,
             condition: None,
-            implicit_memory,
             ends_block,
             requirements: Requirements {
                 availability: self.availability,

@@ -32,11 +32,7 @@ impl StackFrame {
         offset: u32,
     ) -> Result<StackField<'module, T>, BuildError> {
         assert!(offset <= self.checked_bytes && T::BYTES <= self.checked_bytes - offset);
-        let memory = execution
-            .memory
-            .as_ref()
-            .expect("a stack instruction declares guest memory")
-            .memory();
+        let memory = execution.accesses.memory();
         let access = execution.resolve_access(&self.linear.add(offset), T::BYTES, self.intent)?;
         Ok(StackField {
             memory,

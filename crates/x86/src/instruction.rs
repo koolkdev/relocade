@@ -65,7 +65,6 @@ impl<V> From<Location<V>> for Operand<V> {
 pub(super) struct Instruction<V> {
     call: HandlerCall<Location<V>, Operand<V>>,
     condition: Option<Condition>,
-    implicit_memory: bool,
     ends_block: bool,
     requirements: Requirements,
     pub(super) address_size: AddressSize,
@@ -103,38 +102,5 @@ impl<V> Instruction<V> {
 
     pub(super) fn fails_requirements(&self, target: ExecutionTarget) -> bool {
         self.requirements.fault(target).is_some()
-    }
-
-    pub(super) fn uses_memory(&self) -> bool {
-        self.implicit_memory
-            || match &self.call {
-                HandlerCall::Nullary { .. } => false,
-                HandlerCall::Binary { left, right, .. } => {
-                    left.uses_memory() || right.uses_memory()
-                }
-                HandlerCall::Unary { operand, .. } => operand.uses_memory(),
-                HandlerCall::Ternary {
-                    destination,
-                    first_source,
-                    second_source,
-                    ..
-                } => {
-                    destination.uses_memory()
-                        || first_source.uses_memory()
-                        || second_source.uses_memory()
-                }
-            }
-    }
-}
-
-impl<V> Location<V> {
-    fn uses_memory(&self) -> bool {
-        matches!(self, Self::Memory(_))
-    }
-}
-
-impl<V> Operand<V> {
-    fn uses_memory(&self) -> bool {
-        matches!(self, Self::Location(location) if location.uses_memory())
     }
 }

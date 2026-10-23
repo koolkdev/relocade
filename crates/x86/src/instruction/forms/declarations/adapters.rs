@@ -33,8 +33,8 @@ macro_rules! declaration_handlers {
     };
 }
 
-// All bodies receive typed operands. Transfers return the successor EIP;
-// ordinary bodies complete with fallthrough. Effects can appear in any order.
+// Control-transfer bodies return the successor EIP; ordinary bodies complete
+// with fallthrough. Find that annotation regardless of the other execution effects.
 macro_rules! declaration_adapter {
     ([control_transfer $(, $effect:ident)*] $($row:tt)*) => {
         declaration_adapter!(@result [control_transfer] $($row)*)
