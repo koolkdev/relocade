@@ -1,9 +1,10 @@
 //! PC53/nearest sums retain x87 signs, rounding status and exponent range.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule, x87::set_control};
 use relocade_x86::{Compiler, CpuState};
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 fn compiler() -> Compiler {
     let mut observed = CpuState::default();
@@ -13,10 +14,10 @@ fn compiler() -> Compiler {
 
 fn native_module(code: &[u8], count: u32) -> TestModule {
     let module = TestModule::new(&compiler().compile_block(0x1000, code, count).unwrap());
-    assert!(Parser::new(0).parse_all(module.bytes()).any(|payload| {
-        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
-            .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Add)))
-    }), "fixture must reach native addition");
+    assert!(
+        operators(module.bytes()).any(|op| matches!(op, Operator::F64Add)),
+        "fixture must reach native addition"
+    );
     module
 }
 

@@ -1,21 +1,16 @@
 //! Native atomic encodings and the ordinary-access boundary.
 
+use crate::support::wasm::operators;
 use relocade_x86::compile_block_from_bytes;
-use wasmparser::{Parser, Payload};
 
 fn atomic_instructions(code: &[u8]) -> Vec<String> {
     let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
     let mut atomics = Vec::new();
-    for payload in Parser::new(0).parse_all(&module.bytes) {
-        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-            for operator in body.get_operators_reader().unwrap() {
-                let operator = operator.unwrap();
-                let name = format!("{operator:?}");
-                let name = name.split_whitespace().next().unwrap();
-                if name.contains("Atomic") {
-                    atomics.push(name.to_owned());
-                }
-            }
+    for operator in operators(&module.bytes) {
+        let name = format!("{operator:?}");
+        let name = name.split_whitespace().next().unwrap();
+        if name.contains("Atomic") {
+            atomics.push(name.to_owned());
         }
     }
     atomics

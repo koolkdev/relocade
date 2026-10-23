@@ -1,9 +1,10 @@
 //! Scaling retains native significands and restarts exactly at exceptional ranges.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 fn native_significand() {
     let code = [
@@ -18,10 +19,7 @@ fn native_significand() {
         .specialize_on_cpu(&observed)
         .compile_block(0x1000, &code, 4)
         .unwrap();
-    assert!(Parser::new(0).parse_all(&compiled.bytes).any(|payload| {
-        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
-            .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Add)))
-    }));
+    assert!(operators(&compiled.bytes).any(|op| matches!(op, Operator::F64Add)));
     let module = TestModule::new(&compiled);
     let mut image = stack_image(&code, 0, 0xffff);
     image.cpu.x87.control = observed.x87.control;

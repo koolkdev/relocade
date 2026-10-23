@@ -1,9 +1,10 @@
 //! Exact integer sources participate in native PC53 arithmetic and precise restart.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::Compiler;
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 #[test]
 fn integer_sources_reach_native_operations() {
@@ -31,19 +32,11 @@ fn integer_sources_reach_native_operations() {
                 .specialize_on_cpu(&image.cpu)
                 .compile_block(0x1000, &code, 2)
                 .unwrap();
-            let native = Parser::new(0).parse_all(&compiled.bytes).any(|payload| {
-                let Payload::CodeSectionEntry(body) = payload.unwrap() else {
-                    return false;
-                };
-                body.get_operators_reader()
-                    .unwrap()
-                    .into_iter()
-                    .any(|op| match op.unwrap() {
-                        Operator::F64Add => operation == "add",
-                        Operator::F64Mul => operation == "multiply",
-                        Operator::F64Div => operation == "divide",
-                        _ => false,
-                    })
+            let native = operators(&compiled.bytes).any(|op| match op {
+                Operator::F64Add => operation == "add",
+                Operator::F64Mul => operation == "multiply",
+                Operator::F64Div => operation == "divide",
+                _ => false,
             });
             assert!(native, "integer source must reach native {operation}");
             let mut loaded = complete_x87(image.cpu, 6, 0x0505);

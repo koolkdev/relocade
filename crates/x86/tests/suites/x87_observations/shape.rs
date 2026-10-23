@@ -1,34 +1,20 @@
 //! Observations add guards only to their consumers, once per unchanged value.
 use super::*;
+use crate::support::wasm::{function_import_index, operators};
 use relocade_x86::{compile_block_from_bytes_with_profile, CompiledModule};
-use wasmparser::{Operator, Parser, Payload, TypeRef};
-
-fn operators(module: &CompiledModule) -> impl Iterator<Item = Operator<'_>> {
-    Parser::new(0)
-        .parse_all(&module.bytes)
-        .filter_map(|payload| match payload.unwrap() {
-            Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
-            _ => None,
-        })
-        .flat_map(|reader| reader.into_iter().map(Result::unwrap))
-}
+use wasmparser::Operator;
 
 fn interpreter_calls(module: &CompiledModule) -> usize {
-    let mut function = 0;
-    for payload in Parser::new(0).parse_all(&module.bytes) {
-        if let Payload::ImportSection(imports) = payload.unwrap() {
-            for import in imports {
-                let import = import.unwrap();
-                if matches!(import.ty, TypeRef::Func(_)) {
-                    if import.module == "relocade" && import.name == "interpret" {
-                        return operators(module).filter(|op| matches!(op, Operator::ReturnCall { function_index } if *function_index == function)).count();
-                    }
-                    function += 1;
-                }
-            }
-        }
-    }
-    0
+    let Some(function) = function_import_index(&module.bytes, "relocade", "interpret") else {
+        return 0;
+    };
+    operators(&module.bytes)
+        .filter(|op| {
+            matches!(op,
+                Operator::ReturnCall { function_index } if *function_index == function
+            )
+        })
+        .count()
 }
 
 #[test]
@@ -71,7 +57,7 @@ fn unchanged_modes_add_one_guard_to_an_arithmetic_sequence() {
                     // One mode guard, one operand guard, and one result guard per operation.
                     assert_eq!(interpreter_calls(&module), count + 2);
                     for offset in [182, 183] {
-                        assert_eq!(operators(&module).filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == offset)).count(), 1);
+                        assert_eq!(operators(&module.bytes).filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == offset)).count(), 1);
                     }
                 }
             }
@@ -88,14 +74,14 @@ fn known_controls_need_no_mode_guard() {
     let observed = compiler(3, 0).compile_block(0x1000, &code, 3).unwrap();
     assert_eq!(interpreter_calls(&ordinary), interpreter_calls(&observed));
     assert_eq!(
-        operators(&ordinary)
+        operators(&ordinary.bytes)
             .filter(|op| matches!(op, Operator::If { .. }))
             .count(),
-        operators(&observed)
+        operators(&observed.bytes)
             .filter(|op| matches!(op, Operator::If { .. }))
             .count()
     );
-    assert!(!operators(&observed).any(
+    assert!(!operators(&observed.bytes).any(
         |op| matches!(op, Operator::I32Load8U { memarg } if matches!(memarg.offset, 182 | 183))
     ));
 }
@@ -127,7 +113,7 @@ fn masked_set_precision_reuses_its_guard_and_original_byte() {
             // PM and PE join the existing mode guard; they do not add a guard
             // per instruction. Unchanged controls and status are read once.
             assert_eq!(interpreter_calls(&module), count + 2);
-            let ops: Vec<_> = operators(&module).collect();
+            let ops: Vec<_> = operators(&module.bytes).collect();
             for offset in [181, 182, 183, 209] {
                 assert_eq!(ops.iter().filter(|op| matches!(op, Operator::I32Load8U { memarg } if memarg.offset == offset)).count(), 1);
             }

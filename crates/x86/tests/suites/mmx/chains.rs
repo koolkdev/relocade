@@ -1,8 +1,9 @@
 //! Packed chains retain architectural publication and precise guest faults.
 
 use super::*;
+use crate::support::wasm::{memory_import_index, operators};
 use relocade_x86::compile_block_from_bytes;
-use wasmparser::{Operator, Parser, Payload, TypeRef};
+use wasmparser::Operator;
 
 const MIXED: [u8; 12] = [
     0x0f, 0x74, 0xc1, // PCMPEQB mm0,mm1
@@ -86,34 +87,13 @@ fn chains(frontend: Frontend) {
 
 test_frontends!(mmx_packed_chains, chains);
 
-fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
-    Parser::new(0)
-        .parse_all(bytes)
-        .filter_map(|payload| match payload.unwrap() {
-            Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
-            _ => None,
-        })
-        .flat_map(|reader| reader.into_iter().map(Result::unwrap))
-        .collect()
-}
-
 #[test]
 fn packed_add_chains_use_vector_memory_without_scalar_conversions() {
     let code = [0x0f, 0xfd, 0xc1].repeat(8);
     let inputs = 2;
     let module = compile_block_from_bytes(0x1000, &code, (code.len() / 3) as u32).unwrap();
-    let cpu_memory = Parser::new(0)
-        .parse_all(&module.bytes)
-        .filter_map(|payload| match payload.unwrap() {
-            Payload::ImportSection(imports) => Some(imports),
-            _ => None,
-        })
-        .flatten()
-        .map(Result::unwrap)
-        .filter(|import| matches!(import.ty, TypeRef::Memory(_)))
-        .position(|import| import.module == "relocade" && import.name == "executionContext")
-        .unwrap() as u32;
-    let ops = operators(&module.bytes);
+    let cpu_memory = memory_import_index(&module.bytes, "relocade", "executionContext").unwrap();
+    let ops: Vec<_> = operators(&module.bytes).collect();
     assert_eq!(
         ops.iter()
             .filter(|op| matches!(op, Operator::V128Load64Splat { .. }))
@@ -147,7 +127,7 @@ fn packed_add_chains_use_vector_memory_without_scalar_conversions() {
 #[test]
 fn mixed_logic_stays_vectorized_while_scalar_backed_logic_stays_scalar() {
     let module = compile_block_from_bytes(0x1000, &MIXED, 4).unwrap();
-    let ops = operators(&module.bytes);
+    let ops: Vec<_> = operators(&module.bytes).collect();
     assert_eq!(
         ops.iter()
             .filter(|op| matches!(op, Operator::V128Load64Splat { .. }))
@@ -164,7 +144,7 @@ fn mixed_logic_stays_vectorized_while_scalar_backed_logic_stays_scalar() {
 
     let code = [0x0f, 0xdb, 0xc1, 0x0f, 0xeb, 0xc2, 0x0f, 0xef, 0xc3];
     let module = compile_block_from_bytes(0x1000, &code, 3).unwrap();
-    let ops = operators(&module.bytes);
+    let ops: Vec<_> = operators(&module.bytes).collect();
     assert!(ops.iter().any(|op| matches!(op, Operator::I64And)));
     assert!(!ops
         .iter()

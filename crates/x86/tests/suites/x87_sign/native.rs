@@ -1,9 +1,10 @@
 //! Sign changes retain native PC53 arithmetic and exact binary load/store paths.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule, x87::write_register_bits};
 use relocade_x86::{CompiledModule, Compiler, CpuState};
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 fn compiler() -> Compiler {
     let mut observed = CpuState::default();
@@ -12,13 +13,7 @@ fn compiler() -> Compiler {
 }
 
 fn native_operations(module: &CompiledModule) -> Vec<&'static str> {
-    Parser::new(0)
-        .parse_all(&module.bytes)
-        .filter_map(|payload| match payload.unwrap() {
-            Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
-            _ => None,
-        })
-        .flat_map(|reader| reader.into_iter().map(Result::unwrap))
+    operators(&module.bytes)
         .filter_map(|operator| match operator {
             Operator::F64Add => Some("add"),
             Operator::F64Mul => Some("multiply"),

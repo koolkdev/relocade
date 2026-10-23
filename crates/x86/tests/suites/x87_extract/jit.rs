@@ -1,9 +1,10 @@
 //! Both extracted values retain native views; rejected cases restart before the push.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::Compiler;
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 fn native_values() {
     let code = [0xdd, 0x05, 0, 0x40, 0, 0, 0xd9, 0xf4, 0xd8, 0xc1];
@@ -17,17 +18,7 @@ fn native_values() {
             .specialize_on_cpu(&image.cpu)
             .compile_block(0x1000, &code, 3)
             .unwrap();
-        let native_add =
-            Parser::new(0)
-                .parse_all(&compiled.bytes)
-                .any(|payload| match payload.unwrap() {
-                    Payload::CodeSectionEntry(body) => body
-                        .get_operators_reader()
-                        .unwrap()
-                        .into_iter()
-                        .any(|op| matches!(op.unwrap(), Operator::F64Add)),
-                    _ => false,
-                });
+        let native_add = operators(&compiled.bytes).any(|op| matches!(op, Operator::F64Add));
         assert!(native_add);
         let mut result = complete_x87(image.cpu, 6, 0x0505);
         result = complete_x87(result, 2, 0x01f4);

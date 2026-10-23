@@ -8,4 +8,5 @@ pub(crate) mod guest;
 pub(crate) mod machine;
 pub(crate) mod sequences;
 pub(crate) mod step;
+pub(crate) mod wasm;
 pub(crate) mod x87;
