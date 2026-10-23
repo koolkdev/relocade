@@ -7,7 +7,7 @@ pub(crate) fn lower(
     execution: &mut ExecutionBuilder<'_, '_>,
     instruction: Instruction<impl Into<Val<I32>>>,
     fallthrough_eip: Val<I32>,
-) -> Result<Val<I32>, BuildError> {
+) -> Result<(), BuildError> {
     let supported = execution.supports_cpu_features(instruction.requirements.features);
     execution.fault_if(supported.eq(false), Exception::InvalidOpcode)?;
     if let Some(exception) = instruction
@@ -15,7 +15,7 @@ pub(crate) fn lower(
         .mode_fault(execution.target().profile)
     {
         execution.fault(exception)?;
-        return Ok(fallthrough_eip);
+        return Ok(());
     }
     match instruction.call {
         HandlerCall::Nullary { handler } => {

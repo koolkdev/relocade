@@ -13,7 +13,6 @@ mod stack;
 mod strings;
 mod x87;
 
-pub(crate) use control::CodeTarget;
 pub(crate) use memory::{MemoryOperand, OperandSpan};
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
@@ -30,6 +29,7 @@ use crate::state::{exit, Cpu, SegmentReads, State};
 use crate::{
     address::AddressSize, exception::ExceptionValues, CpuState, ExecutionProfile, ExecutionTarget,
 };
+use control::Transfer;
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Instructions with partial progress, such as REP and POPA, also
@@ -47,6 +47,8 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     x87_opcode: Option<Val<I16>>,
     runtime: Runtime,
     eip: Val<I32>,
+    transfer: Transfer,
+    requires_dispatch: bool,
     completed: u32,
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
@@ -74,6 +76,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             locked: false,
             x87_opcode: None,
             runtime,
+            transfer: Transfer::Fallthrough(eip.clone()),
+            requires_dispatch: false,
             eip,
             completed: 0,
             can_fallback: false,
@@ -100,6 +104,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
+        self.transfer = Transfer::Fallthrough(fallthrough_eip.clone());
+        self.requires_dispatch = decoded.instruction.requires_dispatch();
         self.address_size = decoded.instruction.address_size;
         self.segment_override = decoded.instruction.segment_override.clone();
         self.locked = decoded.instruction.locked;
@@ -108,7 +114,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             .x87_opcode
             .take()
             .map(|opcode| opcode.bits());
-        self.eip = instruction::lower(self, decoded.instruction, fallthrough_eip)?;
+        instruction::lower(self, decoded.instruction, fallthrough_eip)?;
+        self.eip = self.transfer.eip();
         self.completed += 1;
         Ok(())
     }
@@ -321,24 +328,21 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Ends a block, checks its instruction target and dispatches its successor.
-    pub(super) fn dispatch(self) -> Result<(), BuildError> {
-        let runtime = self.runtime;
-        self.finish(true, |body, _| runtime.dispatch(body))
+    pub(super) fn dispatch(mut self) -> Result<(), BuildError> {
+        self.publish(true)?;
+        self.runtime.dispatch(self.body)
     }
 
     /// Publishes an instruction and continues decoding within the current block.
     pub(super) fn complete(
-        self,
+        mut self,
         continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        self.finish(false, continue_execution)
+        self.publish(false)?;
+        continue_execution(self.body, &self.eip)
     }
 
-    fn finish(
-        mut self,
-        check_budget: bool,
-        continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
-    ) -> Result<(), BuildError> {
+    fn publish(&mut self, check_budget: bool) -> Result<(), BuildError> {
         let count = self
             .state
             .publish(&mut self.body, &self.eip, self.completed)?
@@ -347,6 +351,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             self.state
                 .check_instruction_budget(&mut self.body, &count)?;
         }
-        continue_execution(self.body, &self.eip)
+        Ok(())
     }
 }

@@ -113,6 +113,7 @@ pub(crate) struct Form {
     handlers: SizedHandlers<HandlerBinding>,
     pub(super) condition: Option<Condition>,
     pub(super) ends_block: bool,
+    pub(super) requires_dispatch: bool,
     pub(super) requirements: Requirements,
 }
 
