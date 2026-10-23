@@ -1314,6 +1314,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-derive"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "relocade-dos"
 version = "0.0.0"
 dependencies = [
@@ -1369,6 +1378,17 @@ dependencies = [
 [[package]]
 name = "relocade-vfs"
 version = "0.0.0"
+
+[[package]]
+name = "relocade-wasm-bindings"
+version = "0.0.0"
+dependencies = [
+ "js-sys",
+ "relocade-derive",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "wasm-encoder 0.254.0",
+]
 
 [[package]]
 name = "relocade-wasm-runtime"
