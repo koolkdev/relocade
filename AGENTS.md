@@ -101,20 +101,35 @@ This is a public repository. Commit messages use `component: title`.
   Common construction paths should not expose setup steps needed only for forward
   references or other advanced cases.
 
+## Tests
+
+- Add or extend permanent tests for a distinct observable behavior, component
+  invariant or external representation. Before adding coverage, inspect the owning
+  suite and identify the failure the new case would detect that existing cases
+  would miss. A code change does not automatically require a new test or test file.
+- Keep comprehensive mechanism coverage with its owner. Consumer tests should
+  cover independently wired forms and interactions that can fail separately.
+  A new wrapper, type name or caller does not by itself justify repeating the
+  mechanism's matrix. Keep test names and files aligned with their current owner.
+- Integration tests should exercise the production entrypoint or wiring they
+  claim to protect. Use representative cases; multiply addressing, prefix, width,
+  alias, flag or backend dimensions only when their interaction adds a failure
+  mode. Preserve distinct guest faults, instruction forms, interpreter/JIT and
+  native/browser behavior, ABI contracts and compile-fail guarantees.
+- Use literal or independently derived expectations. Assert the contract rather
+  than incidental IDs, ordering or generated instructions. Keep code-shape checks
+  where they protect an explicit compiler optimization or representation invariant.
+  Each assertion must observe something its fixture can actually distinguish.
+- When consolidating or removing cases, identify the surviving coverage and retain
+  any unique interaction in a focused replacement. Keep helpers with their owner;
+  they should adapt inputs and observe outputs without reproducing production
+  behavior. Prefer extending a coherent existing fixture over adding another layer.
+
 ## Review and validation
 
 - Before calling a part ready, review the expanded modules, not only the added lines.
   Check for missed generalization, duplicated mechanisms, awkward APIs, misleading
   names, stale comments and tests that preserve obsolete implementation details.
-- Tests protect behavior, component invariants or external representations, using
-  literal or independently derived expectations. Keep test names and files aligned
-  with the behavior and owner they protect.
-- Instruction-family tests cover distinct forms, semantic boundaries, specific
-  faults and necessary interactions. Keep comprehensive addressing, prefix, memory,
-  register-alias and flag-representation coverage with their shared owners. Use
-  representative integration cases; multiply dimensions only for an interaction
-  they can expose. Before removing repeated cases, verify the owning suite covers
-  their contract. A new family does not require a standard set of test files.
 - Run focused local Wasmtime tests for changed behavior, along with formatting and
   relevant static checks. Run focused browser tests for web runtime changes,
   including bindings, memory, callbacks and dispatch. Keep DOS and VFS behavior
