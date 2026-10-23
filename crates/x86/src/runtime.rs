@@ -3,14 +3,14 @@
 mod ports;
 mod segments;
 
-use relocade_compiler::{BlockBuilder, BuildError, Func, Program};
+use relocade_compiler::{abi::TypedFunc, BlockBuilder, BuildError, Func, Program};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime {
     dispatch: Func,
     interpret: Func,
     resolve_segment: Func,
-    query_segment_descriptor: Func,
+    query_segment_descriptor: TypedFunc<crate::abi::QuerySegmentDescriptorSignature>,
     complete_segment_load: Func,
     ports: ports::Ports,
 }
@@ -20,8 +20,7 @@ impl Runtime {
         let dispatch = program.import_function(crate::abi::DISPATCH);
         let interpret = program.import_function(crate::abi::INTERPRET);
         let resolve_segment = program.import_function(crate::abi::RESOLVE_SEGMENT);
-        let query_segment_descriptor =
-            program.import_function(crate::abi::QUERY_SEGMENT_DESCRIPTOR);
+        let query_segment_descriptor = crate::abi::QUERY_SEGMENT_DESCRIPTOR.import(program);
         Self {
             ports: ports::Ports::declare(program),
             dispatch,

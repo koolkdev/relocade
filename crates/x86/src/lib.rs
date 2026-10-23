@@ -71,7 +71,8 @@ pub use profile::{ExecutionProfile, ExecutionTarget};
 pub use register::Gpr32;
 pub use segment::{
     Descriptor, DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorInfo, SegmentDescriptorKind, SegmentLimit, SegmentProfile,
+    SegmentDescriptorInfo, SegmentDescriptorInfoValues, SegmentDescriptorKind, SegmentLimit,
+    SegmentProfile,
 };
 pub use state::{
     CpuState, DescriptorTableRegister, ExecutionContext, ExecutionExit, FlagBytes, FlagsState,
