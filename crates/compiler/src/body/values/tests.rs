@@ -24,32 +24,33 @@ fn interning_reuses_complete_results_after_storage_grows() {
         }),
     };
     let signed_root = values.intern(signed_product);
-    assert_eq!(signed_root, 4);
+    assert_ne!(signed_root, root);
     let initial_capacity = values.interned.capacity();
     let initial_value_capacity = values.values.capacity();
     // A separately placed calculation does not replace the canonical recipe.
     let placed = values.push(product);
     assert_ne!(root, placed);
-    for bits in 0..1024 {
-        values.literal(Type::I32, bits);
-    }
+    let literals: Vec<_> = (0..1024)
+        .map(|bits| (bits, values.literal(Type::I32, bits)))
+        .collect();
     assert!(values.interned.capacity() > initial_capacity);
     assert!(values.values.capacity() > initial_value_capacity);
 
     let count = values.len();
     assert_eq!(values.intern(product), root);
     assert_eq!(values.intern(signed_product), signed_root);
-    assert_eq!(values.expression_results(root), 2..4);
-    assert_eq!(values.expression_result(root, 1), 3);
+    assert_eq!(values.expression_results(root), root..root + 2);
+    assert_eq!(values.expression_result(root, 1), root + 1);
     assert!(matches!(
-        values[3].definition,
+        values[root + 1].definition,
         ValueDefinition::Result {
-            producer: BlockItem::Evaluate(2),
+            producer: BlockItem::Evaluate(producer),
             component: 1,
-        }
+        } if producer == root
     ));
-    for bits in (0..1024).rev() {
-        assert_eq!(values.literal(Type::I32, bits), 8 + bits as usize);
+    for (bits, id) in literals.into_iter().rev() {
+        assert_eq!(values.literal(Type::I32, bits), id);
+        assert_eq!(values[id].scalar_literal(), Some(bits));
     }
     assert_eq!(values.len(), count);
 }
@@ -61,7 +62,9 @@ fn interning_distinguishes_logical_types_and_physical_bits() {
     let word = values.literal(Type::I16, 255);
     let negative_byte = values.carrier_literal(Type::I8, 0xffff_ffff_u64);
 
-    assert_eq!([byte, word, negative_byte], [0, 1, 2]);
+    assert_ne!(byte, word);
+    assert_ne!(byte, negative_byte);
+    assert_ne!(word, negative_byte);
     assert_eq!(values.literal(Type::I8, 255), byte);
     assert_eq!(values.literal(Type::I16, 255), word);
     assert_eq!(

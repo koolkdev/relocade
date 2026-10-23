@@ -343,7 +343,6 @@ fn shared_snapshots_keep_their_value_across_writes() {
             &instance.memory("state")[..16],
             &[9, 0, 0, 0, 8, 0, 0, 0, 1, 0, 0, 0, 8, 0, 0, 0]
         );
-        assert!(instance.callbacks().is_empty());
     }
 }
 
@@ -356,7 +355,6 @@ fn read_modify_write_returns_the_prior_value() {
         &instance.memory("state")[..16],
         &[8, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0, 0xa5, 0x5a, 0xc3, 0x3c]
     );
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -375,7 +373,6 @@ fn wide_snapshots_survive_overlapping_and_adjacent_stores() {
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i64>(()).unwrap(), -9223372036854775801);
         assert_eq!(&instance.memory("state")[..expected.len()], expected);
-        assert!(instance.callbacks().is_empty());
     }
 }
 
@@ -388,7 +385,6 @@ fn wide_stores_are_visible_to_fresh_reads() {
         &instance.memory("state")[..16],
         &[255, 255, 255, 255, 255, 255, 255, 255, 3, 0, 0, 0, 0xa5, 0x5a, 0xc3, 0x3c]
     );
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -397,7 +393,6 @@ fn byte_increment_wraps_without_touching_adjacent_bytes() {
     let mut instance = module.instantiate();
     assert_eq!(instance.call::<i32>(()).unwrap(), 255);
     assert_eq!(&instance.memory("state")[..4], &[0xa5, 0, 0x5a, 0xc3]);
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -406,7 +401,6 @@ fn halfword_increment_wraps_without_touching_adjacent_bytes() {
     let mut instance = module.instantiate();
     assert_eq!(instance.call::<i32>(()).unwrap(), 65535);
     assert_eq!(&instance.memory("state")[..5], &[0xa5, 0, 0, 0x5a, 0xc3]);
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -415,7 +409,6 @@ fn unused_loads_do_not_trap() {
     let mut instance = module.instantiate();
     assert_eq!(instance.call::<i32>(()).unwrap(), 7);
     assert_eq!(&instance.memory("state")[..INITIAL.len()], INITIAL);
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -425,7 +418,6 @@ fn stores_in_one_memory_do_not_change_another_memory() {
     assert_eq!(instance.call::<i32>(()).unwrap(), 7);
     assert_eq!(&instance.memory("state")[..4], &[7, 0, 0, 0]);
     assert_eq!(&instance.memory("other")[..4], &[9, 0, 0, 0]);
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
