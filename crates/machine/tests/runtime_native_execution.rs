@@ -39,7 +39,7 @@ fn runtime(code: &[u8]) -> Cpu<Backend<RuntimeState>> {
 }
 
 #[test]
-#[should_panic(expected = "host handler requires an active CPU run")]
+#[should_panic(expected = "callback requires active execution resources")]
 fn module_start_cannot_enter_machine_hooks() {
     use relocade_machine::{Hook, HookResult};
     use wasm_encoder::{

@@ -1,11 +1,14 @@
 #![allow(dead_code)]
-use relocade_machine::{CpuConfig, CpuContext, MachineConfig, MemoryAccess, MemoryStorage};
+use relocade_machine::{
+    CpuConfig, CpuContext, MachineConfig, MemoryAccess, MemoryStorage, RuntimeState,
+};
 use relocade_x86::ExecutionContext;
 use std::{cell::RefCell, rc::Rc};
 
 pub struct Storage {
     pub cpu: CpuImage,
     bytes: Vec<u8>,
+    state: RuntimeState,
 }
 
 pub struct CpuImage {
@@ -40,6 +43,7 @@ impl Storage {
                 cpu_reads: RefCell::new(Vec::new()),
             },
             bytes: vec![0; config.memory_size() as usize],
+            state: RuntimeState::default(),
         }
     }
 
@@ -49,6 +53,7 @@ impl Storage {
             &config.machine,
             MemoryAccess::from_storage(&mut self.cpu),
             MemoryAccess::from_bytes(&mut self.bytes),
+            &mut self.state,
         )
     }
 }

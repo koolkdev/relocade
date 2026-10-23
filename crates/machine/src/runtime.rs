@@ -27,8 +27,9 @@
 #![forbid(unsafe_code)]
 
 mod backend;
-mod callback;
 mod code;
+mod context;
+mod deferred;
 mod dispatch;
 mod error;
 mod execution;
@@ -40,9 +41,9 @@ mod state;
 #[cfg(feature = "worker")]
 pub mod worker;
 
-use crate::{CpuConfig, CpuContext, MachineConfig, Memory};
+use crate::{CpuConfig, MachineConfig, Memory};
 pub use backend::RuntimeBackend;
-pub use callback::HostCall;
+pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
@@ -95,8 +96,9 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             .await
     }
 
-    /// Borrows the stopped CPU and guest memory. Writes take effect immediately.
-    pub fn context(&mut self) -> CpuContext<'_> {
+    /// Borrows the stopped CPU, guest memory and environment state. Writes take
+    /// effect immediately. Drop this context before running the CPU.
+    pub fn context(&mut self) -> CpuContext<'_, T> {
         self.bindings.context(&mut self.backend)
     }
 
@@ -105,7 +107,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// shared allocation during worker transport. CPU and dispatch storage remain private.
     pub fn memory(&self) -> Memory<B::SharedMemory> {
         Memory::with_backing(
-            self.bindings.machine_config.as_ref().clone(),
+            self.bindings.machine_config.clone(),
             self.bindings.shared_guest.clone(),
         )
         .expect("guest backing matches the configured capacity")

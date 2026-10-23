@@ -6,7 +6,7 @@ use crate::{
     state::DosState,
     DosServices,
 };
-use relocade_machine::{HookResult, HostCall};
+use relocade_machine::{CpuContext, HookResult};
 
 /// A line being edited, including its final carriage return once complete.
 pub(super) struct LineInput {
@@ -34,9 +34,9 @@ impl LineInput {
     /// Reads queued input and defers for missing characters until the line is complete.
     pub(super) fn read(
         mut self,
-        call: &mut HostCall<'_, DosServices>,
+        call: &mut CpuContext<'_, DosServices>,
         state: &mut DosState,
-        complete: impl FnOnce(&mut HostCall<'_, DosServices>, &mut DosState, Vec<u8>) -> HookResult
+        complete: impl FnOnce(&mut CpuContext<'_, DosServices>, &mut DosState, Vec<u8>) -> HookResult
             + 'static,
     ) -> HookResult {
         match self.read_available(call, state) {
@@ -60,7 +60,7 @@ impl LineInput {
     /// Consumes queued input, returning true when Enter completes the line.
     fn read_available(
         &mut self,
-        call: &mut HostCall<'_, DosServices>,
+        call: &mut CpuContext<'_, DosServices>,
         state: &mut DosState,
     ) -> Result<bool, DosError> {
         // NUL returns zero forever, so it cannot complete a line. Wait without spinning.
@@ -80,7 +80,7 @@ impl LineInput {
 
     fn accept(
         &mut self,
-        call: &mut HostCall<'_, DosServices>,
+        call: &mut CpuContext<'_, DosServices>,
         state: &mut DosState,
         byte: u8,
     ) -> bool {
@@ -125,7 +125,7 @@ impl LineInput {
         false
     }
 
-    fn echo(&self, call: &mut HostCall<'_, DosServices>, state: &mut DosState, bytes: &[u8]) {
+    fn echo(&self, call: &mut CpuContext<'_, DosServices>, state: &mut DosState, bytes: &[u8]) {
         for &byte in bytes {
             write_cooked_character(call, state, self.echo, byte);
         }

@@ -1,7 +1,7 @@
-use super::{Backend, Memory};
-use crate::{HostFunction, HostSignature, MemoryAccess, WasmContext, WasmMemoryAccess};
+use super::{Backend, Context};
+use crate::{HostFunction, HostSignature};
 use relocade_wasm_bindings::{lift_flat, lower_flat, Flat, Value};
-use wasmtime::{AsContextMut, Caller, Func, Store, StoreContextMut, WasmRet, WasmTy};
+use wasmtime::{AsContextMut, Caller, Func, Store, WasmRet, WasmTy};
 
 impl<T: 'static, S: HostSignature<Self> + 'static> HostFunction<S> for Backend<T>
 where
@@ -47,30 +47,3 @@ macro_rules! parameters {
     };
 }
 parameters!(A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l);
-
-/// Scoped access to the store and its memories, inside or outside a callback.
-pub struct Context<'a, T: 'static>(pub(super) StoreContextMut<'a, T>);
-
-impl<T: 'static> WasmContext for Context<'_, T> {
-    type State = T;
-
-    fn state(&self) -> &T {
-        self.0.data()
-    }
-
-    fn state_mut(&mut self) -> &mut T {
-        self.0.data_mut()
-    }
-
-    fn memory_and_state<'a>(&'a mut self, memory: &'a Memory) -> (MemoryAccess<'a>, &'a mut T) {
-        memory.access_and_state(&mut self.0)
-    }
-}
-
-impl<T: 'static> WasmMemoryAccess for Context<'_, T> {
-    type Memory = Memory;
-
-    fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
-        memory.access(self.0.as_context_mut())
-    }
-}

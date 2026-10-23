@@ -60,8 +60,12 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
         })
     }
 
-    pub(crate) fn run(&self, execution: &mut B::Execution<'_>) -> ExecutionExit {
-        self.dispatch.call(execution, ())
+    pub(crate) fn run(
+        &self,
+        execution: &mut B::Execution<'_>,
+        resources: &RuntimeMemory<B::Memory, B::SharedMemory>,
+    ) -> ExecutionExit {
+        self.dispatch.call_with(execution, resources, ())
     }
 
     pub(crate) async fn install(

@@ -1,5 +1,5 @@
 use super::Backend;
-use crate::{CallSignature, Error, ExportFunction, Result};
+use crate::{CallSignature, Error, ExecutionData, ExportFunction, Result};
 use js_sys::{Function as JsFunction, WebAssembly};
 use relocade_compiler::abi::{Function, Value};
 use relocade_wasm_bindings::{Flat, Function as Binding, WasmTuple};
@@ -26,6 +26,17 @@ where
         arguments: Value<S::Parameters>,
     ) -> Value<S::Return> {
         execution.call(|| function.call(arguments))
+    }
+
+    fn invoke_function_with_data<D: ExecutionData>(
+        execution: &mut Self::Execution<'_>,
+        function: &Self::Handle,
+        data: &D,
+        arguments: Value<S::Parameters>,
+    ) -> Value<S::Return> {
+        crate::execution::call_with(execution, data, |execution| {
+            <Self as ExportFunction<S>>::invoke_function(execution, function, arguments)
+        })
     }
 
     fn function_import(&self, function: &Self::Handle) -> JsFunction {

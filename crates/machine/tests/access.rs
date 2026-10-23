@@ -32,21 +32,23 @@ fn configuration(map: PhysicalMemoryMap) -> (Configuration, Storage) {
 fn register_access_is_live_and_preserves_aliases() {
     let (config, mut storage) = configuration(PhysicalMemoryMap::new([]).unwrap());
     let context = Rc::clone(&storage.cpu.context);
-    let mut machine = storage.context(&config);
-    let mut cpu = machine.cpu();
-    cpu.set_eax(0x1234_5678);
-    cpu.set_ax(0xabcd);
-    cpu.set_al(0xef);
-    cpu.set_ah(0x98);
-    // Observe writes while the view is still borrowed: no drop/flush is needed.
-    assert_eq!(&context.borrow()[28..32], &[0xef, 0x98, 0x34, 0x12]);
-    assert_eq!(cpu.eax(), 0x1234_98ef);
-    context.borrow_mut()[28] = 0x42;
-    assert_eq!(cpu.ax(), 0x9842);
-    assert_eq!(cpu.al(), 0x42);
-    assert_eq!(cpu.ah(), 0x98);
-    cpu.set_eip(0x100);
-    assert_eq!(&context.borrow()[60..64], &[0, 1, 0, 0]);
+    {
+        let mut machine = storage.context(&config);
+        let mut cpu = machine.cpu();
+        cpu.set_eax(0x1234_5678);
+        cpu.set_ax(0xabcd);
+        cpu.set_al(0xef);
+        cpu.set_ah(0x98);
+        // Observe writes while the view is still borrowed: no drop/flush is needed.
+        assert_eq!(&context.borrow()[28..32], &[0xef, 0x98, 0x34, 0x12]);
+        assert_eq!(cpu.eax(), 0x1234_98ef);
+        context.borrow_mut()[28] = 0x42;
+        assert_eq!(cpu.ax(), 0x9842);
+        assert_eq!(cpu.al(), 0x42);
+        assert_eq!(cpu.ah(), 0x98);
+        cpu.set_eip(0x100);
+        assert_eq!(&context.borrow()[60..64], &[0, 1, 0, 0]);
+    }
     assert_eq!(
         *storage.cpu.cpu_reads.borrow(),
         [(28, 4), (28, 2), (28, 1), (29, 1)]

@@ -1,4 +1,5 @@
-use crate::{Error, MemoryAccess, Result, SharedMemoryStorage, WasmSharedMemory};
+use crate::state::StoreState;
+use crate::{Error, MemoryAccess, Result, SharedMemoryStorage, StateAccess, WasmSharedMemory};
 use relocade_compiler::abi;
 use std::sync::atomic::{AtomicU8, Ordering};
 use wasmtime::{AsContext, AsContextMut, Extern, MemoryType};
@@ -48,14 +49,14 @@ impl Memory {
 
     pub(super) fn access_and_state<'a, T>(
         &'a self,
-        store: &'a mut wasmtime::StoreContextMut<'_, T>,
-    ) -> (MemoryAccess<'a>, &'a mut T) {
+        store: &'a mut wasmtime::StoreContextMut<'_, StoreState<T>>,
+    ) -> (MemoryAccess<'a>, StateAccess<'a, T>) {
         match self {
             Self::Private(memory) => {
                 let (bytes, state) = memory.data_and_store_mut(store);
-                (MemoryAccess::from_bytes(bytes), state)
+                (MemoryAccess::from_bytes(bytes), (&mut state.state).into())
             }
-            Self::Shared(memory) => (memory.view(), store.data_mut()),
+            Self::Shared(memory) => (memory.view(), (&mut store.data_mut().state).into()),
         }
     }
 

@@ -1,19 +1,18 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
-use super::{HostCall, Result, RuntimeState};
+use super::{Result, RuntimeState};
 use crate::{CpuConfig, CpuContext, CpuView, MachineConfig};
 use relocade_compiler::abi::Memory;
 use relocade_wasm_runtime::{Import, WasmBackend, WasmContext, WasmMemoryAccess, WasmSharedMemory};
 use relocade_x86::{abi, ExecutionContext};
-use std::{mem::offset_of, sync::Arc};
+use std::mem::offset_of;
 
 /// The runtime's initialized Wasm memories. This owner allocates backend memory
 /// from the machine configuration and supplies module bindings. The CPU's
 /// execution owner lends host access during runs.
-#[derive(Clone)]
 pub struct RuntimeMemory<M, S> {
-    pub(crate) config: Arc<CpuConfig>,
-    pub(crate) machine_config: Arc<MachineConfig>,
+    pub(crate) config: CpuConfig,
+    pub(crate) machine_config: MachineConfig,
     pub(crate) context: M,
     pub(crate) guest: M,
     pub(crate) mapping: M,
@@ -57,8 +56,8 @@ impl<M: Clone + 'static, S: WasmSharedMemory> RuntimeMemory<M, S> {
             .shared_memory(&guest)
             .expect("guest backing is shared");
         Ok(Self {
-            config: Arc::new(config),
-            machine_config: Arc::new(machine_config),
+            config,
+            machine_config,
             context,
             guest,
             mapping,
@@ -95,30 +94,16 @@ impl<M: Clone + 'static, S: WasmSharedMemory> RuntimeMemory<M, S> {
         CpuView::new(&self.config, access.memory(&self.context))
     }
 
-    pub(crate) fn context<'a>(
+    pub(crate) fn context<'a, T: 'static>(
         &'a self,
-        access: &'a mut impl WasmMemoryAccess<Memory = M>,
-    ) -> CpuContext<'a> {
+        access: &'a mut impl WasmContext<State = RuntimeState<T>, Memory = M>,
+    ) -> CpuContext<'a, T> {
+        let (context, state) = access.memory_and_state(&self.context);
         CpuContext::new(
             &self.config,
             &self.machine_config,
-            access.memory(&self.context),
+            context,
             self.shared_guest.view(),
-        )
-    }
-
-    pub(crate) fn host_call<'a, T>(
-        &'a self,
-        access: &'a mut impl WasmContext<State = RuntimeState<T>, Memory = M>,
-    ) -> HostCall<'a, T> {
-        let (context, state) = access.memory_and_state(&self.context);
-        HostCall::new(
-            CpuContext::new(
-                &self.config,
-                &self.machine_config,
-                context,
-                self.shared_guest.view(),
-            ),
             state,
         )
     }

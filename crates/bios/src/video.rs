@@ -1,9 +1,9 @@
 //! INT 10h services for the initial 80-by-25 color text mode.
 
 use crate::screen::{self, ScrollDirection, Window};
-use relocade_machine::{real_mode_interrupt, HookResult, HostCall};
+use relocade_machine::{real_mode_interrupt, CpuContext, HookResult};
 
-pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> HookResult {
+pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     let cpu = call.cpu();
     let function = cpu.ah();
     let al = cpu.al();
@@ -82,7 +82,7 @@ pub(super) fn interrupt<T>(call: &mut HostCall<'_, T>) -> HookResult {
     real_mode_interrupt::return_from_interrupt(call)
 }
 
-fn unsupported<T>(call: &mut HostCall<'_, T>) -> HookResult {
+fn unsupported<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     call.cpu().set_ah(0x86);
     real_mode_interrupt::set_carry(call, true);
     real_mode_interrupt::return_from_interrupt(call)

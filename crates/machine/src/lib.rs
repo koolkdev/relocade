@@ -38,13 +38,13 @@ mod memory;
 pub mod runtime;
 
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
-pub use cpu::{CpuContext, CpuView};
+pub use cpu::CpuView;
 pub use memory::{Memory, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::{MemoryAccess, MemoryStorage, SharedMemoryStorage};
 
 #[cfg(feature = "worker")]
 pub use runtime::worker;
 pub use runtime::{
-    real_mode_interrupt, Cpu, DispatchEntry, Error, Hook, HookResult, HostCall, Result,
+    real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, Hook, HookResult, Result,
     RuntimeBackend, RuntimeMemory, RuntimeState,
 };

@@ -1,8 +1,8 @@
 use relocade_compiler::{abi::Function, Program};
-use relocade_wasm_runtime::WasmCompiler;
+use relocade_wasm_runtime::{WasmCallback, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit};
 
-use super::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::{Cpu, CpuContext, DispatchEntry, Result, RuntimeBackend, RuntimeMemory, RuntimeState};
 
 /// Result of a synchronous or deferred host hook.
 /// The same type crosses generated hook entries through the shared Wasm ABI.
@@ -22,16 +22,16 @@ pub enum HookResult {
     Exit(ExecutionExit),
 }
 
-type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> HookResult + Send + Sync;
+type Handler<T> = dyn Fn(&mut CpuContext<'_, T>) -> HookResult + Send + Sync;
 
 /// A host function reached at a guest linear address through ordinary dispatch.
 /// `T` is the backend's environment state, borrowed through the caller.
 ///
 /// ```
-/// use relocade_machine::{Hook, HookResult, HostCall};
+/// use relocade_machine::{Hook, HookResult, CpuContext};
 /// use relocade_x86::ExecutionExit;
 ///
-/// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> HookResult {
+/// fn terminate(call: &mut CpuContext<'_, Option<u8>>) -> HookResult {
 ///     let code = call.cpu().al();
 ///     *call.state_mut() = Some(code);
 ///     HookResult::Exit(ExecutionExit::HostReturn)
@@ -46,7 +46,7 @@ pub struct Hook<T = ()> {
 impl<T> Hook<T> {
     /// On Continue, the handler must set the guest continuation in CPU state.
     /// Exit returns its execution exit without changing that state.
-    /// To defer work, return the result of [`HostCall::defer`], which queues the
+    /// To defer work, return the result of [`CpuContext::defer`], which queues the
     /// required handler. Returning `ExecutionExit::Deferred` without a queued
     /// handler is a programming error.
     /// Interrupt/ABI return conventions belong to the handler's environment.
@@ -54,7 +54,7 @@ impl<T> Hook<T> {
     /// caller's state, which does not need to be Send or Sync.
     pub fn new(
         address: u32,
-        handler: impl Fn(&mut HostCall<'_, T>) -> HookResult + Send + Sync + 'static,
+        handler: impl Fn(&mut CpuContext<'_, T>) -> HookResult + Send + Sync + 'static,
     ) -> Self {
         Self {
             address,
@@ -70,7 +70,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Entries begin with CPU state already published by the predecessor. They
     /// cache no CPU values across the host call. Hooks do not retire guest
     /// instructions; continuing execution retains the current instruction target.
-    /// Handlers must not reenter guest execution. They may use `HostCall::defer`
+    /// Handlers must not reenter guest execution. They may use `CpuContext::defer`
     /// to await owned work and complete in Rust before guest execution resumes.
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
         let hooks: Vec<_> = hooks.into_iter().collect();
@@ -94,10 +94,13 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
                 body.trap()
             });
             program.export(name, function)?;
-            let bindings = self.bindings.clone();
             imports.push(self.backend.bind_host(
                 declaration,
-                Box::new(move |mut caller| (hook.handler)(&mut bindings.host_call(&mut caller))),
+                Box::new(move |mut caller| {
+                    caller.with_execution_data::<RuntimeMemory<B::Memory, B::SharedMemory>, _>(
+                        |caller, resources| (hook.handler)(&mut resources.context(caller)),
+                    )
+                }),
             ));
             entries.push(DispatchEntry {
                 address: hook.address,

@@ -1,6 +1,6 @@
 use crate::{
-    Error, Import, ImportValue, MemoryAccess, ModuleCache, Result, WasmBackend, WasmCompiler,
-    WasmMemoryAccess,
+    Error, Import, ImportValue, MemoryAccess, ModuleCache, Result, StateAccess, WasmBackend,
+    WasmCompiler, WasmContext, WasmMemoryAccess,
 };
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::abi;
@@ -26,9 +26,7 @@ pub struct Backend<T = ()> {
     modules: Rc<ModuleCache<Module>>,
 }
 
-struct Store<T> {
-    state: T,
-}
+use crate::state::StoreState as Store;
 
 /// Compiled code whose JavaScript handle can be posted to another worker.
 /// Equality compares handle identity, including across clones of this value.
@@ -65,14 +63,13 @@ impl<T: 'static> Backend<T> {
                 Rc::new(ModuleCache::default());
         }
         Ok(Self {
-            store: Rc::new(Owner::new(Store { state })),
+            store: Rc::new(Owner::new(Store::new(state))),
             modules: MODULES.with(Rc::clone),
         })
     }
 }
 
 impl<T: 'static> WasmBackend for Backend<T> {
-    type State = T;
     type Context<'a> = Context<'a, T>;
     type Execution<'a> = Execution<'a, T>;
     type Module = Module;
@@ -81,14 +78,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type Table = WebAssembly::Table;
     type ImportFunction = JsFunction;
     type SharedMemory = SharedMemory;
-
-    fn state(&self) -> impl Deref<Target = T> {
-        Ref::map(self.store.data.borrow(), |store| &store.state)
-    }
-
-    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
-        RefMut::map(self.store.data.borrow_mut(), |store| &mut store.state)
-    }
 
     fn execution(&mut self) -> Execution<'_, T> {
         self.store.execution()
@@ -225,4 +214,24 @@ fn js_error(operation: &'static str, error: JsValue) -> Error {
         operation,
         error.as_string().unwrap_or_else(|| format!("{error:?}")),
     )
+}
+
+impl<T: 'static> WasmContext for Backend<T> {
+    type State = T;
+
+    fn state(&self) -> impl Deref<Target = T> {
+        Ref::map(self.store.data.borrow(), |store| &store.state)
+    }
+
+    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
+        RefMut::map(self.store.data.borrow_mut(), |store| &mut store.state)
+    }
+
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Memory,
+    ) -> (MemoryAccess<'a>, StateAccess<'a, T>) {
+        let state = RefMut::map(self.store.data.borrow_mut(), |store| &mut store.state);
+        (memory.access(), state.into())
+    }
 }

@@ -62,8 +62,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     }
 
     fn execution(&mut self) -> Execution<'_, T, B> {
-        let mut backend = self.backend.execution();
-        backend.state_mut().running = true;
+        let backend = self.backend.execution();
         Execution {
             backend,
             bindings: &self.bindings,
@@ -81,12 +80,6 @@ struct Execution<'a, T: 'static, B: RuntimeBackend<State = RuntimeState<T>> + 'a
     bindings: &'a RuntimeMemory<B::Memory, B::SharedMemory>,
     dispatch: &'a Dispatch<B>,
     host_call_incomplete: &'a mut bool,
-}
-
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Drop for Execution<'_, T, B> {
-    fn drop(&mut self) {
-        self.backend.state_mut().running = false;
-    }
 }
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Execution<'_, T, B> {
@@ -107,7 +100,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Execution<'_, T, B>
         }
         self.bindings
             .set_instruction_target(&mut self.backend, target);
-        Ok(self.dispatch.run(&mut self.backend))
+        Ok(self.dispatch.run(&mut self.backend, self.bindings))
     }
 
     async fn run_deferred(&mut self) -> HookResult {
@@ -119,7 +112,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Execution<'_, T, B>
             .expect("deferred exit must have a handler");
         // Cancellation leaves this set so a later run cannot replay the hook.
         *self.host_call_incomplete = true;
-        let mut call = self.bindings.host_call(&mut self.backend);
+        let mut call = self.bindings.context(&mut self.backend);
         let result = handler.run(&mut call).await;
         *self.host_call_incomplete = false;
         result

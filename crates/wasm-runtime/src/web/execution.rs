@@ -2,7 +2,10 @@
 #![allow(unsafe_code)]
 
 use super::{Memory, Store};
-use crate::{MemoryAccess, WasmContext, WasmMemoryAccess};
+use crate::execution::{ScopedContext, ScopedData};
+use crate::{ExecutionData, WasmCallback};
+use crate::{MemoryAccess, StateAccess, WasmContext, WasmMemoryAccess};
+use std::ops::{Deref, DerefMut};
 use std::{
     cell::{Cell, RefCell, RefMut},
     ptr::NonNull,
@@ -106,19 +109,22 @@ impl<T> Drop for Context<'_, T> {
     }
 }
 
-impl<T> WasmContext for Execution<'_, T> {
+impl<T: 'static> WasmContext for Execution<'_, T> {
     type State = T;
 
-    fn state(&self) -> &T {
+    fn state(&self) -> impl Deref<Target = T> {
         &self.store.state
     }
 
-    fn state_mut(&mut self) -> &mut T {
+    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
         &mut self.store.state
     }
 
-    fn memory_and_state<'a>(&'a mut self, memory: &'a Memory) -> (MemoryAccess<'a>, &'a mut T) {
-        (memory.access(), &mut self.store.state)
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Memory,
+    ) -> (MemoryAccess<'a>, StateAccess<'a, T>) {
+        (memory.access(), (&mut self.store.state).into())
     }
 }
 
@@ -130,19 +136,22 @@ impl<T> WasmMemoryAccess for Execution<'_, T> {
     }
 }
 
-impl<T> WasmContext for Context<'_, T> {
+impl<T: 'static> WasmContext for Context<'_, T> {
     type State = T;
 
-    fn state(&self) -> &T {
+    fn state(&self) -> impl Deref<Target = T> {
         &self.store().state
     }
 
-    fn state_mut(&mut self) -> &mut T {
+    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
         &mut self.store_mut().state
     }
 
-    fn memory_and_state<'a>(&'a mut self, memory: &'a Memory) -> (MemoryAccess<'a>, &'a mut T) {
-        (memory.access(), &mut self.store_mut().state)
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Memory,
+    ) -> (MemoryAccess<'a>, StateAccess<'a, T>) {
+        (memory.access(), (&mut self.store_mut().state).into())
     }
 }
 
@@ -151,5 +160,26 @@ impl<T> WasmMemoryAccess for Context<'_, T> {
 
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
         memory.access()
+    }
+}
+
+impl<T> ScopedContext for Execution<'_, T> {
+    fn scoped_data(&mut self) -> &mut ScopedData {
+        &mut self.store.execution_data
+    }
+}
+
+impl<T> ScopedContext for Context<'_, T> {
+    fn scoped_data(&mut self) -> &mut ScopedData {
+        &mut self.store_mut().execution_data
+    }
+}
+
+impl<T: 'static> WasmCallback for Context<'_, T> {
+    fn with_execution_data<D: ExecutionData, R>(
+        &mut self,
+        callback: impl for<'a> FnOnce(&'a mut Self, &'a D) -> R,
+    ) -> R {
+        crate::execution::with_data(self, callback)
     }
 }

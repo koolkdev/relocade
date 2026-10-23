@@ -29,6 +29,9 @@ use relocade_compiler::abi::{Function as FunctionDeclaration, Memory as MemoryDe
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 
+mod execution;
+pub use execution::{ExecutionData, WasmCallback};
+
 mod error;
 pub use error::{Error, Result};
 #[cfg(not(target_arch = "wasm32"))]
@@ -45,6 +48,7 @@ mod host;
 mod imports;
 mod memory;
 mod module_cache;
+mod state;
 pub use calls::{CallSignature, ExportFunction, Function};
 pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
@@ -53,6 +57,7 @@ pub use memory::{
     WasmSharedMemory,
 };
 pub use module_cache::ModuleCache;
+pub use state::StateAccess;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
 /// The handle can move to another thread; create and await its futures there.
@@ -69,33 +74,33 @@ pub trait WasmCompiler: Clone + Send + 'static {
 /// their callback. An execution owner can retain access between calls and
 /// across awaits; its borrows must end before it enters Wasm again.
 pub trait WasmContext: WasmMemoryAccess {
-    type State;
+    type State: 'static;
 
-    fn state(&self) -> &Self::State;
-    fn state_mut(&mut self) -> &mut Self::State;
+    fn state(&self) -> impl Deref<Target = Self::State>;
+    fn state_mut(&mut self) -> impl DerefMut<Target = Self::State>;
 
     /// Lends disjoint memory and host state during one stopped phase.
     fn memory_and_state<'a>(
         &'a mut self,
         memory: &'a Self::Memory,
-    ) -> (MemoryAccess<'a>, &'a mut Self::State);
+    ) -> (MemoryAccess<'a>, StateAccess<'a, Self::State>);
 }
 
 impl<C: WasmContext + ?Sized> WasmContext for &mut C {
     type State = C::State;
 
-    fn state(&self) -> &Self::State {
+    fn state(&self) -> impl Deref<Target = Self::State> {
         (**self).state()
     }
 
-    fn state_mut(&mut self) -> &mut Self::State {
+    fn state_mut(&mut self) -> impl DerefMut<Target = Self::State> {
         (**self).state_mut()
     }
 
     fn memory_and_state<'a>(
         &'a mut self,
         memory: &'a Self::Memory,
-    ) -> (MemoryAccess<'a>, &'a mut Self::State) {
+    ) -> (MemoryAccess<'a>, StateAccess<'a, Self::State>) {
         (**self).memory_and_state(memory)
     }
 }
@@ -108,9 +113,8 @@ impl<C: WasmContext + ?Sized> WasmContext for &mut C {
 ///
 /// Instances retain their imports. Exported functions and table entries remain
 /// valid after the original module and instance handles are dropped.
-pub trait WasmBackend: WasmMemoryAccess + Sized {
-    type State: 'static;
-    type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
+pub trait WasmBackend: WasmContext + Sized {
+    type Context<'a>: WasmCallback<State = Self::State, Memory = Self::Memory>
     where
         Self: 'a;
     /// Owns exclusive access across calls and lends it to synchronous callbacks.
@@ -129,11 +133,6 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     type SharedMemory: WasmSharedMemory + Send + Sync;
     #[cfg(target_arch = "wasm32")]
     type SharedMemory: WasmSharedMemory;
-
-    /// Host state is borrowed only between Wasm calls. A browser backend may
-    /// return a borrow guard; drop it before calling into Wasm.
-    fn state(&self) -> impl Deref<Target = Self::State>;
-    fn state_mut(&mut self) -> impl DerefMut<Target = Self::State>;
 
     /// Borrows the backend for execution and host access between calls. Use
     /// [`Function::call`] to enter Wasm through this owner. It may be held

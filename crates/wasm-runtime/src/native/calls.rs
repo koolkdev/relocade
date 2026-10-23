@@ -1,5 +1,5 @@
 use super::Backend;
-use crate::{CallSignature, Error, ExportFunction, Result};
+use crate::{CallSignature, Error, ExecutionData, ExportFunction, Result};
 use relocade_compiler::abi::{Function, Value};
 use relocade_wasm_bindings::{lift_flat, lower_flat, Flat};
 use wasmtime::{Func, Instance, TypedFunc, WasmParams, WasmResults};
@@ -30,6 +30,17 @@ where
             .call(&mut execution.0, lower_flat::<S::Parameters>(arguments))
             .expect("Wasm execution trapped");
         lift_flat::<S::Return>(result).expect("invalid Wasm ABI value")
+    }
+
+    fn invoke_function_with_data<D: ExecutionData>(
+        execution: &mut Self::Execution<'_>,
+        function: &Self::Handle,
+        data: &D,
+        arguments: Value<S::Parameters>,
+    ) -> Value<S::Return> {
+        crate::execution::call_with(execution, data, |execution| {
+            <Self as ExportFunction<S>>::invoke_function(execution, function, arguments)
+        })
     }
 
     fn function_import(&self, function: &Self::Handle) -> Func {

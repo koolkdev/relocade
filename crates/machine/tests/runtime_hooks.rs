@@ -96,7 +96,7 @@ async fn check_interrupt_hooks() {
         .await
         .unwrap();
     assert_eq!(runtime.run(5).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.state().get(), 1);
+    assert_eq!(runtime.context().state().get(), 1);
     assert_eq!(runtime.context().cpu().ax(), 11);
     assert_eq!(runtime.context().cpu().segment(Segment::Cs).selector, 0);
     assert_eq!(runtime.context().cpu().eip(), 0x10e);

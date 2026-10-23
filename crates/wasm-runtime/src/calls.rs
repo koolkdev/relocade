@@ -1,4 +1,4 @@
-use crate::{Result, WasmBackend};
+use crate::{ExecutionData, Result, WasmBackend};
 use relocade_compiler::abi::Function as Declaration;
 use relocade_wasm_bindings::{slots::Tuple, AbiValue, FunctionSignature, Value, WasmRepr};
 use std::marker::PhantomData;
@@ -40,7 +40,7 @@ impl<B: ExportFunction<S>, S: CallSignature> Function<B, S> {
     /// use relocade_wasm_runtime::{Backend, Function, WasmBackend, WasmContext};
     /// fn wrong(backend: &mut Backend<u32>, function: &Function<Backend<u32>, fn()>) {
     ///     let mut execution = backend.execution();
-    ///     let state = execution.state_mut();
+    ///     let mut state = execution.state_mut();
     ///     function.call(&mut execution, ());
     ///     *state = 1;
     /// }
@@ -51,6 +51,18 @@ impl<B: ExportFunction<S>, S: CallSignature> Function<B, S> {
         arguments: Value<S::Parameters>,
     ) -> Value<S::Return> {
         B::invoke_function(execution, &self.handle, arguments)
+    }
+
+    /// Enters Wasm while lending resources from this execution owner to its
+    /// callbacks. The loan ends when the synchronous call returns or unwinds.
+    /// Callbacks access it through `WasmCallback::with_execution_data`.
+    pub fn call_with<D: ExecutionData>(
+        &self,
+        execution: &mut B::Execution<'_>,
+        data: &D,
+        arguments: Value<S::Parameters>,
+    ) -> Value<S::Return> {
+        B::invoke_function_with_data(execution, &self.handle, data, arguments)
     }
 
     pub(crate) fn new(handle: B::Handle) -> Self {
@@ -76,6 +88,13 @@ pub trait ExportFunction<S: CallSignature>: WasmBackend {
     fn invoke_function(
         execution: &mut Self::Execution<'_>,
         function: &Self::Handle,
+        arguments: Value<S::Parameters>,
+    ) -> Value<S::Return>;
+
+    fn invoke_function_with_data<D: ExecutionData>(
+        execution: &mut Self::Execution<'_>,
+        function: &Self::Handle,
+        data: &D,
         arguments: Value<S::Parameters>,
     ) -> Value<S::Return>;
 

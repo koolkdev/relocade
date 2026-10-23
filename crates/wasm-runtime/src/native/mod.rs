@@ -1,5 +1,7 @@
+use crate::state::StoreState;
 use crate::{
-    Error, Import, ImportValue, MemoryAccess, ModuleCache, Result, WasmBackend, WasmMemoryAccess,
+    Error, Import, ImportValue, MemoryAccess, ModuleCache, Result, StateAccess, WasmBackend,
+    WasmContext, WasmMemoryAccess,
 };
 use relocade_compiler::abi;
 use std::ops::{Deref, DerefMut};
@@ -9,16 +11,17 @@ pub use wasmtime::Module;
 
 mod calls;
 mod compilation;
+mod execution;
 mod host;
 mod memory;
 pub use compilation::Compiler;
-pub use host::Context;
-pub use host::Context as Execution;
+pub use execution::Context;
+pub use execution::Context as Execution;
 pub use memory::{Memory, SharedMemory};
 
 /// One store for guest instances and their imports. Runtime owns execution policy.
 pub struct Backend<T: 'static = ()> {
-    store: Store<T>,
+    store: Store<StoreState<T>>,
     compilation: &'static compilation::Compilation,
 }
 
@@ -32,14 +35,13 @@ impl<T: 'static> Backend<T> {
     pub fn with_state(state: T) -> Result<Self> {
         let compilation = compilation::shared()?;
         Ok(Self {
-            store: Store::new(compilation.engine(), state),
+            store: Store::new(compilation.engine(), StoreState::new(state)),
             compilation,
         })
     }
 }
 
 impl<T: 'static> WasmBackend for Backend<T> {
-    type State = T;
     type Context<'a> = Context<'a, T>;
     type Execution<'a> = Execution<'a, T>;
     type Module = Module;
@@ -48,14 +50,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type Table = Table;
     type ImportFunction = Func;
     type SharedMemory = SharedMemory;
-
-    fn state(&self) -> impl Deref<Target = T> {
-        self.store.data()
-    }
-
-    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
-        self.store.data_mut()
-    }
 
     fn execution(&mut self) -> Execution<'_, T> {
         Context(self.store.as_context_mut())
@@ -144,5 +138,33 @@ impl<T: 'static> WasmMemoryAccess for Backend<T> {
 
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
         memory.access(self.store.as_context_mut())
+    }
+}
+
+impl<T: 'static> WasmContext for Backend<T> {
+    type State = T;
+
+    fn state(&self) -> impl Deref<Target = T> {
+        &self.store.data().state
+    }
+
+    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
+        &mut self.store.data_mut().state
+    }
+
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Memory,
+    ) -> (MemoryAccess<'a>, StateAccess<'a, T>) {
+        match memory {
+            Memory::Private(memory) => {
+                let (bytes, store) = memory.data_and_store_mut(&mut self.store);
+                (MemoryAccess::from_bytes(bytes), (&mut store.state).into())
+            }
+            Memory::Shared(memory) => (
+                crate::WasmSharedMemory::view(memory),
+                (&mut self.store.data_mut().state).into(),
+            ),
+        }
     }
 }
