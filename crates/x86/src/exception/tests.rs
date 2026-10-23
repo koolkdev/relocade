@@ -26,7 +26,7 @@ fn supported_faults_have_architectural_vector_numbers() {
 #[test]
 fn fault_names_without_error_codes() {
     for (exception, name) in [
-        (Exception::<u32>::DivideError, "#DE"),
+        (Exception::DivideError, "#DE"),
         (Exception::BoundRangeExceeded, "#BR"),
         (Exception::InvalidOpcode, "#UD"),
         (Exception::FloatingPoint, "#MF"),

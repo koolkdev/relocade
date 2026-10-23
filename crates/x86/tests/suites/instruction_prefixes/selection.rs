@@ -57,11 +57,10 @@ fn prefix_selection_does_not_extend_pause_to_other_register_exchanges() {
             image.check_unchanged_exit(
                 TestModule::interpreter(),
                 &format!("prefix rejection without fetching a successor: {code:02x?}"),
-                Exit::Other(match prefix {
-                    0xf2 => 0x0008_00f2_0000_1ffe,
-                    0xf3 => 0x0008_00f3_0000_1ffe,
-                    _ => unreachable!(),
-                }),
+                Exit::UnsupportedInstruction {
+                    eip: 0x1ffe,
+                    opcode: prefix,
+                },
             );
         }
     }

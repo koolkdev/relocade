@@ -1,20 +1,19 @@
 use crate::{error::DosError, state::DosState, DosServices};
-use relocade_machine::{real_mode_interrupt, Hook, HostCall};
-use relocade_x86::ExecutionExit;
-use std::{future::Future, ops::ControlFlow};
+use relocade_machine::{real_mode_interrupt, Hook, HookResult, HostCall};
+use std::future::Future;
 
 /// Borrows the DOS environment for an interrupt and its nested services.
 pub(crate) fn hook(
     address: u32,
-    handler: fn(&mut HostCall<'_, DosServices>, &mut DosState) -> ControlFlow<ExecutionExit>,
+    handler: fn(&mut HostCall<'_, DosServices>, &mut DosState) -> HookResult,
 ) -> Hook<DosServices> {
     Hook::new(address, move |call| invoke(call, handler))
 }
 
 fn invoke(
     call: &mut HostCall<'_, DosServices>,
-    handler: impl FnOnce(&mut HostCall<'_, DosServices>, &mut DosState) -> ControlFlow<ExecutionExit>,
-) -> ControlFlow<ExecutionExit> {
+    handler: impl FnOnce(&mut HostCall<'_, DosServices>, &mut DosState) -> HookResult,
+) -> HookResult {
     let services = call.state().clone();
     let mut state = services.borrow_mut();
     handler(call, &mut state)
@@ -25,9 +24,8 @@ fn invoke(
 pub(crate) fn defer<T: 'static>(
     call: &mut HostCall<'_, DosServices>,
     input: impl Future<Output = T> + 'static,
-    resume: impl FnOnce(&mut HostCall<'_, DosServices>, &mut DosState, T) -> ControlFlow<ExecutionExit>
-        + 'static,
-) -> ControlFlow<ExecutionExit> {
+    resume: impl FnOnce(&mut HostCall<'_, DosServices>, &mut DosState, T) -> HookResult + 'static,
+) -> HookResult {
     call.defer(async move |call| {
         let value = input.await;
         invoke(call, |call, state| resume(call, state, value))
@@ -38,7 +36,7 @@ pub(crate) fn defer<T: 'static>(
 pub(crate) fn return_result(
     call: &mut HostCall<'_, DosServices>,
     result: Result<(), DosError>,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     if let Err(error) = result {
         call.cpu().set_ax(error.code());
         if let DosError::InsufficientMemory { available } = error {

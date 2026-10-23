@@ -216,7 +216,10 @@ fn unsupported_ba_extensions_precede_address_or_immediate_fetches() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "unsupported BA extension needs no further bytes",
-            Exit::Other(0x0008_000f_0000_1ffd),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffd,
+                opcode: 0xf,
+            },
         );
     }
 }

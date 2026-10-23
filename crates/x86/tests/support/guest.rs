@@ -11,7 +11,7 @@ pub(crate) use super::machine::Exit;
 
 use super::{
     machine::Image,
-    step::{Argument, Event, Outcome, Snapshot, TestModule},
+    step::{Event, Outcome, Snapshot, TestModule},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -248,14 +248,12 @@ impl Machine {
                     module.entry, self.cpu.eip
                 ),
                 Outcome::Returned(values) => {
-                    let [Argument::I64(value)] = values.as_slice() else {
-                        panic!("an x86 entry returns i64");
-                    };
+                    let exit = super::step::decode::<relocade_x86::ExecutionExit>(values);
                     if let Some((eip, _)) = dispatches.last() {
-                        assert_eq!(*value, i64::MIN);
+                        assert_eq!(exit, relocade_x86::ExecutionExit::BudgetExhausted);
                         Exit::Dispatch(*eip)
                     } else {
-                        Exit::from_word(*value as u64)
+                        Exit::from_exit(exit)
                     }
                 }
             };

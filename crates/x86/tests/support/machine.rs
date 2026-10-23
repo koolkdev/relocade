@@ -1,6 +1,6 @@
 use relocade_x86::{page_table, CpuState, Exception, ExecutionExit, Registers, Segments};
 
-use super::step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use super::step::{returned, Event, Input, Observation, Snapshot, TestModule};
 
 pub(crate) struct Image {
     pub(crate) cpu: CpuState,
@@ -86,37 +86,42 @@ pub(crate) enum Exit {
     InvalidOpcode,
     FloatingPoint,
     SimdFloatingPoint,
-    GeneralProtection { error: u16 },
-    StackFault { error: u16 },
-    PageFault { address: u32, error: u16 },
-    Other(u64),
+    GeneralProtection { error: u32 },
+    StackFault { error: u32 },
+    PageFault { address: u32, error: u32 },
+    SegmentNotPresent { error: u32 },
+    UnsupportedInstruction { eip: u32, opcode: u8 },
+    Other(ExecutionExit),
 }
 
 impl Exit {
-    pub(crate) fn from_word(word: u64) -> Self {
-        match ExecutionExit::from_bits(word) {
-            Some(ExecutionExit::Exception(exception)) => match exception {
+    pub(crate) fn from_exit(exit: ExecutionExit) -> Self {
+        match exit {
+            ExecutionExit::Exception(exception) => match exception {
                 Exception::DivideError => Self::DivideError,
                 Exception::BoundRangeExceeded => Self::BoundRangeExceeded,
                 Exception::InvalidOpcode => Self::InvalidOpcode,
                 Exception::FloatingPoint => Self::FloatingPoint,
                 Exception::SimdFloatingPoint => Self::SimdFloatingPoint,
-                Exception::GeneralProtection { error_code } => Self::GeneralProtection {
-                    error: error_code as u16,
-                },
-                Exception::StackFault { error_code } => Self::StackFault {
-                    error: error_code as u16,
-                },
+                Exception::GeneralProtection { error_code } => {
+                    Self::GeneralProtection { error: error_code }
+                }
+                Exception::StackFault { error_code } => Self::StackFault { error: error_code },
                 Exception::PageFault {
                     linear_address,
                     error_code,
                 } => Self::PageFault {
                     address: linear_address,
-                    error: error_code as u16,
+                    error: error_code,
                 },
-                Exception::SegmentNotPresent { .. } => Self::Other(word),
+                Exception::SegmentNotPresent { error_code } => {
+                    Self::SegmentNotPresent { error: error_code }
+                }
             },
-            _ => Self::Other(word),
+            ExecutionExit::UnsupportedInstruction { eip, opcode } => {
+                Self::UnsupportedInstruction { eip, opcode }
+            }
+            _ => Self::Other(exit),
         }
     }
 }
@@ -154,36 +159,42 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
                 events.push(Event::Interpret {
                     snapshot: snapshot.clone(),
                 });
-                Outcome::Returned(vec![Argument::I64(i64::MIN)])
+                ExecutionExit::BudgetExhausted
             }
             Exit::Dispatch(eip) => {
                 assert_eq!(step.cpu.eip, eip);
                 events.push(Event::Dispatch {
                     snapshot: snapshot.clone(),
                 });
-                Outcome::Returned(vec![Argument::I64(i64::MIN)])
+                ExecutionExit::BudgetExhausted
             }
-            Exit::DivideError => Outcome::Returned(vec![Argument::I64(0x0001_0000_0000_0000)]),
-            Exit::BoundRangeExceeded => {
-                Outcome::Returned(vec![Argument::I64(0x0040_0000_0000_0000)])
+            Exit::DivideError => ExecutionExit::Exception(Exception::DivideError),
+            Exit::BoundRangeExceeded => ExecutionExit::Exception(Exception::BoundRangeExceeded),
+            Exit::InvalidOpcode => ExecutionExit::Exception(Exception::InvalidOpcode),
+            Exit::FloatingPoint => ExecutionExit::Exception(Exception::FloatingPoint),
+            Exit::SimdFloatingPoint => ExecutionExit::Exception(Exception::SimdFloatingPoint),
+            Exit::GeneralProtection { error } => {
+                ExecutionExit::Exception(Exception::GeneralProtection { error_code: error })
             }
-            Exit::InvalidOpcode => Outcome::Returned(vec![Argument::I64(0x0080_0000_0000_0000)]),
-            Exit::FloatingPoint => Outcome::Returned(vec![Argument::I64(0x0100_0000_0000_0000)]),
-            Exit::SimdFloatingPoint => {
-                Outcome::Returned(vec![Argument::I64(0x0200_0000_0000_0000)])
+            Exit::StackFault { error } => {
+                ExecutionExit::Exception(Exception::StackFault { error_code: error })
             }
-            Exit::GeneralProtection { error } => Outcome::Returned(vec![Argument::I64(
-                ((2_u64 << 48) | (u64::from(error) << 32)) as i64,
-            )]),
-            Exit::StackFault { error } => Outcome::Returned(vec![Argument::I64(
-                ((16_u64 << 48) | (u64::from(error) << 32)) as i64,
-            )]),
-            Exit::PageFault { address, error } => Outcome::Returned(vec![Argument::I64(
-                ((4_u64 << 48) | (u64::from(error) << 32) | u64::from(address)) as i64,
-            )]),
-            Exit::Other(word) => Outcome::Returned(vec![Argument::I64(word as i64)]),
+            Exit::SegmentNotPresent { error } => {
+                ExecutionExit::Exception(Exception::SegmentNotPresent { error_code: error })
+            }
+            Exit::PageFault { address, error } => ExecutionExit::Exception(Exception::PageFault {
+                linear_address: address,
+                error_code: error,
+            }),
+            Exit::UnsupportedInstruction { eip, opcode } => {
+                ExecutionExit::UnsupportedInstruction { eip, opcode }
+            }
+            Exit::Other(exit) => exit,
         };
-        events.push(Event::Return { outcome, snapshot });
+        events.push(Event::Return {
+            outcome: returned(outcome),
+            snapshot,
+        });
     }
     Observation {
         events,

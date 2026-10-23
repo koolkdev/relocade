@@ -1,4 +1,4 @@
-use relocade_compiler::{abi::Function, BuildError, Program, I64};
+use relocade_compiler::{abi::Function, BuildError, Program};
 
 use crate::{
     decode::{InstructionFetch, RuntimeDecoder},
@@ -11,7 +11,7 @@ use crate::{
 
 use super::Compiler;
 
-/// Generates a module exporting both `step` and `run`, selecting `run() -> i64`.
+/// Generates a module exporting both `step` and `run`, selecting `run() -> ExecutionExit`.
 /// This entry fetches and executes instructions until a branch, segment load,
 /// port I/O or serializing instruction completes, then
 /// tail-calls host dispatch.
@@ -39,7 +39,7 @@ pub fn compile_interpreter(
     Compiler::new(profile).compile_interpreter()
 }
 
-/// Generates the same module as [`compile_interpreter`], selecting `step() -> i64`.
+/// Generates the same module as [`compile_interpreter`], selecting `step() -> ExecutionExit`.
 /// This entry fetches and executes one supported instruction at the current
 /// CS-relative EIP under the selected execution profile.
 /// Success publishes state, retires the instruction and tail-calls host dispatch.
@@ -71,7 +71,7 @@ enum InterpreterEntry {
 }
 
 impl InterpreterEntry {
-    fn symbol(self) -> Function<'static, fn() -> I64> {
+    fn symbol(self) -> Function<'static, crate::abi::ExecutionSignature> {
         match self {
             Self::Run => crate::abi::RUN,
             Self::Step => crate::abi::STEP,

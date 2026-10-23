@@ -4,8 +4,10 @@ use relocade_compiler::{
 };
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
-use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use crate::{state::exit, CpuState};
+use crate::test_step::{
+    returned, AccessResult, Argument, Event, Input, Observation, Outcome, Snapshot, TestModule,
+};
+use crate::CpuState;
 
 mod accesses;
 mod helpers;
@@ -24,7 +26,11 @@ fn define_read<T: MemoryInt + crate::memory::TransferType>(
         .function(
             Signature {
                 parameters: vec![Type::I32],
-                results: vec![Type::I64],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -34,10 +40,10 @@ fn define_read<T: MemoryInt + crate::memory::TransferType>(
                     T::BYTES,
                     Intent::Read,
                     None,
-                    Some(&mut exit::exception),
+                    Some(&mut AccessResult::fault),
                 )?;
                 let value = memory.read::<T>(&mut body, &access, 0)?;
-                body.return_(value.unsigned().extend::<I64>())
+                AccessResult::value(body, value.unsigned().extend::<I64>())
             },
         )
         .unwrap();
@@ -53,7 +59,11 @@ fn define_write<T: MemoryInt + crate::memory::TransferType>(
         .function(
             Signature {
                 parameters: vec![Type::I32, T::TYPE],
-                results: vec![Type::I64],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -64,10 +74,10 @@ fn define_write<T: MemoryInt + crate::memory::TransferType>(
                     T::BYTES,
                     Intent::Write,
                     None,
-                    Some(&mut exit::exception),
+                    Some(&mut AccessResult::fault),
                 )?;
                 memory.write(&mut body, &access, 0, &value)?;
-                body.return_(7)
+                AccessResult::value(body, 7)
             },
         )
         .unwrap();
@@ -104,7 +114,11 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
         let result = program.function(
             Signature {
                 parameters: vec![Type::I32],
-                results: vec![Type::I64],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -116,7 +130,7 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
                     None,
                     Some(&mut |_, _| Ok(())),
                 )?;
-                body.return_(7)
+                AccessResult::value(body, 7)
             },
         );
         assert_eq!(result.err(), Some(BuildError::MissingBranchValue));
@@ -221,7 +235,6 @@ struct WidthCase {
     second: &'static [u8],
     argument: Argument,
     result: i64,
-    missing_read: u64,
 }
 
 const WIDTHS: &[WidthCase] = &[
@@ -233,7 +246,6 @@ const WIDTHS: &[WidthCase] = &[
         second: &[],
         argument: Argument::I32(145),
         result: 145,
-        missing_read: 0x0004_0000_0000_4fff,
     },
     WidthCase {
         name: "16",
@@ -243,7 +255,6 @@ const WIDTHS: &[WidthCase] = &[
         second: &[0x91],
         argument: Argument::I32(37374),
         result: 37374,
-        missing_read: 0x0004_0000_0000_4fff,
     },
     WidthCase {
         name: "32",
@@ -253,7 +264,6 @@ const WIDTHS: &[WidthCase] = &[
         second: &[0x34, 0x92],
         argument: Argument::I32(2452903544u32 as i32),
         result: 2452903544,
-        missing_read: 0x0004_0000_0000_4ffe,
     },
     WidthCase {
         name: "64",
@@ -263,7 +273,6 @@ const WIDTHS: &[WidthCase] = &[
         second: &[0x55, 0x66, 0x77, 0x88],
         argument: Argument::I64(-8613303245920329199),
         result: -8613303245920329199,
-        missing_read: 0x0004_0000_0000_4ffc,
     },
 ];
 
@@ -303,12 +312,17 @@ fn image(
     }
 }
 
-fn check(module: &TestModule, input: &Input, result: i64, changes: &[(u32, u8)]) {
+fn check(
+    module: &TestModule,
+    input: &Input,
+    result: impl Into<AccessResult>,
+    changes: &[(u32, u8)],
+) {
     assert_eq!(
         module.observe(input, 1),
         Observation {
             events: vec![Event::Return {
-                outcome: Outcome::Returned(vec![Argument::I64(result)]),
+                outcome: returned::<AccessResult>(result.into()),
                 snapshot: Snapshot {
                     cpu: CpuState::filled(0xa5).to_bytes().to_vec(),
                     guest: Some(changes.to_vec()),
@@ -376,13 +390,13 @@ fn memory_widths_execute_in_wasmtime() {
             check(&write, &input, 7, &changes);
         }
         let input = image(case, 0xa000, 0, 1, case.first, case.second, &read_args);
-        check(&read, &input, case.missing_read as i64, &[]);
+        check(&read, &input, page_fault(case.linear, 0), &[]);
 
         // A one-byte access ends on the first page; wider cases need the second page too.
         let (first_permissions, fault) = if case.second.is_empty() {
-            (0x0d, 0x0004_0003_0000_4fffu64)
+            (0x0d, page_fault(0x4fff, 3))
         } else {
-            (3, 0x0004_0003_0000_5000u64)
+            (3, page_fault(0x5000, 3))
         };
         let input = image(
             case,
@@ -393,7 +407,7 @@ fn memory_widths_execute_in_wasmtime() {
             &initial_second,
             &write_args,
         );
-        check(&write, &input, fault as i64, &[]);
+        check(&write, &input, fault, &[]);
     }
 }
 
@@ -445,19 +459,19 @@ fn wrapping_writes_report_read_only_first_page_faults() {
             "write16",
             0xffff_ffffu32,
             Argument::I32(0x1234),
-            0x0004_0003_ffff_ffffi64,
+            page_fault(0xffff_ffff, 3),
         ),
         (
             "write32",
             0xffff_fffe,
             Argument::I32(0x1234_5678),
-            0x0004_0003_ffff_fffe,
+            page_fault(0xffff_fffe, 3),
         ),
         (
             "write64",
             0xffff_fffc,
             Argument::I64(0x0102_0304_0506_0708),
-            0x0004_0003_ffff_fffc,
+            page_fault(0xffff_fffc, 3),
         ),
     ] {
         let write = TestModule::new(&crate::CompiledModule {
@@ -524,4 +538,11 @@ fn multi_byte_accesses_wrap_between_real_page_mappings() {
             .collect::<Vec<_>>();
         check(&write, &input, 7, &changes);
     }
+}
+
+fn page_fault(address: u32, error_code: u32) -> AccessResult {
+    AccessResult::Fault(crate::Exception::PageFault {
+        linear_address: address,
+        error_code,
+    })
 }

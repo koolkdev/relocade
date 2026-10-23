@@ -1,11 +1,11 @@
 mod support;
 
-use relocade_machine::{real_mode_interrupt, Hook, RuntimeState};
+use relocade_machine::{real_mode_interrupt, Hook, HookResult, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments,
 };
-use std::{cell::Cell, ops::ControlFlow, rc::Rc};
+use std::{cell::Cell, rc::Rc};
 
 use relocade_wasm_runtime::Backend;
 
@@ -77,7 +77,21 @@ async fn check_interrupt_hooks() {
                 real_mode_interrupt::set_carry(call, false);
                 real_mode_interrupt::return_from_interrupt(call)
             }),
-            Hook::new(0x400, |_| ControlFlow::Break(ExecutionExit::HostReturn)),
+            Hook::new(0x400, |_| HookResult::Exit(ExecutionExit::HostReturn)),
+            Hook::new(0x401, |_| {
+                HookResult::Exit(ExecutionExit::Exception(
+                    relocade_x86::Exception::PageFault {
+                        linear_address: 0xfedc_ba98,
+                        error_code: 0xdead_beef,
+                    },
+                ))
+            }),
+            Hook::new(0x402, |_| {
+                HookResult::Exit(ExecutionExit::UnsupportedInstruction {
+                    eip: 0x89ab_cdef,
+                    opcode: 0xf3,
+                })
+            }),
         ])
         .await
         .unwrap();
@@ -111,10 +125,28 @@ async fn check_interrupt_hooks() {
     assert_eq!(runtime.context().cpu().sp(), 0xff00);
     assert_eq!(runtime.context().cpu().instruction_count(), 14);
 
-    runtime.context().cpu().set_eip(0x400);
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::HostReturn);
-    assert_eq!(runtime.context().cpu().instruction_count(), 14);
-    assert_eq!(runtime.context().cpu().eip(), 0x400);
+    for (address, expected) in [
+        (0x400, ExecutionExit::HostReturn),
+        (
+            0x401,
+            ExecutionExit::Exception(relocade_x86::Exception::PageFault {
+                linear_address: 0xfedc_ba98,
+                error_code: 0xdead_beef,
+            }),
+        ),
+        (
+            0x402,
+            ExecutionExit::UnsupportedInstruction {
+                eip: 0x89ab_cdef,
+                opcode: 0xf3,
+            },
+        ),
+    ] {
+        runtime.context().cpu().set_eip(address);
+        assert_eq!(runtime.run(1).unwrap(), expected);
+        assert_eq!(runtime.context().cpu().instruction_count(), 14);
+        assert_eq!(runtime.context().cpu().eip(), address);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

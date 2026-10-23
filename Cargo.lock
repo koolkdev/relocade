@@ -1283,7 +1283,6 @@ name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
  "relocade-machine",
- "relocade-x86",
 ]
 
 [[package]]
@@ -1351,6 +1350,7 @@ dependencies = [
  "pollster",
  "relocade-compiler",
  "relocade-interpreter",
+ "relocade-wasm-bindings",
  "relocade-wasm-runtime",
  "relocade-x86",
  "serde",

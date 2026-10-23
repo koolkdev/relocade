@@ -10,7 +10,7 @@ shared memories and the threads extension's atomic instructions.
 `CompiledModule` contains the Wasm bytes, exported entry name and required execution
 target. Snapshot entries are named `block_<hex start_eip>`; interpreter entries
 are named `run` or `step`; the callable dispatcher exports `dispatch`. All have
-the Wasm signature `() -> i64`.
+the shared Rust signature `fn() -> ExecutionExit`.
 
 `Compiler::new(profile)` uses one execution profile and the default `CpuModel`
 for `compile_block`, `compile_interpreter` and `compile_interpreter_step`.
@@ -37,7 +37,7 @@ for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
 count, checks its instruction target, then tail-calls
-`relocade.dispatch() -> i64`. Dispatch reads the published EIP from CPU state,
+`relocade.dispatch() -> ExecutionExit`. Dispatch reads the published EIP from CPU state,
 and its result is returned unchanged. EIP is an offset relative to CS and wraps
 at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
 segment target before committing instruction effects; fetching the destination
@@ -104,12 +104,12 @@ fixed overshoot or elapsed-time guarantee.
 ## Callable dispatch
 
 `Compiler::compile_dispatcher()` generates a module that resolves execution addresses to
-ordinary `() -> i64` functions in the imported `relocade.executionFunctions` table. Slot 0
+ordinary `() -> ExecutionExit` functions in the imported `relocade.executionFunctions` table. Slot 0
 is reserved, slot 1 holds a compatible interpreter, and subsequent slots hold installed
 module exports. All functions share CPU, guest and mapping memories. The dispatcher has
 no target-kind tag or host-service import.
 
-Bind the module's `dispatch() -> i64` and `interpret() -> i64` exports as the
+Bind the module's `dispatch() -> ExecutionExit` and `interpret() -> ExecutionExit` exports as the
 corresponding imports of execution modules. Both use the published CPU state.
 The host starts or resumes execution by calling `dispatch`; generated entries
 tail-call the same function after publishing their successor EIP. `interpret`
@@ -141,7 +141,7 @@ function-slot and code lifetimes.
 A snapshot block can guard execution requirements or optimization assumptions.
 If a guard fails, it publishes all completed instructions, leaves EIP at the current
 instruction without applying its effects or retiring it, and tail-calls
-`relocade.interpret() -> i64`.
+`relocade.interpret() -> ExecutionExit`.
 Its result is returned unchanged. The captured suffix is abandoned; no compiled
 continuation or second copy of its instructions is required.
 
@@ -1022,36 +1022,36 @@ against SS and, in protected mode, paging in order, including the discarded SP/E
 is not read. This models observed partial progress; Intel documents incomplete
 register restoration on POPAD faults without specifying every CPU's exact pattern.
 
-The u64 return format is `(tag << 48) | (payload << 32) | address`, with a 16-bit
-tag, 16-bit payload and 32-bit address. These tags are independent of architectural
-exception vector numbers:
+All execution entries use `abi::ExecutionSignature`, or `fn() -> ExecutionExit`.
+`ExecutionExit` and its nested `Exception` derive the compiler's shared ABI. The
+runtime binds this signature and returns the ordinary Rust enum directly:
 
-Hosts can decode these words with `ExecutionExit::from_bits`, which returns an
-`Exception`, an unsupported-instruction diagnostic, `BudgetExhausted`, or a
-`HostReturn` or `Deferred` requested by a host-call function. The embedding owns
-the reason for a host return. Deferred work is awaited by the runtime after the
-guest call returns. Unknown tags and nonzero reserved fields return `None`.
-Host-defined values returned by `dispatch` or `interpret` must be distinguished
-before decoding; either callback may return any i64. Track callback results or
-use a distinct result convention. If a callback
-continues guest execution, classify the resulting execution outcome according to
-that callback's contract. A matching exit word alone does not establish its source.
+```rust
+# use relocade_x86::{ExecutionExit, Exception};
+# fn observe(exit: ExecutionExit) {
+match exit {
+    ExecutionExit::Exception(Exception::PageFault { linear_address, error_code }) => {
+        // Inspect the denied byte and the full architectural error code.
+        let _ = (linear_address, error_code);
+    }
+    ExecutionExit::BudgetExhausted => { /* Resume with a new instruction budget. */ }
+    _ => { /* Handle the other execution outcomes. */ }
+}
+# }
+```
 
-| Exit | Tag | Payload | Address |
-| --- | ---: | --- | --- |
-| Divide error | 1 | Zero | Zero |
-| General protection | 2 | Error code | Zero |
-| Page fault | 4 | Error code | First denied linear byte |
-| Unsupported instruction | 8 | Diagnostic opcode byte | Instruction's starting EIP |
-| Stack fault | 16 | Error code | Zero |
-| Segment not present | 32 | Error code | Zero |
-| BOUND range exceeded | 64 | Zero | Zero |
-| Invalid opcode | 128 | Zero | Zero |
-| Floating-point error | 256 | Zero | Zero |
-| SIMD floating-point exception | 512 | Zero | Zero |
-| Deferred host call | 8192 | Zero | Zero |
-| Host return | 16384 | Zero | Zero |
-| Instruction budget exhausted | 32768 | Zero | Zero |
+The shared ABI lowers the nested enum to a tag and overlapping payload slots.
+These entries currently return four Wasm `i32` values. Embeddings should bind
+`abi::RUN`, `abi::STEP`, `abi::DISPATCH` and `abi::INTERPRET` so that compiler and
+host agree on the layout; enum tags are independent of architectural vector numbers.
+There is no manually packed exit word or restriction to a 16-bit error code.
+
+`HostReturn` requests a return to the embedding. `Deferred` requests the queued
+host operation, which the runtime awaits after the guest call returns. Hook
+continuation is a separate `HookResult::Continue` variant; `HookResult::Exit`
+carries the complete execution outcome. Synchronous and deferred hook handlers
+return this same type. Dispatch and interpreter callbacks use the same typed
+execution contract as generated entries.
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

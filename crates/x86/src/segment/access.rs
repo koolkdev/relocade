@@ -2,7 +2,7 @@
 
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
-use crate::{exception::Exception, memory::Intent, state::SegmentReads, ExecutionProfile};
+use crate::{exception::ExceptionValues, memory::Intent, state::SegmentReads, ExecutionProfile};
 
 use super::{Segment, SegmentSelection};
 
@@ -28,29 +28,15 @@ impl SegmentReads<'_> {
         offset: &Val<I32>,
         bytes: impl Into<Val<I32>>,
         intent: Intent,
-        on_fault: impl Fn(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
+        on_fault: impl Fn(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
         let check = self.check(body, segment, offset, bytes, intent)?;
         if let Some(denied) = check.denied {
             body.if_(denied, |mut fault| {
                 fault.if_else(
                     segment.index().eq(Segment::Ss as u32),
-                    |arm| {
-                        on_fault(
-                            arm,
-                            Exception::StackFault {
-                                error_code: 0.into(),
-                            },
-                        )
-                    },
-                    |arm| {
-                        on_fault(
-                            arm,
-                            Exception::GeneralProtection {
-                                error_code: 0.into(),
-                            },
-                        )
-                    },
+                    |arm| on_fault(arm, ExceptionValues::stack_fault(0)),
+                    |arm| on_fault(arm, ExceptionValues::general_protection(0)),
                 )
             })?;
         }

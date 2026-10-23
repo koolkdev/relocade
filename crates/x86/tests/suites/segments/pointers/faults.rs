@@ -102,7 +102,7 @@ fn failed_resolution_preserves_the_destination_gpr_and_complete_segment_cache() 
             &[0xc5][..],
             0xf327,
             true,
-            Exit::Other(0x0020_f324_0000_0000),
+            Exit::SegmentNotPresent { error: 0xf324 },
         ),
         (
             Segment::Ss,
@@ -232,7 +232,10 @@ fn register_sources_are_rejected_by_both_decoders_before_execution() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             &format!("pointer load rejects register source {code:02x?}"),
-            Exit::Other((8 << 48) | (u64::from(opcode[0]) << 32) | u64::from(image.cpu.eip)),
+            Exit::UnsupportedInstruction {
+                eip: image.cpu.eip,
+                opcode: opcode[0],
+            },
         );
     }
 }

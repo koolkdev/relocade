@@ -22,7 +22,10 @@ fn sse_mxcsr_rejected_prefixes() {
             image.check_unchanged_exit(
                 TestModule::interpreter(),
                 &format!("MXCSR rejects prefix {prefix:02x}, ModRM {modrm:02x}"),
-                Exit::Other((8 << 48) | (u64::from(diagnostic) << 32) | 0x1000),
+                Exit::UnsupportedInstruction {
+                    eip: 0x1000,
+                    opcode: diagnostic,
+                },
             );
         }
     }

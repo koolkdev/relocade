@@ -117,7 +117,7 @@ fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs(
                 ..normal
             }),
             true,
-            Exit::Other(0x0020_0024_0000_0000),
+            Exit::SegmentNotPresent { error: 0x24 },
         ),
         (
             0x27,
@@ -211,7 +211,10 @@ fn entry_nt_reports_unsupported_before_stack_checks_without_retiring() {
                 Step {
                     cpu: image.cpu,
                     ram: &[],
-                    exit: Exit::Other(0x0008_00cf_0000_1000),
+                    exit: Exit::UnsupportedInstruction {
+                        eip: 0x1000,
+                        opcode: 0xcf,
+                    },
                 },
             );
         }

@@ -479,7 +479,10 @@ fn controls_reject_other_modrm_forms_and_lock_prefixes() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             &format!("unselected x87 form {code:02x?}"),
-            Exit::Other(0x0008_0000_0000_0000 | u64::from(code[0]) << 32 | u64::from(origin)),
+            Exit::UnsupportedInstruction {
+                eip: origin,
+                opcode: code[0],
+            },
         );
     }
 }

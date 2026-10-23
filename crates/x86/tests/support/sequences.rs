@@ -171,15 +171,15 @@ impl Checkpoint {
         self.expected.exit = ExpectedExit::Dispatch(target);
         self
     }
-    pub(crate) fn fault(mut self, address: u32, error: u16) -> Self {
+    pub(crate) fn fault(mut self, address: u32, error: u32) -> Self {
         self.expected.exit = ExpectedExit::PageFault { address, error };
         self
     }
-    pub(crate) fn general_protection(mut self, error: u16) -> Self {
+    pub(crate) fn general_protection(mut self, error: u32) -> Self {
         self.expected.exit = ExpectedExit::GeneralProtection { error };
         self
     }
-    pub(crate) fn stack_fault(mut self, error: u16) -> Self {
+    pub(crate) fn stack_fault(mut self, error: u32) -> Self {
         self.expected.exit = ExpectedExit::StackFault { error };
         self
     }

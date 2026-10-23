@@ -39,10 +39,10 @@ fn required_extended_fields() {
 
 #[test]
 fn prefix_requirements_reject_unavailable_forms_before_operand_fields() {
-    for (code, diagnostic, exit) in [
-        (&[0x0f, 0xb8][..], 0x0f, 0x0008_000f_0000_1ffe),
-        (&[0xf2, 0x0f, 0xb8][..], 0xf2, 0x0008_00f2_0000_1ffd),
-        (&[0xf3, 0x0f, 0xbc][..], 0xf3, 0x0008_00f3_0000_1ffd),
+    for (code, diagnostic) in [
+        (&[0x0f, 0xb8][..], 0x0f),
+        (&[0xf2, 0x0f, 0xb8][..], 0xf2),
+        (&[0xf3, 0x0f, 0xbc][..], 0xf3),
     ] {
         let origin = 0x2000 - code.len() as u32;
         assert_eq!(
@@ -59,7 +59,10 @@ fn prefix_requirements_reject_unavailable_forms_before_operand_fields() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             &format!("unavailable prefixed form rejects without a ModRM fetch: {code:02x?}"),
-            Exit::Other(exit),
+            Exit::UnsupportedInstruction {
+                eip: origin,
+                opcode: diagnostic,
+            },
         );
     }
 }
@@ -102,12 +105,15 @@ fn f2_extended_map_rejection_respects_the_fifteen_byte_limit() {
                 address: 0x1ff1,
                 opcode: 0xf2,
             },
-            Exit::Other(0x0008_00f2_0000_1ff1),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ff1,
+                opcode: 0xf2,
+            },
         ),
         (
             14,
             BlockError::InstructionTooLong { address: 0x1ff1 },
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
     ] {
         let code = [vec![0x66; prefixes], vec![0xf2, 0x0f]].concat();

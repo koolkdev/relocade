@@ -28,7 +28,14 @@ test_frontends!(mode_availability, availability);
 fn fetches() {
     let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
     for (start, code, exit) in [
-        (0x2000, &[][..], Exit::Other(0x0008_00ff_0000_2000)),
+        (
+            0x2000,
+            &[][..],
+            Exit::UnsupportedInstruction {
+                eip: 0x2000,
+                opcode: 0xff,
+            },
+        ),
         (0xffff, &[0xb8][..], Exit::GeneralProtection { error: 0 }),
     ] {
         let mut image = image(&[]);
@@ -77,7 +84,10 @@ fn fetches() {
                 Step {
                     cpu,
                     ram: &[],
-                    exit: Exit::Other(0x0008_00ff_0000_1234)
+                    exit: Exit::UnsupportedInstruction {
+                        eip: 0x1234,
+                        opcode: 0xff
+                    }
                 },
             ]
         )
@@ -257,7 +267,10 @@ fn fetch_callbacks(mmio: bool) {
             &[0xc7, 0xc8, 0, 0][..],
             0x1000,
             2,
-            Exit::Other(0x0008_00c7_0000_1000),
+            Exit::UnsupportedInstruction {
+                eip: 0x1000,
+                opcode: 0xc7,
+            },
         ),
         (&[0xb8][..], 0xffff, 1, Exit::GeneralProtection { error: 0 }),
         (

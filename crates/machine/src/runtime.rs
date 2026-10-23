@@ -48,7 +48,7 @@ pub use callback::HostCall;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-pub use hooks::Hook;
+pub use hooks::{Hook, HookResult, HookResultCase, HookResultValues};
 pub use memory::RuntimeMemory;
 use relocade_wasm_runtime::WasmCompiler;
 pub use state::RuntimeState;
@@ -83,7 +83,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     }
 
     /// Links a module to this runtime and publishes its callable exports.
-    /// Each export has signature `() -> i64` and owns its entry checks, CPU
+    /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
     /// publication and continuation. Addresses are linear CS.base + EIP, before
     /// paging/A20. Installing an existing address replaces its function.
     ///

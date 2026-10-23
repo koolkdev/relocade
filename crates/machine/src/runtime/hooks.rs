@@ -1,24 +1,40 @@
-use relocade_compiler::{abi::Function, Program, I64};
+use relocade_compiler::{abi::Function, Program};
 use relocade_wasm_runtime::WasmCompiler;
 use relocade_x86::{abi, ExecutionExit};
-use std::ops::ControlFlow;
 
 use super::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
 
-type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync;
+/// Result of a synchronous or deferred host hook.
+/// The same type crosses generated hook entries through the shared Wasm ABI.
+#[derive(
+    relocade_wasm_bindings::WasmAbi,
+    relocade_compiler::abi::CompilerValue,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    PartialEq,
+)]
+pub enum HookResult {
+    /// Resume guest dispatch at the continuation set by the handler.
+    Continue,
+    /// Return to Rust with an execution exit.
+    Exit(ExecutionExit),
+}
+
+type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> HookResult + Send + Sync;
 
 /// A host function reached at a guest linear address through ordinary dispatch.
 /// `T` is the backend's environment state, borrowed through the caller.
 ///
 /// ```
-/// use std::ops::ControlFlow;
-/// use relocade_machine::{Hook, HostCall};
+/// use relocade_machine::{Hook, HookResult, HostCall};
 /// use relocade_x86::ExecutionExit;
 ///
-/// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> ControlFlow<ExecutionExit> {
+/// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> HookResult {
 ///     let code = call.cpu().al();
 ///     *call.state_mut() = Some(code);
-///     ControlFlow::Break(ExecutionExit::HostReturn)
+///     HookResult::Exit(ExecutionExit::HostReturn)
 /// }
 /// let hook = Hook::new(0xf0100, terminate);
 /// ```
@@ -29,7 +45,7 @@ pub struct Hook<T = ()> {
 
 impl<T> Hook<T> {
     /// On Continue, the handler must set the guest continuation in CPU state.
-    /// Break returns its execution exit without changing that state.
+    /// Exit returns its execution exit without changing that state.
     /// To defer work, return the result of [`HostCall::defer`], which queues the
     /// required handler. Returning `ExecutionExit::Deferred` without a queued
     /// handler is a programming error.
@@ -38,7 +54,7 @@ impl<T> Hook<T> {
     /// caller's state, which does not need to be Send or Sync.
     pub fn new(
         address: u32,
-        handler: impl Fn(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + Send + Sync + 'static,
+        handler: impl Fn(&mut HostCall<'_, T>) -> HookResult + Send + Sync + 'static,
     ) -> Self {
         Self {
             address,
@@ -66,23 +82,23 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         let mut imports = Vec::new();
         let mut entries = Vec::new();
         for (hook, name) in hooks.into_iter().zip(&names) {
-            let declaration: Function<fn() -> I64> = Function::new("hooks", name);
-            let import = program.import_function(declaration);
+            let declaration: Function<fn() -> HookResult> = Function::new("hooks", name);
+            let import = declaration.import(&mut program);
             let function = program.function(abi::RUN.signature(), |mut body| {
-                let exit = body.call::<I64>(import, &[])?;
-                body.if_(exit.ne(0), |stop| stop.return_(exit))?;
-                body.tail_call(dispatch, &[])
+                import
+                    .call(&mut body, ())?
+                    .match_(&mut body, |body, result| match result {
+                        HookResultCase::Continue => body.tail_call(dispatch, &[]),
+                        HookResultCase::Exit(exit) => body.return_(exit),
+                    })?;
+                body.trap()
             })?;
             program.export(name, function)?;
             let bindings = self.access.bindings.clone();
             imports.push(self.access.backend.bind_host(
                 declaration,
                 Box::new(move |mut caller| {
-                    let flow = bindings.with_host_call(&mut caller, |call| (hook.handler)(call));
-                    match flow {
-                        ControlFlow::Continue(()) => 0,
-                        ControlFlow::Break(exit) => exit.to_bits() as i64,
-                    }
+                    bindings.with_host_call(&mut caller, |call| (hook.handler)(call))
                 }),
             ));
             entries.push(DispatchEntry {

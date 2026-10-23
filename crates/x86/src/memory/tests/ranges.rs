@@ -11,7 +11,11 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
         .function(
             Signature {
                 parameters: vec![Type::I32, Type::I32],
-                results: vec![Type::I64],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
             },
             |mut body| {
                 let start = body.parameter::<I32>(0)?;
@@ -25,9 +29,9 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
                     bytes,
                     intent,
                     None,
-                    Some(&mut exit::exception),
+                    Some(&mut AccessResult::fault),
                 )?;
-                body.return_(7)
+                AccessResult::value(body, 7)
             },
         )
         .unwrap();
@@ -39,12 +43,12 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
     })
 }
 
-fn expect_resolution(module: &TestModule, input: &Input, expected: u64) {
+fn expect_resolution(module: &TestModule, input: &Input, expected: AccessResult) {
     assert_eq!(
         module.observe(input, 1),
         Observation {
             events: vec![Event::Return {
-                outcome: Outcome::Returned(vec![Argument::I64(expected as i64)]),
+                outcome: returned(expected),
                 snapshot: Snapshot {
                     cpu: input.cpu.clone(),
                     guest: Some(Vec::new()),
@@ -53,7 +57,7 @@ fn expect_resolution(module: &TestModule, input: &Input, expected: u64) {
             guest_unchanged: true,
             machine_unchanged: true,
         },
-        "arguments {:?}, expected {expected:x}",
+        "arguments {:?}, expected {expected:?}",
         input.arguments,
     );
 }
@@ -67,9 +71,9 @@ fn faulting_ranges_report_the_first_denied_page_even_after_linear_wrap() {
         Intent::ReadOrExecute,
     ] {
         let missing = match intent {
-            Intent::Read | Intent::ReadOrExecute => 0x0004_0000_0000_0000,
-            Intent::Write => 0x0004_0002_0000_0000,
-            Intent::Fetch => 0x0004_0010_0000_0000,
+            Intent::Read | Intent::ReadOrExecute => 0,
+            Intent::Write => 2,
+            Intent::Fetch => 0x10,
         };
         for constant_bytes in [None, Some(4100)] {
             let module = checked_range(intent, constant_bytes);
@@ -77,17 +81,17 @@ fn faulting_ranges_report_the_first_denied_page_even_after_linear_wrap() {
                 let second_page = start.wrapping_add(2);
                 let third_page = second_page.wrapping_add(4096);
                 for (entries, expected) in [
-                    ([0u32, 0, 0xa003], missing | u64::from(start)),
-                    ([0x8003, 0, 0], missing | u64::from(second_page)),
+                    ([0u32, 0, 0xa003], page_fault(start, missing)),
+                    ([0x8003, 0, 0], page_fault(second_page, missing)),
                     // Discontinuity does not stop validation of later pages.
-                    ([0x8003, 0xb003, 0], missing | u64::from(third_page)),
-                    ([0x8003, 0xb003, 0xa003], 7),
+                    ([0x8003, 0xb003, 0], page_fault(third_page, missing)),
+                    ([0x8003, 0xb003, 0xa003], AccessResult::Value(7)),
                     (
                         [0x8fff, 0x9ffd, 0xafff],
                         if matches!(intent, Intent::Write) {
-                            0x0004_0003_0000_0000 | u64::from(second_page)
+                            page_fault(second_page, 3)
                         } else {
-                            7
+                            AccessResult::Value(7)
                         },
                     ),
                 ] {
@@ -120,10 +124,10 @@ fn ranges_near_four_gib_count_every_page_without_overflow() {
         ..Input::new(&CpuState::filled(0xa5).to_bytes())
     };
     for (start, bytes, expected) in [
-        (0x4000u32, 0xffff_f000u32, 7),
-        (0x4000, 0xffff_f001, 0x0004_0000_0000_3000),
-        (0x4001, 0xffff_efff, 7),
-        (0x4001, 0xffff_f000, 0x0004_0000_0000_3000),
+        (0x4000u32, 0xffff_f000u32, AccessResult::Value(7)),
+        (0x4000, 0xffff_f001, page_fault(0x3000, 0)),
+        (0x4001, 0xffff_efff, AccessResult::Value(7)),
+        (0x4001, 0xffff_f000, page_fault(0x3000, 0)),
     ] {
         input.arguments = vec![Argument::I32(start as i32), Argument::I32(bytes as i32)];
         expect_resolution(&module, &input, expected);
@@ -132,6 +136,6 @@ fn ranges_near_four_gib_count_every_page_without_overflow() {
     input.machine[0].1[12..16].copy_from_slice(&0x8003u32.to_le_bytes());
     for start in [0x4000, 0x4001, 0x4fff] {
         input.arguments = vec![Argument::I32(start), Argument::I32(-1)];
-        expect_resolution(&module, &input, 7);
+        expect_resolution(&module, &input, AccessResult::Value(7));
     }
 }

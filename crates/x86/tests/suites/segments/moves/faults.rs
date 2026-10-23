@@ -14,7 +14,7 @@ fn failed_resolution_preserves_all_cpu_state_and_reports_the_shared_fault() {
             Segment::Ds,
             0xf327,
             true,
-            Exit::Other(0x0020_f324_0000_0000),
+            Exit::SegmentNotPresent { error: 0xf324 },
         ),
         (
             Segment::Ss,
@@ -195,7 +195,10 @@ fn invalid_segment_encodings_are_rejected_before_address_bytes_or_source_access(
                 &format!(
                     "invalid segment move opcode={opcode:02x}, extension={extension}, mode={mode}"
                 ),
-                Exit::Other((8 << 48) | (u64::from(opcode) << 32) | 0x1ffe),
+                Exit::UnsupportedInstruction {
+                    eip: 0x1ffe,
+                    opcode,
+                },
             );
         }
     }

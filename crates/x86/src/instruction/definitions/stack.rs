@@ -112,9 +112,7 @@ where
                 .ne(0)
                 .and(sp.unsigned().ge(7))
                 .and(sp.unsigned().lt(16)),
-            crate::Exception::GeneralProtection {
-                error_code: 0.into(),
-            },
+            crate::Exception::GeneralProtection { error_code: 0 },
         )?;
     }
     for register in Gpr32::ALL {

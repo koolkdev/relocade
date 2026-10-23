@@ -1,13 +1,11 @@
 //! Host-fed keyboard input shared by BIOS keystrokes and DOS character reads.
 
-use relocade_machine::{real_mode_interrupt, HostCall};
-use relocade_x86::ExecutionExit;
+use relocade_machine::{real_mode_interrupt, HookResult, HostCall};
 use std::{
     cell::RefCell,
     collections::VecDeque,
     future::Future,
     io::{self, Write},
-    ops::ControlFlow,
     pin::Pin,
     rc::Rc,
     task::{Context, Poll, Waker},
@@ -192,9 +190,7 @@ impl Drop for WaitForKey {
     }
 }
 
-pub(super) fn interrupt<T: AsRef<Keyboard> + 'static>(
-    call: &mut HostCall<'_, T>,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn interrupt<T: AsRef<Keyboard> + 'static>(call: &mut HostCall<'_, T>) -> HookResult {
     let keyboard = call.state().as_ref().clone();
     match call.cpu().ah() {
         0x00 => match keyboard.try_read() {

@@ -364,7 +364,10 @@ fn unavailable_lock_forms_reject_before_unused_operand_fields() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             &format!("rejected form stops before unused fields: {code:02x?}"),
-            Exit::Other(0x0008_0000_0000_0000 | u64::from(diagnostic) << 32 | u64::from(origin)),
+            Exit::UnsupportedInstruction {
+                eip: origin,
+                opcode: diagnostic,
+            },
         );
     }
 }

@@ -79,13 +79,13 @@ impl DecodeHandlers {
         parameters.extend_from_slice(point.field_types());
         let checked = program.declare(Signature {
             parameters: parameters.clone(),
-            results: vec![Type::I64],
+            results: crate::abi::RUN.signature().results,
         });
         parameters.push(Type::I32);
         let direct = direct_entry.then(|| {
             program.declare(Signature {
                 parameters: parameters.clone(),
-                results: vec![Type::I64],
+                results: crate::abi::RUN.signature().results,
             })
         });
         // Every resumed entry receives cursor progress. Only entries reached
@@ -102,7 +102,7 @@ impl DecodeHandlers {
             }) {
                 let function = program.declare(Signature {
                     parameters: parameters.clone(),
-                    results: vec![Type::I64],
+                    results: crate::abi::RUN.signature().results,
                 });
                 resumed.push(ResumedEntry {
                     prefixes,

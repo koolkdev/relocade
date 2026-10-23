@@ -1,8 +1,8 @@
-use crate::memory::Memory;
+use crate::{memory::Memory, test_step::AccessResult};
 use std::sync::Barrier;
 
 use super::{native_update, Intent, OperandUpdate};
-use relocade_compiler::{MemoryImport, Program, Signature, Type, I32, I64};
+use relocade_compiler::{abi::Function, MemoryImport, Program, Signature, Type, I32, I64};
 use relocade_test_support::{engine, Module, SharedBytes};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -14,31 +14,24 @@ fn aligned_complete_updates_need_no_scattered_access_helpers() {
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
     )
     .unwrap();
-    let update = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let access = memory.resolve_access(
-                    &mut body,
-                    &0x4000.into(),
-                    8,
-                    Intent::Write,
-                    None,
-                    Some(&mut crate::state::exit::exception),
-                )?;
-                let previous = memory.atomic_update(
-                    &mut body,
-                    &access,
-                    &OperandUpdate::<I64>::Exchange(7.into()),
-                )?;
-                body.return_(previous)
-            },
-        )
+    Function::<fn() -> AccessResult>::new("test", "update")
+        .define(&mut program, |mut body, ()| {
+            let access = memory.resolve_access(
+                &mut body,
+                &0x4000.into(),
+                8,
+                Intent::Write,
+                None,
+                Some(&mut AccessResult::fault),
+            )?;
+            let previous = memory.atomic_update(
+                &mut body,
+                &access,
+                &OperandUpdate::<I64>::Exchange(7.into()),
+            )?;
+            AccessResult::value(body, previous)
+        })
         .unwrap();
-    program.export("update", update).unwrap();
     let bytes = program.compile().unwrap();
     for payload in Parser::new(0).parse_all(&bytes) {
         if let Payload::CodeSectionEntry(body) = payload.unwrap() {

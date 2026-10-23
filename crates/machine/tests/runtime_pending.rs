@@ -1,5 +1,5 @@
 mod support;
-use relocade_machine::{real_mode_interrupt, Error, Hook, RuntimeState};
+use relocade_machine::{real_mode_interrupt, Error, Hook, HookResult, RuntimeState};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -247,7 +247,7 @@ async fn check_pending_calls() {
                 let value = std::future::ready(value + 1).await;
                 assert_eq!(call.cpu().bx(), 99);
                 call.cpu().set_cx(value);
-                std::ops::ControlFlow::Break(ExecutionExit::HostReturn)
+                HookResult::Exit(ExecutionExit::HostReturn)
             })
         })])
         .await

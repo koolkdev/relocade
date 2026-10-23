@@ -75,9 +75,7 @@ impl ExecutionBuilder<'_, '_> {
     pub(crate) fn load_mxcsr(&mut self, value: Val<I32>) -> Result<(), BuildError> {
         self.fault_if(
             value.and(!SimdState::MXCSR_MASK).ne(0),
-            Exception::GeneralProtection {
-                error_code: 0.into(),
-            },
+            Exception::GeneralProtection { error_code: 0 },
         )?;
         self.state.write_mxcsr(&mut self.body, value)
     }

@@ -154,7 +154,10 @@ fn f3_prefixed_count_instructions_are_not_accepted_as_bit_scans() {
         Image::new(&code).check_unchanged_exit(
             TestModule::interpreter(),
             "F3 count encoding is rejected before its unmapped source",
-            Exit::Other(0x0008_00f3_0000_1000),
+            Exit::UnsupportedInstruction {
+                eip: 0x1000,
+                opcode: 0xf3,
+            },
         );
     }
 }

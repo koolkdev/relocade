@@ -357,7 +357,10 @@ fn protected_modes(frontend: Frontend) {
                 &[Step {
                     cpu: image.cpu,
                     ram: &[],
-                    exit: Exit::Other(0x0008_0000_0000_1000 | opcode << 32),
+                    exit: Exit::UnsupportedInstruction {
+                        eip: 0x1000,
+                        opcode: opcode as u8,
+                    },
                 }],
             );
         }

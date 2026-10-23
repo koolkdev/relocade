@@ -1,8 +1,8 @@
 use super::super::{Cpu, State};
-use crate::exception::Exception;
 use crate::flags::Flag;
-use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use crate::test_step::{returned, Argument, Event, Input, Observation, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Gpr32};
+use crate::{Exception, ExceptionValues, ExecutionExit, ExecutionExitValues};
 use relocade_compiler::{Program, Signature, Type, I1, I32};
 
 fn conditional_fault(completed: u32) -> CompiledModule {
@@ -12,7 +12,7 @@ fn conditional_fault(completed: u32) -> CompiledModule {
         .function(
             Signature {
                 parameters: vec![Type::I1, Type::I32, Type::I32],
-                results: vec![Type::I64],
+                results: crate::abi::RUN.signature().results,
             },
             |mut body| {
                 let denied = body.parameter::<I1>(0)?;
@@ -27,17 +27,14 @@ fn conditional_fault(completed: u32) -> CompiledModule {
                         fault_body,
                         &restart_eip,
                         completed,
-                        Exception::PageFault {
-                            linear_address,
-                            error_code: 3.into(),
-                        },
+                        ExceptionValues::page_fault(linear_address, 3),
                     )
                 })?;
                 state.write_register(&mut body, Gpr32::Eax, 42)?;
                 state.write_register(&mut body, Gpr32::Edi, 77)?;
                 state.write_flag(&mut body, Flag::DF, true)?;
                 state.publish(&mut body, restart_eip.add(2), completed + 1)?;
-                body.return_(7)
+                body.return_(ExecutionExitValues::from(ExecutionExit::HostReturn))
             },
         )
         .unwrap();
@@ -67,14 +64,17 @@ fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
                 expected.flags.bytes.df = 0;
                 expected.eip = 0x8000_1000;
                 expected.instruction_count = fault_count;
-                0x0004_0003_f123_4567_i64
+                ExecutionExit::Exception(Exception::PageFault {
+                    linear_address: 0xf123_4567,
+                    error_code: 3,
+                })
             } else {
                 expected.registers.eax = 42;
                 expected.registers.edi = 77;
                 expected.flags.bytes.df = 1;
                 expected.eip = 0x8000_1002;
                 expected.instruction_count = continued_count;
-                7
+                ExecutionExit::HostReturn
             };
             let input = Input {
                 arguments: vec![
@@ -88,7 +88,7 @@ fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
                 module.observe(&input, 1),
                 Observation {
                     events: vec![Event::Return {
-                        outcome: Outcome::Returned(vec![Argument::I64(result)]),
+                        outcome: returned(result),
                         snapshot: Snapshot {
                             cpu: expected.to_bytes().to_vec(),
                             guest: None

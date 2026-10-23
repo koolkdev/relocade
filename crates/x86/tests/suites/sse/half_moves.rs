@@ -146,7 +146,10 @@ fn sse_half_rejected_register_forms() {
             image(&code).check_unchanged_exit(
                 TestModule::interpreter(),
                 &format!("memory-only half transfer rejects {code:02x?}"),
-                Exit::Other(0x0008_000f_0000_1000),
+                Exit::UnsupportedInstruction {
+                    eip: 0x1000,
+                    opcode: 0xf,
+                },
             );
         }
     }

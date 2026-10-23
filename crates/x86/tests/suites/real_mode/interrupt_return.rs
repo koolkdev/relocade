@@ -192,7 +192,13 @@ fn target_fetch_uses_the_committed_return() {
                 Exit::Dispatch(next.eip),
             )
         } else {
-            (&[][..], Exit::Other(0x0008_00ff_0000_0020))
+            (
+                &[][..],
+                Exit::UnsupportedInstruction {
+                    eip: 0x20,
+                    opcode: 0xff,
+                },
+            )
         };
         assert_eq!(
             module.observe(&image.input(), 2),

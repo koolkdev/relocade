@@ -1,6 +1,6 @@
 use crate::support::step;
 use relocade_x86::{compile_block_from_bytes, BlockError, CompiledModule, CpuState, Registers};
-use step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use step::{Event, Input, Observation, Snapshot, TestModule};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
 const IMMEDIATE: &[u8] = &[0xb8, 0x78, 0x56, 0x34, 0x12];
@@ -120,7 +120,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
             _ => {}
         }
     }
-    assert_eq!(types, [(vec![], vec![ValType::I64])]);
+    assert_eq!(types, [(vec![], vec![ValType::I32; 4])]);
     assert_eq!(functions, [0]);
     assert_eq!(exports, [("block_1000".to_owned(), ExternalKind::Func, 1)]);
     assert_eq!(imports.len(), 2);
@@ -159,7 +159,7 @@ fn check_dispatch_abi(
     initial: &CpuState,
     expected: CpuState,
     dispatched: i32,
-    returned: i64,
+    returned: relocade_x86::ExecutionExit,
 ) {
     assert_eq!(expected.eip, dispatched as u32);
     let module = TestModule::new(block);
@@ -179,7 +179,7 @@ fn check_dispatch_abi(
                     snapshot: snapshot.clone()
                 },
                 Event::Return {
-                    outcome: Outcome::Returned(vec![Argument::I64(returned)]),
+                    outcome: crate::support::step::returned(returned),
                     snapshot
                 },
             ],
@@ -195,7 +195,7 @@ fn check_dispatch_abi(
 fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value() {
     // These cases exercise the CPU-only block interface. Incoming EIP deliberately
     // differs from the compiled origin; the callback sees completed CPU bytes and
-    // its full i64 return value passes through unchanged. Ordinary MOV results are
+    // its enum return value passes through unchanged. Ordinary MOV results are
     // covered by the data_moves family.
     for (bytes, limit, start, initial_count, eax, edi, next_eip, count, dispatched, returned) in [
         (
@@ -208,7 +208,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x1005,
             0,
             4101,
-            i64::MIN,
+            relocade_x86::ExecutionExit::BudgetExhausted,
         ),
         (
             TWO,
@@ -220,7 +220,10 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x100a,
             1,
             4106,
-            0x1234_5678_9abc_def0,
+            relocade_x86::ExecutionExit::Exception(relocade_x86::Exception::PageFault {
+                linear_address: 0x9abc_def0,
+                error_code: 0x1234_5678,
+            }),
         ),
         (
             OVERWRITE,
@@ -232,7 +235,10 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x100a,
             1,
             4106,
-            0x1234_5678_9abc_def0,
+            relocade_x86::ExecutionExit::Exception(relocade_x86::Exception::PageFault {
+                linear_address: 0x9abc_def0,
+                error_code: 0x1234_5678,
+            }),
         ),
         (
             REVERSE,
@@ -244,7 +250,10 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x100a,
             1,
             4106,
-            0x1234_5678_9abc_def0,
+            relocade_x86::ExecutionExit::Exception(relocade_x86::Exception::PageFault {
+                linear_address: 0x9abc_def0,
+                error_code: 0x1234_5678,
+            }),
         ),
         (
             FIRST_WRITE_ORDER,
@@ -256,7 +265,10 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x100f,
             2,
             4111,
-            0x1234_5678_9abc_def0,
+            relocade_x86::ExecutionExit::Exception(relocade_x86::Exception::PageFault {
+                linear_address: 0x9abc_def0,
+                error_code: 0x1234_5678,
+            }),
         ),
         (
             TWO,
@@ -268,7 +280,10 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x1005,
             0,
             4101,
-            0x1234_5678_9abc_def0,
+            relocade_x86::ExecutionExit::Exception(relocade_x86::Exception::PageFault {
+                linear_address: 0x9abc_def0,
+                error_code: 0x1234_5678,
+            }),
         ),
         (
             IMMEDIATE,
@@ -280,7 +295,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             2,
             0,
             2,
-            -1,
+            relocade_x86::ExecutionExit::HostReturn,
         ),
         (
             IMMEDIATE,
@@ -292,7 +307,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x8000_0002,
             0,
             -2147483646,
-            -1,
+            relocade_x86::ExecutionExit::HostReturn,
         ),
         (
             IMMEDIATE,
@@ -304,7 +319,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x1005,
             18,
             4101,
-            i64::MAX,
+            relocade_x86::ExecutionExit::Deferred,
         ),
     ] {
         let block = compile_block_from_bytes(start, bytes, limit).unwrap();

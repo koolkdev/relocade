@@ -158,7 +158,10 @@ fn sse_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "invalid memory destination is rejected before missing SIB or immediate bytes",
-            Exit::Other(0x0008_000f_0000_1ffc),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffc,
+                opcode: 0xf,
+            },
         );
     }
 }

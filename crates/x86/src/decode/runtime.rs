@@ -74,7 +74,7 @@ impl<'memory> RuntimeDecoder<'memory> {
     ) -> Result<Self, BuildError> {
         let signature = Signature {
             parameters: vec![Type::I1],
-            results: vec![Type::I64],
+            results: crate::abi::RUN.signature().results,
         };
         let entry = program.declare(signature.clone());
         let exact = program.declare(signature.clone());

@@ -285,7 +285,7 @@ fn unsupported_group_extensions_stop_before_sib_or_displacement_fetch() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "unsupported extension precedes address fields",
-            Exit::Other(0x0008_0000_0000_0000 | (u64::from(opcode) << 32) | u64::from(start)),
+            Exit::UnsupportedInstruction { eip: start, opcode },
         );
     }
 }

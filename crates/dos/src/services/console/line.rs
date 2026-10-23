@@ -6,9 +6,7 @@ use crate::{
     state::DosState,
     DosServices,
 };
-use relocade_machine::HostCall;
-use relocade_x86::ExecutionExit;
-use std::ops::ControlFlow;
+use relocade_machine::{HookResult, HostCall};
 
 /// A line being edited, including its final carriage return once complete.
 pub(super) struct LineInput {
@@ -38,13 +36,9 @@ impl LineInput {
         mut self,
         call: &mut HostCall<'_, DosServices>,
         state: &mut DosState,
-        complete: impl FnOnce(
-                &mut HostCall<'_, DosServices>,
-                &mut DosState,
-                Vec<u8>,
-            ) -> ControlFlow<ExecutionExit>
+        complete: impl FnOnce(&mut HostCall<'_, DosServices>, &mut DosState, Vec<u8>) -> HookResult
             + 'static,
-    ) -> ControlFlow<ExecutionExit> {
+    ) -> HookResult {
         match self.read_available(call, state) {
             Ok(true) => return complete(call, state, self.bytes),
             Ok(false) => {}

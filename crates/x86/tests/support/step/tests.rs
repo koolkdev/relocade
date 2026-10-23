@@ -93,7 +93,7 @@ fn host_edits_are_observed_without_module_memory_imports() {
 
 #[test]
 fn profile_admission_uses_patched_contexts_for_actual_calls() {
-    use super::{Argument, Event, Observation, Outcome, Snapshot};
+    use super::{Event, Observation, Snapshot};
     use crate::{compile_block_from_bytes, CpuState, ExecutionProfile, Segments};
 
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &[0x90], 1).unwrap());
@@ -138,7 +138,9 @@ fn profile_admission_uses_patched_contexts_for_actual_calls() {
                     snapshot: snapshot.clone()
                 },
                 Event::Return {
-                    outcome: Outcome::Returned(vec![Argument::I64(i64::MIN)]),
+                    outcome: crate::test_step::returned(
+                        relocade_x86::ExecutionExit::BudgetExhausted
+                    ),
                     snapshot
                 },
             ],

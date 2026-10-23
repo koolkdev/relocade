@@ -49,7 +49,10 @@ fn sse_masks_reject_memory_sources() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "register-only mask is rejected before fetching a missing SIB byte",
-            Exit::Other(0x0008_000f_0000_0000 | u64::from(address)),
+            Exit::UnsupportedInstruction {
+                eip: address,
+                opcode: 0x0f,
+            },
         );
     }
 }

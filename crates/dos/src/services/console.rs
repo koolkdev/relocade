@@ -6,10 +6,9 @@ use crate::{
 };
 use relocade_machine::{
     real_mode_interrupt::{return_from_interrupt, set_zero},
-    HostCall,
+    HookResult, HostCall,
 };
-use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
-use std::ops::ControlFlow;
+use relocade_x86::{Segment, SegmentRegister};
 
 mod handles;
 mod line;
@@ -23,7 +22,7 @@ use output::{write_characters, write_cooked_character, CharacterOutput};
 pub(super) fn flush_input(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     // DOS proceeds to the requested service even if the flush failed.
     let _ = state.files.flush_input(0);
     let function = call.cpu().al();
@@ -48,7 +47,7 @@ pub(super) fn flush_input(
 pub(super) fn input_status(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     // Closed stdin falls back to the console; AH=0Bh has no handle-error return.
     let available = state
         .files
@@ -59,10 +58,7 @@ pub(super) fn input_status(
 }
 
 /// AH=06h: DL=FFh polls stdin without echo; other values write a byte to stdout.
-pub(super) fn direct_io(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn direct_io(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let byte = call.cpu().dl();
     if byte == 0xff {
         let result = state.files.read_character(0);
@@ -84,7 +80,7 @@ pub(super) fn direct_io(
 pub(super) fn read_character(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let echo = call.cpu().ah() == super::READ_CHARACTER_ECHO;
     match state.files.read_character(0) {
         Ok(Some(byte)) => return_character(call, state, byte, echo),
@@ -103,7 +99,7 @@ fn return_character(
     state: &mut DosState,
     byte: u8,
     echo: bool,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     if echo {
         write_cooked_character(call, state, CharacterOutput::Stdout, byte);
     }
@@ -115,7 +111,7 @@ fn return_character(
 pub(super) fn write_character(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let byte = call.cpu().dl();
     let last = write_cooked_character(call, state, CharacterOutput::Stdout, byte);
     call.cpu().set_al(last);
@@ -126,7 +122,7 @@ pub(super) fn write_character(
 pub(super) fn read_buffered(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let segment = call.cpu().segment(Segment::Ds);
     let offset = call.cpu().dx();
     let mut capacity = [0];
@@ -147,7 +143,7 @@ fn return_line(
     segment: &SegmentRegister,
     offset: u16,
     bytes: &[u8],
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
     let mut memory = call.memory();
     write_wrapping(&mut memory, segment, offset.wrapping_add(1), &[count]);
@@ -159,7 +155,7 @@ fn return_line(
 pub(super) fn write_string(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let segment = call.cpu().segment(Segment::Ds);
     let start = call.cpu().dx();
     for index in 0..=u16::MAX {

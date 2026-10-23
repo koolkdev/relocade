@@ -124,7 +124,10 @@ fn port_boundaries() {
         image.check_unchanged_exit(
             TestModule::interpreter_with_profile(ExecutionProfile::Real16),
             "LOCK port I/O follows the shared unsupported-encoding path",
-            Exit::Other(0x0008_00f0_0000_1000),
+            Exit::UnsupportedInstruction {
+                eip: 0x1000,
+                opcode: 0xf0,
+            },
         );
     }
 }
