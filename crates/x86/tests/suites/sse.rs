@@ -29,7 +29,7 @@ mod words;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
+    machine::{dispatch, retire, Exit, Image, Step},
 };
 use memory::check_m128_span;
 use relocade_x86::{CpuState, SegmentProfile};
@@ -43,20 +43,6 @@ fn image(code: &[u8]) -> Image {
     image.cpu.simd.xmm =
         std::array::from_fn(|i| (LEFT ^ (i as u128 * RIGHT.wrapping_div(8))).to_le_bytes());
     image
-}
-
-fn retire(mut cpu: CpuState, bytes: usize) -> CpuState {
-    cpu.eip += bytes as u32;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
-}
-
-fn dispatch(cpu: CpuState) -> Step<'static> {
-    Step {
-        cpu,
-        ram: &[],
-        exit: Exit::Dispatch(cpu.eip),
-    }
 }
 
 fn encoding(prefix: &[u8], opcode: u8, modrm: u8) -> Vec<u8> {

@@ -4,7 +4,7 @@ pub(crate) mod arithmetic;
 
 use relocade_x86::{CpuState, X87Control, X87Status};
 
-use super::machine::{Exit, Image, Step};
+use super::machine::{retire, Image};
 
 pub(crate) fn set_control(control: &mut X87Control, word: u16) {
     *control = X87Control {
@@ -81,17 +81,7 @@ pub(crate) fn complete_x87(mut cpu: CpuState, bytes: u32, opcode: u16) -> CpuSta
     // This emulator enables the P4 opcode-compatibility policy. Register-only
     // operations retain the architecturally undefined data pointer.
     cpu.x87.opcode = opcode;
-    cpu.eip = cpu.eip.wrapping_add(bytes);
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
-}
-
-pub(crate) fn dispatch(cpu: CpuState) -> Step<'static> {
-    Step {
-        cpu,
-        ram: &[],
-        exit: Exit::Dispatch(cpu.eip),
-    }
+    retire(cpu, bytes as usize)
 }
 
 pub(crate) fn real80(value: (u64, u16)) -> [u8; 10] {

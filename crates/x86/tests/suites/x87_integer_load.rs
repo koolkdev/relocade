@@ -5,11 +5,10 @@ mod arithmetic;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{expected, Exit, Image, Step},
+    machine::{dispatch, expected, Exit, Image, Step},
     step::TestModule,
     x87::{
-        complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits,
-        INDEFINITE,
+        complete_x87, real80, set_control, stack_image, status, write_register_bits, INDEFINITE,
     },
 };
 use relocade_x86::{compile_block_from_bytes, CpuState, SegmentProfile};

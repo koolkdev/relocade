@@ -5,10 +5,8 @@ mod sequences;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
-    x87::{
-        complete_x87, dispatch, register_bits, set_control, stack_image, write_value, INDEFINITE,
-    },
+    machine::{dispatch, Exit, Image, Step},
+    x87::{complete_x87, register_bits, set_control, stack_image, write_value, INDEFINITE},
 };
 use relocade_x86::SegmentProfile;
 

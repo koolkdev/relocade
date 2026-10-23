@@ -10,8 +10,8 @@ mod nearest;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::Exit,
-    x87::{complete_x87, dispatch, set_control, stack_image, write_value},
+    machine::{dispatch, Exit},
+    x87::{complete_x87, set_control, stack_image, write_value},
 };
 use relocade_x86::{CpuState, SegmentProfile};
 

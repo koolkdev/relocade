@@ -47,7 +47,7 @@ fn fetches() {
     crossing.cpu.eip = 0x1fff;
     crossing.map(1, 0x3000, false);
     crossing.data(0x3fff, &[0xb8]);
-    let mut cpu = retired(&crossing, 3);
+    let mut cpu = retire(crossing.cpu, 3);
     cpu.registers.eax = 0x1111_ffff;
     assert_eq!(
         module.observe(&crossing.input(), 1),
@@ -61,7 +61,7 @@ fn fetches() {
         )
     );
     let mut image = image(&[0xea, 0x34, 0x12, 0xff, 0xff]);
-    let mut cpu = retired(&image, 5);
+    let mut cpu = retire(image.cpu, 5);
     cpu.eip = 0x1234;
     cpu.segments.cs = cache(Segment::Cs, 0xffff);
     assert_eq!(
@@ -89,7 +89,7 @@ fn fetches() {
     image.cpu.eip = 0x20;
     image.map(0x100, 0x8000, false);
     image.data(0x8010, &[0x90]);
-    let cpu = retired(&image, 1);
+    let cpu = retire(image.cpu, 1);
     assert_eq!(
         module.observe(&image.input(), 1),
         expected(
@@ -138,7 +138,7 @@ fn segment_fetch_bounds() {
         expected(
             &image,
             &[Step {
-                cpu: retired(&image, 1),
+                cpu: retire(image.cpu, 1),
                 ram: &[],
                 exit: Exit::Dispatch(0xffff),
             }]
@@ -168,7 +168,7 @@ fn a20_fetch(frontend: Frontend) {
         };
         let mut input = image.input();
         input.a20_enabled = enabled;
-        let mut cpu = retired(&image, 3);
+        let mut cpu = retire(image.cpu, 3);
         cpu.registers.eax = 0x1111_0000 | if enabled { 0x5678 } else { 0x1234 };
         assert_eq!(
             module.observe(&input, 1),
@@ -204,7 +204,7 @@ fn runs() {
         ),
     ] {
         let image = image(code);
-        let mut cpu = retired(&image, 3);
+        let mut cpu = retire(image.cpu, 3);
         cpu.registers.eax = 0x1111_1234;
         cpu.eip = next;
         if matches!(exit, Exit::Dispatch(_)) {
@@ -225,7 +225,7 @@ fn runs() {
     }
     let code = [0xb8, 0x34, 0x12, 0xa1, 0, 0x20, 0xeb, 0];
     let image = image(&code);
-    let mut cpu = retired(&image, code.len());
+    let mut cpu = retire(image.cpu, code.len());
     cpu.registers.eax = 0x1111_ffff;
     cpu.instruction_count = 2;
     assert_eq!(
@@ -285,7 +285,7 @@ fn fetch_callbacks(mmio: bool) {
             .collect();
         let mut cpu = image.cpu;
         if let Exit::Dispatch(next) = exit {
-            cpu = retired(&image, code.len());
+            cpu = retire(image.cpu, code.len());
             assert_eq!(cpu.eip, next);
             if code[0] == 0xb8 {
                 cpu.registers.eax = 0x1111_5678;
@@ -326,7 +326,7 @@ fn live_fetch() {
         expected(
             &last_byte,
             &[Step {
-                cpu: retired(&last_byte, 1),
+                cpu: retire(last_byte.cpu, 1),
                 ram: &[],
                 exit: Exit::Dispatch(0x2000)
             }]
@@ -343,7 +343,7 @@ fn live_fetch() {
         map: vec![(8, vec![2, 0, 0, 0, 0, 0x90, 0, 0])],
         ..MmioUpdate::default()
     }];
-    let mut cpu = retired(&image, 8);
+    let mut cpu = retire(image.cpu, 8);
     cpu.registers.eax = 0x1111_5678;
     cpu.instruction_count = 2;
     let mut wanted = expected(
