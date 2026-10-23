@@ -1417,6 +1417,7 @@ dependencies = [
  "relocade-compiler",
  "relocade-interpreter",
  "relocade-test-support",
+ "relocade-wasm-bindings",
  "wasmparser 0.224.1",
  "wasmtime",
 ]
