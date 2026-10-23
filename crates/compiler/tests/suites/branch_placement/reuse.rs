@@ -16,7 +16,7 @@ fn count(module: &TestModule, predicate: impl Fn(&Operator<'_>) -> bool) -> usiz
 }
 
 fn accumulator(depth: u32) -> TestModule {
-    Fixture::new().function(&[Type::I32; 3], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32; 3], &[Type::I32], move |mut body| {
         let stop = body.parameter::<I32>(0)?;
         let input = body.parameter::<I32>(1)?;
         let mut value = body.parameter::<I32>(2)?;
@@ -66,7 +66,7 @@ fn successive_exits_share_each_accumulator_update_once() {
 fn shared_narrow_values_retain_their_full_wasm_carrier() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 8]);
-    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I64], |mut body| {
+    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I64], move |mut body| {
         let flag = body.parameter::<I1>(0)?;
         let value = body.parameter::<I32>(1)?.truncate::<I8>().add(1).xor(0x80);
         body.if_else(

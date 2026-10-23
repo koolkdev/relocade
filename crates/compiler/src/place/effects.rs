@@ -170,7 +170,7 @@ pub(super) fn infer(program: &Program) -> Vec<Effects> {
         .functions
         .iter()
         .map(|function| {
-            matches!(function.kind, FunctionKind::Imported { .. }).then_some(Effects::Unknown)
+            (!matches!(function.kind, FunctionKind::Built(_))).then_some(Effects::Unknown)
         })
         .collect();
     loop {
@@ -179,7 +179,7 @@ pub(super) fn infer(program: &Program) -> Vec<Effects> {
             if summaries[id].is_some() {
                 continue;
             }
-            let FunctionKind::Defined(Some(body)) = &function.kind else {
+            let FunctionKind::Built(body) = &function.kind else {
                 unreachable!("inference requires completed definitions")
             };
             if let Some(summary) = summarize(body, &summaries) {

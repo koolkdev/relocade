@@ -54,10 +54,8 @@ fn compiler_only_aggregates_cross_typed_parameters_calls_and_returns() {
     );
     assert_eq!(&signature.parameters[3..], &[Type::I16; 16]);
     let mut program = Program::new();
-    let echo = program
-        .function::<Echo>(|body, (header, batch)| body.return_((header, batch)))
-        .unwrap();
-    RUN.define(&mut program, |mut body, ()| {
+    let echo = program.function::<Echo>(move |body, (header, batch)| body.return_((header, batch)));
+    RUN.define(&mut program, move |mut body, ()| {
         let header = HeaderValues::<V128> {
             code: 7.into(),
             value: 0x1234_u128.into(),
@@ -92,7 +90,7 @@ fn const_generic_fields_cross_generated_function_boundaries() {
     type Pairs = Batch<(i8, bool), 2>;
     const ECHO: Function<fn(Pairs) -> Pairs> = Function::new("abi", "run");
     let mut program = Program::new();
-    ECHO.define(&mut program, |body, (batch,)| body.return_(batch))
+    ECHO.define(&mut program, move |body, (batch,)| body.return_(batch))
         .unwrap();
     let module = TestModule::new(&program.compile().unwrap());
     let mut instance = module.instantiate();
@@ -138,7 +136,7 @@ fn enum_signatures_use_the_shared_payload_layout() {
 fn generated_enum_matching_projects_only_the_active_variant() {
     const RUN: Function<fn(Outcome) -> u32> = Function::new("abi", "run");
     let mut program = Program::new();
-    RUN.define(&mut program, |mut body, (outcome,)| {
+    RUN.define(&mut program, move |mut body, (outcome,)| {
         outcome.match_(&mut body, |arm, variant| match variant {
             OutcomeCase::Ready => arm.return_(10),
             OutcomeCase::Value(value) => arm.return_(value.add(1)),
@@ -229,7 +227,7 @@ fn compiler_enum_constructors_and_matching_use_the_declared_abi_tags() {
 
     const RUN: Function<fn(Reply) -> Reply> = Function::new("abi", "run");
     let mut program = Program::new();
-    RUN.define(&mut program, |mut body, (reply,)| {
+    RUN.define(&mut program, move |mut body, (reply,)| {
         reply.match_(&mut body, |arm, case| match case {
             ReplyCase::Missing => arm.return_(ReplyValues::found(255)),
             ReplyCase::Found(_) => arm.return_(ReplyValues::missing()),
@@ -275,7 +273,7 @@ mod hygiene {
         use relocade_compiler::{abi::Function, Program};
         let mut program = Program::new();
         let read = Function::<fn(Constructors) -> u32>::new("abi", "read")
-            .define(&mut program, |mut body, (value,)| {
+            .define(&mut program, move |mut body, (value,)| {
                 value.match_(&mut body, |arm, case| match case {
                     ConstructorsCase::Type(value)
                     | ConstructorsCase::Clone(value)
@@ -286,7 +284,7 @@ mod hygiene {
             })
             .unwrap();
         Function::<fn() -> u32>::new("abi", "run")
-            .define(&mut program, |mut body, ()| {
+            .define(&mut program, move |mut body, ()| {
                 let cloned = ConstructorsValues::clone(11);
                 let values = [
                     ConstructorsValues::r#type(7),
@@ -328,11 +326,11 @@ fn enum_constructors_return_named_variants_through_generated_calls() {
     const RUN: Function<fn(u16, bool) -> Outcome> = Function::new("abi", "run");
     let mut program = Program::new();
     let make = MAKE
-        .define(&mut program, |body, (value, enabled)| {
+        .define(&mut program, move |body, (value, enabled)| {
             body.return_(OutcomeValues::pair(value.add(1), enabled))
         })
         .unwrap();
-    RUN.define(&mut program, |mut body, arguments| {
+    RUN.define(&mut program, move |mut body, arguments| {
         let outcome = make.call(&mut body, arguments)?;
         body.return_(outcome)
     })

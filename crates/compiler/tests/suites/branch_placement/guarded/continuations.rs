@@ -7,13 +7,12 @@ fn snapshot_with_continuation(source: Source) -> TestModule {
     let state = fixture.memory("state", &INITIAL);
     let reader = fixture
         .program
-        .function::<fn() -> u32>(|mut body, ()| {
+        .function::<fn() -> u32>(move |mut body, ()| {
             let value = body.load::<I32>(state, 0)?;
             body.return_(value)
-        })
-        .unwrap();
+        });
     let receive = fixture.callback("receive", signature(&[], &[Type::I32]), &[Value::I32(7)]);
-    fixture.function(&[Type::I1, Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I1], &[Type::I32], move |mut body| {
         let enabled = body.parameter::<I1>(0)?;
         let choose_load = body.parameter::<I1>(1)?;
         let previous = match source {
@@ -117,7 +116,7 @@ fn child_and_main_calculations_preserve_snapshots_while_a_fresh_load_sees_the_wr
 fn addressed_snapshot_with_block_exit() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let skip = body.parameter::<I1>(0)?;
         let address = body.parameter::<I32>(1)?.add(4);
         let previous = body.load_at::<I32>(state, &address, 0)?;

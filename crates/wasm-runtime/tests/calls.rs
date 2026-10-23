@@ -20,35 +20,37 @@ async fn check_rust_calls() {
     const CONSUME: Function<fn(u32)> = Function::new("rust", "consume");
     let mut program = Program::new();
     NARROW
-        .define(&mut program, |body, (bit, byte, word, integer)| {
+        .define(&mut program, move |body, (bit, byte, word, integer)| {
             body.return_((bit.eq(false), byte.add(1), word.add(1), integer.add(1)))
         })
         .unwrap();
-    ADD.define(&mut program, |body, (a, b)| {
+    ADD.define(&mut program, move |body, (a, b)| {
         body.return_(a.unsigned().extend::<I32>().add(b.signed().extend::<I32>()))
     })
     .unwrap();
     THREE
-        .define(&mut program, |body, (a, b, c)| {
+        .define(&mut program, move |body, (a, b, c)| {
             body.return_(a.add(b).add(c))
         })
         .unwrap();
-    WIDE.define(&mut program, |body, (value,)| body.return_(value.add(1)))
-        .unwrap();
+    WIDE.define(&mut program, move |body, (value,)| {
+        body.return_(value.add(1))
+    })
+    .unwrap();
     SIGNED
-        .define(&mut program, |body, (value,)| body.return_(value))
+        .define(&mut program, move |body, (value,)| body.return_(value))
         .unwrap();
     FLOAT
-        .define(&mut program, |body, (value,)| body.return_(value))
+        .define(&mut program, move |body, (value,)| body.return_(value))
         .unwrap();
     SINGLE
-        .define(&mut program, |body, ()| {
+        .define(&mut program, move |body, ()| {
             body.return_((0x20_0000_0000_0001_u64,))
         })
         .unwrap();
     let observe = OBSERVE.import(&mut program);
     CONSUME
-        .define(&mut program, |body, (value,)| {
+        .define(&mut program, move |body, (value,)| {
             observe.tail_call(body, value)
         })
         .unwrap();
@@ -131,7 +133,7 @@ async fn check_typed_linking() {
     let query = {
         let mut producer = Program::new();
         QUERY
-            .define(&mut producer, |body, (value,)| {
+            .define(&mut producer, move |body, (value,)| {
                 body.return_((
                     value.eq(0),
                     value.add(1),
@@ -156,7 +158,7 @@ async fn check_typed_linking() {
     let direct = QUERY.import(&mut consumer);
     let indirect = consumer.import_table(TABLE);
     RELAY
-        .define(&mut consumer, |mut body, (value,)| {
+        .define(&mut consumer, move |mut body, (value,)| {
             let (_, next, _, _) = direct.call(&mut body, value)?;
             body.tail_call_indirect(indirect, 0, &[next.into()])
         })
@@ -227,7 +229,9 @@ async fn check_domain_values() {
     const NEXT: Function<fn(Mode) -> Mode> = Function::new("typed", "next");
     let mut program = Program::new();
     Function::<fn(u32) -> u32>::new("typed", "next")
-        .define(&mut program, |body, (value,)| body.return_(value.add(1)))
+        .define(&mut program, move |body, (value,)| {
+            body.return_(value.add(1))
+        })
         .unwrap();
     let mut backend = Backend::new().unwrap();
     let module = backend

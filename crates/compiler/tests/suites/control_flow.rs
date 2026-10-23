@@ -15,7 +15,7 @@ fn stores_and_tail() -> TestModule {
         signature(&[Type::I32], &[Type::I64]),
         &[Value::I64(-1)],
     );
-    fixture.function(&[Type::I1], &[Type::I64], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I64], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         body.store::<I32>(state, 0, 1)?;
         body.if_(&condition, |branch| {
@@ -29,7 +29,7 @@ fn stores_and_tail() -> TestModule {
 fn alternative_stores() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let address = body.parameter::<I32>(1)?;
         let previous = body.load::<I32>(state, 0)?;
@@ -67,7 +67,7 @@ fn alternative_stores_preserve_the_prior_snapshot_and_selected_effects() {
 fn continuation_load(crosses_store: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let address = body.parameter::<I32>(1)?;
         let loaded = body.load_at::<I32>(state, &address, 0)?;
@@ -82,7 +82,7 @@ fn continuation_load(crosses_store: bool) -> TestModule {
 fn conditional_result_load() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let address = body.parameter::<I32>(1)?;
         let loaded = body.load_at::<I32>(state, &address, 0)?;
@@ -95,7 +95,7 @@ fn conditional_result_load() -> TestModule {
 fn shared_snapshot(initial: &[u8]) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", initial);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let loaded = body.load::<I32>(state, 0)?;
         let shared = loaded.add(1);
         body.if_(loaded.eq(7), |branch| branch.return_(&shared))?;
@@ -107,7 +107,7 @@ fn shared_snapshot(initial: &[u8]) -> TestModule {
 fn sequential_exits(initial: &[u8]) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", initial);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let first = body.parameter::<I1>(0)?;
         body.if_(&first, |branch| branch.return_(11))?;
         let address = body.parameter::<I32>(1)?;
@@ -120,7 +120,7 @@ fn sequential_exits(initial: &[u8]) -> TestModule {
 
 fn narrow_condition_and_results() -> TestModule {
     let fixture = Fixture::new();
-    fixture.function(&[Type::I1, Type::I8], &[Type::I8], |mut body| {
+    fixture.function(&[Type::I1, Type::I8], &[Type::I8], move |mut body| {
         let condition = body.parameter::<I1>(0)?.add(1);
         let value = body.parameter::<I8>(1)?.add(1);
         body.if_(&condition, |branch| branch.return_(&value))?;
@@ -131,7 +131,7 @@ fn narrow_condition_and_results() -> TestModule {
 fn branch_load_after_store() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 9, 0, 0, 0, 11, 0, 0, 0]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let address = body.parameter::<I32>(1)?;
         body.store::<I32>(state, 0, 1)?;
@@ -148,7 +148,7 @@ fn branch_load_after_store() -> TestModule {
 fn fallthrough_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let before = body.load_at::<I32>(state, 0, 0)?;
         body.if_(&condition, |mut branch| {
@@ -163,7 +163,7 @@ fn fallthrough_snapshot() -> TestModule {
 fn shared_pure_value() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?;
         let mut pure = None;
@@ -185,7 +185,7 @@ fn nested_tail() -> TestModule {
         signature(&[Type::I32], &[Type::I64]),
         &[Value::I64(-9223372036854775808)],
     );
-    fixture.function(&[Type::I1; 2], &[Type::I64], |mut body| {
+    fixture.function(&[Type::I1; 2], &[Type::I64], move |mut body| {
         let outer = body.parameter::<I1>(0)?;
         let inner = body.parameter::<I1>(1)?;
         body.if_(&outer, |mut branch| {
@@ -403,7 +403,7 @@ fn branch_loads_and_stores_remain_inside_the_selected_arm() {
 fn child_load_dependencies_are_not_visible_to_parent_or_sibling_consumers() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[]);
-    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let mut escaped = None;
         body.if_(&condition, |mut branch| {
@@ -545,7 +545,7 @@ fn constant_guards_keep_only_reachable_effects() {
     ] {
         let mut fixture = Fixture::new();
         let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]);
-        let module = fixture.function(&[], &[Type::I32], |mut body| {
+        let module = fixture.function(&[], &[Type::I32], move |mut body| {
             body.store::<I32>(state, 0, 1)?;
             body.if_(taken, |branch| branch.return_(17))?;
             body.store::<I32>(state, 4, 2)?;

@@ -5,7 +5,7 @@ fn pure_results(observe: bool, readonly: bool) -> TestModule {
     let memory = fixture.memory("state", &[0, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a]);
     let helper = fixture
         .program
-        .function::<fn(bool) -> (u32, u64)>(|mut body, (fail,)| {
+        .function::<fn(bool) -> (u32, u64)>(move |mut body, (fail,)| {
             body.if_(fail, |arm| arm.trap())?;
             let first = if readonly {
                 body.load::<I32>(memory, 4)?
@@ -13,9 +13,8 @@ fn pure_results(observe: bool, readonly: bool) -> TestModule {
                 7.into()
             };
             body.return_((first, 17_u64))
-        })
-        .unwrap();
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+        });
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let fail = body.parameter::<I1>(0)?;
         body.store::<I32>(memory, 0, 1)?;
         let (first, _unused) = body.call::<(I32, I64)>(helper, &[fail.into()])?;
@@ -68,19 +67,17 @@ fn a_discarded_component_is_still_computed_by_a_retained_invocation() {
     let mut fixture = Fixture::new();
     let component = fixture
         .program
-        .function::<fn(bool) -> u64>(|mut body, (fail,)| {
+        .function::<fn(bool) -> u64>(move |mut body, (fail,)| {
             body.if_(fail, |arm| arm.trap())?;
             body.return_(11_u64)
-        })
-        .unwrap();
+        });
     let helper = fixture
         .program
-        .function::<fn(bool) -> (u32, u64)>(|mut body, (fail,)| {
+        .function::<fn(bool) -> (u32, u64)>(move |mut body, (fail,)| {
             let second = body.call::<I64>(component, &[fail.into()])?;
             body.return_((7, second))
-        })
-        .unwrap();
-    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+        });
+    let module = fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let fail = body.parameter::<I1>(0)?;
         let (first, _discarded) = body.call::<(I32, I64)>(helper, &[fail.into()])?;
         body.return_(first)
@@ -95,16 +92,14 @@ fn an_unused_result_group_does_not_force_its_pure_argument_invocation() {
     let mut fixture = Fixture::new();
     let argument = fixture
         .program
-        .function::<fn(bool) -> bool>(|mut body, (fail,)| {
+        .function::<fn(bool) -> bool>(move |mut body, (fail,)| {
             body.if_(fail, |arm| arm.trap())?;
             body.return_(true)
-        })
-        .unwrap();
+        });
     let helper = fixture
         .program
-        .function::<fn(bool) -> (u32, u64)>(|body, _| body.return_((7, 11_u64)))
-        .unwrap();
-    let module = fixture.function(&[], &[Type::I32], |mut body| {
+        .function::<fn(bool) -> (u32, u64)>(move |body, _| body.return_((7, 11_u64)));
+    let module = fixture.function(&[], &[Type::I32], move |mut body| {
         let value = body.call::<I1>(argument, &[true.into()])?;
         let _unused = body.call::<(I32, I64)>(helper, &[value.into()])?;
         body.return_(23)
@@ -134,7 +129,7 @@ fn effects(behavior: Effect) -> TestModule {
         let helper = fixture.program.declare(shape.clone());
         fixture
             .program
-            .define(helper, |mut body| {
+            .define(helper, move |mut body| {
                 let input = body.parameter::<I32>(0).unwrap();
                 if matches!(behavior, Effect::Recursive) {
                     body.if_(input.eq(0), |arm| arm.return_((true, u64::MAX, 255)))
@@ -154,16 +149,13 @@ fn effects(behavior: Effect) -> TestModule {
             .unwrap();
         helper
     };
-    let wrapper = fixture
-        .program
-        .raw_function(shape, |mut body| {
-            let input = body.parameter::<I32>(0)?;
-            let _unused = body.call::<(I1, I64, I8)>(helper, &[input.into()])?;
-            body.return_((true, u64::MAX, 255))
-        })
-        .unwrap();
+    let wrapper = fixture.program.raw_function(shape, move |mut body| {
+        let input = body.parameter::<I32>(0)?;
+        let _unused = body.call::<(I1, I64, I8)>(helper, &[input.into()])?;
+        body.return_((true, u64::MAX, 255))
+    });
     fixture.program.export("wrapper", wrapper).unwrap();
-    fixture.function(&[], &[], |mut body| {
+    fixture.function(&[], &[], move |mut body| {
         body.store::<I32>(memory, 0, 1)?;
         let _unused = body.call::<(I1, I64, I8)>(wrapper, &[7.into()])?;
         body.store::<I32>(memory, 0, 2)?;

@@ -9,7 +9,7 @@ fn packed_identities_remove_calculations_and_preserve_both_vector_widths() {
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let x = body.load::<V128>(memory, 0)?;
         let count = body.parameter::<I32>(0)?;
         let results = [

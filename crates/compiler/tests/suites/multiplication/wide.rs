@@ -5,24 +5,29 @@ use relocade_compiler::{BuildError, Program, WasmFeatures};
 mod folding;
 
 fn product(program: Program, signed: bool, order: &[usize]) -> TestModule {
+    let order = order.to_vec();
     let mut fixture = Fixture::new();
     fixture.program = program;
-    fixture.function(&[Type::I64; 2], &vec![Type::I64; order.len()], |body| {
-        let left = body.parameter::<I64>(0)?;
-        let right = body.parameter::<I64>(1)?;
-        let (low, high) = if signed {
-            left.signed().mul_wide(right)
-        } else {
-            left.unsigned().mul_wide(right)
-        };
-        let halves = [low, high];
-        body.return_(
-            order
-                .iter()
-                .map(|&index| halves[index].clone())
-                .collect::<Vec<_>>(),
-        )
-    })
+    fixture.function(
+        &[Type::I64; 2],
+        &vec![Type::I64; order.len()],
+        move |body| {
+            let left = body.parameter::<I64>(0)?;
+            let right = body.parameter::<I64>(1)?;
+            let (low, high) = if signed {
+                left.signed().mul_wide(right)
+            } else {
+                left.unsigned().mul_wide(right)
+            };
+            let halves = [low, high];
+            body.return_(
+                order
+                    .iter()
+                    .map(|&index| halves[index].clone())
+                    .collect::<Vec<_>>(),
+            )
+        },
+    )
 }
 
 fn expected(left: u64, right: u64, signed: bool) -> [i64; 2] {
@@ -213,7 +218,7 @@ fn each_product_half_retains_its_read_snapshot() {
     for (component, expected) in [(0, -2), (1, 1)] {
         let mut fixture = Fixture::new();
         let state = fixture.memory("state", &[0xff; 8]);
-        let module = fixture.function(&[], &[Type::I64], |mut body| {
+        let module = fixture.function(&[], &[Type::I64], move |mut body| {
             let before = body.load::<I64>(state, 0)?;
             let (low, high) = before.unsigned().mul_wide(2);
             body.store::<I64>(state, 0, 0)?;
@@ -230,7 +235,7 @@ fn wide_components_share_across_dominated_and_sibling_uses() {
     let module = fixture.function(
         &[Type::I1, Type::I64, Type::I64],
         &[Type::I64],
-        |mut body| {
+        move |mut body| {
             let condition = body.parameter::<I1>(0)?;
             let left = body.parameter::<I64>(1)?;
             let right = body.parameter::<I64>(2)?;
@@ -259,7 +264,7 @@ fn separately_placed_wide_components_do_not_escape_their_branch() {
     let module = Fixture::new().function(
         &[Type::I1, Type::I64, Type::I64],
         &[Type::I64],
-        |mut body| {
+        move |mut body| {
             let condition = body.parameter::<I1>(0)?;
             let (low, high) = body
                 .parameter::<I64>(1)?
@@ -282,7 +287,7 @@ fn separately_placed_wide_components_do_not_escape_their_branch() {
 
 #[test]
 fn wide_results_specialize_independently_under_operand_facts() {
-    let module = Fixture::new().function(&[Type::I64], &[Type::I64; 2], |mut body| {
+    let module = Fixture::new().function(&[Type::I64], &[Type::I64; 2], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         let (low, high) = input.unsigned().mul_wide(u64::MAX);
         let result = body.if_value::<(I64, I64)>(
@@ -298,7 +303,7 @@ fn wide_results_specialize_independently_under_operand_facts() {
 }
 
 fn iterated_products(keep_high: bool) -> TestModule {
-    Fixture::new().function(&[Type::I32, Type::I64], &[Type::I64; 2], |mut body| {
+    Fixture::new().function(&[Type::I32, Type::I64], &[Type::I64; 2], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let seed = body.parameter::<I64>(1)?;
         let pair = body.loop_::<(I32, I64, I64), (I64, I64)>(
@@ -331,7 +336,7 @@ fn wide_product_demand_preserves_loop_carried_values() {
 fn every_wide_result_retains_operand_visibility_after_folding() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 8]);
-    let _module = fixture.function(&[Type::I1], &[], |mut body| {
+    let _module = fixture.function(&[Type::I1], &[], move |mut body| {
         let mut escaped = None;
         body.if_(body.parameter::<I1>(0)?, |mut arm| {
             let zero = arm.load::<I64>(state, 0)?.and(0);

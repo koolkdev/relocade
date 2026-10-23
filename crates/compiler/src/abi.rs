@@ -36,11 +36,11 @@ mod values;
 /// enum Reply { Missing, Found(Position) }
 /// let mut program = Program::new();
 /// let locate = Function::<fn(u32, u32) -> Reply>::new("example", "locate")
-///     .define(&mut program, |body, (x, y)| {
+///     .define(&mut program, move |body, (x, y)| {
 ///         body.return_(ReplyValues::found(PositionValues { x, y }))
 ///     })?;
 /// Function::<fn() -> u32>::new("example", "run")
-///     .define(&mut program, |mut body, ()| {
+///     .define(&mut program, move |mut body, ()| {
 ///         let reply = locate.call(&mut body, (20, 22))?;
 ///         reply.match_(&mut body, |arm, case| match case {
 ///             ReplyCase::Missing => arm.return_(0),

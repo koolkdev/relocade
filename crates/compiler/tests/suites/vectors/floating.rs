@@ -22,14 +22,15 @@ fn case(
     left: u128,
     right: u128,
     expected: &[u128],
-    calculate: impl Fn(&Val<V128>, &Val<V128>) -> Vec<Val<V128>>,
+    calculate: impl Fn(&Val<V128>, &Val<V128>) -> Vec<Val<V128>> + 'static,
 ) {
     let mut bytes = vec![0xa5; 32 + 3 * expected.len() * 16];
     bytes[..16].copy_from_slice(&left.to_le_bytes());
     bytes[16..32].copy_from_slice(&right.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let count = expected.len();
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let runtime = (
             body.load::<V128>(memory, 0)?,
             body.load::<V128>(memory, 16)?,
@@ -41,13 +42,9 @@ fn case(
         );
         for (group, (left, right)) in [runtime, literals, admitted].into_iter().enumerate() {
             let results = calculate(&left, &right);
-            assert_eq!(results.len(), expected.len());
+            assert_eq!(results.len(), count);
             for (index, result) in results.into_iter().enumerate() {
-                body.store(
-                    memory,
-                    (32 + (group * expected.len() + index) * 16) as u32,
-                    result,
-                )?;
+                body.store(memory, (32 + (group * count + index) * 16) as u32, result)?;
             }
         }
         body.return_(())

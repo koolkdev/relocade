@@ -22,7 +22,7 @@ async fn check_rust_callbacks() {
     let wide = WIDE.import(&mut program);
     let single = SINGLE.import(&mut program);
     let observe = OBSERVE.import(&mut program);
-    RUN.define(&mut program, |mut body, ()| {
+    RUN.define(&mut program, move |mut body, ()| {
         let (bit, byte, word, integer) = narrow.call(&mut body, (true, 255, 65535, u32::MAX))?;
         observe.call(
             &mut body,
@@ -133,7 +133,7 @@ async fn check_callback_arguments() {
     const RUN: Function<fn(u32, u32) -> u32> = Function::new("rust", "run");
     let mut program = Program::new();
     let accept = ACCEPT.import(&mut program);
-    RUN.define(&mut program, |body, (first, second)| {
+    RUN.define(&mut program, move |body, (first, second)| {
         accept.tail_call(body, (first, second))
     })
     .unwrap();

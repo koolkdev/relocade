@@ -19,7 +19,7 @@ fn exit_module() -> Vec<u8> {
         "budget_exhausted",
     ] {
         Function::<fn(u32, u32) -> ExecutionExit>::new("test", name)
-            .define(&mut program, |body, (detail, address)| {
+            .define(&mut program, move |body, (detail, address)| {
                 let fault = match name {
                     "divide_error" => ExceptionValues::divide_error(),
                     "bound_range_exceeded" => ExceptionValues::bound_range_exceeded(),

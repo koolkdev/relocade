@@ -12,10 +12,9 @@ fn aligned_complete_updates_need_no_scattered_access_helpers() {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    );
     Function::<fn() -> AccessResult>::new("test", "update")
-        .define(&mut program, |mut body, ()| {
+        .define(&mut program, move |mut body, ()| {
             let access = memory.resolve_access(
                 &mut body,
                 &0x4000.into(),
@@ -52,13 +51,10 @@ fn concurrent_negations_return_each_value_they_replace() {
         maximum: Some(1),
         shared: true,
     });
-    let negate = program
-        .function::<fn() -> u32>(|mut body, ()| {
-            let previous =
-                native_update::<I32>(&mut body, guest, &0.into(), &OperandUpdate::Negate)?;
-            body.return_(previous)
-        })
-        .unwrap();
+    let negate = program.function::<fn() -> u32>(move |mut body, ()| {
+        let previous = native_update::<I32>(&mut body, guest, &0.into(), &OperandUpdate::Negate)?;
+        body.return_(previous)
+    });
     program.export("negate", negate).unwrap();
     let module = Module::new(&program.compile().unwrap());
     let shared = SharedBytes::new(1, 1);

@@ -5,12 +5,11 @@ const INITIAL: [u8; 14] = [7, 0, 0, 0, 11, 0, 0, 0, 0, 0, 0, 0, 0xa5, 0x5a];
 fn reader(fixture: &mut Fixture, memory: Mem) -> relocade_compiler::TypedFunc<fn() -> (u32, u32)> {
     fixture
         .program
-        .function::<fn() -> (u32, u32)>(|mut body, ()| {
+        .function::<fn() -> (u32, u32)>(move |mut body, ()| {
             let first = body.load::<I32>(memory, 0)?;
             let second = body.load::<I32>(memory, 4)?;
             body.return_((first, second))
         })
-        .unwrap()
 }
 
 fn snapshots(store_offset: u32, fresh: bool) -> TestModule {
@@ -18,7 +17,7 @@ fn snapshots(store_offset: u32, fresh: bool) -> TestModule {
     let memory = fixture.memory("state", &INITIAL);
     let read = reader(&mut fixture, memory);
     let results = vec![Type::I32; if fresh { 4 } else { 2 }];
-    fixture.function(&[], &results, |mut body| {
+    fixture.function(&[], &results, move |mut body| {
         let (first, second) = body.call::<(I32, I32)>(read, &[])?;
         body.store::<I32>(memory, store_offset, 9)?;
         if fresh {
@@ -75,7 +74,7 @@ fn an_early_component_use_captures_later_components_of_the_same_invocation() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &INITIAL);
     let read = reader(&mut fixture, memory);
-    let module = fixture.function(&[], &[Type::I32], |mut body| {
+    let module = fixture.function(&[], &[Type::I32], move |mut body| {
         let (first, second) = body.call::<(I32, I32)>(read, &[])?;
         body.store(memory, 8, first)?;
         body.store::<I32>(memory, 4, 99)?;
@@ -94,7 +93,7 @@ fn sibling_uses() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &INITIAL);
     let read = reader(&mut fixture, memory);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let choose = body.parameter::<I1>(0)?;
         let (first, second) = body.call::<(I32, I32)>(read, &[])?;
         let result = body.if_value::<I32>(
@@ -143,13 +142,12 @@ fn a_boolean_result_and_a_later_value_share_the_snapshot_before_the_guard() {
     let memory = fixture.memory("state", &INITIAL);
     let helper = fixture
         .program
-        .function::<fn() -> (bool, u32)>(|mut body, ()| {
+        .function::<fn() -> (bool, u32)>(move |mut body, ()| {
             let condition = body.load::<I32>(memory, 0)?.eq(7);
             let result = body.load::<I32>(memory, 4)?;
             body.return_((condition, result))
-        })
-        .unwrap();
-    let module = fixture.function(&[], &[Type::I32, Type::I1], |mut body| {
+        });
+    let module = fixture.function(&[], &[Type::I32, Type::I1], move |mut body| {
         let (condition, result) = body.call::<(I1, I32)>(helper, &[])?;
         body.if_(&condition, |mut arm| arm.store::<I32>(memory, 4, 99))?;
         body.return_((result, condition))
@@ -168,12 +166,11 @@ fn a_pure_invocation_needed_in_only_one_arm_stays_on_that_control_path() {
     let mut fixture = Fixture::new();
     let helper = fixture
         .program
-        .function::<fn(bool) -> (u32, u64)>(|mut body, (fail,)| {
+        .function::<fn(bool) -> (u32, u64)>(move |mut body, (fail,)| {
             body.if_(fail, |arm| arm.trap())?;
             body.return_((13, 17_u64))
-        })
-        .unwrap();
-    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+        });
+    let module = fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let choose = body.parameter::<I1>(0)?;
         let (first, _unused) = body.call::<(I32, I64)>(helper, &[true.into()])?;
         let result = body.if_value::<I32>(choose, |arm| arm.yield_(first), |arm| arm.yield_(7))?;

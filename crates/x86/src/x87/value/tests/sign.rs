@@ -5,8 +5,8 @@ use super::*;
 #[test]
 fn pc53_sign_changes_retain_native_and_encoded_significands() {
     let mut program = Program::new();
-    let function = program
-        .function::<fn(f64, u64, u16, bool) -> u16>(|body, (_, _, sign_exponent, _)| {
+    let function = program.function::<fn(f64, u64, u16, bool) -> u16>(
+        move |body, (_, _, sign_exponent, _)| {
             let native = ExtendedValue::from_precision53(Precision53::from_significand(
                 body.parameter::<F64>(0)?,
                 sign_exponent.clone(),
@@ -45,8 +45,8 @@ fn pc53_sign_changes_retain_native_and_encoded_significands() {
                 }
             }
             body.return_(0_u32)
-        })
-        .unwrap();
+        },
+    );
     program.export("preserved", function).unwrap();
     program.compile().unwrap();
 }

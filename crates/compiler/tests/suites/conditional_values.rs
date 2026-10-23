@@ -6,20 +6,24 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn direct_result<T: IntType>() -> TestModule {
     let fixture = Fixture::new();
-    fixture.function(&[Type::I1, T::TYPE, T::TYPE], &[T::TYPE], |mut body| {
-        let condition = body.parameter::<I1>(0)?;
-        let yes = body.parameter::<T>(1)?;
-        let no = body.parameter::<T>(2)?;
-        let result =
-            body.if_value::<T>(&condition, |arm| arm.yield_(&yes), |arm| arm.yield_(&no))?;
-        body.return_(&result)
-    })
+    fixture.function(
+        &[Type::I1, T::TYPE, T::TYPE],
+        &[T::TYPE],
+        move |mut body| {
+            let condition = body.parameter::<I1>(0)?;
+            let yes = body.parameter::<T>(1)?;
+            let no = body.parameter::<T>(2)?;
+            let result =
+                body.if_value::<T>(&condition, |arm| arm.yield_(&yes), |arm| arm.yield_(&no))?;
+            body.return_(&result)
+        },
+    )
 }
 
 fn shared_result() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?;
         let result = body.if_value::<I32>(
@@ -41,7 +45,7 @@ fn shared_result() -> TestModule {
 fn selected_memory() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let address = body.parameter::<I32>(1)?;
         body.store::<I32>(state, 0, 1)?;
@@ -70,7 +74,7 @@ fn unused_result() -> TestModule {
         signature(&[Type::I32], &[Type::I32]),
         &[Value::I32(23)],
     );
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let _unused = body.if_value::<I32>(
             &condition,
@@ -94,7 +98,7 @@ fn unused_result() -> TestModule {
 fn snapshots() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let before = body.load::<I32>(state, 0)?;
         let result = body.if_value::<I32>(
@@ -121,7 +125,7 @@ fn nested_fault() -> TestModule {
     fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I64],
-        |mut body| {
+        move |mut body| {
             let condition = body.parameter::<I1>(0)?;
             let fault = body.parameter::<I1>(1)?;
             let address = body.parameter::<I32>(2)?;
@@ -147,7 +151,7 @@ fn narrow_result() -> TestModule {
         signature(&[Type::I8, Type::I8], &[Type::I64]),
         &[Value::I64(-9223372036854775808)],
     );
-    fixture.function(&[Type::I1, Type::I8], &[Type::I64], |mut body| {
+    fixture.function(&[Type::I1, Type::I8], &[Type::I64], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let input = body.parameter::<I8>(1)?;
         let result = body.if_value::<I8>(
@@ -163,7 +167,7 @@ fn narrow_result() -> TestModule {
 fn predicate_result() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I1], &[Type::I1], |mut body| {
+    fixture.function(&[Type::I1, Type::I1], &[Type::I1], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let input = body.parameter::<I1>(1)?;
         let result = body.if_value::<I1>(
@@ -182,7 +186,7 @@ fn nested_result() -> TestModule {
     fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let outer = body.parameter::<I1>(0)?;
             let inner = body.parameter::<I1>(1)?;
             let shared = body.parameter::<I32>(2)?.add(1);
@@ -207,7 +211,7 @@ fn nested_result() -> TestModule {
 fn returning_arm() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1], &[Type::I64], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I64], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let result = body.if_value::<I32>(
             &condition,
@@ -227,7 +231,7 @@ fn tailing_arm() -> TestModule {
         signature(&[Type::I32], &[Type::I64]),
         &[Value::I64(-9223372036854775808)],
     );
-    fixture.function(&[Type::I1], &[Type::I64], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I64], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let result = body.if_value::<I32>(
             &condition,

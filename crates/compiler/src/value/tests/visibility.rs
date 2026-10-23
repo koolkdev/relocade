@@ -35,7 +35,7 @@ fn fold_chains_keep_original_visibility_and_runtime_identity() {
         results: vec![Type::I32],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let mut retained = vec![];
             body.if_(false, |mut child| {
                 let input = child.load::<I32>(memory, 0)?;
@@ -102,6 +102,7 @@ fn fold_chains_keep_original_visibility_and_runtime_identity() {
             body.return_(0)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -113,7 +114,7 @@ fn folded_operands_from_siblings_have_no_shared_visible_scope() {
         results: vec![Type::I32],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let first = child_constant(&mut body, memory);
             body.if_(false, |mut sibling| {
                 let local = sibling.load::<I32>(memory, 4)?.and(0).add(1);
@@ -135,6 +136,7 @@ fn folded_operands_from_siblings_have_no_shared_visible_scope() {
             body.return_(0)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -154,7 +156,7 @@ fn every_operand_and_argument_boundary_checks_folded_visibility() {
         results: vec![Type::I32],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let value = child_constant(&mut body, memory);
             assert_eq!(value.constant_bits()?, Some(1));
             assert_eq!(body.value(&value).err(), Some(BuildError::OutOfScope));
@@ -205,6 +207,7 @@ fn every_operand_and_argument_boundary_checks_folded_visibility() {
             body.return_(0)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -222,48 +225,47 @@ fn returns_and_tail_calls_check_folded_argument_visibility() {
             signature: signature.clone(),
         });
         let function = program.declare(signature);
-        let error = program.define(function, |mut body| {
-            let value = child_constant(&mut body, memory);
-            if tail_call {
-                body.tail_call(target, &[value.argument()])
-            } else {
-                body.return_(value.argument())
-            }
-        });
-        assert_eq!(error, Err(BuildError::OutOfScope));
-        program.define(function, |body| body.return_(0)).unwrap();
-        assert!(program.compile().is_ok());
+        program
+            .define(function, move |mut body| {
+                let value = child_constant(&mut body, memory);
+                if tail_call {
+                    body.tail_call(target, &[value.argument()])
+                } else {
+                    body.return_(value.argument())
+                }
+            })
+            .unwrap();
+        program.export("run", function).unwrap();
+        assert_eq!(program.compile(), Err(BuildError::OutOfScope));
     }
 }
 
 #[test]
 fn legal_child_folds_discard_dead_loads_and_joins_gain_parent_visibility() {
     let (mut program, memory) = memory_program();
-    let function = program
-        .function::<fn(bool) -> u32>(|mut body, (predicate,)| {
-            let joined = body.if_value::<I32>(
-                predicate,
-                |mut child| {
-                    let input = child.load::<I32>(memory, 65536)?;
-                    let zero = Val::<I32>::from(0);
-                    let shifted = zero
-                        .shl(&input)
-                        .add(zero.unsigned().shr(&input))
-                        .add(zero.signed().shr(&input))
-                        .add(input.and(0))
-                        .add(1);
-                    let compared = input.eq(&input).unsigned().extend::<I32>();
-                    let selected = Val::<I1>::from(false).select(&input, 9);
-                    let folded = child.value(shifted.add(compared).add(selected))?;
-                    assert!(folded.same_expression(&child.value::<I32>(11)?));
-                    child.yield_(folded)
-                },
-                |child| child.yield_(4),
-            )?;
-            let admitted = body.value(joined)?;
-            body.return_(admitted.add(1))
-        })
-        .unwrap();
+    let function = program.function::<fn(bool) -> u32>(move |mut body, (predicate,)| {
+        let joined = body.if_value::<I32>(
+            predicate,
+            |mut child| {
+                let input = child.load::<I32>(memory, 65536)?;
+                let zero = Val::<I32>::from(0);
+                let shifted = zero
+                    .shl(&input)
+                    .add(zero.unsigned().shr(&input))
+                    .add(zero.signed().shr(&input))
+                    .add(input.and(0))
+                    .add(1);
+                let compared = input.eq(&input).unsigned().extend::<I32>();
+                let selected = Val::<I1>::from(false).select(&input, 9);
+                let folded = child.value(shifted.add(compared).add(selected))?;
+                assert!(folded.same_expression(&child.value::<I32>(11)?));
+                child.yield_(folded)
+            },
+            |child| child.yield_(4),
+        )?;
+        let admitted = body.value(joined)?;
+        body.return_(admitted.add(1))
+    });
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
@@ -299,17 +301,10 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut foreign = None;
-    assert_eq!(
-        program.define(function, |discarded| {
-            foreign = Some(discarded.value::<I32>(9).unwrap());
-            Ok(())
-        }),
-        Err(BuildError::MissingBody)
-    );
-    let foreign = foreign.unwrap();
+    let foreign =
+        crate::function::tests::capture_from_body(|discarded| discarded.value::<I32>(9).unwrap());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             assert_eq!(
                 Val::<I1>::from(true)
                     .select(body.value::<I32>(7)?, &foreign)
@@ -356,5 +351,6 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
             body.return_(7)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }

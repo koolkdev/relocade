@@ -27,7 +27,7 @@ async fn callbacks_keep_backend_state_after_the_original_backend_is_dropped() {
     let mut backend = Backend::with_state(0_u32).unwrap();
     let mut program = Program::new();
     let count = COUNT.import(&mut program);
-    RUN.define(&mut program, |body, (amount,)| {
+    RUN.define(&mut program, move |body, (amount,)| {
         count.tail_call(body, amount)
     })
     .unwrap();
@@ -100,7 +100,7 @@ async fn codecs_and_callbacks_can_reenter_the_same_binding() {
     let mut backend = Backend::new().unwrap();
     let mut program = Program::new();
     let host = HOST.import(&mut program);
-    RUN.define(&mut program, |body, (first, second)| {
+    RUN.define(&mut program, move |body, (first, second)| {
         host.tail_call(body, (first, second))
     })
     .unwrap();

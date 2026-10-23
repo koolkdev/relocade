@@ -1,7 +1,9 @@
+use std::rc::Rc;
+
 use relocade_compiler::{abi::Function, BuildError, Program};
 
 use crate::{
-    decode::{InstructionFetch, RuntimeDecoder},
+    decode::RuntimeDecoder,
     execution::ExecutionBuilder,
     memory::Memory,
     runtime::Runtime,
@@ -99,24 +101,26 @@ impl Compiler {
     fn compile_runtime(&self, entry: InterpreterEntry) -> Result<CompiledModule, BuildError> {
         let profile = self.target.profile;
         let mut program = Program::new();
-        let cpu = Cpu::declare(&mut program);
-        let memory = Memory::declare(&mut program, profile)?;
+        let cpu = Rc::new(Cpu::declare(&mut program));
+        let memory = Rc::new(Memory::declare(&mut program, profile));
         let runtime = Runtime::declare(&mut program);
-        let fetch = InstructionFetch::new(&cpu, &memory, profile);
+        let target = self.target;
+        let before_cpu = cpu.clone();
         let decoder = RuntimeDecoder::new(
             &mut program,
-            fetch,
-            profile.code_default_size(),
-            |body| {
+            cpu.clone(),
+            memory.clone(),
+            profile,
+            move |body| {
                 let single_step = RuntimeDecoder::single_step(body)?;
                 body.if_(single_step, |mut body| {
-                    let state = State::new(&cpu);
+                    let state = State::new(&before_cpu);
                     let count = state.instruction_count(&mut body, 0)?;
                     state.check_instruction_budget(&mut body, &count)?;
                     runtime.dispatch(body)
                 })
             },
-            |body, decoded, continuation| {
+            move |body, decoded, continuation| {
                 let ends_block = decoded.instruction.ends_block();
                 let mut execution = ExecutionBuilder::new(
                     body,
@@ -124,7 +128,7 @@ impl Compiler {
                     Some(&memory),
                     runtime,
                     &decoded.eip,
-                    self.target,
+                    target,
                 )?
                 .with_cpu_features_from_context()?;
                 execution.execute(decoded)?;
@@ -138,7 +142,8 @@ impl Compiler {
 
         for export in [InterpreterEntry::Run, InterpreterEntry::Step] {
             let wrapper = program.declare(export.symbol().signature());
-            program.define(wrapper, |body| {
+            let decoder = decoder.clone();
+            program.define(wrapper, move |body| {
                 let single_step =
                     body.value::<relocade_compiler::I1>(matches!(export, InterpreterEntry::Step))?;
                 decoder.enter(body, &single_step)

@@ -8,7 +8,7 @@ fn indexed<T: VectorLane + MemoryType>(width: usize, replacement: u64) {
     bytes[16..24].copy_from_slice(&replacement.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let index = body.parameter::<I32>(0)?;
         let vector = body.load::<V128>(memory, 0)?;
         let value = body.load::<T>(memory, 16)?;
@@ -57,7 +57,7 @@ fn narrow() {
     bytes[..16].copy_from_slice(&original);
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let index = body.parameter::<I32>(0)?;
         let vector = body.load::<V128>(memory, 0)?.low_half();
         body.store(memory, 16, vector.extract_lane::<I16>(&index))?;

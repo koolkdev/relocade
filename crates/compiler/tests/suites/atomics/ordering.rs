@@ -16,13 +16,11 @@ fn shared_imports_do_not_change_ordinary_memory_lowering() {
             maximum: Some(1),
             shared,
         });
-        let run = program
-            .function::<fn() -> u32>(|mut body, ()| {
-                let value = body.load::<I32>(memory, 0)?;
-                body.store::<I32>(memory, 4, 7)?;
-                body.return_(value)
-            })
-            .unwrap();
+        let run = program.function::<fn() -> u32>(move |mut body, ()| {
+            let value = body.load::<I32>(memory, 0)?;
+            body.store::<I32>(memory, 4, 7)?;
+            body.return_(value)
+        });
         program.export("run", run).unwrap();
         program.compile().unwrap()
     };
@@ -62,50 +60,44 @@ fn synchronization_orders_direct_reads_and_read_only_helpers_across_memories() {
             };
             let reader = fixture
                 .program
-                .raw_function(signature.clone(), |mut body| {
+                .raw_function(signature.clone(), move |mut body| {
                     let value = body.load::<I32>(data, 0)?;
                     body.return_(value)
-                })
-                .unwrap();
+                });
             let inner = fixture
                 .program
-                .raw_function(signature.clone(), |mut body| {
+                .raw_function(signature.clone(), move |mut body| {
                     body.atomic::<I32>(control, 0, 0)?.load()?;
                     body.return_(0)
-                })
-                .unwrap();
+                });
             let outer = fixture
                 .program
-                .raw_function(signature.clone(), |mut body| {
+                .raw_function(signature.clone(), move |mut body| {
                     body.call::<I32>(inner, &[])?;
                     body.return_(0)
-                })
-                .unwrap();
-            let run = fixture
-                .program
-                .raw_function(signature, |mut body| {
-                    let before = if helper_reads {
-                        body.call::<I32>(reader, &[])?
-                    } else {
-                        body.load::<I32>(data, 0)?
-                    };
-                    match synchronization {
-                        Synchronization::Fence => body.atomic_fence(),
-                        Synchronization::Atomic => {
-                            body.atomic::<I32>(control, 0, 0)?.load()?;
-                        }
-                        Synchronization::Helper => {
-                            body.call::<I32>(outer, &[])?;
-                        }
+                });
+            let run = fixture.program.raw_function(signature, move |mut body| {
+                let before = if helper_reads {
+                    body.call::<I32>(reader, &[])?
+                } else {
+                    body.load::<I32>(data, 0)?
+                };
+                match synchronization {
+                    Synchronization::Fence => body.atomic_fence(),
+                    Synchronization::Atomic => {
+                        body.atomic::<I32>(control, 0, 0)?.load()?;
                     }
-                    let after = if helper_reads {
-                        body.call::<I32>(reader, &[])?
-                    } else {
-                        body.load::<I32>(data, 0)?
-                    };
-                    body.return_(before.add(after))
-                })
-                .unwrap();
+                    Synchronization::Helper => {
+                        body.call::<I32>(outer, &[])?;
+                    }
+                }
+                let after = if helper_reads {
+                    body.call::<I32>(reader, &[])?
+                } else {
+                    body.load::<I32>(data, 0)?
+                };
+                body.return_(before.add(after))
+            });
             let module = fixture.finish(run);
             let mut events = Vec::new();
             for payload in Parser::new(0).parse_all(module.bytes()) {
@@ -139,7 +131,7 @@ fn synchronization_orders_direct_reads_and_read_only_helpers_across_memories() {
 fn atomic_results_execute_once_per_taken_loop_path() {
     let mut fixture = Fixture::new();
     let memory = fixture.shared_memory("counter", &10u32.to_le_bytes());
-    let module = fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let sum =
             body.loop_::<(I32, I32), I32>((0, 0), |mut iteration, labels, (index, sum)| {

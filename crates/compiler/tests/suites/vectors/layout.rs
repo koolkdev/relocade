@@ -26,7 +26,7 @@ fn vector_swizzle_zeroes_every_out_of_range_byte_index() {
         bytes[16..32].copy_from_slice(&indices);
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &bytes);
-        let module = fixture.function(&[Type::I32], &[], |mut body| {
+        let module = fixture.function(&[Type::I32], &[], move |mut body| {
             let vector = body.load::<V128>(memory, 0)?;
             let runtime_indices = body.load::<V128>(memory, 16)?;
             body.store(memory, 32, vector.swizzle_bytes(runtime_indices))?;
@@ -46,7 +46,7 @@ fn vector_swizzle_zeroes_every_out_of_range_byte_index() {
     bytes[16..24].copy_from_slice(&indices);
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let vector = body.load::<V128>(memory, 0)?.low_half();
         let runtime_indices = body.load::<V128>(memory, 16)?.low_half();
         body.store(memory, 24, vector.swizzle_bytes(runtime_indices))?;
@@ -74,7 +74,7 @@ fn vector_selection_uses_individual_mask_bits() {
     }
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let left = body.load::<V128>(memory, 0)?;
         let right = body.load::<V128>(memory, 16)?;
         let runtime_mask = body.load::<V128>(memory, 32)?;
@@ -107,7 +107,7 @@ fn vector_splat_preserves_logical_lane_widths() {
     let bytes = vec![0xa5; 128];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let wide = input.unsigned().extend::<I64>().shl(32).or(0x98765432_u64);
         let results = [

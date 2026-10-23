@@ -12,7 +12,7 @@ enum Flow {
 fn conditional_chain(depth: usize, flow: Flow) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 4]);
-    fixture.function(&[Type::I32, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I32, Type::I32], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let count = body.parameter::<I32>(1)?.and(31);
         let active = count.ne(0);
@@ -132,7 +132,7 @@ fn facts_before_shared_uses_still_simplify_the_common_calculation() {
     let module = fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let stop = body.parameter::<I1>(0)?;
             let publish = body.parameter::<I1>(1)?;
             let input = body.parameter::<I32>(2)?;
@@ -156,7 +156,7 @@ fn facts_before_shared_uses_still_simplify_the_common_calculation() {
 fn a_returning_group_can_specialize_despite_enclosing_reuse() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 8]);
-    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let flag = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?;
         let number = flag.select(input, 7);
@@ -186,7 +186,7 @@ fn a_returning_group_can_specialize_despite_enclosing_reuse() {
 
 #[test]
 fn facts_about_a_shared_predicate_survive_its_replacement_by_an_alias() {
-    let module = Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], move |mut body| {
         let first = body.parameter::<I1>(0)?;
         let second = body.parameter::<I1>(1)?;
         let either = first.select(true, second);
@@ -207,7 +207,7 @@ fn facts_about_a_shared_predicate_survive_its_replacement_by_an_alias() {
 fn nested_exit() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 8]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let skip = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?;
         let number = skip.select(&input, input.add(1));
@@ -244,7 +244,7 @@ fn a_nested_outward_exit_shares_with_the_destination_continuation() {
 fn alternating_loop() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[42, 0, 0, 0, 0, 0, 0, 0]);
-    fixture.function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I32, Type::I1], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let initial = body.parameter::<I1>(1)?;
         let result = body.loop_::<(I32, I1), I32>(

@@ -88,9 +88,9 @@ impl PageTable {
     pub(super) fn range_resolver(
         self,
         program: &mut Program,
-    ) -> Result<TypedFunc<fn(u32, u32, u32, u32) -> u32>, BuildError> {
+    ) -> TypedFunc<fn(u32, u32, u32, u32) -> u32> {
         program.function::<fn(u32, u32, u32, u32) -> u32>(
-            |mut body, (start, last_byte_offset, first_entry, required)| {
+            move |mut body, (start, last_byte_offset, first_entry, required)| {
                 body.if_(first_entry.and(&required).ne(&required), |arm| {
                     arm.return_(first_entry.and(FRAME_MASK | PRESENT | WRITABLE))
                 })?;

@@ -179,18 +179,16 @@ fn predicate_module() -> TestModule {
     let program = &mut fixture.program;
     for predicate in predicates() {
         for &form in predicate.forms {
-            let function = program
-                .raw_function(
-                    Signature {
-                        parameters: vec![predicate.parameter],
-                        results: vec![Type::I32],
-                    },
-                    |body| {
-                        let condition = (predicate.build)(&body);
-                        form.finish(body, condition)
-                    },
-                )
-                .unwrap();
+            let function = program.raw_function(
+                Signature {
+                    parameters: vec![predicate.parameter],
+                    results: vec![Type::I32],
+                },
+                move |body| {
+                    let condition = (predicate.build)(&body);
+                    form.finish(body, condition)
+                },
+            );
             program
                 .export(&format!("{}_{}", predicate.name, form.name()), function)
                 .unwrap();
@@ -271,11 +269,10 @@ fn shared_numeric_condition() -> TestModule {
     let state = fixture.memory("state", &[0xa5; 8]);
     let echo = fixture
         .program
-        .function::<fn(bool) -> u32>(|body, (value,)| {
+        .function::<fn(bool) -> u32>(move |body, (value,)| {
             body.return_(value.unsigned().extend::<I32>())
-        })
-        .unwrap();
-    fixture.function(&[Type::I32], &[Type::I64], |mut body| {
+        });
+    fixture.function(&[Type::I32], &[Type::I64], move |mut body| {
         let condition = body.parameter::<I32>(0)?.and(8).ne(0);
         body.store(state, 0, condition.unsigned().extend::<I8>())?;
         body.if_(&condition, |mut arm| arm.store::<I32>(state, 4, 17))?;
@@ -301,7 +298,7 @@ fn shared_conditions_keep_one_canonical_value_for_numeric_observers() {
 fn condition_snapshot(initial: u32) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &initial.to_le_bytes());
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let condition = body.load::<I32>(state, 0)?.and(8).ne(0);
         body.store::<I32>(state, 0, 0)?;
         body.return_(condition.select::<I32>(17, 29))
@@ -318,7 +315,7 @@ fn an_unshared_condition_preserves_its_read_snapshot_without_a_boolean_local() {
 }
 
 fn numeric_switch(value_form: bool) -> TestModule {
-    Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
         let selector = body
             .parameter::<I32>(0)?
             .and(8)

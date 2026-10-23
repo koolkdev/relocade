@@ -9,30 +9,31 @@ mod sign;
 fn precision53_views_agree_after_selection_and_indefinite_replacement() {
     let mut program = Program::new();
     let function = program
-        .function::<fn(u64, u16, bool, bool) -> (u64, u16, u64, u16, bool, bool)>(|body, _| {
-            let integer = ExtendedValue::from_bits(ExtendedBits {
-                significand: body.parameter::<I64>(0)?,
-                sign_exponent: body.parameter::<I16>(1)?,
-            })
-            .assume_precision53();
-            let native = ExtendedValue::from_precision53(Precision53::from_significand(
-                1.5.into(),
-                0x4000.into(),
-            ));
-            let value = integer
-                .select(&body.parameter::<I1>(2)?, &native)
-                .or_indefinite(&body.parameter::<I1>(3)?);
-            let bits = value.bits();
-            body.return_((
-                bits.significand,
-                bits.sign_exponent,
-                value.precision53_significand().unwrap().to_bits(),
-                value.classification().tag(),
-                value.classification().infinity(),
-                value.classification().nan(),
-            ))
-        })
-        .unwrap();
+        .function::<fn(u64, u16, bool, bool) -> (u64, u16, u64, u16, bool, bool)>(
+            move |body, _| {
+                let integer = ExtendedValue::from_bits(ExtendedBits {
+                    significand: body.parameter::<I64>(0)?,
+                    sign_exponent: body.parameter::<I16>(1)?,
+                })
+                .assume_precision53();
+                let native = ExtendedValue::from_precision53(Precision53::from_significand(
+                    1.5.into(),
+                    0x4000.into(),
+                ));
+                let value = integer
+                    .select(&body.parameter::<I1>(2)?, &native)
+                    .or_indefinite(&body.parameter::<I1>(3)?);
+                let bits = value.bits();
+                body.return_((
+                    bits.significand,
+                    bits.sign_exponent,
+                    value.precision53_significand().unwrap().to_bits(),
+                    value.classification().tag(),
+                    value.classification().infinity(),
+                    value.classification().nan(),
+                ))
+            },
+        );
     program.export("views", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
@@ -89,8 +90,8 @@ fn precision53_views_agree_after_selection_and_indefinite_replacement() {
 #[test]
 fn exact_binary64_views_follow_selection_and_indefinite_replacement() {
     let mut program = Program::new();
-    let function = program
-        .function::<fn(u32, bool, bool) -> (u64, u16, u64, u64, u64)>(|body, _| {
+    let function =
+        program.function::<fn(u32, bool, bool) -> (u64, u16, u64, u64, u64)>(move |body, _| {
             let integer = ExtendedValue::from_signed_integer(&body.parameter::<I32>(0)?);
             let other = ExtendedValue::from_signed_integer(&Val::<I32>::from(-3));
             let value = integer
@@ -123,8 +124,7 @@ fn exact_binary64_views_follow_selection_and_indefinite_replacement() {
                     .unwrap()
                     .to_bits(),
             ))
-        })
-        .unwrap();
+        });
     program.export("views", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),

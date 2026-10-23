@@ -15,7 +15,7 @@ struct CodeShape {
 
 fn shape<T: IntType>(
     parameters: &[Type],
-    build: impl FnOnce(&BlockBuilder<'_>) -> Val<T>,
+    build: impl FnOnce(&BlockBuilder<'_>) -> Val<T> + 'static,
 ) -> CodeShape {
     let module = Fixture::new().expression(parameters, build);
     let mut shape = CodeShape::default();
@@ -161,7 +161,7 @@ fn logical_signatures_share_their_wasm_integer_representation() {
             results: vec![T::TYPE],
         });
         program
-            .define(function, |body| {
+            .define(function, move |body| {
                 let result = body.parameter::<T>(0).unwrap();
                 body.return_(&result)
             })

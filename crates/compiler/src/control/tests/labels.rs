@@ -12,7 +12,7 @@ fn labels_are_confined_to_their_block_and_nested_descendants() {
     let mut program = Program::new();
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let mut escaped = None;
             let value = body
                 .block::<I32>(|mut block, label| {
@@ -35,6 +35,7 @@ fn labels_are_confined_to_their_block_and_nested_descendants() {
             body.return_(value)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -43,7 +44,7 @@ fn a_discarded_block_label_cannot_alias_a_later_block_at_the_same_site() {
     let mut program = Program::new();
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let mut escaped = None;
             assert_eq!(
                 body.block::<I32>(|_, label| {
@@ -64,6 +65,7 @@ fn a_discarded_block_label_cannot_alias_a_later_block_at_the_same_site() {
             body.return_(result)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -72,23 +74,21 @@ fn a_label_cannot_target_another_function_body() {
     let mut program = Program::new();
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let result = body
                 .block::<I32>(|mut block, label| {
-                    assert_eq!(
-                        block
-                            .program()
-                            .raw_function(signature(), |other| other.branch(&label, 7))
-                            .err(),
-                        Some(BuildError::ForeignBody)
-                    );
+                    let other = block
+                        .program()
+                        .raw_function(signature(), move |other| other.branch(&label, 7));
+                    block.program().export("other", other)?;
                     block.yield_(11)
                 })
                 .unwrap();
             body.return_(result)
         })
         .unwrap();
-    assert!(program.compile().is_ok());
+    program.export("run", function).unwrap();
+    assert_eq!(program.compile(), Err(BuildError::ForeignBody));
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn branch_and_yield_arguments_validate_counts_logical_types_and_visibility() {
     });
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             assert_eq!(
                 body.block::<(I32, I1)>(|block, label| block.branch(&label, 7))
                     .err(),
@@ -151,6 +151,7 @@ fn branch_and_yield_arguments_validate_counts_logical_types_and_visibility() {
             body.return_(17)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -159,7 +160,7 @@ fn nonempty_results_require_completed_arms_and_an_incoming_result() {
     let mut program = Program::new();
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             assert_eq!(
                 body.block::<(I32, I64)>(|_, _| Ok(())).err(),
                 Some(BuildError::MissingBranchValue)
@@ -176,6 +177,7 @@ fn nonempty_results_require_completed_arms_and_an_incoming_result() {
             body.return_(17)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -184,7 +186,7 @@ fn an_ignored_outward_branch_error_discards_the_block() {
     let mut program = Program::new();
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             assert_eq!(
                 body.block::<()>(|mut block, label| {
                     block.if_(true, |branch| {
@@ -200,6 +202,7 @@ fn an_ignored_outward_branch_error_discards_the_block() {
             body.return_(17)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -215,7 +218,7 @@ fn failed_late_branches_discard_earlier_arms_and_their_imports() {
     });
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             assert_eq!(
                 body.block::<(I32, I1)>(|mut block, label| {
                     block.if_(true, |mut branch| {
@@ -233,6 +236,7 @@ fn failed_late_branches_discard_earlier_arms_and_their_imports() {
             body.return_(17)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     assert!(wasmparser::Parser::new(0)
         .parse_all(&bytes)

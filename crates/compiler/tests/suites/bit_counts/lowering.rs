@@ -24,7 +24,7 @@ fn shared_counts<T: IntType>(width: u32) -> TestModule
 where
     I32: AtLeast<T>,
 {
-    Fixture::new().function(&[T::TYPE], &[Type::I32; 4], |body| {
+    Fixture::new().function(&[T::TYPE], &[Type::I32; 4], move |body| {
         let input = body.parameter::<T>(0)?;
         let full = input.unsigned().extend::<I32>();
         body.return_((
@@ -66,7 +66,7 @@ fn narrow_and_full_width_counts_share_native_primitives() {
 fn joined_count(constant_arm: bool, trailing: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0]);
-    fixture.function(&[Type::I1, Type::I8], &[Type::I64], |mut body| {
+    fixture.function(&[Type::I1, Type::I8], &[Type::I64], move |mut body| {
         let mode = body.parameter::<I1>(0)?;
         let input = body.parameter::<I8>(1)?;
         let input = if constant_arm {
@@ -130,7 +130,7 @@ fn lowered_counts_reuse_branch_executions_and_constant_predecessors() {
 
 #[test]
 fn repeated_guards_reuse_the_lowered_count() {
-    let module = Fixture::new().function(&[Type::I1, Type::I8], &[Type::I8], |mut body| {
+    let module = Fixture::new().function(&[Type::I1, Type::I8], &[Type::I8], move |mut body| {
         let mode = body.parameter::<I1>(0)?;
         let count = body.parameter::<I8>(1)?.clz();
         let first = body.if_value::<I8>(&mode, |arm| arm.yield_(&count), |arm| arm.yield_(0))?;
@@ -150,7 +150,7 @@ fn repeated_guards_reuse_the_lowered_count() {
 
 #[test]
 fn lowering_does_not_restore_a_count_discarded_by_path_facts() {
-    let module = Fixture::new().function(&[Type::I8], &[Type::I8], |mut body| {
+    let module = Fixture::new().function(&[Type::I8], &[Type::I8], move |mut body| {
         let input = body.parameter::<I8>(0)?;
         body.if_(input.ne(0), |arm| arm.return_(99))?;
         body.return_(input.clz().add(input.ctz()))
@@ -163,7 +163,7 @@ fn lowering_does_not_restore_a_count_discarded_by_path_facts() {
 
 #[test]
 fn a_guarded_count_does_not_narrow_an_unguarded_primitive() {
-    let module = Fixture::new().function(&[Type::I32, Type::I8], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I32, Type::I8], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let byte = body.parameter::<I8>(1)?;
         let guard = input.and(!0xfd_u32).eq(0);
@@ -192,7 +192,7 @@ fn a_guarded_count_does_not_narrow_an_unguarded_primitive() {
 
 #[test]
 fn common_count_primitives_can_remove_a_control_flow_edge() {
-    let module = Fixture::new().function(&[Type::I8], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I8], &[Type::I32], move |mut body| {
         let byte = body.parameter::<I8>(0)?;
         let leading = byte.clz().unsigned().extend::<I32>().add(24);
         let native = byte.unsigned().extend::<I32>().clz();

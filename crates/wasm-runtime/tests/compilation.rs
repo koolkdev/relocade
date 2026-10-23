@@ -13,12 +13,10 @@ async fn check_independent_compiler() {
 
     let mut program = Program::new();
     let value = program.import_function(VALUE);
-    let run = program
-        .function::<fn() -> I64>(|mut body, ()| {
-            let value = body.call::<I64>(value, &[])?;
-            body.return_(value)
-        })
-        .unwrap();
+    let run = program.function::<fn() -> I64>(move |mut body, ()| {
+        let value = body.call::<I64>(value, &[])?;
+        body.return_(value)
+    });
     RUN.export(&mut program, run).unwrap();
     let bytes = program.compile().unwrap();
     let compilation = compiler.compile(&bytes);

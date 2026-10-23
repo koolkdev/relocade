@@ -156,26 +156,24 @@ fn record_cases() -> Vec<CpuState> {
 fn all_masks_reader() -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn() -> u64>(|mut body, ()| {
-            let expected = cpu_load!(&mut body, cpu.memory(), registers.eax)?;
-            let mut failures = Val::<I64>::from(0);
-            for bits in 0_u8..64 {
-                let actual = cpu.read_flags(&mut body, mask(bits))?;
-                let mut different = Val::<I1>::from(false);
-                for (index, value) in actual.into_iter().enumerate() {
-                    let requested = bits & (1 << index) != 0;
-                    assert_eq!(value.is_some(), requested, "mask {bits}, slot {index}");
-                    if let Some(value) = value {
-                        let expected_bit = expected.and(1_u32 << index).ne(0);
-                        different = different.or(value.ne(expected_bit));
-                    }
+    let function = program.function::<fn() -> u64>(move |mut body, ()| {
+        let expected = cpu_load!(&mut body, cpu.memory(), registers.eax)?;
+        let mut failures = Val::<I64>::from(0);
+        for bits in 0_u8..64 {
+            let actual = cpu.read_flags(&mut body, mask(bits))?;
+            let mut different = Val::<I1>::from(false);
+            for (index, value) in actual.into_iter().enumerate() {
+                let requested = bits & (1 << index) != 0;
+                assert_eq!(value.is_some(), requested, "mask {bits}, slot {index}");
+                if let Some(value) = value {
+                    let expected_bit = expected.and(1_u32 << index).ne(0);
+                    different = different.or(value.ne(expected_bit));
                 }
-                failures = failures.or(different.unsigned().extend::<I64>().shl(u32::from(bits)));
             }
-            body.return_(failures)
-        })
-        .unwrap();
+            failures = failures.or(different.unsigned().extend::<I64>().shl(u32::from(bits)));
+        }
+        body.return_(failures)
+    });
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,
@@ -222,20 +220,19 @@ fn every_mask_reads_every_record_kind_without_changing_cpu_bytes() {
 #[test]
 fn subset_readers_share_matching_masks_and_return_separate_flags() {
     let mut program = Program::new();
-    let cpu = Cpu::declare(&mut program);
+    let cpu = std::rc::Rc::new(Cpu::declare(&mut program));
     for (index, bits) in [0b011110_u8, 0b011110, 0b000001].into_iter().enumerate() {
-        let function = program
-            .raw_function(
-                Signature {
-                    parameters: vec![],
-                    results: vec![Type::I1; bits.count_ones() as usize],
-                },
-                |mut body| {
-                    let flags = cpu.read_flags(&mut body, mask(bits))?;
-                    body.return_(flags.into_iter().flatten().collect::<Vec<_>>())
-                },
-            )
-            .unwrap();
+        let cpu = cpu.clone();
+        let function = program.raw_function(
+            Signature {
+                parameters: vec![],
+                results: vec![Type::I1; bits.count_ones() as usize],
+            },
+            move |mut body| {
+                let flags = cpu.read_flags(&mut body, mask(bits))?;
+                body.return_(flags.into_iter().flatten().collect::<Vec<_>>())
+            },
+        );
         program
             .export(&format!("consumer_{index}"), function)
             .unwrap();
@@ -284,31 +281,14 @@ fn subset_readers_share_matching_masks_and_return_separate_flags() {
 fn a_carry_only_consumer_needs_no_flag_unpacking() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn() -> bool>(|mut body, ()| {
-            let flags = cpu.read_flags(&mut body, FlagMask::of(StatusFlag::CF))?;
-            body.return_(flags[StatusFlag::CF as usize].as_ref().unwrap())
-        })
-        .unwrap();
+    let function = program.function::<fn() -> bool>(move |mut body, ()| {
+        let flags = cpu.read_flags(&mut body, FlagMask::of(StatusFlag::CF))?;
+        body.return_(flags[StatusFlag::CF as usize].as_ref().unwrap())
+    });
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
-    let operations = Parser::new(0)
-        .parse_all(&bytes)
-        .find_map(|payload| {
-            if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-                Some(
-                    body.get_operators_reader()
-                        .unwrap()
-                        .into_iter()
-                        .map(Result::unwrap)
-                        .collect::<Vec<_>>(),
-                )
-            } else {
-                None
-            }
-        })
-        .unwrap();
+    let operations = super::fixture::consumer_ops(&bytes);
     assert_eq!(
         operations
             .iter()
@@ -334,13 +314,11 @@ fn a_carry_only_consumer_needs_no_flag_unpacking() {
 fn an_empty_mask_needs_no_reader_or_cpu_memory() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn()>(|mut body, ()| {
-            let flags = cpu.read_flags(&mut body, FlagMask::EMPTY)?;
-            assert!(flags.into_iter().all(|value| value.is_none()));
-            body.return_(())
-        })
-        .unwrap();
+    let function = program.function::<fn()>(move |mut body, ()| {
+        let flags = cpu.read_flags(&mut body, FlagMask::EMPTY)?;
+        assert!(flags.into_iter().all(|value| value.is_none()));
+        body.return_(())
+    });
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();

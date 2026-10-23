@@ -10,7 +10,7 @@ use wasmparser::{Operator, Parser, Payload, TypeRef};
 fn snapshot_and_fresh_read() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", INITIAL);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let before = body.load::<I32>(state, 0)?;
         body.store::<I32>(state, 0, 9)?;
         let after = body.load::<I32>(state, 0)?;
@@ -21,7 +21,7 @@ fn snapshot_and_fresh_read() -> TestModule {
 fn shared_snapshot(return_load: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let loaded = body.load::<I32>(memory, 0)?;
         let shared = loaded.add(1);
         body.store::<I32>(memory, 8, 1)?;
@@ -40,7 +40,7 @@ fn shared_snapshot(return_load: bool) -> TestModule {
 fn read_modify_write() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let loaded = body.load::<I32>(memory, 0)?;
         body.store(memory, 0, loaded.add(1))?;
         let result = body.value::<I32>(7)?;
@@ -51,7 +51,7 @@ fn read_modify_write() -> TestModule {
 fn wide_snapshot(store_offset: u32) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", WIDE);
-    fixture.function(&[], &[Type::I64], |mut body| {
+    fixture.function(&[], &[Type::I64], move |mut body| {
         let loaded = body.load::<I64>(memory, 0)?;
         body.store::<I32>(memory, store_offset, 9)?;
         let result = loaded;
@@ -62,7 +62,7 @@ fn wide_snapshot(store_offset: u32) -> TestModule {
 fn wide_write_and_fresh_read() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", WIDE);
-    fixture.function(&[], &[Type::I64], |mut body| {
+    fixture.function(&[], &[Type::I64], move |mut body| {
         let before = body.load::<I64>(memory, 0)?;
         body.store::<I64>(memory, 0, u64::MAX)?;
         let after = body.load::<I64>(memory, 0)?;
@@ -74,7 +74,7 @@ fn wide_write_and_fresh_read() -> TestModule {
 fn high_offset_load(has_overlapping_store: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], &[Type::I64], |mut body| {
+    fixture.function(&[], &[Type::I64], move |mut body| {
         let loaded = body.load::<I64>(memory, u32::MAX - 7)?;
         body.store::<I32>(memory, 0, 9)?;
         if has_overlapping_store {
@@ -88,7 +88,7 @@ fn high_offset_load(has_overlapping_store: bool) -> TestModule {
 fn increment_narrow<T: MemoryInt>(initial: &[u8], offset: u32) -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", initial);
-    fixture.function(&[], &[T::TYPE], |mut body| {
+    fixture.function(&[], &[T::TYPE], move |mut body| {
         let loaded = body.load::<T>(memory, offset)?;
         body.store(memory, offset, loaded.add(1))?;
         let result = loaded;
@@ -100,7 +100,7 @@ fn unused_load() -> TestModule {
     let mut fixture = Fixture::new();
     fixture.memory("unused", &[]);
     let memory = fixture.memory("state", INITIAL);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let _unused = body.load::<I32>(memory, 65536)?;
         let result = body.value::<I32>(7)?;
         body.return_(result)
@@ -112,7 +112,7 @@ fn different_memories() -> TestModule {
     fixture.memory("unused", &[]);
     let other = fixture.memory("other", &[5, 0, 0, 0]);
     let memory = fixture.memory("state", &[7, 0, 0, 0]);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let loaded = body.load::<I32>(memory, 0)?;
         body.store::<I32>(other, 0, 9)?;
         let result = loaded;
@@ -289,7 +289,7 @@ fn unused_loads_keep_their_import_without_emitting_a_read() {
 }
 
 #[test]
-fn abandoned_bodies_do_not_retain_memory_imports() {
+fn unreachable_bodies_do_not_retain_memory_imports() {
     let mut program = Program::new();
     let memory = program.import_memory(MemoryImport {
         module: "test".into(),
@@ -302,13 +302,19 @@ fn abandoned_bodies_do_not_retain_memory_imports() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    assert!(program
-        .define(function, |mut body| {
+    program
+        .define(function, move |mut body| {
             body.load::<I32>(memory, 0)?;
             Ok(())
         })
-        .is_err());
-    program.define(function, |body| body.return_(7)).unwrap();
+        .unwrap();
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![],
+            results: vec![Type::I32],
+        },
+        move |body| body.return_(7),
+    );
     program.export("run", function).unwrap();
     assert!(inspect(&program.compile().unwrap()).memories.is_empty());
 }
@@ -431,13 +437,11 @@ fn private_and_shared_imports_preserve_declared_limits() {
             maximum: Some(2),
             shared,
         });
-        let run = program
-            .function::<fn() -> u32>(|mut body, ()| {
-                body.store::<I32>(memory, 65536, 73)?;
-                let value = body.load::<I32>(memory, 65536)?;
-                body.return_(value)
-            })
-            .unwrap();
+        let run = program.function::<fn() -> u32>(move |mut body, ()| {
+            body.store::<I32>(memory, 65536, 73)?;
+            let value = body.load::<I32>(memory, 65536)?;
+            body.return_(value)
+        });
         program.export("run", run).unwrap();
         let module = TestModule::with_imports(
             &program.compile().unwrap(),

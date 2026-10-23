@@ -12,13 +12,11 @@ use wasmparser::{Operator, Parser, Payload};
 fn zero_progress_exits_do_not_read_or_write_instruction_count() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn() -> u32>(|mut body, ()| {
-            let state = State::new(&cpu);
-            state.publish(&mut body, 0x1000, 0)?;
-            body.return_(7)
-        })
-        .unwrap();
+    let function = program.function::<fn() -> u32>(move |mut body, ()| {
+        let state = State::new(&cpu);
+        state.publish(&mut body, 0x1000, 0)?;
+        body.return_(7)
+    });
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     wasmparser::Validator::new().validate_all(&bytes).unwrap();
@@ -44,7 +42,7 @@ fn named_writes_coalesce_without_crossing_indexed_writes() {
         results: vec![Type::I32],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let index = body.parameter::<I32>(0).unwrap();
             let mut state = State::new(&cpu);
             state.write_register(&mut body, Gpr32::Eax, 0).unwrap();
@@ -89,7 +87,7 @@ fn publishing_an_exit_keeps_pending_writes_for_the_continuation() {
         results: vec![Type::I32],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let stop = body.parameter::<I1>(0).unwrap();
             let mut state = State::new(&cpu);
             state.write_register(&mut body, Gpr32::Eax, 42).unwrap();

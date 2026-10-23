@@ -125,15 +125,13 @@ fn callable(increment: u32) -> Vec<u8> {
     let dispatch = program.import_function(abi::DISPATCH);
     let eax = offset_of!(ExecutionContext, cpu.registers.eax) as u32;
     let eip = offset_of!(ExecutionContext, cpu.eip) as u32;
-    let function = program
-        .function::<abi::ExecutionSignature>(|mut body, ()| {
-            let value = body.load::<I32>(context, eax)?.add(increment);
-            body.store(context, eax, value)?;
-            body.store::<I32>(guest, 0x400_u32, increment)?;
-            body.store::<I32>(context, eip, 0x300_u32)?;
-            body.tail_call(dispatch, &[])
-        })
-        .unwrap();
+    let function = program.function::<abi::ExecutionSignature>(move |mut body, ()| {
+        let value = body.load::<I32>(context, eax)?.add(increment);
+        body.store(context, eax, value)?;
+        body.store::<I32>(guest, 0x400_u32, increment)?;
+        body.store::<I32>(context, eip, 0x300_u32)?;
+        body.tail_call(dispatch, &[])
+    });
     program.export("entry", function).unwrap();
     program.compile().unwrap()
 }

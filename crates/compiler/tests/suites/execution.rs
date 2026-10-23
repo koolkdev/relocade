@@ -10,7 +10,7 @@ fn dword_literals_preserve_their_bits() {
         (0x7fff_ffff, i32::MAX),
         (u32::MAX, -1),
     ] {
-        let module = Fixture::new().expression(&[], |_| Val::<I32>::from(bits));
+        let module = Fixture::new().expression(&[], move |_| Val::<I32>::from(bits));
         assert_eq!(module.instantiate().call::<i32>(()).unwrap(), expected);
     }
 }
@@ -23,7 +23,7 @@ fn qword_literals_preserve_their_bits() {
         (0x7fff_ffff_ffff_ffff, i64::MAX),
         (u64::MAX, -1),
     ] {
-        let module = Fixture::new().expression(&[], |_| Val::<I64>::from(bits));
+        let module = Fixture::new().expression(&[], move |_| Val::<I64>::from(bits));
         assert_eq!(module.instantiate().call::<i64>(()).unwrap(), expected);
     }
 }
@@ -55,10 +55,11 @@ fn constant_additions_wrap_at_the_carrier_width() {
 #[test]
 fn standalone_expressions_can_be_reused_in_different_function_bodies() {
     let seven = Val::<I32>::from(5).add(2);
-    let constant = Fixture::new().expression(&[], |_| Val::from(&seven));
+    let copy = seven.clone();
+    let constant = Fixture::new().expression(&[], move |_| copy);
     assert_eq!(constant.instantiate().call::<i32>(()).unwrap(), 7);
 
-    let difference = Fixture::new().expression(&[Type::I32], |body| {
+    let difference = Fixture::new().expression(&[Type::I32], move |body| {
         seven.sub(body.parameter::<I32>(0).unwrap())
     });
     let mut instance = difference.instantiate();
@@ -69,7 +70,7 @@ fn standalone_expressions_can_be_reused_in_different_function_bodies() {
 
 #[test]
 fn dword_addition_wraps_and_accepts_signed_operands() {
-    let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32], |body| {
+    let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32], move |body| {
         let left = body.parameter::<I32>(0)?;
         let right = body.parameter::<I32>(1)?;
         body.return_(left.add(right))
@@ -91,7 +92,7 @@ fn dword_addition_wraps_and_accepts_signed_operands() {
 
 #[test]
 fn qword_addition_wraps_and_accepts_signed_operands() {
-    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64], |body| {
+    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64], move |body| {
         let left = body.parameter::<I64>(0)?;
         let right = body.parameter::<I64>(1)?;
         body.return_(left.add(right))
@@ -114,7 +115,7 @@ fn qword_addition_wraps_and_accepts_signed_operands() {
 #[test]
 fn narrow_literals_keep_only_their_logical_bits() {
     fn check<T: IntType>(bits: u32, expected: i32, all_bits: i32) {
-        let positive = Fixture::new().expression(&[], |_| Val::<T>::from(bits));
+        let positive = Fixture::new().expression(&[], move |_| Val::<T>::from(bits));
         assert_eq!(positive.instantiate().call::<i32>(()).unwrap(), expected);
         let negative = Fixture::new().expression(&[], |_| Val::<T>::from(-1));
         assert_eq!(negative.instantiate().call::<i32>(()).unwrap(), all_bits);
@@ -147,7 +148,7 @@ fn narrow_parameters_preserve_canonical_arguments() {
 #[test]
 fn narrow_addition_wraps_at_the_logical_width() {
     fn check<T: IntType>(cases: &[((i32, i32), i32)]) {
-        let module = Fixture::new().function(&[T::TYPE; 2], &[T::TYPE], |body| {
+        let module = Fixture::new().function(&[T::TYPE; 2], &[T::TYPE], move |body| {
             let left = body.parameter::<T>(0)?;
             let right = body.parameter::<T>(1)?;
             body.return_(left.add(right))
@@ -221,7 +222,7 @@ fn shared_qword_intermediates_wrap_without_changing_their_uses() {
 #[test]
 fn overlapping_and_disjoint_subexpressions_preserve_dword_results() {
     for overlap in [true, false] {
-        let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32], |body| {
+        let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32], move |body| {
             let a = body.parameter::<I32>(0)?.add(1);
             let b = body.parameter::<I32>(1)?.add(2);
             let _dead = a.add(9);
@@ -239,7 +240,7 @@ fn overlapping_and_disjoint_subexpressions_preserve_dword_results() {
 #[test]
 fn overlapping_and_disjoint_subexpressions_preserve_qword_results() {
     for overlap in [true, false] {
-        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64], |body| {
+        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64], move |body| {
             let a = body.parameter::<I64>(0)?.add(1);
             let b = body.parameter::<I64>(1)?.add(2);
             let _dead = a.add(9);
@@ -262,16 +263,18 @@ fn mixed_parameter_carriers_preserve_position_and_bits() {
     let parameters = [Type::I32, Type::I64, Type::I32, Type::I64];
     let arguments = (17_i32, i64::MIN, -91_i32, i64::MAX);
     for (index, expected) in [(0, 17), (2, -91)] {
-        let module =
-            Fixture::new().expression(&parameters, |body| body.parameter::<I32>(index).unwrap());
+        let module = Fixture::new().expression(&parameters, move |body| {
+            body.parameter::<I32>(index).unwrap()
+        });
         assert_eq!(
             module.instantiate().call::<i32>(arguments).unwrap(),
             expected
         );
     }
     for (index, expected) in [(1, i64::MIN), (3, i64::MAX)] {
-        let module =
-            Fixture::new().expression(&parameters, |body| body.parameter::<I64>(index).unwrap());
+        let module = Fixture::new().expression(&parameters, move |body| {
+            body.parameter::<I64>(index).unwrap()
+        });
         assert_eq!(
             module.instantiate().call::<i64>(arguments).unwrap(),
             expected
@@ -290,7 +293,7 @@ fn exports_follow_declarations_and_can_alias_the_same_function() {
     let second = program.declare(signature);
     for (function, value) in [(second, 11), (first, 7)] {
         program
-            .define(function, |body| body.return_(value))
+            .define(function, move |body| body.return_(value))
             .unwrap();
     }
     program.export("first", first).unwrap();

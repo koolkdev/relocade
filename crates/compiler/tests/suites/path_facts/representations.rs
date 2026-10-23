@@ -4,7 +4,7 @@ use relocade_compiler::{I16, I64};
 #[test]
 fn masked_bit_facts_preserve_the_unobserved_high_bits() {
     for expected_low in [0_u32, 3] {
-        let module = Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+        let module = Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
             let input = body.parameter::<I32>(0)?;
             body.if_(input.and(7).eq(expected_low), |arm| arm.return_(&input))?;
             body.return_(99)
@@ -24,7 +24,7 @@ fn masked_bit_facts_preserve_the_unobserved_high_bits() {
 
 #[test]
 fn a_truncated_bit_fact_preserves_the_remaining_byte() {
-    let module = Fixture::new().function(&[Type::I8], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I8], &[Type::I32], move |mut body| {
         let byte = body.parameter::<I8>(0)?;
         body.if_(byte.truncate::<I1>(), |arm| arm.return_(7))?;
         body.return_(byte.unsigned().extend::<I32>().add(256))
@@ -39,7 +39,7 @@ fn a_truncated_bit_fact_preserves_the_remaining_byte() {
 
 #[test]
 fn a_proved_negative_byte_keeps_its_signed_carrier_at_a_join() {
-    let module = Fixture::new().function(&[Type::I8], &[Type::I32, Type::I64], |mut body| {
+    let module = Fixture::new().function(&[Type::I8], &[Type::I32, Type::I64], move |mut body| {
         let byte = body
             .parameter::<I8>(0)?
             .signed()
@@ -69,7 +69,7 @@ fn signed_shift_and_division_retain_their_logical_widths() {
     let module = Fixture::new().function(
         &[Type::I16, Type::I1],
         &[Type::I16, Type::I16],
-        |mut body| {
+        move |mut body| {
             let word = body.parameter::<I16>(0)?;
             let flag = body.parameter::<I1>(1)?;
             body.if_(&flag, |arm| arm.return_((0_u32, 0_u32)))?;

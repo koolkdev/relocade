@@ -58,21 +58,20 @@ impl Fixture {
         mut self,
         parameters: &[Type],
         results: &[Type],
-        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
     ) -> TestModule {
         let run = self
             .program
-            .raw_function(signature(parameters, results), build)
-            .expect("build fixture function");
+            .raw_function(signature(parameters, results), build);
         self.finish(run)
     }
 
     pub fn expression<T: ValueType>(
         self,
         parameters: &[Type],
-        build: impl FnOnce(&BlockBuilder<'_>) -> Val<T>,
+        build: impl FnOnce(&BlockBuilder<'_>) -> Val<T> + 'static,
     ) -> TestModule {
-        self.function(parameters, &[T::TYPE], |body| {
+        self.function(parameters, &[T::TYPE], move |body| {
             let value = build(&body);
             body.return_(value)
         })
@@ -90,4 +89,27 @@ impl Fixture {
         let bytes = self.program.compile().expect("compile fixture");
         TestModule::with_imports(&bytes, self.memories, self.callbacks)
     }
+}
+
+/// Retains a value from a completed function for ownership-validation fixtures.
+pub(crate) fn capture_from_body<T: 'static>(
+    build: impl FnOnce(&mut BlockBuilder<'_>) -> T + 'static,
+) -> T {
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
+    let mut program = Program::new();
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32],
+            results: vec![],
+        },
+        move |mut body| {
+            *capture.borrow_mut() = Some(build(&mut body));
+            body.return_(())
+        },
+    );
+    program.export("capture", function).unwrap();
+    program.compile().unwrap();
+    let result = retained.borrow_mut().take().unwrap();
+    result
 }

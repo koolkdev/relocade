@@ -25,7 +25,7 @@ fn computed_product<T: DoubleWidth>(signed: bool) -> TestModule
 where
     I64: AtLeast<T>,
 {
-    Fixture::new().expression(&[Type::I64; 2], |body| {
+    Fixture::new().expression(&[Type::I64; 2], move |body| {
         // Arithmetic can leave bits above T; multiplication must interpret T.
         let left = body.parameter::<I64>(0).unwrap().truncate::<T>().add(1);
         let right = body.parameter::<I64>(1).unwrap().truncate::<T>().sub(1);
@@ -48,7 +48,7 @@ fn full_scalar_constants_fold_before_and_after_admission() {
         for signed in [false, true] {
             for (left, right) in [(mask, mask), (sign, mask), (sign, sign), (sign, 2), (1, 0)] {
                 for admitted in [false, true] {
-                    let module = Fixture::new().expression(&[], |body| {
+                    let module = Fixture::new().expression(&[], move |body| {
                         let left = Val::<T>::from(left as u32);
                         let right = Val::<T>::from(right as u32);
                         let (left, right) = if admitted {

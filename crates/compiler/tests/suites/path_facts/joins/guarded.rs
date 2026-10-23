@@ -6,7 +6,7 @@ fn guarded_divisions(independent: bool) -> TestModule {
     Fixture::new().function(
         &[Type::I1, Type::I1, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let first = body.parameter::<I1>(0)?;
             let second = body.parameter::<I1>(1)?;
             let numerator = body.parameter::<I32>(2)?;
@@ -66,7 +66,7 @@ fn masked_guards() -> TestModule {
     Fixture::new().function(
         &[Type::I32, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let input = body.parameter::<I32>(0)?;
             let numerator = body.parameter::<I32>(1)?;
             let denominator = body.parameter::<I32>(2)?;
@@ -98,7 +98,7 @@ fn a_low_byte_guard_does_not_prove_a_whole_word_guard() {
 }
 
 fn guarded_loop() -> TestModule {
-    Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let result =
             body.loop_::<(I32, I32), I32>((count, 0), |mut iteration, labels, (left, total)| {
@@ -136,7 +136,7 @@ fn converging_recipes() -> TestModule {
     fixture.function(
         &[Type::I1, Type::I1, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let active = body.parameter::<I1>(0)?;
             let other = body.parameter::<I1>(1)?;
             let input = body.parameter::<I32>(2)?;
@@ -181,7 +181,7 @@ fn rewritten_predicates_fold_before_joined_value_reuse() {
         let module = fixture.function(
             &[Type::I1, Type::I1, Type::I32],
             &[Type::I32],
-            |mut body| {
+            move |mut body| {
                 let active = body.parameter::<I1>(0)?;
                 let invalid = body.parameter::<I1>(1)?;
                 let input = body.parameter::<I32>(2)?;

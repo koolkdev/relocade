@@ -9,32 +9,29 @@ fn write_then_read() -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32],
-                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                    "test", "access",
-                )
-                .signature()
-                .results,
-            },
-            |mut body| {
-                let first = body.parameter::<I32>(0)?;
-                let second = body.parameter::<I32>(1)?;
-                let mut accesses = memory.accesses();
-                let write =
-                    accesses.resolve(&mut body, &first, 8, Intent::Write, AccessResult::fault)?;
-                memory.write::<I64>(&mut body, &write, 0, &0x8877_6655_4433_2211u64.into())?;
-                let read =
-                    accesses.resolve(&mut body, &second, 4, Intent::Read, AccessResult::fault)?;
-                let value = memory.read::<I32>(&mut body, &read, 0)?;
-                AccessResult::value(body, value.unsigned().extend::<I64>())
-            },
-        )
-        .unwrap();
+    );
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32, Type::I32],
+            results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                "test", "access",
+            )
+            .signature()
+            .results,
+        },
+        move |mut body| {
+            let first = body.parameter::<I32>(0)?;
+            let second = body.parameter::<I32>(1)?;
+            let mut accesses = memory.accesses();
+            let write =
+                accesses.resolve(&mut body, &first, 8, Intent::Write, AccessResult::fault)?;
+            memory.write::<I64>(&mut body, &write, 0, &0x8877_6655_4433_2211u64.into())?;
+            let read =
+                accesses.resolve(&mut body, &second, 4, Intent::Read, AccessResult::fault)?;
+            let value = memory.read::<I32>(&mut body, &read, 0)?;
+            AccessResult::value(body, value.unsigned().extend::<I64>())
+        },
+    );
     program.export("write_then_read", function).unwrap();
     TestModule::new(&crate::CompiledModule {
         execution_target: None,
@@ -146,43 +143,35 @@ fn narrower_updates_keep_their_width_and_require_write_permissions() {
         let memory = Memory::declare(
             &mut program,
             crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-        )
-        .unwrap();
-        let function = program
-            .raw_function(
-                Signature {
-                    parameters: vec![Type::I32],
-                    results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                        "test", "access",
-                    )
-                    .signature()
-                    .results,
-                },
-                |mut body| {
-                    let address = body.parameter::<I32>(0)?;
-                    let mut accesses = memory.accesses();
-                    let intent = if first_write {
-                        Intent::Write
-                    } else {
-                        Intent::Read
-                    };
-                    accesses.resolve(&mut body, &address, 8, intent, AccessResult::fault)?;
-                    let target = accesses.resolve(
-                        &mut body,
-                        &address,
-                        4,
-                        Intent::Write,
-                        AccessResult::fault,
-                    )?;
-                    let previous = memory.atomic_update(
-                        &mut body,
-                        &target,
-                        &OperandUpdate::<I32>::Exchange(0x1122_3344.into()),
-                    )?;
-                    AccessResult::value(body, previous.unsigned().extend::<I64>())
-                },
-            )
-            .unwrap();
+        );
+        let function = program.raw_function(
+            Signature {
+                parameters: vec![Type::I32],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
+            },
+            move |mut body| {
+                let address = body.parameter::<I32>(0)?;
+                let mut accesses = memory.accesses();
+                let intent = if first_write {
+                    Intent::Write
+                } else {
+                    Intent::Read
+                };
+                accesses.resolve(&mut body, &address, 8, intent, AccessResult::fault)?;
+                let target =
+                    accesses.resolve(&mut body, &address, 4, Intent::Write, AccessResult::fault)?;
+                let previous = memory.atomic_update(
+                    &mut body,
+                    &target,
+                    &OperandUpdate::<I32>::Exchange(0x1122_3344.into()),
+                )?;
+                AccessResult::value(body, previous.unsigned().extend::<I64>())
+            },
+        );
         program.export("update", function).unwrap();
         let module = TestModule::new(&crate::CompiledModule {
             execution_target: None,
@@ -249,40 +238,32 @@ fn later_pages_and_new_entries_use_current_mappings() {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32],
-                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                    "test", "access",
-                )
-                .signature()
-                .results,
-            },
-            |mut body| {
-                let first = body.parameter::<I32>(0)?;
-                let second = body.parameter::<I32>(1)?;
-                let mut accesses = memory.accesses();
-                let target =
-                    accesses.resolve(&mut body, &first, 4, Intent::Write, AccessResult::fault)?;
-                memory.write::<I32>(&mut body, &target, 0, &0x11.into())?;
-                let mut sum = body.value::<I32>(0)?;
-                for address in [second.clone(), second.add(4)] {
-                    let access = accesses.resolve(
-                        &mut body,
-                        &address,
-                        4,
-                        Intent::Read,
-                        AccessResult::fault,
-                    )?;
-                    sum = sum.add(memory.read::<I32>(&mut body, &access, 0)?);
-                }
-                AccessResult::value(body, sum.unsigned().extend::<I64>())
-            },
-        )
-        .unwrap();
+    );
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32, Type::I32],
+            results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                "test", "access",
+            )
+            .signature()
+            .results,
+        },
+        move |mut body| {
+            let first = body.parameter::<I32>(0)?;
+            let second = body.parameter::<I32>(1)?;
+            let mut accesses = memory.accesses();
+            let target =
+                accesses.resolve(&mut body, &first, 4, Intent::Write, AccessResult::fault)?;
+            memory.write::<I32>(&mut body, &target, 0, &0x11.into())?;
+            let mut sum = body.value::<I32>(0)?;
+            for address in [second.clone(), second.add(4)] {
+                let access =
+                    accesses.resolve(&mut body, &address, 4, Intent::Read, AccessResult::fault)?;
+                sum = sum.add(memory.read::<I32>(&mut body, &access, 0)?);
+            }
+            AccessResult::value(body, sum.unsigned().extend::<I64>())
+        },
+    );
     program.export("sum", function).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
         execution_target: None,

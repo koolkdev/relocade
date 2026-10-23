@@ -17,7 +17,7 @@ fn cases<T: VectorLane>(width: u32, one: [u128; 3], last: [u128; 3]) {
         bytes[..16].copy_from_slice(&INPUT.to_le_bytes());
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &bytes);
-        let module = fixture.function(&[Type::I32], &[], |mut body| {
+        let module = fixture.function(&[Type::I32], &[], move |mut body| {
             let runtime = body.load::<V128>(memory, 0)?;
             let dynamic_count = body.parameter::<I32>(0)?;
             let operations = |value: Val<V128>, count: Val<I32>| {
@@ -113,7 +113,7 @@ fn refined_count() {
     let bytes = vec![0xa5; 40];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let bits = Val::<V128>::from(INPUT);
         let byte_lanes = bits.shl_lanes::<I8>(&count);

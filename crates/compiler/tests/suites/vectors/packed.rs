@@ -32,7 +32,7 @@ fn binary_results<const N: usize>(
     left: u128,
     right: u128,
     results: [u128; N],
-    operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; N],
+    operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; N] + 'static,
 ) {
     binary_width_results::<V128, N>(left, right, results, operations);
 }
@@ -41,10 +41,10 @@ fn binary_width_results<V: VectorType + MemoryType, const N: usize>(
     left: u128,
     right: u128,
     results: [u128; N],
-    operations: impl Fn(Val<V>, Val<V>) -> [Val<V>; N],
+    operations: impl Fn(Val<V>, Val<V>) -> [Val<V>; N] + 'static,
 ) {
     let width = V::BYTES as usize;
-    let literal = |bits: u128| {
+    let literal = move |bits: u128| {
         let mut bytes = V::Bytes::default();
         bytes.as_mut().copy_from_slice(&bits.to_le_bytes()[..width]);
         bytes.into()
@@ -54,7 +54,7 @@ fn binary_width_results<V: VectorType + MemoryType, const N: usize>(
     bytes[16..32].copy_from_slice(&right.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let runtime_left = body.load::<V>(memory, 0)?;
         let runtime_right = body.load::<V>(memory, 16)?;
         let constant_left = literal(left);
@@ -110,7 +110,7 @@ fn narrow_lanes() {
     bytes[20..24].copy_from_slice(&65535_u32.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let vector = body.load::<V128>(memory, 0)?;
         let byte = body.load::<I32>(memory, 16)?.truncate::<I8>().add(3);
         let word = body.load::<I32>(memory, 20)?.truncate::<I16>().add(2);

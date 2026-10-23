@@ -59,10 +59,10 @@ impl BlockBuilder<'_> {
     /// ```
     /// use relocade_compiler::Program;
     /// let mut program = Program::new();
-    /// let function = program.function::<fn(u32) -> u32>(|mut body, (value,)| {
+    /// let function = program.function::<fn(u32) -> u32>(move |mut body, (value,)| {
     ///     body.if_(value.eq(0), |branch| branch.return_(7))?;
     ///     body.return_(value.add(1))
-    /// })?;
+    /// });
     /// program.export("increment_or_seven", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
@@ -83,10 +83,11 @@ impl BlockBuilder<'_> {
     /// ```
     /// use relocade_compiler::Program;
     /// let mut program = Program::new();
-    /// let function = program.function::<fn(u32) -> u32>(|mut body, (value,)| {
+    /// let function = program.function::<fn(u32) -> u32>(move |mut body, (value,)| {
     ///     body.if_else(value.eq(0), |branch| branch.return_(7), |_| Ok(()))?;
     ///     body.return_(value.add(1))
-    /// })?;
+    /// });
+    /// program.export("run", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
@@ -118,14 +119,14 @@ impl BlockBuilder<'_> {
     /// ```
     /// use relocade_compiler::{I32, Program};
     /// let mut program = Program::new();
-    /// let function = program.function::<fn(u32) -> u32>(|mut body, (value,)| {
+    /// let function = program.function::<fn(u32) -> u32>(move |mut body, (value,)| {
     ///     let selected = body.if_value::<I32>(
     ///         value.eq(0),
     ///         |arm| arm.yield_(7),
     ///         |arm| arm.yield_(value.add(1)),
     ///     )?;
     ///     body.return_(selected.add(2))
-    /// })?;
+    /// });
     /// program.export("choose_then_add", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())

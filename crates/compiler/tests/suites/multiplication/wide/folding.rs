@@ -3,7 +3,7 @@
 use super::*;
 
 fn literal_product(signed: bool, factor: u64, factor_on_left: bool) -> TestModule {
-    Fixture::new().function(&[Type::I64], &[Type::I64; 2], |body| {
+    Fixture::new().function(&[Type::I64], &[Type::I64; 2], move |body| {
         let input = body.parameter::<I64>(0)?;
         let (left, right) = if factor_on_left {
             (Val::from(factor), input)
@@ -19,7 +19,7 @@ fn literal_product(signed: bool, factor: u64, factor_on_left: bool) -> TestModul
 }
 
 fn extended_i32_product(signed: bool) -> TestModule {
-    Fixture::new().function(&[Type::I32; 2], &[Type::I64; 3], |body| {
+    Fixture::new().function(&[Type::I32; 2], &[Type::I64; 3], move |body| {
         let left = body.parameter::<I32>(0)?;
         let right = body.parameter::<I32>(1)?;
         let (left, right) = if signed {
@@ -44,7 +44,7 @@ fn extended_i32_product(signed: bool) -> TestModule {
 }
 
 fn guarded_product(signed: bool, factor: u64) -> TestModule {
-    Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], |mut body| {
+    Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], move |mut body| {
         let left = body.parameter::<I64>(0)?;
         let right = body.parameter::<I64>(1)?;
         let (low, high) = if signed {
@@ -70,7 +70,7 @@ fn literal_and_admitted_wide_products_fold_in_result_order() {
         (true, 1 << 63, 2, [0, -1]),
     ] {
         for admitted in [false, true] {
-            let module = Fixture::new().function(&[], &[Type::I64; 2], |body| {
+            let module = Fixture::new().function(&[], &[Type::I64; 2], move |body| {
                 let left = if admitted {
                     body.value::<I64>(left)?
                 } else {
@@ -146,7 +146,7 @@ fn bounded_products_share_one_scalar_multiply() {
                 );
             }
         }
-        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], |body| {
+        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], move |body| {
             let left = body.parameter::<I64>(0)?;
             let factor = body.parameter::<I64>(1)?.and(1);
             body.return_(if signed {
@@ -191,7 +191,7 @@ fn products_that_exceed_the_proven_width_keep_the_high_half() {
         Ok((i64::MIN, 0))
     );
 
-    let unsigned = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], |body| {
+    let unsigned = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], move |body| {
         let left = body.parameter::<I64>(0)?.and(0x1_ffff_ffff_u64);
         let right = body.parameter::<I64>(1)?.and(0xffff_ffff_u64);
         body.return_(left.unsigned().mul_wide(right))

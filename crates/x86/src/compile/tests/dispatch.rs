@@ -150,11 +150,9 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExi
 
 fn constant(result: crate::ExecutionExit) -> (Module, String) {
     let mut program = Program::new();
-    let function = program
-        .function::<crate::abi::ExecutionSignature>(|body, ()| {
-            body.return_(crate::ExecutionExitValues::from(result))
-        })
-        .unwrap();
+    let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
+        body.return_(crate::ExecutionExitValues::from(result))
+    });
     program.export("dispatch", function).unwrap();
     (Module::new(&program.compile().unwrap()), "dispatch".into())
 }

@@ -8,36 +8,34 @@ use relocade_compiler::{Program, Signature, Type, I1, I32};
 fn conditional_fault(completed: u32) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I1, Type::I32, Type::I32],
-                results: crate::abi::RUN.signature().results,
-            },
-            |mut body| {
-                let denied = body.parameter::<I1>(0)?;
-                let restart_eip = body.parameter::<I32>(1)?;
-                let linear_address = body.parameter::<I32>(2)?;
-                let mut state = State::new(&cpu);
-                let eax = state.read_register(&mut body, Gpr32::Eax)?;
-                state.write_register(&mut body, Gpr32::Eax, eax.add(1))?;
-                state.write_flag(&mut body, Flag::DF, false)?;
-                body.if_(denied, |fault_body| {
-                    state.fault(
-                        fault_body,
-                        &restart_eip,
-                        completed,
-                        ExceptionValues::page_fault(linear_address, 3),
-                    )
-                })?;
-                state.write_register(&mut body, Gpr32::Eax, 42)?;
-                state.write_register(&mut body, Gpr32::Edi, 77)?;
-                state.write_flag(&mut body, Flag::DF, true)?;
-                state.publish(&mut body, restart_eip.add(2), completed + 1)?;
-                body.return_(ExecutionExitValues::from(ExecutionExit::HostReturn))
-            },
-        )
-        .unwrap();
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I1, Type::I32, Type::I32],
+            results: crate::abi::RUN.signature().results,
+        },
+        move |mut body| {
+            let denied = body.parameter::<I1>(0)?;
+            let restart_eip = body.parameter::<I32>(1)?;
+            let linear_address = body.parameter::<I32>(2)?;
+            let mut state = State::new(&cpu);
+            let eax = state.read_register(&mut body, Gpr32::Eax)?;
+            state.write_register(&mut body, Gpr32::Eax, eax.add(1))?;
+            state.write_flag(&mut body, Flag::DF, false)?;
+            body.if_(denied, |fault_body| {
+                state.fault(
+                    fault_body,
+                    &restart_eip,
+                    completed,
+                    ExceptionValues::page_fault(linear_address, 3),
+                )
+            })?;
+            state.write_register(&mut body, Gpr32::Eax, 42)?;
+            state.write_register(&mut body, Gpr32::Edi, 77)?;
+            state.write_flag(&mut body, Flag::DF, true)?;
+            state.publish(&mut body, restart_eip.add(2), completed + 1)?;
+            body.return_(ExecutionExitValues::from(ExecutionExit::HostReturn))
+        },
+    );
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,

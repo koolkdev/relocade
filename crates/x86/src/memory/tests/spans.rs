@@ -2,48 +2,45 @@ use super::*;
 
 fn field_module() -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(
+    let memory = std::rc::Rc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                    "test", "access",
-                )
-                .signature()
-                .results,
-            },
-            |mut body| {
-                let start = body.parameter::<I32>(0)?;
-                let access = memory.resolve_access(
-                    &mut body,
-                    &start,
-                    6,
-                    Intent::Write,
-                    None,
-                    Some(&mut AccessResult::fault),
-                )?;
-                let word = memory.read::<I16>(&mut body, &access, 0)?;
-                let dword = memory.read::<I32>(&mut body, &access, 2)?;
-                let byte = memory.read::<I8>(&mut body, &access, 5)?;
-                memory.write::<I8>(&mut body, &access, 5, &0x7au32.into())?;
-                let replaced = memory.read::<I8>(&mut body, &access, 5)?;
-                AccessResult::value(
-                    body,
-                    word.eq(0x2211)
-                        .and(dword.eq(0x6655_4433))
-                        .and(byte.eq(0x66))
-                        .and(replaced.eq(0x7a))
-                        .unsigned()
-                        .extend::<I64>(),
-                )
-            },
-        )
-        .unwrap();
+    ));
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32],
+            results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                "test", "access",
+            )
+            .signature()
+            .results,
+        },
+        move |mut body| {
+            let start = body.parameter::<I32>(0)?;
+            let access = memory.resolve_access(
+                &mut body,
+                &start,
+                6,
+                Intent::Write,
+                None,
+                Some(&mut AccessResult::fault),
+            )?;
+            let word = memory.read::<I16>(&mut body, &access, 0)?;
+            let dword = memory.read::<I32>(&mut body, &access, 2)?;
+            let byte = memory.read::<I8>(&mut body, &access, 5)?;
+            memory.write::<I8>(&mut body, &access, 5, &0x7au32.into())?;
+            let replaced = memory.read::<I8>(&mut body, &access, 5)?;
+            AccessResult::value(
+                body,
+                word.eq(0x2211)
+                    .and(dword.eq(0x6655_4433))
+                    .and(byte.eq(0x66))
+                    .and(replaced.eq(0x7a))
+                    .unsigned()
+                    .extend::<I64>(),
+            )
+        },
+    );
     program.export("fields", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
@@ -114,63 +111,61 @@ const REPLACEMENT_FIELDS: [u8; 10] = [0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 
 
 fn wide_field_modules() -> [TestModule; 2] {
     let mut program = Program::new();
-    let memory = Memory::declare(
+    let memory = std::rc::Rc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    ));
     for (name, intent) in [
         ("read_fields", Intent::Read),
         ("write_fields", Intent::Write),
     ] {
-        let function = program
-            .raw_function(
-                Signature {
-                    parameters: vec![Type::I32],
-                    results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                        "test", "access",
-                    )
-                    .signature()
-                    .results,
-                },
-                |mut body| {
-                    let start = body.parameter::<I32>(0)?;
-                    let access = memory.resolve_access(
-                        &mut body,
-                        &start,
-                        10,
-                        intent,
-                        None,
-                        Some(&mut AccessResult::fault),
-                    )?;
-                    match intent {
-                        Intent::Read => {
-                            let qword = memory.read::<I64>(&mut body, &access, 0)?;
-                            let word = memory.read::<I16>(&mut body, &access, 8)?;
-                            AccessResult::value(
-                                body,
-                                qword
-                                    .eq(0x8877_6655_4433_2211u64)
-                                    .and(word.eq(0xaa99))
-                                    .unsigned()
-                                    .extend::<I64>(),
-                            )
-                        }
-                        Intent::Write => {
-                            memory.write::<I64>(
-                                &mut body,
-                                &access,
-                                0,
-                                &0x7788_99aa_bbcc_ddeeu64.into(),
-                            )?;
-                            memory.write::<I16>(&mut body, &access, 8, &0x5566u32.into())?;
-                            AccessResult::value(body, 1)
-                        }
-                        Intent::Fetch | Intent::ReadOrExecute => unreachable!(),
+        let memory = memory.clone();
+        let function = program.raw_function(
+            Signature {
+                parameters: vec![Type::I32],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
+            },
+            move |mut body| {
+                let start = body.parameter::<I32>(0)?;
+                let access = memory.resolve_access(
+                    &mut body,
+                    &start,
+                    10,
+                    intent,
+                    None,
+                    Some(&mut AccessResult::fault),
+                )?;
+                match intent {
+                    Intent::Read => {
+                        let qword = memory.read::<I64>(&mut body, &access, 0)?;
+                        let word = memory.read::<I16>(&mut body, &access, 8)?;
+                        AccessResult::value(
+                            body,
+                            qword
+                                .eq(0x8877_6655_4433_2211u64)
+                                .and(word.eq(0xaa99))
+                                .unsigned()
+                                .extend::<I64>(),
+                        )
                     }
-                },
-            )
-            .unwrap();
+                    Intent::Write => {
+                        memory.write::<I64>(
+                            &mut body,
+                            &access,
+                            0,
+                            &0x7788_99aa_bbcc_ddeeu64.into(),
+                        )?;
+                        memory.write::<I16>(&mut body, &access, 8, &0x5566u32.into())?;
+                        AccessResult::value(body, 1)
+                    }
+                    Intent::Fetch | Intent::ReadOrExecute => unreachable!(),
+                }
+            },
+        );
         program.export(name, function).unwrap();
     }
     let bytes = program.compile().unwrap();

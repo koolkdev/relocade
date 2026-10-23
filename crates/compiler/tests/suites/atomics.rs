@@ -16,7 +16,7 @@ use crate::{
 fn operations<T: MemoryInt>() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.shared_memory("memory", &[0x33; 24]);
-    fixture.function(&[], &[T::TYPE; 10], |mut body| {
+    fixture.function(&[], &[T::TYPE; 10], move |mut body| {
         body.atomic::<T>(memory, 8, 0)?.store(-1)?;
         let add = body.atomic::<T>(memory, 8, 0)?.add(2)?;
         let sub = body.atomic::<T>(memory, 7, 1)?.sub(3)?;
@@ -79,7 +79,7 @@ fn native_operations_preserve_widths_results_and_unused_effects() {
 fn counter() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.shared_memory("counter", &[0; 4]);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let old = body.atomic::<I32>(memory, 0, 0)?.add(1)?;
         body.return_(old)
     })
@@ -117,7 +117,7 @@ fn independent_instances_share_one_atomic_modification_order() {
 fn atomic_alignment_and_bounds_trap_before_modification() {
     let mut fixture = Fixture::new();
     let memory = fixture.shared_memory("memory", &[0x55; 16]);
-    let module = fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let address = body.parameter::<I32>(0)?;
         let previous = body.atomic::<I32>(memory, address, 0)?.exchange(0)?;
         body.return_(previous)

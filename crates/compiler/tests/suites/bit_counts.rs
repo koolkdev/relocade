@@ -13,8 +13,7 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 fn population_counts_use_logical_bits_and_native_carrier_operations() {
     fn population<T: IntType>(program: &mut Program, name: &str) {
         let function = program
-            .function::<fn(T) -> T>(|body, (input,)| body.return_(input.add(1).popcnt()))
-            .unwrap();
+            .function::<fn(T) -> T>(move |body, (input,)| body.return_(input.add(1).popcnt()));
         program.export(name, function).unwrap();
     }
     let mut fixture = Fixture::new();
@@ -25,8 +24,7 @@ fn population_counts_use_logical_bits_and_native_carrier_operations() {
     population::<I64>(&mut fixture.program, "bits64");
     let xor = fixture
         .program
-        .function::<fn(u32, u32) -> u32>(|body, (left, right)| body.return_(left.xor(right)))
-        .unwrap();
+        .function::<fn(u32, u32) -> u32>(move |body, (left, right)| body.return_(left.xor(right)));
     fixture.program.export("xor", xor).unwrap();
     let module = fixture.compile();
     let mut instance = module.instantiate();
@@ -78,7 +76,7 @@ fn population_counts_use_logical_bits_and_native_carrier_operations() {
 
 #[test]
 fn constant_xor_and_population_count_fold_without_runtime_work() {
-    let module = Fixture::new().function(&[], &[Type::I64], |body| {
+    let module = Fixture::new().function(&[], &[Type::I64], move |body| {
         let count = body
             .value::<I64>(0xff00_ff00_ff00_ff00u64)?
             .xor(0x0f0f_0f0f_0f0f_0f0fu64)

@@ -57,28 +57,25 @@ fn assert_result(
 fn named_views<T: RegisterType>() -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn() -> u64>(|mut body, ()| {
-            let mut state = State::new(&cpu);
-            for (parent, replacement) in [
-                (Gpr32::Eax, 0xa0b0_0010_u32),
-                (Gpr32::Ecx, 0xa1b1_0011),
-                (Gpr32::Edx, 0xa2b2_0012),
-                (Gpr32::Ebx, 0xa3b3_0013),
-                (Gpr32::Esp, 0xa4b4_0014),
-                (Gpr32::Ebp, 0xa5b5_0015),
-                (Gpr32::Esi, 0xa6b6_0016),
-                (Gpr32::Edi, 0xa7b7_0017),
-            ] {
-                let old =
-                    state.read_register(&mut body, RegisterOperand::from(parent).view::<T>())?;
-                state.write_register(&mut body, parent, replacement)?;
-                state.write_register(&mut body, Register::<T>::named(parent), old.add(1))?;
-            }
-            state.publish(&mut body, 0x1004, 3)?;
-            body.return_(7)
-        })
-        .unwrap();
+    let function = program.function::<fn() -> u64>(move |mut body, ()| {
+        let mut state = State::new(&cpu);
+        for (parent, replacement) in [
+            (Gpr32::Eax, 0xa0b0_0010_u32),
+            (Gpr32::Ecx, 0xa1b1_0011),
+            (Gpr32::Edx, 0xa2b2_0012),
+            (Gpr32::Ebx, 0xa3b3_0013),
+            (Gpr32::Esp, 0xa4b4_0014),
+            (Gpr32::Ebp, 0xa5b5_0015),
+            (Gpr32::Esi, 0xa6b6_0016),
+            (Gpr32::Edi, 0xa7b7_0017),
+        ] {
+            let old = state.read_register(&mut body, RegisterOperand::from(parent).view::<T>())?;
+            state.write_register(&mut body, parent, replacement)?;
+            state.write_register(&mut body, Register::<T>::named(parent), old.add(1))?;
+        }
+        state.publish(&mut body, 0x1004, 3)?;
+        body.return_(7)
+    });
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,
@@ -144,50 +141,48 @@ fn named_views_preserve_parent_identity_in_wasmtime() {
 fn mixed_byte_views() -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(u32, bool) -> u64>(|mut body, (index, stop)| {
-            let mut state = State::new(&cpu);
-            let esp_byte = RegisterOperand::from(Gpr32::Esp).view::<I8>();
-            let ah = RegisterOperand::from(NamedRegister::AH).view::<I8>();
-            let old_esp = state.read_register(&mut body, esp_byte.clone())?;
-            let old_ah = state.read_register(&mut body, RegisterCode::from_code(4).view::<I8>())?;
-            state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
-            state.write_register(&mut body, Gpr32::Esp, 0x5566_7788)?;
-            // A named ESP byte is an internal low-byte view; encoded byte 4 is AH.
-            state.write_register(&mut body, Register::<I8>::named(Gpr32::Esp), 0x9a)?;
-            state.write_register(&mut body, ah.clone(), 0xbc)?;
-            body.if_(stop, |mut branch| {
-                state.publish(&mut branch, 0x1005, 2)?;
-                branch.return_(7)
-            })?;
-            let encoded = RegisterOperand::Encoded(RegisterCode::indexed(index.clone()));
-            let before = state.read_register(&mut body, encoded.view::<I8>())?;
-            state.write_register(
-                &mut body,
-                Register::<I8>::indexed(index),
-                old_esp.add(old_ah),
-            )?;
-            let high = state.read_register(&mut body, ah)?;
-            let low = state.read_register(&mut body, esp_byte)?;
-            state.write_register(
-                &mut body,
-                Register::<I16>::named(Gpr32::Edi),
-                high.unsigned()
-                    .extend::<I16>()
-                    .shl(8)
-                    .or(low.unsigned().extend::<I16>()),
-            )?;
-            let eax = state.read_register(&mut body, Gpr32::Eax)?;
-            state.publish(&mut body, 0x1009, 3)?;
-            body.return_(
-                before
-                    .unsigned()
-                    .extend::<I64>()
-                    .shl(32)
-                    .or(eax.unsigned().extend::<I64>()),
-            )
-        })
-        .unwrap();
+    let function = program.function::<fn(u32, bool) -> u64>(move |mut body, (index, stop)| {
+        let mut state = State::new(&cpu);
+        let esp_byte = RegisterOperand::from(Gpr32::Esp).view::<I8>();
+        let ah = RegisterOperand::from(NamedRegister::AH).view::<I8>();
+        let old_esp = state.read_register(&mut body, esp_byte.clone())?;
+        let old_ah = state.read_register(&mut body, RegisterCode::from_code(4).view::<I8>())?;
+        state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
+        state.write_register(&mut body, Gpr32::Esp, 0x5566_7788)?;
+        // A named ESP byte is an internal low-byte view; encoded byte 4 is AH.
+        state.write_register(&mut body, Register::<I8>::named(Gpr32::Esp), 0x9a)?;
+        state.write_register(&mut body, ah.clone(), 0xbc)?;
+        body.if_(stop, |mut branch| {
+            state.publish(&mut branch, 0x1005, 2)?;
+            branch.return_(7)
+        })?;
+        let encoded = RegisterOperand::Encoded(RegisterCode::indexed(index.clone()));
+        let before = state.read_register(&mut body, encoded.view::<I8>())?;
+        state.write_register(
+            &mut body,
+            Register::<I8>::indexed(index),
+            old_esp.add(old_ah),
+        )?;
+        let high = state.read_register(&mut body, ah)?;
+        let low = state.read_register(&mut body, esp_byte)?;
+        state.write_register(
+            &mut body,
+            Register::<I16>::named(Gpr32::Edi),
+            high.unsigned()
+                .extend::<I16>()
+                .shl(8)
+                .or(low.unsigned().extend::<I16>()),
+        )?;
+        let eax = state.read_register(&mut body, Gpr32::Eax)?;
+        state.publish(&mut body, 0x1009, 3)?;
+        body.return_(
+            before
+                .unsigned()
+                .extend::<I64>()
+                .shl(32)
+                .or(eax.unsigned().extend::<I64>()),
+        )
+    });
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,

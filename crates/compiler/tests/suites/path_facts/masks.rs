@@ -5,7 +5,7 @@ use relocade_compiler::{IntType, Val, I16, I64};
 
 fn check_cancellation<T: IntType>(mask: impl Into<Val<T>>, cases: &[(Value, Value)]) {
     let mask = mask.into();
-    let module = Fixture::new().function(&[T::TYPE, Type::I1], &[T::TYPE], |mut body| {
+    let module = Fixture::new().function(&[T::TYPE, Type::I1], &[T::TYPE], move |mut body| {
         let input = body.parameter::<T>(0)?;
         let enabled = body.parameter::<I1>(1)?;
         let decremented = enabled.select(input.add(&mask).and(&mask), 0);
@@ -76,7 +76,7 @@ fn branch_facts_cancel_masked_offsets_at_each_logical_width() {
 
 #[test]
 fn branch_facts_collapse_guarded_mask_chains_through_byte_views() {
-    let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
         let mut position = input.and(7);
@@ -107,31 +107,32 @@ fn branch_facts_collapse_guarded_mask_chains_through_byte_views() {
 
 #[test]
 fn refolding_masks_preserves_carries_sparse_masks_and_conversion_boundaries() {
-    let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32; 5], |mut body| {
-        let input = body.parameter::<I32>(0)?;
-        let enabled = body.parameter::<I1>(1)?;
-        let masked = enabled.select(input.add(5).and(15), 0).add(6).and(7);
-        let sparse = enabled.select(input.add(5).and(5), 0).add(6).and(7);
-        let signed = enabled
-            .select(input.add(120).and(255), 0)
-            .truncate::<I8>()
-            .signed()
-            .extend::<I32>()
-            .add(10)
-            .and(511);
-        let narrowed = enabled
-            .select(input.add(65530).and(65535), 0)
-            .truncate::<I8>()
-            .unsigned()
-            .extend::<I32>()
-            .add(7)
-            .and(511);
-        let carry = enabled.select(input.and(7), 0).add(1).and(15);
-        body.if_(enabled, |arm| {
-            arm.return_([masked, sparse, signed, narrowed, carry])
-        })?;
-        body.return_([0_u32; 5])
-    });
+    let module =
+        Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32; 5], move |mut body| {
+            let input = body.parameter::<I32>(0)?;
+            let enabled = body.parameter::<I1>(1)?;
+            let masked = enabled.select(input.add(5).and(15), 0).add(6).and(7);
+            let sparse = enabled.select(input.add(5).and(5), 0).add(6).and(7);
+            let signed = enabled
+                .select(input.add(120).and(255), 0)
+                .truncate::<I8>()
+                .signed()
+                .extend::<I32>()
+                .add(10)
+                .and(511);
+            let narrowed = enabled
+                .select(input.add(65530).and(65535), 0)
+                .truncate::<I8>()
+                .unsigned()
+                .extend::<I32>()
+                .add(7)
+                .and(511);
+            let carry = enabled.select(input.and(7), 0).add(1).and(15);
+            body.if_(enabled, |arm| {
+                arm.return_([masked, sparse, signed, narrowed, carry])
+            })?;
+            body.return_([0_u32; 5])
+        });
     for (input, expected) in [
         (0, [3, 3, 130, 257, 1]),
         (1, [4, 2, 131, 258, 2]),
@@ -153,7 +154,7 @@ fn refolding_masks_preserves_carries_sparse_masks_and_conversion_boundaries() {
         );
     }
 
-    let wide = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I64], |mut body| {
+    let wide = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I64], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         let enabled = body.parameter::<I1>(1)?;
         let masked = enabled

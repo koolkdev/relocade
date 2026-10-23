@@ -6,7 +6,7 @@ fn scalar_stores_absorb_only_unobserved_conversion_bits() {
     let initial = [0xa5; 32];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[Type::I64], &[Type::I32; 2], |mut body| {
+    let module = fixture.function(&[Type::I64], &[Type::I32; 2], move |mut body| {
         let wide = body.parameter::<I64>(0)?;
         body.store(memory, 1, wide.truncate::<I8>())?;
         body.store(memory, 3, wide.truncate::<I16>())?;

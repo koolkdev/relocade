@@ -47,7 +47,7 @@ fn bitwise_operations_preserve_all_128_bits() {
     bytes[16..32].copy_from_slice(&RIGHT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let left = body.load::<V128>(memory, 0)?;
         let right = body.load::<V128>(memory, 16)?;
         let choose = body.parameter::<I32>(0)?.ne(0);
@@ -93,13 +93,13 @@ fn vector_calls_selections_and_loop_backedges() {
     let bytes = vec![0xa5; 48];
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let helper = fixture
-        .program
-        .function::<fn(V128, V128) -> (V128, V128)>(|body, (first, second)| {
-            body.return_((second, first))
-        })
-        .unwrap();
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let helper =
+        fixture
+            .program
+            .function::<fn(V128, V128) -> (V128, V128)>(move |body, (first, second)| {
+                body.return_((second, first))
+            });
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let (first, second) =
             body.call::<(V128, V128)>(helper, &[RIGHT.into(), LEFT.to_le_bytes().into()])?;
@@ -141,7 +141,7 @@ fn vector_literals_with_zero_upper_bits_keep_vector_semantics() {
     bytes[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let input = body.load::<V128>(memory, 0)?;
         for (index, mask) in masks.into_iter().enumerate() {
             for (operation, result) in [input.and(mask), input.or(mask), input.xor(mask)]
@@ -175,10 +175,9 @@ fn mixed_literal_calls_preserve_narrow_values_float_bits_and_vector_bits() {
     let helper = fixture
         .program
         .function::<fn(u8, f64, f64, V128) -> (V128, f64, f64, u8)>(
-            |body, (byte, first, second, vector)| body.return_((vector, first, second, byte)),
-        )
-        .unwrap();
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+            move |body, (byte, first, second, vector)| body.return_((vector, first, second, byte)),
+        );
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         // Pure expressions restore their typed literal payloads before call
         // arguments erase them and the result tuple binds each component again.
         let integer = Val::<I8>::from(255).add(2);
@@ -210,7 +209,7 @@ fn vector_loads_keep_snapshots_across_overlapping_scalar_stores() {
     bytes[3..19].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let before = body.load::<V128>(memory, 3)?;
         body.store::<I32>(memory, 7, 0x11223344)?;
         let after = body.load::<V128>(memory, 3)?;
@@ -233,10 +232,15 @@ fn vector_literals_require_vector_signatures() {
         (Argument::from(1_u64), Type::V128, Type::I64),
         (Argument::from(1), Type::V128, Type::I32),
     ] {
-        let result =
-            Program::new().raw_function(signature(&[], &[expected]), |body| body.return_(argument));
+        let mut program = Program::new();
+        let function = program.raw_function(signature(&[], &[expected]), move |body| {
+            body.return_(argument)
+        });
         assert_eq!(
-            result.err(),
+            {
+                program.export("run", function).unwrap();
+                program.compile().err()
+            },
             Some(BuildError::TypeMismatch { expected, actual })
         );
     }
@@ -250,7 +254,7 @@ fn vector_lanes_preserve_other_bits_and_use_low_byte_first_order() {
     bytes[16..32].copy_from_slice(&RIGHT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let vector = body.load::<V128>(memory, 0)?;
         let word = body.load::<I32>(memory, 16)?;
         let qword = body.load::<I64>(memory, 24)?;

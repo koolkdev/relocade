@@ -5,10 +5,9 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
-    let function = program
-        .function::<fn(u32, u32) -> (u32, u32, u32, u32)>(|mut body, (start, _)| {
+    );
+    let function =
+        program.function::<fn(u32, u32) -> (u32, u32, u32, u32)>(move |mut body, (start, _)| {
             let bytes = match constant_bytes {
                 Some(bytes) => body.value::<I32>(bytes)?,
                 None => body.parameter::<I32>(1)?,
@@ -20,8 +19,7 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
                 access.unavailable.unsigned().extend::<I32>(),
                 access.physical,
             ))
-        })
-        .unwrap();
+        });
     program.export("probe", function).unwrap();
     TestModule::new(&crate::CompiledModule {
         execution_target: None,

@@ -3,7 +3,7 @@
 mod flags;
 mod segments;
 
-use std::cell::Cell;
+use std::cell::OnceCell;
 
 use relocade_compiler::{BlockBuilder, BuildError, Func, Mem, Program, Val, I32};
 
@@ -13,16 +13,17 @@ use super::access::cpu_load;
 
 pub(crate) struct Cpu {
     memory: Mem,
-    condition_resolvers: [Cell<Option<Func>>; Condition::CANONICAL.len()],
-    flag_resolvers: [Cell<Option<Func>>; 1 << StatusFlag::ALL.len()],
+    condition_resolvers: [OnceCell<Func>; Condition::CANONICAL.len()],
+    flag_resolvers: [OnceCell<Func>; 1 << StatusFlag::ALL.len()],
 }
 
 impl Cpu {
     pub(crate) fn declare(program: &mut Program) -> Self {
+        let memory = program.import_memory(crate::abi::EXECUTION_CONTEXT);
         Self {
-            memory: program.import_memory(crate::abi::EXECUTION_CONTEXT),
-            condition_resolvers: Condition::CANONICAL.map(|_| Cell::new(None)),
-            flag_resolvers: std::array::from_fn(|_| Cell::new(None)),
+            memory,
+            condition_resolvers: std::array::from_fn(|_| OnceCell::new()),
+            flag_resolvers: std::array::from_fn(|_| OnceCell::new()),
         }
     }
 

@@ -68,7 +68,7 @@ fn literal_and_admitted_bit_counts_fold_at_every_logical_width() {
     {
         for &(bits, ones, leading, trailing) in cases {
             for admitted in [false, true] {
-                let module = Fixture::new().function(&[], &[T::TYPE; 3], |body| {
+                let module = Fixture::new().function(&[], &[T::TYPE; 3], move |body| {
                     let input = Val::<I64>::from(bits).truncate::<T>();
                     let input = if admitted { body.value(input)? } else { input };
                     body.return_((input.popcnt(), input.clz(), input.ctz()))
@@ -100,7 +100,7 @@ fn literal_and_admitted_bit_counts_fold_at_every_logical_width() {
 #[test]
 fn runtime_bit_counts_return_the_receivers_logical_type() {
     fn check<T: IntType>(cases: &[(u64, u64, u64, u64)]) {
-        let module = Fixture::new().function(&[T::TYPE], &[T::TYPE; 3], |body| {
+        let module = Fixture::new().function(&[T::TYPE], &[T::TYPE; 3], move |body| {
             let input = body.parameter::<T>(0)?;
             body.return_((input.popcnt(), input.clz(), input.ctz()))
         });
@@ -144,7 +144,7 @@ fn narrow_counts_share_normalization_of_dirty_carrier_bits() {
     where
         I32: AtLeast<T>,
     {
-        let module = Fixture::new().function(&[Type::I32], &[T::TYPE; 3], |body| {
+        let module = Fixture::new().function(&[Type::I32], &[T::TYPE; 3], move |body| {
             let input = body.parameter::<I32>(0)?.truncate::<T>().add(1);
             body.return_((input.popcnt(), input.clz(), input.ctz()))
         });

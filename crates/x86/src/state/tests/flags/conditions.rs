@@ -1,3 +1,4 @@
+use super::fixture::{consumer_index, consumer_ops};
 use crate::flags::Condition;
 use crate::state::{Cpu, State};
 use relocade_compiler::{Program, I32};
@@ -6,24 +7,23 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 #[test]
 fn stored_condition_resolver_is_shared_by_repeated_inverse_queries_and_bodies() {
     let mut program = Program::new();
-    let cpu = Cpu::declare(&mut program);
+    let cpu = std::rc::Rc::new(Cpu::declare(&mut program));
     for name in ["first", "second"] {
-        let function = program
-            .function::<fn() -> u32>(|mut body, ()| {
-                let mut state = State::new(&cpu);
-                let equal = state.condition(&mut body, Condition::E)?;
-                let not_equal = state.condition(&mut body, Condition::NE)?;
-                let repeated = state.condition(&mut body, Condition::E)?;
-                body.return_(
-                    equal
-                        .unsigned()
-                        .extend::<I32>()
-                        .shl(1)
-                        .or(not_equal.unsigned().extend::<I32>())
-                        .or(repeated.unsigned().extend::<I32>().shl(2)),
-                )
-            })
-            .unwrap();
+        let cpu = cpu.clone();
+        let function = program.function::<fn() -> u32>(move |mut body, ()| {
+            let mut state = State::new(&cpu);
+            let equal = state.condition(&mut body, Condition::E)?;
+            let not_equal = state.condition(&mut body, Condition::NE)?;
+            let repeated = state.condition(&mut body, Condition::E)?;
+            body.return_(
+                equal
+                    .unsigned()
+                    .extend::<I32>()
+                    .shl(1)
+                    .or(not_equal.unsigned().extend::<I32>())
+                    .or(repeated.unsigned().extend::<I32>().shl(2)),
+            )
+        });
         program.export(name, function).unwrap();
     }
     let bytes = program.compile().unwrap();
@@ -49,16 +49,15 @@ fn stored_condition_resolver_is_shared_by_repeated_inverse_queries_and_bodies() 
 fn stored_signed_cmp_conditions_compare_in_the_consumer_and_guard_the_fallback() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn() -> bool>(|mut body, ()| {
-            let mut state = State::new(&cpu);
-            let less = state.condition(&mut body, Condition::L)?;
-            body.return_(less)
-        })
-        .unwrap();
+    let function = program.function::<fn() -> bool>(move |mut body, ()| {
+        let mut state = State::new(&cpu);
+        let less = state.condition(&mut body, Condition::L)?;
+        body.return_(less)
+    });
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
+    let consumer = consumer_index(&bytes);
     let mut body_index = 0;
     let mut consumer_signed_compares = 0;
     let mut consumer_switches = 0;
@@ -70,15 +69,15 @@ fn stored_signed_cmp_conditions_compare_in_the_consumer_and_guard_the_fallback()
         if let Payload::CodeSectionEntry(body) = payload.unwrap() {
             for operation in body.get_operators_reader().unwrap() {
                 match operation.unwrap() {
-                    Operator::I32LtS if body_index == 0 => consumer_signed_compares += 1,
-                    Operator::BrTable { .. } if body_index == 0 => {
+                    Operator::I32LtS if body_index == consumer => consumer_signed_compares += 1,
+                    Operator::BrTable { .. } if body_index == consumer => {
                         consumer_switches += 1;
                         consumer_cases_started = true;
                     }
-                    Operator::Select if body_index == 0 => consumer_selections += 1,
-                    Operator::Call { .. } if body_index == 0 => fallback_calls += 1,
+                    Operator::Select if body_index == consumer => consumer_selections += 1,
+                    Operator::Call { .. } if body_index == consumer => fallback_calls += 1,
                     // Table-index normalization precedes the selected predicate.
-                    Operator::I32Sub if body_index != 0 || consumer_cases_started => {
+                    Operator::I32Sub if body_index != consumer || consumer_cases_started => {
                         unrelated_work += 1;
                     }
                     Operator::I32Popcnt
@@ -111,13 +110,11 @@ fn stored_signed_cmp_conditions_compare_in_the_consumer_and_guard_the_fallback()
 fn stored_logical_equality_reads_only_the_result_in_the_consumer() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn() -> bool>(|mut body, ()| {
-            let mut state = State::new(&cpu);
-            let equal = state.condition(&mut body, Condition::E)?;
-            body.return_(equal)
-        })
-        .unwrap();
+    let function = program.function::<fn() -> bool>(move |mut body, ()| {
+        let mut state = State::new(&cpu);
+        let equal = state.condition(&mut body, Condition::E)?;
+        body.return_(equal)
+    });
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
@@ -130,37 +127,32 @@ fn stored_logical_equality_reads_only_the_result_in_the_consumer() {
     let mut kind_switches = 0;
     let mut eager_selections = 0;
     let mut fallback_calls = 0;
-    for payload in Parser::new(0).parse_all(&bytes) {
-        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-            for operation in body.get_operators_reader().unwrap() {
-                match operation.unwrap() {
-                    Operator::I32Load { memarg } if memarg.offset == 4 => {
-                        left_reads += 1;
-                        case_left_reads += 1;
-                    }
-                    Operator::I32Load { memarg } if memarg.offset == 8 => {
-                        right_reads += 1;
-                        case_right_reads += 1;
-                    }
-                    Operator::I32Eqz => case_zero_tests += 1,
-                    Operator::BrTable { .. } => kind_switches += 1,
-                    Operator::Br { .. } if kind_switches == 1 => {
-                        // A direct case ends by joining its result. Logic reads A
-                        // alone; narrow SUB equality can also use a zero test.
-                        if (case_left_reads, case_right_reads) == (1, 0) {
-                            assert_eq!(case_zero_tests, 1);
-                            logical_cases += 1;
-                        }
-                        case_left_reads = 0;
-                        case_right_reads = 0;
-                        case_zero_tests = 0;
-                    }
-                    Operator::Select => eager_selections += 1,
-                    Operator::Call { .. } => fallback_calls += 1,
-                    _ => {}
-                }
+    for operation in consumer_ops(&bytes) {
+        match operation {
+            Operator::I32Load { memarg } if memarg.offset == 4 => {
+                left_reads += 1;
+                case_left_reads += 1;
             }
-            break; // The first body is the condition consumer, not its resolver.
+            Operator::I32Load { memarg } if memarg.offset == 8 => {
+                right_reads += 1;
+                case_right_reads += 1;
+            }
+            Operator::I32Eqz => case_zero_tests += 1,
+            Operator::BrTable { .. } => kind_switches += 1,
+            Operator::Br { .. } if kind_switches == 1 => {
+                // A direct case ends by joining its result. Logic reads A
+                // alone; narrow SUB equality can also use a zero test.
+                if (case_left_reads, case_right_reads) == (1, 0) {
+                    assert_eq!(case_zero_tests, 1);
+                    logical_cases += 1;
+                }
+                case_left_reads = 0;
+                case_right_reads = 0;
+                case_zero_tests = 0;
+            }
+            Operator::Select => eager_selections += 1,
+            Operator::Call { .. } => fallback_calls += 1,
+            _ => {}
         }
     }
     // Each width has one SUB case reading A/B and one logic case reading A only.

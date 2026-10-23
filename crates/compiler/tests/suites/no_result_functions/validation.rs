@@ -4,84 +4,76 @@ use wasmparser::{Parser, Payload, Validator};
 
 #[test]
 fn ordinary_and_tail_calls_require_the_declared_result_presence() {
-    let mut program = Program::new();
-    let void = program.import_function(FunctionImport {
-        module: "test".into(),
-        name: "void".into(),
-        signature: signature(&[], &[]),
-    });
-    let value = program.import_function(FunctionImport {
-        module: "test".into(),
-        name: "value".into(),
-        signature: signature(&[], &[Type::I8]),
-    });
-    let run = program.declare(signature(&[], &[]));
-    let result = program.define(run, |mut body| {
+    for expects_result in [false, true] {
+        let mut program = Program::new();
+        let void = program.import_function(FunctionImport {
+            module: "test".into(),
+            name: "void".into(),
+            signature: signature(&[], &[]),
+        });
+        let value = program.import_function(FunctionImport {
+            module: "test".into(),
+            name: "value".into(),
+            signature: signature(&[], &[Type::I8]),
+        });
+        let results = if expects_result {
+            vec![Type::I8]
+        } else {
+            vec![]
+        };
+        let run = program.raw_function(signature(&[], &results), move |mut body| {
+            assert_eq!(
+                body.call::<I8>(void, &[]).err(),
+                Some(BuildError::ResultCount {
+                    expected: 1,
+                    actual: 0
+                })
+            );
+            assert_eq!(
+                body.call::<()>(value, &[]),
+                Err(BuildError::ResultCount {
+                    expected: 0,
+                    actual: 1
+                })
+            );
+            body.tail_call(if expects_result { void } else { value }, &[])
+        });
+        program.export("run", run).unwrap();
         assert_eq!(
-            body.call::<I8>(void, &[]).err(),
-            Some(BuildError::ResultCount {
-                expected: 1,
-                actual: 0
-            })
-        );
-        assert_eq!(
-            body.call::<()>(value, &[]),
+            program.compile(),
             Err(BuildError::ResultCount {
-                expected: 0,
-                actual: 1
+                expected: usize::from(expects_result),
+                actual: usize::from(!expects_result),
             })
         );
-        body.tail_call(value, &[])
-    });
-    assert_eq!(
-        result,
-        Err(BuildError::ResultCount {
-            expected: 0,
-            actual: 1
-        })
-    );
-    let typed = program.declare(signature(&[], &[Type::I8]));
-    assert_eq!(
-        program.define(typed, |body| body.tail_call(void, &[])),
-        Err(BuildError::ResultCount {
-            expected: 1,
-            actual: 0
-        })
-    );
-    program.define(typed, |body| body.return_(7)).unwrap();
-    program.define(run, |body| body.return_(())).unwrap();
-    program.export("run", run).unwrap();
-    let bytes = program.compile().unwrap();
-    Validator::new().validate_all(&bytes).unwrap();
-    assert!(Parser::new(0)
-        .parse_all(&bytes)
-        .all(|part| !matches!(part.unwrap(), Payload::ImportSection(_))));
+    }
 }
 
 #[test]
-fn invalid_returns_leave_the_function_undefined_and_can_be_retried() {
-    let mut program = Program::new();
-    let void = program.declare(signature(&[], &[]));
-    assert_eq!(
-        program.define(void, |body| body.return_(7)),
-        Err(BuildError::ResultCount {
-            expected: 0,
-            actual: 1
-        })
-    );
-    program.define(void, |body| body.return_(())).unwrap();
-    let value = program.declare(signature(&[], &[Type::I8]));
-    assert_eq!(
-        program.define(value, |body| body.return_(())),
-        Err(BuildError::ResultCount {
-            expected: 1,
-            actual: 0
-        })
-    );
-    program.define(value, |body| body.return_(7)).unwrap();
-    program.export("run", void).unwrap();
-    let bytes = program.compile().unwrap();
-    Validator::new().validate_all(&bytes).unwrap();
+fn returns_require_the_declared_result_presence() {
+    for expects_result in [false, true] {
+        let mut program = Program::new();
+        let results = if expects_result {
+            vec![Type::I8]
+        } else {
+            vec![]
+        };
+        let run = program.raw_function(signature(&[], &results), move |body| {
+            if expects_result {
+                body.return_(())
+            } else {
+                body.return_(7)
+            }
+        });
+        program.export("run", run).unwrap();
+        assert_eq!(
+            program.compile(),
+            Err(BuildError::ResultCount {
+                expected: usize::from(expects_result),
+                actual: usize::from(!expects_result),
+            })
+        );
+    }
 }
 
 #[test]
@@ -92,18 +84,10 @@ fn invalid_void_calls_validate_all_arguments_without_retaining_imports() {
         name: "receive".into(),
         signature: signature(&[Type::I8], &[]),
     });
-    let discarded = program.declare(signature(&[], &[]));
-    let mut foreign = None;
-    program
-        .define(discarded, |body| {
-            foreign = Some(body.value::<I8>(7).unwrap());
-            body.return_(())
-        })
-        .unwrap();
-    let foreign = foreign.unwrap();
+    let foreign = crate::fixture::capture_from_body(|body| body.value::<I8>(7).unwrap());
     let run = program.declare(signature(&[], &[]));
     program
-        .define(run, |mut body| {
+        .define(run, move |mut body| {
             assert_eq!(
                 body.call::<()>(target, &[]),
                 Err(BuildError::ArgumentCount {
@@ -138,7 +122,7 @@ fn an_ignored_invalid_void_return_cannot_become_a_fallthrough_branch() {
     let mut program = Program::new();
     let run = program.declare(signature(&[], &[Type::I8]));
     program
-        .define(run, |mut body| {
+        .define(run, move |mut body| {
             assert_eq!(
                 body.if_(true, |arm| {
                     assert!(arm.return_(()).is_err());
@@ -158,31 +142,21 @@ fn an_ignored_invalid_void_return_cannot_become_a_fallthrough_branch() {
 }
 
 #[test]
-fn a_failed_no_result_body_rolls_back_its_helper_declarations() {
+fn invalid_arguments_to_a_new_helper_fail_compilation() {
     let mut program = Program::new();
-    let failure = program.function::<fn()>(|mut body, ()| {
+    let failure = program.function::<fn()>(move |mut body, ()| {
         let helper = body
             .program()
-            .function::<fn()>(|body, ()| body.return_(()))?;
+            .function::<fn()>(move |body, ()| body.return_(()));
         body.call::<()>(helper, &[7.into()])?;
         body.return_(())
     });
+    program.export("run", failure).unwrap();
     assert_eq!(
-        failure.err(),
+        program.compile().err(),
         Some(BuildError::ArgumentCount {
             expected: 0,
             actual: 1
         })
     );
-    let run = program
-        .function::<fn()>(|body, ()| body.return_(()))
-        .unwrap();
-    program.export("run", run).unwrap();
-    let bytes = program.compile().unwrap();
-    Validator::new().validate_all(&bytes).unwrap();
-    let bodies = Parser::new(0)
-        .parse_all(&bytes)
-        .filter(|part| matches!(part.as_ref().unwrap(), Payload::CodeSectionEntry(_)))
-        .count();
-    assert_eq!(bodies, 1);
 }

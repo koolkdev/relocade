@@ -11,19 +11,17 @@ use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Vali
 fn stored_reader<const N: usize>(flags: [Flag; N]) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I1; N],
-            },
-            |mut body| {
-                let mut state = State::new(&cpu);
-                let values = state.read_flags(&mut body, flags)?;
-                body.return_(values.to_vec())
-            },
-        )
-        .unwrap();
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![],
+            results: vec![Type::I1; N],
+        },
+        move |mut body| {
+            let mut state = State::new(&cpu);
+            let values = state.read_flags(&mut body, flags)?;
+            body.return_(values.to_vec())
+        },
+    );
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,
@@ -175,91 +173,89 @@ fn empty_and_fully_local_requests_need_no_helper_or_cpu_memory() {
     ] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let function = program
-            .raw_function(
-                Signature {
-                    parameters: vec![Type::I8, Type::I8, Type::I1],
-                    results: vec![
-                        Type::I1;
-                        if matches!(request, Request::Empty) {
-                            0
-                        } else if matches!(request, Request::LocalStatusAndDirect) {
-                            8
-                        } else {
-                            4
-                        }
-                    ],
-                },
-                |mut body| {
-                    let mut state = State::new(&cpu);
-                    let results = if matches!(request, Request::Empty) {
-                        state.read_flags(&mut body, [])?.to_vec()
-                    } else if matches!(request, Request::ExplicitMixedSubset) {
-                        let trap_flag = body.parameter::<I1>(2)?;
-                        state.write_flags(
-                            &mut body,
-                            FlagChange::partial([
-                                (Flag::CF, true.into()),
-                                (Flag::TF, trap_flag),
-                                (Flag::ID, false.into()),
-                            ]),
-                        )?;
-                        state
-                            .read_flags(&mut body, [Flag::ID, Flag::CF, Flag::TF, Flag::ID])?
-                            .to_vec()
-                    } else if matches!(request, Request::ExplicitSubset) {
-                        // The stored base is still needed for unrequested PF/ZF/SF.
-                        let carry = body.parameter::<I1>(2)?;
-                        state.write_flags(
-                            &mut body,
-                            FlagChange::partial([
-                                (Flag::CF, carry),
-                                (Flag::AF, false.into()),
-                                (Flag::OF, true.into()),
-                            ]),
-                        )?;
+        let function = program.raw_function(
+            Signature {
+                parameters: vec![Type::I8, Type::I8, Type::I1],
+                results: vec![
+                    Type::I1;
+                    if matches!(request, Request::Empty) {
+                        0
+                    } else if matches!(request, Request::LocalStatusAndDirect) {
+                        8
+                    } else {
+                        4
+                    }
+                ],
+            },
+            move |mut body| {
+                let mut state = State::new(&cpu);
+                let results = if matches!(request, Request::Empty) {
+                    state.read_flags(&mut body, [])?.to_vec()
+                } else if matches!(request, Request::ExplicitMixedSubset) {
+                    let trap_flag = body.parameter::<I1>(2)?;
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::partial([
+                            (Flag::CF, true.into()),
+                            (Flag::TF, trap_flag),
+                            (Flag::ID, false.into()),
+                        ]),
+                    )?;
+                    state
+                        .read_flags(&mut body, [Flag::ID, Flag::CF, Flag::TF, Flag::ID])?
+                        .to_vec()
+                } else if matches!(request, Request::ExplicitSubset) {
+                    // The stored base is still needed for unrequested PF/ZF/SF.
+                    let carry = body.parameter::<I1>(2)?;
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::partial([
+                            (Flag::CF, carry),
+                            (Flag::AF, false.into()),
+                            (Flag::OF, true.into()),
+                        ]),
+                    )?;
+                    state
+                        .read_flags(&mut body, [Flag::OF, Flag::AF, Flag::CF, Flag::AF])?
+                        .to_vec()
+                } else {
+                    let left = body.parameter::<I8>(0)?;
+                    let right = body.parameter::<I8>(1)?;
+                    state.write_flags(&mut body, ArithmeticOp::Add.apply(left, right).flags)?;
+                    if matches!(request, Request::LocalStatus) {
+                        // All direct flags remain stored but are not requested.
                         state
                             .read_flags(&mut body, [Flag::OF, Flag::AF, Flag::CF, Flag::AF])?
                             .to_vec()
                     } else {
-                        let left = body.parameter::<I8>(0)?;
-                        let right = body.parameter::<I8>(1)?;
-                        state.write_flags(&mut body, ArithmeticOp::Add.apply(left, right).flags)?;
-                        if matches!(request, Request::LocalStatus) {
-                            // All direct flags remain stored but are not requested.
-                            state
-                                .read_flags(&mut body, [Flag::OF, Flag::AF, Flag::CF, Flag::AF])?
-                                .to_vec()
-                        } else {
-                            let direct = body.parameter::<I1>(2)?;
-                            state.write_flags(
+                        let direct = body.parameter::<I1>(2)?;
+                        state.write_flags(
+                            &mut body,
+                            FlagChange::partial(
+                                [Flag::TF, Flag::DF, Flag::NT, Flag::AC, Flag::ID]
+                                    .map(|flag| (flag, direct.clone())),
+                            ),
+                        )?;
+                        state
+                            .read_flags(
                                 &mut body,
-                                FlagChange::partial(
-                                    [Flag::TF, Flag::DF, Flag::NT, Flag::AC, Flag::ID]
-                                        .map(|flag| (flag, direct.clone())),
-                                ),
-                            )?;
-                            state
-                                .read_flags(
-                                    &mut body,
-                                    [
-                                        Flag::ID,
-                                        Flag::TF,
-                                        Flag::DF,
-                                        Flag::NT,
-                                        Flag::AC,
-                                        Flag::OF,
-                                        Flag::CF,
-                                        Flag::ID,
-                                    ],
-                                )?
-                                .to_vec()
-                        }
-                    };
-                    body.return_(results)
-                },
-            )
-            .unwrap();
+                                [
+                                    Flag::ID,
+                                    Flag::TF,
+                                    Flag::DF,
+                                    Flag::NT,
+                                    Flag::AC,
+                                    Flag::OF,
+                                    Flag::CF,
+                                    Flag::ID,
+                                ],
+                            )?
+                            .to_vec()
+                    }
+                };
+                body.return_(results)
+            },
+        );
         program.export("run", function).unwrap();
         let bytes = program.compile().unwrap();
         Validator::new().validate_all(&bytes).unwrap();

@@ -8,7 +8,7 @@ fn operand_replacement_reuses_arithmetic_comparison_and_selection_folds() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I1, Type::I1],
         &[Type::I32; 7],
-        |mut body| {
+        move |mut body| {
             let input = body.parameter::<I32>(0)?;
             let enabled = body.parameter::<I1>(1)?;
             let other = body.parameter::<I1>(2)?;
@@ -59,23 +59,24 @@ fn operand_replacement_reuses_arithmetic_comparison_and_selection_folds() {
 
 #[test]
 fn algebraic_folds_feed_constant_evaluation_at_both_carrier_widths() {
-    let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32; 7], |mut body| {
-        let input = body.parameter::<I32>(0)?;
-        let enabled = body.parameter::<I1>(1)?;
-        let difference = input.sub(enabled.select(&input, 0));
-        let byte = difference.add(128).truncate::<I8>();
-        let results = [
-            difference.add(13).mul(7).shl(2),
-            byte.signed().extend::<I32>(),
-            byte.unsigned().extend::<I32>(),
-            byte.clz().unsigned().extend::<I32>(),
-            byte.ctz().unsigned().extend::<I32>(),
-            byte.popcnt().unsigned().extend::<I32>(),
-            difference.add(-1_i32).unsigned().shr(31),
-        ];
-        body.if_(enabled, |arm| arm.return_(results))?;
-        body.return_([0_u32; 7])
-    });
+    let module =
+        Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32; 7], move |mut body| {
+            let input = body.parameter::<I32>(0)?;
+            let enabled = body.parameter::<I1>(1)?;
+            let difference = input.sub(enabled.select(&input, 0));
+            let byte = difference.add(128).truncate::<I8>();
+            let results = [
+                difference.add(13).mul(7).shl(2),
+                byte.signed().extend::<I32>(),
+                byte.unsigned().extend::<I32>(),
+                byte.clz().unsigned().extend::<I32>(),
+                byte.ctz().unsigned().extend::<I32>(),
+                byte.popcnt().unsigned().extend::<I32>(),
+                difference.add(-1_i32).unsigned().shr(31),
+            ];
+            body.if_(enabled, |arm| arm.return_(results))?;
+            body.return_([0_u32; 7])
+        });
     assert_eq!(
         count(&module, |op| matches!(
             op,
@@ -103,7 +104,7 @@ fn algebraic_folds_feed_constant_evaluation_at_both_carrier_widths() {
         );
     }
 
-    let wide = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I64; 3], |mut body| {
+    let wide = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I64; 3], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         let enabled = body.parameter::<I1>(1)?;
         let difference = input.sub(enabled.select(&input, 0_u64));

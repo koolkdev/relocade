@@ -2,7 +2,7 @@
 use super::*;
 
 fn common_bits() -> TestModule {
-    Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let mode = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?;
         body.if_else(
@@ -15,7 +15,7 @@ fn common_bits() -> TestModule {
 }
 
 fn common_ranges() -> TestModule {
-    Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let mode = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?;
         body.if_else(
@@ -37,7 +37,7 @@ fn common_comparison() -> TestModule {
     Fixture::new().function(
         &[Type::I1, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let mode = body.parameter::<I1>(0)?;
             let left = body.parameter::<I32>(1)?;
             let right = body.parameter::<I32>(2)?;
@@ -53,7 +53,7 @@ fn common_comparison() -> TestModule {
 
 #[test]
 fn a_guard_makes_both_result_arms_constant() {
-    let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let branch = body.parameter::<I1>(0)?;
         let mode = body.parameter::<I32>(1)?;
         body.if_(mode.and(3).ne(3), |exit| exit.return_(7))?;

@@ -32,14 +32,12 @@ fn computed_direct_values_publish_only_their_canonical_byte() {
     {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let function = program
-            .function::<fn(u32) -> u64>(|mut body, (value,)| {
-                let mut state = State::new(&cpu);
-                state.write_flag(&mut body, flag, value.truncate::<I1>())?;
-                state.publish(&mut body, 0x1001, 1)?;
-                body.return_(0_u64)
-            })
-            .unwrap();
+        let function = program.function::<fn(u32) -> u64>(move |mut body, (value,)| {
+            let mut state = State::new(&cpu);
+            state.write_flag(&mut body, flag, value.truncate::<I1>())?;
+            state.publish(&mut body, 0x1001, 1)?;
+            body.return_(0_u64)
+        });
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
             execution_target: None,
@@ -68,8 +66,8 @@ fn computed_direct_values_publish_only_their_canonical_byte() {
 fn conditional_direct_publication_keeps_earlier_exits_and_raw_false_values() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(bool, u32, bool) -> u64>(|mut body, (direction, stop, _)| {
+    let function =
+        program.function::<fn(bool, u32, bool) -> u64>(move |mut body, (direction, stop, _)| {
             let mut state = State::new(&cpu);
             let active = body.parameter::<I1>(2)?;
             let flags = [
@@ -98,8 +96,7 @@ fn conditional_direct_publication_keeps_earlier_exits_and_raw_false_values() {
             )?;
             state.publish(&mut body, 0x1002, 2)?;
             body.return_(0_u64)
-        })
-        .unwrap();
+        });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
         execution_target: None,
@@ -142,38 +139,31 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
     for concrete in [false, true] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let function = program
-            .function::<fn(u32) -> u64>(|mut body, (index,)| {
-                let mut state = State::new(&cpu);
+        let function = program.function::<fn(u32) -> u64>(move |mut body, (index,)| {
+            let mut state = State::new(&cpu);
+            state.write_flags(
+                &mut body,
+                FlagChange::partial([
+                    (Flag::TF, true.into()),
+                    (Flag::DF, true.into()),
+                    (Flag::NT, true.into()),
+                    (Flag::AC, true.into()),
+                    (Flag::ID, true.into()),
+                ]),
+            )?;
+            state.write_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
+            state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
+            let before = state.read_register(&mut body, Register::<I8>::indexed(index.clone()))?;
+            state.write_register(&mut body, Register::<I8>::indexed(index), before.xor(0xff))?;
+            if concrete {
                 state.write_flags(
                     &mut body,
-                    FlagChange::partial([
-                        (Flag::TF, true.into()),
-                        (Flag::DF, true.into()),
-                        (Flag::NT, true.into()),
-                        (Flag::AC, true.into()),
-                        (Flag::ID, true.into()),
-                    ]),
+                    FlagChange::partial([(StatusFlag::CF.into(), false.into())]),
                 )?;
-                state.write_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
-                state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
-                let before =
-                    state.read_register(&mut body, Register::<I8>::indexed(index.clone()))?;
-                state.write_register(
-                    &mut body,
-                    Register::<I8>::indexed(index),
-                    before.xor(0xff),
-                )?;
-                if concrete {
-                    state.write_flags(
-                        &mut body,
-                        FlagChange::partial([(StatusFlag::CF.into(), false.into())]),
-                    )?;
-                }
-                state.publish(&mut body, 0x1004, 4)?;
-                body.return_(before.unsigned().extend::<I64>())
-            })
-            .unwrap();
+            }
+            state.publish(&mut body, 0x1004, 4)?;
+            body.return_(before.unsigned().extend::<I64>())
+        });
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
             execution_target: None,
@@ -221,22 +211,20 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
 fn iopl_reads_and_definitions_use_two_bits_without_touching_other_flags() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(u8) -> u64>(|mut body, (value,)| {
-            let mut state = State::new(&cpu);
-            let before = state.read_iopl(&mut body)?;
-            state.write_iopl(&mut body, value)?;
-            let after = state.read_iopl(&mut body)?;
-            state.publish(&mut body, 0x1001, 1)?;
-            body.return_(
-                before
-                    .unsigned()
-                    .extend::<I64>()
-                    .shl(8)
-                    .or(after.unsigned().extend::<I64>()),
-            )
-        })
-        .unwrap();
+    let function = program.function::<fn(u8) -> u64>(move |mut body, (value,)| {
+        let mut state = State::new(&cpu);
+        let before = state.read_iopl(&mut body)?;
+        state.write_iopl(&mut body, value)?;
+        let after = state.read_iopl(&mut body)?;
+        state.publish(&mut body, 0x1001, 1)?;
+        body.return_(
+            before
+                .unsigned()
+                .extend::<I64>()
+                .shl(8)
+                .or(after.unsigned().extend::<I64>()),
+        )
+    });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
         execution_target: None,

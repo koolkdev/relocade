@@ -23,7 +23,7 @@ fn extension_chains() -> TestModule {
     Fixture::new().function(
         &[Type::I32],
         &[Type::I64, Type::I64, Type::I64, Type::I32],
-        |body| {
+        move |body| {
             let input = body.parameter::<I32>(0)?;
             let bit = input
                 .truncate::<I1>()
@@ -97,7 +97,7 @@ fn signed_byte_product() -> TestModule {
     Fixture::new().function(
         &[Type::I32; 2],
         &[Type::I1, Type::I1, Type::I32, Type::I32, Type::I1],
-        |body| {
+        move |body| {
             let left = body
                 .parameter::<I32>(0)?
                 .truncate::<I8>()
@@ -151,7 +151,7 @@ fn dirty_low_bits() -> TestModule {
     Fixture::new().function(
         &[Type::I32],
         &[Type::I1, Type::I1, Type::I1, Type::I1, Type::I32, Type::I1],
-        |body| {
+        move |body| {
             let byte = body.parameter::<I32>(0)?.truncate::<I8>();
             let signed_byte = byte.signed().extend::<I16>().truncate::<I8>();
             let product = byte.mul(2);
@@ -204,7 +204,7 @@ fn mixed_join_representations() -> TestModule {
     Fixture::new().function(
         &[Type::I1, Type::I32],
         &[Type::I1, Type::I1, Type::I32, Type::I32, Type::I64],
-        |mut body| {
+        move |mut body| {
             let condition = body.parameter::<I1>(0)?;
             let input = body.parameter::<I32>(1)?;
             let byte = input.truncate::<I8>();
@@ -262,7 +262,7 @@ const SHARED: &[(i32, [Value; 2], [u8; 4])] = &[
 fn stored_sign_extension() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0xa5; 4]);
-    fixture.function(&[Type::I32], &[Type::I64, Type::I32], |mut body| {
+    fixture.function(&[Type::I32], &[Type::I64, Type::I32], move |mut body| {
         let word = body
             .parameter::<I32>(0)?
             .truncate::<I8>()

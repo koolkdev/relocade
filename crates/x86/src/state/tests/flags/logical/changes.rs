@@ -11,34 +11,32 @@ use relocade_compiler::{Program, I1, I64, I8};
 fn conditional_direction_writes_preserve_the_original_byte_when_inactive() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(bool, bool, bool) -> u64>(|mut body, _| {
-            let mut state = State::new(&cpu);
-            let first = body.parameter::<I1>(0)?;
-            let second = body.parameter::<I1>(1)?;
-            let direction = body.parameter::<I1>(2)?;
-            state.write_flags(
-                &mut body,
-                FlagChange::partial([(Flag::DF, false.into())]).when(false),
-            )?;
-            state.write_flags(
-                &mut body,
-                FlagChange::partial([(Flag::DF, direction)])
-                    .when(true)
-                    .when(first)
-                    .when(second),
-            )?;
-            let direction = state.read_flag(&mut body, Flag::DF)?;
-            let carry = state.read_flag(&mut body, Flag::CF)?;
-            state.publish(&mut body, 0x1001, 1)?;
-            body.return_(
-                direction
-                    .unsigned()
-                    .extend::<I64>()
-                    .or(carry.unsigned().extend::<I64>().shl(1)),
-            )
-        })
-        .unwrap();
+    let function = program.function::<fn(bool, bool, bool) -> u64>(move |mut body, _| {
+        let mut state = State::new(&cpu);
+        let first = body.parameter::<I1>(0)?;
+        let second = body.parameter::<I1>(1)?;
+        let direction = body.parameter::<I1>(2)?;
+        state.write_flags(
+            &mut body,
+            FlagChange::partial([(Flag::DF, false.into())]).when(false),
+        )?;
+        state.write_flags(
+            &mut body,
+            FlagChange::partial([(Flag::DF, direction)])
+                .when(true)
+                .when(first)
+                .when(second),
+        )?;
+        let direction = state.read_flag(&mut body, Flag::DF)?;
+        let carry = state.read_flag(&mut body, Flag::CF)?;
+        state.publish(&mut body, 0x1001, 1)?;
+        body.return_(
+            direction
+                .unsigned()
+                .extend::<I64>()
+                .or(carry.unsigned().extend::<I64>().shl(1)),
+        )
+    });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
         execution_target: None,
@@ -78,30 +76,28 @@ fn conditional_direction_writes_preserve_the_original_byte_when_inactive() {
 fn independent_conditional_carry_and_direction_changes_preserve_each_other() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(bool, bool) -> u64>(|mut body, _| {
-            let mut state = State::new(&cpu);
-            let carry = body.parameter::<I1>(0)?;
-            let direction = body.parameter::<I1>(1)?;
-            state.write_flags(
-                &mut body,
-                FlagChange::partial([(Flag::CF, false.into())]).when(carry),
-            )?;
-            state.write_flags(
-                &mut body,
-                FlagChange::partial([(Flag::DF, true.into())]).when(direction),
-            )?;
-            let carry = state.read_flag(&mut body, Flag::CF)?;
-            let direction = state.read_flag(&mut body, Flag::DF)?;
-            state.publish(&mut body, 0x1002, 2)?;
-            body.return_(
-                carry
-                    .unsigned()
-                    .extend::<I64>()
-                    .or(direction.unsigned().extend::<I64>().shl(1)),
-            )
-        })
-        .unwrap();
+    let function = program.function::<fn(bool, bool) -> u64>(move |mut body, _| {
+        let mut state = State::new(&cpu);
+        let carry = body.parameter::<I1>(0)?;
+        let direction = body.parameter::<I1>(1)?;
+        state.write_flags(
+            &mut body,
+            FlagChange::partial([(Flag::CF, false.into())]).when(carry),
+        )?;
+        state.write_flags(
+            &mut body,
+            FlagChange::partial([(Flag::DF, true.into())]).when(direction),
+        )?;
+        let carry = state.read_flag(&mut body, Flag::CF)?;
+        let direction = state.read_flag(&mut body, Flag::DF)?;
+        state.publish(&mut body, 0x1002, 2)?;
+        body.return_(
+            carry
+                .unsigned()
+                .extend::<I64>()
+                .or(direction.unsigned().extend::<I64>().shl(1)),
+        )
+    });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
         execution_target: None,
@@ -139,45 +135,43 @@ fn full_and_masked_arithmetic_sources_preserve_conditional_direction() {
         for direction_first in [false, true] {
             let mut program = Program::new();
             let cpu = Cpu::declare(&mut program);
-            let function = program
-                .function::<fn(bool, bool) -> u64>(|mut body, _| {
-                    let mut state = State::new(&cpu);
-                    let direction = body.parameter::<I1>(0)?;
-                    let arithmetic = body.parameter::<I1>(1)?;
-                    if direction_first {
-                        state.write_flags(
-                            &mut body,
-                            FlagChange::partial([(Flag::DF, true.into())]).when(direction.clone()),
-                        )?;
-                    }
-                    let flags = ArithmeticOp::Add.apply::<I8>(0x7f, 1).flags;
-                    let flags = if preserve_carry {
-                        flags.preserving(StatusFlag::CF)
-                    } else {
-                        flags
-                    };
-                    state.write_flags(&mut body, flags.when(arithmetic))?;
-                    if !direction_first {
-                        state.write_flags(
-                            &mut body,
-                            FlagChange::partial([(Flag::DF, true.into())]).when(direction),
-                        )?;
-                    }
-                    let carry = state.read_flag(&mut body, Flag::CF)?;
-                    let direction = state.read_flag(&mut body, Flag::DF)?;
-                    let overflow = state.read_flag(&mut body, Flag::OF)?;
-                    let less = state.condition(&mut body, Condition::L)?;
-                    state.publish(&mut body, 0x1003, 3)?;
-                    body.return_(
-                        carry
-                            .unsigned()
-                            .extend::<I64>()
-                            .or(direction.unsigned().extend::<I64>().shl(1))
-                            .or(overflow.unsigned().extend::<I64>().shl(2))
-                            .or(less.unsigned().extend::<I64>().shl(3)),
-                    )
-                })
-                .unwrap();
+            let function = program.function::<fn(bool, bool) -> u64>(move |mut body, _| {
+                let mut state = State::new(&cpu);
+                let direction = body.parameter::<I1>(0)?;
+                let arithmetic = body.parameter::<I1>(1)?;
+                if direction_first {
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::partial([(Flag::DF, true.into())]).when(direction.clone()),
+                    )?;
+                }
+                let flags = ArithmeticOp::Add.apply::<I8>(0x7f, 1).flags;
+                let flags = if preserve_carry {
+                    flags.preserving(StatusFlag::CF)
+                } else {
+                    flags
+                };
+                state.write_flags(&mut body, flags.when(arithmetic))?;
+                if !direction_first {
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::partial([(Flag::DF, true.into())]).when(direction),
+                    )?;
+                }
+                let carry = state.read_flag(&mut body, Flag::CF)?;
+                let direction = state.read_flag(&mut body, Flag::DF)?;
+                let overflow = state.read_flag(&mut body, Flag::OF)?;
+                let less = state.condition(&mut body, Condition::L)?;
+                state.publish(&mut body, 0x1003, 3)?;
+                body.return_(
+                    carry
+                        .unsigned()
+                        .extend::<I64>()
+                        .or(direction.unsigned().extend::<I64>().shl(1))
+                        .or(overflow.unsigned().extend::<I64>().shl(2))
+                        .or(less.unsigned().extend::<I64>().shl(3)),
+                )
+            });
             program.export("run", function).unwrap();
             let module = TestModule::new(&CompiledModule {
                 execution_target: None,

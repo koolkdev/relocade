@@ -15,18 +15,11 @@ fn rejected_multi_result_calls_leave_the_caller_open_and_do_not_retain_imports()
         name: "receive".into(),
         signature: signature(&[Type::I32, Type::I32], &[Type::I1, Type::I8, Type::I64]),
     });
-    let other = program.declare(signature(&[], &[Type::I32]));
-    let mut foreign = None;
-    program
-        .define(other, |foreign_body| {
-            foreign = Some(foreign_body.value::<I32>(7).unwrap());
-            foreign_body.return_(0)
-        })
-        .unwrap();
-    let foreign = foreign.unwrap();
+    let foreign =
+        crate::fixture::capture_from_body(|foreign_body| foreign_body.value::<I32>(7).unwrap());
     let run = program.declare(signature(&[], &[Type::I32]));
     program
-        .define(run, |mut body| {
+        .define(run, move |mut body| {
             let arguments = [7.into(), 11.into()];
             assert_eq!(
                 body.call::<(I1, I8)>(target, &arguments).err(),
@@ -94,12 +87,10 @@ fn rejected_multi_result_calls_leave_the_caller_open_and_do_not_retain_imports()
 #[test]
 fn every_call_component_retains_its_branch_visibility_even_after_folding() {
     let mut program = Program::new();
-    let helper = program
-        .function::<fn() -> (u8, u64)>(|body, ()| body.return_((7, 11_u64)))
-        .unwrap();
+    let helper = program.function::<fn() -> (u8, u64)>(move |body, ()| body.return_((7, 11_u64)));
     let run = program.declare(signature(&[], &[Type::I32]));
     program
-        .define(run, |mut body| {
+        .define(run, move |mut body| {
             let mut escaped = None;
             body.if_(false, |mut arm| {
                 escaped = Some(arm.call::<(I8, I64)>(helper, &[])?);
@@ -133,13 +124,11 @@ fn discarded_blocks_do_not_retain_multi_result_calls_or_poison_parent_placement(
                     signature: shape,
                 })
             } else {
-                program
-                    .raw_function(shape, |body| body.return_((7, 11_u64)))
-                    .unwrap()
+                program.raw_function(shape, move |body| body.return_((7, 11_u64)))
             };
             let run = program.declare(signature(&[], &[Type::I32]));
             program
-                .define(run, |mut body| {
+                .define(run, move |mut body| {
                     let error = if later_arm {
                         body.if_value::<I32>(
                             true,
@@ -172,73 +161,68 @@ fn discarded_blocks_do_not_retain_multi_result_calls_or_poison_parent_placement(
 }
 
 #[test]
-fn invalid_multi_returns_leave_the_function_undefined_for_a_fresh_definition() {
+fn invalid_multi_returns_report_counts_types_and_visibility_during_compilation() {
+    use relocade_compiler::Arguments;
+    let foreign = crate::fixture::capture_from_body(|body| body.value::<I64>(7_u64).unwrap());
+    for (arguments, error) in [
+        (
+            Arguments::from(true),
+            BuildError::ResultCount {
+                expected: 3,
+                actual: 1,
+            },
+        ),
+        (
+            Arguments::from(()),
+            BuildError::ResultCount {
+                expected: 3,
+                actual: 0,
+            },
+        ),
+        (
+            Arguments::from((true, 255, 7_u64, 9)),
+            BuildError::ResultCount {
+                expected: 3,
+                actual: 4,
+            },
+        ),
+        (
+            Arguments::from((true, Val::<I16>::from(255), 7_u64)),
+            BuildError::TypeMismatch {
+                expected: Type::I8,
+                actual: Type::I16,
+            },
+        ),
+        (
+            Arguments::from((true, 255, foreign)),
+            BuildError::ForeignBody,
+        ),
+    ] {
+        let mut program = Program::new();
+        let run = program.raw_function(
+            signature(&[], &[Type::I1, Type::I8, Type::I64]),
+            move |body| body.return_(arguments),
+        );
+        program.export("run", run).unwrap();
+        assert_eq!(program.compile(), Err(error));
+    }
     let mut program = Program::new();
-    let helper = program.declare(signature(&[], &[Type::I64]));
-    let mut foreign = None;
-    program
-        .define(helper, |other| {
-            foreign = Some(other.value::<I64>(7_u64).unwrap());
-            other.return_(11_u64)
-        })
-        .unwrap();
-    let foreign = foreign.unwrap();
-    let run = program.declare(signature(&[], &[Type::I1, Type::I8, Type::I64]));
-    assert_eq!(
-        program.define(run, |body| body.return_(true)),
-        Err(BuildError::ResultCount {
-            expected: 3,
-            actual: 1
-        })
-    );
-    assert_eq!(
-        program.define(run, |body| body.return_(())),
-        Err(BuildError::ResultCount {
-            expected: 3,
-            actual: 0
-        })
-    );
-    assert_eq!(
-        program.define(run, |body| body.return_((true, 255, 7_u64, 9))),
-        Err(BuildError::ResultCount {
-            expected: 3,
-            actual: 4
-        })
-    );
-    assert_eq!(
-        program.define(run, |body| body.return_((
-            true,
-            Val::<I16>::from(255),
-            7_u64
-        ))),
-        Err(BuildError::TypeMismatch {
-            expected: Type::I8,
-            actual: Type::I16
-        })
-    );
-    assert_eq!(
-        program.define(run, |body| body.return_((true, 255, foreign))),
-        Err(BuildError::ForeignBody)
-    );
-    let result = program.define(run, |mut body| {
-        let mut escaped = None;
-        body.if_(false, |mut arm| {
-            escaped = Some(arm.call::<I64>(helper, &[])?);
-            Ok(())
-        })
-        .unwrap();
-        body.return_((true, 255, escaped.unwrap().and(0)))
+    let helper = program.raw_function(signature(&[], &[Type::I64]), move |body| {
+        body.return_(11_u64)
     });
-    assert_eq!(result, Err(BuildError::OutOfScope));
-    program
-        .define(run, |body| body.return_((true, 511, u64::MAX)))
-        .unwrap();
-    program.export("run", run).unwrap();
-    let module = TestModule::new(&program.compile().unwrap());
-    assert_eq!(
-        module.instantiate().call::<(i32, i32, i64)>(()).unwrap(),
-        (1, 255, -1)
+    let run = program.raw_function(
+        signature(&[], &[Type::I1, Type::I8, Type::I64]),
+        move |mut body| {
+            let mut escaped = None;
+            body.if_(false, |mut arm| {
+                escaped = Some(arm.call::<I64>(helper, &[])?);
+                Ok(())
+            })?;
+            body.return_((true, 255, escaped.unwrap().and(0)))
+        },
     );
+    program.export("run", run).unwrap();
+    assert_eq!(program.compile(), Err(BuildError::OutOfScope));
 }
 
 #[test]
@@ -246,7 +230,7 @@ fn an_ignored_invalid_multi_return_does_not_turn_into_branch_fallthrough() {
     let mut program = Program::new();
     let run = program.declare(signature(&[], &[Type::I1, Type::I8]));
     program
-        .define(run, |mut body| {
+        .define(run, move |mut body| {
             assert_eq!(
                 body.if_(true, |arm| {
                     assert!(arm.return_(true).is_err());
@@ -304,22 +288,10 @@ fn tail_calls_compare_the_complete_ordered_logical_result_signature() {
             signature: signature(&[], &results),
         });
         let run = program.declare(signature(&[], &[Type::I1, Type::I8, Type::I64]));
-        assert_eq!(
-            program.define(run, |body| body.tail_call(target, &[])),
-            Err(expected)
-        );
         program
-            .define(run, |body| body.return_((true, 7, 11_u64)))
+            .define(run, move |body| body.tail_call(target, &[]))
             .unwrap();
         program.export("run", run).unwrap();
-        let bytes = program.compile().unwrap();
-        no_imports(&bytes);
-        assert_eq!(
-            TestModule::new(&bytes)
-                .instantiate()
-                .call::<(i32, i32, i64)>(())
-                .unwrap(),
-            (1, 7, 11)
-        );
+        assert_eq!(program.compile(), Err(expected));
     }
 }

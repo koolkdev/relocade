@@ -7,9 +7,8 @@ fn different_tail_arguments(trap_on_taken: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let trapped_value = fixture
         .program
-        .function::<fn() -> u32>(|body, ()| body.trap())
-        .unwrap();
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+        .function::<fn() -> u32>(move |body, ()| body.trap());
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let choose = body.parameter::<I1>(0)?;
         let result = body.block::<I32>(|mut outer, exit| {
             let result = outer.block::<I32>(|mut inner, _| {
@@ -49,9 +48,8 @@ fn carried_call_result() -> TestModule {
     let mut fixture = Fixture::new();
     let increment = fixture
         .program
-        .function::<fn(u32) -> u32>(|body, (value,)| body.return_(value.add(3)))
-        .unwrap();
-    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+        .function::<fn(u32) -> u32>(move |body, (value,)| body.return_(value.add(3)));
+    fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let result = body.loop_::<(I32, I32), (I32, I32)>(
             (2, count),
@@ -97,7 +95,7 @@ fn an_argument_dead_on_exit_remains_lazy_even_when_the_backedge_needs_it() {
 
 #[test]
 fn both_conditional_edges_contribute_to_the_same_outward_result() {
-    let module = Fixture::new().function(&[Type::I1], &[Type::I8], |mut body| {
+    let module = Fixture::new().function(&[Type::I1], &[Type::I8], move |mut body| {
         let choose = body.parameter::<I1>(0)?;
         let result = body.block::<I8>(|mut outer, exit| {
             outer.block::<()>(|mut inner, _| {
@@ -118,15 +116,14 @@ fn tail_writes() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let write = fixture
         .program
-        .function::<fn(u32) -> u32>(|mut body, (value,)| {
+        .function::<fn(u32) -> u32>(move |mut body, (value,)| {
             body.if_(value.ne(0), |mut arm| {
                 arm.store(state, 0, &value)?;
                 arm.return_(23)
             })?;
             body.return_(0)
-        })
-        .unwrap();
-    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+        });
+    fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let before = body.load::<I32>(state, 0)?;
         let result = body.loop_::<(I32, I32), (I32, I32)>(
@@ -158,13 +155,14 @@ fn effectful_if_arms_preserve_snapshots_across_loop_backedges() {
 }
 
 fn conditional_switch_case(keys: &[u32]) -> TestModule {
+    let keys = keys.to_vec();
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0, 0, 0, 0]);
-    fixture.function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I32, Type::I1], &[Type::I32], move |mut body| {
         let selector = body.parameter::<I32>(0)?;
         let leave = body.parameter::<I1>(1)?;
         let result = body.block::<I32>(|mut outer, exit| {
-            let result = outer.switch_value::<I32, _>(&selector, keys, |mut case, key| {
+            let result = outer.switch_value::<I32, _>(&selector, &keys, |mut case, key| {
                 if key == Some(keys[0]) {
                     case.branch_if(&leave, &exit, 7)?;
                     case.yield_(7)
@@ -211,12 +209,11 @@ fn an_unused_call_keeps_its_conditional_tail_call_effects() {
     );
     let helper = fixture
         .program
-        .function::<fn(bool) -> u32>(|mut body, (choose,)| {
+        .function::<fn(bool) -> u32>(move |mut body, (choose,)| {
             body.if_(choose, |arm| arm.tail_call(receive, &[11.into()]))?;
             body.return_(7)
-        })
-        .unwrap();
-    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+        });
+    let module = fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let choose = body.parameter::<I1>(0)?;
         body.call::<I32>(helper, &[choose.argument()])?;
         body.return_(17)
@@ -239,7 +236,7 @@ fn an_unused_call_keeps_its_conditional_tail_call_effects() {
 fn conditional_result(inverted: bool, store_offset: u32) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let choose = body.parameter::<I1>(0)?;
         let condition = if inverted { choose.eq(false) } else { choose };
         let result = body.block::<I32>(|mut block, _| {
@@ -288,9 +285,8 @@ fn dead_conditional_result() -> TestModule {
     let mut fixture = Fixture::new();
     let trapped_value = fixture
         .program
-        .function::<fn() -> u32>(|body, ()| body.trap())
-        .unwrap();
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+        .function::<fn() -> u32>(move |body, ()| body.trap());
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let choose = body.parameter::<I1>(0)?;
         let result = body.block::<(I32, I32)>(|mut block, _| {
             let trapped = block.call::<I32>(trapped_value, &[])?;
@@ -311,7 +307,7 @@ fn a_taken_conditional_yield_omits_its_dead_result_components() {
 }
 
 fn reversed_backedge() -> TestModule {
-    Fixture::new().function(&[Type::I32], &[Type::I32, Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32, Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let result = body.loop_::<(I32, I32), (I32, I32)>(
             (count, 0),
@@ -335,7 +331,7 @@ fn a_conditional_loop_result_shares_the_backedge_tuple_with_reversed_polarity() 
 
 #[test]
 fn conditional_yields_use_the_direct_result_arm_destination() {
-    let module = Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], move |mut body| {
         let outer = body.parameter::<I1>(0)?;
         let early = body.parameter::<I1>(1)?;
         let result = body.if_value::<I32>(

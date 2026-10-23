@@ -34,7 +34,7 @@ fn observed_bits(value: Val<F64>) -> Val<I64> {
 }
 
 fn arithmetic() {
-    let runtime = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 4], |body| {
+    let runtime = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 4], move |body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         let b = Val::<F64>::from_bits(body.parameter::<I64>(1)?);
         body.return_([a.add(&b), a.sub(&b), a.mul(&b), a.div(&b)].map(observed_bits))
@@ -84,7 +84,7 @@ fn arithmetic() {
             &expected,
         );
         for admitted in [false, true] {
-            let constants = Fixture::new().function(&[], &[Type::I64; 4], |body| {
+            let constants = Fixture::new().function(&[], &[Type::I64; 4], move |body| {
                 let a = Val::<F64>::from_bits(a);
                 let b = Val::<F64>::from_bits(b);
                 let (a, b) = if admitted {
@@ -100,7 +100,7 @@ fn arithmetic() {
 }
 
 fn rounding_and_order() {
-    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 4], |body| {
+    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 4], move |body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         let b = Val::<F64>::from_bits(body.parameter::<I64>(1)?);
         body.return_([
@@ -153,7 +153,7 @@ fn rounding_and_order() {
 
 #[test]
 fn floating_comparisons_do_not_acquire_integer_identities_or_bit_equality() {
-    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I1; 9], |body| {
+    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I1; 9], move |body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         let b = Val::<F64>::from_bits(body.parameter::<I64>(1)?);
         body.return_([
@@ -189,7 +189,7 @@ fn floating_comparisons_do_not_acquire_integer_identities_or_bit_equality() {
             &[Value::I64(a as i64), Value::I64(b as i64)],
             &expected.map(Value::I32),
         );
-        let constants = Fixture::new().function(&[], &[Type::I1; 9], |body| {
+        let constants = Fixture::new().function(&[], &[Type::I1; 9], move |body| {
             let a = Val::<F64>::from_bits(a);
             let b = Val::<F64>::from_bits(b);
             body.return_([
@@ -206,7 +206,7 @@ fn floating_comparisons_do_not_acquire_integer_identities_or_bit_equality() {
         });
         check(&constants, &[], &expected.map(Value::I32));
     }
-    let guarded = Fixture::new().function(&[Type::I64; 2], &[Type::I64], |mut body| {
+    let guarded = Fixture::new().function(&[Type::I64; 2], &[Type::I64], move |mut body| {
         let a = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         let b = Val::<F64>::from_bits(body.parameter::<I64>(1)?);
         body.if_(a.eq(&b), |arm| arm.return_(a.to_bits().xor(b.to_bits())))?;

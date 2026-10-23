@@ -7,9 +7,9 @@ use relocade_compiler::{Program, I16};
 
 fn transfers(fill: bool) -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program, ExecutionProfile::Real16).unwrap();
-    let function = program
-        .function::<fn(u32, u32, u32) -> u64>(|mut body, (destination, source, bytes)| {
+    let memory = Memory::declare(&mut program, ExecutionProfile::Real16);
+    let function = program.function::<fn(u32, u32, u32) -> u64>(
+        move |mut body, (destination, source, bytes)| {
             let destination = memory.check_direct_access(
                 &mut body,
                 &destination,
@@ -34,8 +34,8 @@ fn transfers(fill: bool) -> TestModule {
                 memory.copy(&mut body, &destination.physical, &source.physical, &bytes)?;
             }
             body.return_(1u64)
-        })
-        .unwrap();
+        },
+    );
     program.export("transfer", function).unwrap();
     TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),

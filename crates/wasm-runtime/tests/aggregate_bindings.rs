@@ -28,7 +28,7 @@ async fn check_aggregates() {
     const RUN: Function<Exchange> = Function::new("aggregate", "run");
     let mut program = Program::new();
     let exchange = EXCHANGE.import(&mut program);
-    RUN.define(&mut program, |mut body, (mut request, counts)| {
+    RUN.define(&mut program, move |mut body, (mut request, counts)| {
         request.key = request.key.add(1);
         let reply = exchange.call(&mut body, (request, counts))?;
         reply.match_(&mut body, |arm, variant| {

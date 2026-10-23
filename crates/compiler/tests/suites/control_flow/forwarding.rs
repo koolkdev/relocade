@@ -4,7 +4,7 @@ use relocade_compiler::{Type, I1, I32, I8};
 
 #[test]
 fn identical_value_arms_still_define_their_join_result() {
-    let module = Fixture::new().function(&[Type::I1], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let result = body.if_value::<I32>(condition, |arm| arm.yield_(7), |arm| arm.yield_(7))?;
         body.return_(result)
@@ -16,7 +16,7 @@ fn identical_value_arms_still_define_their_join_result() {
 
 #[test]
 fn shared_outgoing_bits_retain_each_destinations_logical_type() {
-    let module = Fixture::new().function(&[Type::I1, Type::I8], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I1, Type::I8], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let byte = body.parameter::<I8>(1)?;
         let result = body.block::<I8>(|mut outer, exit| {
@@ -37,7 +37,7 @@ fn shared_outgoing_bits_retain_each_destinations_logical_type() {
 }
 
 fn seed_with_outward_exit(use_loop: bool) -> TestModule {
-    Fixture::new().function(&[Type::I1], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I1], &[Type::I32], move |mut body| {
         let leave = body.parameter::<I1>(0)?;
         let result = body.block::<I32>(|mut block, exit| {
             let seed =
@@ -71,7 +71,7 @@ fn loop_and_switch_entry_keep_the_destinations_of_seed_calculations() {
 fn two_outward_arms_skip_the_entire_remaining_block() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0]);
-    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         body.block::<()>(|mut block, exit| {
             block.if_else(
@@ -95,7 +95,7 @@ fn two_outward_arms_skip_the_entire_remaining_block() {
 fn a_snapshot_used_as_a_loop_seed_remains_available_after_the_loop() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0]);
-    let module = fixture.function(&[], &[Type::I32, Type::I32], |mut body| {
+    let module = fixture.function(&[], &[Type::I32, Type::I32], move |mut body| {
         let original = body.load::<I32>(state, 0)?;
         let result = body.loop_::<I32, I32>(&original, |mut iteration, labels, input| {
             iteration.store::<I32>(state, 0, 99)?;

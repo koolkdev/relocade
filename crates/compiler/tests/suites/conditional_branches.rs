@@ -50,7 +50,7 @@ fn swapped_tail() -> TestModule {
     Fixture::new().function(
         &[Type::I32],
         &[Type::I32, Type::I32, Type::I32, Type::I8, Type::I64],
-        |mut body| {
+        move |mut body| {
             let count = body.parameter::<I32>(0)?;
             let result = body.loop_::<(I32, I32, I32, I8, I64), (I32, I32, I32, I8, I64)>(
                 (count, 3, 7, 254, 100u64),
@@ -92,7 +92,7 @@ fn a_shared_tail_tuple_swaps_all_channels_simultaneously() {
 fn nested_unit_tail() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0, 0, 0, 0]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let leave = body.parameter::<I1>(0)?;
         body.block::<()>(|mut outer, exit| {
             outer.block::<()>(|mut inner, _| {
@@ -120,12 +120,11 @@ fn snapshot_tail() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0]);
     let read_only = fixture
         .program
-        .function::<fn() -> u32>(|mut body, ()| {
+        .function::<fn() -> u32>(move |mut body, ()| {
             let result = body.load::<I32>(state, 4)?;
             body.return_(result)
-        })
-        .unwrap();
-    fixture.function(&[Type::I32], &[Type::I32, Type::I32], |mut body| {
+        });
+    fixture.function(&[Type::I32], &[Type::I32, Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let before = body.load::<I32>(state, 0)?;
         let called = body.call::<I32>(read_only, &[])?;
@@ -184,12 +183,11 @@ fn ordinary_tail(boundary: Boundary) -> TestModule {
     let state = fixture.memory("state", &[1, 0, 0, 0, 0, 0, 0, 0]);
     let read_only = fixture
         .program
-        .function::<fn() -> u32>(|mut body, ()| {
+        .function::<fn() -> u32>(move |mut body, ()| {
             let result = body.load::<I32>(state, 0)?;
             body.return_(result)
-        })
-        .unwrap();
-    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+        });
+    fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let result = body.block::<I32>(|mut outer, exit| {
             let result = outer.block::<I32>(|mut inner, _| {
@@ -265,9 +263,8 @@ fn a_shared_tail_preserves_an_explicit_trap() {
     let mut fixture = Fixture::new();
     let trapped_value = fixture
         .program
-        .function::<fn() -> u32>(|body, ()| body.trap())
-        .unwrap();
-    let module = fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+        .function::<fn() -> u32>(move |body, ()| body.trap());
+    let module = fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let divisor = body.parameter::<I32>(0)?;
         let result = body.block::<I32>(|mut outer, exit| {
             let result = outer.block::<I32>(|mut inner, _| {
@@ -291,7 +288,7 @@ fn a_shared_tail_preserves_an_explicit_trap() {
 
 #[test]
 fn an_unused_exit_channel_can_still_supply_the_backedge() {
-    let module = Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let result = body.loop_::<(I32, I32), (I32, I32)>(
             (count, 0),

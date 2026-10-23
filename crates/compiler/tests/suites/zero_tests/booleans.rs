@@ -30,14 +30,18 @@ fn check(module: &TestModule, inputs: &[Value], expected: &[Value]) {
 
 #[test]
 fn zero_one_choices_fold_before_and_after_specialization() {
-    let module = Fixture::new().function(&[Type::I32], &[Type::I8, Type::I32, Type::I64], |body| {
-        let condition = body.parameter::<I32>(0)?.truncate::<I1>().add(true);
-        body.return_((
-            condition.select::<I8>(1, 0),
-            condition.select::<I32>(0, 1),
-            condition.select::<I64>(1_u64, 0_u64),
-        ))
-    });
+    let module = Fixture::new().function(
+        &[Type::I32],
+        &[Type::I8, Type::I32, Type::I64],
+        move |body| {
+            let condition = body.parameter::<I32>(0)?.truncate::<I1>().add(true);
+            body.return_((
+                condition.select::<I8>(1, 0),
+                condition.select::<I32>(0, 1),
+                condition.select::<I64>(1_u64, 0_u64),
+            ))
+        },
+    );
     assert_eq!(count(&module, |op| matches!(op, Operator::Select)), 0);
     for (input, expected) in [(0, 1), (1, 0), (2, 1), (3, 0), (-1, 0), (i32::MIN, 1)] {
         check(
@@ -51,15 +55,16 @@ fn zero_one_choices_fold_before_and_after_specialization() {
         );
     }
 
-    let specialized = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
-        let input = body.parameter::<I32>(0)?;
-        let enabled = body.parameter::<I1>(1)?;
-        let numeric_bit = input
-            .ne(0)
-            .select::<I32>(enabled.select(1, 2), enabled.select(0, 3));
-        body.if_(enabled, |arm| arm.return_(numeric_bit))?;
-        body.return_(9)
-    });
+    let specialized =
+        Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], move |mut body| {
+            let input = body.parameter::<I32>(0)?;
+            let enabled = body.parameter::<I1>(1)?;
+            let numeric_bit = input
+                .ne(0)
+                .select::<I32>(enabled.select(1, 2), enabled.select(0, 3));
+            body.if_(enabled, |arm| arm.return_(numeric_bit))?;
+            body.return_(9)
+        });
     assert_eq!(count(&specialized, |op| matches!(op, Operator::Select)), 0);
     for (input, enabled, expected) in [(0, 1, 0), (2, 1, 1), (-1, 1, 1), (2, 0, 9)] {
         check(
@@ -72,7 +77,7 @@ fn zero_one_choices_fold_before_and_after_specialization() {
 
 #[test]
 fn complementary_predicates_fold_without_treating_wide_values_as_booleans() {
-    let predicates = Fixture::new().function(&[Type::I64], &[Type::I1; 6], |body| {
+    let predicates = Fixture::new().function(&[Type::I64], &[Type::I1; 6], move |body| {
         let zero = body.parameter::<I64>(0)?.eq(0_u64);
         let nonzero = zero.eq(false);
         body.return_([
@@ -100,7 +105,7 @@ fn complementary_predicates_fold_without_treating_wide_values_as_booleans() {
     }
 
     for bounded in [false, true] {
-        let module = Fixture::new().function(&[Type::I32], &[Type::I32; 3], |body| {
+        let module = Fixture::new().function(&[Type::I32], &[Type::I32; 3], move |body| {
             let input = body.parameter::<I32>(0)?;
             let value = if bounded { input.and(1) } else { input };
             let opposite = value.eq(0).unsigned().extend::<I32>();

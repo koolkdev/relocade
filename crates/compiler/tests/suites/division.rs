@@ -171,7 +171,7 @@ const QWORD: &[Case] = &[
 ];
 
 fn computed<T: IntType>() -> TestModule {
-    Fixture::new().function(&[T::TYPE; 2], &[T::TYPE; 4], |body| {
+    Fixture::new().function(&[T::TYPE; 2], &[T::TYPE; 4], move |body| {
         let left = body.parameter::<T>(0)?;
         let right = body.parameter::<T>(1)?;
         let uq = left.unsigned().div(&right);
@@ -216,9 +216,10 @@ fn successful_constant_division_folds_to_the_independently_expected_value() {
         for case in cases {
             for (kind, expected) in KINDS.into_iter().zip(case.expected) {
                 for admitted in [false, true] {
-                    let module = Fixture::new().function(&[], &[Type::I64], |body| {
-                        let mut left = Val::<I64>::from(case.left).truncate::<T>();
-                        let mut right = Val::<I64>::from(case.right).truncate::<T>();
+                    let (left, right) = (case.left, case.right);
+                    let module = Fixture::new().function(&[], &[Type::I64], move |body| {
+                        let mut left = Val::<I64>::from(left).truncate::<T>();
+                        let mut right = Val::<I64>::from(right).truncate::<T>();
                         if admitted {
                             left = body.value(left)?;
                             right = body.value(right)?;
@@ -269,7 +270,7 @@ fn native_literals_keep_their_signed_unsigned_and_boolean_meanings() {
     let module = Fixture::new().function(
         &[Type::I64, Type::I1],
         &[Type::I64, Type::I64, Type::I64, Type::I1],
-        |body| {
+        move |body| {
             let value = body.parameter::<I64>(0)?;
             let bit = body.parameter::<I1>(1)?;
             let signed = value.signed().div(-1);

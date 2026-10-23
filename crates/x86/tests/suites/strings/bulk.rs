@@ -219,7 +219,7 @@ fn patterned_stos_completes_in_the_jit_with_a_short_final_prefix_copy() {
 #[test]
 fn native_transfers_reuse_the_range_checks_and_omit_the_stos_element_loop() {
     use relocade_x86::compile_block_from_bytes;
-    use wasmparser::{Operator, Parser, Payload, TypeRef};
+    use wasmparser::{Operator, Parser, Payload, TypeRef, ValType};
 
     for (code, copies, fills, loops, probes) in [
         (&[0xf3, 0xa4][..], 1, 0, 1, 2),
@@ -232,14 +232,38 @@ fn native_transfers_reuse_the_range_checks_and_omit_the_stos_element_loop() {
         let mut imported_functions = 0;
         let mut function = 0;
         let mut entry = None;
+        let mut range_type = None;
+        let mut range_resolver = None;
         let mut counts = (0, 0, 0, 0);
         for payload in Parser::new(0).parse_all(&module.bytes) {
             match payload.unwrap() {
+                Payload::TypeSection(types) => {
+                    for (index, ty) in types.into_iter_err_on_gc_types().enumerate() {
+                        let ty = ty.unwrap();
+                        // The range resolver takes the start, last-byte offset,
+                        // first page entry and required permissions, returning
+                        // one resolved entry. Locate it independently of order.
+                        if ty.params() == [ValType::I32; 4] && ty.results() == [ValType::I32] {
+                            range_type = Some(index as u32);
+                        }
+                    }
+                }
                 Payload::ImportSection(imports) => {
                     for import in imports {
                         if matches!(import.unwrap().ty, TypeRef::Func(_)) {
                             imported_functions += 1;
                             function += 1;
+                        }
+                    }
+                }
+                Payload::FunctionSection(functions) => {
+                    for (index, ty) in functions.into_iter().enumerate() {
+                        if Some(ty.unwrap()) == range_type {
+                            let index = imported_functions + index as u32;
+                            assert!(
+                                range_resolver.replace(index).is_none(),
+                                "one shared resolver"
+                            );
                         }
                     }
                 }
@@ -258,10 +282,8 @@ fn native_transfers_reuse_the_range_checks_and_omit_the_stos_element_loop() {
                                 Operator::MemoryCopy { .. } => counts.0 += 1,
                                 Operator::MemoryFill { .. } => counts.1 += 1,
                                 Operator::Loop { .. } => counts.2 += 1,
-                                // Memory declares its shared range helper before
-                                // lazily requested instruction helpers.
                                 Operator::Call { function_index }
-                                    if function_index == imported_functions =>
+                                    if Some(function_index) == range_resolver =>
                                 {
                                     counts.3 += 1
                                 }
@@ -274,6 +296,7 @@ fn native_transfers_reuse_the_range_checks_and_omit_the_stos_element_loop() {
                 _ => {}
             }
         }
+        assert!(range_resolver.is_some(), "range resolver is present");
         assert_eq!(counts, (copies, fills, loops, probes), "{code:x?}");
     }
 }

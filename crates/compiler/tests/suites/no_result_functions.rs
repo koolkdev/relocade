@@ -14,12 +14,11 @@ fn shared_writer() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let writer = fixture
         .program
-        .function::<fn(u32)>(|mut body, (value,)| {
+        .function::<fn(u32)>(move |mut body, (value,)| {
             body.store(state, 0, value)?;
             body.return_(())
-        })
-        .unwrap();
-    fixture.function(&[Type::I32], &[], |mut body| {
+        });
+    fixture.function(&[Type::I32], &[], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         body.call::<()>(writer, &[input.add(1).into()])?;
         body.return_(())
@@ -29,14 +28,11 @@ fn shared_writer() -> TestModule {
 fn imported_tail() -> TestModule {
     let mut fixture = Fixture::new();
     let receive = fixture.callback("receive", signature(&[Type::I8, Type::I8], &[]), &[]);
-    let relay = fixture
-        .program
-        .function::<fn(u8)>(|body, _| {
-            let value = body.parameter::<I8>(0)?.add(1);
-            body.tail_call(receive, &[(&value).into(), value.into()])
-        })
-        .unwrap();
-    fixture.function(&[Type::I8], &[], |mut body| {
+    let relay = fixture.program.function::<fn(u8)>(move |body, _| {
+        let value = body.parameter::<I8>(0)?.add(1);
+        body.tail_call(receive, &[(&value).into(), value.into()])
+    });
+    fixture.function(&[Type::I8], &[], move |mut body| {
         let value = body.parameter::<I8>(0)?.add(1);
         body.call::<()>(relay, &[value.into()])?;
         body.return_(())
@@ -46,18 +42,14 @@ fn imported_tail() -> TestModule {
 fn mutating_call() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0]);
-    let mutator = fixture
-        .program
-        .function::<fn()>(|mut body, ()| {
-            body.store::<I32>(state, 0, 9)?;
-            body.return_(())
-        })
-        .unwrap();
+    let mutator = fixture.program.function::<fn()>(move |mut body, ()| {
+        body.store::<I32>(state, 0, 9)?;
+        body.return_(())
+    });
     let wrapper = fixture
         .program
-        .function::<fn()>(|body, ()| body.tail_call(mutator, &[]))
-        .unwrap();
-    fixture.function(&[], &[Type::I32], |mut body| {
+        .function::<fn()>(move |body, ()| body.tail_call(mutator, &[]));
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let before = body.load::<I32>(state, 0)?;
         body.call::<()>(wrapper, &[])?;
         let after = body.load::<I32>(state, 0)?;
@@ -68,7 +60,7 @@ fn mutating_call() -> TestModule {
 fn returning_value_arm(use_switch: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[1, 0, 0, 0]);
-    fixture.function(&[Type::I1], &[], |mut body| {
+    fixture.function(&[Type::I1], &[], move |mut body| {
         let stop = body.parameter::<I1>(0)?;
         let value = if use_switch {
             body.switch_value::<I32, _>(stop, &[1], |arm, key| match key {
@@ -88,13 +80,12 @@ fn conditional_calls() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     let writer = fixture
         .program
-        .function::<fn(u32, u32)>(|mut body, (first, second)| {
+        .function::<fn(u32, u32)>(move |mut body, (first, second)| {
             body.store(state, 0, first)?;
             body.store(state, 4, second)?;
             body.return_(())
-        })
-        .unwrap();
-    fixture.function(&[Type::I1], &[], |mut body| {
+        });
+    fixture.function(&[Type::I1], &[], move |mut body| {
         let write = body.parameter::<I1>(0)?;
         let before = body.load::<I32>(state, 0)?;
         let shared = before.add(1);
@@ -111,7 +102,7 @@ fn recursive_tail() -> TestModule {
     let run = fixture.program.declare(signature(&[Type::I32], &[]));
     fixture
         .program
-        .define(run, |mut body| {
+        .define(run, move |mut body| {
             let remaining = body.parameter::<I32>(0).unwrap();
             body.if_(remaining.eq(0), |arm| arm.return_(())).unwrap();
             body.tail_call(run, &[remaining.sub(1).into()])

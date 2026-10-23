@@ -19,7 +19,7 @@ enum Access {
 }
 
 fn accesses(
-    build: impl FnOnce(&mut BlockBuilder<'_>, &mut StateFields) -> Val<I32>,
+    build: impl FnOnce(&mut BlockBuilder<'_>, &mut StateFields) -> Val<I32> + 'static,
 ) -> Vec<Access> {
     let mut program = Program::new();
     let memory = program.import_memory(MemoryImport {
@@ -34,7 +34,7 @@ fn accesses(
         results: vec![Type::I32],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let mut state = StateFields::new(memory);
             let result = build(&mut body, &mut state);
             body.return_(result)

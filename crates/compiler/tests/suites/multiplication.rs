@@ -87,7 +87,7 @@ fn constant_products_fold_at_every_logical_width() {
     {
         for &(left, right, expected) in cases {
             for admitted in [false, true] {
-                let module = Fixture::new().expression(&[], |body| {
+                let module = Fixture::new().expression(&[], move |body| {
                     let left = Val::<I64>::from(left).truncate::<T>();
                     let right = Val::<I64>::from(right).truncate::<T>();
                     let product = if admitted {
@@ -131,7 +131,7 @@ fn computed_and_literal_products_wrap_at_every_logical_width() {
                 "{:?}: {left:#x} * {right:#x}",
                 T::TYPE
             );
-            let literal = Fixture::new().expression(&[T::TYPE], |body| {
+            let literal = Fixture::new().expression(&[T::TYPE], move |body| {
                 body.parameter::<T>(0)
                     .unwrap()
                     .mul(Val::<I64>::from(right).truncate::<T>())
@@ -159,7 +159,7 @@ fn products_accept_native_signed_unsigned_and_boolean_literals() {
     let module = Fixture::new().function(
         &[Type::I64, Type::I1],
         &[Type::I64, Type::I64, Type::I64, Type::I1],
-        |body| {
+        move |body| {
             let value = body.parameter::<I64>(0)?;
             let bit = body.parameter::<I1>(1)?;
             body.return_((
@@ -188,7 +188,7 @@ fn zero_and_one_products_fold_before_emission() {
         for zero_on_left in [false, true] {
             let mut fixture = Fixture::new();
             let memory = fixture.memory("state", &[7; 8]);
-            let module = fixture.function(&[], &[Type::I64], |mut body| {
+            let module = fixture.function(&[], &[Type::I64], move |mut body| {
                 let value = body.load::<I64>(memory, 0)?.truncate::<T>();
                 assert!(value.mul(1).same_expression(&value));
                 assert!(Val::<T>::from(1).mul(&value).same_expression(&value));

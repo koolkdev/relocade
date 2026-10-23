@@ -26,7 +26,7 @@ fn binary32_promotion_preserves_values_and_defers_nan_payloads() {
     ] {
         let expected = [Value::I64(expected as i64)];
         check(&runtime, &[Value::I32(source as i32)], &expected);
-        let constant = Fixture::new().expression(&[], |_| {
+        let constant = Fixture::new().expression(&[], move |_| {
             observed_bits(Val::<F64>::from_binary32_bits(source))
         });
         check(&constant, &[], &expected);
@@ -42,7 +42,7 @@ fn binary32_demotion_rounds_ties_and_preserves_gradual_underflow() {
             .ge(0x7f80_0001)
             .select(bits.and(0x7fc0_0000), bits)
     };
-    let runtime = Fixture::new().expression(&[Type::I64], |body| {
+    let runtime = Fixture::new().expression(&[Type::I64], move |body| {
         observed(Val::<F64>::from_bits(body.parameter::<I64>(0).unwrap()))
     });
     // Literal encodings cover ties with even/odd retained bits, gradual
@@ -68,7 +68,8 @@ fn binary32_demotion_rounds_ties_and_preserves_gradual_underflow() {
     ] {
         let expected = [Value::I32(expected as i32)];
         check(&runtime, &[Value::I64(source as i64)], &expected);
-        let constant = Fixture::new().expression(&[], |_| observed(Val::<F64>::from_bits(source)));
+        let constant =
+            Fixture::new().expression(&[], move |_| observed(Val::<F64>::from_bits(source)));
         check(&constant, &[], &expected);
     }
 }
@@ -88,7 +89,7 @@ fn narrow_integers() {
         ]
         .map(|value| value.to_bits())
     };
-    let runtime = Fixture::new().function(&[Type::I32], &[Type::I64; 6], |body| {
+    let runtime = Fixture::new().function(&[Type::I32], &[Type::I64; 6], move |body| {
         let input = body.parameter::<I32>(0)?;
         body.return_(build(input))
     });
@@ -103,7 +104,7 @@ fn narrow_integers() {
         let expected = expected.map(|value: f64| Value::I64(value.to_bits() as i64));
         check(&runtime, &[Value::I32(source as i32)], &expected);
         for admitted in [false, true] {
-            let constant = Fixture::new().function(&[], &[Type::I64; 6], |body| {
+            let constant = Fixture::new().function(&[], &[Type::I64; 6], move |body| {
                 let value = Val::<I32>::from(source);
                 let value = if admitted { body.value(value)? } else { value };
                 body.return_(build(value))
@@ -111,7 +112,7 @@ fn narrow_integers() {
             check(&constant, &[], &expected);
         }
     }
-    let guarded = Fixture::new().function(&[Type::I32], &[Type::I64; 2], |mut body| {
+    let guarded = Fixture::new().function(&[Type::I32], &[Type::I64; 2], move |mut body| {
         let byte = body.parameter::<I32>(0)?.truncate::<I8>().add(1);
         let signed = body.value(byte.signed().to_f64())?;
         let unsigned = body.value(byte.unsigned().to_f64())?;
@@ -142,7 +143,7 @@ fn wide_integers() {
         ]
         .map(|value| value.to_bits())
     };
-    let runtime = Fixture::new().function(&[Type::I64], &[Type::I64; 4], |body| {
+    let runtime = Fixture::new().function(&[Type::I64], &[Type::I64; 4], move |body| {
         let input = body.parameter::<I64>(0)?;
         body.return_(build(input))
     });
@@ -209,7 +210,7 @@ fn wide_integers() {
     ] {
         let expected = expected.map(|bits| Value::I64(bits as i64));
         check(&runtime, &[Value::I64(source as i64)], &expected);
-        let constant = Fixture::new().function(&[], &[Type::I64; 4], |body| {
+        let constant = Fixture::new().function(&[], &[Type::I64; 4], move |body| {
             body.return_(build(source.into()))
         });
         check(&constant, &[], &expected);
@@ -218,7 +219,7 @@ fn wide_integers() {
 
 #[test]
 fn floating_integer_conversion_saturates_without_trapping() {
-    let runtime = Fixture::new().function(&[Type::I64], &[Type::I32], |body| {
+    let runtime = Fixture::new().function(&[Type::I64], &[Type::I32], move |body| {
         let value = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         body.return_(value.trunc_saturating_i32())
     });
@@ -243,7 +244,7 @@ fn floating_integer_conversion_saturates_without_trapping() {
         let expected = [Value::I32(expected)];
         check(&runtime, &[Value::I64(bits as i64)], &expected);
         for admitted in [false, true] {
-            let constant = Fixture::new().function(&[], &[Type::I32], |body| {
+            let constant = Fixture::new().function(&[], &[Type::I32], move |body| {
                 let value = Val::<F64>::from_bits(bits);
                 let value = if admitted { body.value(value)? } else { value };
                 body.return_(value.trunc_saturating_i32())

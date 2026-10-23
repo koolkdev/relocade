@@ -49,7 +49,7 @@ fn preserving_flags_keeps_the_arithmetic_source_and_its_width() {
         results: vec![],
     });
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let left = body.parameter::<I16>(0).unwrap();
             let right = body.parameter::<I16>(1).unwrap();
             let first = body.parameter::<I1>(2).unwrap();
@@ -94,6 +94,8 @@ fn preserving_flags_keeps_the_arithmetic_source_and_its_width() {
             body.return_(())
         })
         .unwrap();
+    program.export("run", function).unwrap();
+    program.compile().unwrap();
 }
 
 #[test]
@@ -104,7 +106,7 @@ fn conditioning_and_preserving_keep_explicit_values_and_the_write_mask() {
         results: vec![],
     });
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let values: [_; 11] =
                 std::array::from_fn(|index| body.parameter::<I1>(index as u32).unwrap());
             let source = StatusSource::<I32>::Explicit {
@@ -173,4 +175,6 @@ fn conditioning_and_preserving_keep_explicit_values_and_the_write_mask() {
             body.return_(())
         })
         .unwrap();
+    program.export("run", function).unwrap();
+    program.compile().unwrap();
 }

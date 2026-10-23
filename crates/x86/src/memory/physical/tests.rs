@@ -17,40 +17,39 @@ use crate::{
 
 fn define_transfers<T: MemoryInt + crate::memory::TransferType>(
     program: &mut Program,
-    memory: &Memory,
+    memory: &std::rc::Rc<Memory>,
 ) {
     for write in [false, true] {
-        let function = program
-            .raw_function(
-                Signature {
-                    parameters: if write {
-                        vec![Type::I32, T::TYPE]
-                    } else {
-                        vec![Type::I32]
-                    },
-                    results: vec![Type::I64],
+        let memory = memory.clone();
+        let function = program.raw_function(
+            Signature {
+                parameters: if write {
+                    vec![Type::I32, T::TYPE]
+                } else {
+                    vec![Type::I32]
                 },
-                |mut body| {
-                    let address = body.parameter::<I32>(0)?;
-                    let access = memory.resolve_access(
-                        &mut body,
-                        &address,
-                        T::BYTES,
-                        if write { Intent::Write } else { Intent::Read },
-                        None,
-                        Some(&mut exit::exception),
-                    )?;
-                    if write {
-                        let value = body.parameter::<T>(1)?;
-                        memory.write(&mut body, &access, 0, &value)?;
-                        body.return_(7)
-                    } else {
-                        let value = memory.read::<T>(&mut body, &access, 0)?;
-                        body.return_(value.unsigned().extend::<I64>())
-                    }
-                },
-            )
-            .unwrap();
+                results: vec![Type::I64],
+            },
+            move |mut body| {
+                let address = body.parameter::<I32>(0)?;
+                let access = memory.resolve_access(
+                    &mut body,
+                    &address,
+                    T::BYTES,
+                    if write { Intent::Write } else { Intent::Read },
+                    None,
+                    Some(&mut exit::exception),
+                )?;
+                if write {
+                    let value = body.parameter::<T>(1)?;
+                    memory.write(&mut body, &access, 0, &value)?;
+                    body.return_(7)
+                } else {
+                    let value = memory.read::<T>(&mut body, &access, 0)?;
+                    body.return_(value.unsigned().extend::<I64>())
+                }
+            },
+        );
         program
             .export(
                 &format!("{}{}", if write { "write" } else { "read" }, T::BYTES * 8),
@@ -64,7 +63,7 @@ fn transfers() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| {
         let mut program = Program::new();
-        let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
+        let memory = std::rc::Rc::new(Memory::Physical(PhysicalMemory::declare(&mut program)));
         define_transfers::<I8>(&mut program, &memory);
         define_transfers::<I16>(&mut program, &memory);
         define_transfers::<I32>(&mut program, &memory);
@@ -175,60 +174,58 @@ fn widths(mmio: bool) {
 fn updates() {
     for matches in [false, true] {
         let mut program = Program::new();
-        let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
-        let function = program
-            .function::<fn() -> u64>(|mut body, ()| {
-                let unused = memory.resolve_access(
-                    &mut body,
-                    &0x8000.into(),
-                    1,
-                    Intent::Read,
-                    None,
-                    Some(&mut exit::exception),
-                )?;
-                memory.read::<I8>(&mut body, &unused, 0)?;
-                let access = memory.resolve_access(
-                    &mut body,
-                    &0x1fff.into(),
-                    8,
-                    Intent::Write,
-                    None,
-                    Some(&mut exit::exception),
-                )?;
-                let before = memory.atomic_update(
-                    &mut body,
-                    &access,
-                    &OperandUpdate::<I64>::CompareExchange {
-                        expected: if matches {
-                            0x1122_3344_5566_7788u64.into()
-                        } else {
-                            0.into()
-                        },
-                        replacement: 0x8877_6655_4433_2211u64.into(),
+        let memory = std::rc::Rc::new(Memory::Physical(PhysicalMemory::declare(&mut program)));
+        let function = program.function::<fn() -> u64>(move |mut body, ()| {
+            let unused = memory.resolve_access(
+                &mut body,
+                &0x8000.into(),
+                1,
+                Intent::Read,
+                None,
+                Some(&mut exit::exception),
+            )?;
+            memory.read::<I8>(&mut body, &unused, 0)?;
+            let access = memory.resolve_access(
+                &mut body,
+                &0x1fff.into(),
+                8,
+                Intent::Write,
+                None,
+                Some(&mut exit::exception),
+            )?;
+            let before = memory.atomic_update(
+                &mut body,
+                &access,
+                &OperandUpdate::<I64>::CompareExchange {
+                    expected: if matches {
+                        0x1122_3344_5566_7788u64.into()
+                    } else {
+                        0.into()
                     },
-                )?;
-                let alias = memory.resolve_access(
-                    &mut body,
-                    &0x9fff.into(),
-                    8,
-                    Intent::Read,
-                    None,
-                    Some(&mut exit::exception),
-                )?;
-                let after = memory.read::<I64>(&mut body, &alias, 0)?;
-                body.return_(
-                    before
-                        .eq(0x1122_3344_5566_7788u64)
-                        .and(after.eq(if matches {
-                            0x8877_6655_4433_2211u64
-                        } else {
-                            0x1122_3344_5566_7788u64
-                        }))
-                        .unsigned()
-                        .extend::<I64>(),
-                )
-            })
-            .unwrap();
+                    replacement: 0x8877_6655_4433_2211u64.into(),
+                },
+            )?;
+            let alias = memory.resolve_access(
+                &mut body,
+                &0x9fff.into(),
+                8,
+                Intent::Read,
+                None,
+                Some(&mut exit::exception),
+            )?;
+            let after = memory.read::<I64>(&mut body, &alias, 0)?;
+            body.return_(
+                before
+                    .eq(0x1122_3344_5566_7788u64)
+                    .and(after.eq(if matches {
+                        0x8877_6655_4433_2211u64
+                    } else {
+                        0x1122_3344_5566_7788u64
+                    }))
+                    .unsigned()
+                    .extend::<I64>(),
+            )
+        });
         program.export("update", function).unwrap();
         let module = TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),

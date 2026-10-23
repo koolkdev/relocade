@@ -13,8 +13,7 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
     let mut program = Program::new();
     let interpret = crate::abi::INTERPRET.import(&mut program);
     let entry = program
-        .function::<crate::abi::ExecutionSignature>(|body, ()| interpret.tail_call(body, ()))
-        .unwrap();
+        .function::<crate::abi::ExecutionSignature>(move |body, ()| interpret.tail_call(body, ()));
     program.export("enter", entry).unwrap();
     let module = TestModule::new(&relocade_x86::CompiledModule {
         bytes: program.compile().unwrap(),

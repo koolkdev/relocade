@@ -7,7 +7,7 @@ fn swaps() -> TestModule {
     Fixture::new().function(
         &[Type::I32],
         &[Type::I64, Type::I32, Type::I32],
-        |mut body| {
+        move |mut body| {
             let count = body.parameter::<I32>(0)?;
             let result = body.loop_::<(I32, I32, I32, I64), (I64, I32, I32)>(
                 (&count, 3, 7, 100u64),
@@ -32,7 +32,7 @@ fn swaps() -> TestModule {
 }
 
 fn nested_labels() -> TestModule {
-    Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let result =
             body.loop_::<(I32, I32), I32>((&count, 0), |mut outer, labels, (left, sum)| {
@@ -58,7 +58,7 @@ fn nested_labels() -> TestModule {
 fn snapshots() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let before = body.load::<I32>(state, 0)?;
         let sum =
@@ -77,12 +77,11 @@ fn entry_reads_used_on_backedges() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a, 0, 0]);
     let read_only = fixture
         .program
-        .function::<fn() -> u32>(|mut body, ()| {
+        .function::<fn() -> u32>(move |mut body, ()| {
             let value = body.load::<I32>(state, 4)?;
             body.return_(value)
-        })
-        .unwrap();
-    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+        });
+    fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let before = body.load::<I32>(state, 0)?;
         let called_before = body.call::<I32>(read_only, &[])?;
@@ -104,7 +103,7 @@ fn entry_reads_used_on_backedges() -> TestModule {
 }
 
 fn narrow_values() -> TestModule {
-    Fixture::new().function(&[Type::I32], &[Type::I32, Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32, Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let result = body.loop_::<(I32, I8, I1, I32), (I32, I32)>(
             (&count, 254, true, 0),
@@ -138,7 +137,7 @@ fn narrow_values() -> TestModule {
 fn direct_and_unit_exits() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0, 0, 0, 0]);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         body.loop_::<(), ()>((), |mut iteration, _, ()| {
             iteration.store::<I32>(state, 0, 9)
         })?;
@@ -245,7 +244,7 @@ fn loop_inputs_and_labels_cannot_escape_and_failed_builds_leave_parent_usable() 
     let function = fixture.program.declare(signature(&[], &[Type::I32]));
     fixture
         .program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let mut escaped_value = None;
             let mut escaped_again = None;
             let mut escaped_exit = None;
@@ -306,15 +305,14 @@ fn guarded_invariant_reads() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0, 2, 0, 0, 0]);
     let read_only = fixture
         .program
-        .function::<fn() -> u32>(|mut helper, ()| {
+        .function::<fn() -> u32>(move |mut helper, ()| {
             let value = helper.load::<I32>(state, 4)?;
             helper.return_(value)
-        })
-        .unwrap();
+        });
     fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let enabled = body.parameter::<I1>(0)?;
             let allowed = body.parameter::<I1>(1)?;
             let count = body.parameter::<I32>(2)?;

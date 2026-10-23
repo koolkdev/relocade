@@ -23,7 +23,7 @@ fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
 #[test]
 fn dynamic_shifts_share_the_count_and_shifted_value() {
     for direction in ["left", "unsigned right", "signed right"] {
-        let module = Fixture::new().expression(&[Type::I32; 2], |body| {
+        let module = Fixture::new().expression(&[Type::I32; 2], move |body| {
             let value = body.parameter::<I32>(0).unwrap();
             let count = body.parameter::<I32>(1).unwrap().add(1);
             let shifted = match direction {
@@ -55,7 +55,7 @@ fn zero_shifts_do_not_force_unused_count_loads() {
     for direction in ["left", "unsigned right", "signed right"] {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &[7, 0, 0, 0]);
-        let module = fixture.function(&[], &[Type::I32], |mut body| {
+        let module = fixture.function(&[], &[Type::I32], move |mut body| {
             let count = body.load::<I32>(memory, 65536)?;
             let zero = Val::<I32>::from(0);
             let shifted = match direction {
@@ -90,7 +90,8 @@ fn constant_right_shifts_fold_the_logical_sign_and_carrier_count() {
     {
         for admitted in [false, true] {
             for (is_signed, expected) in [(false, unsigned), (true, signed)] {
-                let module = Fixture::new().expression(&[], |body| {
+                let input = input.clone();
+                let module = Fixture::new().expression(&[], move |body| {
                     let input = if admitted {
                         body.value(&input).unwrap()
                     } else {
@@ -153,7 +154,7 @@ fn computed_right_shifts_use_i32_counts_at_every_logical_width() {
         I64: AtLeast<T>,
     {
         for is_signed in [false, true] {
-            let module = Fixture::new().expression(&[T::TYPE, Type::I32], |body| {
+            let module = Fixture::new().expression(&[T::TYPE, Type::I32], move |body| {
                 let input = body.parameter::<T>(0).unwrap();
                 let count = body.parameter::<I32>(1).unwrap();
                 let result = if is_signed {
@@ -234,7 +235,7 @@ fn narrow_right_shifts_ignore_dirty_upper_bits_before_and_after_shifting() {
         for is_signed in [false, true] {
             for constant_count in [false, true] {
                 for &(input, count, unsigned, signed) in cases {
-                    let module = Fixture::new().expression(&[Type::I32; 2], |body| {
+                    let module = Fixture::new().expression(&[Type::I32; 2], move |body| {
                         // Truncation and addition leave arbitrary upper carrier bits.
                         let value = body.parameter::<I32>(0).unwrap().truncate::<T>().add(1);
                         let count = if constant_count {
@@ -278,7 +279,7 @@ fn narrow_right_shifts_ignore_dirty_upper_bits_before_and_after_shifting() {
 fn count_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[1, 0, 0, 0, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let branch = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?.truncate::<I8>();
         let count = body.load::<I32>(memory, 0)?;
@@ -329,8 +330,9 @@ fn truncation_follows_the_wrapped_shift_count() {
 #[test]
 fn dword_left_shifts_wrap_the_count() {
     for (count, argument, expected) in [(31, 1, -2147483648), (33, 1, 2)] {
-        let module =
-            Fixture::new().expression(&[Type::I32], |b| b.parameter::<I32>(0).unwrap().shl(count));
+        let module = Fixture::new().expression(&[Type::I32], move |b| {
+            b.parameter::<I32>(0).unwrap().shl(count)
+        });
         assert_eq!(
             module.instantiate().call::<i32>((argument,)).unwrap(),
             expected,
@@ -342,7 +344,7 @@ fn dword_left_shifts_wrap_the_count() {
 #[test]
 fn dword_right_shifts_wrap_the_count() {
     for (count, argument, expected) in [(31, -2147483648, 1), (32, -2147483648, -2147483648)] {
-        let module = Fixture::new().expression(&[Type::I32], |b| {
+        let module = Fixture::new().expression(&[Type::I32], move |b| {
             b.parameter::<I32>(0).unwrap().unsigned().shr(count)
         });
         assert_eq!(
@@ -356,8 +358,9 @@ fn dword_right_shifts_wrap_the_count() {
 #[test]
 fn qword_left_shifts_wrap_the_count() {
     for (count, argument, expected) in [(63, 1_i64, -9223372036854775808_i64), (65, 1_i64, 2_i64)] {
-        let module =
-            Fixture::new().expression(&[Type::I64], |b| b.parameter::<I64>(0).unwrap().shl(count));
+        let module = Fixture::new().expression(&[Type::I64], move |b| {
+            b.parameter::<I64>(0).unwrap().shl(count)
+        });
         assert_eq!(
             module.instantiate().call::<i64>((argument,)).unwrap(),
             expected,
@@ -372,7 +375,7 @@ fn qword_right_shifts_wrap_the_count() {
         (63, -9223372036854775808_i64, 1_i64),
         (64, -9223372036854775808_i64, -9223372036854775808_i64),
     ] {
-        let module = Fixture::new().expression(&[Type::I64], |b| {
+        let module = Fixture::new().expression(&[Type::I64], move |b| {
             b.parameter::<I64>(0).unwrap().unsigned().shr(count)
         });
         assert_eq!(
@@ -386,8 +389,9 @@ fn qword_right_shifts_wrap_the_count() {
 #[test]
 fn byte_left_shifts_wrap_the_carrier_count_and_result() {
     for (count, argument, expected) in [(1, 128, 0), (8, 128, 0), (32, 128, 128)] {
-        let module =
-            Fixture::new().expression(&[Type::I8], |b| b.parameter::<I8>(0).unwrap().shl(count));
+        let module = Fixture::new().expression(&[Type::I8], move |b| {
+            b.parameter::<I8>(0).unwrap().shl(count)
+        });
         assert_eq!(
             module.instantiate().call::<i32>((argument,)).unwrap(),
             expected,
@@ -399,7 +403,7 @@ fn byte_left_shifts_wrap_the_carrier_count_and_result() {
 #[test]
 fn byte_right_shifts_use_the_carrier_count() {
     for (count, argument, expected) in [(8, 128, 0), (32, 128, 128)] {
-        let module = Fixture::new().expression(&[Type::I8], |b| {
+        let module = Fixture::new().expression(&[Type::I8], move |b| {
             b.parameter::<I8>(0).unwrap().unsigned().shr(count)
         });
         assert_eq!(

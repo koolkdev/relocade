@@ -4,7 +4,7 @@ use relocade_compiler::I64;
 
 #[test]
 fn inequality_guard_eliminates_the_opposite_equality() {
-    let module = Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         body.if_(input.ne(32767), |arm| {
             arm.return_(input.eq(32767).select::<I32>(7, 11))
@@ -20,7 +20,7 @@ fn inequality_guard_eliminates_the_opposite_equality() {
 #[test]
 fn both_edges_prove_opposite_comparisons_including_swapped_equality() {
     for kind in 0..6 {
-        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I32], |mut body| {
+        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I32], move |mut body| {
             let left = body.parameter::<I64>(0)?;
             let right = body.parameter::<I64>(1)?;
             let opposite = match kind {
@@ -76,7 +76,7 @@ fn comparison_facts_respect_width_signedness_and_bypassed_guards() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I32, Type::I1],
         &[Type::I32; 2],
-        |mut body| {
+        move |mut body| {
             let left = body.parameter::<I32>(0)?;
             let right = body.parameter::<I32>(1)?;
             let enabled = body.parameter::<I1>(2)?;

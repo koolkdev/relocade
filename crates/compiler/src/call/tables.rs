@@ -21,20 +21,16 @@ fn indirect_tail_calls_use_the_live_slot_and_preserve_helper_effects() {
         parameters: vec![Type::I32],
         results: vec![Type::I32],
     };
-    let indirect = program
-        .raw_function(signature.clone(), |body| {
-            let slot = body.parameter::<I32>(0)?;
-            body.tail_call_indirect(table, slot, &[41.into()])
-        })
-        .unwrap();
-    let entry = program
-        .raw_function(signature, |mut body| {
-            let slot = body.parameter::<I32>(0)?;
-            // Discarding the result must retain the indirect callee's unknown effects.
-            body.call::<I32>(indirect, &[slot.into()])?;
-            body.return_(7)
-        })
-        .unwrap();
+    let indirect = program.raw_function(signature.clone(), move |body| {
+        let slot = body.parameter::<I32>(0)?;
+        body.tail_call_indirect(table, slot, &[41.into()])
+    });
+    let entry = program.raw_function(signature, move |mut body| {
+        let slot = body.parameter::<I32>(0)?;
+        // Discarding the result must retain the indirect callee's unknown effects.
+        body.call::<I32>(indirect, &[slot.into()])?;
+        body.return_(7)
+    });
     program.export("run", entry).unwrap();
     let mut config = wasmtime::Config::new();
     config.wasm_tail_call(true);
@@ -79,13 +75,13 @@ fn indirect_tail_calls_use_the_live_slot_and_preserve_helper_effects() {
 #[test]
 fn indirect_calls_check_logical_types_and_prune_unused_tables() {
     let mut program = Program::new();
-    let table = table(&mut program, Type::I8);
-    let error = program
-        .function::<fn() -> u32>(|body, ()| {
-            let value = body.value::<I32>(1)?;
-            body.tail_call_indirect(table, 0, &[value.into()])
-        })
-        .unwrap_err();
+    let table = self::table(&mut program, Type::I8);
+    let invalid = program.function::<fn() -> u32>(move |body, ()| {
+        let value = body.value::<I32>(1)?;
+        body.tail_call_indirect(table, 0, &[value.into()])
+    });
+    program.export("invalid", invalid).unwrap();
+    let error = program.compile().unwrap_err();
     assert_eq!(
         error,
         BuildError::TypeMismatch {
@@ -93,15 +89,15 @@ fn indirect_calls_check_logical_types_and_prune_unused_tables() {
             actual: Type::I32
         }
     );
-    let entry = program
-        .function::<fn() -> u32>(|mut body, ()| {
-            body.if_(false, |branch| {
-                let byte = branch.value::<I8>(3)?;
-                branch.tail_call_indirect(table, 1, &[byte.into()])
-            })?;
-            body.return_(5)
-        })
-        .unwrap();
+    let mut program = Program::new();
+    let table = self::table(&mut program, Type::I8);
+    let entry = program.function::<fn() -> u32>(move |mut body, ()| {
+        body.if_(false, |branch| {
+            let byte = branch.value::<I8>(3)?;
+            branch.tail_call_indirect(table, 1, &[byte.into()])
+        })?;
+        body.return_(5)
+    });
     program.export("run", entry).unwrap();
     let bytes = program.compile().unwrap();
     wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
@@ -128,13 +124,10 @@ fn table_and_signature_indices_remain_independent_after_pruning() {
         },
     });
     let entry = program
-        .function::<fn() -> u32>(|body, ()| body.tail_call_indirect(word, 1, &[9.into()]))
-        .unwrap();
-    let wide_entry = program
-        .function::<fn() -> u64>(|body, ()| {
-            body.tail_call_indirect(wide, 0, &[0x1_0000_0000u64.into()])
-        })
-        .unwrap();
+        .function::<fn() -> u32>(move |body, ()| body.tail_call_indirect(word, 1, &[9.into()]));
+    let wide_entry = program.function::<fn() -> u64>(move |body, ()| {
+        body.tail_call_indirect(wide, 0, &[0x1_0000_0000u64.into()])
+    });
     program.export("word", entry).unwrap();
     program.export("wide", wide_entry).unwrap();
     let mut config = wasmtime::Config::new();

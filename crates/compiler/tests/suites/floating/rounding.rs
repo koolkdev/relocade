@@ -15,7 +15,7 @@ fn operations(value: Val<F64>) -> [Val<I64>; 5] {
 
 #[test]
 fn integral_rounding_and_square_root_preserve_ieee_boundaries() {
-    let runtime = Fixture::new().function(&[Type::I64], &[Type::I64; 5], |body| {
+    let runtime = Fixture::new().function(&[Type::I64], &[Type::I64; 5], move |body| {
         let value = Val::<F64>::from_bits(body.parameter::<I64>(0)?);
         body.return_(operations(value))
     });
@@ -110,7 +110,7 @@ fn integral_rounding_and_square_root_preserve_ieee_boundaries() {
         let expected = expected.map(|bits| Value::I64(bits as i64));
         check(&runtime, &[Value::I64(input as i64)], &expected);
         for admitted in [false, true] {
-            let constant = Fixture::new().function(&[], &[Type::I64; 5], |body| {
+            let constant = Fixture::new().function(&[], &[Type::I64; 5], move |body| {
                 let value = Val::<F64>::from_bits(input);
                 let value = if admitted { body.value(value)? } else { value };
                 body.return_(operations(value))

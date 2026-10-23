@@ -7,7 +7,7 @@ use relocade_compiler::{Val, I64};
 mod control;
 
 fn interval() -> TestModule {
-    Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I64], &[Type::I32], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         body.if_(
             input.unsigned().ge(10_u64).and(input.unsigned().lt(20_u64)),
@@ -35,7 +35,7 @@ fn interval() -> TestModule {
 
 #[test]
 fn rewritten_operands_reuse_the_range_of_an_available_expression() {
-    let module = Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I64], &[Type::I32], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         let low_byte = input.and(0xff_u64);
         let in_range = low_byte
@@ -97,7 +97,7 @@ fn unsigned_intervals_fold_comparisons_only_inside_the_guard() {
 }
 
 fn narrowed_input() -> TestModule {
-    Fixture::new().function(&[Type::I32], &[Type::I32; 3], |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32; 3], move |mut body| {
         let original = body.parameter::<I32>(0)?;
         let byte = original.add(250).truncate::<I8>();
         body.if_(byte.unsigned().ge(240).eq(false), |arm| {
@@ -153,7 +153,7 @@ fn range_facts_observe_logical_width_and_preserve_original_carriers() {
 }
 
 fn dynamic_endpoints() -> TestModule {
-    Fixture::new().function(&[Type::I32; 2], &[Type::I32; 2], |mut body| {
+    Fixture::new().function(&[Type::I32; 2], &[Type::I32; 2], move |mut body| {
         let a = body.parameter::<I32>(0)?;
         let b = body.parameter::<I32>(1)?;
         body.if_(a.unsigned().lt(&b), |arm| {
@@ -170,7 +170,7 @@ fn dynamic_endpoints() -> TestModule {
 }
 
 fn nonzero_endpoint() -> TestModule {
-    Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         body.if_(Val::<I32>::from(0).unsigned().lt(&input), |arm| {
             arm.return_(input.unsigned().lt(1).select::<I32>(99, 7))
@@ -211,7 +211,7 @@ fn dynamic_unsigned_bounds_preserve_strict_endpoints_and_signed_comparisons() {
 
 #[test]
 fn nested_intervals_include_swapped_and_extreme_endpoints() {
-    let module = Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I64], &[Type::I32], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         body.if_(Val::<I64>::from(10_u64).unsigned().ge(&input), |arm| {
             arm.return_(1)
@@ -249,7 +249,7 @@ fn nested_intervals_include_swapped_and_extreme_endpoints() {
 
 #[test]
 fn a_truncated_range_does_not_narrow_the_original_value_or_its_signed_view() {
-    let module = Fixture::new().function(&[Type::I32], &[Type::I32; 3], |mut body| {
+    let module = Fixture::new().function(&[Type::I32], &[Type::I32; 3], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let byte = input.truncate::<I8>();
         body.if_(byte.unsigned().lt(16), |arm| {

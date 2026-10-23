@@ -49,7 +49,7 @@ fn removed_effects() -> TestModule {
         signature(&[Type::I32], &[Type::I32]),
         &[Value::I32(23)],
     );
-    fixture.function(&[Type::I32], &[Type::I32, Type::I32], |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32, Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         body.if_(false, |mut arm| {
             let called = arm.call::<I32>(dead_call, &[])?;
@@ -102,12 +102,11 @@ fn removed_writes_do_not_force_an_unused_helper_call() {
     let state = fixture.memory("state", &[7, 0, 0, 0]);
     let helper = fixture
         .program
-        .function::<fn() -> u32>(|mut body, ()| {
+        .function::<fn() -> u32>(move |mut body, ()| {
             body.if_(false, |mut arm| arm.store::<I32>(state, 0, 99))?;
             body.return_(23)
-        })
-        .unwrap();
-    let module = fixture.function(&[], &[Type::I32], |mut body| {
+        });
+    let module = fixture.function(&[], &[Type::I32], move |mut body| {
         let before = body.load::<I32>(state, 0)?;
         body.call::<I32>(helper, &[])?;
         body.store::<I32>(state, 0, 11)?;
@@ -125,7 +124,7 @@ fn removed_writes_do_not_force_an_unused_helper_call() {
 fn alternative_stores(condition: Option<bool>) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0, 0, 0, 0]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = match condition {
             Some(value) => Val::<I1>::from(value),
             None => body.parameter::<I1>(0)?,
@@ -162,7 +161,7 @@ fn constant_conditions_remove_branch_decisions_and_keep_selected_effects() {
 fn outward_exit(taken: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0, 0, 0, 0]);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let value = body.block::<I32>(|mut outer, exit| {
             outer.if_(true, |mut arm| {
                 arm.if_(true, |mut inner| {
@@ -193,7 +192,7 @@ fn folded_outward_exits_keep_their_target_and_skip_all_parent_continuations() {
 fn unconditional_backedge() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0, 0, 0, 0]);
-    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let result =
             body.loop_::<(I32, I32), I32>((count, 0), |mut iteration, labels, (left, sum)| {
@@ -228,7 +227,7 @@ fn terminating_result(exit: Exit, condition: bool, observe: bool) -> TestModule 
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0, 0, 0, 0]);
     let tail = fixture.callback("tail", signature(&[], &[Type::I32]), &[Value::I32(19)]);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let arm = |mut arm: relocade_compiler::BlockBuilder<'_>, taken: bool| {
             if !taken {
                 return arm.yield_(23);
@@ -276,7 +275,7 @@ fn selected_function_exits_preserve_live_and_unused_result_joins() {
 
 #[test]
 fn enclosing_results_are_validated_before_their_only_authored_edge_is_removed() {
-    let module = Fixture::new().function(&[], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[], &[Type::I32], move |mut body| {
         let result = body.block::<I32>(|mut block, exit| {
             block.if_(false, |arm| arm.branch(&exit, 23))?;
             block.return_(7)

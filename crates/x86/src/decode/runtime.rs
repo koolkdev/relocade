@@ -6,14 +6,18 @@ mod handlers;
 mod operands;
 mod selectors;
 
+use std::rc::Rc;
+
 use relocade_compiler::{
     BlockBuilder, BuildError, Func, Label, Program, Signature, Type, Val, I1, I32, I8,
 };
 
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},
+    memory::Memory,
     segment::SegmentDefaultSize,
-    state::exit,
+    state::{exit, Cpu},
+    ExecutionProfile,
 };
 
 use super::DecodeState;
@@ -43,8 +47,10 @@ impl DecodeContinuation {
 }
 
 /// Declares runtime decoding entries and builds their instruction paths.
-pub(crate) struct RuntimeDecoder<'memory> {
-    fetch: InstructionFetch<'memory>,
+pub(crate) struct RuntimeDecoder {
+    cpu: Rc<Cpu>,
+    memory: Rc<Memory>,
+    profile: ExecutionProfile,
     entry: Func,
     default_size: SegmentDefaultSize,
     opcode_handlers: DecodeHandlers,
@@ -53,25 +59,30 @@ pub(crate) struct RuntimeDecoder<'memory> {
 }
 
 /// Decodes instructions in one function scope with its completion policy.
-struct InstructionDecoder<'decoder, 'memory, C> {
-    decoder: &'decoder RuntimeDecoder<'memory>,
+struct InstructionDecoder<'decoder, C> {
+    decoder: &'decoder RuntimeDecoder,
     complete_instruction: C,
     // Carries the extended-map selector, form index and ModRM to memory decoding.
     memory_continuation: Option<Label<(I1, I32, I8)>>,
 }
 
-impl<'memory> RuntimeDecoder<'memory> {
+impl RuntimeDecoder {
     pub(crate) fn new(
         program: &mut Program,
-        fetch: InstructionFetch<'memory>,
-        default_size: SegmentDefaultSize,
-        before_next_instruction: impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError>,
+        cpu: Rc<Cpu>,
+        memory: Rc<Memory>,
+        profile: ExecutionProfile,
+        before_next_instruction: impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
         complete_instruction: impl Fn(
-            BlockBuilder<'_>,
-            DecodedInstruction<Val<I32>, Val<I32>>,
-            &DecodeContinuation,
-        ) -> Result<(), BuildError>,
-    ) -> Result<Self, BuildError> {
+                BlockBuilder<'_>,
+                DecodedInstruction<Val<I32>, Val<I32>>,
+                &DecodeContinuation,
+            ) -> Result<(), BuildError>
+            + 'static,
+    ) -> Result<Rc<Self>, BuildError> {
+        let default_size = profile.code_default_size();
+        let before_next_instruction = Rc::new(before_next_instruction);
+        let complete_instruction = Rc::new(complete_instruction);
         let signature = Signature {
             parameters: vec![Type::I1],
             results: crate::abi::RUN.signature().results,
@@ -79,8 +90,10 @@ impl<'memory> RuntimeDecoder<'memory> {
         let entry = program.declare(signature.clone());
         let exact = program.declare(signature.clone());
         let completed = program.declare(signature);
-        let decoder = Self {
-            fetch,
+        let decoder = Rc::new(Self {
+            cpu,
+            memory,
+            profile,
             entry,
             default_size,
             opcode_handlers: DecodeHandlers::declare(
@@ -101,63 +114,89 @@ impl<'memory> RuntimeDecoder<'memory> {
                 default_size,
                 false,
             ),
-        };
-        let continuation = DecodeContinuation::Entry(completed);
+        });
         for handlers in [
             &decoder.primary_modrm_memory_handlers,
             &decoder.extended_modrm_memory_handlers,
         ] {
-            handlers.define(program, &decoder.fetch, |body, cursor, state| {
-                let form_index = body.parameter::<I32>(2)?;
-                let modrm = body.parameter::<I8>(3)?;
-                InstructionDecoder {
-                    decoder: &decoder,
-                    memory_continuation: None,
-                    complete_instruction: |body: BlockBuilder<'_>, instruction| {
-                        complete_instruction(body, instruction, &continuation)
-                    },
-                }
-                .decode_memory_operands(body, cursor, state, &form_index, &modrm)
-            })?;
-        }
-        decoder
-            .opcode_handlers
-            .define(program, &decoder.fetch, |body, cursor, state| {
-                let opcode = body.parameter::<I8>(2)?;
-                if cursor.physical_start().is_some() {
-                    decoder.decode_cycle(
-                        body,
-                        cursor,
-                        &opcode,
-                        entry,
-                        &before_next_instruction,
-                        &complete_instruction,
-                    )
-                } else {
+            let complete_instruction = complete_instruction.clone();
+            handlers.define(
+                program,
+                decoder.clone(),
+                move |decoder, body, cursor, state| {
+                    let continuation = DecodeContinuation::Entry(completed);
+                    let form_index = body.parameter::<I32>(2)?;
+                    let modrm = body.parameter::<I8>(3)?;
                     InstructionDecoder {
-                        decoder: &decoder,
+                        decoder,
                         memory_continuation: None,
                         complete_instruction: |body: BlockBuilder<'_>, instruction| {
                             complete_instruction(body, instruction, &continuation)
                         },
                     }
-                    .decode_opcode(body, cursor, state, &opcode)
-                }
-            })?;
+                    .decode_memory_operands(
+                        body,
+                        cursor,
+                        state,
+                        &form_index,
+                        &modrm,
+                    )
+                },
+            )?;
+        }
+        {
+            let before_next_instruction = before_next_instruction.clone();
+            let complete_instruction = complete_instruction.clone();
+            decoder.opcode_handlers.define(
+                program,
+                decoder.clone(),
+                move |decoder, body, cursor, state| {
+                    let opcode = body.parameter::<I8>(2)?;
+                    if cursor.physical_start().is_some() {
+                        decoder.decode_cycle(
+                            body,
+                            cursor,
+                            &opcode,
+                            entry,
+                            &*before_next_instruction,
+                            &*complete_instruction,
+                        )
+                    } else {
+                        let continuation = DecodeContinuation::Entry(completed);
+                        InstructionDecoder {
+                            decoder,
+                            memory_continuation: None,
+                            complete_instruction: |body: BlockBuilder<'_>, instruction| {
+                                complete_instruction(body, instruction, &continuation)
+                            },
+                        }
+                        .decode_opcode(body, cursor, state, &opcode)
+                    }
+                },
+            )?;
+        }
         for (function, after_instruction) in [(entry, false), (completed, true)] {
-            program.define(function, |mut body| {
+            let decoder = decoder.clone();
+            let before_next_instruction = before_next_instruction.clone();
+            program.define(function, move |mut body| {
                 if after_instruction {
                     before_next_instruction(&mut body)?;
                 }
                 decoder.start(body, exact)
             })?;
         }
-        program.define(exact, |mut body| {
-            let fetch = decoder.fetch.clone();
+        let exact_decoder = decoder.clone();
+        program.define(exact, move |mut body| {
+            let decoder = exact_decoder;
+            let fetch = decoder.fetch();
             let start = fetch.eip(&mut body)?;
             decoder.decode(body, fetch, &start, None)
         })?;
         Ok(decoder)
+    }
+
+    fn fetch(&self) -> InstructionFetch<'_> {
+        InstructionFetch::new(&self.cpu, &self.memory, self.profile)
     }
 
     /// Every private decoder entry carries the execution policy in parameter zero.
@@ -183,7 +222,7 @@ impl<'memory> RuntimeDecoder<'memory> {
     /// Both initial entry and helper completion fetch directly, avoiding a second
     /// tail call on prefixed instructions. Exact fallback retains the policy.
     fn start(&self, mut body: BlockBuilder<'_>, exact: Func) -> Result<(), BuildError> {
-        let mut fetch = self.fetch.clone();
+        let mut fetch = self.fetch();
         let start = fetch.eip(&mut body)?;
         let direct = fetch.direct_window(&mut body, &start)?;
         body.if_(&direct.unavailable, |body| Self::resume(body, exact))?;
@@ -194,7 +233,7 @@ impl<'memory> RuntimeDecoder<'memory> {
     fn decode(
         &self,
         mut body: BlockBuilder<'_>,
-        fetch: InstructionFetch<'memory>,
+        fetch: InstructionFetch<'_>,
         instruction_eip: &Val<I32>,
         physical_start: Option<&Val<I32>>,
     ) -> Result<(), BuildError> {

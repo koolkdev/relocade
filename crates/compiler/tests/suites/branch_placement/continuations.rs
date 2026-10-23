@@ -3,7 +3,7 @@ use super::*;
 fn guard_and_continuation() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0xa5; 8]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let enabled = body.parameter::<I1>(0)?;
         let masked = body.parameter::<I32>(1)?.and(0xff);
         body.if_(enabled, |mut arm| arm.store(state, 0, &masked))?;
@@ -30,7 +30,7 @@ fn a_guard_and_its_continuation_use_the_same_mask() {
 fn block_exit_and_continuation() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0xa5; 8]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let skip = body.parameter::<I1>(0)?;
         let sum = body.parameter::<I32>(1)?.add(7);
         body.block::<()>(|mut block, success| {
@@ -64,7 +64,7 @@ fn block_with_alternative_continuations() -> TestModule {
     fixture.function(
         &[Type::I1, Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let continue_to_arms = body.parameter::<I1>(0)?;
             let first_arm = body.parameter::<I1>(1)?;
             let use_in_block = body.parameter::<I1>(2)?;
@@ -119,7 +119,7 @@ fn conditional_writes_and_a_return_use_the_same_calculation() {
     let module = fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let first = body.parameter::<I1>(0)?;
             let second = body.parameter::<I1>(1)?;
             let shared = body.parameter::<I32>(2)?.xor(0x55);
@@ -147,7 +147,7 @@ fn a_derived_result_is_available_in_a_guard_and_its_continuation() {
     let module = fixture.function(
         &[Type::I1, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let enabled = body.parameter::<I1>(0)?;
             let left = body.parameter::<I32>(1)?;
             let right = body.parameter::<I32>(2)?;
@@ -170,7 +170,7 @@ fn a_derived_result_is_available_in_a_guard_and_its_continuation() {
 fn repeated_input_diamonds(depth: usize) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 8]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let enabled = body.parameter::<I1>(0)?;
         let mut shared = body.parameter::<I32>(1)?;
         for marker in 1..=depth {

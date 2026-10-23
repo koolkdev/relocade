@@ -27,7 +27,7 @@ fn native_classes_control_expansion_and_exact_store_range() {
             let mut program = Program::new();
             let function = program
                 .function::<fn(u64, u64, bool, bool) -> (u64, u16, u64, bool, u16)>(
-                    |body, (bits, _, _, _)| {
+                    move |body, (bits, _, _, _)| {
                         let zero = bits.and(sign - 1).eq(0_u64);
                         let left = ExtendedValue::from_classified_binary(
                             format,
@@ -59,8 +59,7 @@ fn native_classes_control_expansion_and_exact_store_range() {
                             value.classification().tag(),
                         ))
                     },
-                )
-                .unwrap();
+                );
             program.export("views", function).unwrap();
             let bytes = program.compile().unwrap();
             let normalizes_subnormals =

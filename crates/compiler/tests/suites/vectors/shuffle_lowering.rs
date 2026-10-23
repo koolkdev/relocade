@@ -30,7 +30,7 @@ fn narrow_shuffles_route_logical_inputs_and_zero_all_invalid_selectors() {
         bytes[32..40].copy_from_slice(&indices);
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &bytes);
-        let module = fixture.function(&[Type::I32], &[], |mut body| {
+        let module = fixture.function(&[Type::I32], &[], move |mut body| {
             let a = body.load::<V128>(memory, 0)?.low_half();
             let b = body.load::<V128>(memory, 16)?.low_half();
             let selectors = body.load::<V128>(memory, 32)?.low_half();
@@ -66,7 +66,7 @@ fn path_known_selectors_use_one_immediate_shuffle_and_preserve_zero_fill() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
     let indices = [0, 16, 31, 32, 255, 15, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21];
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let condition = body.parameter::<I32>(0)?.eq(0);
         let selectors = condition.select(Val::<V128>::from(indices), [255; 16]);
         let left = body.load::<V128>(memory, 0)?;
@@ -87,7 +87,7 @@ fn path_known_selectors_use_one_immediate_shuffle_and_preserve_zero_fill() {
 
 #[test]
 fn lowered_shuffle_reuses_an_existing_swizzle() {
-    let module = Fixture::new().function(&[Type::V128; 3], &[Type::V128; 2], |body| {
+    let module = Fixture::new().function(&[Type::V128; 3], &[Type::V128; 2], move |body| {
         let left = body.parameter::<V128>(0)?;
         let right = body.parameter::<V128>(1)?;
         let indices = body.parameter::<V128>(2)?;

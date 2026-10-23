@@ -110,11 +110,10 @@ where
     I64: AtLeast<T>,
 {
     let mut program = Program::new();
-    let memory = Memory::declare(
+    let memory = std::rc::Rc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    ));
     for name in ["read_a", "read_b"] {
         define_read::<T>(&mut program, &memory, name);
     }
@@ -175,11 +174,10 @@ fn scattered_helpers_are_shared_across_functions_at_each_requested_width() {
 #[test]
 fn read_only_accesses_do_not_build_writers_or_other_widths() {
     let mut program = Program::new();
-    let memory = Memory::declare(
+    let memory = std::rc::Rc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    ));
     define_read::<I16>(&mut program, &memory, "read");
     let module = Module::inspect(&program.compile().unwrap());
     let readers = module.transfer_helpers(false);
@@ -191,11 +189,10 @@ fn read_only_accesses_do_not_build_writers_or_other_widths() {
 #[test]
 fn byte_accesses_do_not_build_transfer_helpers() {
     let mut program = Program::new();
-    let memory = Memory::declare(
+    let memory = std::rc::Rc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    ));
     define_read::<I8>(&mut program, &memory, "read");
     define_write::<I8>(&mut program, &memory, "write");
     let module = Module::inspect(&program.compile().unwrap());
@@ -206,46 +203,43 @@ fn byte_accesses_do_not_build_transfer_helpers() {
 #[test]
 fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmtime() {
     let mut program = Program::new();
-    let memory = Memory::declare(
+    let memory = std::rc::Rc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32, Type::I64],
-                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                    "test", "access",
-                )
-                .signature()
-                .results,
-            },
-            |mut body| {
-                let address = body.parameter::<I32>(0)?;
-                let replacement = body.parameter::<I64>(1)?;
-                let access = memory.resolve_access(
-                    &mut body,
-                    &address,
-                    I64::BYTES,
-                    Intent::Write,
-                    None,
-                    Some(&mut AccessResult::fault),
-                )?;
-                let before = memory.read::<I64>(&mut body, &access, 0)?;
-                memory.write(&mut body, &access, 0, &replacement)?;
-                let after = memory.read::<I64>(&mut body, &access, 0)?;
-                AccessResult::value(
-                    body,
-                    before
-                        .eq(0x8877_6655_4433_2211u64)
-                        .and(after.eq(replacement))
-                        .unsigned()
-                        .extend::<I64>(),
-                )
-            },
-        )
-        .unwrap();
+    ));
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32, Type::I64],
+            results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                "test", "access",
+            )
+            .signature()
+            .results,
+        },
+        move |mut body| {
+            let address = body.parameter::<I32>(0)?;
+            let replacement = body.parameter::<I64>(1)?;
+            let access = memory.resolve_access(
+                &mut body,
+                &address,
+                I64::BYTES,
+                Intent::Write,
+                None,
+                Some(&mut AccessResult::fault),
+            )?;
+            let before = memory.read::<I64>(&mut body, &access, 0)?;
+            memory.write(&mut body, &access, 0, &replacement)?;
+            let after = memory.read::<I64>(&mut body, &access, 0)?;
+            AccessResult::value(
+                body,
+                before
+                    .eq(0x8877_6655_4433_2211u64)
+                    .and(after.eq(replacement))
+                    .unsigned()
+                    .extend::<I64>(),
+            )
+        },
+    );
     program.export("replace", function).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
         execution_target: None,
