@@ -12,11 +12,10 @@ const RUN: Function<fn() -> I64> = Function::new("test", "run");
 fn lower() -> Result<Vec<u8>> {
     let mut program = Program::new();
     let value = program.import_function(VALUE);
-    let run = program.function(RUN.signature(), |mut body| {
+    RUN.define(&mut program, |mut body, ()| {
         let value = body.call::<I64>(value, &[])?;
         body.return_(value.add(2))
     })?;
-    RUN.export(&mut program, run)?;
     Ok(program.compile()?)
 }
 

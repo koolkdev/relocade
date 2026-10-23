@@ -23,7 +23,7 @@ fn define_read<T: MemoryInt + crate::memory::TransferType>(
     I64: AtLeast<T>,
 {
     let read = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
@@ -56,7 +56,7 @@ fn define_write<T: MemoryInt + crate::memory::TransferType>(
     name: &str,
 ) {
     let write = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32, T::TYPE],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
@@ -111,7 +111,7 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
             crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
         )
         .unwrap();
-        let result = program.function(
+        let result = program.raw_function(
             Signature {
                 parameters: vec![Type::I32],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(

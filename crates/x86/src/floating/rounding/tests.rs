@@ -1,28 +1,22 @@
 use super::*;
 use crate::{test_step as step, CompiledModule};
-use relocade_compiler::{Program, Signature, Type};
+use relocade_compiler::Program;
 
 #[test]
 fn integer_rounding_preserves_evidence_across_word_boundaries() {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I64, Type::I32, Type::I8, Type::I1, Type::I1, Type::I1],
-                results: vec![Type::I64, Type::I1, Type::I1],
-            },
-            |body| {
-                let input = RoundingInput {
-                    integer: body.parameter::<I64>(0)?,
-                    guard: body.parameter::<I1>(4)?,
-                    sticky: body.parameter::<I1>(5)?,
-                }
-                .shift_right(body.parameter::<I32>(1)?);
-                let mode = RoundingMode::new(body.parameter::<I8>(2)?);
-                let result = mode.round(input, &body.parameter::<I1>(3)?);
-                body.return_((result.integer, result.inexact, result.incremented))
-            },
-        )
+        .function::<fn(u64, u32, u8, bool, bool, bool) -> (u64, bool, bool)>(|body, _| {
+            let input = RoundingInput {
+                integer: body.parameter::<I64>(0)?,
+                guard: body.parameter::<I1>(4)?,
+                sticky: body.parameter::<I1>(5)?,
+            }
+            .shift_right(body.parameter::<I32>(1)?);
+            let mode = RoundingMode::new(body.parameter::<I8>(2)?);
+            let result = mode.round(input, &body.parameter::<I1>(3)?);
+            body.return_((result.integer, result.inexact, result.incremented))
+        })
         .unwrap();
     program.export("round", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {

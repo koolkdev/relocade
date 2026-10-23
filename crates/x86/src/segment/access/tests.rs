@@ -20,7 +20,7 @@ fn translation(
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32, Type::I32],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
@@ -132,22 +132,8 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I32],
-                    results: vec![
-                        Type::I32,
-                        Type::I32,
-                        Type::I16,
-                        Type::I1,
-                        Type::I1,
-                        Type::I1,
-                        Type::I1,
-                        Type::I1,
-                        Type::I1,
-                    ],
-                },
-                |mut body| {
+            .function::<fn(u32) -> (u32, u32, u16, bool, bool, bool, bool, bool, bool)>(
+                |mut body, _| {
                     let mut access = SegmentReads::new(&cpu, SegmentProfile::Flat32.into());
                     let index = SegmentSelection::indexed(body.parameter::<I32>(0)?);
 
@@ -195,24 +181,18 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: vec![Type::I32, Type::I32],
-            },
-            |mut body| {
-                let mut access = SegmentReads::new(&cpu, ExecutionProfile::Real16);
-                let first = access.base(&mut body, &Segment::Ds.into())?;
-                let condition = body.parameter::<I32>(0)?.eq(0);
-                body.if_(condition, |mut arm| {
-                    let mut nested = access.clone();
-                    let second = nested.base(&mut arm, &Segment::Ds.into())?;
-                    arm.return_((&first, second.add(1)))
-                })?;
-                let second = access.base(&mut body, &Segment::Ds.into())?;
-                body.return_((first, second.add(2)))
-            },
-        )
+        .function::<fn(u32) -> (u32, u32)>(|mut body, _| {
+            let mut access = SegmentReads::new(&cpu, ExecutionProfile::Real16);
+            let first = access.base(&mut body, &Segment::Ds.into())?;
+            let condition = body.parameter::<I32>(0)?.eq(0);
+            body.if_(condition, |mut arm| {
+                let mut nested = access.clone();
+                let second = nested.base(&mut arm, &Segment::Ds.into())?;
+                arm.return_((&first, second.add(1)))
+            })?;
+            let second = access.base(&mut body, &Segment::Ds.into())?;
+            body.return_((first, second.add(2)))
+        })
         .unwrap();
     program.export("read", function).unwrap();
     let bytes = program.compile().unwrap();

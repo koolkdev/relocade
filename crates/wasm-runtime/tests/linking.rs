@@ -38,7 +38,7 @@ async fn check_stateful_callbacks() {
         let read = producer.import_function(READ);
         let write = producer.import_function(WRITE);
         let advance = producer
-            .function(advance_export.signature(), |mut body| {
+            .function::<fn() -> I64>(|mut body, ()| {
                 let count = body.call::<I32>(calls, &[])?.add(1);
                 body.call::<()>(set_calls, &[count.clone().into()])?;
                 let value = body.call::<I64>(read, &[0.into(), 8.into()])?;
@@ -89,7 +89,7 @@ async fn check_stateful_callbacks() {
         let direct = consumer.import_function(NEXT);
         let functions = consumer.import_table(FUNCTIONS);
         let run = consumer
-            .function(RUN.signature(), |mut body| {
+            .function::<fn() -> I64>(|mut body, ()| {
                 let current = body.load::<I64>(shared, 0)?;
                 body.store(shared, 0, current.add(4))?;
                 body.call::<I64>(direct, &[])?;
@@ -160,7 +160,7 @@ async fn check_scalar_callbacks() {
         let wide = program.import_function(WIDE);
         let float = program.import_function(FLOAT);
         let run = program
-            .function(RUN.signature(), |mut body| {
+            .function::<fn() -> I64>(|mut body, ()| {
                 let narrow =
                     body.call::<I16>(narrow, &[1.into(), 255.into(), 65535.into(), (-1).into()])?;
                 let float = body.call::<F64>(float, &[1.25.into(), narrow.into()])?;
@@ -229,7 +229,7 @@ async fn check_tuple_callbacks() {
     let mixed = program.import_function(MIXED);
     let single = program.import_function(SINGLE);
     let run = program
-        .function(RUN.signature(), |mut body| {
+        .function::<fn() -> I64>(|mut body, ()| {
             let (bit, byte, word, integer, wide, float) = body.call::<Mixed>(mixed, &[])?;
             body.store(output, 0, bit.unsigned().extend::<I32>())?;
             body.store(output, 4, byte.unsigned().extend::<I32>())?;

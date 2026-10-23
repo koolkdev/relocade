@@ -2,24 +2,16 @@
 
 use super::*;
 use crate::{test_step as step, CompiledModule};
-use relocade_compiler::{Program, Signature, Type, I1, I64};
+use relocade_compiler::Program;
 
 #[test]
 fn refined_root_and_rounding_evidence_match_integer_square_root() {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I64, Type::I1],
-                results: vec![Type::I64, Type::I1, Type::I1],
-            },
-            |mut body| {
-                let significand = body.parameter::<I64>(0)?;
-                let odd = body.parameter::<I1>(1)?;
-                let result = calculate(&mut body, &significand, &odd)?;
-                body.return_((result.integer, result.guard, result.sticky))
-            },
-        )
+        .function::<fn(u64, bool) -> (u64, bool, bool)>(|mut body, (significand, odd)| {
+            let result = calculate(&mut body, &significand, &odd)?;
+            body.return_((result.integer, result.guard, result.sticky))
+        })
         .unwrap();
     program.export("sqrt", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {

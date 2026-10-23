@@ -77,7 +77,7 @@ fn entry_reads_used_on_backedges() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0, 0xa5, 0x5a, 0, 0]);
     let read_only = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |mut body| {
+        .function::<fn() -> u32>(|mut body, ()| {
             let value = body.load::<I32>(state, 4)?;
             body.return_(value)
         })
@@ -306,7 +306,7 @@ fn guarded_invariant_reads() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0, 2, 0, 0, 0]);
     let read_only = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |mut helper| {
+        .function::<fn() -> u32>(|mut helper, ()| {
             let value = helper.load::<I32>(state, 4)?;
             helper.return_(value)
         })

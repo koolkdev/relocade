@@ -100,7 +100,7 @@ async fn check_callback() {
         + offset_of!(CpuState, registers)
         + offset_of!(Registers, eax)) as u32;
     let run = program
-        .function(RUN.signature(), |mut body| {
+        .function::<fn() -> I64>(|mut body, ()| {
             // Publish guest changes before the callback, then reload its changes.
             let eax = body.load::<I32>(cpu_memory, eax_offset)?.add(1);
             body.store(cpu_memory, eax_offset, eax)?;

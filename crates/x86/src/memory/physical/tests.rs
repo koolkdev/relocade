@@ -21,7 +21,7 @@ fn define_transfers<T: MemoryInt + crate::memory::TransferType>(
 ) {
     for write in [false, true] {
         let function = program
-            .function(
+            .raw_function(
                 Signature {
                     parameters: if write {
                         vec![Type::I32, T::TYPE]
@@ -177,63 +177,57 @@ fn updates() {
         let mut program = Program::new();
         let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![],
-                    results: vec![Type::I64],
-                },
-                |mut body| {
-                    let unused = memory.resolve_access(
-                        &mut body,
-                        &0x8000.into(),
-                        1,
-                        Intent::Read,
-                        None,
-                        Some(&mut exit::exception),
-                    )?;
-                    memory.read::<I8>(&mut body, &unused, 0)?;
-                    let access = memory.resolve_access(
-                        &mut body,
-                        &0x1fff.into(),
-                        8,
-                        Intent::Write,
-                        None,
-                        Some(&mut exit::exception),
-                    )?;
-                    let before = memory.atomic_update(
-                        &mut body,
-                        &access,
-                        &OperandUpdate::<I64>::CompareExchange {
-                            expected: if matches {
-                                0x1122_3344_5566_7788u64.into()
-                            } else {
-                                0.into()
-                            },
-                            replacement: 0x8877_6655_4433_2211u64.into(),
+            .function::<fn() -> u64>(|mut body, ()| {
+                let unused = memory.resolve_access(
+                    &mut body,
+                    &0x8000.into(),
+                    1,
+                    Intent::Read,
+                    None,
+                    Some(&mut exit::exception),
+                )?;
+                memory.read::<I8>(&mut body, &unused, 0)?;
+                let access = memory.resolve_access(
+                    &mut body,
+                    &0x1fff.into(),
+                    8,
+                    Intent::Write,
+                    None,
+                    Some(&mut exit::exception),
+                )?;
+                let before = memory.atomic_update(
+                    &mut body,
+                    &access,
+                    &OperandUpdate::<I64>::CompareExchange {
+                        expected: if matches {
+                            0x1122_3344_5566_7788u64.into()
+                        } else {
+                            0.into()
                         },
-                    )?;
-                    let alias = memory.resolve_access(
-                        &mut body,
-                        &0x9fff.into(),
-                        8,
-                        Intent::Read,
-                        None,
-                        Some(&mut exit::exception),
-                    )?;
-                    let after = memory.read::<I64>(&mut body, &alias, 0)?;
-                    body.return_(
-                        before
-                            .eq(0x1122_3344_5566_7788u64)
-                            .and(after.eq(if matches {
-                                0x8877_6655_4433_2211u64
-                            } else {
-                                0x1122_3344_5566_7788u64
-                            }))
-                            .unsigned()
-                            .extend::<I64>(),
-                    )
-                },
-            )
+                        replacement: 0x8877_6655_4433_2211u64.into(),
+                    },
+                )?;
+                let alias = memory.resolve_access(
+                    &mut body,
+                    &0x9fff.into(),
+                    8,
+                    Intent::Read,
+                    None,
+                    Some(&mut exit::exception),
+                )?;
+                let after = memory.read::<I64>(&mut body, &alias, 0)?;
+                body.return_(
+                    before
+                        .eq(0x1122_3344_5566_7788u64)
+                        .and(after.eq(if matches {
+                            0x8877_6655_4433_2211u64
+                        } else {
+                            0x1122_3344_5566_7788u64
+                        }))
+                        .unsigned()
+                        .extend::<I64>(),
+                )
+            })
             .unwrap();
         program.export("update", function).unwrap();
         let module = TestModule::new(&CompiledModule {

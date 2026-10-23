@@ -1,4 +1,7 @@
 //! Function construction, pending blocks and definition publication.
+mod typed;
+pub use typed::TypedFunc;
+
 use crate::{
     arena::FunctionArena,
     body::{BlockId, Exit, Layout, Operation},
@@ -16,9 +19,9 @@ use crate::{
 /// Completing a block consumes its builder:
 ///
 /// ```compile_fail
-/// use relocade_compiler::{Program, Signature, Type};
+/// use relocade_compiler::Program;
 /// let mut program = Program::new();
-/// program.function(Signature { parameters: vec![], results: vec![Type::I32] }, |body| {
+/// program.function::<fn() -> u32>(|body, ()| {
 ///     body.return_(7)?;
 ///     body.return_(9)
 /// });
@@ -72,14 +75,15 @@ impl PendingBlock {
 }
 
 impl Program {
-    /// Declares and builds a function, returning its handle after completion.
+    /// Builds a function whose logical signature is assembled during generation.
+    /// Use [`Self::function`] when a Rust function type describes the signature.
     /// The callback must complete the outer body with a return, tail call or trap.
     /// An error or an incomplete body discards this function and any declarations,
     /// imports or exports added by its callback. Earlier forward declarations
     /// completed by the callback return to their undefined state. Handles created
     /// in a failed callback must be discarded too. Earlier declarations remain usable. Use
     /// [`Self::declare`] and [`Self::define`] for forward references or recursion.
-    pub fn function(
+    pub fn raw_function(
         &mut self,
         signature: Signature,
         build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,

@@ -153,15 +153,16 @@ impl BlockBuilder<'_> {
     /// The snapshot and reordering rules of [`Self::load`] also apply here.
     ///
     /// ```
-    /// use relocade_compiler::{MemoryImport, Program, Signature, Type, I8, I32};
+    /// use relocade_compiler::{I8, MemoryImport, Program};
     /// let mut program = Program::new();
     /// let memory = program.import_memory(MemoryImport {
-    ///     module: "guest".into(), name: "memory".into(), minimum: 1, maximum: None, shared: false,
+    ///     module: "guest".into(),
+    ///     name: "memory".into(),
+    ///     minimum: 1,
+    ///     maximum: None,
+    ///     shared: false,
     /// });
-    /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I32], results: vec![Type::I8],
-    /// }, |mut body| {
-    ///     let address = body.parameter::<I32>(0)?;
+    /// let function = program.function::<fn(u32) -> u8>(|mut body, (address,)| {
     ///     let byte = body.load_at::<I8>(memory, &address, 1)?;
     ///     body.return_(&byte)
     /// })?;

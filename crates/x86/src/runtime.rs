@@ -3,7 +3,7 @@
 mod ports;
 mod segments;
 
-use relocade_compiler::{abi::TypedFunc, BlockBuilder, BuildError, Func, Program};
+use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime {

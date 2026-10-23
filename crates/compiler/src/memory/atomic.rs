@@ -41,15 +41,16 @@ impl<'program> BlockBuilder<'program> {
     /// matching ordinary memory accesses. Operations accept native literals.
     ///
     /// ```
-    /// use relocade_compiler::{MemoryImport, Program, Signature, Type, I32};
+    /// use relocade_compiler::{I32, MemoryImport, Program};
     /// let mut program = Program::new();
     /// let memory = program.import_memory(MemoryImport {
-    ///     module: "host".into(), name: "counter".into(),
-    ///     minimum: 1, maximum: Some(1), shared: true,
+    ///     module: "host".into(),
+    ///     name: "counter".into(),
+    ///     minimum: 1,
+    ///     maximum: Some(1),
+    ///     shared: true,
     /// });
-    /// let increment = program.function(Signature {
-    ///     parameters: vec![], results: vec![Type::I32],
-    /// }, |mut body| {
+    /// let increment = program.function::<fn() -> u32>(|mut body, ()| {
     ///     let previous = body.atomic::<I32>(memory, 0, 0)?.add(1)?;
     ///     body.return_(previous)
     /// })?;

@@ -1,4 +1,4 @@
-use crate::fixture::{signature, Fixture};
+use crate::fixture::Fixture;
 use crate::wasm::{TestModule, Value};
 use std::collections::BTreeMap;
 
@@ -180,7 +180,7 @@ fn predicate_module() -> TestModule {
     for predicate in predicates() {
         for &form in predicate.forms {
             let function = program
-                .function(
+                .raw_function(
                     Signature {
                         parameters: vec![predicate.parameter],
                         results: vec![Type::I32],
@@ -271,8 +271,7 @@ fn shared_numeric_condition() -> TestModule {
     let state = fixture.memory("state", &[0xa5; 8]);
     let echo = fixture
         .program
-        .function(signature(&[Type::I1], &[Type::I32]), |body| {
-            let value = body.parameter::<I1>(0)?;
+        .function::<fn(bool) -> u32>(|body, (value,)| {
             body.return_(value.unsigned().extend::<I32>())
         })
         .unwrap();

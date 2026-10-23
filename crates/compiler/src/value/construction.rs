@@ -120,12 +120,9 @@ impl Val<I1> {
     /// an explicit type, for example `condition.select::<I32>(7, 9)`.
     ///
     /// ```
-    /// use relocade_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::Program;
     /// let mut program = Program::new();
-    /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// }, |body| {
-    ///     let value = body.parameter::<I32>(0)?;
+    /// let function = program.function::<fn(u32) -> u32>(|body, (value,)| {
     ///     body.return_(value.eq(0).select(7, value.add(1)))
     /// })?;
     /// let bytes = program.compile()?;

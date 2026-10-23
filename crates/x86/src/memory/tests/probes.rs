@@ -8,26 +8,19 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     )
     .unwrap();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32],
-                results: vec![Type::I32; 4],
-            },
-            |mut body| {
-                let start = body.parameter::<I32>(0)?;
-                let bytes = match constant_bytes {
-                    Some(bytes) => body.value::<I32>(bytes)?,
-                    None => body.parameter::<I32>(1)?,
-                };
-                let access = memory.resolve_access(&mut body, &start, bytes, intent, None, None)?;
-                body.return_((
-                    access.denied.unsigned().extend::<I32>(),
-                    access.scattered().unsigned().extend::<I32>(),
-                    access.unavailable.unsigned().extend::<I32>(),
-                    access.physical,
-                ))
-            },
-        )
+        .function::<fn(u32, u32) -> (u32, u32, u32, u32)>(|mut body, (start, _)| {
+            let bytes = match constant_bytes {
+                Some(bytes) => body.value::<I32>(bytes)?,
+                None => body.parameter::<I32>(1)?,
+            };
+            let access = memory.resolve_access(&mut body, &start, bytes, intent, None, None)?;
+            body.return_((
+                access.denied.unsigned().extend::<I32>(),
+                access.scattered().unsigned().extend::<I32>(),
+                access.unavailable.unsigned().extend::<I32>(),
+                access.physical,
+            ))
+        })
         .unwrap();
     program.export("probe", function).unwrap();
     TestModule::new(&crate::CompiledModule {

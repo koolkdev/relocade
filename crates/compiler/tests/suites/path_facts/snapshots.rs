@@ -1,5 +1,4 @@
 use super::*;
-use crate::fixture::signature;
 
 fn joined_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
@@ -25,8 +24,7 @@ fn call_snapshot() -> TestModule {
     let memory = fixture.memory("state", &[5, 0, 0, 0]);
     let pair = fixture
         .program
-        .function(signature(&[Type::I32], &[Type::I32, Type::I32]), |body| {
-            let argument = body.parameter::<I32>(0)?;
+        .function::<fn(u32) -> (u32, u32)>(|body, (argument,)| {
             body.return_((argument.add(1), argument))
         })
         .unwrap();

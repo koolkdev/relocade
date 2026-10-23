@@ -2,7 +2,7 @@ use crate::{memory::Memory, test_step::AccessResult};
 use std::sync::Barrier;
 
 use super::{native_update, Intent, OperandUpdate};
-use relocade_compiler::{abi::Function, MemoryImport, Program, Signature, Type, I32, I64};
+use relocade_compiler::{abi::Function, MemoryImport, Program, I32, I64};
 use relocade_test_support::{engine, Module, SharedBytes};
 use wasmparser::{Operator, Parser, Payload};
 
@@ -53,17 +53,11 @@ fn concurrent_negations_return_each_value_they_replace() {
         shared: true,
     });
     let negate = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |mut body| {
-                let previous =
-                    native_update::<I32>(&mut body, guest, &0.into(), &OperandUpdate::Negate)?;
-                body.return_(previous)
-            },
-        )
+        .function::<fn() -> u32>(|mut body, ()| {
+            let previous =
+                native_update::<I32>(&mut body, guest, &0.into(), &OperandUpdate::Negate)?;
+            body.return_(previous)
+        })
         .unwrap();
     program.export("negate", negate).unwrap();
     let module = Module::new(&program.compile().unwrap());

@@ -188,7 +188,7 @@ impl Cpu {
         if let Some(function) = slot.get() {
             return Ok(function);
         }
-        let function = program.function(
+        let function = program.raw_function(
             Signature {
                 parameters: vec![],
                 results: query.result_types(),

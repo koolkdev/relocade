@@ -1,8 +1,6 @@
 //! One general reader and writer per module handle all non-direct transfers.
 
-use relocade_compiler::{
-    BlockBuilder, BuildError, Func, Program, Signature, Type, Val, I32, I64, I8,
-};
+use relocade_compiler::{BlockBuilder, BuildError, Program, TypedFunc, Val, I32, I64, I8};
 
 use super::{
     super::physical_map::{MMIO, RAM},
@@ -17,39 +15,40 @@ fn byte_mask(bytes: &Val<I32>) -> Val<I64> {
 }
 
 impl PhysicalMemory {
-    pub(super) fn reader(&self, program: &mut Program) -> Result<Func, BuildError> {
+    pub(super) fn reader(
+        &self,
+        program: &mut Program,
+    ) -> Result<TypedFunc<fn(u32, u32) -> u64>, BuildError> {
         if let Some(reader) = self.reader.get() {
             return Ok(reader);
         }
-        let reader = program.function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32],
-                results: vec![Type::I64],
-            },
-            |body| self.define_reader(body),
-        )?;
+        let reader = program.function::<fn(u32, u32) -> u64>(|body, (address, bytes)| {
+            self.define_reader(body, address, bytes)
+        })?;
         self.reader.set(Some(reader));
         Ok(reader)
     }
 
-    pub(super) fn writer(&self, program: &mut Program) -> Result<Func, BuildError> {
+    pub(super) fn writer(
+        &self,
+        program: &mut Program,
+    ) -> Result<TypedFunc<fn(u32, u32, u64)>, BuildError> {
         if let Some(writer) = self.writer.get() {
             return Ok(writer);
         }
-        let writer = program.function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32, Type::I64],
-                results: vec![],
-            },
-            |body| self.define_writer(body),
-        )?;
+        let writer = program.function::<fn(u32, u32, u64)>(|body, (address, bytes, value)| {
+            self.define_writer(body, address, bytes, value)
+        })?;
         self.writer.set(Some(writer));
         Ok(writer)
     }
 
-    fn define_reader(&self, mut body: BlockBuilder<'_>) -> Result<(), BuildError> {
-        let address = body.parameter::<I32>(0)?;
-        let bytes = body.parameter::<I32>(1)?;
+    fn define_reader(
+        &self,
+        mut body: BlockBuilder<'_>,
+        address: Val<I32>,
+        bytes: Val<I32>,
+    ) -> Result<(), BuildError> {
         let value = body.loop_::<(I32, I64), I64>((0, 0), |mut part, labels, (done, value)| {
             let current = address.add(&done);
             let entry = self.table.lookup(&mut part, &current)?;
@@ -92,10 +91,13 @@ impl PhysicalMemory {
         )
     }
 
-    fn define_writer(&self, mut body: BlockBuilder<'_>) -> Result<(), BuildError> {
-        let address = body.parameter::<I32>(0)?;
-        let bytes = body.parameter::<I32>(1)?;
-        let value = body.parameter::<I64>(2)?;
+    fn define_writer(
+        &self,
+        mut body: BlockBuilder<'_>,
+        address: Val<I32>,
+        bytes: Val<I32>,
+        value: Val<I64>,
+    ) -> Result<(), BuildError> {
         body.loop_::<I32, ()>(0, |mut part, labels, done| {
             let current = address.add(&done);
             let entry = self.table.lookup(&mut part, &current)?;

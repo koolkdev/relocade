@@ -1,6 +1,6 @@
 use super::{CallPatches, Input, TestModule};
 use crate::SegmentProfile;
-use relocade_compiler::{MemoryImport, Program, Signature, Type, I32};
+use relocade_compiler::{MemoryImport, Program, I32};
 
 #[test]
 fn machine_changes_are_observed_before_a_later_call_restores_them() {
@@ -13,17 +13,11 @@ fn machine_changes_are_observed_before_a_later_call_restores_them() {
         shared: false,
     });
     let toggle = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |mut body| {
-                let value = body.load::<I32>(machine, 0)?;
-                body.store(machine, 0, value.xor(1))?;
-                body.return_(0)
-            },
-        )
+        .function::<fn() -> u32>(|mut body, ()| {
+            let value = body.load::<I32>(machine, 0)?;
+            body.store(machine, 0, value.xor(1))?;
+            body.return_(0)
+        })
         .unwrap();
     program.export("toggle", toggle).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
@@ -42,13 +36,7 @@ fn host_edits_are_observed_without_module_memory_imports() {
 
     let mut program = Program::new();
     let entry = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |body| body.return_(0),
-        )
+        .function::<fn() -> u32>(|body, ()| body.return_(0))
         .unwrap();
     program.export("entry", entry).unwrap();
     let module = TestModule::new(&crate::CompiledModule {

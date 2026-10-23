@@ -6,53 +6,46 @@ use super::*;
 fn pc53_sign_changes_retain_native_and_encoded_significands() {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::F64, Type::I64, Type::I16, Type::I1],
-                results: vec![Type::I16],
-            },
-            |body| {
-                let sign_exponent = body.parameter::<I16>(2)?;
-                let native = ExtendedValue::from_precision53(Precision53::from_significand(
-                    body.parameter::<F64>(0)?,
-                    sign_exponent.clone(),
-                ));
-                let integer = ExtendedValue::from_bits(ExtendedBits {
-                    significand: body.parameter::<I64>(1)?,
-                    sign_exponent,
-                })
-                .assume_precision53();
-                for source in [native, integer] {
-                    let source = source
-                        .assume_class(KnownClass::normal())
-                        .or_indefinite(&body.parameter::<I1>(3)?);
-                    for operation in [SignOperation::Negate, SignOperation::Absolute] {
-                        let result = source.change_sign(operation);
-                        assert!(result
-                            .bits()
-                            .significand
-                            .same_expression(&source.bits().significand));
-                        assert!(result
-                            .precision53_significand()
-                            .unwrap()
-                            .same_expression(&source.precision53_significand().unwrap()));
-                        assert!(result
-                            .classification()
-                            .tag()
-                            .same_expression(&source.classification().tag()));
-                        assert!(result
-                            .classification()
-                            .normal()
-                            .same_expression(&source.classification().normal()));
-                        assert!(result
-                            .classification()
-                            .nan()
-                            .same_expression(&source.classification().nan()));
-                    }
+        .function::<fn(f64, u64, u16, bool) -> u16>(|body, (_, _, sign_exponent, _)| {
+            let native = ExtendedValue::from_precision53(Precision53::from_significand(
+                body.parameter::<F64>(0)?,
+                sign_exponent.clone(),
+            ));
+            let integer = ExtendedValue::from_bits(ExtendedBits {
+                significand: body.parameter::<I64>(1)?,
+                sign_exponent,
+            })
+            .assume_precision53();
+            for source in [native, integer] {
+                let source = source
+                    .assume_class(KnownClass::normal())
+                    .or_indefinite(&body.parameter::<I1>(3)?);
+                for operation in [SignOperation::Negate, SignOperation::Absolute] {
+                    let result = source.change_sign(operation);
+                    assert!(result
+                        .bits()
+                        .significand
+                        .same_expression(&source.bits().significand));
+                    assert!(result
+                        .precision53_significand()
+                        .unwrap()
+                        .same_expression(&source.precision53_significand().unwrap()));
+                    assert!(result
+                        .classification()
+                        .tag()
+                        .same_expression(&source.classification().tag()));
+                    assert!(result
+                        .classification()
+                        .normal()
+                        .same_expression(&source.classification().normal()));
+                    assert!(result
+                        .classification()
+                        .nan()
+                        .same_expression(&source.classification().nan()));
                 }
-                body.return_(0_u32)
-            },
-        )
+            }
+            body.return_(0_u32)
+        })
         .unwrap();
     program.export("preserved", function).unwrap();
     program.compile().unwrap();

@@ -12,7 +12,7 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
     let cpu = Cpu::declare(&mut program);
     let runtime = Runtime::declare(&mut program);
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32],
                 results: crate::abi::RUN.signature().results,

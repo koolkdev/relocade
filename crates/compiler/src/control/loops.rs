@@ -31,20 +31,22 @@ impl BlockBuilder<'_> {
     /// observe each iteration's state at their authored position.
     ///
     /// ```
-    /// use relocade_compiler::{Program, Signature, Type, I1, I32, I64};
+    /// use relocade_compiler::{I1, I32, I64, Program};
     /// let mut program = Program::new();
-    /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I32], results: vec![Type::I64, Type::I1],
-    /// }, |mut body| {
-    ///     let count = body.parameter::<I32>(0)?;
-    ///     let result = body.loop_::<(I32, I64), (I64, I1)>((count, 0u64),
+    /// let function = program.function::<fn(u32) -> (u64, bool)>(|mut body, (count,)| {
+    ///     let result = body.loop_::<(I32, I64), (I64, I1)>(
+    ///         (count, 0u64),
     ///         |mut iteration, labels, (remaining, sum)| {
     ///             iteration.if_(remaining.eq(0), |done| {
     ///                 done.branch(&labels.exit, (&sum, true))
     ///             })?;
-    ///             iteration.branch(&labels.again, (
-    ///                 remaining.sub(1), sum.add(remaining.unsigned().extend::<I64>()),
-    ///             ))
+    ///             iteration.branch(
+    ///                 &labels.again,
+    ///                 (
+    ///                     remaining.sub(1),
+    ///                     sum.add(remaining.unsigned().extend::<I64>()),
+    ///                 ),
+    ///             )
     ///         },
     ///     )?;
     ///     body.return_(result)

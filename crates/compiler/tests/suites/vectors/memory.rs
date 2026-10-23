@@ -22,7 +22,7 @@ fn snapshot_across_call() {
     let memory = fixture.memory("state", &initial);
     let overwrite = fixture
         .program
-        .function(signature(&[], &[]), |mut body| {
+        .function::<fn()>(|mut body, ()| {
             body.store::<I64>(memory, 65528, 0_u64)?;
             body.return_(())
         })

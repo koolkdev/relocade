@@ -95,9 +95,7 @@ fn rejected_multi_result_calls_leave_the_caller_open_and_do_not_retain_imports()
 fn every_call_component_retains_its_branch_visibility_even_after_folding() {
     let mut program = Program::new();
     let helper = program
-        .function(signature(&[], &[Type::I8, Type::I64]), |body| {
-            body.return_((7, 11_u64))
-        })
+        .function::<fn() -> (u8, u64)>(|body, ()| body.return_((7, 11_u64)))
         .unwrap();
     let run = program.declare(signature(&[], &[Type::I32]));
     program
@@ -136,7 +134,7 @@ fn discarded_blocks_do_not_retain_multi_result_calls_or_poison_parent_placement(
                 })
             } else {
                 program
-                    .function(shape, |body| body.return_((7, 11_u64)))
+                    .raw_function(shape, |body| body.return_((7, 11_u64)))
                     .unwrap()
             };
             let run = program.declare(signature(&[], &[Type::I32]));

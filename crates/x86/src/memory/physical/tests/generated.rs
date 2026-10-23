@@ -30,39 +30,32 @@ fn one_slow_reader_serves_all_widths_and_callers_without_a_writer() {
     let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
     for index in 0..12 {
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I32],
-                    results: vec![Type::I64],
-                },
-                |mut body| {
-                    let address = body.parameter::<I32>(0)?;
-                    let access = memory.resolve_access(
-                        &mut body,
-                        &address,
-                        8,
-                        Intent::Read,
-                        None,
-                        Some(&mut exit::exception),
-                    )?;
-                    let value = match index % 4 {
-                        0 => memory
-                            .read::<I8>(&mut body, &access, 0)?
-                            .unsigned()
-                            .extend::<I64>(),
-                        1 => memory
-                            .read::<I16>(&mut body, &access, 0)?
-                            .unsigned()
-                            .extend::<I64>(),
-                        2 => memory
-                            .read::<I32>(&mut body, &access, 0)?
-                            .unsigned()
-                            .extend::<I64>(),
-                        _ => memory.read::<I64>(&mut body, &access, 0)?,
-                    };
-                    body.return_(value)
-                },
-            )
+            .function::<fn(u32) -> u64>(|mut body, (address,)| {
+                let access = memory.resolve_access(
+                    &mut body,
+                    &address,
+                    8,
+                    Intent::Read,
+                    None,
+                    Some(&mut exit::exception),
+                )?;
+                let value = match index % 4 {
+                    0 => memory
+                        .read::<I8>(&mut body, &access, 0)?
+                        .unsigned()
+                        .extend::<I64>(),
+                    1 => memory
+                        .read::<I16>(&mut body, &access, 0)?
+                        .unsigned()
+                        .extend::<I64>(),
+                    2 => memory
+                        .read::<I32>(&mut body, &access, 0)?
+                        .unsigned()
+                        .extend::<I64>(),
+                    _ => memory.read::<I64>(&mut body, &access, 0)?,
+                };
+                body.return_(value)
+            })
             .unwrap();
         program.export(&format!("read{index}"), function).unwrap();
     }

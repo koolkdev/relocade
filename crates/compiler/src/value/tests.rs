@@ -23,24 +23,17 @@ fn standalone_constant_bits_include_folded_calculations() -> Result<(), BuildErr
 fn value_and_body_queries_agree_on_construction_folds() {
     let mut program = Program::new();
     program
-        .function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: vec![Type::I32],
-            },
-            |body| {
-                let input = body.parameter::<I32>(0)?;
-                assert_eq!(input.constant_bits()?, None);
-                assert_eq!(body.constant_bits(&input)?, None);
-                let constant = input.mul(0).add(17);
-                assert_eq!(constant.constant_bits()?, Some(17));
-                assert_eq!(body.constant_bits(&constant)?, Some(17));
-                let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
-                assert_eq!(narrow.constant_bits()?, Some(255));
-                assert_eq!(body.constant_bits(narrow)?, Some(255));
-                body.return_(constant)
-            },
-        )
+        .function::<fn(u32) -> u32>(|body, (input,)| {
+            assert_eq!(input.constant_bits()?, None);
+            assert_eq!(body.constant_bits(&input)?, None);
+            let constant = input.mul(0).add(17);
+            assert_eq!(constant.constant_bits()?, Some(17));
+            assert_eq!(body.constant_bits(&constant)?, Some(17));
+            let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
+            assert_eq!(narrow.constant_bits()?, Some(255));
+            assert_eq!(body.constant_bits(narrow)?, Some(255));
+            body.return_(constant)
+        })
         .unwrap();
 }
 

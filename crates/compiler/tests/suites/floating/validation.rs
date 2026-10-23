@@ -29,13 +29,13 @@ fn signatures_distinguish_float_literals_from_integer_encodings() {
         (Argument::from(1.0), Type::I1, Type::F64),
     ] {
         let result =
-            Program::new().function(signature(&[], &[expected]), |body| body.return_(argument));
+            Program::new().raw_function(signature(&[], &[expected]), |body| body.return_(argument));
         assert_eq!(
             result.err(),
             Some(BuildError::TypeMismatch { expected, actual })
         );
     }
-    let mismatch = Program::new().function(signature(&[Type::F64], &[Type::I64]), |body| {
+    let mismatch = Program::new().function::<fn(f64) -> u64>(|body, _| {
         let value = body.parameter::<I64>(0)?;
         body.return_(value)
     });

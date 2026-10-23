@@ -1,6 +1,6 @@
 use crate::flags::Condition;
 use crate::state::{Cpu, State};
-use relocade_compiler::{Program, Signature, Type, I32};
+use relocade_compiler::{Program, I32};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[test]
@@ -9,26 +9,20 @@ fn stored_condition_resolver_is_shared_by_repeated_inverse_queries_and_bodies() 
     let cpu = Cpu::declare(&mut program);
     for name in ["first", "second"] {
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![],
-                    results: vec![Type::I32],
-                },
-                |mut body| {
-                    let mut state = State::new(&cpu);
-                    let equal = state.condition(&mut body, Condition::E)?;
-                    let not_equal = state.condition(&mut body, Condition::NE)?;
-                    let repeated = state.condition(&mut body, Condition::E)?;
-                    body.return_(
-                        equal
-                            .unsigned()
-                            .extend::<I32>()
-                            .shl(1)
-                            .or(not_equal.unsigned().extend::<I32>())
-                            .or(repeated.unsigned().extend::<I32>().shl(2)),
-                    )
-                },
-            )
+            .function::<fn() -> u32>(|mut body, ()| {
+                let mut state = State::new(&cpu);
+                let equal = state.condition(&mut body, Condition::E)?;
+                let not_equal = state.condition(&mut body, Condition::NE)?;
+                let repeated = state.condition(&mut body, Condition::E)?;
+                body.return_(
+                    equal
+                        .unsigned()
+                        .extend::<I32>()
+                        .shl(1)
+                        .or(not_equal.unsigned().extend::<I32>())
+                        .or(repeated.unsigned().extend::<I32>().shl(2)),
+                )
+            })
             .unwrap();
         program.export(name, function).unwrap();
     }
@@ -56,17 +50,11 @@ fn stored_signed_cmp_conditions_compare_in_the_consumer_and_guard_the_fallback()
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I1],
-            },
-            |mut body| {
-                let mut state = State::new(&cpu);
-                let less = state.condition(&mut body, Condition::L)?;
-                body.return_(less)
-            },
-        )
+        .function::<fn() -> bool>(|mut body, ()| {
+            let mut state = State::new(&cpu);
+            let less = state.condition(&mut body, Condition::L)?;
+            body.return_(less)
+        })
         .unwrap();
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
@@ -124,17 +112,11 @@ fn stored_logical_equality_reads_only_the_result_in_the_consumer() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I1],
-            },
-            |mut body| {
-                let mut state = State::new(&cpu);
-                let equal = state.condition(&mut body, Condition::E)?;
-                body.return_(equal)
-            },
-        )
+        .function::<fn() -> bool>(|mut body, ()| {
+            let mut state = State::new(&cpu);
+            let equal = state.condition(&mut body, Condition::E)?;
+            body.return_(equal)
+        })
         .unwrap();
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();

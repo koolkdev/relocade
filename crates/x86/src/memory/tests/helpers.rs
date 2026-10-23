@@ -212,7 +212,7 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
     )
     .unwrap();
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![Type::I32, Type::I64],
                 results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(

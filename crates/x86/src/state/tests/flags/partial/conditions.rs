@@ -4,7 +4,7 @@ use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::CompiledModule;
-use relocade_compiler::{AtLeast, MemoryInt, Program, Signature, Type, I1, I16, I32, I64, I8};
+use relocade_compiler::{AtLeast, MemoryInt, Program, I1, I16, I32, I64, I8};
 
 use super::super::fixture::{assert_result, initial_cpu};
 
@@ -30,33 +30,27 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
         let cpu = Cpu::declare(&mut program);
         for (name, condition) in QUERIES {
             let function = program
-                .function(
-                    Signature {
-                        parameters: vec![T::TYPE, T::TYPE, Type::I1],
-                        results: vec![Type::I64],
-                    },
-                    |mut body| {
-                        let mut state = State::new(&cpu);
-                        let left = body.parameter::<T>(0)?;
-                        let right = body.parameter::<T>(1)?;
-                        let carry = body.parameter::<I1>(2)?;
-                        let subtraction = ArithmeticOp::Subtract.apply(left, right);
-                        let arithmetic_result = subtraction.result.unsigned().extend::<I32>();
-                        state.write_flags(&mut body, subtraction.flags)?;
-                        state.write_flags(
-                            &mut body,
-                            FlagChange::partial([(StatusFlag::CF.into(), carry)]),
-                        )?;
-                        let result = match condition {
-                            Some(condition) => state
-                                .condition(&mut body, condition)?
-                                .unsigned()
-                                .extend::<I32>(),
-                            None => arithmetic_result,
-                        };
-                        body.return_(result.signed().extend::<I64>())
-                    },
-                )
+                .function::<fn(T, T, bool) -> u64>(|mut body, _| {
+                    let mut state = State::new(&cpu);
+                    let left = body.parameter::<T>(0)?;
+                    let right = body.parameter::<T>(1)?;
+                    let carry = body.parameter::<I1>(2)?;
+                    let subtraction = ArithmeticOp::Subtract.apply(left, right);
+                    let arithmetic_result = subtraction.result.unsigned().extend::<I32>();
+                    state.write_flags(&mut body, subtraction.flags)?;
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::partial([(StatusFlag::CF.into(), carry)]),
+                    )?;
+                    let result = match condition {
+                        Some(condition) => state
+                            .condition(&mut body, condition)?
+                            .unsigned()
+                            .extend::<I32>(),
+                        None => arithmetic_result,
+                    };
+                    body.return_(result.signed().extend::<I64>())
+                })
                 .unwrap();
             program.export(name, function).unwrap();
         }
@@ -99,29 +93,23 @@ fn changing_another_flag_retains_an_earlier_partial_change() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![Type::I8],
-                results: vec![Type::I64],
-            },
-            |mut body| {
-                let mut state = State::new(&cpu);
-                let source = StatusSource::Logic {
-                    result: body.parameter::<I8>(0)?.add(1),
-                };
-                state.write_flags(&mut body, source)?;
-                state.write_flags(
-                    &mut body,
-                    FlagChange::partial([(StatusFlag::ZF.into(), true.into())]),
-                )?;
-                state.write_flags(
-                    &mut body,
-                    FlagChange::partial([(StatusFlag::CF.into(), false.into())]),
-                )?;
-                let below_equal = state.condition(&mut body, Condition::BE)?;
-                body.return_(below_equal.unsigned().extend::<I64>())
-            },
-        )
+        .function::<fn(u8) -> u64>(|mut body, _| {
+            let mut state = State::new(&cpu);
+            let source = StatusSource::Logic {
+                result: body.parameter::<I8>(0)?.add(1),
+            };
+            state.write_flags(&mut body, source)?;
+            state.write_flags(
+                &mut body,
+                FlagChange::partial([(StatusFlag::ZF.into(), true.into())]),
+            )?;
+            state.write_flags(
+                &mut body,
+                FlagChange::partial([(StatusFlag::CF.into(), false.into())]),
+            )?;
+            let below_equal = state.condition(&mut body, Condition::BE)?;
+            body.return_(below_equal.unsigned().extend::<I64>())
+        })
         .unwrap();
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {

@@ -45,17 +45,15 @@ impl Compiler {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let dispatch = Dispatch::declare(&mut program);
-        let transfer = program.function(crate::abi::DISPATCH.signature(), |mut body| {
+        crate::abi::DISPATCH.define(&mut program, |mut body, ()| {
             let eip = cpu.read_eip(&mut body)?;
             let mut segments = SegmentReads::new(&cpu, self.target.profile);
             let base = segments.base(&mut body, &Segment::Cs.into())?;
             dispatch.lookup(body, &base.add(eip))
         })?;
-        crate::abi::DISPATCH.export(&mut program, transfer)?;
-        let interpret = program.function(crate::abi::INTERPRET.signature(), |body| {
+        crate::abi::INTERPRET.define(&mut program, |body, ()| {
             dispatch.enter(body, EntryTable::INTERPRETER_SLOT)
         })?;
-        crate::abi::INTERPRET.export(&mut program, interpret)?;
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: crate::abi::DISPATCH.name.into(),

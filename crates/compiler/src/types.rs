@@ -97,14 +97,10 @@ pub trait IntType: BitwiseType {}
 /// integers. Their arithmetic uses scalar Wasm rounding and NaN behavior.
 ///
 /// ```
-/// use relocade_compiler::{Program, Signature, Type, F64};
+/// use relocade_compiler::Program;
 /// let mut program = Program::new();
-/// let scale = program.function(Signature {
-///     parameters: vec![Type::F64], results: vec![Type::F64],
-/// }, |body| {
-///     let value = body.parameter::<F64>(0)?;
-///     body.return_(value.mul(0.5))
-/// })?;
+/// let scale =
+///     program.function::<fn(f64) -> f64>(|body, (value,)| body.return_(value.mul(0.5)))?;
 /// program.export("scale", scale)?;
 /// let bytes = program.compile()?;
 /// # Ok::<(), relocade_compiler::BuildError>(())

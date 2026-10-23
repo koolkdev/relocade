@@ -4,9 +4,7 @@ use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::{CompiledModule, FlagBytes};
-use relocade_compiler::{
-    BlockBuilder, BuildError, Program, Signature, Type, Val, I1, I32, I64, I8,
-};
+use relocade_compiler::{BlockBuilder, BuildError, Program, Val, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 use super::super::fixture::{assert_result, initial_cpu};
@@ -62,64 +60,55 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I1; 5],
-                    results: vec![Type::I64],
-                },
-                |mut body| {
-                    let mut state = State::new(&cpu);
-                    if local_base {
-                        state.write_flags(
-                            &mut body,
-                            ArithmeticOp::Subtract.apply::<I32>(4, 5).flags,
-                        )?;
-                    }
-                    let first = body.parameter::<I1>(0)?;
-                    state.write_flags(
-                        &mut body,
-                        FlagChange::partial([
-                            (StatusFlag::CF.into(), false.into()),
-                            (StatusFlag::OF.into(), true.into()),
-                        ])
-                        .when(first),
-                    )?;
-                    let stop = body.parameter::<I1>(4)?;
-                    body.if_(stop, |mut arm| {
-                        // Publication may resolve stored flags inside this child arm.
-                        // Subsequent parent queries must not reuse descendant-only values.
-                        state.publish(&mut arm, 0x1002, 1)?;
-                        arm.return_(0_u64)
-                    })?;
-                    let second = body.parameter::<I1>(1)?;
-                    state.write_flags(
-                        &mut body,
-                        FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() })
-                            .when(second),
-                    )?;
-                    let third = body.parameter::<I1>(2)?;
-                    state.write_flags(
-                        &mut body,
-                        FlagChange::partial([
-                            (StatusFlag::ZF.into(), false.into()),
-                            (StatusFlag::PF.into(), false.into()),
-                        ])
-                        .when(third),
-                    )?;
-                    let fourth = body.parameter::<I1>(3)?;
-                    state.write_flags(
-                        &mut body,
-                        FlagChange::partial([
-                            (StatusFlag::AF.into(), false.into()),
-                            (StatusFlag::SF.into(), true.into()),
-                        ])
-                        .when(fourth),
-                    )?;
-                    let conditions = query_all(&mut body, &mut state)?;
-                    state.publish(&mut body, 0x1008, 4)?;
-                    body.return_(conditions)
-                },
-            )
+            .function::<fn(bool, bool, bool, bool, bool) -> u64>(|mut body, _| {
+                let mut state = State::new(&cpu);
+                if local_base {
+                    state
+                        .write_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
+                }
+                let first = body.parameter::<I1>(0)?;
+                state.write_flags(
+                    &mut body,
+                    FlagChange::partial([
+                        (StatusFlag::CF.into(), false.into()),
+                        (StatusFlag::OF.into(), true.into()),
+                    ])
+                    .when(first),
+                )?;
+                let stop = body.parameter::<I1>(4)?;
+                body.if_(stop, |mut arm| {
+                    // Publication may resolve stored flags inside this child arm.
+                    // Subsequent parent queries must not reuse descendant-only values.
+                    state.publish(&mut arm, 0x1002, 1)?;
+                    arm.return_(0_u64)
+                })?;
+                let second = body.parameter::<I1>(1)?;
+                state.write_flags(
+                    &mut body,
+                    FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() }).when(second),
+                )?;
+                let third = body.parameter::<I1>(2)?;
+                state.write_flags(
+                    &mut body,
+                    FlagChange::partial([
+                        (StatusFlag::ZF.into(), false.into()),
+                        (StatusFlag::PF.into(), false.into()),
+                    ])
+                    .when(third),
+                )?;
+                let fourth = body.parameter::<I1>(3)?;
+                state.write_flags(
+                    &mut body,
+                    FlagChange::partial([
+                        (StatusFlag::AF.into(), false.into()),
+                        (StatusFlag::SF.into(), true.into()),
+                    ])
+                    .when(fourth),
+                )?;
+                let conditions = query_all(&mut body, &mut state)?;
+                state.publish(&mut body, 0x1008, 4)?;
+                body.return_(conditions)
+            })
             .unwrap();
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
@@ -205,41 +194,32 @@ fn overwritten_partial_changes_do_not_generate_obsolete_stored_reader_calls() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I1],
-                    results: vec![Type::I64],
-                },
-                |mut body| {
-                    let mut state = State::new(&cpu);
-                    let pending = body.parameter::<I1>(0)?;
-                    state.write_flags(
-                        &mut body,
-                        FlagChange::partial([(StatusFlag::CF.into(), true.into())]).when(pending),
-                    )?;
-                    if complete {
+            .function::<fn(bool) -> u64>(|mut body, _| {
+                let mut state = State::new(&cpu);
+                let pending = body.parameter::<I1>(0)?;
+                state.write_flags(
+                    &mut body,
+                    FlagChange::partial([(StatusFlag::CF.into(), true.into())]).when(pending),
+                )?;
+                if complete {
+                    state.write_flags(&mut body, StatusSource::<I8>::Logic { result: 0.into() })?;
+                } else {
+                    // Independent unconditional writes define every bit without
+                    // requiring any part of the stored or conditional old source.
+                    for (flag, value) in StatusFlag::ALL
+                        .into_iter()
+                        .zip([false, true, false, true, false, false])
+                    {
                         state.write_flags(
                             &mut body,
-                            StatusSource::<I8>::Logic { result: 0.into() },
+                            FlagChange::partial([(flag.into(), value.into())]),
                         )?;
-                    } else {
-                        // Independent unconditional writes define every bit without
-                        // requiring any part of the stored or conditional old source.
-                        for (flag, value) in StatusFlag::ALL
-                            .into_iter()
-                            .zip([false, true, false, true, false, false])
-                        {
-                            state.write_flags(
-                                &mut body,
-                                FlagChange::partial([(flag.into(), value.into())]),
-                            )?;
-                        }
                     }
-                    let conditions = query_all(&mut body, &mut state)?;
-                    state.publish(&mut body, 0x1002, 1)?;
-                    body.return_(conditions)
-                },
-            )
+                }
+                let conditions = query_all(&mut body, &mut state)?;
+                state.publish(&mut body, 0x1002, 1)?;
+                body.return_(conditions)
+            })
             .unwrap();
         program.export("run", function).unwrap();
         let bytes = program.compile().unwrap();
@@ -287,41 +267,35 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I32],
-                    results: vec![Type::I64],
-                },
-                |mut body| {
-                    let mut state = State::new(&cpu);
-                    state.write_flags(&mut body, StatusSource::<I8>::Logic { result: 0.into() })?;
-                    let selector = body.parameter::<I32>(0)?;
-                    for index in 0..length {
-                        let predicate = selector.eq(index);
-                        if index % 2 == 0 {
-                            state.write_flags(
-                                &mut body,
-                                FlagChange::from(StatusSource::<I32>::Logic {
-                                    result: index.into(),
-                                })
-                                .when(predicate),
-                            )?;
-                        } else {
-                            state.write_flags(
-                                &mut body,
-                                FlagChange::partial([
-                                    (StatusFlag::CF.into(), (index & 2 != 0).into()),
-                                    (StatusFlag::OF.into(), (index & 4 != 0).into()),
-                                ])
-                                .when(predicate),
-                            )?;
-                        }
+            .function::<fn(u32) -> u64>(|mut body, _| {
+                let mut state = State::new(&cpu);
+                state.write_flags(&mut body, StatusSource::<I8>::Logic { result: 0.into() })?;
+                let selector = body.parameter::<I32>(0)?;
+                for index in 0..length {
+                    let predicate = selector.eq(index);
+                    if index % 2 == 0 {
+                        state.write_flags(
+                            &mut body,
+                            FlagChange::from(StatusSource::<I32>::Logic {
+                                result: index.into(),
+                            })
+                            .when(predicate),
+                        )?;
+                    } else {
+                        state.write_flags(
+                            &mut body,
+                            FlagChange::partial([
+                                (StatusFlag::CF.into(), (index & 2 != 0).into()),
+                                (StatusFlag::OF.into(), (index & 4 != 0).into()),
+                            ])
+                            .when(predicate),
+                        )?;
                     }
-                    let conditions = query_all(&mut body, &mut state)?;
-                    state.publish(&mut body, 0x1200, length)?;
-                    body.return_(conditions)
-                },
-            )
+                }
+                let conditions = query_all(&mut body, &mut state)?;
+                state.publish(&mut body, 0x1200, length)?;
+                body.return_(conditions)
+            })
             .unwrap();
         program.export("run", function).unwrap();
         let bytes = program.compile().unwrap();

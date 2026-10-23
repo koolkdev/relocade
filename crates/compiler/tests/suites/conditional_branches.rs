@@ -1,4 +1,4 @@
-use crate::fixture::{signature, Fixture};
+use crate::fixture::Fixture;
 use crate::wasm::TestModule;
 use relocade_compiler::{Type, I1, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
@@ -120,7 +120,7 @@ fn snapshot_tail() -> TestModule {
     let state = fixture.memory("state", &[7, 0, 0, 0, 11, 0, 0, 0]);
     let read_only = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |mut body| {
+        .function::<fn() -> u32>(|mut body, ()| {
             let result = body.load::<I32>(state, 4)?;
             body.return_(result)
         })
@@ -184,7 +184,7 @@ fn ordinary_tail(boundary: Boundary) -> TestModule {
     let state = fixture.memory("state", &[1, 0, 0, 0, 0, 0, 0, 0]);
     let read_only = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |mut body| {
+        .function::<fn() -> u32>(|mut body, ()| {
             let result = body.load::<I32>(state, 0)?;
             body.return_(result)
         })
@@ -265,7 +265,7 @@ fn a_shared_tail_preserves_an_explicit_trap() {
     let mut fixture = Fixture::new();
     let trapped_value = fixture
         .program
-        .function(signature(&[], &[Type::I32]), |body| body.trap())
+        .function::<fn() -> u32>(|body, ()| body.trap())
         .unwrap();
     let module = fixture.function(&[Type::I32], &[Type::I32], |mut body| {
         let divisor = body.parameter::<I32>(0)?;

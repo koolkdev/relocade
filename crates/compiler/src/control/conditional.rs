@@ -57,12 +57,9 @@ impl BlockBuilder<'_> {
     /// used on either path.
     ///
     /// ```
-    /// use relocade_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::Program;
     /// let mut program = Program::new();
-    /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// }, |mut body| {
-    ///     let value = body.parameter::<I32>(0)?;
+    /// let function = program.function::<fn(u32) -> u32>(|mut body, (value,)| {
     ///     body.if_(value.eq(0), |branch| branch.return_(7))?;
     ///     body.return_(value.add(1))
     /// })?;
@@ -84,16 +81,10 @@ impl BlockBuilder<'_> {
     /// Both closures run during construction, including for constant conditions.
     ///
     /// ```
-    /// use relocade_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::Program;
     /// let mut program = Program::new();
-    /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// }, |mut body| {
-    ///     let value = body.parameter::<I32>(0)?;
-    ///     body.if_else(value.eq(0),
-    ///         |branch| branch.return_(7),
-    ///         |_| Ok(()),
-    ///     )?;
+    /// let function = program.function::<fn(u32) -> u32>(|mut body, (value,)| {
+    ///     body.if_else(value.eq(0), |branch| branch.return_(7), |_| Ok(()))?;
     ///     body.return_(value.add(1))
     /// })?;
     /// let bytes = program.compile()?;
@@ -125,13 +116,11 @@ impl BlockBuilder<'_> {
     /// child reads, calls or joins remain confined to that child and its descendants.
     ///
     /// ```
-    /// use relocade_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::{I32, Program};
     /// let mut program = Program::new();
-    /// let function = program.function(Signature {
-    ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// }, |mut body| {
-    ///     let value = body.parameter::<I32>(0)?;
-    ///     let selected = body.if_value::<I32>(value.eq(0),
+    /// let function = program.function::<fn(u32) -> u32>(|mut body, (value,)| {
+    ///     let selected = body.if_value::<I32>(
+    ///         value.eq(0),
     ///         |arm| arm.yield_(7),
     ///         |arm| arm.yield_(value.add(1)),
     ///     )?;

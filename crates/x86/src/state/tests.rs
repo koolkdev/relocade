@@ -13,17 +13,11 @@ fn zero_progress_exits_do_not_read_or_write_instruction_count() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I32],
-            },
-            |mut body| {
-                let state = State::new(&cpu);
-                state.publish(&mut body, 0x1000, 0)?;
-                body.return_(7)
-            },
-        )
+        .function::<fn() -> u32>(|mut body, ()| {
+            let state = State::new(&cpu);
+            state.publish(&mut body, 0x1000, 0)?;
+            body.return_(7)
+        })
         .unwrap();
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();

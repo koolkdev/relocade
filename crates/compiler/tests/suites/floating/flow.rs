@@ -63,20 +63,14 @@ fn mixed_scalar_calls_joins_and_backedges_keep_their_carriers() {
     let mut fixture = Fixture::new();
     let helper = fixture
         .program
-        .function(
-            signature(
-                &[Type::F64, Type::I64, Type::I32],
-                &[Type::I64, Type::F64, Type::I32],
-            ),
-            |body| {
-                let values = (
-                    body.parameter::<I64>(1)?,
-                    body.parameter::<F64>(0)?.neg(),
-                    body.parameter::<I32>(2)?,
-                );
-                body.return_(values)
-            },
-        )
+        .function::<fn(f64, u64, u32) -> (u64, f64, u32)>(|body, _| {
+            let values = (
+                body.parameter::<I64>(1)?,
+                body.parameter::<F64>(0)?.neg(),
+                body.parameter::<I32>(2)?,
+            );
+            body.return_(values)
+        })
         .unwrap();
     let module = fixture.function(&[Type::I64, Type::I32], &[Type::I64; 3], |mut body| {
         let raw = body.parameter::<I64>(0)?;

@@ -79,17 +79,17 @@ impl BlockBuilder<'_> {
     ///         results: vec![Type::I64],
     ///     },
     /// });
-    /// let block = program.function(Signature {
-    ///     parameters: vec![],
-    ///     results: vec![Type::I64],
-    /// }, |body| {
-    ///     body.tail_call(dispatch, &[])
-    /// })?;
+    /// let block = program.function::<fn() -> u64>(|body, ()| body.tail_call(dispatch, &[]))?;
     /// program.export("block", block)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
-    pub fn tail_call(self, target: Func, arguments: &[Argument]) -> Result<(), BuildError> {
+    pub fn tail_call(
+        self,
+        target: impl Into<Func>,
+        arguments: &[Argument],
+    ) -> Result<(), BuildError> {
+        let target = target.into();
         self.terminate(|body| {
             let arguments = body.resolve_call(target, arguments, &body.signature().results)?;
             Ok(Exit::TailCall { target, arguments })
@@ -138,15 +138,11 @@ impl BlockBuilder<'_> {
     /// Narrow results follow the same zero-extended calling convention as tail calls.
     ///
     /// ```
-    /// use relocade_compiler::{Program, Signature, Type, I32};
+    /// use relocade_compiler::{I32, Program};
     /// let mut program = Program::new();
-    /// let increment = program.function(Signature {
-    ///     parameters: vec![Type::I32], results: vec![Type::I32],
-    /// }, |helper| {
-    ///     let input = helper.parameter::<I32>(0)?;
-    ///     helper.return_(input.add(1))
-    /// })?;
-    /// let function = program.function(Signature { parameters: vec![], results: vec![Type::I32] }, |mut body| {
+    /// let increment =
+    ///     program.function::<fn(u32) -> u32>(|helper, (input,)| helper.return_(input.add(1)))?;
+    /// let function = program.function::<fn() -> u32>(|mut body, ()| {
     ///     let result = body.call::<I32>(increment, &[7.into()])?;
     ///     body.return_(result.add(1))
     /// })?;
@@ -156,9 +152,10 @@ impl BlockBuilder<'_> {
     /// ```
     pub fn call<R: Results>(
         &mut self,
-        target: Func,
+        target: impl Into<Func>,
         arguments: &[Argument],
     ) -> Result<R::Values, BuildError> {
+        let target = target.into();
         let types = results::types::<R>();
         let arguments = self.resolve_call(target, arguments, &types)?;
         let outputs = self.execute(Operation::call(target, arguments), &types)?;

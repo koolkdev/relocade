@@ -12,7 +12,7 @@ fn stored_reader<const N: usize>(flags: [Flag; N]) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
-        .function(
+        .raw_function(
             Signature {
                 parameters: vec![],
                 results: vec![Type::I1; N],
@@ -176,7 +176,7 @@ fn empty_and_fully_local_requests_need_no_helper_or_cpu_memory() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program
-            .function(
+            .raw_function(
                 Signature {
                     parameters: vec![Type::I8, Type::I8, Type::I1],
                     results: vec![

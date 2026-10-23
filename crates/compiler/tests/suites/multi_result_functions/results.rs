@@ -4,25 +4,18 @@ fn mixed_results() -> TestModule {
     let mut fixture = Fixture::new();
     let helper = fixture
         .program
-        .function(
-            signature(
-                &[Type::I32],
-                &[Type::I1, Type::I8, Type::I16, Type::I32, Type::I64],
-            ),
-            |body| {
-                let input = body.parameter::<I32>(0)?;
-                // These additions leave dirty upper carrier bits for narrow results.
-                body.return_((
-                    input.truncate::<I1>().add(1),
-                    (
-                        input.truncate::<I8>().add(1),
-                        input.truncate::<I16>().add(1),
-                    ),
-                    input.add(1),
-                    input.unsigned().extend::<I64>().add(1_u64 << 63),
-                ))
-            },
-        )
+        .function::<fn(u32) -> (bool, u8, u16, u32, u64)>(|body, (input,)| {
+            // These additions leave dirty upper carrier bits for narrow results.
+            body.return_((
+                input.truncate::<I1>().add(1),
+                (
+                    input.truncate::<I8>().add(1),
+                    input.truncate::<I16>().add(1),
+                ),
+                input.add(1),
+                input.unsigned().extend::<I64>().add(1_u64 << 63),
+            ))
+        })
         .unwrap();
     fixture.program.export("helper", helper).unwrap();
     fixture.function(
@@ -107,7 +100,7 @@ fn array_results<const N: usize>() -> TestModule {
     let result_types = vec![Type::I1; N];
     let helper = fixture
         .program
-        .function(signature(&[Type::I32], &result_types), |body| {
+        .raw_function(signature(&[Type::I32], &result_types), |body| {
             let input = body.parameter::<I32>(0)?;
             let values = (0..N)
                 .map(|index| input.eq(index as u32))

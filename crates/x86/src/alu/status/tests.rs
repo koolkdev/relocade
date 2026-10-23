@@ -4,46 +4,34 @@ use super::StatusSource;
 use crate::alu::ArithmeticOp;
 use crate::flags::{Condition, StatusFlag};
 use crate::CompiledModule;
-use relocade_compiler::{MemoryInt, Program, Signature, Type, I16, I32, I8};
+use relocade_compiler::{MemoryInt, Program, I16, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 fn auxiliary_carry<T: MemoryInt>() -> CompiledModule {
     let mut program = Program::new();
     for (name, operation) in [("add", ArithmeticOp::Add), ("sub", ArithmeticOp::Subtract)] {
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![T::TYPE; 2],
-                    results: vec![Type::I1],
-                },
-                |body| {
-                    // The addition can leave dirty upper carrier bits before the flag query.
-                    let left = body.parameter::<T>(0)?.add(1);
-                    let right = body.parameter::<T>(1)?;
-                    let result = operation.result(&left, &right);
-                    let source = StatusSource::Arithmetic {
-                        operation,
-                        left,
-                        right,
-                        result,
-                    };
-                    body.return_(source.flag(StatusFlag::AF))
-                },
-            )
+            .function::<fn(T, T) -> bool>(|body, _| {
+                // The addition can leave dirty upper carrier bits before the flag query.
+                let left = body.parameter::<T>(0)?.add(1);
+                let right = body.parameter::<T>(1)?;
+                let result = operation.result(&left, &right);
+                let source = StatusSource::Arithmetic {
+                    operation,
+                    left,
+                    right,
+                    result,
+                };
+                body.return_(source.flag(StatusFlag::AF))
+            })
             .unwrap();
         program.export(name, function).unwrap();
     }
     let logic = program
-        .function(
-            Signature {
-                parameters: vec![T::TYPE; 2],
-                results: vec![Type::I1],
-            },
-            |body| {
-                let result = body.parameter::<T>(0)?.add(1).xor(body.parameter::<T>(1)?);
-                body.return_(StatusSource::Logic { result }.flag(StatusFlag::AF))
-            },
-        )
+        .function::<fn(T, T) -> bool>(|body, _| {
+            let result = body.parameter::<T>(0)?.add(1).xor(body.parameter::<T>(1)?);
+            body.return_(StatusSource::Logic { result }.flag(StatusFlag::AF))
+        })
         .unwrap();
     program.export("logic", logic).unwrap();
     CompiledModule {
@@ -78,25 +66,17 @@ fn signed_cmp_conditions_use_original_operands_without_computing_flags() {
     let mut program = Program::new();
     for (name, condition) in [("less", Condition::L), ("greater_equal", Condition::GE)] {
         let function = program
-            .function(
-                Signature {
-                    parameters: vec![Type::I32; 2],
-                    results: vec![Type::I1],
-                },
-                |body| {
-                    let left = body.parameter::<I32>(0)?;
-                    let right = body.parameter::<I32>(1)?;
-                    let operation = ArithmeticOp::Subtract;
-                    let result = operation.result(&left, &right);
-                    let source = StatusSource::Arithmetic {
-                        operation,
-                        left,
-                        right,
-                        result,
-                    };
-                    body.return_(source.condition(condition))
-                },
-            )
+            .function::<fn(u32, u32) -> bool>(|body, (left, right)| {
+                let operation = ArithmeticOp::Subtract;
+                let result = operation.result(&left, &right);
+                let source = StatusSource::Arithmetic {
+                    operation,
+                    left,
+                    right,
+                    result,
+                };
+                body.return_(source.condition(condition))
+            })
             .unwrap();
         program.export(name, function).unwrap();
     }

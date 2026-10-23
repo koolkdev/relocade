@@ -126,7 +126,7 @@ fn callable(increment: u32) -> Vec<u8> {
     let eax = offset_of!(ExecutionContext, cpu.registers.eax) as u32;
     let eip = offset_of!(ExecutionContext, cpu.eip) as u32;
     let function = program
-        .function(abi::RUN.signature(), |mut body| {
+        .function::<abi::ExecutionSignature>(|mut body, ()| {
             let value = body.load::<I32>(context, eax)?.add(increment);
             body.store(context, eax, value)?;
             body.store::<I32>(guest, 0x400_u32, increment)?;

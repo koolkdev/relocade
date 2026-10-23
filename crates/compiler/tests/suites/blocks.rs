@@ -97,7 +97,7 @@ fn unused_pure_call() -> TestModule {
     let state = fixture.memory("state", &[0xa5, 0x5a]);
     let helper = fixture
         .program
-        .function(signature(&[], &[Type::I64]), |body| body.trap())
+        .function::<fn() -> u64>(|body, ()| body.trap())
         .unwrap();
     fixture.function(&[], &[Type::I32], |mut body| {
         let (word, _unused) = body.block::<(I32, I64)>(|mut block, _| {
