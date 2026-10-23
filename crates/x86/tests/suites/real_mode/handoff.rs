@@ -5,21 +5,14 @@ use crate::support::{
     machine::expected,
     step::{Event, TestModule},
 };
-use relocade_compiler::{FunctionImport, Program, Signature, Type};
+use relocade_compiler::Program;
 
 #[test]
 fn handoff_registers_the_real_mode_interpreters_memory_imports() {
     // The caller only imports interpret; its Real16 callee requires physical memory.
     let mut program = Program::new();
-    let signature = Signature {
-        parameters: vec![],
-        results: vec![Type::I64],
-    };
-    let interpret = program.import_function(FunctionImport {
-        module: "relocade".into(),
-        name: "interpret".into(),
-        signature: signature.clone(),
-    });
+    let signature = crate::abi::INTERPRET.signature();
+    let interpret = program.import_function(crate::abi::INTERPRET);
     let entry = program
         .function(signature, |body| body.tail_call(interpret, &[]))
         .unwrap();

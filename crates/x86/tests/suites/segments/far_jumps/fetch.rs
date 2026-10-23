@@ -140,6 +140,9 @@ fn ff_group_five_rejects_register_mode_before_source_access() {
     image.check_unchanged_exit(
         TestModule::interpreter(),
         "far JMP rejects a register operand",
-        Exit::Other(0x0008_00ff_0000_1ffe),
+        Exit::UnsupportedInstruction {
+            eip: 0x1ffe,
+            opcode: 0xff,
+        },
     );
 }

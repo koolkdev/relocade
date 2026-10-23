@@ -27,12 +27,7 @@ impl RuntimeCursor<'_> {
             body.if_(
                 self.offset.unsigned().ge(MAX_INSTRUCTION_BYTES),
                 |limit_body| {
-                    exit::exception(
-                        limit_body,
-                        Exception::GeneralProtection {
-                            error_code: 0.into(),
-                        },
-                    )
+                    exit::exception(limit_body, Exception::GeneralProtection { error_code: 0 })
                 },
             )?;
         }

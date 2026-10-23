@@ -112,7 +112,7 @@ fn descriptor_type_privilege_and_presence_faults_precede_the_new_target_limit() 
                 present: false,
                 ..code_descriptor
             }),
-            Exit::Other(0x0020_f324_0000_0000),
+            Exit::SegmentNotPresent { error: 0xf324 },
         ),
     ] {
         for indirect in [false, true] {
@@ -193,7 +193,7 @@ fn failed_jumps_publish_earlier_register_flag_memory_and_retirement_progress() {
             exit: if present {
                 Exit::GeneralProtection { error: 0 }
             } else {
-                Exit::Other(0x0020_0024_0000_0000)
+                Exit::SegmentNotPresent { error: 0x24 }
             },
         };
         let event = Event::ResolveSegment {

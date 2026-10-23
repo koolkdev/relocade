@@ -11,7 +11,6 @@
 use super::*;
 use crate::{
     address::MemoryAddress,
-    exception::Exception,
     execution::CodeTarget,
     flags::{image, Flag},
     register::RegisterType,
@@ -227,9 +226,9 @@ where
         // RPL 3 is valid; real-mode segment values have no privilege bits.
         execution.fault_if(
             selector.and(3).ne(3),
-            Exception::GeneralProtection {
-                error_code: selector.unsigned().extend::<I32>().and(0xfffc),
-            },
+            crate::ExceptionValues::general_protection(
+                selector.unsigned().extend::<I32>().and(0xfffc),
+            ),
         )?;
     }
     let target = CodeTarget::resolve(execution, offset, selector)?;

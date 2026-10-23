@@ -215,7 +215,11 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
         .function(
             Signature {
                 parameters: vec![Type::I32, Type::I64],
-                results: vec![Type::I64],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
             },
             |mut body| {
                 let address = body.parameter::<I32>(0)?;
@@ -226,12 +230,13 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
                     I64::BYTES,
                     Intent::Write,
                     None,
-                    Some(&mut exit::exception),
+                    Some(&mut AccessResult::fault),
                 )?;
                 let before = memory.read::<I64>(&mut body, &access, 0)?;
                 memory.write(&mut body, &access, 0, &replacement)?;
                 let after = memory.read::<I64>(&mut body, &access, 0)?;
-                body.return_(
+                AccessResult::value(
+                    body,
                     before
                         .eq(0x8877_6655_4433_2211u64)
                         .and(after.eq(replacement))

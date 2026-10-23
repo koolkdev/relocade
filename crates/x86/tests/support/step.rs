@@ -7,6 +7,9 @@ use crate::ExecutionTarget;
 use relocade_test_support::Module;
 pub(crate) use relocade_test_support::{Outcome, Value as Argument};
 
+mod results;
+pub(crate) use results::{decode, returned, AccessResult};
+
 mod interpreter;
 pub(crate) use interpreter::asset_bytes;
 mod segments;
@@ -28,7 +31,7 @@ pub(crate) struct Input {
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
     pub(crate) segment_queries: Vec<SegmentQuery>,
     pub(crate) patches_before_calls: Vec<CallPatches>,
-    pub(crate) dispatch_return: i64,
+    pub(crate) dispatch_return: crate::ExecutionExit,
 }
 
 impl Input {
@@ -49,7 +52,7 @@ impl Input {
             segment_resolutions: Vec::new(),
             segment_queries: Vec::new(),
             patches_before_calls: Vec::new(),
-            dispatch_return: i64::MIN,
+            dispatch_return: crate::ExecutionExit::BudgetExhausted,
         }
     }
 }

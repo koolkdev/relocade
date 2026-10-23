@@ -26,7 +26,10 @@ fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructio
             cpu,
             ram: &[],
             exit: if nested_task {
-                Exit::Other(0x0008_00cf_0000_1003)
+                Exit::UnsupportedInstruction {
+                    eip: 0x1003,
+                    opcode: 0xcf,
+                }
             } else {
                 Exit::PageFault {
                     address: 0x4000,
@@ -124,7 +127,10 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
     image.check_unchanged_exit(
         step,
         "restored NT applies at the next IRET",
-        Exit::Other(0x0008_00cf_0000_0200),
+        Exit::UnsupportedInstruction {
+            eip: 0x200,
+            opcode: 0xcf,
+        },
     );
 }
 
@@ -145,7 +151,10 @@ fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
     let unsupported = || Step {
         cpu,
         ram: &[],
-        exit: Exit::Other(0x0008_00cf_0000_1001),
+        exit: Exit::UnsupportedInstruction {
+            eip: 0x1001,
+            opcode: 0xcf,
+        },
     };
     assert_eq!(
         TestModule::interpreter().observe(&image.input(), 2),
@@ -178,7 +187,10 @@ fn complete_fetch_precedes_nt_and_byte_sixteen_is_rejected() {
         image.data(0x3ff1, &code[..length.min(15)]);
         image.cpu.flags.bytes.nt = 1;
         let exit = if length <= 15 {
-            Exit::Other(0x0008_00cf_0000_1ff1)
+            Exit::UnsupportedInstruction {
+                eip: 0x1ff1,
+                opcode: 0xcf,
+            }
         } else {
             Exit::GeneralProtection { error: 0 }
         };

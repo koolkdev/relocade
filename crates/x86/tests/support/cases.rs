@@ -217,7 +217,7 @@ impl InstructionCase {
         self
     }
 
-    pub(crate) fn fault(mut self, address: u32, error: u16) -> Self {
+    pub(crate) fn fault(mut self, address: u32, error: u32) -> Self {
         self.expected.exit = ExpectedExit::PageFault { address, error };
         self
     }
@@ -237,12 +237,12 @@ impl InstructionCase {
         self
     }
 
-    pub(crate) fn general_protection(mut self, error: u16) -> Self {
+    pub(crate) fn general_protection(mut self, error: u32) -> Self {
         self.expected.exit = ExpectedExit::GeneralProtection { error };
         self
     }
 
-    pub(crate) fn stack_fault(mut self, error: u16) -> Self {
+    pub(crate) fn stack_fault(mut self, error: u32) -> Self {
         self.expected.exit = ExpectedExit::StackFault { error };
         self
     }
@@ -416,9 +416,9 @@ pub(super) enum ExpectedExit {
     DivideError,
     BoundRangeExceeded,
     InvalidOpcode,
-    GeneralProtection { error: u16 },
-    StackFault { error: u16 },
-    PageFault { address: u32, error: u16 },
+    GeneralProtection { error: u32 },
+    StackFault { error: u32 },
+    PageFault { address: u32, error: u32 },
 }
 
 pub(super) struct MemoryRegion {

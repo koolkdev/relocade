@@ -159,7 +159,10 @@ fn invalid_groups_reject_before_fetching_an_address_or_immediate() {
         image.check_unchanged_exit(
             module,
             "invalid MOV group",
-            Exit::Other((8 << 48) | ((opcode as u64) << 32) | 0x1ffe),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffe,
+                opcode,
+            },
         );
     }
 }

@@ -5,7 +5,7 @@ use crate::support::{
 };
 
 use relocade_x86::{compile_block_from_bytes, CpuState, Gpr32};
-use step::{Argument, CallPatches, Event, Input, Observation, Outcome, Snapshot, TestModule};
+use step::{CallPatches, Event, Input, Observation, Snapshot, TestModule};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
 // MOV EAX, [2000]; MOV ECX, [4000]; MOV EDX, [6000].
@@ -171,7 +171,7 @@ fn instruction_counts_reread_host_changes_between_invocations() {
             snapshot: snapshot.clone(),
         });
         events.push(Event::Return {
-            outcome: Outcome::Returned(vec![Argument::I64(i64::MIN)]),
+            outcome: crate::support::step::returned(relocade_x86::ExecutionExit::BudgetExhausted),
             snapshot,
         });
     }

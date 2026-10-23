@@ -63,12 +63,7 @@ impl ExecutionBuilder<'_, '_> {
                 Some(taken) => taken.and(denied),
                 None => denied,
             };
-            self.fault_if(
-                fault,
-                Exception::GeneralProtection {
-                    error_code: 0.into(),
-                },
-            )?;
+            self.fault_if(fault, Exception::GeneralProtection { error_code: 0 })?;
         }
         Ok(())
     }

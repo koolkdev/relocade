@@ -11,9 +11,8 @@ use crate::{
     stdio::OutputStream,
     DosServices,
 };
-use relocade_machine::HostCall;
-use relocade_x86::{ExecutionExit, Segment};
-use std::ops::ControlFlow;
+use relocade_machine::{HookResult, HostCall};
+use relocade_x86::Segment;
 
 // DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
 const CONSOLE_LINE_CAPACITY: u8 = 128;
@@ -23,7 +22,7 @@ pub(in crate::services) fn read_handle(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
     stream: OutputStream,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let handle = call.cpu().bx();
     if state.files.console_eof(handle) {
         call.cpu().set_ax(0);
@@ -50,7 +49,7 @@ fn return_handle_line(
     state: &mut DosState,
     mut bytes: Vec<u8>,
     stream: OutputStream,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let handle = call.cpu().bx();
     let eof = bytes.first() == Some(&0x1a);
     state.files.set_console_eof(handle, eof);
@@ -63,10 +62,7 @@ fn return_handle_line(
     return_handle_buffer(call, state)
 }
 
-fn return_handle_buffer(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+fn return_handle_buffer(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let cpu = call.cpu();
     let count = transfer_count(cpu.dx(), cpu.cx());
     let line = &mut state.files.stdio.console_line;
@@ -75,10 +71,7 @@ fn return_handle_buffer(
     return_bytes(call, &bytes)
 }
 
-fn read_raw(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+fn read_raw(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let cpu = call.cpu();
     let count = transfer_count(cpu.dx(), cpu.cx());
     let input = state.files.stdio.input.clone();
@@ -104,7 +97,7 @@ fn read_raw(
     return_bytes(call, &bytes)
 }
 
-fn return_bytes(call: &mut HostCall<'_, DosServices>, bytes: &[u8]) -> ControlFlow<ExecutionExit> {
+fn return_bytes(call: &mut HostCall<'_, DosServices>, bytes: &[u8]) -> HookResult {
     if !bytes.is_empty() {
         let cpu = call.cpu();
         let offset = cpu.dx();

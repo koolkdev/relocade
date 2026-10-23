@@ -1,11 +1,11 @@
 use super::DispatchEntry;
 use crate::Result;
-use relocade_compiler::{abi::Function, I64};
+use relocade_compiler::abi::Function;
 use relocade_wasm_runtime::{ExportFunction, Import};
 use relocade_x86::{abi, EntryTable};
 
 /// Owns the guest-address map and Wasm function table for one CPU.
-pub(super) struct DispatchTable<B: ExportFunction<fn() -> I64>> {
+pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     memory: B::Memory,
     functions: B::Table,
     addresses: EntryTable,
@@ -13,7 +13,7 @@ pub(super) struct DispatchTable<B: ExportFunction<fn() -> I64>> {
     capacity: u32,
 }
 
-impl<B: ExportFunction<fn() -> I64>> DispatchTable<B> {
+impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     pub(super) fn new(backend: &mut B) -> Result<Self> {
         let memory = backend.create_memory(abi::EXECUTION_ENTRIES)?;
         let addresses = EntryTable::default();
@@ -58,8 +58,10 @@ impl<B: ExportFunction<fn() -> I64>> DispatchTable<B> {
         let mut next_slot = self.next_slot;
         let mut functions = Vec::with_capacity(entries.len());
         for entry in entries {
-            let function =
-                backend.function(instance, Function::<fn() -> I64>::new("", entry.export))?;
+            let function = backend.function(
+                instance,
+                Function::<abi::ExecutionSignature>::new("", entry.export),
+            )?;
             let slot = addresses.get(entry.address).unwrap_or_else(|| {
                 let slot = next_slot;
                 next_slot = next_slot

@@ -1,9 +1,7 @@
 //! DOS device information, mode control and readiness for open handles.
 
 use crate::{error::DosError, interrupt::return_result, state::DosState, DosServices};
-use relocade_machine::HostCall;
-use relocade_x86::ExecutionExit;
-use std::ops::ControlFlow;
+use relocade_machine::{HookResult, HostCall};
 
 const GET_DEVICE_INFORMATION: u8 = 0x00;
 const SET_DEVICE_INFORMATION: u8 = 0x01;
@@ -11,10 +9,7 @@ const GET_INPUT_STATUS: u8 = 0x06;
 const GET_OUTPUT_STATUS: u8 = 0x07;
 
 /// Query or set BX's device information, or query its input/output readiness.
-pub(super) fn ioctl(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn ioctl(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let handle = call.cpu().bx();
     let result = match call.cpu().al() {
         GET_DEVICE_INFORMATION => state.files.device_information(handle).map(|info| {

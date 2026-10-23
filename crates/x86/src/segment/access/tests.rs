@@ -1,8 +1,9 @@
 use crate::state::SegmentReads;
+use crate::test_step::AccessResult;
 use crate::{
     memory::Intent,
     segment::{Segment, SegmentSelection},
-    state::{exit, Cpu},
+    state::Cpu,
     CompiledModule, ExecutionProfile, SegmentProfile,
 };
 use relocade_compiler::{Program, Signature, Type, Val, I32, I64};
@@ -22,7 +23,11 @@ fn translation(
         .function(
             Signature {
                 parameters: vec![Type::I32, Type::I32],
-                results: vec![Type::I64],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
             },
             |mut body| {
                 let mut access = SegmentReads::new(&cpu, profile);
@@ -35,11 +40,11 @@ fn translation(
                         &offset,
                         4,
                         intent,
-                        exit::exception,
+                        AccessResult::fault,
                     )?,
                     None => offset,
                 };
-                body.return_(linear.unsigned().extend::<I64>())
+                AccessResult::value(body, linear.unsigned().extend::<I64>())
             },
         )
         .unwrap();

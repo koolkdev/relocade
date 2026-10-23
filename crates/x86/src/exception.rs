@@ -1,26 +1,33 @@
 use std::fmt;
 
 /// Architectural faults reported by execution, checked fetches and host resolution.
-/// Payloads use concrete `u32` values by default; generated execution uses compiler
-/// values. The caller supplies the restart and commit boundary, independently of
-/// the exception's contents and the host exit encoding.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Exception<V = u32> {
+/// Payloads use architectural values. The caller supplies the restart and commit
+/// boundary independently of the exception's contents.
+#[derive(
+    relocade_wasm_bindings::WasmAbi,
+    relocade_compiler::abi::CompilerValue,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    PartialEq,
+)]
+pub enum Exception {
     DivideError,
     BoundRangeExceeded,
     InvalidOpcode,
     SegmentNotPresent {
-        error_code: V,
+        error_code: u32,
     },
     StackFault {
-        error_code: V,
+        error_code: u32,
     },
     GeneralProtection {
-        error_code: V,
+        error_code: u32,
     },
     PageFault {
-        linear_address: V,
-        error_code: V,
+        linear_address: u32,
+        error_code: u32,
     },
     /// A pending x87 floating-point exception reported by a waiting instruction.
     FloatingPoint,
@@ -43,7 +50,7 @@ pub enum ExceptionVector {
     SimdFloatingPoint = 19,
 }
 
-impl<V> Exception<V> {
+impl Exception {
     pub const fn vector(&self) -> ExceptionVector {
         match self {
             Self::DivideError => ExceptionVector::DivideError,
@@ -59,7 +66,7 @@ impl<V> Exception<V> {
     }
 }
 
-impl fmt::Display for Exception<u32> {
+impl fmt::Display for Exception {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (name, error_code) = match self {
             Self::DivideError => return f.write_str("#DE"),
@@ -79,7 +86,7 @@ impl fmt::Display for Exception<u32> {
     }
 }
 
-impl std::error::Error for Exception<u32> {}
+impl std::error::Error for Exception {}
 
 #[cfg(test)]
 mod tests;

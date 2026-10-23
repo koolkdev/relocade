@@ -170,6 +170,9 @@ fn byte_sixteen_and_register_mode_far_calls_are_rejected_before_data_access() {
     image.check_unchanged_exit(
         TestModule::interpreter(),
         "far CALL rejects a register operand",
-        Exit::Other(0x0008_00ff_0000_1ffe),
+        Exit::UnsupportedInstruction {
+            eip: 0x1ffe,
+            opcode: 0xff,
+        },
     );
 }

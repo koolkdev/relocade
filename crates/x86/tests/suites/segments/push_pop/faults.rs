@@ -67,7 +67,7 @@ fn a_failed_pop_resolution_does_not_commit_the_stack_advance() {
             0x1f,
             0xf327,
             true,
-            Exit::Other(0x0020_f324_0000_0000),
+            Exit::SegmentNotPresent { error: 0xf324 },
         ),
         (
             Segment::Ss,

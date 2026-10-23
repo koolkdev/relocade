@@ -1,14 +1,13 @@
 use super::{buffers::write_wrapping, files::read_path};
 use crate::{interrupt::return_result, state::DosState, DosServices};
-use relocade_machine::{real_mode_interrupt::return_from_interrupt, HostCall};
-use relocade_x86::{ExecutionExit, Segment};
-use std::ops::ControlFlow;
+use relocade_machine::{real_mode_interrupt::return_from_interrupt, HookResult, HostCall};
+use relocade_x86::Segment;
 
 /// AH=0Eh: select DL's drive; report the drive-letter range in AL.
 pub(super) fn select_drive(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let number = call.cpu().dl();
     let count = state.files.select_drive(number);
     call.cpu().set_al(count);
@@ -16,10 +15,7 @@ pub(super) fn select_drive(
 }
 
 /// AH=19h: return the current drive in AL.
-pub(super) fn get_drive(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn get_drive(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let number = state.files.current_drive();
     call.cpu().set_al(number);
     return_from_interrupt(call)
@@ -29,7 +25,7 @@ pub(super) fn get_drive(
 pub(super) fn create_directory(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let result = read_path(call).and_then(|path| state.files.create_directory(&path));
     return_result(call, result)
 }
@@ -38,7 +34,7 @@ pub(super) fn create_directory(
 pub(super) fn remove_directory(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let result = read_path(call).and_then(|path| state.files.remove_directory(&path));
     return_result(call, result)
 }
@@ -47,7 +43,7 @@ pub(super) fn remove_directory(
 pub(super) fn change_directory(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let result = read_path(call).and_then(|path| state.files.change_directory(&path));
     return_result(call, result)
 }
@@ -56,7 +52,7 @@ pub(super) fn change_directory(
 pub(super) fn get_directory(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let cpu = call.cpu();
     let drive = cpu.dl();
     let segment = cpu.segment(Segment::Ds);

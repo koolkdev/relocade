@@ -12,7 +12,7 @@ pub(crate) mod x87;
 
 pub use context::ExecutionContext;
 pub(super) use cpu::Cpu;
-pub use exit::ExecutionExit;
+pub use exit::{ExecutionExit, ExecutionExitCase, ExecutionExitValues};
 pub use layout::{
     CpuState, DescriptorTableRegister, FlagBytes, FlagsState, Registers, SegmentRegister, Segments,
     SimdState, StatusSourceState, SystemSegmentRegister, X87Control, X87Register, X87State,
@@ -28,7 +28,7 @@ use access::{cpu_load, cpu_store, register_location};
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
 
 use crate::{
-    exception::Exception,
+    exception::ExceptionValues,
     flags::{Condition, Flag, FlagChange},
     register::{Register, RegisterType},
     segment::{SegmentSelection, SegmentValues},
@@ -170,7 +170,7 @@ impl<'cpu> State<'cpu> {
         mut body: BlockBuilder<'_>,
         restart_eip: impl Into<Val<I32>>,
         completed: u32,
-        exception: Exception<Val<I32>>,
+        exception: ExceptionValues,
     ) -> Result<(), BuildError> {
         self.publish(&mut body, restart_eip, completed)?;
         exit::exception(body, exception)

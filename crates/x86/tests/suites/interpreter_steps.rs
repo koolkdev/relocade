@@ -94,7 +94,7 @@ fn interpreter_step_exposes_host_abis() {
             .map(|(name, signature)| (name.as_str(), types[*signature as usize].clone()))
             .collect::<Vec<_>>(),
         [
-            ("dispatch", (vec![], vec![ValType::I64])),
+            ("dispatch", (vec![], vec![ValType::I32; 4])),
             (
                 "resolveSegment",
                 (vec![ValType::I32; 2], vec![ValType::I32; 12])
@@ -117,7 +117,7 @@ fn interpreter_step_exposes_host_abis() {
         let entry = index as usize - imports.len();
         assert_eq!(
             types[functions[entry] as usize],
-            (vec![], vec![ValType::I64])
+            (vec![], vec![ValType::I32; 4])
         );
     }
 }
@@ -248,7 +248,10 @@ fn missing_instruction_bytes_and_unsupported_opcodes_preserve_entry_state() {
             0x1fff,
             vec![(0x3fff, vec![0xf4])],
             vec![(4, vec![1, 0x30, 0, 0])],
-            Exit::Other(0x0008_00f4_0000_1fff),
+            Exit::UnsupportedInstruction {
+                eip: 0x1fff,
+                opcode: 0xf4,
+            },
         ),
         (
             "address prefix needs the next code page",

@@ -4,7 +4,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
 use super::page_table::{physical_address, FRAME_MASK, PAGE_BYTES};
 use super::{Access, Intent, Memory};
-use crate::exception::Exception;
+use crate::exception::ExceptionValues;
 
 /// Virtual mappings must stay fixed until this execution path leaves generated code.
 /// Clones inherit dominating proofs; proofs from a child must not escape its region.
@@ -40,7 +40,7 @@ impl<'memory> Accesses<'memory> {
         start: &Val<I32>,
         bytes: u32,
         intent: Intent,
-        mut on_fault: impl FnMut(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
+        mut on_fault: impl FnMut(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
     ) -> Result<Access, BuildError> {
         assert!((1..=PAGE_BYTES).contains(&bytes));
         if !self.memory.has_stable_mappings() {

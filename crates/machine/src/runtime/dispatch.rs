@@ -3,13 +3,12 @@
 mod table;
 
 use super::{access::CpuAccess, code};
-use crate::{Error, Result, RuntimeMemory};
-use relocade_compiler::I64;
+use crate::{Result, RuntimeMemory};
 use relocade_wasm_runtime::{ExportFunction, Function, Import};
 use relocade_x86::{abi, ExecutionExit};
 use table::DispatchTable;
 
-/// An ordinary `() -> i64` export to publish at a guest linear address.
+/// An ordinary `() -> ExecutionExit` export to publish at a guest linear address.
 pub struct DispatchEntry<'a> {
     pub address: u32,
     pub export: &'a str,
@@ -18,14 +17,14 @@ pub struct DispatchEntry<'a> {
 /// Bound dispatcher, interpreter, host imports and callable entries for one CPU.
 /// Keeps module linking and publication together so every entry uses the same
 /// runtime bindings and execution table.
-pub(crate) struct Dispatch<B: ExportFunction<fn() -> I64>> {
-    dispatch: Function<B, fn() -> I64>,
-    interpret: Function<B, fn() -> I64>,
+pub(crate) struct Dispatch<B: ExportFunction<abi::ExecutionSignature>> {
+    dispatch: Function<B, abi::ExecutionSignature>,
+    interpret: Function<B, abi::ExecutionSignature>,
     table: DispatchTable<B>,
     host_imports: Vec<Import<'static, B>>,
 }
 
-impl<B: ExportFunction<fn() -> I64>> Dispatch<B> {
+impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
     pub(crate) async fn new(
         backend: &mut B,
         bindings: &RuntimeMemory<B::Memory>,
@@ -61,10 +60,9 @@ impl<B: ExportFunction<fn() -> I64>> Dispatch<B> {
         })
     }
 
-    pub(crate) fn run(&mut self, access: &mut CpuAccess<B>, target: u64) -> Result<ExecutionExit> {
+    pub(crate) fn run(&mut self, access: &mut CpuAccess<B>, target: u64) -> ExecutionExit {
         access.set_instruction_target(target);
-        let word = access.backend.call(&self.dispatch, ()) as u64;
-        ExecutionExit::from_bits(word).ok_or(Error::InvalidExit(word))
+        access.backend.call(&self.dispatch, ())
     }
 
     pub(crate) async fn install(

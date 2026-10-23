@@ -141,7 +141,10 @@ fn register_operands_are_rejected_without_a_successor_fetch() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "BOUND requires a memory pair",
-            Exit::Other(0x0008_0062_0000_0000 | u64::from(start)),
+            Exit::UnsupportedInstruction {
+                eip: start,
+                opcode: 0x62,
+            },
         );
     }
 }

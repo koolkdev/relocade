@@ -7,20 +7,16 @@ use crate::{
     state::DosState,
     DosServices,
 };
-use relocade_machine::HostCall;
-use relocade_x86::{ExecutionExit, Segment};
-use std::ops::ControlFlow;
+use relocade_machine::{HookResult, HostCall};
+use relocade_x86::Segment;
 
 /// AH=71h: report that long-filename services are absent so callers can use 8.3.
-pub(super) fn long_filename(call: &mut HostCall<'_, DosServices>) -> ControlFlow<ExecutionExit> {
+pub(super) fn long_filename(call: &mut HostCall<'_, DosServices>) -> HookResult {
     return_result(call, Err(DosError::LongFilenameNotSupported))
 }
 
 /// AH=43h: query (AL=0) or set (AL=1) DS:DX's attributes through CX.
-pub(super) fn attributes(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn attributes(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let operation = call.cpu().al();
     if operation > 1 {
         return return_result(call, Err(DosError::InvalidFunction));
@@ -36,19 +32,13 @@ pub(super) fn attributes(
 }
 
 /// AH=41h: delete the file at DS:DX, subject to DOS attributes and sharing.
-pub(super) fn delete(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn delete(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let result = read_path(call).and_then(|path| state.files.delete(&path));
     return_result(call, result)
 }
 
 /// AH=56h: rename DS:DX's file to ES:DI's path on the same drive.
-pub(super) fn rename(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn rename(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let offset = call.cpu().di();
     let result = read_path(call).and_then(|from| {
         let to = read_path_at(call, Segment::Es, offset)?;
@@ -62,7 +52,7 @@ pub(super) fn create(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
     mode: CreateMode,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let attributes = call.cpu().cx();
     let result = read_path(call).and_then(|path| state.files.create(&path, attributes, mode));
     let result = result.map(|handle| call.cpu().set_ax(handle));
@@ -73,7 +63,7 @@ pub(super) fn create(
 pub(super) fn create_temporary(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let attributes = call.cpu().cx();
     let result = read_path(call).and_then(|mut path| {
         let handle = state.files.create_temporary(&mut path, attributes)?;
@@ -89,10 +79,7 @@ pub(super) fn create_temporary(
 }
 
 /// AH=3Dh: open the NUL-terminated path at DS:DX using AL's access mode.
-pub(super) fn open(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn open(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let mode = call.cpu().al();
     let result = read_path(call).and_then(|path| state.files.open(&path, mode));
     let result = result.map(|handle| call.cpu().set_ax(handle));
@@ -100,19 +87,13 @@ pub(super) fn open(
 }
 
 /// AH=3Eh: close BX's file handle.
-pub(super) fn close(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn close(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let handle = call.cpu().bx();
     return_result(call, state.files.close(handle))
 }
 
 /// AH=68h/6Ah: commit BX's handle without closing it or moving its cursor.
-pub(super) fn commit(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn commit(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let handle = call.cpu().bx();
     let result = state
         .files
@@ -122,10 +103,7 @@ pub(super) fn commit(
 }
 
 /// AH=45h: duplicate BX's open handle into the lowest free slot; return AX.
-pub(super) fn duplicate(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn duplicate(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let source = call.cpu().bx();
     let result = state
         .files
@@ -138,17 +116,14 @@ pub(super) fn duplicate(
 pub(super) fn force_duplicate(
     call: &mut HostCall<'_, DosServices>,
     state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+) -> HookResult {
     let source = call.cpu().bx();
     let destination = call.cpu().cx();
     return_result(call, state.files.force_duplicate(source, destination))
 }
 
 /// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
-pub(super) fn read(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn read(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let handle = call.cpu().bx();
     match state.files.readable_handle_type(handle) {
         Ok(HandleType::Device(Device::Console(stream))) => {
@@ -175,10 +150,7 @@ pub(super) fn read(
 }
 
 /// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
-pub(super) fn write(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn write(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let handle = call.cpu().bx();
     let cpu = call.cpu();
     let offset = cpu.dx();
@@ -196,10 +168,7 @@ pub(super) fn write(
 }
 
 /// AH=42h: seek BX by CX:DX from AL's origin; return DX:AX.
-pub(super) fn seek(
-    call: &mut HostCall<'_, DosServices>,
-    state: &mut DosState,
-) -> ControlFlow<ExecutionExit> {
+pub(super) fn seek(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
     let cpu = call.cpu();
     let handle = cpu.bx();
     let origin = cpu.al();

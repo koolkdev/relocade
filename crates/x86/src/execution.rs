@@ -28,7 +28,7 @@ use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
 use crate::state::{exit, Cpu, SegmentReads, State};
 use crate::{
-    address::AddressSize, exception::Exception, CpuState, ExecutionProfile, ExecutionTarget,
+    address::AddressSize, exception::ExceptionValues, CpuState, ExecutionProfile, ExecutionTarget,
 };
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -227,7 +227,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     /// Raises a guest fault at the current instruction's restart boundary.
     /// Publishes completed work without retiring the faulting instruction.
-    pub(crate) fn fault(&mut self, exception: Exception<Val<I32>>) -> Result<(), BuildError> {
+    pub(crate) fn fault(
+        &mut self,
+        exception: impl Into<ExceptionValues>,
+    ) -> Result<(), BuildError> {
         self.fault_if(true, exception)
     }
 
@@ -236,11 +239,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(crate) fn fault_if(
         &mut self,
         condition: impl Into<Val<I1>>,
-        exception: Exception<Val<I32>>,
+        exception: impl Into<ExceptionValues>,
     ) -> Result<(), BuildError> {
         self.body.if_(condition, |fault_body| {
             self.state
-                .fault(fault_body, &self.eip, self.completed, exception)
+                .fault(fault_body, &self.eip, self.completed, exception.into())
         })
     }
 
@@ -274,9 +277,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         let linear = self.translate(segment, offset, span.bytes, intent)?;
         self.fault_if(
             linear.and(span.alignment - 1).ne(0),
-            Exception::GeneralProtection {
-                error_code: 0.into(),
-            },
+            ExceptionValues::general_protection(0),
         )?;
         self.resolve_access(&linear, span.bytes, intent)
     }

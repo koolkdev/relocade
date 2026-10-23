@@ -152,28 +152,28 @@ fn prefix_length_limits_precede_fetch_and_unsupported_checks() {
             14,
             &[0x8b][..],
             0x1ff1,
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "required SIB is beyond the instruction limit",
             13,
             &[0x8b, 0x04][..],
             0x1ff1,
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "fifteen prefixes stop before byte sixteen",
             15,
             &[][..],
             0x1ff1,
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "word immediate reaches length limit before missing page",
             13,
             &[0xb8, 0x34][..],
             0x1ff1,
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "missing immediate byte below length limit wins",
@@ -190,7 +190,7 @@ fn prefix_length_limits_precede_fetch_and_unsupported_checks() {
             11,
             &[0xa1, 0, 0x40, 0][..],
             0x1ff1,
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "missing address byte below length limit wins",
@@ -227,14 +227,20 @@ fn prefix_length_limits_precede_fetch_and_unsupported_checks() {
             14,
             &[0xf4][..],
             0x1ff1,
-            Exit::Other(0x0008_00f4_0000_1ff1),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ff1,
+                opcode: 0xf4,
+            },
         ),
         (
             "unsupported group at last admitted ModRM",
             13,
             &[0xc7, 0x0d][..],
             0x1ff1,
-            Exit::Other(0x0008_00c7_0000_1ff1),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ff1,
+                opcode: 0xc7,
+            },
         ),
         (
             "address prefix continues scanning",
@@ -288,7 +294,7 @@ fn an_overlong_successor_preserves_completed_word_progress() {
     steps.push(Step {
         cpu: expected_cpu,
         ram: &[],
-        exit: Exit::Other(0x0002_0000_0000_0000),
+        exit: Exit::GeneralProtection { error: 0x0 },
     });
 
     check(

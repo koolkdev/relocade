@@ -177,7 +177,10 @@ fn mmx_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "memory form is rejected before missing SIB or immediate bytes",
-            Exit::Other(0x0008_000f_0000_1ffd),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffd,
+                opcode: 0xf,
+            },
         );
     }
 }

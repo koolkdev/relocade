@@ -2,7 +2,7 @@
 
 use crate::support::{
     machine::{expected, Exit, Step},
-    step::{Argument, Event, Outcome, TestModule},
+    step::{Event, TestModule},
     x87::{complete_x87, stack_image, write_register_bits},
 };
 use relocade_x86::{compile_block_from_bytes, CpuState, SegmentProfile};
@@ -56,12 +56,16 @@ fn handoff_publishes_prefix_and_interpreter_step_restarts_once() {
             }],
         );
         let mut input = image.input();
-        // The host's result is opaque even when its bits resemble a guest fault.
-        input.dispatch_return = 0x0004_0000_0000_1234;
+        // Dispatch returns its typed outcome unchanged across either handoff path.
+        input.dispatch_return =
+            relocade_x86::ExecutionExit::Exception(relocade_x86::Exception::PageFault {
+                linear_address: 0x1234,
+                error_code: 0,
+            });
         let Event::Return { outcome, .. } = wanted.events.last_mut().unwrap() else {
             unreachable!()
         };
-        *outcome = Outcome::Returned(vec![Argument::I64(input.dispatch_return)]);
+        *outcome = crate::support::step::returned(input.dispatch_return);
         assert_eq!(module.observe(&input, 1), wanted, "linked {linked}");
     }
 }

@@ -214,7 +214,10 @@ fn unsupported_groups_stop_before_address_or_count_bytes() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "undocumented group six remains unsupported",
-            Exit::Other(0x0008_0000_0000_1ffe | (u64::from(opcode) << 32)),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffe,
+                opcode,
+            },
         );
     }
 }

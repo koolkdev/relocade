@@ -20,12 +20,14 @@ pub const PAGE_TABLE: Memory = Memory::new(
     crate::memory::page_table::BYTE_LEN / 65536,
 );
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
-pub const EXECUTION_FUNCTIONS: Table<fn() -> I64> = Table::new("relocade", "executionFunctions", 2);
+pub type ExecutionSignature = fn() -> crate::ExecutionExit;
+pub const EXECUTION_FUNCTIONS: Table<ExecutionSignature> =
+    Table::new("relocade", "executionFunctions", 2);
 
-pub const DISPATCH: Function<fn() -> I64> = Function::new("relocade", "dispatch");
-pub const INTERPRET: Function<fn() -> I64> = Function::new("relocade", "interpret");
-pub const RUN: Function<fn() -> I64> = Function::new("relocade", "run");
-pub const STEP: Function<fn() -> I64> = Function::new("relocade", "step");
+pub const DISPATCH: Function<ExecutionSignature> = Function::new("relocade", "dispatch");
+pub const INTERPRET: Function<ExecutionSignature> = Function::new("relocade", "interpret");
+pub const RUN: Function<ExecutionSignature> = Function::new("relocade", "run");
+pub const STEP: Function<ExecutionSignature> = Function::new("relocade", "step");
 
 pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "readPort");
 pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");

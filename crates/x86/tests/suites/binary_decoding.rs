@@ -39,7 +39,10 @@ fn population_count_has_no_supported_encoding() {
             image.check_unchanged_exit(
                 interpreter,
                 "post-P4 POPCNT has no executable form",
-                Exit::Other(0x0008_00f3_0000_1000),
+                Exit::UnsupportedInstruction {
+                    eip: 0x1000,
+                    opcode: 0xf3,
+                },
             );
         }
     }
@@ -66,7 +69,10 @@ fn sse3_integer_stores_are_unsupported() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "SSE3 stores are unsupported before destination access or x87 effects",
-            Exit::Other(0x0008_0000_0000_1000 | (u64::from(opcode) << 32)),
+            Exit::UnsupportedInstruction {
+                eip: 0x1000,
+                opcode,
+            },
         );
     }
 }
@@ -272,19 +278,28 @@ fn binary_fetch_faults_follow_decode_precedence() {
             "unsupported F6 extension before SIB",
             0x1ffe,
             vec![0xf6, 0x0c],
-            Exit::Other(0x0008_00f6_0000_1ffe),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffe,
+                opcode: 0xf6,
+            },
         ),
         (
             "unsupported F7 extension before displacement",
             0x1ffe,
             vec![0xf7, 0x0d],
-            Exit::Other(0x0008_00f7_0000_1ffe),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffe,
+                opcode: 0xf7,
+            },
         ),
         (
             "unsupported F7 extension before SIB",
             0x1ffe,
             vec![0xf7, 0x0c],
-            Exit::Other(0x0008_00f7_0000_1ffe),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffe,
+                opcode: 0xf7,
+            },
         ),
         (
             "missing MOVAPS ModRM",
@@ -299,61 +314,73 @@ fn binary_fetch_faults_follow_decode_precedence() {
             "unsupported extended opcode avoids another fetch",
             0x1ffe,
             vec![0x0f, 0x04],
-            Exit::Other(0x0008_000f_0000_1ffe),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ffe,
+                opcode: 0xf,
+            },
         ),
         (
             "second opcode beyond length limit",
             0x1ff1,
             [vec![0x66; 14], vec![0x0f]].concat(),
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "SETcc ModRM beyond length limit",
             0x1ff1,
             [vec![0x66; 13], vec![0x0f, 0x94]].concat(),
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "SETcc SIB beyond length limit",
             0x1ff1,
             [vec![0x66; 12], vec![0x0f, 0x94, 0x04]].concat(),
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "ADD immediate beyond length limit",
             0x1ff1,
             [vec![0x66; 12], vec![0x81, 0xc0, 1]].concat(),
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "last-byte unsupported group avoids a length fault",
             0x1ff1,
             [vec![0x66; 13], vec![0xf7, 0x0c]].concat(),
-            Exit::Other(0x0008_00f7_0000_1ff1),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ff1,
+                opcode: 0xf7,
+            },
         ),
         (
             "TEST immediate beyond length limit",
             0x1ff1,
             [vec![0x66; 12], vec![0xf7, 0xc0, 1]].concat(),
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "last-byte F6 extension rejection avoids a length fault",
             0x1ff1,
             [vec![0x66; 13], vec![0xf6, 0x0c]].concat(),
-            Exit::Other(0x0008_00f6_0000_1ff1),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ff1,
+                opcode: 0xf6,
+            },
         ),
         (
             "MOVAPD ModRM beyond length limit",
             0x1ff1,
             [vec![0x66; 13], vec![0x0f, 0x28]].concat(),
-            Exit::Other(0x0002_0000_0000_0000),
+            Exit::GeneralProtection { error: 0x0 },
         ),
         (
             "last-byte unsupported extended opcode avoids a length fault",
             0x1ff1,
             [vec![0x66; 13], vec![0x0f, 0x04]].concat(),
-            Exit::Other(0x0008_000f_0000_1ff1),
+            Exit::UnsupportedInstruction {
+                eip: 0x1ff1,
+                opcode: 0xf,
+            },
         ),
     ] {
         let mut image = Image::new(&[]);

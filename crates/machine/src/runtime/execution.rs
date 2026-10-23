@@ -1,6 +1,5 @@
-use super::{Cpu, CpuAccess, Error, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::{Cpu, CpuAccess, Error, HookResult, HostCall, Result, RuntimeBackend, RuntimeState};
 use relocade_x86::ExecutionExit;
-use std::ops::ControlFlow;
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Runs until the budget is consumed at a block boundary, a guest exit
@@ -41,8 +40,8 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         let mut exit = self.enter(target)?;
         while exit == ExecutionExit::Deferred {
             exit = match self.run_deferred().await {
-                ControlFlow::Continue(()) => self.enter(target)?,
-                ControlFlow::Break(exit) => exit,
+                HookResult::Continue => self.enter(target)?,
+                HookResult::Exit(exit) => exit,
             };
         }
         Ok(exit)
@@ -72,10 +71,10 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         if self.access.backend.state().pending.is_some() {
             return Ok(ExecutionExit::Deferred);
         }
-        self.dispatch.run(&mut self.access, target)
+        Ok(self.dispatch.run(&mut self.access, target))
     }
 
-    async fn run_deferred(&mut self) -> ControlFlow<ExecutionExit> {
+    async fn run_deferred(&mut self) -> HookResult {
         // Release the backend's state guard before borrowing it for the handler.
         let handler = self
             .access

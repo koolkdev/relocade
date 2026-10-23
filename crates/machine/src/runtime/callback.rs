@@ -1,8 +1,8 @@
-use crate::{runtime::access::CpuAccess, RuntimeMemory, RuntimeState};
+use crate::{runtime::access::CpuAccess, HookResult, RuntimeMemory, RuntimeState};
 use crate::{CpuConfig, CpuStorage, CpuView, MachineConfig, MemoryView};
 use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
-use std::{future::Future, ops::ControlFlow, pin::Pin};
+use std::{future::Future, pin::Pin};
 
 #[cfg(test)]
 mod tests;
@@ -49,7 +49,7 @@ impl<'a, T> HostCall<'a, T> {
 
     /// Defers an async handler until the generated guest call has returned.
     ///
-    /// Return this method's `Break(ExecutionExit::Deferred)` from the hook to
+    /// Return this method's `HookResult::Exit(ExecutionExit::Deferred)` from the hook to
     /// suspend guest execution.
     /// The handler must own its captures; it cannot capture this call's borrows.
     /// `Cpu::run_async` gives it fresh access to the stopped CPU, memory and
@@ -58,17 +58,17 @@ impl<'a, T> HostCall<'a, T> {
     ///
     /// Keep the same run future alive while waiting. Dropping it during the
     /// handler cancels the handler; see `Cpu::run_async`.
-    pub fn defer<F>(&mut self, handler: F) -> ControlFlow<ExecutionExit>
+    pub fn defer<F>(&mut self, handler: F) -> HookResult
     where
         T: 'static,
-        F: AsyncFnOnce(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + 'static,
+        F: AsyncFnOnce(&mut HostCall<'_, T>) -> HookResult + 'static,
     {
         assert!(
             self.access.state().pending.is_none(),
             "host call already deferred"
         );
         self.access.state_mut().pending = Some(Box::new(handler));
-        ControlFlow::Break(ExecutionExit::Deferred)
+        HookResult::Exit(ExecutionExit::Deferred)
     }
 }
 
@@ -77,17 +77,17 @@ pub(crate) trait DeferredCall<T> {
     fn run<'a>(
         self: Box<Self>,
         call: &'a mut HostCall<'_, T>,
-    ) -> Pin<Box<dyn Future<Output = ControlFlow<ExecutionExit>> + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = HookResult> + 'a>>;
 }
 
 impl<T, F> DeferredCall<T> for F
 where
-    F: AsyncFnOnce(&mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> + 'static,
+    F: AsyncFnOnce(&mut HostCall<'_, T>) -> HookResult + 'static,
 {
     fn run<'a>(
         self: Box<Self>,
         call: &'a mut HostCall<'_, T>,
-    ) -> Pin<Box<dyn Future<Output = ControlFlow<ExecutionExit>> + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = HookResult> + 'a>> {
         Box::pin(async move { (*self)(call).await })
     }
 }

@@ -206,7 +206,10 @@ fn completed_progress_at_faults(module: &TestModule) {
             0x1000,
             &[0xf4][..],
             0x1005,
-            Exit::Other(0x0008_00f4_0000_1005),
+            Exit::UnsupportedInstruction {
+                eip: 0x1005,
+                opcode: 0xf4,
+            },
         ),
     ] {
         let mut image = Image::empty();

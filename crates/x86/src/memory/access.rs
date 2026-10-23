@@ -5,11 +5,11 @@ use super::page_table::{
     SCATTERED,
 };
 use super::{Intent, PageCache, VirtualMemory};
-use crate::exception::Exception;
+use crate::exception::ExceptionValues;
 use relocade_compiler::{BlockBuilder, BuildError, MemoryType, Val, I1, I32};
 
-pub(super) type FaultHandler<'handler> = dyn for<'body> FnMut(BlockBuilder<'body>, Exception<Val<I32>>) -> Result<(), BuildError>
-    + 'handler;
+pub(super) type FaultHandler<'handler> =
+    dyn for<'body> FnMut(BlockBuilder<'body>, ExceptionValues) -> Result<(), BuildError> + 'handler;
 
 /// Resolution of a complete span before any guest transfer. Denied spans are
 /// always unavailable for direct transfer. Otherwise, `unavailable` identifies
@@ -113,13 +113,7 @@ impl VirtualMemory {
                                 fault_body.value(intent.base_error_code())?
                             }
                         };
-                        on_fault(
-                            fault_body,
-                            Exception::PageFault {
-                                linear_address: address,
-                                error_code,
-                            },
-                        )
+                        on_fault(fault_body, ExceptionValues::page_fault(address, error_code))
                     }
                     None => fault_body.yield_((true, physical_address(&first_entry, start), true)),
                 }

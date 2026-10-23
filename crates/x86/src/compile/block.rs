@@ -1,4 +1,4 @@
-use relocade_compiler::{Program, Signature, Type};
+use relocade_compiler::Program;
 
 use crate::{
     decode, execution::ExecutionBuilder, memory::Memory, runtime::Runtime, state::Cpu, BlockError,
@@ -15,7 +15,7 @@ use super::Compiler;
 /// The limit must be nonzero. Incomplete,
 /// unsupported or overlong instructions within that boundary return [`BlockError`].
 ///
-/// The generated `block_<hex start_eip>() -> i64` entry executes the block and
+/// The generated `block_<hex start_eip>() -> ExecutionExit` entry executes the block and
 /// tail-calls host dispatch on success; guest faults return directly.
 /// A failed guard publishes completed work and tail-calls
 /// `relocade.interpret` at the current instruction. The interpreter handoff abandons
@@ -116,29 +116,23 @@ impl Compiler {
             .then(|| Memory::declare(&mut program, profile))
             .transpose()?;
         let runtime = Runtime::declare(&mut program);
-        let function = program.function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-            |body| {
-                let mut execution = ExecutionBuilder::new(
-                    body,
-                    &cpu,
-                    memory.as_ref(),
-                    runtime,
-                    start_eip,
-                    self.target,
-                )?
-                .with_interpreter_fallback()
-                .with_observed_cpu(self.observed_cpu.as_ref());
-                execution.guard_fetch_span(bytes.len() - remaining_bytes.len())?;
-                for decoded_instruction in decoded_instructions {
-                    execution.execute(decoded_instruction)?;
-                }
-                execution.dispatch()
-            },
-        )?;
+        let function = program.function(crate::abi::RUN.signature(), |body| {
+            let mut execution = ExecutionBuilder::new(
+                body,
+                &cpu,
+                memory.as_ref(),
+                runtime,
+                start_eip,
+                self.target,
+            )?
+            .with_interpreter_fallback()
+            .with_observed_cpu(self.observed_cpu.as_ref());
+            execution.guard_fetch_span(bytes.len() - remaining_bytes.len())?;
+            for decoded_instruction in decoded_instructions {
+                execution.execute(decoded_instruction)?;
+            }
+            execution.dispatch()
+        })?;
         let entry = format!("block_{start_eip:x}");
         program.export(&entry, function)?;
         Ok(CompiledModule {

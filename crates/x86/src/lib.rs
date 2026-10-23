@@ -64,7 +64,7 @@ pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
     compile_interpreter_step, Compiler, EntryTable,
 };
-pub use exception::{Exception, ExceptionVector};
+pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use memory::{page_table, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget};
@@ -75,9 +75,9 @@ pub use segment::{
     SegmentProfile,
 };
 pub use state::{
-    CpuState, DescriptorTableRegister, ExecutionContext, ExecutionExit, FlagBytes, FlagsState,
-    Registers, SegmentRegister, Segments, SimdState, StatusSourceState, SystemSegmentRegister,
-    X87Control, X87Register, X87State, X87Status,
+    CpuState, DescriptorTableRegister, ExecutionContext, ExecutionExit, ExecutionExitCase,
+    ExecutionExitValues, FlagBytes, FlagsState, Registers, SegmentRegister, Segments, SimdState,
+    StatusSourceState, SystemSegmentRegister, X87Control, X87Register, X87State, X87Status,
 };
 
 /// A WebAssembly module and the exported function that enters it.

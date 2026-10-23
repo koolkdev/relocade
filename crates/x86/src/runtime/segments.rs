@@ -2,9 +2,9 @@
 
 use super::Runtime;
 use crate::{
-    segment::SegmentValues, Exception, ExceptionVector, Segment, SegmentDescriptorInfoValues,
+    segment::SegmentValues, ExceptionValues, ExceptionVector, Segment, SegmentDescriptorInfoValues,
 };
-use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16};
 
 pub(crate) struct ResolvedValues {
     pub(crate) cache: SegmentValues,
@@ -30,7 +30,7 @@ impl Runtime {
         body: &mut BlockBuilder<'_>,
         segment: Segment,
         selector: &Val<I16>,
-        on_fault: impl Fn(BlockBuilder<'_>, Exception<Val<I32>>) -> Result<(), BuildError>,
+        on_fault: impl Fn(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
     ) -> Result<ResolvedValues, BuildError> {
         let (
             status,
@@ -59,13 +59,13 @@ impl Runtime {
                 let error_code = error_code.clone();
                 let exception = match vector {
                     Some(vector) if vector == ExceptionVector::SegmentNotPresent as u32 => {
-                        Exception::SegmentNotPresent { error_code }
+                        ExceptionValues::segment_not_present(error_code)
                     }
                     Some(vector) if vector == ExceptionVector::StackFault as u32 => {
-                        Exception::StackFault { error_code }
+                        ExceptionValues::stack_fault(error_code)
                     }
                     Some(vector) if vector == ExceptionVector::GeneralProtection as u32 => {
-                        Exception::GeneralProtection { error_code }
+                        ExceptionValues::general_protection(error_code)
                     }
                     _ => return arm.trap(),
                 };

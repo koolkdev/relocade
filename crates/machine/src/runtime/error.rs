@@ -9,7 +9,6 @@ pub enum Error {
     Configuration(ConfigurationError),
     Memory(MemoryError),
     Wasm(relocade_wasm_runtime::Error),
-    InvalidExit(u64),
     CancelledHostCall,
 }
 
@@ -20,7 +19,6 @@ impl fmt::Display for Error {
             Self::Configuration(error) => error.fmt(f),
             Self::Memory(error) => error.fmt(f),
             Self::Wasm(error) => error.fmt(f),
-            Self::InvalidExit(word) => write!(f, "invalid guest exit word {word:#018x}"),
             Self::CancelledHostCall => {
                 write!(
                     f,

@@ -281,7 +281,10 @@ fn unsupported_string_forms_reject_even_with_zero_count() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "unsupported string form precedes count and operand access",
-            Exit::Other(0x0008_0000_0000_1000 | (u64::from(prefix) << 32)),
+            Exit::UnsupportedInstruction {
+                eip: 0x1000,
+                opcode: prefix,
+            },
         );
     }
 }

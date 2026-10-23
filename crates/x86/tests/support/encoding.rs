@@ -21,7 +21,10 @@ pub(crate) fn check_unsupported_at_page_end(code: &[u8], opcode: u8) {
     image.check_unchanged_exit(
         TestModule::interpreter(),
         "invalid form is rejected before fetching trailing bytes",
-        Exit::Other(0x0008_0000_0000_0000 | (u64::from(opcode) << 32) | u64::from(address)),
+        Exit::UnsupportedInstruction {
+            eip: address,
+            opcode,
+        },
     );
 }
 

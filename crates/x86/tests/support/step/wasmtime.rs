@@ -1,6 +1,10 @@
 //! Wasmtime instantiation, host callbacks, and boundary observations.
 
 use ::wasmtime::{Caller, Linker, Memory, MemoryType, Store, Trap};
+use relocade_compiler::abi::{
+    slots::{Layout, Tuple},
+    AbiValue,
+};
 use relocade_test_support::SharedBytes;
 use std::sync::Arc;
 
@@ -76,7 +80,9 @@ impl TestModule {
             .unwrap();
         let cpu_len = input.cpu.len();
         let observe_guest = input.observe_guest;
-        let dispatch_return = input.dispatch_return;
+        let dispatch_return = Layout::<crate::ExecutionExit>::into_tuple(
+            crate::ExecutionExit::lower(input.dispatch_return),
+        );
         let dispatch_guest_before = guest_before.clone();
         let dispatch_machine_before = machine_before.clone();
         let dispatch_guest = guest.clone();

@@ -13,12 +13,10 @@ mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::MemoryView;
-use relocade_machine::{real_mode_interrupt, Hook, HostCall};
-use relocade_x86::ExecutionExit;
+use relocade_machine::{real_mode_interrupt, Hook, HookResult, HostCall};
 pub use screen::{
     write_text, TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
-use std::ops::ControlFlow;
 pub use text_renderer::TextRenderer;
 
 const BIOS_SEGMENT: u16 = 0xf000;
@@ -64,7 +62,7 @@ pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 3] {
     ]
 }
 
-fn clock<T>(call: &mut HostCall<'_, T>) -> ControlFlow<ExecutionExit> {
+fn clock<T>(call: &mut HostCall<'_, T>) -> HookResult {
     if call.cpu().ah() == 0 {
         let mut data = [0; 5];
         call.memory()

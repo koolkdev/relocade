@@ -5,7 +5,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I32};
 use std::collections::BTreeMap;
 
 const HASH_MULTIPLIER: u32 = 0x9e37_79b1;
-/// Linear execution addresses mapped to ordinary `() -> i64` function-table slots.
+/// Linear execution addresses mapped to ordinary `() -> ExecutionExit` function-table slots.
 /// Slot zero is reserved; slot one holds the interpreter fallback.
 /// The embedding installs functions before publishing their addresses. Keys are
 /// CS.base + EIP before paging/A20 translation, scoped to one execution target

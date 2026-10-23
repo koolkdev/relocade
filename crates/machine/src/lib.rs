@@ -55,6 +55,6 @@ pub trait CpuStorage: MemoryStorage {
 #[cfg(feature = "worker")]
 pub use runtime::worker;
 pub use runtime::{
-    real_mode_interrupt, Cpu, DispatchEntry, Error, Hook, HostCall, Result, RuntimeBackend,
-    RuntimeMemory, RuntimeState,
+    real_mode_interrupt, Cpu, DispatchEntry, Error, Hook, HookResult, HostCall, Result,
+    RuntimeBackend, RuntimeMemory, RuntimeState,
 };

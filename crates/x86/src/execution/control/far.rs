@@ -37,9 +37,7 @@ impl CodeTarget {
         // The new limit applies even when the incoming profile was flat.
         execution.fault_if(
             self.segment.limit().unsigned().lt(&self.offset),
-            Exception::GeneralProtection {
-                error_code: 0.into(),
-            },
+            Exception::GeneralProtection { error_code: 0 },
         )
     }
 

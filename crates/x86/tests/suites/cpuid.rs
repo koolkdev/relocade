@@ -158,7 +158,10 @@ fn queries_follow_complete_fetch_and_stop_before_successor_fetch() {
     image.check_unchanged_exit(
         TestModule::interpreter(),
         "LOCK rejects CPUID without changing state",
-        Exit::Other(0x0008_00f0_0000_1000),
+        Exit::UnsupportedInstruction {
+            eip: 0x1000,
+            opcode: 0xf0,
+        },
     );
 }
 

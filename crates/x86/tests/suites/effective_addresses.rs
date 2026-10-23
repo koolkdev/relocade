@@ -90,9 +90,9 @@ fn snapshot_lea_imports_no_guest_data_or_page_table_memory() {
 
 #[test]
 fn register_only_modrm_forms_are_unsupported_without_extra_fetches() {
-    for (code, start, exit) in [
-        (&[0x8d, 0xc4][..], 0x1ffe, 0x0008_008d_0000_1ffe),
-        (&[0x66, 0x8d, 0xfd][..], 0x1ffd, 0x0008_008d_0000_1ffd),
+    for (code, start) in [
+        (&[0x8d, 0xc4][..], 0x1ffe),
+        (&[0x66, 0x8d, 0xfd][..], 0x1ffd),
     ] {
         assert!(matches!(
             compile_block_from_bytes(start, code, 1),
@@ -104,7 +104,10 @@ fn register_only_modrm_forms_are_unsupported_without_extra_fetches() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "LEA rejects mod=3 at the final mapped byte",
-            Exit::Other(exit),
+            Exit::UnsupportedInstruction {
+                eip: start,
+                opcode: 0x8d,
+            },
         );
     }
 }

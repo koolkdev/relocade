@@ -11,7 +11,11 @@ fn field_module() -> TestModule {
         .function(
             Signature {
                 parameters: vec![Type::I32],
-                results: vec![Type::I64],
+                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                    "test", "access",
+                )
+                .signature()
+                .results,
             },
             |mut body| {
                 let start = body.parameter::<I32>(0)?;
@@ -21,14 +25,15 @@ fn field_module() -> TestModule {
                     6,
                     Intent::Write,
                     None,
-                    Some(&mut exit::exception),
+                    Some(&mut AccessResult::fault),
                 )?;
                 let word = memory.read::<I16>(&mut body, &access, 0)?;
                 let dword = memory.read::<I32>(&mut body, &access, 2)?;
                 let byte = memory.read::<I8>(&mut body, &access, 5)?;
                 memory.write::<I8>(&mut body, &access, 5, &0x7au32.into())?;
                 let replaced = memory.read::<I8>(&mut body, &access, 5)?;
-                body.return_(
+                AccessResult::value(
+                    body,
                     word.eq(0x2211)
                         .and(dword.eq(0x6655_4433))
                         .and(byte.eq(0x66))
@@ -89,7 +94,7 @@ fn checked_spans_locate_mixed_width_fields_across_frames_and_linear_wrap() {
                 module.observe(&input, 1),
                 Observation {
                     events: vec![Event::Return {
-                        outcome: Outcome::Returned(vec![Argument::I64(1)]),
+                        outcome: returned(AccessResult::Value(1)),
                         snapshot: Snapshot {
                             cpu: CpuState::filled(0xa5).to_bytes().to_vec(),
                             guest: Some(vec![(changed, 0x7a)])
@@ -122,7 +127,11 @@ fn wide_field_modules() -> [TestModule; 2] {
             .function(
                 Signature {
                     parameters: vec![Type::I32],
-                    results: vec![Type::I64],
+                    results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                        "test", "access",
+                    )
+                    .signature()
+                    .results,
                 },
                 |mut body| {
                     let start = body.parameter::<I32>(0)?;
@@ -132,13 +141,14 @@ fn wide_field_modules() -> [TestModule; 2] {
                         10,
                         intent,
                         None,
-                        Some(&mut exit::exception),
+                        Some(&mut AccessResult::fault),
                     )?;
                     match intent {
                         Intent::Read => {
                             let qword = memory.read::<I64>(&mut body, &access, 0)?;
                             let word = memory.read::<I16>(&mut body, &access, 8)?;
-                            body.return_(
+                            AccessResult::value(
+                                body,
                                 qword
                                     .eq(0x8877_6655_4433_2211u64)
                                     .and(word.eq(0xaa99))
@@ -154,7 +164,7 @@ fn wide_field_modules() -> [TestModule; 2] {
                                 &0x7788_99aa_bbcc_ddeeu64.into(),
                             )?;
                             memory.write::<I16>(&mut body, &access, 8, &0x5566u32.into())?;
-                            body.return_(1)
+                            AccessResult::value(body, 1)
                         }
                         Intent::Fetch | Intent::ReadOrExecute => unreachable!(),
                     }
@@ -198,13 +208,18 @@ fn wide_input(linear: u32, next_frame: u32, permissions: [u32; 2]) -> Input {
     input
 }
 
-fn check_wide_fields(module: &TestModule, input: &Input, result: u64, changes: Vec<(u32, u8)>) {
+fn check_wide_fields(
+    module: &TestModule,
+    input: &Input,
+    result: impl Into<AccessResult>,
+    changes: Vec<(u32, u8)>,
+) {
     let guest_unchanged = changes.is_empty();
     assert_eq!(
         module.observe(input, 1),
         Observation {
             events: vec![Event::Return {
-                outcome: Outcome::Returned(vec![Argument::I64(result as i64)]),
+                outcome: returned::<AccessResult>(result.into()),
                 snapshot: Snapshot {
                     cpu: CpuState::filled(0xa5).to_bytes().to_vec(),
                     guest: Some(changes),
@@ -260,7 +275,7 @@ fn ten_byte_spans_transfer_qword_and_word_fields_after_complete_checks() {
             ([3, 1], true, next_page, 3),
         ] {
             let input = wide_input(linear, 0xa000, permissions);
-            let result = 0x0004_0000_0000_0000 | (error_code << 32) | u64::from(address);
+            let result = page_fault(address, error_code);
             check_wide_fields(
                 if write_access { &write } else { &read },
                 &input,

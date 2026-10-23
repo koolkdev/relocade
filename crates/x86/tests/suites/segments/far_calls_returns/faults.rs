@@ -5,7 +5,12 @@ use relocade_x86::SegmentRegister;
 #[test]
 fn call_checks_descriptor_then_stack_capacity_then_target_then_stack_paging() {
     for (present, stack_limit, target_limit, exit) in [
-        (false, 0x8fff, 0x1ff, Exit::Other(0x0020_0024_0000_0000)),
+        (
+            false,
+            0x8fff,
+            0x1ff,
+            Exit::SegmentNotPresent { error: 0x24 },
+        ),
         (true, 0x8fff, 0x1ff, Exit::StackFault { error: 0 }),
         (true, 0x9007, 0x1ff, Exit::GeneralProtection { error: 0 }),
         (
@@ -201,7 +206,7 @@ fn return_requires_rpl_three_before_reusing_code_descriptor_rules_and_limit_chec
                 ..normal
             }),
             true,
-            Exit::Other(0x0020_0024_0000_0000),
+            Exit::SegmentNotPresent { error: 0x24 },
         ),
         (
             0x27,

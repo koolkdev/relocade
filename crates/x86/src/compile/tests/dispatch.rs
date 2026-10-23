@@ -2,7 +2,13 @@
 
 use super::*;
 use crate::{CpuState, EntryTable, ExecutionContext, ExecutionProfile, Segment, Segments};
-use relocade_compiler::{Program, Signature, Type};
+use relocade_compiler::{
+    abi::{
+        slots::{Layout, Tuple},
+        AbiValue,
+    },
+    Program,
+};
 use relocade_test_support::Module;
 
 struct Invocation {
@@ -12,11 +18,11 @@ struct Invocation {
 }
 
 struct Output {
-    word: u64,
+    exit: crate::ExecutionExit,
     cpu: Vec<u8>,
 }
 
-fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<u64>) {
+fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExit>) {
     let mut cpu = CpuState::default();
     if profile == ExecutionProfile::Real16 {
         cpu.segments = Segments::real_mode();
@@ -44,36 +50,68 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<u64>) {
         });
         expected.push(result);
     };
-    push(cpu, &table, "dispatch", 11);
+    push(cpu, &table, "dispatch", crate::ExecutionExit::HostReturn);
     table.insert(base, 2);
-    push(cpu, &table, "dispatch", 22);
+    push(cpu, &table, "dispatch", crate::ExecutionExit::Deferred);
     table.insert(base, 3);
-    push(cpu, &table, "dispatch", 33);
+    push(
+        cpu,
+        &table,
+        "dispatch",
+        crate::ExecutionExit::UnsupportedInstruction {
+            eip: u32::MAX,
+            opcode: 0xf3,
+        },
+    );
     if matches!(
         profile,
         ExecutionProfile::Protected(SegmentProfile::Segmented16 | SegmentProfile::Segmented32)
     ) {
         let mut changed = cpu;
         changed.segments.ds.base = 0x4000;
-        push(changed, &table, "dispatch", 33);
+        push(
+            changed,
+            &table,
+            "dispatch",
+            crate::ExecutionExit::UnsupportedInstruction {
+                eip: u32::MAX,
+                opcode: 0xf3,
+            },
+        );
         // Entry requirements belong to the callee, not address lookup.
         changed = cpu;
         changed.eip = 1;
         changed.segments.cs.limit = 0;
         changed.segments.cs.usable = 0;
         table.insert(base.wrapping_add(1), 3);
-        push(changed, &table, "dispatch", 33);
+        push(
+            changed,
+            &table,
+            "dispatch",
+            crate::ExecutionExit::UnsupportedInstruction {
+                eip: u32::MAX,
+                opcode: 0xf3,
+            },
+        );
     }
     if profile == SegmentProfile::Flat32.into() {
         let mut changed = cpu;
         changed.segments.ds.big = 0;
         changed.segments.ds.selector = 0x23;
         changed.segments.fs = crate::SegmentRegister::unusable(0);
-        push(changed, &table, "dispatch", 33);
+        push(
+            changed,
+            &table,
+            "dispatch",
+            crate::ExecutionExit::UnsupportedInstruction {
+                eip: u32::MAX,
+                opcode: 0xf3,
+            },
+        );
     }
-    push(cpu, &table, "interpret", 11);
+    push(cpu, &table, "interpret", crate::ExecutionExit::HostReturn);
     table.remove(base);
-    push(cpu, &table, "dispatch", 11);
+    push(cpu, &table, "dispatch", crate::ExecutionExit::HostReturn);
     // Dense aliases exercise collisions and grow the metadata beyond one Wasm page.
     for offset in 0..8192 {
         table.insert(base.wrapping_add(offset), 2 + offset % 2);
@@ -85,30 +123,37 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<u64>) {
             &table,
             "dispatch",
             match offset {
-                0 => 22,
-                8192 => 11,
-                _ => 33,
+                0 => crate::ExecutionExit::Deferred,
+                8192 => crate::ExecutionExit::HostReturn,
+                _ => crate::ExecutionExit::UnsupportedInstruction {
+                    eip: u32::MAX,
+                    opcode: 0xf3,
+                },
             },
         );
     }
     if profile != ExecutionProfile::Real16 {
         cpu.eip = u32::MAX;
         table.insert(base.wrapping_add(cpu.eip), 3);
-        push(cpu, &table, "dispatch", 33);
+        push(
+            cpu,
+            &table,
+            "dispatch",
+            crate::ExecutionExit::UnsupportedInstruction {
+                eip: u32::MAX,
+                opcode: 0xf3,
+            },
+        );
     }
     (cases, expected)
 }
 
-fn constant(result: u64) -> (Module, String) {
+fn constant(result: crate::ExecutionExit) -> (Module, String) {
     let mut program = Program::new();
     let function = program
-        .function(
-            Signature {
-                parameters: vec![],
-                results: vec![Type::I64],
-            },
-            |body| body.return_(result),
-        )
+        .function(crate::abi::RUN.signature(), |body| {
+            body.return_(crate::ExecutionExitValues::from(result))
+        })
         .unwrap();
     program.export("dispatch", function).unwrap();
     (Module::new(&program.compile().unwrap()), "dispatch".into())
@@ -157,13 +202,19 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
             }
             cpu.write(&mut store, 0, &case.cpu).unwrap();
             entries.write(&mut store, 0, &case.entries).unwrap();
-            let word = instance
-                .get_typed_func::<(), i64>(&mut store, case.export)
+            let values = instance
+                .get_typed_func::<(), <Layout<crate::ExecutionExit> as Tuple>::Tuple>(
+                    &mut store,
+                    case.export,
+                )
                 .unwrap()
                 .call(&mut store, ())
-                .unwrap() as u64;
+                .unwrap();
             Output {
-                word,
+                exit: crate::ExecutionExit::lift(Layout::<crate::ExecutionExit>::from_tuple(
+                    values,
+                ))
+                .unwrap(),
                 cpu: cpu.data(&store)[..case.cpu.len()].to_vec(),
             }
         })
@@ -179,11 +230,18 @@ fn callable_dispatch_resolves_functions_and_fallback() {
         SegmentProfile::Segmented16.into(),
     ] {
         let dispatcher = Module::new(&Compiler::new(profile).compile_dispatcher().unwrap().bytes);
-        let targets = [constant(11), constant(22), constant(33)];
+        let targets = [
+            constant(crate::ExecutionExit::HostReturn),
+            constant(crate::ExecutionExit::Deferred),
+            constant(crate::ExecutionExit::UnsupportedInstruction {
+                eip: u32::MAX,
+                opcode: 0xf3,
+            }),
+        ];
         let (cases, expected) = cases(profile);
         let outputs = execute(&dispatcher, &targets, &cases);
         assert_eq!(
-            outputs.iter().map(|output| output.word).collect::<Vec<_>>(),
+            outputs.iter().map(|output| output.exit).collect::<Vec<_>>(),
             expected
         );
     }
@@ -193,7 +251,7 @@ fn callable_dispatch_resolves_functions_and_fallback() {
 fn compiled_blocks_chain_until_budget_or_missing_entry() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let dispatcher = Module::new(&compiler.compile_dispatcher().unwrap().bytes);
-    let mut targets = vec![constant(11)];
+    let mut targets = vec![constant(crate::ExecutionExit::HostReturn)];
     let mut table = EntryTable::default();
     // INC EAX; JMP 0x2000, followed by INC EBX; JMP 0x1000.
     for (address, code) in [
@@ -220,9 +278,11 @@ fn compiled_blocks_chain_until_budget_or_missing_entry() {
         export: "dispatch",
     });
     let outputs = execute(&dispatcher, &targets, &cases);
-    for (output, (word, count, eax, ebx)) in outputs.iter().zip([(1 << 63, 6, 2, 1), (11, 2, 1, 0)])
-    {
-        assert_eq!(output.word, word);
+    for (output, (exit, count, eax, ebx)) in outputs.iter().zip([
+        (crate::ExecutionExit::BudgetExhausted, 6, 2, 1),
+        (crate::ExecutionExit::HostReturn, 2, 1, 0),
+    ]) {
+        assert_eq!(output.exit, exit);
         let cpu = CpuState::from_bytes(output.cpu[..CpuState::BYTE_LEN].try_into().unwrap());
         assert_eq!(
             (
