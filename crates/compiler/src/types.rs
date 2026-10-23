@@ -1,3 +1,5 @@
+pub use relocade_wasm_bindings::{I1, I16, I32, I64, I8};
+
 /// Logical value types used by values and function signatures.
 ///
 /// Integer operations choose signed or unsigned interpretation. F64 uses strict
@@ -77,7 +79,9 @@ mod sealed {
 }
 
 /// A supported value type known at compile time.
-pub trait ValueType: Copy + sealed::Sealed + 'static {
+pub trait ValueType:
+    relocade_wasm_bindings::AbiType<Logical = Self> + Copy + sealed::Sealed + 'static
+{
     const TYPE: Type;
 }
 
@@ -86,26 +90,6 @@ pub trait BitwiseType: ValueType {}
 
 /// A scalar integer supporting arithmetic and signed or unsigned views.
 pub trait IntType: BitwiseType {}
-
-/// A logical one-bit integer type.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct I1;
-
-/// A logical 8-bit integer type.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct I8;
-
-/// A logical 16-bit integer type.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct I16;
-
-/// A logical 32-bit integer type.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct I32;
-
-/// A logical 64-bit integer type.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct I64;
 
 /// An IEEE binary64 floating-point type, carried by WebAssembly f64.
 ///
@@ -130,8 +114,8 @@ pub struct I64;
 /// use relocade_compiler::{Val, F64};
 /// let bits = Val::<F64>::from(1.0).and(7);
 /// ```
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct F64;
+#[doc(inline)]
+pub use relocade_wasm_bindings::F64;
 
 /// An uninterpreted 64-bit vector carried in the low half of WebAssembly v128.
 ///
@@ -148,6 +132,10 @@ pub struct F64;
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct V64;
+
+impl relocade_wasm_bindings::AbiType for V64 {
+    type Logical = Self;
+}
 
 impl sealed::Sealed for V64 {
     type Literal = u64;
@@ -177,6 +165,10 @@ impl BitwiseType for V64 {}
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct V128;
+
+impl relocade_wasm_bindings::AbiType for V128 {
+    type Logical = Self;
+}
 
 impl sealed::Sealed for V128 {
     type Literal = u128;

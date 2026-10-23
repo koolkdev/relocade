@@ -111,9 +111,18 @@ integer and floating-point bits, multiple results, and callbacks usable as real
 `funcref` entries. The surrounding application's JavaScript API continues using
 `wasm-bindgen`.
 
-## Native integration
+## Compiler and native integration
 
 `AbiType` declares a logical shape. `AbiValue` adds its Rust codec. `WasmRepr`
 determines the scalar slots, and `lower_flat` / `lift_flat` convert between Rust
 values and the physical tuples accepted by native engines. `FunctionSignature`
 decomposes Rust `fn(...) -> ...` types without depending on a compiler.
+
+Relocade's compiler re-exports `#[derive(CompilerValue)]` from the same macro crate.
+The two derives share structural validation and field handling. `CompilerValue`
+generates named IR values, enum constructors, and exhaustive case matching while
+consuming this crate's enum tags and payload layout. The macro crate emits compiler
+paths only for `CompilerValue`; standalone bindings do not depend on the compiler.
+Code generation can therefore use the same declarations as host bindings.
+Compiler-only shapes can omit a Rust codec. See the compiler's
+[`abi` module](../compiler/src/abi.rs) for generated-function examples.

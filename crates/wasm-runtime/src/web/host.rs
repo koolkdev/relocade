@@ -63,7 +63,7 @@ macro_rules! host_function {
         impl<T, R, $($parameter),*> HostFunction<fn($($parameter),*) -> R> for Backend<T>
         where
             T: 'static,
-            R: Results + HostValue,
+            R: Results + HostValue + relocade_compiler::abi::AbiType<Logical = R>,
             R::Carrier: HostResult,
             $($parameter: ValueType + HostValue, $parameter::Carrier: FromWasmAbi),*
         {
