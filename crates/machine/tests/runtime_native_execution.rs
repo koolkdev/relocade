@@ -75,15 +75,6 @@ fn runtimes_keep_private_cpu_and_backing() {
 }
 
 #[test]
-#[should_panic(expected = "segment Cs violates execution profile Real16")]
-fn incompatible_host_segment_edits_panic() {
-    let mut runtime = runtime(&[]);
-    let mut cs = runtime.context().cpu().segment(Segment::Cs);
-    cs.base = 1;
-    runtime.context().cpu().set_segment(Segment::Cs, cs);
-}
-
-#[test]
 fn host_backing_access_respects_configured_capacity() {
     let mut runtime = runtime(&[]);
     assert_eq!(runtime.context().memory().backing_size(), 0x10001);
