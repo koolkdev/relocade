@@ -46,23 +46,26 @@ fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
         );
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Cs, 0x1b)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
         // Dispatch admits a fresh entry whose defaults and fetch base match the new CS.
         image.cpu = cpu;
         cpu.registers.eax = if next_word { 0x1111_5678 } else { 0x9234_5678 };
         cpu.eip += next_code.len() as u32;
         cpu.instruction_count = 1;
-        check_one(
+        Scenario::new(
             if next_word {
                 ExecutionProfile::Protected(SegmentProfile::Segmented16)
             } else {
@@ -70,13 +73,13 @@ fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
             },
             next_code,
             &image,
-            &[],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        )
+        .step(Step {
+            cpu,
+            ram: &[],
+            exit: Exit::Dispatch(cpu.eip),
+        })
+        .check();
     }
 }
 
@@ -90,17 +93,20 @@ fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
     cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
     cpu.eip = 0x200;
     cpu.instruction_count = 0;
-    check_one(
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
+    )
+    .resolve(
         &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
         Step {
             cpu,
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
         },
-    );
+    )
+    .check();
     image.cpu = cpu;
     assert_eq!(
         TestModule::interpreter_with_profile(ExecutionProfile::Protected(
@@ -138,42 +144,29 @@ fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
         image.data(0x8000, &pointer(false, 0x200, 0x27));
         let mut tables = DescriptorTables::default();
         tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
-        let mut input = image.input();
-        input
-            .segment_resolutions
-            .push(SegmentResolution::new(&tables, Segment::Cs, 0x27));
         let mut cpu = image.cpu;
         cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
-        let mut wanted = expected(
+        let mut blocks = BlockModules::default();
+        Scenario::new(
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            &code,
             &image,
-            &[Step {
+        )
+        .resolve(
+            &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
+            Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
-            }],
-        );
-        wanted.events.insert(
-            0,
-            Event::ResolveSegment {
-                segment: 1,
-                selector: 0x27,
             },
-        );
-        let mut blocks = BlockModules::default();
-        for module in [
-            blocks.get(
-                &image.cpu,
-                &code,
-                2,
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            ),
-            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-                SegmentProfile::Segmented32,
-            )),
-        ] {
-            assert_eq!(module.observe(&input, 1), wanted);
-        }
+        )
+        .check_with_block(blocks.get(
+            &image.cpu,
+            &code,
+            2,
+            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+        ));
     }
 }

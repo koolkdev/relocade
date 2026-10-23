@@ -7,17 +7,18 @@ mod progress;
 
 use super::{
     data,
-    query_cases::{check_one, completed, image},
+    query_cases::{completed, image},
+    scenario::Scenario,
     selector_cases::descriptor,
 };
 use crate::support::{
     blocks::BlockModules,
-    machine::{expected, Exit, Step},
-    step::{Event, SegmentQuery, TestModule},
+    machine::{Exit, Step},
+    step::SegmentQuery,
 };
 use crate::{
-    CpuState, DescriptorTables, ExecutionProfile, Gpr32, Segment, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind, SegmentProfile,
+    DescriptorTables, ExecutionProfile, Gpr32, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind, SegmentProfile,
 };
 
 #[test]
@@ -55,17 +56,16 @@ fn verification_reports_rights_in_zf_without_loading_or_faulting_for_a_selector(
             image.cpu.registers.eax = 0xabcd_0000 | u32::from(selector);
             image.cpu.flags.bytes.zf = u8::from(!result);
             let cpu = completed(&image, code.len(), result);
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[SegmentQuery::new(&tables, selector)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .query(
+                    &[SegmentQuery::new(&tables, selector)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                )
+                .check();
         }
     }
 }

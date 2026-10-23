@@ -58,17 +58,16 @@ fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
         );
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.instruction_count = 0;
-        check_one(
-            profile,
-            code,
-            &image,
-            &[SegmentResolution::new(&tables, Segment::Cs, 0xf324)],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, code, &image)
+            .resolve(
+                &[SegmentResolution::new(&tables, Segment::Cs, 0xf324)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }
 
@@ -105,17 +104,20 @@ fn execute_only_and_conforming_code_accept_table_selection_and_normalize_cs_rpl(
         );
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Cs, selector)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -154,17 +156,16 @@ fn the_new_inclusive_code_limit_applies_even_when_the_incoming_profile_is_flat()
             } else {
                 Exit::GeneralProtection { error: 0 }
             };
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit,
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .resolve(
+                    &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit,
+                    },
+                )
+                .check();
         }
     }
 }

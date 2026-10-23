@@ -56,17 +56,13 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
             cpu.instruction_count = 0;
             if push {
                 cpu.registers.esp -= slot;
-                check_one(
-                    profile,
-                    &code,
-                    &image,
-                    &[],
-                    Step {
+                Scenario::new(profile, &code, &image)
+                    .step(Step {
                         cpu,
                         ram: &[(0x8104 - slot, &[0x27, 0xf3])],
                         exit: Exit::Dispatch(cpu.eip),
-                    },
-                );
+                    })
+                    .check();
             } else {
                 image.data(0x8104, &[0x27, 0xf3]);
                 let size = if big {
@@ -84,17 +80,16 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
                     big: u8::from(!big),
                     ..SegmentRegister::flat_data32(0)
                 };
-                check_one(
-                    profile,
-                    &code,
-                    &image,
-                    &[SegmentResolution::new(&tables, segment, 0xf327)],
-                    Step {
-                        cpu,
-                        ram: &[],
-                        exit: Exit::Dispatch(cpu.eip),
-                    },
-                );
+                Scenario::new(profile, &code, &image)
+                    .resolve(
+                        &[SegmentResolution::new(&tables, segment, 0xf327)],
+                        Step {
+                            cpu,
+                            ram: &[],
+                            exit: Exit::Dispatch(cpu.eip),
+                        },
+                    )
+                    .check();
             }
         }
     }
@@ -142,21 +137,20 @@ fn a_dword_slot_does_not_access_its_third_or_fourth_byte() {
                 };
                 vec![SegmentResolution::new(&tables, Segment::Ds, 0xf327)]
             };
-            check_one(
-                profile,
-                &code,
-                &image,
-                &resolutions,
-                Step {
-                    cpu,
-                    ram: if push {
-                        &[(0x8ffe, &[0x27, 0xf3])]
-                    } else {
-                        &[]
+            Scenario::new(profile, &code, &image)
+                .resolve(
+                    &resolutions,
+                    Step {
+                        cpu,
+                        ram: if push {
+                            &[(0x8ffe, &[0x27, 0xf3])]
+                        } else {
+                            &[]
+                        },
+                        exit: Exit::Dispatch(cpu.eip),
                     },
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+                )
+                .check();
         }
     }
 }
@@ -190,10 +184,12 @@ fn selector_words_can_cross_discontiguous_physical_pages() {
             };
             vec![SegmentResolution::new(&tables, Segment::Gs, 0xf327)]
         };
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &resolutions,
             Step {
                 cpu,
@@ -204,6 +200,7 @@ fn selector_words_can_cross_discontiguous_physical_pages() {
                 },
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }

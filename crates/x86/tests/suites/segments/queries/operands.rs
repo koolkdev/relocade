@@ -52,17 +52,16 @@ fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
             if success {
                 cpu.registers[destination] = value;
             }
-            check_one(
-                profile,
-                code,
-                &image,
-                &[SegmentQuery::new(&tables, selector)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+            Scenario::new(profile, code, &image)
+                .query(
+                    &[SegmentQuery::new(&tables, selector)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                )
+                .check();
         }
     }
 }
@@ -89,17 +88,16 @@ fn memory_selectors_are_words_and_honor_overrides_and_split_pages() {
             } else {
                 value
             };
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[SegmentQuery::new(&tables, 0xf327)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .query(
+                    &[SegmentQuery::new(&tables, 0xf327)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                )
+                .check();
         }
     }
     for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
@@ -116,17 +114,16 @@ fn memory_selectors_are_words_and_honor_overrides_and_split_pages() {
         image.data(0xa000, &[0xf3]);
         let mut cpu = completed(&image, code.len(), true);
         cpu.registers.eax = value;
-        check_one(
-            profile,
-            &code,
-            &image,
-            &[SegmentQuery::new(&tables, 0xf327)],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, &code, &image)
+            .query(
+                &[SegmentQuery::new(&tables, 0xf327)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }
 
@@ -167,17 +164,13 @@ fn source_faults_leave_destination_and_pending_flags_intact_before_any_query() {
                         error: 0,
                     }
                 };
-                check_one(
-                    profile,
-                    &code,
-                    &image,
-                    &[],
-                    Step {
+                Scenario::new(profile, &code, &image)
+                    .step(Step {
                         cpu: image.cpu,
                         ram: &[],
                         exit,
-                    },
-                );
+                    })
+                    .check();
             }
         }
     }

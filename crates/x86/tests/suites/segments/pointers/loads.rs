@@ -54,17 +54,16 @@ fn every_pointer_load_supports_both_offset_widths_and_uses_entry_addresses() {
             );
             cpu.eip += code.len() as u32;
             cpu.instruction_count = 0;
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[SegmentResolution::new(&tables, segment, 0xf327)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .resolve(
+                    &[SegmentResolution::new(&tables, segment, 0xf327)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                )
+                .check();
         }
     }
 }
@@ -113,17 +112,20 @@ fn pointer_sources_read_exactly_four_or_six_bytes_with_split_offset_or_selector_
         );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Fs, 0xf327)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -164,17 +166,20 @@ fn both_fields_use_entry_address_registers_and_the_old_overridden_segment_cache(
         );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, segment, 0xf327)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -205,16 +210,19 @@ fn fields_continue_past_a_16_bit_starting_offset_and_wrap_only_at_linear_32_bits
         );
         cpu.eip += 4;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Gs, 0xf327)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }

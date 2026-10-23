@@ -13,14 +13,15 @@ mod targets;
 
 use super::{
     data,
+    scenario::Scenario,
     selector_cases::{
-        check_one, code_defaults, code_descriptor as descriptor, far_pointer as pointer, loaded,
+        code_defaults, code_descriptor as descriptor, far_pointer as pointer, loaded,
     },
 };
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
-    step::{Event, SegmentResolution, TestModule},
+    step::{SegmentResolution, TestModule},
 };
 use relocade_x86::{
     DescriptorTables, ExecutionProfile, PrivilegeLevel, Segment, SegmentDefaultSize,

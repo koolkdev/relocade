@@ -34,6 +34,8 @@ mod push_pop;
 mod queries;
 #[path = "segments/query_cases.rs"]
 mod query_cases;
+#[path = "segments/scenario.rs"]
+mod scenario;
 #[path = "segments/selection.rs"]
 mod selection;
 #[path = "segments/selector_cases.rs"]

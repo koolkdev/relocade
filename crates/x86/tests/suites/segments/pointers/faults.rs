@@ -72,17 +72,17 @@ fn the_complete_pointer_segment_check_precedes_paging_and_resolution() {
                     },
                 );
                 // Both destinations and the resolver remain untouched on any source fault.
-                check_one(
+                Scenario::new(
                     ExecutionProfile::Protected(SegmentProfile::Segmented32),
                     &code,
                     &image,
-                    &[],
-                    Step {
-                        cpu: image.cpu,
-                        ram: &[],
-                        exit,
-                    },
-                );
+                )
+                .step(Step {
+                    cpu: image.cpu,
+                    ram: &[],
+                    exit,
+                })
+                .check();
             }
         }
     }
@@ -137,17 +137,20 @@ fn failed_resolution_preserves_the_destination_gpr_and_complete_segment_cache() 
                 },
             );
         }
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, segment, selector)],
             Step {
                 cpu: image.cpu,
                 ram: &[],
                 exit,
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -168,10 +171,6 @@ fn pointer_load_faults_publish_earlier_flags_register_store_and_retirement_progr
             ..descriptor(0x9000, SegmentDefaultSize::Bits16)
         },
     );
-    let mut input = image.input();
-    input
-        .segment_resolutions
-        .push(SegmentResolution::new(&tables, Segment::Ss, 0x27));
     let mut cpu = image.cpu;
     cpu.registers.eax = 2;
     cpu.flags.status_source.kind = 10;
@@ -192,28 +191,20 @@ fn pointer_load_faults_publish_earlier_flags_register_store_and_retirement_progr
         ram,
         exit: Exit::Dispatch(cpu.eip),
     };
-    let fault = || Step {
+    let fault = Step {
         cpu,
-        ram,
+        ram: &[],
         exit: Exit::StackFault { error: 0x24 },
     };
-    let event = Event::ResolveSegment {
-        segment: 2,
-        selector: 0x27,
-    };
-    let mut wanted = expected(&image, &[first, second, fault()]);
-    wanted.events.insert(4, event.clone());
-    assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
-    let mut blocks = BlockModules::default();
-    let block = blocks.get(
-        &image.cpu,
-        &code,
-        3,
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
-    let mut wanted = expected(&image, &[fault()]);
-    wanted.events.insert(0, event);
-    assert_eq!(block.observe(&input, 1), wanted);
+        &code,
+        &image,
+    )
+    .step(first)
+    .step(second)
+    .resolve(&[SegmentResolution::new(&tables, Segment::Ss, 0x27)], fault)
+    .check();
 }
 
 #[test]

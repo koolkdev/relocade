@@ -36,12 +36,8 @@ fn complete_frame_capacity_and_all_three_reads_precede_selector_validation() {
                 let available = (0x5000 - start) as usize;
                 image.data(0xa000 + (start & 0xfff), &bytes[..available]);
             }
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[],
-                Step {
+            Scenario::new(profile, &code, &image)
+                .step(Step {
                     cpu: image.cpu,
                     ram: &[],
                     exit: if capacity_fault {
@@ -52,8 +48,8 @@ fn complete_frame_capacity_and_all_three_reads_precede_selector_validation() {
                             error: 0,
                         }
                     },
-                },
-            );
+                })
+                .check();
         }
     }
 }
@@ -173,17 +169,16 @@ fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs(
                 cpu.registers.esp = if word { 0x9006 } else { 0x900c };
                 cpu.instruction_count = 0;
             }
-            check_one(
-                profile,
-                &code,
-                &image,
-                &resolutions,
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit,
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .resolve(
+                    &resolutions,
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit,
+                    },
+                )
+                .check();
         }
     }
 }
@@ -203,17 +198,13 @@ fn entry_nt_reports_unsupported_before_stack_checks_without_retiring() {
             if profile != ExecutionProfile::Protected(SegmentProfile::Flat32) {
                 image.cpu.segments.ss = crate::SegmentRegister::unusable(0);
             }
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[],
-                Step {
+            Scenario::new(profile, &code, &image)
+                .step(Step {
                     cpu: image.cpu,
                     ram: &[],
                     exit: Exit::Other(0x0008_00cf_0000_1000),
-                },
-            );
+                })
+                .check();
         }
     }
 }

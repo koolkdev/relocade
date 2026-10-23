@@ -7,11 +7,12 @@ mod faults;
 #[path = "interrupt_returns/progress.rs"]
 mod progress;
 
-use super::selector_cases::{check_one, code_defaults, code_descriptor as descriptor, loaded};
+use super::scenario::Scenario;
+use super::selector_cases::{code_defaults, code_descriptor as descriptor, loaded};
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
-    step::{Event, SegmentResolution, TestModule},
+    step::{SegmentResolution, TestModule},
 };
 use crate::{
     CpuState, DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
@@ -138,17 +139,16 @@ fn operand_width_stack_width_and_new_code_defaults_are_independent() {
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.registers.esp = if word { 0xabcd_9006 } else { 0xabcd_900c };
         cpu.instruction_count = 0;
-        check_one(
-            profile,
-            code,
-            &image,
-            &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, code, &image)
+            .resolve(
+                &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }
 
@@ -187,17 +187,16 @@ fn flag_images_replace_pending_status_and_word_preserves_high_flags() {
         cpu.registers.esp = if word { 0x9006 } else { 0x900c };
         cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.instruction_count = 0;
-        check_one(
-            profile,
-            &code,
-            &image,
-            &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, &code, &image)
+            .resolve(
+                &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }
 
@@ -248,16 +247,15 @@ fn frames_are_consecutive_and_only_pointer_adjustment_wraps_at_stack_width() {
         } else {
             Exit::StackFault { error: 0 }
         };
-        check_one(
-            profile,
-            &code,
-            &image,
-            &resolutions,
-            Step {
-                cpu,
-                ram: &[],
-                exit,
-            },
-        );
+        Scenario::new(profile, &code, &image)
+            .resolve(
+                &resolutions,
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit,
+                },
+            )
+            .check();
     }
 }

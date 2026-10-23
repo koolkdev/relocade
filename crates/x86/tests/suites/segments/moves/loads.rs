@@ -55,17 +55,16 @@ fn segment_load_forms_take_a_low_word_and_commit_each_cache() {
         );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
-        check_one(
-            profile,
-            code,
-            &image,
-            &[SegmentResolution::new(&tables, segment, 0xf327)],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, code, &image)
+            .resolve(
+                &[SegmentResolution::new(&tables, segment, 0xf327)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }
 
@@ -95,17 +94,20 @@ fn memory_sources_use_two_bytes_through_the_old_ds_or_ss_cache() {
         );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, segment, 0xf327)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
     }
 }
 
@@ -155,16 +157,15 @@ fn segment_load_sources_honor_address_size_and_the_last_segment_override() {
         );
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
-        check_one(
-            profile,
-            &code,
-            &image,
-            &[SegmentResolution::new(&tables, Segment::Fs, 0x27)],
-            Step {
-                cpu,
-                ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
-            },
-        );
+        Scenario::new(profile, &code, &image)
+            .resolve(
+                &[SegmentResolution::new(&tables, Segment::Fs, 0x27)],
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::Dispatch(cpu.eip),
+                },
+            )
+            .check();
     }
 }

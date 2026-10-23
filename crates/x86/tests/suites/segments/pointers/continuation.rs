@@ -36,17 +36,20 @@ fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
         );
         cpu.eip = 0x1003;
         cpu.instruction_count = 0;
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Flat32),
             &code,
             &image,
+        )
+        .resolve(
             &[SegmentResolution::new(&tables, Segment::Ss, 0x27)],
             Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
             },
-        );
+        )
+        .check();
         // LSS admits either offset. The next PUSH applies the new SS.B and limit.
         image.cpu = cpu;
         if usable_pointer {
@@ -54,25 +57,25 @@ fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
             cpu.eip = 0x1004;
             cpu.instruction_count = 1;
         }
-        check_one(
+        Scenario::new(
             ExecutionProfile::Protected(SegmentProfile::Segmented32),
             &code[3..],
             &image,
-            &[],
-            Step {
-                cpu,
-                ram: if usable_pointer {
-                    &[(0xcffc, &[0x78, 0x56, 0x34, 0x12])]
-                } else {
-                    &[]
-                },
-                exit: if usable_pointer {
-                    Exit::Dispatch(cpu.eip)
-                } else {
-                    Exit::StackFault { error: 0 }
-                },
+        )
+        .step(Step {
+            cpu,
+            ram: if usable_pointer {
+                &[(0xcffc, &[0x78, 0x56, 0x34, 0x12])]
+            } else {
+                &[]
             },
-        );
+            exit: if usable_pointer {
+                Exit::Dispatch(cpu.eip)
+            } else {
+                Exit::StackFault { error: 0 }
+            },
+        })
+        .check();
     }
 }
 
@@ -87,10 +90,6 @@ fn all_pointer_loads_end_the_block_after_committing_both_results() {
         image.data(0x8000, &[0x78, 0x56, 0x34, 0x92, 0x27, 0]);
         let mut tables = DescriptorTables::default();
         tables.insert(0x27, descriptor(0x9000, SegmentDefaultSize::Bits16));
-        let mut input = image.input();
-        input
-            .segment_resolutions
-            .push(SegmentResolution::new(&tables, segment, 0x27));
         let mut cpu = image.cpu;
         cpu.registers.eax = 0x9234_5678;
         cpu.segments[segment] = loaded(
@@ -104,33 +103,26 @@ fn all_pointer_loads_end_the_block_after_committing_both_results() {
         );
         cpu.eip += opcode.len() as u32 + 1;
         cpu.instruction_count = 0;
-        let mut wanted = expected(
+        let mut blocks = BlockModules::default();
+        Scenario::new(
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            &code,
             &image,
-            &[Step {
+        )
+        .resolve(
+            &[SegmentResolution::new(&tables, segment, 0x27)],
+            Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip),
-            }],
-        );
-        wanted.events.insert(
-            0,
-            Event::ResolveSegment {
-                segment: segment as i32,
-                selector: 0x27,
             },
-        );
-        let mut blocks = BlockModules::default();
-        for module in [
-            blocks.get(
-                &image.cpu,
-                &code,
-                2,
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
-            ),
-            TestModule::interpreter(),
-        ] {
-            assert_eq!(module.observe(&input, 1), wanted);
-        }
+        )
+        .check_with_block(blocks.get(
+            &image.cpu,
+            &code,
+            2,
+            ExecutionProfile::Protected(SegmentProfile::Flat32),
+        ));
     }
 }
 
@@ -151,10 +143,12 @@ fn null_selector_loads_still_commit_the_offset_without_fetching_a_following_byte
     cpu.segments.fs = SegmentRegister::unusable(3);
     cpu.eip = 0x2000;
     cpu.instruction_count = 0;
-    check_one(
+    Scenario::new(
         ExecutionProfile::Protected(SegmentProfile::Flat32),
         &code,
         &image,
+    )
+    .resolve(
         &[SegmentResolution::new(
             &DescriptorTables::default(),
             Segment::Fs,
@@ -165,5 +159,6 @@ fn null_selector_loads_still_commit_the_offset_without_fetching_a_following_byte
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
         },
-    );
+    )
+    .check();
 }

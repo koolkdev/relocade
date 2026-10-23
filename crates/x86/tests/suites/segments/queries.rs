@@ -7,13 +7,14 @@ mod progress;
 
 use super::{
     data,
-    query_cases::{check_one, completed, image},
+    query_cases::{completed, image},
+    scenario::Scenario,
     selector_cases::descriptor,
 };
 use crate::support::{
     blocks::BlockModules,
-    machine::{expected, Exit, Step},
-    step::{Event, SegmentQuery, TestModule},
+    machine::{Exit, Step},
+    step::SegmentQuery,
 };
 use crate::{
     DescriptorTables, ExecutionProfile, Gpr32, PrivilegeLevel, Segment, SegmentDefaultSize,
@@ -62,17 +63,16 @@ fn lar_and_lsl_report_fields_or_preserve_the_destination_for_rejected_selectors(
             if let Some((rights, limit)) = result {
                 cpu.registers.ecx = if opcode == 2 { rights } else { limit };
             }
-            check_one(
-                profile,
-                &code,
-                &image,
-                &[SegmentQuery::new(&tables, selector)],
-                Step {
-                    cpu,
-                    ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
-                },
-            );
+            Scenario::new(profile, &code, &image)
+                .query(
+                    &[SegmentQuery::new(&tables, selector)],
+                    Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    },
+                )
+                .check();
         }
     }
 }

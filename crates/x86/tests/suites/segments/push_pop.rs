@@ -9,12 +9,13 @@ mod widths;
 
 use super::{
     data,
-    selector_cases::{check_one, code_defaults, descriptor},
+    scenario::Scenario,
+    selector_cases::{code_defaults, descriptor},
 };
 use crate::support::{
     blocks::BlockModules,
-    machine::{expected, Exit, Image, Step},
-    step::{Event, SegmentResolution, TestModule},
+    machine::{Exit, Image, Step},
+    step::{SegmentResolution, TestModule},
 };
 use relocade_x86::{
     DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,

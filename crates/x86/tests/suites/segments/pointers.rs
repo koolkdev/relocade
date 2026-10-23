@@ -9,14 +9,15 @@ mod loads;
 
 use super::{
     data,
-    selector_cases::{check_one, code_defaults, descriptor, loaded},
+    scenario::Scenario,
+    selector_cases::{code_defaults, descriptor, loaded},
 };
 use crate::{
     register::Gpr32,
     support::{
         blocks::BlockModules,
-        machine::{expected, Exit, Image, Step},
-        step::{Event, SegmentResolution, TestModule},
+        machine::{Exit, Image, Step},
+        step::SegmentResolution,
     },
 };
 use relocade_x86::{
