@@ -12,7 +12,7 @@ fn loads(frontend: Frontend) {
         let code = [0x8e, modrm];
         let mut image = image(&code);
         image.cpu.registers.eax = 0xabcd_0000 | u32::from(value);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         cpu.segments[segment] = cache(segment, value);
         cases.check(
             "MOV segment accepts all low-word bits without a resolver",
@@ -31,7 +31,7 @@ fn loads(frontend: Frontend) {
     image.cpu.segments.ds = cache(Segment::Ds, 0x300);
     image.map(5, 0x8000, false);
     image.data(0x8000, &[0, 0]);
-    let mut cpu = retired(&image, code.len());
+    let mut cpu = retire(image.cpu, code.len());
     cpu.segments.ds = cache(Segment::Ds, 0);
     cases.check(
         "memory source uses the old DS before loading zero",
@@ -54,7 +54,7 @@ fn stack_and_pointers(frontend: Frontend) {
     image.cpu.registers.esp = 0xabcd_0010;
     image.map(3, 0x8000, false);
     image.data(0x8010, &[0, 0]);
-    let mut cpu = retired(&image, code.len());
+    let mut cpu = retire(image.cpu, code.len());
     cpu.registers.esp = 0xabcd_0012;
     cpu.segments.ss = cache(Segment::Ss, 0);
     cases.check(
@@ -84,7 +84,7 @@ fn stack_and_pointers(frontend: Frontend) {
             &[0x78, 0x56, 0x34, 0x12, 0xff, 0xff][..]
         };
         image.data(0x8000, pointer);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         cpu.registers.eax = value;
         cpu.segments[segment] = cache(segment, if segment == Segment::Ds { 0 } else { 0xffff });
         cases.check(

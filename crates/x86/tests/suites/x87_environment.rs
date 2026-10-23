@@ -8,8 +8,8 @@ mod state;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
-    x87::{dispatch, set_control, stack_image, status, write_register_bits},
+    machine::{dispatch, retire, Exit, Image, Step},
+    x87::{set_control, stack_image, status, write_register_bits},
 };
 use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
 
@@ -78,12 +78,6 @@ impl Format {
         image.data(0x8000, &[0xa5; 32]);
         image
     }
-}
-
-fn retire(mut cpu: CpuState, bytes: usize) -> CpuState {
-    cpu.eip += bytes as u32;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
 }
 
 fn save_formats(frontend: Frontend) {

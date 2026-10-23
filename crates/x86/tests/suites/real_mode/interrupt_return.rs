@@ -49,7 +49,7 @@ fn returns(frontend: Frontend) {
             image.cpu.flags.bytes.nt = 0xff ^ bit;
             image.map(0x2f, 0x8000, false);
             image.data(0x9000 - frame.len() as u32, &frame);
-            let mut cpu = retired(&image, code.len());
+            let mut cpu = retire(image.cpu, code.len());
             cpu.eip = offset;
             cpu.registers.esp = 0xabcd_0000;
             cpu.segments.cs = cache(Segment::Cs, selector);
@@ -110,7 +110,7 @@ fn mmio_fields(frontend: Frontend) {
         input.mmio_pages = vec![(0x12, 0x8000)];
         input.observe_mmio = true;
         let (cpu, exit, reads) = if offset == 0xffff {
-            let mut cpu = retired(&image, code.len());
+            let mut cpu = retire(image.cpu, code.len());
             cpu.eip = offset;
             cpu.segments.cs = cache(Segment::Cs, 0x20);
             cpu.registers.esp = 0xabcd_200c;
@@ -175,7 +175,7 @@ fn target_fetch_uses_the_committed_return() {
             image.map(0x10, 0x9000, false);
             image.data(0x9020, &[0x66, 0x9c]); // PUSHFD in the new CS.
         }
-        let mut returned = retired(&image, 1);
+        let mut returned = retire(image.cpu, 1);
         returned.eip = 0x20;
         returned.segments.cs = cache(Segment::Cs, 0x1000);
         returned.registers.esp = 0xabcd_2006;

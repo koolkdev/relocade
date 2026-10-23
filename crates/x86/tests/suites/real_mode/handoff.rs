@@ -38,7 +38,7 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
     let mut input = image.input();
     input.mmio_pages = vec![(2, 0x8000)];
     input.observe_mmio = true;
-    let mut cpu = retired(&image, code.len());
+    let mut cpu = retire(image.cpu, code.len());
     cpu.registers.eax = 0x1111_5678;
     let mut wanted = expected(
         &image,

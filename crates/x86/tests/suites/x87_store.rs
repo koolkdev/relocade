@@ -9,8 +9,8 @@ mod range;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
-    x87::{complete_x87, dispatch, set_control, stack_image, status, write_register_bits},
+    machine::{dispatch, Exit, Image, Step},
+    x87::{complete_x87, set_control, stack_image, status, write_register_bits},
 };
 use relocade_x86::{CpuState, SegmentProfile};
 

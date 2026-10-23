@@ -126,6 +126,22 @@ pub(crate) struct Step<'a> {
     pub(crate) exit: Exit,
 }
 
+/// Advance a straight-line expectation; branch targets and 16-bit IP wrapping
+/// remain explicit in the instruction case that owns them.
+pub(crate) fn retire(mut cpu: CpuState, bytes: usize) -> CpuState {
+    cpu.eip = cpu.eip.wrapping_add(bytes as u32);
+    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
+    cpu
+}
+
+pub(crate) fn dispatch(cpu: CpuState) -> Step<'static> {
+    Step {
+        cpu,
+        ram: &[],
+        exit: Exit::Dispatch(cpu.eip),
+    }
+}
+
 pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
     let mut initial_ram = vec![0; 65536];
     for (offset, bytes) in &image.guest {
