@@ -25,6 +25,12 @@ Its `entries` retain input order and report each `start_eip`, exported name and
 consumed `byte_len`; bytes after the compilation boundary are excluded. The byte
 span starts at the CS-relative EIP and advances with 32-bit wrapping.
 
+Entries share a memory owner, which declares memory handles and generates access
+helpers on demand. The compiler decides which imports and helpers to retain from
+the generated bodies. Implicit accesses such as stack operations use the same
+owner as explicit memory operands. Instruction declarations do not predict memory
+usage.
+
 Every supplied start is an execution boundary when reached between instructions
 in another snapshot. An entry inside an instruction's encoding does not split
 that instruction. The caller must also limit blocks at registered execution

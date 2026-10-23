@@ -59,8 +59,10 @@ impl OperandSpec {
     }
 }
 
+/// Properties used by x86 decoding and control-transfer handler adaptation.
+/// The compiler infers memory dependencies from the generated operations.
 #[derive(Clone, Copy)]
-pub(in crate::instruction) enum Effect {
+pub(in crate::instruction) enum ExecutionEffect {
     ControlTransfer,
     SegmentLoad,
     /// Device callbacks may change instruction routing; resume through dispatch.
@@ -83,7 +85,7 @@ pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) opcode: Opcode,
     pub(in crate::instruction) operands: &'a [OperandSpec],
     pub(in crate::instruction) handlers: SizedHandlers<Handler>,
-    pub(in crate::instruction) effects: &'a [Effect],
+    pub(in crate::instruction) effects: &'a [ExecutionEffect],
     pub(in crate::instruction) availability: Availability,
     pub(in crate::instruction) features: &'static [crate::CpuFeature],
     pub(in crate::instruction) lockable: bool,

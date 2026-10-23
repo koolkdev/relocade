@@ -6,7 +6,76 @@ use crate::{
     BlockEntry, BlockError, BlockSnapshot, Compiler, CpuFeature, CpuModel, CpuState,
     ExecutionContext, ExecutionExit, ExecutionProfile, SegmentProfile, Segments,
 };
-use wasmparser::{Parser, Payload, Validator};
+use wasmparser::{Parser, Payload, TypeRef, Validator};
+
+#[test]
+fn snapshot_memory_imports_match_required_abi() {
+    fn memory_imports(bytes: &[u8]) -> Vec<(&str, &str)> {
+        let mut memories = Vec::new();
+        for payload in Parser::new(0).parse_all(bytes) {
+            if let Payload::ImportSection(imports) = payload.unwrap() {
+                for import in imports {
+                    let import = import.unwrap();
+                    if matches!(import.ty, TypeRef::Memory(_)) {
+                        memories.push((import.module, import.name));
+                    }
+                }
+            }
+        }
+        memories.sort_unstable();
+        memories
+    }
+
+    for profile in [
+        SegmentProfile::Flat32.into(),
+        SegmentProfile::Segmented32.into(),
+        SegmentProfile::Segmented16.into(),
+        ExecutionProfile::Real16,
+    ] {
+        let compiler = Compiler::new(profile);
+        let empty = compiler.compile_blocks(&[]).unwrap();
+        assert!(memory_imports(&empty.bytes).is_empty(), "{profile:?}");
+
+        let register = BlockSnapshot {
+            start_eip: 0x1000,
+            bytes: &[0x40], // INC AX/EAX
+            instruction_limit: 1,
+        };
+        let registers = compiler.compile_blocks(&[register]).unwrap();
+        assert_eq!(
+            memory_imports(&registers.bytes),
+            [("relocade", "executionContext")],
+            "{profile:?}",
+        );
+
+        // PUSH uses memory without a memory operand; MOV has an explicit one.
+        for code in [&[0x50][..], &[0x8b, 0x00][..]] {
+            let blocks = compiler
+                .compile_blocks(&[
+                    register,
+                    BlockSnapshot {
+                        start_eip: 0x2000,
+                        bytes: code,
+                        instruction_limit: 1,
+                    },
+                ])
+                .unwrap();
+            let map = match profile {
+                ExecutionProfile::Real16 => "physicalMap",
+                ExecutionProfile::Protected(_) => "machine",
+            };
+            assert_eq!(
+                memory_imports(&blocks.bytes),
+                [
+                    ("relocade", "executionContext"),
+                    ("relocade", "guest"),
+                    ("relocade", map),
+                ],
+                "{profile:?}, {code:02x?}",
+            );
+        }
+    }
+}
 
 #[test]
 fn entries_report_consumed_spans_in_input_order() {
