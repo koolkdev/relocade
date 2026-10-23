@@ -232,6 +232,15 @@ impl Declaration<'_> {
             dword: bind_handler(self.handlers.dword, bindings),
         };
         let ends_block = !self.effects.is_empty();
+        let mut requires_dispatch = false;
+        index = 0;
+        while index < self.effects.len() {
+            requires_dispatch |= matches!(
+                self.effects[index],
+                Effect::SegmentLoad | Effect::PortIo | Effect::Serializing
+            );
+            index += 1;
+        }
         Form {
             opcode: self.opcode.byte,
             mask: if opcode_register { 0xf8 } else { 0xff },
@@ -246,6 +255,7 @@ impl Declaration<'_> {
             handlers,
             condition: None,
             ends_block,
+            requires_dispatch,
             requirements: Requirements {
                 availability: self.availability,
                 features: self.features,

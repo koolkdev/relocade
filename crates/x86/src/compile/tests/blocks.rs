@@ -243,9 +243,10 @@ fn entry_boundaries() {
         let exit = match index {
             0 => {
                 after.registers.eax = 0x1234;
-                after.eip = 0x1003;
-                after.instruction_count = 18;
-                Exit::Dispatch(0x1003)
+                after.registers.ebx = 0x5678;
+                after.eip = 0x1006;
+                after.instruction_count = 19;
+                Exit::Dispatch(0x1006)
             }
             1 => {
                 after.registers.ebx = 0x5678;
@@ -271,6 +272,9 @@ fn entry_boundaries() {
             entry.export,
         );
         if index == 0 {
+            after.registers.ebx = image.cpu.registers.ebx;
+            after.eip = 0x1003;
+            after.instruction_count = 18;
             let mut input = image.input();
             input.patches_before_calls.push(CallPatches::cpu(vec![(
                 std::mem::offset_of!(ExecutionContext, instruction_target) as u32,

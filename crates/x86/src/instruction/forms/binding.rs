@@ -58,6 +58,7 @@ impl ResolvedForm {
                 address_size: self.address_size,
                 condition: self.form.condition,
                 ends_block: self.form.ends_block,
+                requires_dispatch: self.form.requires_dispatch,
                 requirements: self.form.requirements,
                 segment_override: self.segment_override.clone(),
                 locked: self.locked,
