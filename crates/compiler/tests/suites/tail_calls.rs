@@ -13,7 +13,7 @@ fn zero_arguments() -> TestModule {
         signature(&[], &[Type::I64]),
         &[Value::I64(9223372036854775807)],
     );
-    fixture.function(&[], &[Type::I64], |body| body.tail_call(target, &[]))
+    fixture.function(&[], &[Type::I64], move |body| body.tail_call(target, &[]))
 }
 
 fn shared_arguments(store: bool, second_root: bool, callback_result: i64) -> TestModule {
@@ -29,7 +29,7 @@ fn shared_arguments(store: bool, second_root: bool, callback_result: i64) -> Tes
         signature(&parameters, &[Type::I64]),
         &[Value::I64(callback_result)],
     );
-    fixture.function(&[Type::I8], &[Type::I64], |mut body| {
+    fixture.function(&[Type::I8], &[Type::I64], move |mut body| {
         let raw = body.parameter::<I8>(0)?.add(1);
         let raw = body.value(&raw)?;
         let other = raw.add(1);
@@ -53,7 +53,7 @@ fn canonical_arguments() -> TestModule {
         signature(&[Type::I8, Type::I16, Type::I1], &[Type::I8]),
         &[Value::I32(255)],
     );
-    fixture.function(&[Type::I16], &[Type::I8], |mut body| {
+    fixture.function(&[Type::I16], &[Type::I8], move |mut body| {
         let loaded = body.load::<I8>(state, 0)?;
         let parameter = body.parameter::<I16>(0)?;
         body.tail_call(
@@ -89,21 +89,21 @@ fn imported_and_defined_targets() -> TestModule {
     let other = fixture.program.declare(signature(&[], &[Type::I64]));
     fixture
         .program
-        .define(run, |mut body| {
+        .define(run, move |mut body| {
             body.store::<I32>(state, 0, 11).unwrap();
             body.tail_call(helper, &[11.into()])
         })
         .unwrap();
     fixture
         .program
-        .define(helper, |body| {
+        .define(helper, move |body| {
             let parameter = body.parameter::<I32>(0).unwrap();
             body.tail_call(left, &[parameter.argument()])
         })
         .unwrap();
     fixture
         .program
-        .define(other, |body| body.tail_call(right, &[22.into()]))
+        .define(other, move |body| body.tail_call(right, &[22.into()]))
         .unwrap();
     for (name, function) in [
         ("run", run),
@@ -285,17 +285,18 @@ fn tail_signatures_require_logical_argument_and_result_types() {
             parameters: vec![],
             results: vec![Type::I1],
         });
-        let result = program.define(run, |body| {
-            let bit = body.value::<I1>(true).unwrap();
-            assert!(body.tail_call(target, &[bit.argument()]).is_err());
-            Ok(())
-        });
-        assert!(matches!(result, Err(BuildError::TypeMismatch { .. })));
-        program.define(run, |body| body.return_(false)).unwrap();
-        let bytes = program.compile().unwrap();
-        assert!(Parser::new(0)
-            .parse_all(&bytes)
-            .all(|part| !matches!(part.unwrap(), Payload::ImportSection(_))));
+        program
+            .define(run, move |body| {
+                let bit = body.value::<I1>(true).unwrap();
+                assert!(body.tail_call(target, &[bit.argument()]).is_err());
+                Ok(())
+            })
+            .unwrap();
+        program.export("run", run).unwrap();
+        assert!(matches!(
+            program.compile(),
+            Err(BuildError::TypeMismatch { .. })
+        ));
     }
 }
 
@@ -376,7 +377,7 @@ fn tail_calls_preserve_mixed_integer_carriers_at_runtime() {
         let module = fixture.function(
             &[Type::I1, Type::I8, Type::I16, Type::I32, Type::I64],
             &[Type::I64],
-            |body| {
+            move |body| {
                 let bit = body.parameter::<I1>(0)?.add(1);
                 let byte = body.parameter::<I8>(1)?.add(1);
                 let half = body.parameter::<I16>(2)?.add(1);

@@ -9,7 +9,7 @@ fn only_new_expressions_change_the_current_definition() {
         results: vec![Type::I32],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let input = body.parameter::<I32>(0).unwrap();
             let mut tracked = TrackedValue::new(&mut body, &input).unwrap();
             let held = tracked.read(&mut body).unwrap();
@@ -31,6 +31,7 @@ fn only_new_expressions_change_the_current_definition() {
             body.return_(changed)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     program.compile().unwrap();
 }
 
@@ -42,7 +43,7 @@ fn forked_definitions_keep_independent_values_and_publication_state() {
         results: vec![Type::I16],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let mut original = TrackedValue::<I16>::defined(&mut body, 11).unwrap();
             let mut fork = original.clone();
             let before = original.read(&mut body).unwrap();
@@ -60,5 +61,6 @@ fn forked_definitions_keep_independent_values_and_publication_state() {
             body.return_(original.value())
         })
         .unwrap();
+    program.export("run", function).unwrap();
     program.compile().unwrap();
 }

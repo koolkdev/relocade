@@ -13,7 +13,7 @@ use super::Cpu;
 pub(crate) fn compile_flag_observer() -> Result<CompiledModule, BuildError> {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let observer = program.function::<fn() -> [bool; 6]>(|mut body, ()| {
+    let observer = program.function::<fn() -> [bool; 6]>(move |mut body, ()| {
         let flags = cpu.read_flags(&mut body, FlagMask::STATUS)?;
         body.return_(
             flags
@@ -21,7 +21,7 @@ pub(crate) fn compile_flag_observer() -> Result<CompiledModule, BuildError> {
                 .map(|flag| flag.expect("the complete flag mask requests every flag"))
                 .collect::<Vec<_>>(),
         )
-    })?;
+    });
     program.export("observe_flags", observer)?;
     Ok(CompiledModule {
         execution_target: None,

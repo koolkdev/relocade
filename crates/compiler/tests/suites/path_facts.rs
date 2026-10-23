@@ -66,7 +66,7 @@ fn count(module: &TestModule, predicate: impl Fn(&Operator<'_>) -> bool) -> usiz
 }
 
 fn repeated_check() -> TestModule {
-    Fixture::new().function(&[Type::I1], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I1], &[Type::I32], move |mut body| {
         let flag = body.parameter::<I1>(0)?;
         body.if_(&flag, |arm| arm.return_(7))?;
         body.if_(&flag, |arm| arm.return_(11))?;
@@ -75,7 +75,7 @@ fn repeated_check() -> TestModule {
 }
 
 fn rejected_disjunction() -> TestModule {
-    Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], move |mut body| {
         let first = body.parameter::<I1>(0)?;
         let second = body.parameter::<I1>(1)?;
         body.if_(first.or(&second), |arm| arm.return_(7))?;
@@ -84,7 +84,7 @@ fn rejected_disjunction() -> TestModule {
 }
 
 fn masked_condition() -> TestModule {
-    Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], move |mut body| {
         let raised = body.parameter::<I1>(0)?;
         let unmasked = body.parameter::<I1>(1)?;
         body.if_(raised.and(unmasked), |arm| arm.return_(7))?;
@@ -96,7 +96,7 @@ fn conditional_write() -> TestModule {
     Fixture::new().function(
         &[Type::I8, Type::I1, Type::I32],
         &[Type::I32, Type::I8],
-        |mut body| {
+        move |mut body| {
             let previous = body.parameter::<I8>(0)?;
             let suppress = body.parameter::<I1>(1)?;
             let old = body.parameter::<I32>(2)?;
@@ -162,7 +162,7 @@ fn a_clear_low_bit_proves_a_conditional_write_without_erasing_upper_bits() {
 
 #[test]
 fn equality_facts_apply_only_in_the_proved_arm() {
-    let module = Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
         let value = body.parameter::<I32>(0)?;
         body.if_(value.eq(7), |arm| arm.return_(value.mul(3)))?;
         body.return_(value.add(1))

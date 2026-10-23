@@ -2,7 +2,7 @@ use super::*;
 use relocade_compiler::I64;
 
 fn excluded_interval() -> TestModule {
-    Fixture::new().function(&[Type::I64], &[Type::I64], |mut body| {
+    Fixture::new().function(&[Type::I64], &[Type::I64], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         let excluded = input.ne(0_u64).and(input.unsigned().lt(8_u64));
         body.if_(&excluded, |arm| arm.return_(1_u64))?;

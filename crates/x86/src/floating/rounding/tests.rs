@@ -5,8 +5,8 @@ use relocade_compiler::Program;
 #[test]
 fn integer_rounding_preserves_evidence_across_word_boundaries() {
     let mut program = Program::new();
-    let function = program
-        .function::<fn(u64, u32, u8, bool, bool, bool) -> (u64, bool, bool)>(|body, _| {
+    let function = program.function::<fn(u64, u32, u8, bool, bool, bool) -> (u64, bool, bool)>(
+        move |body, _| {
             let input = RoundingInput {
                 integer: body.parameter::<I64>(0)?,
                 guard: body.parameter::<I1>(4)?,
@@ -16,8 +16,8 @@ fn integer_rounding_preserves_evidence_across_word_boundaries() {
             let mode = RoundingMode::new(body.parameter::<I8>(2)?);
             let result = mode.round(input, &body.parameter::<I1>(3)?);
             body.return_((result.integer, result.inexact, result.incremented))
-        })
-        .unwrap();
+        },
+    );
     program.export("round", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),

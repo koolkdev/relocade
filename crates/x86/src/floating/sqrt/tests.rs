@@ -7,12 +7,12 @@ use relocade_compiler::Program;
 #[test]
 fn refined_root_and_rounding_evidence_match_integer_square_root() {
     let mut program = Program::new();
-    let function = program
-        .function::<fn(u64, bool) -> (u64, bool, bool)>(|mut body, (significand, odd)| {
+    let function = program.function::<fn(u64, bool) -> (u64, bool, bool)>(
+        move |mut body, (significand, odd)| {
             let result = calculate(&mut body, &significand, &odd)?;
             body.return_((result.integer, result.guard, result.sticky))
-        })
-        .unwrap();
+        },
+    );
     program.export("sqrt", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),

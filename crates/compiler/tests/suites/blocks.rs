@@ -9,7 +9,7 @@ fn shared_exits() -> TestModule {
     fixture.function(
         &[Type::I1, Type::I1, Type::I1, Type::I32],
         &[Type::I64],
-        |mut body| {
+        move |mut body| {
             let unaligned = body.parameter::<I1>(0)?;
             let crossing = body.parameter::<I1>(1)?;
             let denied = body.parameter::<I1>(2)?;
@@ -51,7 +51,7 @@ fn projected_results(observe: bool) -> TestModule {
         signature(&[Type::I32], &[Type::I32]),
         &[Value::I32(23)],
     );
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let (word, _unused, flag) = body.if_value::<(I32, I64, I1)>(
             &condition,
@@ -75,7 +75,7 @@ fn projected_results(observe: bool) -> TestModule {
 }
 
 fn nested_results() -> TestModule {
-    Fixture::new().function(&[Type::I1], &[Type::I64], |mut body| {
+    Fixture::new().function(&[Type::I1], &[Type::I64], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let (word, (flag, wide)) = body.block::<(I32, (I1, I64))>(|mut outer, _| {
             let result = outer.if_value::<(I32, (I1, I64))>(
@@ -97,9 +97,8 @@ fn unused_pure_call() -> TestModule {
     let state = fixture.memory("state", &[0xa5, 0x5a]);
     let helper = fixture
         .program
-        .function::<fn() -> u64>(|body, ()| body.trap())
-        .unwrap();
-    fixture.function(&[], &[Type::I32], |mut body| {
+        .function::<fn() -> u64>(move |body, ()| body.trap());
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let (word, _unused) = body.block::<(I32, I64)>(|mut block, _| {
             block.store::<I8>(state, 0, 1)?;
             let unused = block.call::<I64>(helper, &[])?;
@@ -110,21 +109,24 @@ fn unused_pure_call() -> TestModule {
 }
 
 fn switch_exits(keys: &[u32]) -> TestModule {
-    Fixture::new().function(&[Type::I32, Type::I1], &[Type::I64], |mut body| {
+    let keys = keys.to_vec();
+    Fixture::new().function(&[Type::I32, Type::I1], &[Type::I64], move |mut body| {
         let selector = body.parameter::<I32>(0)?;
         let leave = body.parameter::<I1>(1)?;
         let (word, wide) = body.block::<(I32, I64)>(|mut block, exit| {
-            let result = block.switch_value::<(I32, I64), _>(&selector, keys, |mut arm, key| {
-                let word =
-                    match key.and_then(|key| keys.iter().position(|&candidate| key == candidate)) {
+            let result =
+                block.switch_value::<(I32, I64), _>(&selector, &keys, |mut arm, key| {
+                    let word = match key
+                        .and_then(|key| keys.iter().position(|&candidate| key == candidate))
+                    {
                         Some(0) => 7,
                         Some(1) => 11,
                         Some(2) => 17,
                         _ => 23,
                     };
-                arm.if_(&leave, |branch| branch.branch(&exit, (word, 1000u64)))?;
-                arm.yield_((word, 2000u64))
-            })?;
+                    arm.if_(&leave, |branch| branch.branch(&exit, (word, 1000u64)))?;
+                    arm.yield_((word, 2000u64))
+                })?;
             block.yield_(result)
         })?;
         body.return_(wide.add(word.unsigned().extend::<I64>()))
@@ -132,7 +134,7 @@ fn switch_exits(keys: &[u32]) -> TestModule {
 }
 
 fn narrow_results() -> TestModule {
-    Fixture::new().function(&[Type::I8, Type::I1], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I8, Type::I1], &[Type::I32], move |mut body| {
         let byte = body.parameter::<I8>(0)?;
         let bit = body.parameter::<I1>(1)?;
         let (byte, bit) = body.block::<(I8, I1)>(|mut block, exit| {
@@ -247,7 +249,7 @@ fn a_dead_component_omits_its_pure_call_and_keeps_the_block_store() {
 #[test]
 fn reordered_duplicated_and_subset_results_preserve_their_component_values() {
     for (indices, expected) in [([1, 0], 131_073), ([0, 0], 65_537), ([2, 0], 196_609)] {
-        let module = Fixture::new().function(&[Type::I1], &[Type::I32], |mut body| {
+        let module = Fixture::new().function(&[Type::I1], &[Type::I32], move |mut body| {
             let condition = body.parameter::<I1>(0)?;
             let (first, second) = body.block::<(I32, I32)>(|mut block, _| {
                 let (a, b, c) = block.if_value::<(I32, I32, I32)>(
@@ -309,7 +311,7 @@ fn every_narrow_result_component_normalizes_at_its_observer() {
 fn unit_blocks_and_result_arms_accept_fallthrough() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0, 0, 0, 0]);
-    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         body.block::<()>(|mut block, exit| {
             block.if_(&condition, |branch| branch.branch(&exit, ()))?;

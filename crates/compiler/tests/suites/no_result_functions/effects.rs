@@ -47,9 +47,9 @@ const PURE_CASES: [Pure; 5] = [
 fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0]);
-    let helper = fixture
-        .program
-        .raw_function(signature(&[Type::I32], result.as_slice()), |mut body| {
+    let helper = fixture.program.raw_function(
+        signature(&[Type::I32], result.as_slice()),
+        move |mut body| {
             match behavior {
                 Pure::Trap => return body.trap(),
                 Pure::ReadTrap => {
@@ -57,16 +57,16 @@ fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
                     body.if_(invalid.eq(0), |arm| arm.trap())?;
                 }
                 Pure::VoidDescendant => {
-                    let trap = body.program().function::<fn()>(|body, ()| body.trap())?;
+                    let trap = body.program().function::<fn()>(move |body, ()| body.trap());
                     body.call::<()>(trap, &[])?;
                 }
                 Pure::Empty | Pure::TrappingArgument => {}
             }
             finish(body, result)
-        })
-        .unwrap();
+        },
+    );
     fixture.program.export("helper", helper).unwrap();
-    fixture.function(&[], &[], |mut body| {
+    fixture.function(&[], &[], move |mut body| {
         body.store::<I32>(state, 0, 1)?;
         let argument = match behavior {
             Pure::TrappingArgument => body.load::<I32>(state, 65536)?.into(),
@@ -110,7 +110,7 @@ fn effectful_call(result: Option<Type>, behavior: Effect) -> TestModule {
             .declare(signature(&[Type::I32], result.as_slice()));
         fixture
             .program
-            .define(helper, |mut body| {
+            .define(helper, move |mut body| {
                 let input = body.parameter::<I32>(0).unwrap();
                 if matches!(behavior, Effect::Recursive) {
                     body.if_(input.eq(0), |arm| finish(arm, result)).unwrap();
@@ -127,15 +127,15 @@ fn effectful_call(result: Option<Type>, behavior: Effect) -> TestModule {
             .unwrap();
         helper
     };
-    let wrapper = fixture
-        .program
-        .raw_function(signature(&[Type::I32], result.as_slice()), |mut body| {
+    let wrapper = fixture.program.raw_function(
+        signature(&[Type::I32], result.as_slice()),
+        move |mut body| {
             let input = body.parameter::<I32>(0)?;
             call_unused(&mut body, helper, result, &[input.into()])?;
             finish(body, result)
-        })
-        .unwrap();
-    fixture.function(&[], &[], |mut body| {
+        },
+    );
+    fixture.function(&[], &[], move |mut body| {
         body.store::<I32>(state, 0, 1)?;
         let argument = match behavior {
             Effect::TrappingArgument => body.load::<I32>(state, 65536)?.into(),

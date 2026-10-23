@@ -100,7 +100,7 @@ pub trait IntType: BitwiseType {}
 /// use relocade_compiler::Program;
 /// let mut program = Program::new();
 /// let scale =
-///     program.function::<fn(f64) -> f64>(|body, (value,)| body.return_(value.mul(0.5)))?;
+///     program.function::<fn(f64) -> f64>(move |body, (value,)| body.return_(value.mul(0.5)));
 /// program.export("scale", scale)?;
 /// let bytes = program.compile()?;
 /// # Ok::<(), relocade_compiler::BuildError>(())

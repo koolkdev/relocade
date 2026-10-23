@@ -6,7 +6,7 @@ use wasmparser::{Operator, Parser, Payload};
 fn count_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0x10, 0, 0, 0]);
-    fixture.function(&[], &[Type::I32; 3], |mut body| {
+    fixture.function(&[], &[Type::I32; 3], move |mut body| {
         let input = body.load::<I32>(memory, 0)?;
         let ones = input.popcnt();
         let leading = input.clz();
@@ -55,16 +55,17 @@ fn counts_used_in_exclusive_arms_preserve_results() {
         (Val::<I32>::clz, 27),
         (Val::<I32>::ctz, 4),
     ] {
-        let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
-            let condition = body.parameter::<I1>(0)?;
-            let input = count(&body.parameter::<I32>(1)?);
-            let result = body.if_value::<I32>(
-                condition,
-                |arm| arm.yield_(input.add(1)),
-                |arm| arm.yield_(input.add(2)),
-            )?;
-            body.return_(result)
-        });
+        let module =
+            Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
+                let condition = body.parameter::<I1>(0)?;
+                let input = count(&body.parameter::<I32>(1)?);
+                let result = body.if_value::<I32>(
+                    condition,
+                    |arm| arm.yield_(input.add(1)),
+                    |arm| arm.yield_(input.add(2)),
+                )?;
+                body.return_(result)
+            });
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i32>((1, 16)).unwrap(), expected + 1);
         assert_eq!(instance.call::<i32>((0, 16)).unwrap(), expected + 2);
@@ -78,7 +79,7 @@ fn count_bounds_normalize_later_one_bit_observations() {
         (Val::<I32>::clz, [0, 1], 2),
         (Val::<I32>::ctz, [0, 0], 2),
     ] {
-        let module = Fixture::new().expression(&[Type::I32], |body| {
+        let module = Fixture::new().expression(&[Type::I32], move |body| {
             let bit = body.parameter::<I32>(0).unwrap().and(1);
             count(&bit).truncate::<I1>()
         });

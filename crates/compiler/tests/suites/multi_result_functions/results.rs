@@ -4,7 +4,7 @@ fn mixed_results() -> TestModule {
     let mut fixture = Fixture::new();
     let helper = fixture
         .program
-        .function::<fn(u32) -> (bool, u8, u16, u32, u64)>(|body, (input,)| {
+        .function::<fn(u32) -> (bool, u8, u16, u32, u64)>(move |body, (input,)| {
             // These additions leave dirty upper carrier bits for narrow results.
             body.return_((
                 input.truncate::<I1>().add(1),
@@ -15,8 +15,7 @@ fn mixed_results() -> TestModule {
                 input.add(1),
                 input.unsigned().extend::<I64>().add(1_u64 << 63),
             ))
-        })
-        .unwrap();
+        });
     fixture.program.export("helper", helper).unwrap();
     fixture.function(
         &[Type::I32],
@@ -29,7 +28,7 @@ fn mixed_results() -> TestModule {
             Type::I32,
             Type::I1,
         ],
-        |mut body| {
+        move |mut body| {
             let input = body.parameter::<I32>(0)?;
             let (bit, (byte, word), dword, wide) =
                 body.call::<(I1, (I8, I16), I32, I64)>(helper, &[input.into()])?;
@@ -98,17 +97,17 @@ fn mixed_logical_results_normalize_at_function_boundaries_and_keep_their_order()
 fn array_results<const N: usize>() -> TestModule {
     let mut fixture = Fixture::new();
     let result_types = vec![Type::I1; N];
-    let helper = fixture
-        .program
-        .raw_function(signature(&[Type::I32], &result_types), |body| {
-            let input = body.parameter::<I32>(0)?;
-            let values = (0..N)
-                .map(|index| input.eq(index as u32))
-                .collect::<Vec<_>>();
-            body.return_(values)
-        })
-        .unwrap();
-    fixture.function(&[Type::I32], &result_types, |mut body| {
+    let helper =
+        fixture
+            .program
+            .raw_function(signature(&[Type::I32], &result_types), move |body| {
+                let input = body.parameter::<I32>(0)?;
+                let values = (0..N)
+                    .map(|index| input.eq(index as u32))
+                    .collect::<Vec<_>>();
+                body.return_(values)
+            });
+    fixture.function(&[Type::I32], &result_types, move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let values = body.call::<[I1; N]>(helper, &[input.into()])?;
         body.return_(values)
@@ -170,7 +169,7 @@ fn imported_results() -> TestModule {
     fixture.function(
         &[Type::I8],
         &[Type::I1, Type::I64, Type::I1, Type::I64],
-        |mut body| {
+        move |mut body| {
             let input = body.parameter::<I8>(0)?.add(1);
             body.store(memory, 0, &input)?;
             let (_first, _second, bit, _fourth, wide, _last) =
@@ -207,14 +206,14 @@ fn forward_tail_results() -> TestModule {
     let helper = fixture.program.declare(shape);
     fixture
         .program
-        .define(run, |body| {
+        .define(run, move |body| {
             let input = body.parameter::<I32>(0).unwrap();
             body.tail_call(helper, &[input.into()])
         })
         .unwrap();
     fixture
         .program
-        .define(helper, |body| {
+        .define(helper, move |body| {
             let input = body.parameter::<I32>(0).unwrap();
             body.return_((input.eq(255), input.truncate::<I8>().add(1), u64::MAX))
         })

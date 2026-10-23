@@ -6,10 +6,7 @@ use wasm_encoder::{
     Module, RefType, TableType, TypeSection, ValType,
 };
 
-use crate::{
-    body::{BlockItem, Exit, OperationKind},
-    emit, place, FunctionKind, Program,
-};
+use crate::{emit, place, FunctionKind, Program};
 
 /// Logical function signatures share one deterministic Wasm carrier table.
 #[derive(Default)]
@@ -50,36 +47,22 @@ pub(super) fn encode(mut program: Program) -> Vec<u8> {
         if std::mem::replace(&mut used_functions[id], true) {
             continue;
         }
-        let FunctionKind::Defined(body) = &mut program.functions[id].kind else {
+        if matches!(program.functions[id].kind, FunctionKind::Imported { .. }) {
             continue;
+        }
+        let FunctionKind::Built(body) =
+            std::mem::replace(&mut program.functions[id].kind, FunctionKind::Declared)
+        else {
+            unreachable!("reachable definitions completed construction")
         };
-        let body = placement.place(
-            body.take()
-                .expect("defined function completed construction"),
-        );
+        let body = placement.place(body);
         for memory in &body.memories {
             used_memories[memory.0] = true;
         }
-        let reachable = body.reachable();
-        for (index, block) in body.blocks.iter().enumerate() {
-            if !reachable[index] {
-                continue;
-            }
-            if let Exit::TailCall { target, .. } = &block.exit {
-                pending.push(target.0);
-            }
-            if let Exit::TailCallIndirect { table, .. } = &block.exit {
-                used_tables[table.0] = true;
-            }
-            for item in &block.items {
-                if let BlockItem::Effect(effect) = item {
-                    if let OperationKind::Call { target } = body.effects[effect.0].operation.kind()
-                    {
-                        pending.push(target.0);
-                    }
-                }
-            }
-        }
+        body.visit_call_targets(
+            |function| pending.push(function.0),
+            |table| used_tables[table.0] = true,
+        );
         defined.push((id, body));
     }
     // Discovery order must not change function indices or signature interning.

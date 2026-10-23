@@ -5,9 +5,9 @@ use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
 use crate::{CompiledModule, FlagBytes};
 use relocade_compiler::{BlockBuilder, BuildError, Program, Val, I1, I32, I64, I8};
-use wasmparser::{Operator, Parser, Payload, Validator};
+use wasmparser::Operator;
 
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::{assert_result, consumer_ops, initial_cpu};
 
 const SUB_FLAGS: [u8; 6] = [1, 1, 1, 0, 1, 0];
 const ZERO_FLAGS: [u8; 6] = [0, 1, 0, 1, 0, 0];
@@ -34,33 +34,13 @@ fn condition_bits(flags: [u8; 6]) -> i64 {
     packed
 }
 
-fn consumer_ops(bytes: &[u8]) -> Vec<Operator<'_>> {
-    Validator::new().validate_all(bytes).unwrap();
-    Parser::new(0)
-        .parse_all(bytes)
-        .find_map(|payload| {
-            if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-                Some(
-                    body.get_operators_reader()
-                        .unwrap()
-                        .into_iter()
-                        .map(Result::unwrap)
-                        .collect(),
-                )
-            } else {
-                None
-            }
-        })
-        .unwrap()
-}
-
 #[test]
 fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
     for local_base in [false, true] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let function = program
-            .function::<fn(bool, bool, bool, bool, bool) -> u64>(|mut body, _| {
+        let function =
+            program.function::<fn(bool, bool, bool, bool, bool) -> u64>(move |mut body, _| {
                 let mut state = State::new(&cpu);
                 if local_base {
                     state
@@ -108,8 +88,7 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
                 let conditions = query_all(&mut body, &mut state)?;
                 state.publish(&mut body, 0x1008, 4)?;
                 body.return_(conditions)
-            })
-            .unwrap();
+            });
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
             execution_target: None,
@@ -193,34 +172,32 @@ fn overwritten_partial_changes_do_not_generate_obsolete_stored_reader_calls() {
     for complete in [false, true] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let function = program
-            .function::<fn(bool) -> u64>(|mut body, _| {
-                let mut state = State::new(&cpu);
-                let pending = body.parameter::<I1>(0)?;
-                state.write_flags(
-                    &mut body,
-                    FlagChange::partial([(StatusFlag::CF.into(), true.into())]).when(pending),
-                )?;
-                if complete {
-                    state.write_flags(&mut body, StatusSource::<I8>::Logic { result: 0.into() })?;
-                } else {
-                    // Independent unconditional writes define every bit without
-                    // requiring any part of the stored or conditional old source.
-                    for (flag, value) in StatusFlag::ALL
-                        .into_iter()
-                        .zip([false, true, false, true, false, false])
-                    {
-                        state.write_flags(
-                            &mut body,
-                            FlagChange::partial([(flag.into(), value.into())]),
-                        )?;
-                    }
+        let function = program.function::<fn(bool) -> u64>(move |mut body, _| {
+            let mut state = State::new(&cpu);
+            let pending = body.parameter::<I1>(0)?;
+            state.write_flags(
+                &mut body,
+                FlagChange::partial([(StatusFlag::CF.into(), true.into())]).when(pending),
+            )?;
+            if complete {
+                state.write_flags(&mut body, StatusSource::<I8>::Logic { result: 0.into() })?;
+            } else {
+                // Independent unconditional writes define every bit without
+                // requiring any part of the stored or conditional old source.
+                for (flag, value) in StatusFlag::ALL
+                    .into_iter()
+                    .zip([false, true, false, true, false, false])
+                {
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::partial([(flag.into(), value.into())]),
+                    )?;
                 }
-                let conditions = query_all(&mut body, &mut state)?;
-                state.publish(&mut body, 0x1002, 1)?;
-                body.return_(conditions)
-            })
-            .unwrap();
+            }
+            let conditions = query_all(&mut body, &mut state)?;
+            state.publish(&mut body, 0x1002, 1)?;
+            body.return_(conditions)
+        });
         program.export("run", function).unwrap();
         let bytes = program.compile().unwrap();
         assert!(!consumer_ops(&bytes)
@@ -266,37 +243,35 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
     for length in [8_u32, 256] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let function = program
-            .function::<fn(u32) -> u64>(|mut body, _| {
-                let mut state = State::new(&cpu);
-                state.write_flags(&mut body, StatusSource::<I8>::Logic { result: 0.into() })?;
-                let selector = body.parameter::<I32>(0)?;
-                for index in 0..length {
-                    let predicate = selector.eq(index);
-                    if index % 2 == 0 {
-                        state.write_flags(
-                            &mut body,
-                            FlagChange::from(StatusSource::<I32>::Logic {
-                                result: index.into(),
-                            })
-                            .when(predicate),
-                        )?;
-                    } else {
-                        state.write_flags(
-                            &mut body,
-                            FlagChange::partial([
-                                (StatusFlag::CF.into(), (index & 2 != 0).into()),
-                                (StatusFlag::OF.into(), (index & 4 != 0).into()),
-                            ])
-                            .when(predicate),
-                        )?;
-                    }
+        let function = program.function::<fn(u32) -> u64>(move |mut body, _| {
+            let mut state = State::new(&cpu);
+            state.write_flags(&mut body, StatusSource::<I8>::Logic { result: 0.into() })?;
+            let selector = body.parameter::<I32>(0)?;
+            for index in 0..length {
+                let predicate = selector.eq(index);
+                if index % 2 == 0 {
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::from(StatusSource::<I32>::Logic {
+                            result: index.into(),
+                        })
+                        .when(predicate),
+                    )?;
+                } else {
+                    state.write_flags(
+                        &mut body,
+                        FlagChange::partial([
+                            (StatusFlag::CF.into(), (index & 2 != 0).into()),
+                            (StatusFlag::OF.into(), (index & 4 != 0).into()),
+                        ])
+                        .when(predicate),
+                    )?;
                 }
-                let conditions = query_all(&mut body, &mut state)?;
-                state.publish(&mut body, 0x1200, length)?;
-                body.return_(conditions)
-            })
-            .unwrap();
+            }
+            let conditions = query_all(&mut body, &mut state)?;
+            state.publish(&mut body, 0x1200, length)?;
+            body.return_(conditions)
+        });
         program.export("run", function).unwrap();
         let bytes = program.compile().unwrap();
         let mut depth = 0;

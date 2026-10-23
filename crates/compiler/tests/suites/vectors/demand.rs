@@ -23,7 +23,7 @@ fn discarded_and_shared() {
     for shared in [false, true] {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &initial);
-        let module = fixture.function(&[Type::I32], &[], |mut body| {
+        let module = fixture.function(&[Type::I32], &[], move |mut body| {
             let x = body.load::<V128>(memory, 0)?;
             let y = body.load::<V128>(memory, 16)?;
             // The unused replacement includes scalar work that selection can retire.
@@ -93,7 +93,7 @@ fn lane_dependencies() {
     for case in 0..7 {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &initial);
-        let module = fixture.function(&[Type::I32], &[], |mut body| {
+        let module = fixture.function(&[Type::I32], &[], move |mut body| {
             let x = body.load::<V64>(memory, 0)?;
             let byte = body.parameter::<I32>(0)?.truncate::<I8>();
             let low = x.replace_lane(0, &byte);
@@ -145,7 +145,7 @@ fn surviving_wide_product() {
     let initial = LEFT.to_le_bytes();
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[Type::I64], &[Type::I32, Type::I64], |mut body| {
+    let module = fixture.function(&[Type::I64], &[Type::I32, Type::I64], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         let (low, high) = input.unsigned().mul_wide(u64::MAX);
         let x = body.load::<V128>(memory, 0)?;
@@ -177,7 +177,7 @@ fn retired_boolean_keeps_numeric_mask() {
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let byte = body.parameter::<I32>(0)?.truncate::<I8>();
         let numeric = byte.unsigned().extend::<I32>();
         let predicate = byte.eq(0).unsigned().extend::<I8>();
@@ -205,7 +205,7 @@ fn partial_shuffle_observations_retain_only_contributing_replacements() {
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let word = body.parameter::<I32>(0)?;
         let left = body
             .load::<V128>(memory, 0)?
@@ -249,7 +249,7 @@ fn discarded_replacements_keep_loads_calls_and_effect_order() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
     let produce = fixture.callback("produce", signature(&[], &[Type::I32]), &[Value::I32(7)]);
-    let module = fixture.function(&[], &[], |mut body| {
+    let module = fixture.function(&[], &[], move |mut body| {
         let vector = body.load::<V128>(memory, 0)?;
         let loaded = body.load::<I32>(memory, 16)?;
         body.store::<I32>(memory, 16, 0x1020_3040_u32)?;

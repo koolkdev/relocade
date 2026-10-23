@@ -23,14 +23,18 @@ fn a_failed_else_branch_discards_both_arms_without_closing_the_parent() {
         name: "target".into(),
         signature: signature.clone(),
     });
+    let helper = program.raw_function(signature.clone(), move |_| {
+        panic!("discarded calls must not build their helpers")
+    });
     let function = program.declare(signature);
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             assert_eq!(
                 body.if_else(
                     true,
                     |mut branch| {
                         branch.store::<I32>(memory, 0, 9)?;
+                        branch.call::<I32>(helper, &[])?;
                         branch.call::<I32>(target, &[])?;
                         branch.if_(true, |inner| inner.tail_call(target, &[]))
                     },
@@ -44,6 +48,7 @@ fn a_failed_else_branch_discards_both_arms_without_closing_the_parent() {
             body.return_(7)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     assert!(Parser::new(0)
         .parse_all(&bytes)
@@ -58,7 +63,7 @@ fn an_ignored_return_error_discards_the_branch_and_keeps_the_parent_open() {
         results: vec![Type::I32],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             assert_eq!(
                 body.if_(true, |branch| {
                     assert!(branch.return_(true).is_err());
@@ -72,7 +77,8 @@ fn an_ignored_return_error_discards_the_branch_and_keeps_the_parent_open() {
             body.return_(7)
         })
         .unwrap();
-    assert!(program.compile().is_ok());
+    program.export("run", function).unwrap();
+    program.compile().unwrap();
 }
 
 #[test]
@@ -82,22 +88,24 @@ fn completing_a_child_keeps_parent_values_open_until_the_function_completes() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut retained = None;
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let value = body.value::<I32>(7).unwrap();
             body.if_(false, |branch| branch.return_(&value)).unwrap();
             let result = value.add(1);
-            retained = Some((result.clone(), body.arena.clone()));
+            *capture.borrow_mut() = Some((result.clone(), body.arena.clone()));
             body.return_(&result)
         })
         .unwrap();
-    let (result, arena) = retained.unwrap();
+    program.export("run", function).unwrap();
+    program.compile().unwrap();
+    let (result, arena) = retained.borrow_mut().take().unwrap();
     assert_eq!(
         result.checked_expression(&arena, 0),
         Err(BuildError::BodyClosed)
     );
-    assert!(program.compile().is_ok());
 }
 
 #[test]
@@ -121,7 +129,7 @@ fn an_ignored_yield_error_discards_both_arms_without_retaining_their_imports() {
     });
     let function = program.declare(signature);
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let result = body.if_value::<I32>(
                 true,
                 |mut arm| {
@@ -145,6 +153,7 @@ fn an_ignored_yield_error_discards_both_arms_without_retaining_their_imports() {
             body.return_(7)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     assert!(Parser::new(0)
         .parse_all(&bytes)
@@ -158,9 +167,10 @@ fn yielding_a_nested_join_exposes_only_the_new_parent_result() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut retained = None;
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let mut escaped = None;
             let selected = body
                 .if_value::<I32>(
@@ -182,14 +192,15 @@ fn yielding_a_nested_join_exposes_only_the_new_parent_result() {
                 assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
             }
             let result = selected.add(1);
-            retained = Some((result.clone(), body.arena.clone()));
+            *capture.borrow_mut() = Some((result.clone(), body.arena.clone()));
             body.return_(&result)
         })
         .unwrap();
-    let (result, arena) = retained.unwrap();
+    program.export("run", function).unwrap();
+    program.compile().unwrap();
+    let (result, arena) = retained.borrow_mut().take().unwrap();
     assert_eq!(
         result.checked_expression(&arena, 0),
         Err(BuildError::BodyClosed)
     );
-    assert!(program.compile().is_ok());
 }

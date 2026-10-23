@@ -122,9 +122,10 @@ impl Val<I1> {
     /// ```
     /// use relocade_compiler::Program;
     /// let mut program = Program::new();
-    /// let function = program.function::<fn(u32) -> u32>(|body, (value,)| {
+    /// let function = program.function::<fn(u32) -> u32>(move |body, (value,)| {
     ///     body.return_(value.eq(0).select(7, value.add(1)))
-    /// })?;
+    /// });
+    /// program.export("run", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```

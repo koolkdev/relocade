@@ -3,7 +3,7 @@ use crate::literal::Literal;
 use crate::{
     body::{
         BitBounds, BlockId, BlockItem, Effect, EffectId, Exit, FunctionGraph, Layout, Operation,
-        Value, ValueDefinition, ValueTable,
+        OperationKind, Value, ValueDefinition, ValueTable,
     },
     value::UnboundExpression,
     BuildError, Expression, Type,
@@ -121,6 +121,9 @@ impl FunctionArena {
                     })
                 })
                 .collect();
+            if let OperationKind::Call { target } = operation.kind() {
+                graph.blocks[block.0].callees.push(target);
+            }
             graph.effects.push(Effect {
                 results: results.clone(),
                 operation,

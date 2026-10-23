@@ -10,7 +10,7 @@ fn lane_and_shuffle_folding_preserves_routed_bytes_and_narrow_scalars() {
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let x = body.load::<V128>(memory, 0)?;
         let y = body.load::<V128>(memory, 16)?;
         let input = body.parameter::<I32>(0)?;

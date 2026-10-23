@@ -22,7 +22,7 @@ fn conditional_exits_keep_their_edge_scope_and_snapshot_producers() {
     });
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let choose = body.parameter::<I1>(0).unwrap();
             let result = body
                 .block::<I32>(|mut block, exit| {
@@ -36,7 +36,9 @@ fn conditional_exits_keep_their_edge_scope_and_snapshot_producers() {
             body.return_(result)
         })
         .unwrap();
-    let FunctionKind::Defined(Some(body)) = &program.functions[function.0].kind else {
+    program.export("run", function).unwrap();
+    program.build_reachable_functions().unwrap();
+    let FunctionKind::Built(body) = &program.functions[function.0].kind else {
         panic!("the function is complete");
     };
     let [Layout::Scope {
@@ -96,7 +98,7 @@ fn conditional_exit_errors_leave_the_parent_open_and_do_not_attach_an_edge() {
     let mut foreign = Program::new();
     let foreign_function = foreign.declare(signature());
     foreign
-        .define(foreign_function, |mut foreign_body| {
+        .define(foreign_function, move |mut foreign_body| {
             let foreign_condition = foreign_body.parameter::<I1>(0).unwrap();
             let mut foreign_label = None;
             let foreign_result = foreign_body
@@ -116,7 +118,7 @@ fn conditional_exit_errors_leave_the_parent_open_and_do_not_attach_an_edge() {
             });
             let function = program.declare(signature());
             program
-                .define(function, |mut body| {
+                .define(function, move |mut body| {
                     assert_eq!(body.yield_if(false, 7), Err(BuildError::InvalidYield));
                     let mut escaped_label = None;
                     let result = body
@@ -190,11 +192,13 @@ fn conditional_exit_errors_leave_the_parent_open_and_do_not_attach_an_edge() {
                     body.return_(result)
                 })
                 .unwrap();
-            assert!(program.compile().is_ok());
+            program.export("run", function).unwrap();
+            program.compile().unwrap();
             foreign_body.return_(foreign_result)
         })
         .unwrap();
-    assert!(foreign.compile().is_ok());
+    foreign.export("run", foreign_function).unwrap();
+    foreign.compile().unwrap();
 }
 
 #[test]
@@ -202,13 +206,15 @@ fn a_general_if_keeps_its_control_boundary_when_the_parent_completes() {
     let mut program = Program::new();
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let choose = body.parameter::<I1>(0).unwrap();
             body.if_(choose, |arm| arm.return_(11)).unwrap();
             body.return_(7)
         })
         .unwrap();
-    let FunctionKind::Defined(Some(body)) = &program.functions[function.0].kind else {
+    program.export("run", function).unwrap();
+    program.build_reachable_functions().unwrap();
+    let FunctionKind::Built(body) = &program.functions[function.0].kind else {
         panic!("the function is complete");
     };
     let [Layout::If { join, .. }, Layout::Block(last)] = body.layout.as_slice() else {
@@ -224,7 +230,7 @@ fn a_nested_exit_keeps_the_conditional_label_it_targets() {
     let mut program = Program::new();
     let function = program.declare(signature());
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let choose = body.parameter::<I1>(0).unwrap();
             body.if_value::<()>(
                 choose,
@@ -247,7 +253,9 @@ fn a_nested_exit_keeps_the_conditional_label_it_targets() {
             body.return_(7)
         })
         .unwrap();
-    let FunctionKind::Defined(Some(body)) = &program.functions[function.0].kind else {
+    program.export("run", function).unwrap();
+    program.build_reachable_functions().unwrap();
+    let FunctionKind::Built(body) = &program.functions[function.0].kind else {
         panic!("the function is complete");
     };
     let [Layout::If { join, .. }, Layout::Block(last)] = body.layout.as_slice() else {

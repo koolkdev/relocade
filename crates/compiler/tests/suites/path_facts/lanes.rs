@@ -5,7 +5,7 @@ use relocade_compiler::{Val, I16, I64, V128, V64};
 
 fn guards_and_switch() {
     for masked in [false, true] {
-        let module = Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
+        let module = Fixture::new().function(&[Type::I64], &[Type::I32], move |mut body| {
             let vector = Val::<V64>::from_bits(body.parameter::<I64>(0)?);
             let high = vector.extract_lane::<I16>(1).unsigned().extend::<I32>();
             let word = vector.extract_lane::<I32>(0);
@@ -37,7 +37,7 @@ fn guards_and_switch() {
             );
         }
     }
-    let module = Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I64], &[Type::I32], move |mut body| {
         let vector = Val::<V64>::from_bits(body.parameter::<I64>(0)?);
         body.switch(
             vector.extract_lane::<I32>(0),
@@ -68,7 +68,7 @@ fn joins_and_siblings() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I64, Type::I64],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let mode = body.parameter::<I32>(0)?.ne(0);
             let a = Val::<V64>::from_bits(body.parameter::<I64>(1)?);
             let b = Val::<V64>::from_bits(body.parameter::<I64>(2)?);
@@ -109,7 +109,7 @@ fn joins_and_siblings() {
             &[Value::I32(expected)],
         );
     }
-    let module = Fixture::new().function(&[Type::I64], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I64], &[Type::I32], move |mut body| {
         let vector = Val::<V64>::from_bits(body.parameter::<I64>(0)?);
         let high = vector.extract_lane::<I16>(1).unsigned().extend::<I32>();
         let result = body.if_value::<I32>(
@@ -130,7 +130,7 @@ fn joins_and_siblings() {
 }
 
 fn loop_and_snapshots() {
-    let module = Fixture::new().function(&[], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[], &[Type::I32], move |mut body| {
         let sum = body.loop_::<(I32, V64, I32), I32>(
             (0, 1_u64, 0),
             |mut iteration, labels, (index, vector, sum)| {
@@ -154,7 +154,7 @@ fn loop_and_snapshots() {
     let initial = 0x1234_5678_90ab_cdef_1234_5678_90ab_cdef_u128.to_le_bytes();
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[], &[Type::I32; 2], |mut body| {
+    let module = fixture.function(&[], &[Type::I32; 2], move |mut body| {
         let before = body.load::<V128>(memory, 0)?;
         body.if_(before.extract_lane::<I32>(3).ne(0x12345678), |arm| {
             arm.return_((0, 0))

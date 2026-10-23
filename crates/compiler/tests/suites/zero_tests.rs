@@ -135,9 +135,10 @@ fn module(cases: &[Case]) -> TestModule {
             parameters: vec![case.parameter],
             results: vec![Type::I1],
         });
+        let build = case.build;
         program
-            .define(function, |body| {
-                let value = (case.build)(&body);
+            .define(function, move |body| {
+                let value = build(&body);
                 body.return_(value)
             })
             .unwrap();

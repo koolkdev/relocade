@@ -54,6 +54,9 @@ pub(super) enum ValueDefinition {
 pub(super) struct Block {
     pub(super) parameters: Vec<usize>,
     pub(super) items: Vec<BlockItem>,
+    // Ordinary-call targets recorded during construction and rebuilt during
+    // compaction. Terminal call targets are already stored in `exit`.
+    pub(super) callees: Vec<Func>,
     pub(super) exit: Exit,
     pub(super) scope: usize,
 }
@@ -138,6 +141,7 @@ impl FunctionGraph {
             blocks: vec![Block {
                 parameters: Vec::new(),
                 items: Vec::new(),
+                callees: Vec::new(),
                 exit: Exit::Open,
                 scope: 0,
             }],
@@ -162,6 +166,7 @@ impl FunctionGraph {
         self.blocks.push(Block {
             parameters,
             items: Vec::new(),
+            callees: Vec::new(),
             exit: Exit::Open,
             scope,
         });
@@ -186,6 +191,29 @@ impl FunctionGraph {
             pending.extend(self.outgoing(block).into_iter().map(|edge| edge.target));
         }
         seen
+    }
+
+    /// Visits recorded call targets without scanning operations. Block reachability
+    /// excludes discarded callbacks and constant-dead branches. Placement can move
+    /// or remove calls, so compaction refreshes the records before emission.
+    pub(super) fn visit_call_targets(
+        &self,
+        mut visit_function: impl FnMut(Func),
+        mut visit_table: impl FnMut(crate::Table),
+    ) {
+        for (block, reachable) in self.blocks.iter().zip(self.reachable()) {
+            if !reachable {
+                continue;
+            }
+            match block.exit {
+                Exit::TailCall { target, .. } => visit_function(target),
+                Exit::TailCallIndirect { table, .. } => visit_table(table),
+                _ => {}
+            }
+            for &target in &block.callees {
+                visit_function(target);
+            }
+        }
     }
 }
 

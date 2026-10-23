@@ -84,7 +84,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         for (hook, name) in hooks.into_iter().zip(&names) {
             let declaration: Function<fn() -> HookResult> = Function::new("hooks", name);
             let import = declaration.import(&mut program);
-            let function = program.function::<abi::ExecutionSignature>(|mut body, ()| {
+            let function = program.function::<abi::ExecutionSignature>(move |mut body, ()| {
                 import
                     .call(&mut body, ())?
                     .match_(&mut body, |body, result| match result {
@@ -92,7 +92,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
                         HookResultCase::Exit(exit) => body.return_(exit),
                     })?;
                 body.trap()
-            })?;
+            });
             program.export(name, function)?;
             let bindings = self.access.bindings.clone();
             imports.push(self.access.backend.bind_host(

@@ -8,7 +8,7 @@ fn logical_vector_width_controls_layout_and_literal_evaluation() {
     initial[16..32].copy_from_slice(&RIGHT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let full = body.load::<V128>(memory, 0)?;
         let low = full.low_half();
         let other = body.load::<V64>(memory, 16)?;
@@ -110,11 +110,10 @@ fn vector_width_survives_calls_and_joins_with_dirty_carriers() {
     let memory = fixture.memory("state", &initial);
     let helper = fixture
         .program
-        .function::<fn(V64) -> (V64, V128)>(|body, (input,)| {
+        .function::<fn(V64) -> (V64, V128)>(move |body, (input,)| {
             body.return_((input.eq_lanes::<I16>(&input), input.zero_extend()))
-        })
-        .unwrap();
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+        });
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let left = body.load::<V128>(memory, 0)?.low_half();
         let right = body.load::<V128>(memory, 16)?.low_half();
@@ -159,7 +158,7 @@ fn vector_width_survives_calls_and_joins_with_dirty_carriers() {
 
 #[test]
 fn vector_returns_zero_the_unused_carrier_half() {
-    let module = Fixture::new().function(&[Type::I64], &[Type::V64], |body| {
+    let module = Fixture::new().function(&[Type::I64], &[Type::V64], move |body| {
         let bits = body.parameter::<I64>(0)?;
         body.return_(Val::<V64>::from_bits(bits))
     });
@@ -173,7 +172,7 @@ fn vector_returns_zero_the_unused_carrier_half() {
 fn vector_memory_accesses_use_exactly_eight_bytes() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 8]);
-    let module = fixture.function(&[], &[Type::I64], |mut body| {
+    let module = fixture.function(&[], &[Type::I64], move |mut body| {
         body.store(memory, 65528, Val::<V64>::from(0x12345678_90abcdef_u64))?;
         let bits = body.load::<V64>(memory, 65528)?.to_bits();
         body.return_(bits)
@@ -185,7 +184,7 @@ fn vector_memory_accesses_use_exactly_eight_bytes() {
 #[test]
 fn vector_signatures_admit_native_literals_at_their_logical_width() {
     let bits = 0x12345678_90abcdef_u64;
-    let module = Fixture::new().function(&[], &[Type::V64; 2], |body| {
+    let module = Fixture::new().function(&[], &[Type::V64; 2], move |body| {
         body.return_((bits, bits.to_le_bytes()))
     });
     let actual: (wasmtime::V128, wasmtime::V128) = module.instantiate().call(()).unwrap();
@@ -196,9 +195,12 @@ fn vector_signatures_admit_native_literals_at_their_logical_width() {
         (Argument::from([0_u8; 8]), Type::I64, Type::V64),
         (Argument::from(0_u128), Type::V64, Type::V128),
     ] {
-        let error = Program::new()
-            .raw_function(signature(&[], &[expected]), |body| body.return_(argument))
-            .err();
+        let mut program = Program::new();
+        let function = program.raw_function(signature(&[], &[expected]), move |body| {
+            body.return_(argument)
+        });
+        program.export("run", function).unwrap();
+        let error = program.compile().err();
         assert_eq!(error, Some(BuildError::TypeMismatch { expected, actual }));
     }
 }

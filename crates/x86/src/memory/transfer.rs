@@ -4,10 +4,13 @@
 
 use crate::memory::TransferType;
 use relocade_compiler::{
-    BlockBuilder, BuildError, Func, MemoryType, Program, Type, Val, I32, I64, I8,
+    BlockBuilder, BuildError, Func, Mem, MemoryType, Program, Type, Val, I32, I64, I8,
 };
 
-use super::{page_table::physical_address, Access, Intent, VirtualMemory};
+use super::{
+    page_table::{physical_address, PageTable},
+    Access, Intent, VirtualMemory,
+};
 
 impl VirtualMemory {
     pub(crate) fn read<T: TransferType>(
@@ -23,7 +26,8 @@ impl VirtualMemory {
         body.if_value::<T>(
             access.scattered(),
             |mut arm| {
-                let reader = self.scattered_reader::<T>(arm.program())?;
+                let reader = *self.scattered_readers[width_index::<T>()]
+                    .get_or_init(|| declare_reader::<T>(arm.program(), self.guest, self.table));
                 let value = arm.call::<T>(reader, &[access.linear.add(offset).into()])?;
                 arm.yield_(value)
             },
@@ -52,7 +56,8 @@ impl VirtualMemory {
         body.if_else(
             access.scattered(),
             |mut arm| {
-                let writer = self.scattered_writer::<T>(arm.program())?;
+                let writer = *self.scattered_writers[width_index::<T>()]
+                    .get_or_init(|| declare_writer::<T>(arm.program(), self.guest, self.table));
                 arm.call::<()>(writer, &[access.linear.add(offset).into(), value.into()])
             },
             |mut arm| arm.store_at::<T>(self.guest, &access.physical, offset, value),
@@ -78,74 +83,53 @@ impl VirtualMemory {
     ) -> Result<(), BuildError> {
         body.store_at::<T>(self.guest, physical, 0, value)
     }
+}
 
-    fn scattered_reader<T: TransferType>(&self, program: &mut Program) -> Result<Func, BuildError> {
-        let slot = &self.scattered_readers[width_index::<T>()];
-        if let Some(function) = slot.get() {
-            return Ok(function);
-        }
-        let function = program
-            .function::<fn(u32) -> T>(|body, (linear,)| {
-                self.define_scattered_reader::<T>(body, linear)
-            })?
-            .into();
-        slot.set(Some(function));
-        Ok(function)
-    }
+pub(super) fn declare_reader<T: TransferType>(
+    program: &mut Program,
+    guest: Mem,
+    table: PageTable,
+) -> Func {
+    program
+        .function::<fn(u32) -> T>(move |mut body, (linear,)| {
+            let value = T::read_parts(|part, bytes| {
+                let mut value = Val::<I64>::from(0);
+                for offset in 0..bytes {
+                    let address = linear.add(part + offset);
+                    let entry = table.entry(&mut body, &address)?;
+                    let byte = body.load_at::<I8>(guest, physical_address(&entry, &address), 0)?;
+                    value = value.or(byte.unsigned().extend::<I64>().shl(offset * 8));
+                }
+                Ok(value)
+            })?;
+            body.return_(value)
+        })
+        .into()
+}
 
-    fn scattered_writer<T: TransferType>(&self, program: &mut Program) -> Result<Func, BuildError> {
-        let slot = &self.scattered_writers[width_index::<T>()];
-        if let Some(function) = slot.get() {
-            return Ok(function);
-        }
-        let function = program
-            .function::<fn(u32, T)>(|body, (linear, value)| {
-                self.define_scattered_writer::<T>(body, linear, value)
-            })?
-            .into();
-        slot.set(Some(function));
-        Ok(function)
-    }
-
-    fn define_scattered_reader<T: TransferType>(
-        &self,
-        mut body: BlockBuilder<'_>,
-        linear: Val<I32>,
-    ) -> Result<(), BuildError> {
-        let value = T::read_parts(|part, bytes| {
-            let mut value = Val::<I64>::from(0);
-            for offset in 0..bytes {
-                let address = linear.add(part + offset);
-                let entry = self.table.entry(&mut body, &address)?;
-                let byte = self.load::<I8>(&mut body, &physical_address(&entry, &address), 0)?;
-                value = value.or(byte.unsigned().extend::<I64>().shl(offset * 8));
-            }
-            Ok(value)
-        })?;
-        body.return_(value)
-    }
-
-    fn define_scattered_writer<T: TransferType>(
-        &self,
-        mut body: BlockBuilder<'_>,
-        linear: Val<I32>,
-        value: Val<T>,
-    ) -> Result<(), BuildError> {
-        T::write_parts(&value, |part, bytes, value| {
-            for offset in 0..bytes {
-                let address = linear.add(part + offset);
-                let entry = self.table.entry(&mut body, &address)?;
-                body.store_at::<I8>(
-                    self.guest,
-                    physical_address(&entry, &address),
-                    0,
-                    value.unsigned().shr(offset * 8).truncate::<I8>(),
-                )?;
-            }
-            Ok(())
-        })?;
-        body.return_(())
-    }
+pub(super) fn declare_writer<T: TransferType>(
+    program: &mut Program,
+    guest: Mem,
+    table: PageTable,
+) -> Func {
+    program
+        .function::<fn(u32, T)>(move |mut body, (linear, value)| {
+            T::write_parts(&value, |part, bytes, value| {
+                for offset in 0..bytes {
+                    let address = linear.add(part + offset);
+                    let entry = table.entry(&mut body, &address)?;
+                    body.store_at::<I8>(
+                        guest,
+                        physical_address(&entry, &address),
+                        0,
+                        value.unsigned().shr(offset * 8).truncate::<I8>(),
+                    )?;
+                }
+                Ok(())
+            })?;
+            body.return_(())
+        })
+        .into()
 }
 
 fn width_index<T: TransferType>() -> usize {

@@ -7,16 +7,15 @@ use crate::{
 fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let mut access = SegmentReads::new(&cpu, profile);
-    let function = program
-        .function::<fn(u32, u32) -> (u32, u32)>(|mut body, (offset, bytes)| {
+    let function =
+        program.function::<fn(u32, u32) -> (u32, u32)>(move |mut body, (offset, bytes)| {
+            let mut access = SegmentReads::new(&cpu, profile);
             let check = access.check(&mut body, &segment.into(), &offset, bytes, Intent::Write)?;
             body.return_((
                 check.linear,
                 check.denied.unwrap().unsigned().extend::<I32>(),
             ))
-        })
-        .unwrap();
+        });
     program.export("probe", function).unwrap();
     TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),

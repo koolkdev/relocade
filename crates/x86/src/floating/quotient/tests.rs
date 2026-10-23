@@ -6,12 +6,12 @@ use relocade_compiler::Program;
 
 fn check_scaled_division(narrow: bool) {
     let mut program = Program::new();
-    let function = program
-        .function::<fn(u64, u64, u32) -> (u64, u64)>(|mut body, (numerator, denominator, shift)| {
+    let function = program.function::<fn(u64, u64, u32) -> (u64, u64)>(
+        move |mut body, (numerator, denominator, shift)| {
             let result = integer_division(&mut body, &numerator, denominator, &shift, narrow)?;
             body.return_((result.quotient, result.remainder))
-        })
-        .unwrap();
+        },
+    );
     program.export("divide", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),

@@ -4,27 +4,26 @@ use crate::{BlockBuilder, BuildError, Program, TypedFunc};
 impl<S: FunctionSignature<Parameters: CompilerValue, Return: AbiType<Logical: crate::Results>>>
     Function<'_, S>
 {
-    /// Declares, builds and exports a function using this Rust signature.
+    /// Defines and exports a function using this Rust signature.
     /// Parameters arrive as their symbolic values, including named aggregate fields.
-    /// Construction has the rollback behavior of [`Program::function`].
+    /// The export is registered immediately; compilation constructs the body.
     ///
     /// ```
     /// use relocade_compiler::{abi::Function, Program};
     /// const ADD: Function<fn(u32, u32) -> u32> = Function::new("example", "add");
     /// let mut program = Program::new();
-    /// ADD.define(&mut program, |body, (a, b)| body.return_(a.add(b)))?;
+    /// ADD.define(&mut program, move |body, (a, b)| body.return_(a.add(b)))?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn define(
         self,
         program: &mut Program,
-        build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError>,
+        build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError> + 'static,
     ) -> Result<TypedFunc<S>, BuildError> {
-        program.function::<S>(|body, parameters| {
-            body.program.export(self.name, body.function)?;
-            build(body, parameters)
-        })
+        let function = program.function::<S>(build);
+        self.export(program, function)?;
+        Ok(function)
     }
 }
 

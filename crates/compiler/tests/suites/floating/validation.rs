@@ -28,19 +28,28 @@ fn signatures_distinguish_float_literals_from_integer_encodings() {
         (Argument::from(1.0), Type::I64, Type::F64),
         (Argument::from(1.0), Type::I1, Type::F64),
     ] {
-        let result =
-            Program::new().raw_function(signature(&[], &[expected]), |body| body.return_(argument));
+        let mut program = Program::new();
+        let function = program.raw_function(signature(&[], &[expected]), move |body| {
+            body.return_(argument)
+        });
         assert_eq!(
-            result.err(),
+            {
+                program.export("run", function).unwrap();
+                program.compile().err()
+            },
             Some(BuildError::TypeMismatch { expected, actual })
         );
     }
-    let mismatch = Program::new().function::<fn(f64) -> u64>(|body, _| {
+    let mut program = Program::new();
+    let mismatch = program.function::<fn(f64) -> u64>(move |body, _| {
         let value = body.parameter::<I64>(0)?;
         body.return_(value)
     });
     assert_eq!(
-        mismatch.err(),
+        {
+            program.export("run", mismatch).unwrap();
+            program.compile().err()
+        },
         Some(BuildError::TypeMismatch {
             expected: Type::I64,
             actual: Type::F64
@@ -107,7 +116,7 @@ fn literal_identity_keeps_encodings_and_arithmetic_nan_choice_stays_in_wasm() {
 
 #[test]
 fn rounding_and_square_root_lower_directly_and_defer_arithmetic_nans() {
-    let module = Fixture::new().function(&[Type::F64], &[Type::F64; 5], |body| {
+    let module = Fixture::new().function(&[Type::F64], &[Type::F64; 5], move |body| {
         let value = body.parameter::<F64>(0)?;
         body.return_([
             value.ceil(),
@@ -137,7 +146,7 @@ fn rounding_and_square_root_lower_directly_and_defer_arithmetic_nans() {
         );
     }
     let nan = Val::<F64>::from_bits(INFINITY | 1);
-    let special = Fixture::new().function(&[], &[Type::F64; 6], |body| {
+    let special = Fixture::new().function(&[], &[Type::F64; 6], move |body| {
         body.return_([
             nan.ceil(),
             nan.floor(),
@@ -202,7 +211,7 @@ fn numeric_conversions_emit_native_operations_and_fold_exact_constants() {
             Operator::End
         ]
     ));
-    let integers = Fixture::new().function(&[Type::I32, Type::I64], &[Type::F64; 4], |body| {
+    let integers = Fixture::new().function(&[Type::I32, Type::I64], &[Type::F64; 4], move |body| {
         let word = body.parameter::<I32>(0)?;
         let wide = body.parameter::<I64>(1)?;
         body.return_([

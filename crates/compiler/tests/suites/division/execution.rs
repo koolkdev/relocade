@@ -8,7 +8,7 @@ fn narrow<T: IntType>() -> TestModule
 where
     I32: AtLeast<T>,
 {
-    Fixture::new().function(&[Type::I32; 2], &[Type::I32; 6], |body| {
+    Fixture::new().function(&[Type::I32; 2], &[Type::I32; 6], move |body| {
         let left = body.parameter::<I32>(0)?.truncate::<T>().sub(1);
         let right = body.parameter::<I32>(1)?.truncate::<T>().add(1);
         let quotient = left.signed().div(&right);
@@ -58,7 +58,7 @@ fn dirty_narrow_operands_and_signed_results_observe_only_their_logical_bits() {
 fn snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[21, 0, 0, 0, 4, 0, 0, 0]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let branch = body.parameter::<I1>(0)?;
         let dividend = body.load::<I32>(memory, 0)?;
         let divisor = body.load::<I32>(memory, 4)?;
@@ -87,7 +87,7 @@ fn division_consumers_keep_original_operand_snapshots_across_branch_writes() {
 #[test]
 fn repeated_division_and_remainder_calculations_share_their_body_expression() {
     for kind in KINDS {
-        let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32], |body| {
+        let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32], move |body| {
             let left = body.parameter::<I32>(0)?;
             let right = body.parameter::<I32>(1)?;
             let first = kind.apply(&left, &right);
@@ -170,20 +170,24 @@ fn signed_minimum_remainder_over_minus_one_is_zero_at_both_native_widths() {
 }
 
 fn checked_signed<T: IntType>(minimum: Val<T>) -> TestModule {
-    Fixture::new().function(&[T::TYPE; 2], &[Type::I1, T::TYPE, T::TYPE], |mut body| {
-        let left = body.parameter::<T>(0)?;
-        let right = body.parameter::<T>(1)?;
-        let invalid = right.eq(0).or(left.eq(&minimum).and(right.eq(-1)));
-        body.if_(invalid, |arm| {
-            arm.return_((true, Val::<T>::from(0), Val::<T>::from(0)))
-        })?;
-        let quotient = left.signed().div(&right);
-        body.if_(
-            quotient.signed().lt(-128).or(quotient.signed().ge(128)),
-            |arm| arm.return_((true, Val::<T>::from(0), Val::<T>::from(0))),
-        )?;
-        body.return_((false, quotient, left.signed().rem(right)))
-    })
+    Fixture::new().function(
+        &[T::TYPE; 2],
+        &[Type::I1, T::TYPE, T::TYPE],
+        move |mut body| {
+            let left = body.parameter::<T>(0)?;
+            let right = body.parameter::<T>(1)?;
+            let invalid = right.eq(0).or(left.eq(&minimum).and(right.eq(-1)));
+            body.if_(invalid, |arm| {
+                arm.return_((true, Val::<T>::from(0), Val::<T>::from(0)))
+            })?;
+            let quotient = left.signed().div(&right);
+            body.if_(
+                quotient.signed().lt(-128).or(quotient.signed().ge(128)),
+                |arm| arm.return_((true, Val::<T>::from(0), Val::<T>::from(0))),
+            )?;
+            body.return_((false, quotient, left.signed().rem(right)))
+        },
+    )
 }
 
 // Caller checks return an ordinary status before a quotient is used outside its domain.

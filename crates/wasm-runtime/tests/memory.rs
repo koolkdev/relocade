@@ -31,15 +31,13 @@ async fn check_shared_memory() {
     let mut program = Program::new();
     let guest = program.import_memory(SHARED);
     let write = program.import_function(WRITE);
-    let run = program
-        .function::<fn() -> I64>(|mut body, ()| {
-            // Ordinary Wasm stores remain valid in a shared memory.
-            body.store::<I32>(guest, 0, 0x12345678_u32)?;
-            body.call::<I32>(write, &[])?;
-            let value = body.load::<I64>(guest, 0)?;
-            body.return_(value)
-        })
-        .unwrap();
+    let run = program.function::<fn() -> I64>(move |mut body, ()| {
+        // Ordinary Wasm stores remain valid in a shared memory.
+        body.store::<I32>(guest, 0, 0x12345678_u32)?;
+        body.call::<I32>(write, &[])?;
+        let value = body.load::<I64>(guest, 0)?;
+        body.return_(value)
+    });
     RUN.export(&mut program, run).unwrap();
     let module = backend
         .compiler()

@@ -17,80 +17,77 @@ mod spans;
 
 fn define_read<T: MemoryInt + crate::memory::TransferType>(
     program: &mut Program,
-    memory: &Memory,
+    memory: &std::rc::Rc<Memory>,
     name: &str,
 ) where
     I64: AtLeast<T>,
 {
-    let read = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                    "test", "access",
-                )
-                .signature()
-                .results,
-            },
-            |mut body| {
-                let address = body.parameter::<I32>(0)?;
-                let access = memory.resolve_access(
-                    &mut body,
-                    &address,
-                    T::BYTES,
-                    Intent::Read,
-                    None,
-                    Some(&mut AccessResult::fault),
-                )?;
-                let value = memory.read::<T>(&mut body, &access, 0)?;
-                AccessResult::value(body, value.unsigned().extend::<I64>())
-            },
-        )
-        .unwrap();
+    let memory = memory.clone();
+    let read = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32],
+            results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                "test", "access",
+            )
+            .signature()
+            .results,
+        },
+        move |mut body| {
+            let address = body.parameter::<I32>(0)?;
+            let access = memory.resolve_access(
+                &mut body,
+                &address,
+                T::BYTES,
+                Intent::Read,
+                None,
+                Some(&mut AccessResult::fault),
+            )?;
+            let value = memory.read::<T>(&mut body, &access, 0)?;
+            AccessResult::value(body, value.unsigned().extend::<I64>())
+        },
+    );
     program.export(name, read).unwrap();
 }
 
 fn define_write<T: MemoryInt + crate::memory::TransferType>(
     program: &mut Program,
-    memory: &Memory,
+    memory: &std::rc::Rc<Memory>,
     name: &str,
 ) {
-    let write = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32, T::TYPE],
-                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                    "test", "access",
-                )
-                .signature()
-                .results,
-            },
-            |mut body| {
-                let address = body.parameter::<I32>(0)?;
-                let value = body.parameter::<T>(1)?;
-                let access = memory.resolve_access(
-                    &mut body,
-                    &address,
-                    T::BYTES,
-                    Intent::Write,
-                    None,
-                    Some(&mut AccessResult::fault),
-                )?;
-                memory.write(&mut body, &access, 0, &value)?;
-                AccessResult::value(body, 7)
-            },
-        )
-        .unwrap();
+    let memory = memory.clone();
+    let write = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32, T::TYPE],
+            results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                "test", "access",
+            )
+            .signature()
+            .results,
+        },
+        move |mut body| {
+            let address = body.parameter::<I32>(0)?;
+            let value = body.parameter::<T>(1)?;
+            let access = memory.resolve_access(
+                &mut body,
+                &address,
+                T::BYTES,
+                Intent::Write,
+                None,
+                Some(&mut AccessResult::fault),
+            )?;
+            memory.write(&mut body, &access, 0, &value)?;
+            AccessResult::value(body, 7)
+        },
+    );
     program.export(name, write).unwrap();
 }
 
 fn accesses() -> Vec<u8> {
     let mut program = Program::new();
-    let memory = Memory::declare(
+    let memory = std::rc::Rc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
+    ));
     define_read::<I8>(&mut program, &memory, "read8");
     define_write::<I8>(&mut program, &memory, "write8");
     define_read::<I16>(&mut program, &memory, "read16");
@@ -109,8 +106,7 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
         let memory = Memory::declare(
             &mut program,
             crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-        )
-        .unwrap();
+        );
         let result = program.raw_function(
             Signature {
                 parameters: vec![Type::I32],
@@ -120,7 +116,7 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
                 .signature()
                 .results,
             },
-            |mut body| {
+            move |mut body| {
                 let address = body.parameter::<I32>(0)?;
                 memory.resolve_access(
                     &mut body,
@@ -133,7 +129,11 @@ fn access_fault_handlers_must_terminate_the_denied_path() {
                 AccessResult::value(body, 7)
             },
         );
-        assert_eq!(result.err(), Some(BuildError::MissingBranchValue));
+        program.export("run", result).unwrap();
+        assert_eq!(
+            program.compile().err(),
+            Some(BuildError::MissingBranchValue)
+        );
     }
 
     reject_fallthrough::<I8>();

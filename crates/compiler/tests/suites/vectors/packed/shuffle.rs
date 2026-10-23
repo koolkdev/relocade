@@ -9,7 +9,7 @@ fn vector_byte_shuffle_selects_both_inputs() {
             0x33dcaacd23f0ff3233fe55ef010010f0,
             0xf0f00f0f012345673333ccccfedcba98,
         ],
-        |left, right| {
+        move |left, right| {
             [
                 left.shuffle_bytes(
                     &right,
@@ -35,7 +35,7 @@ fn vector_byte_shuffle_runtime_indices_and_zero_fill() {
     bytes[32..48].copy_from_slice(&indices);
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let left = body.load::<V128>(memory, 0)?;
         let right = body.load::<V128>(memory, 16)?;
         let runtime_indices = body.load::<V128>(memory, 32)?;
@@ -72,7 +72,7 @@ fn vector_swizzle_union_preserves_overlapping_bits_and_zero_fill() {
             0x00f3006f00ab00ff00ff00dc00ff0010,
             0x00230f6755abaaef33dccc980054ff10,
         ],
-        |left, right| {
+        move |left, right| {
             [
                 left.swizzle_bytes(even).or(right.swizzle_bytes(odd)),
                 // Both swizzles contribute bits to the same bytes.

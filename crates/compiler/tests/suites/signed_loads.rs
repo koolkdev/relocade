@@ -74,7 +74,7 @@ fn signed_reads() -> TestModule {
     fixture.function(
         &[Type::I32],
         &[Type::I32, Type::I32, Type::I64, Type::I64, Type::I64],
-        |mut body| {
+        move |mut body| {
             let address = body
                 .parameter::<I32>(0)?
                 .add(body.load::<I32>(address_memory, 0)?);
@@ -135,7 +135,7 @@ const SHARED_AFTER: &[u8] = &[0xfe, 0xa5, 0x5a, 0xc3, 0, 0, 0, 0, 0xfe, 0xff, 0x
 fn repeated_signed_value() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", SHARED_BYTES);
-    fixture.function(&[], &[Type::I32], |mut body| {
+    fixture.function(&[], &[Type::I32], move |mut body| {
         let value = body.load::<I8>(memory, 0)?.signed().extend::<I32>();
         body.store(memory, 8, &value)?;
         body.return_(value.add(&value))
@@ -178,7 +178,7 @@ const MIXED_RESULT: &[Value] = &[Value::I32(254), Value::I32(-2), Value::I32(7)]
 fn mixed_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", MIXED_BYTES);
-    fixture.function(&[], &[Type::I32; 3], |mut body| {
+    fixture.function(&[], &[Type::I32; 3], move |mut body| {
         let before = body.load::<I8>(memory, 0)?;
         body.store::<I8>(memory, 0, 7)?;
         let after = body.load::<I8>(memory, 0)?;
@@ -223,7 +223,7 @@ fn snapshot_across_call() -> TestModule {
     let overwrite = fixture.program.declare(signature(&[], &[]));
     fixture
         .program
-        .define(run, |mut body| {
+        .define(run, move |mut body| {
             let before = body.load::<I16>(memory, 0).unwrap();
             body.call::<()>(overwrite, &[]).unwrap();
             let after = body.load::<I16>(memory, 0).unwrap();
@@ -235,7 +235,7 @@ fn snapshot_across_call() -> TestModule {
         .unwrap();
     fixture
         .program
-        .define(overwrite, |mut body| {
+        .define(overwrite, move |mut body| {
             body.store::<I8>(memory, 1, 0).unwrap();
             body.return_(())
         })
@@ -265,7 +265,7 @@ const BRANCH_CASES: &[(i32, [u8; 4])] = &[(0, [11, 0, 0x5a, 0xc3]), (1, [7, 0, 0
 fn snapshot_across_branches() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", BRANCH_BYTES);
-    fixture.function(&[Type::I1], &[Type::I64], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I64], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let before = body.load::<I16>(memory, 0)?;
         let result = body.if_value::<I64>(
@@ -310,7 +310,7 @@ fn converted_read_signs() -> TestModule {
     fixture.function(
         &[],
         &[Type::I32, Type::I32, Type::I32, Type::I64, Type::I64],
-        |mut body| {
+        move |mut body| {
             let narrowed = body.load::<I16>(memory, 0)?.truncate::<I8>();
             let widened = body.load::<I8>(memory, 0)?.unsigned().extend::<I16>();
             let same_width = body

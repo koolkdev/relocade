@@ -4,7 +4,7 @@ use relocade_compiler::I16;
 
 #[test]
 fn masks_exposed_by_specialization_reuse_the_guarded_value() {
-    let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let invalid = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?.or(0x8000);
         let word = input.truncate::<I16>();
@@ -38,7 +38,7 @@ fn computed_inputs_survive_specialization_in_later_guards() {
     let module = Fixture::new().function(
         &[Type::I1, Type::I1, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let mode = body.parameter::<I1>(0)?;
             let flag = body.parameter::<I1>(1)?;
             let input = body.parameter::<I32>(2)?;
@@ -86,7 +86,7 @@ fn switch_facts_preserve_wider_sources_of_specialized_bytes() {
     let module = Fixture::new().function(
         &[Type::I1, Type::I32],
         &[Type::I32, Type::I32],
-        |mut body| {
+        move |mut body| {
             let mode = body.parameter::<I1>(0)?;
             let input = body.parameter::<I32>(1)?;
             let offset = mode.select(input.add(256), input.add(512));

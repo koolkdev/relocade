@@ -12,15 +12,14 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
             results: vec![Type::I32, Type::I64],
         },
     });
-    let function = program
-        .function::<fn(u32) -> (u32, u64)>(|mut body, (input,)| {
-            let results = body.call::<(I32, I64)>(callee, &[input.add(7).argument()])?;
-            body.atomic_fence();
-            body.return_(results)
-        })
-        .unwrap();
-    let FunctionKind::Defined(Some(graph)) = &program.functions[crate::Func::from(function).0].kind
-    else {
+    let function = program.function::<fn(u32) -> (u32, u64)>(move |mut body, (input,)| {
+        let results = body.call::<(I32, I64)>(callee, &[input.add(7).argument()])?;
+        body.atomic_fence();
+        body.return_(results)
+    });
+    program.export("run", function).unwrap();
+    program.build_reachable_functions().unwrap();
+    let FunctionKind::Built(graph) = &program.functions[crate::Func::from(function).0].kind else {
         panic!("the function has a completed graph");
     };
     let &[call, fence] = graph.blocks[graph.entry.0].items.as_slice() else {
@@ -61,14 +60,13 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
 #[test]
 fn wide_components_expose_one_producer_with_ordered_results() {
     let mut program = Program::new();
-    let function = program
-        .function::<fn(u64, u64) -> (u64, u64)>(|body, (a, b)| {
-            let (low, high) = a.unsigned().mul_wide(b);
-            body.return_((high, low))
-        })
-        .unwrap();
-    let FunctionKind::Defined(Some(graph)) = &program.functions[crate::Func::from(function).0].kind
-    else {
+    let function = program.function::<fn(u64, u64) -> (u64, u64)>(move |body, (a, b)| {
+        let (low, high) = a.unsigned().mul_wide(b);
+        body.return_((high, low))
+    });
+    program.export("run", function).unwrap();
+    program.build_reachable_functions().unwrap();
+    let FunctionKind::Built(graph) = &program.functions[crate::Func::from(function).0].kind else {
         panic!("the function has a completed graph")
     };
     let super::super::Exit::Return(results) = &graph.blocks[0].exit else {

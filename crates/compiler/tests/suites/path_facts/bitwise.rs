@@ -3,7 +3,7 @@ use relocade_compiler::{IntType, I64};
 
 #[test]
 fn known_disjuncts_simplify_a_select_condition() {
-    let module = Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I1, Type::I1], &[Type::I32], move |mut body| {
         let first = body.parameter::<I1>(0)?;
         let second = body.parameter::<I1>(1)?;
         let result = first.or(second).select::<I32>(11, 13);
@@ -21,7 +21,7 @@ fn known_disjuncts_simplify_a_select_condition() {
 
 #[test]
 fn branch_specialization_uses_the_regular_zero_and_one_identities() {
-    let module = Fixture::new().function(&[Type::I32, Type::I32], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I32, Type::I32], &[Type::I32], move |mut body| {
         let stop = body.parameter::<I32>(0)?.ne(0);
         let input = body.parameter::<I32>(1)?;
         let zero = stop.select(7, 0);
@@ -52,7 +52,7 @@ fn branch_specialization_removes_repeated_bitwise_updates() {
     let module = Fixture::new().function(
         &[Type::I32, Type::I32, Type::I32],
         &[Type::I32, Type::I32],
-        |mut body| {
+        move |mut body| {
             let choice = body.parameter::<I32>(0)?.ne(0);
             let a = body.parameter::<I32>(1)?;
             let b = body.parameter::<I32>(2)?;
@@ -88,7 +88,7 @@ fn bitwise_identities_preserve_narrow_signed_and_unsigned_observations() {
     let module = Fixture::new().function(
         &[Type::I8, Type::I32, Type::I32],
         &[Type::I32, Type::I64, Type::I32],
-        |mut body| {
+        move |mut body| {
             let byte = body.parameter::<I8>(0)?;
             let other = body.parameter::<I32>(1)?;
             let choice = body.parameter::<I32>(2)?.ne(0);
@@ -128,7 +128,7 @@ fn bitwise_identities_preserve_narrow_signed_and_unsigned_observations() {
 }
 
 fn absorbed_updates<T: IntType>() -> TestModule {
-    Fixture::new().function(&[T::TYPE, T::TYPE], &[T::TYPE; 4], |mut body| {
+    Fixture::new().function(&[T::TYPE, T::TYPE], &[T::TYPE; 4], move |mut body| {
         let previous = body.parameter::<T>(0)?;
         let input = body.parameter::<T>(1)?;
         let computed = input.mul(7);
@@ -188,7 +188,7 @@ fn absorbing_a_sticky_update_preserves_the_byte_and_the_update_call() {
 
     let mut fixture = Fixture::new();
     let raised = fixture.callback("raised", signature(&[], &[Type::I1]), &[Value::I32(1)]);
-    let module = fixture.function(&[Type::I8], &[Type::I8], |mut body| {
+    let module = fixture.function(&[Type::I8], &[Type::I8], move |mut body| {
         let previous = body.parameter::<I8>(0)?;
         let update = body.call::<I1>(raised, &[])?;
         body.if_(previous.truncate::<I1>().eq(false), |arm| arm.return_(0))?;

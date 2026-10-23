@@ -92,7 +92,7 @@ fn constant_rotations_fold_with_logical_width_counts() {
         for &(input, count, left, right) in cases {
             for admitted in [false, true] {
                 for (rotate_left, expected) in [(true, left), (false, right)] {
-                    let module = Fixture::new().expression(&[], |body| {
+                    let module = Fixture::new().expression(&[], move |body| {
                         let input = Val::<I64>::from(input).truncate::<T>();
                         let input = if admitted {
                             body.value(input).unwrap()
@@ -131,7 +131,7 @@ fn rotations_accept_literal_and_computed_counts_at_every_logical_width() {
         I64: AtLeast<T>,
     {
         for rotate_left in [false, true] {
-            let module = Fixture::new().expression(&[T::TYPE, Type::I32], |body| {
+            let module = Fixture::new().expression(&[T::TYPE, Type::I32], move |body| {
                 let input = body.parameter::<T>(0).unwrap();
                 let count = body.parameter::<I32>(1).unwrap();
                 let result = if rotate_left {
@@ -157,7 +157,7 @@ fn rotations_accept_literal_and_computed_counts_at_every_logical_width() {
                     "{:?}, count={count}, left={rotate_left}",
                     T::TYPE,
                 );
-                let literal_count = Fixture::new().expression(&[T::TYPE], |body| {
+                let literal_count = Fixture::new().expression(&[T::TYPE], move |body| {
                     let input = body.parameter::<T>(0).unwrap();
                     let result = if rotate_left {
                         input.rotl(count)
@@ -194,7 +194,7 @@ fn narrow_rotations_ignore_dirty_carrier_bits_and_normalize_observations() {
         for &(input, count, left, right) in cases {
             for constant_count in [false, true] {
                 for rotate_left in [false, true] {
-                    let module = Fixture::new().expression(&[Type::I32; 2], |body| {
+                    let module = Fixture::new().expression(&[Type::I32; 2], move |body| {
                         let input = body.parameter::<I32>(0).unwrap().truncate::<T>().add(1);
                         let count = if constant_count {
                             count.into()
@@ -235,7 +235,7 @@ fn narrow_rotations_ignore_dirty_carrier_bits_and_normalize_observations() {
 fn full_width_rotations_use_native_operations_and_share_repeated_values() {
     fn check<T: IntType>() {
         for rotate_left in [false, true] {
-            let module = Fixture::new().expression(&[T::TYPE, Type::I32], |body| {
+            let module = Fixture::new().expression(&[T::TYPE, Type::I32], move |body| {
                 let input = body.parameter::<T>(0).unwrap();
                 let count = body.parameter::<I32>(1).unwrap().add(1);
                 let first = if rotate_left {
@@ -289,7 +289,7 @@ fn invariant_rotations_discard_unused_count_reads() {
             for rotate_left in [false, true] {
                 let mut fixture = Fixture::new();
                 let memory = fixture.memory("state", &[17, 0, 0, 0]);
-                let module = fixture.function(&[], &[Type::I64], |mut body| {
+                let module = fixture.function(&[], &[Type::I64], move |mut body| {
                     let count = body.load::<I32>(memory, 0)?;
                     let input = Val::<I64>::from(bits).truncate::<T>();
                     let result = if rotate_left {
@@ -314,7 +314,7 @@ fn invariant_rotations_discard_unused_count_reads() {
 fn count_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[1, 0, 0, 0, 0x81, 0xa5, 0x5a]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let branch = body.parameter::<I1>(0)?;
         let input = body.load::<I8>(memory, 4)?;
         let count = body.load::<I32>(memory, 0)?;

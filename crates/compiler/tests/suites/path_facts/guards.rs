@@ -7,7 +7,7 @@ fn returning_guards_keep_shared_calculations_with_their_consumers() {
     for (depth, expected) in [(0, 10), (1, 31), (4, 850)] {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &[0; 4]);
-        let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+        let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
             let flag = body.parameter::<I1>(0)?;
             let input = body.parameter::<I32>(1)?;
             let mut value = input.unsigned().div(input.sub(29));
@@ -38,7 +38,7 @@ fn nested_returning_guards_preserve_results_and_publication() {
     let module = fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let outer = body.parameter::<I1>(0)?;
             let inner = body.parameter::<I1>(1)?;
             let divisor = body.parameter::<I32>(2)?;
@@ -74,7 +74,7 @@ fn a_nonzero_guard_preserves_quotients_and_remainders_across_returning_paths() {
     for positive_guard in [false, true] {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &[0; 4]);
-        let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32; 2], |mut body| {
+        let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32; 2], move |mut body| {
             let first = body.parameter::<I1>(0)?;
             let divisor = body.parameter::<I32>(1)?;
             let nonzero = if positive_guard {
@@ -116,7 +116,7 @@ fn a_nonzero_guard_preserves_quotients_and_remainders_across_returning_paths() {
 fn a_guard_observes_the_divisors_logical_width() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 4]);
-    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let first = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?;
         let divisor = input.truncate::<I8>();

@@ -13,6 +13,7 @@ use crate::{
 use super::Compiler;
 
 /// Generated access to shared callable slots.
+#[derive(Clone, Copy)]
 pub(super) struct Dispatch {
     memory: Mem,
     functions: Table,
@@ -45,13 +46,14 @@ impl Compiler {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let dispatch = Dispatch::declare(&mut program);
-        crate::abi::DISPATCH.define(&mut program, |mut body, ()| {
+        let profile = self.target.profile;
+        crate::abi::DISPATCH.define(&mut program, move |mut body, ()| {
             let eip = cpu.read_eip(&mut body)?;
-            let mut segments = SegmentReads::new(&cpu, self.target.profile);
+            let mut segments = SegmentReads::new(&cpu, profile);
             let base = segments.base(&mut body, &Segment::Cs.into())?;
             dispatch.lookup(body, &base.add(eip))
         })?;
-        crate::abi::INTERPRET.define(&mut program, |body, ()| {
+        crate::abi::INTERPRET.define(&mut program, move |body, ()| {
             dispatch.enter(body, EntryTable::INTERPRETER_SLOT)
         })?;
         Ok(CompiledModule {

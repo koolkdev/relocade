@@ -48,36 +48,36 @@ impl<S> From<TypedFunc<S>> for Func {
 }
 
 impl Program {
-    /// Builds a function with typed parameters and a reusable typed handle.
+    /// Registers a function with typed parameters and a reusable typed handle.
     /// Parameters arrive as compiler values, including named aggregate fields.
     /// Exporting is separate, so private helpers use the same construction path.
+    /// The body is constructed during compilation if reachable from an export.
     ///
     /// The callback must complete the body with a return, tail call or trap.
-    /// Errors discard the function and resources added by its callback, with the
-    /// rollback behavior of [`Self::raw_function`].
+    /// Capture owned inputs; construction errors are reported by [`Self::compile`].
     ///
     /// ```
     /// use relocade_compiler::Program;
     /// let mut program = Program::new();
-    /// let increment = program.function::<fn(u32) -> u32>(|body, (value,)| {
+    /// let increment = program.function::<fn(u32) -> u32>(move |body, (value,)| {
     ///     body.return_(value.add(1))
-    /// })?;
-    /// let run = program.function::<fn() -> u32>(|mut body, ()| {
+    /// });
+    /// let run = program.function::<fn() -> u32>(move |mut body, ()| {
     ///     let value = increment.call(&mut body, 41)?;
     ///     body.return_(value)
-    /// })?;
+    /// });
     /// program.export("run", run)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
     /// ```
     pub fn function<S>(
         &mut self,
-        build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError>,
-    ) -> Result<TypedFunc<S>, BuildError>
+        build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError> + 'static,
+    ) -> TypedFunc<S>
     where
         S: FunctionSignature<Parameters: CompilerValue, Return: AbiType<Logical: Results>>,
     {
-        self.raw_function(abi::signature::<S>(), |body| {
+        TypedFunc::new(self.raw_function(abi::signature::<S>(), move |body| {
             let mut index = 0;
             let parameters = results::bind_sources::<<S::Parameters as AbiType>::Logical>(|ty| {
                 let value = body.arena.parameter(ty, index);
@@ -85,8 +85,7 @@ impl Program {
                 ValueSource::from_definition(body.arena.clone(), value)
             });
             build(body, S::Parameters::from_values(parameters))
-        })
-        .map(TypedFunc::new)
+        }))
     }
 }
 

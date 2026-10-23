@@ -18,43 +18,46 @@ fn guarded_snapshot(source: Source) -> TestModule {
     let state = fixture.memory("state", &INITIAL);
     let reader = fixture
         .program
-        .function::<fn() -> u32>(|mut body, ()| {
+        .function::<fn() -> u32>(move |mut body, ()| {
             let value = body.load::<I32>(state, 0)?;
             body.return_(value)
-        })
-        .unwrap();
+        });
     let receive = fixture.callback("receive", signature(&[], &[Type::I32]), &[Value::I32(7)]);
-    fixture.function(&[Type::I1, Type::I1, Type::I1], &[Type::I32], |mut body| {
-        let first = body.parameter::<I1>(0)?;
-        let second = body.parameter::<I1>(1)?;
-        let choose_load = body.parameter::<I1>(2)?;
-        let previous = match source {
-            Source::Load => body.load::<I32>(state, 0)?,
-            Source::ReadOnlyCall => body.call::<I32>(reader, &[])?,
-            Source::Callback => body.call::<I32>(receive, &[])?,
-            Source::Join => body.if_value::<I32>(
-                choose_load,
-                |mut arm| {
-                    let value = arm.load::<I32>(state, 0)?;
-                    arm.yield_(value)
-                },
-                |arm| arm.yield_(3),
-            )?,
-        };
-        let test = previous.unsigned().ge(5);
-        body.block::<()>(|mut block, _| {
-            block.if_(first, |mut guarded| {
-                guarded.if_(&test, |mut reached| reached.store::<I32>(state, 4, 101))
-            })
-        })?;
-        body.store::<I32>(state, 0, 1)?;
-        body.block::<()>(|mut block, _| {
-            block.if_(second, |mut guarded| {
-                guarded.if_(&test, |mut reached| reached.store::<I32>(state, 8, 202))
-            })
-        })?;
-        body.return_(17)
-    })
+    fixture.function(
+        &[Type::I1, Type::I1, Type::I1],
+        &[Type::I32],
+        move |mut body| {
+            let first = body.parameter::<I1>(0)?;
+            let second = body.parameter::<I1>(1)?;
+            let choose_load = body.parameter::<I1>(2)?;
+            let previous = match source {
+                Source::Load => body.load::<I32>(state, 0)?,
+                Source::ReadOnlyCall => body.call::<I32>(reader, &[])?,
+                Source::Callback => body.call::<I32>(receive, &[])?,
+                Source::Join => body.if_value::<I32>(
+                    choose_load,
+                    |mut arm| {
+                        let value = arm.load::<I32>(state, 0)?;
+                        arm.yield_(value)
+                    },
+                    |arm| arm.yield_(3),
+                )?,
+            };
+            let test = previous.unsigned().ge(5);
+            body.block::<()>(|mut block, _| {
+                block.if_(first, |mut guarded| {
+                    guarded.if_(&test, |mut reached| reached.store::<I32>(state, 4, 101))
+                })
+            })?;
+            body.store::<I32>(state, 0, 1)?;
+            body.block::<()>(|mut block, _| {
+                block.if_(second, |mut guarded| {
+                    guarded.if_(&test, |mut reached| reached.store::<I32>(state, 8, 202))
+                })
+            })?;
+            body.return_(17)
+        },
+    )
 }
 
 fn expected_memory(first: i32, second: i32) -> [u8; 12] {
@@ -119,7 +122,7 @@ fn two_guarded_tests_use_one_snapshot_across_an_intervening_write() {
 fn repeated_tests(count: usize, guarded: bool, returned: bool) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 12]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let enabled = body.parameter::<I1>(0)?;
         let test = body.parameter::<I32>(1)?.unsigned().ge(5);
         for index in 0..count {
@@ -180,7 +183,7 @@ fn a_predicate_used_in_separate_blocks_controls_both_writes() {
 fn a_predicate_used_for_control_and_arithmetic_preserves_both_views() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[0; 12]);
-    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let enabled = body.parameter::<I1>(0)?;
         let test = body.parameter::<I32>(1)?.unsigned().ge(5);
         let number = test.unsigned().extend::<I32>().add(10);
@@ -212,7 +215,7 @@ fn independent_guards_use_the_same_truth_value() {
     let module = fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let first = body.parameter::<I1>(0)?;
             let second = body.parameter::<I1>(1)?;
             let test = body.parameter::<I32>(2)?.ne(0);
@@ -243,7 +246,7 @@ fn independent_guards_use_the_same_truth_value() {
 fn exclusive_arms_share_repeated_inputs_without_repeating_snapshot_reads() {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 0, 0, 0, 0]);
-    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let previous = body.load::<I32>(state, 0)?;
         let changed = previous.xor(16);

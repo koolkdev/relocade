@@ -16,7 +16,7 @@ fn tuple(choice: Choice) -> TestModule {
     Fixture::new().function(
         &[Type::I1, Type::I32, Type::I32],
         &[Type::I32; 2],
-        |mut body| {
+        move |mut body| {
             let condition = body.parameter::<I1>(0)?;
             let first = body.parameter::<I32>(1)?;
             let second = body.parameter::<I32>(2)?;
@@ -95,22 +95,16 @@ fn helpers_used_only_by_a_removed_fallback_do_not_retain_functions_or_imports() 
         name: "dead_call".into(),
         signature: signature(&[], &[]),
     });
-    let leaf = fixture
-        .program
-        .function::<fn()>(|mut body, ()| {
-            body.store::<I32>(memory, 0, 99)?;
-            body.call::<()>(called, &[])?;
-            body.return_(())
-        })
-        .unwrap();
-    let helper = fixture
-        .program
-        .function::<fn()>(|mut body, ()| {
-            body.call::<()>(leaf, &[])?;
-            body.return_(())
-        })
-        .unwrap();
-    let module = fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    let leaf = fixture.program.function::<fn()>(move |mut body, ()| {
+        body.store::<I32>(memory, 0, 99)?;
+        body.call::<()>(called, &[])?;
+        body.return_(())
+    });
+    let helper = fixture.program.function::<fn()>(move |mut body, ()| {
+        body.call::<()>(leaf, &[])?;
+        body.return_(())
+    });
+    let module = fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         body.if_(condition.eq(false), |arm| arm.return_(0))?;
         let result = body.if_value::<I32>(
@@ -139,7 +133,7 @@ fn helpers_used_only_by_a_removed_fallback_do_not_retain_functions_or_imports() 
 fn snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         body.if_(condition.eq(false), |arm| arm.return_(0))?;
         let result = body.if_value::<I32>(
@@ -172,7 +166,7 @@ fn forwarding_a_selected_result_keeps_its_read_before_a_later_write() {
 }
 
 fn early_result() -> TestModule {
-    Fixture::new().function(&[Type::I1; 2], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I1; 2], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let early = body.parameter::<I1>(1)?;
         body.if_(condition.eq(false), |arm| arm.return_(0))?;

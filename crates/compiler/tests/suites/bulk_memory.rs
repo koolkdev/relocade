@@ -8,7 +8,7 @@ fn transfers() -> TestModule {
     fixture.memory("unused", &[]);
     let source = fixture.memory("source", &[1, 2, 3, 4, 5, 6]);
     let destination = fixture.memory("destination", &[0xa5; 12]);
-    fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
         let bytes = body.parameter::<I32>(0)?;
         let before = body.load::<I32>(destination, 2)?;
         body.memory_copy(destination, 2, source, 0, &bytes)?;
@@ -53,21 +53,17 @@ fn bulk_operations_retain_both_memories_and_lower_to_native_wasm() {
 fn calls_summarize_bulk_writes_and_keep_reader_snapshots() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("memory", &[7, 0, 0, 0, 9, 0, 0, 0]);
-    let writer = fixture
-        .program
-        .function::<fn()>(|mut body, ()| {
-            body.memory_copy(memory, 0, memory, 4, 4)?;
-            body.return_(())
-        })
-        .unwrap();
+    let writer = fixture.program.function::<fn()>(move |mut body, ()| {
+        body.memory_copy(memory, 0, memory, 4, 4)?;
+        body.return_(())
+    });
     let reader = fixture
         .program
-        .function::<fn() -> u32>(|mut body, ()| {
+        .function::<fn() -> u32>(move |mut body, ()| {
             let value = body.load::<I32>(memory, 0)?;
             body.return_(value)
-        })
-        .unwrap();
-    let module = fixture.function(&[], &[Type::I32], |mut body| {
+        });
+    let module = fixture.function(&[], &[Type::I32], move |mut body| {
         let before = body.load::<I32>(memory, 0)?;
         body.call::<()>(writer, &[])?;
         let middle = body.call::<I32>(reader, &[])?;
@@ -85,7 +81,7 @@ fn relative_bulk_writes_preserve_overlapping_snapshots_and_allow_disjoint_reads(
     for (offset, order) in [(2, ["load", "fill"]), (4, ["fill", "load"])] {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("memory", initial);
-        let module = fixture.function(&[Type::I32], &[Type::I32], |mut body| {
+        let module = fixture.function(&[Type::I32], &[Type::I32], move |mut body| {
             let base = body.parameter::<I32>(0)?;
             let before = body.load_at::<I32>(memory, &base, offset)?;
             body.memory_fill(memory, base, 0, 4)?;
@@ -122,7 +118,7 @@ fn zero_lengths_allow_memory_end_and_out_of_bounds_ranges_do_not_partially_write
     for bytes in [0, 3] {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("memory", &[1, 2, 3, 4]);
-        let module = fixture.function(&[], &[], |mut body| {
+        let module = fixture.function(&[], &[], move |mut body| {
             body.memory_fill(memory, if bytes == 0 { 65536 } else { 65535 }, 9, bytes)?;
             body.return_(())
         });

@@ -20,14 +20,11 @@ fn snapshot_across_call() {
     initial[65528..].copy_from_slice(&0xffff_0001_7fff_8000_u64.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let overwrite = fixture
-        .program
-        .function::<fn()>(|mut body, ()| {
-            body.store::<I64>(memory, 65528, 0_u64)?;
-            body.return_(())
-        })
-        .unwrap();
-    let module = fixture.function(&[], &[], |mut body| {
+    let overwrite = fixture.program.function::<fn()>(move |mut body, ()| {
+        body.store::<I64>(memory, 65528, 0_u64)?;
+        body.return_(())
+    });
+    let module = fixture.function(&[], &[], move |mut body| {
         let old = body.load::<I64>(memory, 65528)?;
         body.call::<()>(overwrite, &[])?;
         let packed = Val::<V64>::from_bits(old).add_lanes::<I16>(0x0001_0001_0001_0001_u64);
@@ -63,7 +60,7 @@ fn shared_scalar_read() {
     let initial = 0xffff_0001_7fff_8000_u64.to_le_bytes();
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[], &[Type::I64; 2], |mut body| {
+    let module = fixture.function(&[], &[Type::I64; 2], move |mut body| {
         let scalar = body.load::<I64>(memory, 0)?;
         let packed = Val::<V64>::from_bits(&scalar).add_lanes::<I16>(0x0001_0001_0001_0001_u64);
         body.return_((scalar, packed.to_bits()))
@@ -100,7 +97,7 @@ fn lane_stores() {
     initial[..16].copy_from_slice(&LEFT.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[], &[Type::I16], |mut body| {
+    let module = fixture.function(&[], &[Type::I16], move |mut body| {
         let vector = body.load::<V128>(memory, 0)?;
         body.store(memory, 16, vector.extract_lane::<I8>(13))?;
         let shared = vector.extract_lane::<I16>(5);

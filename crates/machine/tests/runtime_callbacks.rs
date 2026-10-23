@@ -99,25 +99,23 @@ async fn check_callback() {
     let eax_offset = (offset_of!(ExecutionContext, cpu)
         + offset_of!(CpuState, registers)
         + offset_of!(Registers, eax)) as u32;
-    let run = program
-        .function::<fn() -> I64>(|mut body, ()| {
-            // Publish guest changes before the callback, then reload its changes.
-            let eax = body.load::<I32>(cpu_memory, eax_offset)?.add(1);
-            body.store(cpu_memory, eax_offset, eax)?;
-            let value = body.load::<I32>(guest_memory, 0x2020)?.add(1);
-            body.store(guest_memory, 0x2020, value)?;
-            body.call::<I32>(host_call, &[])?;
-            let register = body
-                .load::<I32>(cpu_memory, eax_offset)?
-                .unsigned()
-                .extend::<I64>();
-            let memory = body
-                .load::<I32>(guest_memory, 0x2024)?
-                .unsigned()
-                .extend::<I64>();
-            body.return_(register.or(memory.shl(32)))
-        })
-        .unwrap();
+    let run = program.function::<fn() -> I64>(move |mut body, ()| {
+        // Publish guest changes before the callback, then reload its changes.
+        let eax = body.load::<I32>(cpu_memory, eax_offset)?.add(1);
+        body.store(cpu_memory, eax_offset, eax)?;
+        let value = body.load::<I32>(guest_memory, 0x2020)?.add(1);
+        body.store(guest_memory, 0x2020, value)?;
+        body.call::<I32>(host_call, &[])?;
+        let register = body
+            .load::<I32>(cpu_memory, eax_offset)?
+            .unsigned()
+            .extend::<I64>();
+        let memory = body
+            .load::<I32>(guest_memory, 0x2024)?
+            .unsigned()
+            .extend::<I64>();
+        body.return_(register.or(memory.shl(32)))
+    });
     RUN.export(&mut program, run).unwrap();
     let module = backend
         .compiler()

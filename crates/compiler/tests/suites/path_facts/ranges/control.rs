@@ -3,7 +3,7 @@
 use super::*;
 
 fn sibling_and_join() -> TestModule {
-    Fixture::new().function(&[Type::I32], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let result = body.if_value::<I32>(
             input.unsigned().lt(10),
@@ -15,7 +15,7 @@ fn sibling_and_join() -> TestModule {
 }
 
 fn bypass() -> TestModule {
-    Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let skip = body.parameter::<I1>(0)?;
         let input = body.parameter::<I32>(1)?;
         body.block::<()>(|mut block, exit| {
@@ -28,7 +28,7 @@ fn bypass() -> TestModule {
 }
 
 fn loop_ranges() -> TestModule {
-    Fixture::new().function(&[], &[Type::I32], |mut body| {
+    Fixture::new().function(&[], &[Type::I32], move |mut body| {
         let sum =
             body.loop_::<(I32, I32), I32>((0, 0), |mut iteration, labels, (index, sum)| {
                 iteration.branch_if(index.unsigned().ge(4), &labels.exit, &sum)?;
@@ -66,7 +66,7 @@ fn loop_carried_values_receive_fresh_ranges_on_each_iteration() {
 fn a_new_memory_snapshot_does_not_inherit_an_earlier_range() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &9_u32.to_le_bytes());
-    let module = fixture.function(&[], &[Type::I32], |mut body| {
+    let module = fixture.function(&[], &[Type::I32], move |mut body| {
         let before = body.load::<I32>(memory, 0)?;
         body.if_(before.unsigned().ge(20), |arm| arm.return_(99))?;
         body.store::<I32>(memory, 0, 30)?;

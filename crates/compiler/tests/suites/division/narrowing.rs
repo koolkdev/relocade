@@ -45,7 +45,7 @@ const CASES: &[Case] = &[
 ];
 
 fn bounded_division() -> TestModule {
-    Fixture::new().function(&[Type::I32; 2], &[Type::I64; 3], |body| {
+    Fixture::new().function(&[Type::I32; 2], &[Type::I64; 3], move |body| {
         let dividend = body.parameter::<I32>(0)?.unsigned().extend::<I64>();
         let divisor = body.parameter::<I32>(1)?.unsigned().extend::<I64>();
         let quotient = dividend.unsigned().div(&divisor);
@@ -81,7 +81,7 @@ fn bounded_unsigned_operands_use_i32_and_keep_i64_results() {
 
 #[test]
 fn bounds_from_masked_i64_calculations_also_allow_narrowing() {
-    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], |body| {
+    let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], move |body| {
         let dividend = body.parameter::<I64>(0)?.and(u32::MAX);
         let divisor = body.parameter::<I64>(1)?.and(u32::MAX);
         body.return_((
@@ -101,7 +101,7 @@ fn bounds_from_masked_i64_calculations_also_allow_narrowing() {
 #[test]
 fn either_unbounded_operand_keeps_unsigned_division_wide() {
     for bounded_dividend in [false, true] {
-        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], |body| {
+        let module = Fixture::new().function(&[Type::I64; 2], &[Type::I64; 2], move |body| {
             let mut dividend = body.parameter::<I64>(0)?;
             let mut divisor = body.parameter::<I64>(1)?;
             if bounded_dividend {
@@ -129,7 +129,7 @@ fn either_unbounded_operand_keeps_unsigned_division_wide() {
 
 #[test]
 fn unsigned_width_bounds_do_not_change_signed_division() {
-    let module = Fixture::new().function(&[Type::I32; 2], &[Type::I64; 2], |body| {
+    let module = Fixture::new().function(&[Type::I32; 2], &[Type::I64; 2], move |body| {
         let dividend = body.parameter::<I32>(0)?.unsigned().extend::<I64>();
         let divisor = body.parameter::<I32>(1)?.unsigned().extend::<I64>();
         body.return_((
@@ -153,7 +153,7 @@ fn guarded_division() -> TestModule {
     Fixture::new().function(
         &[Type::I1, Type::I64, Type::I32, Type::I32],
         &[Type::I64; 2],
-        |mut body| {
+        move |mut body| {
             let stop = body.parameter::<I1>(0)?;
             let wide = body.parameter::<I64>(1)?;
             let low_dividend = body.parameter::<I32>(2)?.unsigned().extend::<I64>();

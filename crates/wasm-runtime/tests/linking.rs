@@ -37,18 +37,16 @@ async fn check_stateful_callbacks() {
         let set_calls = producer.import_function(SET_CALLS);
         let read = producer.import_function(READ);
         let write = producer.import_function(WRITE);
-        let advance = producer
-            .function::<fn() -> I64>(|mut body, ()| {
-                let count = body.call::<I32>(calls, &[])?.add(1);
-                body.call::<()>(set_calls, &[count.clone().into()])?;
-                let value = body.call::<I64>(read, &[0.into(), 8.into()])?;
-                let next = value.add(count.signed().extend::<I64>());
-                body.call::<()>(write, &[0.into(), 8.into(), next.into()])?;
-                // The guest observes the callback's write through its own memory import.
-                let current = body.load::<I64>(shared, 0)?;
-                body.return_(current)
-            })
-            .unwrap();
+        let advance = producer.function::<fn() -> I64>(move |mut body, ()| {
+            let count = body.call::<I32>(calls, &[])?.add(1);
+            body.call::<()>(set_calls, &[count.clone().into()])?;
+            let value = body.call::<I64>(read, &[0.into(), 8.into()])?;
+            let next = value.add(count.signed().extend::<I64>());
+            body.call::<()>(write, &[0.into(), 8.into(), next.into()])?;
+            // The guest observes the callback's write through its own memory import.
+            let current = body.load::<I64>(shared, 0)?;
+            body.return_(current)
+        });
         advance_export.export(&mut producer, advance).unwrap();
         let module = backend
             .compiler()
@@ -88,14 +86,12 @@ async fn check_stateful_callbacks() {
         let shared = consumer.import_memory(MEMORY);
         let direct = consumer.import_function(NEXT);
         let functions = consumer.import_table(FUNCTIONS);
-        let run = consumer
-            .function::<fn() -> I64>(|mut body, ()| {
-                let current = body.load::<I64>(shared, 0)?;
-                body.store(shared, 0, current.add(4))?;
-                body.call::<I64>(direct, &[])?;
-                body.tail_call_indirect(functions, 0, &[])
-            })
-            .unwrap();
+        let run = consumer.function::<fn() -> I64>(move |mut body, ()| {
+            let current = body.load::<I64>(shared, 0)?;
+            body.store(shared, 0, current.add(4))?;
+            body.call::<I64>(direct, &[])?;
+            body.tail_call_indirect(functions, 0, &[])
+        });
         RUN.export(&mut consumer, run).unwrap();
         let module = backend
             .compiler()
@@ -159,15 +155,13 @@ async fn check_scalar_callbacks() {
         let narrow = program.import_function(NARROW);
         let wide = program.import_function(WIDE);
         let float = program.import_function(FLOAT);
-        let run = program
-            .function::<fn() -> I64>(|mut body, ()| {
-                let narrow =
-                    body.call::<I16>(narrow, &[1.into(), 255.into(), 65535.into(), (-1).into()])?;
-                let float = body.call::<F64>(float, &[1.25.into(), narrow.into()])?;
-                let wide = body.call::<I64>(wide, &[((-0x20_0000_0000_0001_i64) as u64).into()])?;
-                body.return_(wide.xor(float.to_bits()))
-            })
-            .unwrap();
+        let run = program.function::<fn() -> I64>(move |mut body, ()| {
+            let narrow =
+                body.call::<I16>(narrow, &[1.into(), 255.into(), 65535.into(), (-1).into()])?;
+            let float = body.call::<F64>(float, &[1.25.into(), narrow.into()])?;
+            let wide = body.call::<I64>(wide, &[((-0x20_0000_0000_0001_i64) as u64).into()])?;
+            body.return_(wide.xor(float.to_bits()))
+        });
         RUN.export(&mut program, run).unwrap();
         let module = backend
             .compiler()
@@ -228,19 +222,17 @@ async fn check_tuple_callbacks() {
     let output = program.import_memory(MEMORY);
     let mixed = program.import_function(MIXED);
     let single = program.import_function(SINGLE);
-    let run = program
-        .function::<fn() -> I64>(|mut body, ()| {
-            let (bit, byte, word, integer, wide, float) = body.call::<Mixed>(mixed, &[])?;
-            body.store(output, 0, bit.unsigned().extend::<I32>())?;
-            body.store(output, 4, byte.unsigned().extend::<I32>())?;
-            body.store(output, 8, word.unsigned().extend::<I32>())?;
-            body.store(output, 12, integer)?;
-            body.store(output, 16, wide)?;
-            body.store(output, 24, float)?;
-            let (result,) = body.call::<(I64,)>(single, &[])?;
-            body.return_(result)
-        })
-        .unwrap();
+    let run = program.function::<fn() -> I64>(move |mut body, ()| {
+        let (bit, byte, word, integer, wide, float) = body.call::<Mixed>(mixed, &[])?;
+        body.store(output, 0, bit.unsigned().extend::<I32>())?;
+        body.store(output, 4, byte.unsigned().extend::<I32>())?;
+        body.store(output, 8, word.unsigned().extend::<I32>())?;
+        body.store(output, 12, integer)?;
+        body.store(output, 16, wide)?;
+        body.store(output, 24, float)?;
+        let (result,) = body.call::<(I64,)>(single, &[])?;
+        body.return_(result)
+    });
     RUN.export(&mut program, run).unwrap();
     let module = backend
         .compiler()

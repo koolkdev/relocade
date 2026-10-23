@@ -1,6 +1,6 @@
 //! Runtime selector dispatch agrees with forms and lowers each handler once.
 
-use std::cell::RefCell;
+use std::{cell::RefCell, rc::Rc};
 
 use relocade_compiler::Program;
 use relocade_test_support::{engine, Module};
@@ -34,24 +34,25 @@ fn register_only_forms_reject_memory_without_a_companion_form() {
 }
 
 fn check_dispatch(state: &DecodeState, opcode: u8, forms: Vec<&'static Form>) {
-    let calls = RefCell::new(vec![0; forms.len()]);
+    let calls = Rc::new(RefCell::new(vec![0; forms.len()]));
+    let counted = calls.clone();
+    let input_forms = forms.clone();
+    let input_state = state.clone();
     let mut program = Program::new();
-    let function = program
-        .function::<fn(u32) -> u32>(|body, _| {
-            let modrm = body.parameter::<I32>(0)?.truncate::<I8>();
-            dispatch_modrm_form(body, &modrm, &forms, state, &|arm, form| {
-                let index = form.map(|form| {
-                    let index = forms
-                        .iter()
-                        .position(|candidate| std::ptr::eq(*candidate, form))
-                        .unwrap();
-                    calls.borrow_mut()[index] += 1;
-                    index as u32
-                });
-                arm.return_(index.unwrap_or(u32::MAX))
-            })
+    let function = program.function::<fn(u32) -> u32>(move |body, _| {
+        let modrm = body.parameter::<I32>(0)?.truncate::<I8>();
+        dispatch_modrm_form(body, &modrm, &input_forms, &input_state, &|arm, form| {
+            let index = form.map(|form| {
+                let index = input_forms
+                    .iter()
+                    .position(|candidate| std::ptr::eq(*candidate, form))
+                    .unwrap();
+                counted.borrow_mut()[index] += 1;
+                index as u32
+            });
+            arm.return_(index.unwrap_or(u32::MAX))
         })
-        .unwrap();
+    });
     program.export("select", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();

@@ -178,35 +178,33 @@ fn remapping() {
     // The next direct read must see RAM changes made by an MMIO read callback.
     let mut program = Program::new();
     let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
-    let function = program
-        .function::<fn() -> u64>(|mut body, ()| {
-            let ram = memory.resolve_access(
-                &mut body,
-                &0x2000.into(),
-                1,
-                Intent::Read,
-                None,
-                Some(&mut exit::exception),
-            )?;
-            let old = memory.read::<I8>(&mut body, &ram, 0)?;
-            let device = memory.resolve_access(
-                &mut body,
-                &0x8000.into(),
-                1,
-                Intent::Read,
-                None,
-                Some(&mut exit::exception),
-            )?;
-            memory.read::<I8>(&mut body, &device, 0)?;
-            let new = memory.read::<I8>(&mut body, &ram, 0)?;
-            body.return_(
-                old.unsigned()
-                    .extend::<I64>()
-                    .shl(8)
-                    .or(new.unsigned().extend::<I64>()),
-            )
-        })
-        .unwrap();
+    let function = program.function::<fn() -> u64>(move |mut body, ()| {
+        let ram = memory.resolve_access(
+            &mut body,
+            &0x2000.into(),
+            1,
+            Intent::Read,
+            None,
+            Some(&mut exit::exception),
+        )?;
+        let old = memory.read::<I8>(&mut body, &ram, 0)?;
+        let device = memory.resolve_access(
+            &mut body,
+            &0x8000.into(),
+            1,
+            Intent::Read,
+            None,
+            Some(&mut exit::exception),
+        )?;
+        memory.read::<I8>(&mut body, &device, 0)?;
+        let new = memory.read::<I8>(&mut body, &ram, 0)?;
+        body.return_(
+            old.unsigned()
+                .extend::<I64>()
+                .shl(8)
+                .or(new.unsigned().extend::<I64>()),
+        )
+    });
     program.export("read", function).unwrap();
     let module = TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),

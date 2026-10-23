@@ -17,7 +17,7 @@ fn xor_count(module: &TestModule) -> usize {
 }
 
 fn specialized<T: IntType>() -> TestModule {
-    Fixture::new().function(&[T::TYPE, Type::I1], &[T::TYPE], |mut body| {
+    Fixture::new().function(&[T::TYPE, Type::I1], &[T::TYPE], move |mut body| {
         let input = body.parameter::<T>(0)?;
         let choice = body.parameter::<I1>(1)?;
         let mask = choice.select::<T>(0x55, 0x33);
@@ -57,19 +57,23 @@ fn path_specialization_cancels_and_combines_xor_masks() {
 }
 
 fn narrow_carriers() -> TestModule {
-    Fixture::new().function(&[Type::I32, Type::I32], &[Type::I32, Type::I64], |body| {
-        let input = body.parameter::<I32>(0)?.truncate::<I8>().add(1);
-        let mask = body.parameter::<I32>(1)?.truncate::<I8>();
-        let result = input.xor(&mask).xor(mask);
-        body.return_((
-            result.unsigned().extend::<I32>(),
-            result.signed().extend::<I64>(),
-        ))
-    })
+    Fixture::new().function(
+        &[Type::I32, Type::I32],
+        &[Type::I32, Type::I64],
+        move |body| {
+            let input = body.parameter::<I32>(0)?.truncate::<I8>().add(1);
+            let mask = body.parameter::<I32>(1)?.truncate::<I8>();
+            let result = input.xor(&mask).xor(mask);
+            body.return_((
+                result.unsigned().extend::<I32>(),
+                result.signed().extend::<I64>(),
+            ))
+        },
+    )
 }
 
 fn carrier_boundaries() -> TestModule {
-    Fixture::new().function(&[Type::I64], &[Type::I64; 2], |body| {
+    Fixture::new().function(&[Type::I64], &[Type::I64; 2], move |body| {
         let input = body.parameter::<I64>(0)?;
         let narrow = input.xor(0x8000_0000_0000_0055_u64).truncate::<I32>();
         let widened = narrow

@@ -31,11 +31,11 @@ fn typed_bodies_and_calls_project_parameters_and_results() {
     const RUN: Function<fn() -> u64> = Function::new("example", "run");
     let mut program = Program::new();
     let calculate = CALCULATE
-        .define(&mut program, |body, ((bit, [a, b]), word)| {
+        .define(&mut program, move |body, ((bit, [a, b]), word)| {
             body.return_((a.add(b), word.add(bit.unsigned().extend::<I32>())))
         })
         .unwrap();
-    RUN.define(&mut program, |mut body, ()| {
+    RUN.define(&mut program, move |mut body, ()| {
         let (sum, word) = calculate.call(&mut body, ((true, [1, 65535]), 41))?;
         body.return_(
             sum.unsigned()
@@ -49,17 +49,16 @@ fn typed_bodies_and_calls_project_parameters_and_results() {
 }
 
 #[test]
-fn failed_typed_definition_releases_its_export_name() {
+fn typed_definitions_register_exports_before_constructing_bodies() {
     const RUN: Function<fn() -> bool> = Function::new("example", "run");
     let mut program = Program::new();
-    assert!(matches!(
-        RUN.define(&mut program, |_, ()| Ok(())),
-        Err(BuildError::MissingBody)
-    ));
-    RUN.define(&mut program, |body, ()| body.return_(true))
+    RUN.define(&mut program, move |_, ()| Ok(())).unwrap();
+    assert_eq!(program.compile(), Err(BuildError::MissingBody));
+    let mut program = Program::new();
+    RUN.define(&mut program, move |body, ()| body.return_(true))
         .unwrap();
     assert_eq!(
-        RUN.define(&mut program, |body, ()| body.return_(false))
+        RUN.define(&mut program, move |body, ()| body.return_(false))
             .unwrap_err(),
         BuildError::DuplicateExport
     );
@@ -85,9 +84,7 @@ fn exports_check_logical_types_before_registering_the_name() {
     const NARROW: Function<fn(I16) -> I16> = Function::new("example", "identity");
     const WIDE: Function<fn(I32) -> I32> = Function::new("example", "identity");
     let mut program = Program::new();
-    let function = program
-        .function::<fn(I32) -> I32>(|body, (value,)| body.return_(value))
-        .unwrap();
+    let function = program.function::<fn(I32) -> I32>(move |body, (value,)| body.return_(value));
     assert_eq!(
         NARROW.export(&mut program, function),
         Err(BuildError::TypeMismatch {

@@ -33,7 +33,7 @@ impl BlockBuilder<'_> {
     /// ```
     /// use relocade_compiler::{I1, I32, I64, Program};
     /// let mut program = Program::new();
-    /// let function = program.function::<fn(u32) -> (u64, bool)>(|mut body, (count,)| {
+    /// let function = program.function::<fn(u32) -> (u64, bool)>(move |mut body, (count,)| {
     ///     let result = body.loop_::<(I32, I64), (I64, I1)>(
     ///         (count, 0u64),
     ///         |mut iteration, labels, (remaining, sum)| {
@@ -50,7 +50,7 @@ impl BlockBuilder<'_> {
     ///         },
     ///     )?;
     ///     body.return_(result)
-    /// })?;
+    /// });
     /// program.export("sum", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())

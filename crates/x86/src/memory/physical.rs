@@ -4,10 +4,8 @@ use crate::memory::TransferType;
 mod table;
 mod transfer;
 
-use std::cell::Cell;
-
 use relocade_compiler::{
-    BlockBuilder, BuildError, Func, Mem, MemoryInt, MemoryType, Program, TypedFunc, Val, I32,
+    BlockBuilder, BuildError, Mem, MemoryInt, MemoryType, Program, TypedFunc, Val, I32,
 };
 
 use super::{Access, DirectRange, Intent};
@@ -17,10 +15,8 @@ use table::PhysicalTable;
 pub(crate) struct PhysicalMemory {
     backing: Mem,
     table: PhysicalTable,
-    mmio_reader: Func,
-    mmio_writer: Func,
-    reader: Cell<Option<TypedFunc<fn(u32, u32) -> u64>>>,
-    writer: Cell<Option<TypedFunc<fn(u32, u32, u64)>>>,
+    reader: TypedFunc<fn(u32, u32) -> u64>,
+    writer: TypedFunc<fn(u32, u32, u64)>,
 }
 
 impl PhysicalMemory {
@@ -32,10 +28,8 @@ impl PhysicalMemory {
         Self {
             backing,
             table,
-            mmio_reader,
-            mmio_writer,
-            reader: Cell::new(None),
-            writer: Cell::new(None),
+            reader: transfer::declare_reader(program, backing, table, mmio_reader),
+            writer: transfer::declare_writer(program, backing, table, mmio_writer),
         }
     }
 
@@ -65,9 +59,8 @@ impl PhysicalMemory {
         body.if_value::<T>(
             direct.unavailable,
             |mut slow| {
-                let reader = self.reader(slow.program())?;
                 let value = T::read_parts(|offset, bytes| {
-                    reader.call(&mut slow, (address.add(offset), bytes))
+                    self.reader.call(&mut slow, (address.add(offset), bytes))
                 })?;
                 slow.yield_(value)
             },
@@ -92,9 +85,9 @@ impl PhysicalMemory {
         body.if_else(
             direct.unavailable,
             |mut slow| {
-                let writer = self.writer(slow.program())?;
                 T::write_parts(value, |offset, bytes, part| {
-                    writer.call(&mut slow, (address.add(offset), bytes, part))
+                    self.writer
+                        .call(&mut slow, (address.add(offset), bytes, part))
                 })
             },
             |mut direct_body| direct_body.store_at::<T>(self.backing, direct.physical, 0, value),

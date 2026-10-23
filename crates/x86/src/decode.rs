@@ -2,7 +2,7 @@ mod address16;
 mod runtime;
 mod snapshot;
 
-pub(super) use runtime::{InstructionFetch, RuntimeDecoder};
+pub(super) use runtime::RuntimeDecoder;
 pub(super) use snapshot::snapshot;
 
 use crate::instruction::{

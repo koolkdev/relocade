@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn floating_transport_preserves_zero_signs_and_nan_payloads() {
-    let module = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I64; 5], |body| {
+    let module = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I64; 5], move |body| {
         let bits = body.parameter::<I64>(0)?;
         let choose = body.parameter::<I1>(1)?;
         let value = Val::<F64>::from_bits(&bits);
@@ -28,7 +28,7 @@ fn floating_transport_preserves_zero_signs_and_nan_payloads() {
         0xfff8_1234_5678_9abc,
         0x7ff0_0000_0000_0042,
     ] {
-        let constants = Fixture::new().function(&[], &[Type::I64; 3], |body| {
+        let constants = Fixture::new().function(&[], &[Type::I64; 3], move |body| {
             let value = Val::<F64>::from_bits(bits);
             body.return_([
                 value.to_bits(),
@@ -63,16 +63,15 @@ fn mixed_scalar_calls_joins_and_backedges_keep_their_carriers() {
     let mut fixture = Fixture::new();
     let helper = fixture
         .program
-        .function::<fn(f64, u64, u32) -> (u64, f64, u32)>(|body, _| {
+        .function::<fn(f64, u64, u32) -> (u64, f64, u32)>(move |body, _| {
             let values = (
                 body.parameter::<I64>(1)?,
                 body.parameter::<F64>(0)?.neg(),
                 body.parameter::<I32>(2)?,
             );
             body.return_(values)
-        })
-        .unwrap();
-    let module = fixture.function(&[Type::I64, Type::I32], &[Type::I64; 3], |mut body| {
+        });
+    let module = fixture.function(&[Type::I64, Type::I32], &[Type::I64; 3], move |mut body| {
         let raw = body.parameter::<I64>(0)?;
         let count = body.parameter::<I32>(1)?;
         let (wide, first, count) = body.call::<(I64, F64, I32)>(
@@ -126,7 +125,7 @@ fn floating_loads_keep_their_snapshot_across_integer_stores() {
     bytes[3..11].copy_from_slice(&original.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[], &[Type::I64; 2], |mut body| {
+    let module = fixture.function(&[], &[Type::I64; 2], move |mut body| {
         let before = body.load::<F64>(memory, 3)?;
         body.store::<I64>(memory, 3, replacement)?;
         let after = body.load::<F64>(memory, 3)?;
@@ -147,7 +146,7 @@ fn floating_function_boundaries_accept_native_host_values() {
     let module = Fixture::new().function(
         &[Type::I32, Type::F64, Type::I64],
         &[Type::F64, Type::I64, Type::I32],
-        |body| {
+        move |body| {
             let values = (
                 body.parameter::<F64>(1)?.add(0.5),
                 body.parameter::<I64>(2)?.add(1),

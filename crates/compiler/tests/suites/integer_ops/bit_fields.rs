@@ -6,7 +6,7 @@ fn rejoined<T: IntType>(count: u32, low_mask: u64, high_mask: u64) -> TestModule
 where
     I64: AtLeast<T>,
 {
-    Fixture::new().expression(&[T::TYPE], |body| {
+    Fixture::new().expression(&[T::TYPE], move |body| {
         let input = body.parameter::<T>(0).unwrap();
         let low = input.and(Val::<I64>::from(low_mask).truncate::<T>());
         let high = input
@@ -60,7 +60,7 @@ fn rejoining_masked_fields_preserves_holes_and_modulo_shift_counts() {
 
 #[test]
 fn different_sources_and_changed_bit_positions_are_not_rejoined() {
-    let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32; 3], |body| {
+    let module = Fixture::new().function(&[Type::I32; 2], &[Type::I32; 3], move |body| {
         let a = body.parameter::<I32>(0)?;
         let b = body.parameter::<I32>(1)?;
         body.return_((
@@ -105,7 +105,7 @@ fn rejoining_respects_masks_before_extraction_and_after_restoration() {
 }
 
 fn specialized_fields() -> TestModule {
-    Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
+    Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
         let low = input.truncate::<I8>().unsigned().extend::<I32>();
@@ -136,7 +136,7 @@ fn rejoining_type_views_refolds_after_path_specialization() {
 
 #[test]
 fn specialized_rejoining_masks_dirty_narrow_arithmetic_before_extraction() {
-    let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
+    let module = Fixture::new().function(&[Type::I32, Type::I1], &[Type::I32], move |mut body| {
         let input = body.parameter::<I32>(0)?.truncate::<I8>().add(1);
         let enabled = body.parameter::<I1>(1)?;
         let low = input.and(0xf).unsigned().extend::<I32>();

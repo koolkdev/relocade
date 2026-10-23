@@ -5,36 +5,33 @@ fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
     let memory = Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    )
-    .unwrap();
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32],
-                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                    "test", "access",
-                )
-                .signature()
-                .results,
-            },
-            |mut body| {
-                let start = body.parameter::<I32>(0)?;
-                let bytes = match constant_bytes {
-                    Some(bytes) => body.value::<I32>(bytes)?,
-                    None => body.parameter::<I32>(1)?,
-                };
-                memory.resolve_access(
-                    &mut body,
-                    &start,
-                    bytes,
-                    intent,
-                    None,
-                    Some(&mut AccessResult::fault),
-                )?;
-                AccessResult::value(body, 7)
-            },
-        )
-        .unwrap();
+    );
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32, Type::I32],
+            results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                "test", "access",
+            )
+            .signature()
+            .results,
+        },
+        move |mut body| {
+            let start = body.parameter::<I32>(0)?;
+            let bytes = match constant_bytes {
+                Some(bytes) => body.value::<I32>(bytes)?,
+                None => body.parameter::<I32>(1)?,
+            };
+            memory.resolve_access(
+                &mut body,
+                &start,
+                bytes,
+                intent,
+                None,
+                Some(&mut AccessResult::fault),
+            )?;
+            AccessResult::value(body, 7)
+        },
+    );
     program.export("checked", function).unwrap();
     TestModule::new(&crate::CompiledModule {
         execution_target: None,

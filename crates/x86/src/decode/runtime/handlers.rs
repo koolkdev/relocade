@@ -1,4 +1,6 @@
 //! Decoder entry signatures and transport of cursor progress and semantic state.
+use std::rc::Rc;
+
 use relocade_compiler::{
     Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, I1, I32,
 };
@@ -9,7 +11,7 @@ use crate::{
     segment::SegmentDefaultSize,
 };
 
-use super::{cursor::RuntimeCursor, InstructionFetch};
+use super::{cursor::RuntimeCursor, RuntimeDecoder};
 
 /// Identifies the already-decoded fields supplied to a generated decoder entry.
 #[derive(Clone, Copy)]
@@ -61,6 +63,7 @@ pub(super) struct DecodeHandlers {
     resumed: Vec<ResumedEntry>,
 }
 
+#[derive(Clone)]
 struct ResumedEntry {
     prefixes: PrefixState,
     has_segment_override: bool,
@@ -120,16 +123,22 @@ impl DecodeHandlers {
         }
     }
 
-    pub(super) fn define<'memory>(
+    pub(super) fn define(
         &self,
         program: &mut Program,
-        fetch: &InstructionFetch<'memory>,
-        decode: impl Fn(BlockBuilder<'_>, RuntimeCursor<'memory>, DecodeState) -> Result<(), BuildError>,
+        decoder: Rc<RuntimeDecoder>,
+        decode: impl Fn(
+                &RuntimeDecoder,
+                BlockBuilder<'_>,
+                RuntimeCursor<'_>,
+                DecodeState,
+            ) -> Result<(), BuildError>
+            + 'static,
     ) -> Result<(), BuildError> {
-        enum Entry<'entry> {
+        enum Entry {
             Checked,
             Direct,
-            Resumed(&'entry ResumedEntry),
+            Resumed(ResumedEntry),
         }
         let entries = [(self.checked, Entry::Checked)]
             .into_iter()
@@ -137,13 +146,18 @@ impl DecodeHandlers {
             .chain(
                 self.resumed
                     .iter()
-                    .map(|entry| (entry.function, Entry::Resumed(entry))),
+                    .map(|entry| (entry.function, Entry::Resumed(entry.clone()))),
             );
+        let decode = Rc::new(decode);
         for (function, entry) in entries {
-            program.define(function, |body| {
-                let fetch = fetch.clone();
+            let decoder = decoder.clone();
+            let decode = decode.clone();
+            let point = self.point;
+            let default_prefixes = self.default_prefixes.clone();
+            program.define(function, move |body| {
+                let fetch = decoder.fetch();
                 let instruction_eip = body.parameter::<I32>(1)?;
-                let position_parameter = self.point.field_types().len() as u32 + 2;
+                let position_parameter = point.field_types().len() as u32 + 2;
                 let (cursor, prefixes) = match entry {
                     Entry::Resumed(entry) => {
                         let cursor = RuntimeCursor::resume(
@@ -170,12 +184,12 @@ impl DecodeHandlers {
                             fetch,
                             &instruction_eip,
                             physical_start.as_ref(),
-                            self.point.consumed(),
+                            point.consumed(),
                         )?;
-                        (cursor, self.default_prefixes.clone())
+                        (cursor, default_prefixes)
                     }
                 };
-                decode(body, cursor, self.point.state(prefixes))
+                decode(&decoder, body, cursor, point.state(prefixes))
             })?;
         }
         Ok(())

@@ -18,7 +18,7 @@ fn joined_square(use_site: Use) -> TestModule {
     fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let first = body.parameter::<I1>(0)?;
             let second = body.parameter::<I1>(1)?;
             let input = body.parameter::<I32>(2)?;
@@ -93,7 +93,7 @@ fn a_folded_store_branch_reuses_its_product_after_the_join() {
     let module = fixture.function(
         &[Type::I1, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let mode = body.parameter::<I1>(0)?;
             let input = body.parameter::<I32>(1)?;
             let factor = body.parameter::<I32>(2)?;

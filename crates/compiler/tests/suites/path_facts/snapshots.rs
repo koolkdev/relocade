@@ -3,7 +3,7 @@ use super::*;
 fn joined_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[5, 0, 0, 0]);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let flag = body.parameter::<I1>(0)?;
         let old = body.load::<I32>(memory, 0)?;
         let offset = flag.select(1, 2);
@@ -24,11 +24,10 @@ fn call_snapshot() -> TestModule {
     let memory = fixture.memory("state", &[5, 0, 0, 0]);
     let pair = fixture
         .program
-        .function::<fn(u32) -> (u32, u32)>(|body, (argument,)| {
+        .function::<fn(u32) -> (u32, u32)>(move |body, (argument,)| {
             body.return_((argument.add(1), argument))
-        })
-        .unwrap();
-    fixture.function(&[Type::I1], &[Type::I32, Type::I32], |mut body| {
+        });
+    fixture.function(&[Type::I1], &[Type::I32, Type::I32], move |mut body| {
         let flag = body.parameter::<I1>(0)?;
         let old = body.load::<I32>(memory, 0)?;
         body.if_(flag.eq(false), |arm| arm.return_((0_u32, 0_u32)))?;

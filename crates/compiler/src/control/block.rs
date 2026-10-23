@@ -41,13 +41,13 @@ impl BlockBuilder<'_> {
     /// ```
     /// use relocade_compiler::{I1, I32, Program};
     /// let mut program = Program::new();
-    /// let function = program.function::<fn(bool) -> u32>(|mut body, (early,)| {
+    /// let function = program.function::<fn(bool) -> u32>(move |mut body, (early,)| {
     ///     let (value, flag) = body.block::<(I32, I1)>(|mut block, exit| {
     ///         block.if_(&early, |branch| branch.branch(&exit, (7, true)))?;
     ///         block.yield_((11, false))
     ///     })?;
     ///     body.return_(value.add(flag.unsigned().extend::<I32>()))
-    /// })?;
+    /// });
     /// program.export("choose", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())

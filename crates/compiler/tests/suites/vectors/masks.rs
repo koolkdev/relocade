@@ -6,7 +6,7 @@ fn masks<T: VectorLane>(input: u128, expected_mask: u32) {
     bytes[..16].copy_from_slice(&input.to_le_bytes());
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &bytes);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let vector = body.load::<V128>(memory, 0)?;
         body.store(memory, 16, vector.bitmask::<T>())?;
         body.store(memory, 20, Val::<V128>::from(input).bitmask::<T>())?;
@@ -29,7 +29,7 @@ fn vector_sign_masks_preserve_lane_order_and_clear_upper_bits() {
     let mut fixture = Fixture::new();
     let initial = u128::MAX.to_le_bytes();
     let memory = fixture.memory("state", &initial);
-    let module = fixture.function(&[Type::I32], &[], |mut body| {
+    let module = fixture.function(&[Type::I32], &[], move |mut body| {
         let low = body.load::<V128>(memory, 0)?.low_half();
         body.store(memory, 0, low.bitmask::<I8>())?;
         body.store(memory, 4, low.bitmask::<I16>())?;

@@ -50,10 +50,10 @@ impl<'program> BlockBuilder<'program> {
     ///     maximum: Some(1),
     ///     shared: true,
     /// });
-    /// let increment = program.function::<fn() -> u32>(|mut body, ()| {
+    /// let increment = program.function::<fn() -> u32>(move |mut body, ()| {
     ///     let previous = body.atomic::<I32>(memory, 0, 0)?.add(1)?;
     ///     body.return_(previous)
-    /// })?;
+    /// });
     /// program.export("increment", increment)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())

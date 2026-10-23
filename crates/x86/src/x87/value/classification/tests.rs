@@ -29,8 +29,8 @@ fn class_flags(value: &ExtendedValue) -> Val<I32> {
 #[test]
 fn known_normal_and_zero_values_reuse_classification_after_selection() {
     let mut program = Program::new();
-    let function = program
-        .function::<fn(u64, u16, bool, bool) -> (u16, bool, u32, u32)>(|body, _| {
+    let function =
+        program.function::<fn(u64, u16, bool, bool) -> (u16, bool, u32, u32)>(move |body, _| {
             let normal = ExtendedValue::from_bits(ExtendedBits {
                 significand: body.parameter::<I64>(0)?,
                 sign_exponent: body.parameter::<I16>(1)?,
@@ -54,8 +54,7 @@ fn known_normal_and_zero_values_reuse_classification_after_selection() {
                 class_flags(&value),
                 class_flags(&loaded),
             ))
-        })
-        .unwrap();
+        });
     program.export("classify", function).unwrap();
     let bytes = program.compile().unwrap();
     for payload in Parser::new(0).parse_all(&bytes) {
@@ -75,7 +74,7 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
     let mut program = Program::new();
     let function = program
         .function::<fn(u64, u16, bool, bool, bool) -> (u16, bool, u32, u16, bool, u32)>(
-            |body, _| {
+            move |body, _| {
                 let normal = ExtendedValue::from_bits(ExtendedBits {
                     significand: (1_u64 << 63).into(),
                     sign_exponent: 0x3fff.into(),
@@ -104,8 +103,7 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
                     class_flags(&known),
                 ))
             },
-        )
-        .unwrap();
+        );
     program.export("classify", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
@@ -361,8 +359,8 @@ fn loaded_binary_values_share_classification_across_exact_representations() {
         ),
     ] {
         let mut program = Program::new();
-        let function = program
-            .function::<fn(u64) -> (u32, u32, u32, u16, u32, u32, u64)>(|body, _| {
+        let function =
+            program.function::<fn(u64) -> (u32, u32, u32, u16, u32, u32, u64)>(move |body, _| {
                 let source = format.decode(&body.parameter::<I64>(0)?);
                 let raw = source.classification();
                 let source_classes = raw
@@ -396,8 +394,7 @@ fn loaded_binary_values_share_classification_across_exact_representations() {
                     source_classes,
                     value.exact_conversion(format).unwrap().bits,
                 ))
-            })
-            .unwrap();
+            });
         program.export("classify", function).unwrap();
         let module = step::TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),

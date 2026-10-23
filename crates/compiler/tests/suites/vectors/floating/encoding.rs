@@ -20,7 +20,7 @@ fn operators(module: &TestModule) -> Vec<Operator<'_>> {
 
 #[test]
 fn floating_views_lower_to_native_simd() {
-    let module = Fixture::new().function(&[Type::V128; 2], &[Type::V128; 12], |body| {
+    let module = Fixture::new().function(&[Type::V128; 2], &[Type::V128; 12], move |body| {
         let a = body.parameter::<V128>(0)?;
         let b = body.parameter::<V128>(1)?;
         body.return_([
@@ -145,7 +145,7 @@ fn finite_literals_fold_but_nan_results_stay_in_wasm() {
         .iter()
         .any(|op| matches!(op, Operator::F32x4Div)));
 
-    let identities = Fixture::new().function(&[Type::V128], &[Type::V128; 3], |body| {
+    let identities = Fixture::new().function(&[Type::V128], &[Type::V128; 3], move |body| {
         let a = body.parameter::<V128>(0)?;
         body.return_([a.f32x4().sub(&a), a.f64x2().eq(&a), a.f32x4().add(0_u128)])
     });

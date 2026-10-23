@@ -162,10 +162,10 @@ impl BlockBuilder<'_> {
     ///     maximum: None,
     ///     shared: false,
     /// });
-    /// let function = program.function::<fn(u32) -> u8>(|mut body, (address,)| {
+    /// let function = program.function::<fn(u32) -> u8>(move |mut body, (address,)| {
     ///     let byte = body.load_at::<I8>(memory, &address, 1)?;
     ///     body.return_(&byte)
-    /// })?;
+    /// });
     /// program.export("next_byte", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
@@ -244,18 +244,12 @@ mod tests {
             parameters: vec![],
             results: vec![Type::I32],
         });
-        let mut foreign = None;
-        assert_eq!(
-            program.define(function, |discarded| {
-                foreign = Some(discarded.value::<I32>(9).unwrap());
-                Ok(())
-            }),
-            Err(BuildError::MissingBody)
-        );
-        let foreign = foreign.unwrap();
+        let foreign = crate::function::tests::capture_from_body(|discarded| {
+            discarded.value::<I32>(9).unwrap()
+        });
 
         program
-            .define(function, |mut body| {
+            .define(function, move |mut body| {
                 assert_eq!(
                     body.store(memory, 0, &foreign),
                     Err(BuildError::ForeignBody)
@@ -307,6 +301,7 @@ mod tests {
                 body.return_(7)
             })
             .unwrap();
+        program.export("run", function).unwrap();
         let bytes = program.compile().unwrap();
         assert!(Parser::new(0)
             .parse_all(&bytes)

@@ -1,7 +1,7 @@
 use super::{Fixture, Operator, Parser, Payload, TestModule, Type, I1, I32, I64, I8};
 
 fn preserves_zero() -> TestModule {
-    Fixture::new().function(&[Type::I64], &[Type::I1; 3], |body| {
+    Fixture::new().function(&[Type::I64], &[Type::I1; 3], move |body| {
         let input = body.parameter::<I64>(0)?;
         let bounded = input.unsigned().shr(32).truncate::<I32>();
         let narrow = input.truncate::<I8>().add(1).unsigned().extend::<I64>();
@@ -51,7 +51,7 @@ fn zero_tests_bypass_lossless_carrier_changes_but_keep_logical_masks() {
 
 #[test]
 fn specialization_can_prove_a_carrier_conversion_preserves_zero() {
-    let module = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I1], |mut body| {
+    let module = Fixture::new().function(&[Type::I64, Type::I1], &[Type::I1], move |mut body| {
         let input = body.parameter::<I64>(0)?;
         let enabled = body.parameter::<I1>(1)?;
         let high = input

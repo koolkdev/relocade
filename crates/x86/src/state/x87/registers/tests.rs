@@ -9,16 +9,14 @@ use relocade_compiler::{Program, I64};
 use wasmparser::{Operator, Parser, Payload};
 
 fn module(
-    build: impl FnOnce(&mut BlockBuilder<'_>, &mut Registers) -> Result<Val<I64>, BuildError>,
+    build: impl FnOnce(&mut BlockBuilder<'_>, &mut Registers) -> Result<Val<I64>, BuildError> + 'static,
 ) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(u32, bool) -> u64>(|mut body, _| {
-            let result = build(&mut body, &mut Registers::new(cpu.memory()))?;
-            body.return_(result)
-        })
-        .unwrap();
+    let function = program.function::<fn(u32, bool) -> u64>(move |mut body, _| {
+        let result = build(&mut body, &mut Registers::new(cpu.memory()))?;
+        body.return_(result)
+    });
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,

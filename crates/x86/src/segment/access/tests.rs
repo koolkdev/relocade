@@ -19,35 +19,33 @@ fn translation(
 ) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32, Type::I32],
-                results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
-                    "test", "access",
-                )
-                .signature()
-                .results,
-            },
-            |mut body| {
-                let mut access = SegmentReads::new(&cpu, profile);
-                let choice = body.parameter::<I32>(0)?;
-                let offset = body.parameter::<I32>(1)?;
-                let linear = match selection {
-                    Some(selection) => access.translate(
-                        &mut body,
-                        &selection(choice),
-                        &offset,
-                        4,
-                        intent,
-                        AccessResult::fault,
-                    )?,
-                    None => offset,
-                };
-                AccessResult::value(body, linear.unsigned().extend::<I64>())
-            },
-        )
-        .unwrap();
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32, Type::I32],
+            results: relocade_compiler::abi::Function::<fn() -> AccessResult>::new(
+                "test", "access",
+            )
+            .signature()
+            .results,
+        },
+        move |mut body| {
+            let mut access = SegmentReads::new(&cpu, profile);
+            let choice = body.parameter::<I32>(0)?;
+            let offset = body.parameter::<I32>(1)?;
+            let linear = match selection {
+                Some(selection) => access.translate(
+                    &mut body,
+                    &selection(choice),
+                    &offset,
+                    4,
+                    intent,
+                    AccessResult::fault,
+                )?,
+                None => offset,
+            };
+            AccessResult::value(body, linear.unsigned().extend::<I64>())
+        },
+    );
     program.export("translate", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
@@ -133,7 +131,7 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
         let cpu = Cpu::declare(&mut program);
         let function = program
             .function::<fn(u32) -> (u32, u32, u16, bool, bool, bool, bool, bool, bool)>(
-                |mut body, _| {
+                move |mut body, _| {
                     let mut access = SegmentReads::new(&cpu, SegmentProfile::Flat32.into());
                     let index = SegmentSelection::indexed(body.parameter::<I32>(0)?);
 
@@ -150,8 +148,7 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
                     ];
                     body.return_((base, limit, selector, attributes))
                 },
-            )
-            .unwrap();
+            );
         program.export("read", function).unwrap();
         program.compile().unwrap()
     }
@@ -180,20 +177,18 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
 fn nested_reads_reuse_previously_loaded_segment_fields() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(u32) -> (u32, u32)>(|mut body, _| {
-            let mut access = SegmentReads::new(&cpu, ExecutionProfile::Real16);
-            let first = access.base(&mut body, &Segment::Ds.into())?;
-            let condition = body.parameter::<I32>(0)?.eq(0);
-            body.if_(condition, |mut arm| {
-                let mut nested = access.clone();
-                let second = nested.base(&mut arm, &Segment::Ds.into())?;
-                arm.return_((&first, second.add(1)))
-            })?;
-            let second = access.base(&mut body, &Segment::Ds.into())?;
-            body.return_((first, second.add(2)))
-        })
-        .unwrap();
+    let function = program.function::<fn(u32) -> (u32, u32)>(move |mut body, _| {
+        let mut access = SegmentReads::new(&cpu, ExecutionProfile::Real16);
+        let first = access.base(&mut body, &Segment::Ds.into())?;
+        let condition = body.parameter::<I32>(0)?.eq(0);
+        body.if_(condition, |mut arm| {
+            let mut nested = access.clone();
+            let second = nested.base(&mut arm, &Segment::Ds.into())?;
+            arm.return_((&first, second.add(1)))
+        })?;
+        let second = access.base(&mut body, &Segment::Ds.into())?;
+        body.return_((first, second.add(2)))
+    });
     program.export("read", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();

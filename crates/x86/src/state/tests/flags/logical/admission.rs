@@ -15,86 +15,78 @@ fn rejected_mixed_changes_leave_status_and_direction_history_intact() {
         results: vec![Type::I1],
     });
     foreign_program
-        .define(foreign_function, |foreign_body| {
+        .define(foreign_function, move |foreign_body| {
             let foreign = foreign_body.parameter::<I1>(0).unwrap();
             let mut program = Program::new();
             let cpu = Cpu::declare(&mut program);
-            let function = program
-                .function::<fn(bool) -> u64>(|mut body, _| {
-                    let mut state = State::new(&cpu);
-                    state.write_flags(&mut body, ArithmeticOp::Add.apply::<I8>(0x7f, 1).flags)?;
-                    let predicate = body.parameter::<I1>(0)?;
-                    state.write_flags(
-                        &mut body,
-                        FlagChange::partial([(Flag::DF, true.into())]).when(predicate),
-                    )?;
-                    let mut child = None;
-                    body.if_(false, |mut arm| {
-                        child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?.ne(0));
-                        Ok(())
-                    })?;
-                    for (invalid, error) in [
-                        (foreign, BuildError::ForeignBody),
-                        (child.unwrap(), BuildError::OutOfScope),
-                    ] {
-                        for invalid_flag in [Flag::CF, Flag::DF] {
-                            assert_eq!(
-                                state.write_flag(&mut body, invalid_flag, invalid.clone()),
-                                Err(error.clone())
-                            );
-                            for predicate in [None, Some(false), Some(true)] {
-                                let carry = if invalid_flag == Flag::CF {
-                                    invalid.clone()
-                                } else {
-                                    true.into()
-                                };
-                                let direction = if invalid_flag == Flag::DF {
-                                    invalid.clone()
-                                } else {
-                                    false.into()
-                                };
-                                let change =
-                                    FlagChange::partial([(Flag::CF, carry), (Flag::DF, direction)]);
-                                let change = match predicate {
-                                    Some(value) => change.when(value),
-                                    None => change,
-                                };
-                                assert_eq!(
-                                    state.write_flags(&mut body, change),
-                                    Err(error.clone())
-                                );
-                            }
-                        }
-                        for change in [
-                            FlagChange::partial([
-                                (Flag::CF, true.into()),
-                                (Flag::DF, false.into()),
-                            ])
-                            .when(invalid.clone()),
-                            FlagChange::partial([]).when(invalid.clone()),
-                            FlagChange::partial([(Flag::DF, false.into())])
-                                .when(invalid.clone())
-                                .when(false),
-                            FlagChange::partial([(Flag::DF, false.into())])
-                                .when(false)
-                                .when(invalid),
-                        ] {
+            let function = program.function::<fn(bool) -> u64>(move |mut body, _| {
+                let mut state = State::new(&cpu);
+                state.write_flags(&mut body, ArithmeticOp::Add.apply::<I8>(0x7f, 1).flags)?;
+                let predicate = body.parameter::<I1>(0)?;
+                state.write_flags(
+                    &mut body,
+                    FlagChange::partial([(Flag::DF, true.into())]).when(predicate),
+                )?;
+                let mut child = None;
+                body.if_(false, |mut arm| {
+                    child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?.ne(0));
+                    Ok(())
+                })?;
+                for (invalid, error) in [
+                    (foreign, BuildError::ForeignBody),
+                    (child.unwrap(), BuildError::OutOfScope),
+                ] {
+                    for invalid_flag in [Flag::CF, Flag::DF] {
+                        assert_eq!(
+                            state.write_flag(&mut body, invalid_flag, invalid.clone()),
+                            Err(error.clone())
+                        );
+                        for predicate in [None, Some(false), Some(true)] {
+                            let carry = if invalid_flag == Flag::CF {
+                                invalid.clone()
+                            } else {
+                                true.into()
+                            };
+                            let direction = if invalid_flag == Flag::DF {
+                                invalid.clone()
+                            } else {
+                                false.into()
+                            };
+                            let change =
+                                FlagChange::partial([(Flag::CF, carry), (Flag::DF, direction)]);
+                            let change = match predicate {
+                                Some(value) => change.when(value),
+                                None => change,
+                            };
                             assert_eq!(state.write_flags(&mut body, change), Err(error.clone()));
                         }
                     }
-                    let carry = state.read_flag(&mut body, Flag::CF)?;
-                    let direction = state.read_flag(&mut body, Flag::DF)?;
-                    let overflow = state.read_flag(&mut body, Flag::OF)?;
-                    state.publish(&mut body, 0x1002, 2)?;
-                    body.return_(
-                        carry
-                            .unsigned()
-                            .extend::<I64>()
-                            .or(direction.unsigned().extend::<I64>().shl(1))
-                            .or(overflow.unsigned().extend::<I64>().shl(2)),
-                    )
-                })
-                .unwrap();
+                    for change in [
+                        FlagChange::partial([(Flag::CF, true.into()), (Flag::DF, false.into())])
+                            .when(invalid.clone()),
+                        FlagChange::partial([]).when(invalid.clone()),
+                        FlagChange::partial([(Flag::DF, false.into())])
+                            .when(invalid.clone())
+                            .when(false),
+                        FlagChange::partial([(Flag::DF, false.into())])
+                            .when(false)
+                            .when(invalid),
+                    ] {
+                        assert_eq!(state.write_flags(&mut body, change), Err(error.clone()));
+                    }
+                }
+                let carry = state.read_flag(&mut body, Flag::CF)?;
+                let direction = state.read_flag(&mut body, Flag::DF)?;
+                let overflow = state.read_flag(&mut body, Flag::OF)?;
+                state.publish(&mut body, 0x1002, 2)?;
+                body.return_(
+                    carry
+                        .unsigned()
+                        .extend::<I64>()
+                        .or(direction.unsigned().extend::<I64>().shl(1))
+                        .or(overflow.unsigned().extend::<I64>().shl(2)),
+                )
+            });
             program.export("run", function).unwrap();
             let module = TestModule::new(&CompiledModule {
                 execution_target: None,
@@ -124,4 +116,6 @@ fn rejected_mixed_changes_leave_status_and_direction_history_intact() {
             foreign_body.return_(false)
         })
         .unwrap();
+    foreign_program.export("foreign", foreign_function).unwrap();
+    foreign_program.compile().unwrap();
 }

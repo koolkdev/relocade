@@ -16,7 +16,7 @@ fn captured_records_preserve_held_qwords_and_bytes_outside_narrow_writes() {
         results: vec![Type::I64, Type::I64, Type::I64],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let index = body.parameter::<I32>(0).unwrap().and(7);
             let base = body.load::<I32>(memory, 0).unwrap();
             let mut record = StateFields::with_base(memory, base);

@@ -1,4 +1,6 @@
 //! Function construction, pending blocks and definition publication.
+mod construction;
+pub(super) use construction::BuildBody;
 mod typed;
 pub use typed::TypedFunc;
 
@@ -21,7 +23,7 @@ use crate::{
 /// ```compile_fail
 /// use relocade_compiler::Program;
 /// let mut program = Program::new();
-/// program.function::<fn() -> u32>(|body, ()| {
+/// program.function::<fn() -> u32>(move |body, ()| {
 ///     body.return_(7)?;
 ///     body.return_(9)
 /// });
@@ -75,67 +77,46 @@ impl PendingBlock {
 }
 
 impl Program {
-    /// Builds a function whose logical signature is assembled during generation.
+    /// Registers a function whose logical signature is assembled during generation.
     /// Use [`Self::function`] when a Rust function type describes the signature.
-    /// The callback must complete the outer body with a return, tail call or trap.
-    /// An error or an incomplete body discards this function and any declarations,
-    /// imports or exports added by its callback. Earlier forward declarations
-    /// completed by the callback return to their undefined state. Handles created
-    /// in a failed callback must be discarded too. Earlier declarations remain usable. Use
-    /// [`Self::declare`] and [`Self::define`] for forward references or recursion.
+    /// The body is constructed during compilation if reachable from an export.
+    /// Use [`Self::declare`] and [`Self::define`] for forward references.
+    ///
+    /// Capture owned inputs and module handles. Values belong to the body that
+    /// creates them. The callback must complete its body with a return, tail call
+    /// or trap; construction errors are reported by [`Self::compile`].
     pub fn raw_function(
         &mut self,
         signature: Signature,
-        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
-    ) -> Result<Func, BuildError> {
-        // Completed bodies are immutable. Only earlier forward declarations can
-        // acquire a body during this callback, so rollback needs no IR copies.
-        let undefined_functions: Vec<_> = self
-            .functions
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(declaration.kind, FunctionKind::Defined(None)).then_some(index)
-            })
-            .collect();
-        let table_count = self.tables.len();
-        let memory_count = self.memories.len();
-        let export_count = self.exports.len();
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
+    ) -> Func {
         let function = self.declare(signature);
-        let result = self.define(function, build).map(|()| function);
-        if result.is_err() {
-            for index in undefined_functions {
-                self.functions[index].kind = FunctionKind::Defined(None);
-            }
-            self.functions.truncate(function.0);
-            self.memories.truncate(memory_count);
-            self.tables.truncate(table_count);
-            self.exports.truncate(export_count);
-        }
-        result
+        self.functions[function.0].kind = FunctionKind::Pending(Box::new(build));
+        function
     }
 
-    /// Builds a previously declared function. The callback must complete its
-    /// supplied body with a return, tail call or trap. Errors leave the function
-    /// undefined and close its values; it may be defined again.
+    /// Registers the body builder for a forward declaration without running it.
+    /// Imported functions and definitions already registered cannot be redefined.
+    /// The callback runs at most once, during compilation, if the function is reachable.
     pub fn define(
         &mut self,
         function: Func,
-        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
     ) -> Result<(), BuildError> {
         let declaration = self
             .functions
             .get_mut(function.0)
             .ok_or(BuildError::UnknownFunction)?;
-        if declaration.building {
-            return Err(BuildError::AlreadyDefined);
-        }
         match declaration.kind {
             FunctionKind::Imported { .. } => return Err(BuildError::ImportedFunction),
-            FunctionKind::Defined(Some(_)) => return Err(BuildError::AlreadyDefined),
-            FunctionKind::Defined(None) => {}
+            FunctionKind::Declared => {}
+            _ => return Err(BuildError::AlreadyDefined),
         }
-        declaration.building = true;
+        declaration.kind = FunctionKind::Pending(Box::new(build));
+        Ok(())
+    }
+
+    fn build_function(&mut self, function: Func, build: BuildBody) -> Result<(), BuildError> {
         let mut definition = Definition {
             program: self,
             function,
@@ -176,7 +157,7 @@ impl Definition<'_> {
             return Err(BuildError::MissingBody);
         }
         let body = self.arena.finish(block.layout)?;
-        self.program.functions[self.function.0].kind = FunctionKind::Defined(Some(body));
+        self.program.functions[self.function.0].kind = FunctionKind::Built(body);
         Ok(())
     }
 }
@@ -184,16 +165,13 @@ impl Definition<'_> {
 impl Drop for Definition<'_> {
     fn drop(&mut self) {
         self.arena.close();
-        self.program.functions[self.function.0].building = false;
     }
 }
 
 impl BlockBuilder<'_> {
-    /// Accesses this body's module to declare or build a helper when it is needed.
-    /// Helper bodies have separate value arenas; this body remains open while
-    /// the helper is built. The active function cannot be defined again.
-    /// Declarations added inside a failing [`Program::function`] callback are
-    /// rolled back with that callback, so discard their handles on failure.
+    /// Accesses this body's module to register helper definitions or exports.
+    /// Registration does not run another body builder. Compilation follows calls
+    /// only after the current body has finished construction.
     pub fn program(&mut self) -> &mut Program {
         self.program
     }
@@ -312,4 +290,4 @@ impl BlockBuilder<'_> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

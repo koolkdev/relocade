@@ -22,19 +22,19 @@ fn standalone_constant_bits_include_folded_calculations() -> Result<(), BuildErr
 #[test]
 fn value_and_body_queries_agree_on_construction_folds() {
     let mut program = Program::new();
-    program
-        .function::<fn(u32) -> u32>(|body, (input,)| {
-            assert_eq!(input.constant_bits()?, None);
-            assert_eq!(body.constant_bits(&input)?, None);
-            let constant = input.mul(0).add(17);
-            assert_eq!(constant.constant_bits()?, Some(17));
-            assert_eq!(body.constant_bits(&constant)?, Some(17));
-            let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
-            assert_eq!(narrow.constant_bits()?, Some(255));
-            assert_eq!(body.constant_bits(narrow)?, Some(255));
-            body.return_(constant)
-        })
-        .unwrap();
+    let function = program.function::<fn(u32) -> u32>(move |body, (input,)| {
+        assert_eq!(input.constant_bits()?, None);
+        assert_eq!(body.constant_bits(&input)?, None);
+        let constant = input.mul(0).add(17);
+        assert_eq!(constant.constant_bits()?, Some(17));
+        assert_eq!(body.constant_bits(&constant)?, Some(17));
+        let narrow = body.value::<I32>(0x1ff)?.truncate::<I8>();
+        assert_eq!(narrow.constant_bits()?, Some(255));
+        assert_eq!(body.constant_bits(narrow)?, Some(255));
+        body.return_(constant)
+    });
+    program.export("run", function).unwrap();
+    program.compile().unwrap();
 }
 
 fn assert_closed(value: &Val<I32>) {
@@ -78,15 +78,18 @@ fn completing_a_definition_closes_retained_loads() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut retained = None;
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let value = body.load::<I32>(memory, 0)?;
-            retained = Some(value.clone());
+            *capture.borrow_mut() = Some(value.clone());
             body.return_(value)
         })
         .unwrap();
-    assert_closed(&retained.unwrap());
+    program.export("run", function).unwrap();
+    program.build_reachable_functions().unwrap();
+    assert_closed(&retained.borrow_mut().take().unwrap());
     assert!(program.compile().is_ok());
 }
 
@@ -97,15 +100,22 @@ fn a_callback_error_closes_retained_values() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut retained = None;
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
     assert_eq!(
-        program.define(function, |body| {
-            retained = Some(body.value::<I32>(7)?);
-            Err(BuildError::UnknownParameter)
-        }),
+        {
+            program
+                .define(function, move |body| {
+                    *capture.borrow_mut() = Some(body.value::<I32>(7)?);
+                    Err(BuildError::UnknownParameter)
+                })
+                .unwrap();
+            program.export("run", function).unwrap();
+            program.build_reachable_functions()
+        },
         Err(BuildError::UnknownParameter)
     );
-    assert_closed(&retained.unwrap());
+    assert_closed(&retained.borrow_mut().take().unwrap());
 }
 
 #[test]
@@ -115,19 +125,26 @@ fn a_failed_return_closes_retained_values() {
         parameters: vec![],
         results: vec![Type::I64],
     });
-    let mut retained = None;
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
     assert_eq!(
-        program.define(function, |body| {
-            let value = body.value::<I32>(7)?;
-            retained = Some(value.clone());
-            body.return_(value)
-        }),
+        {
+            program
+                .define(function, move |body| {
+                    let value = body.value::<I32>(7)?;
+                    *capture.borrow_mut() = Some(value.clone());
+                    body.return_(value)
+                })
+                .unwrap();
+            program.export("run", function).unwrap();
+            program.build_reachable_functions()
+        },
         Err(BuildError::TypeMismatch {
             expected: Type::I64,
             actual: Type::I32,
         })
     );
-    assert_closed(&retained.unwrap());
+    assert_closed(&retained.borrow_mut().take().unwrap());
 }
 
 fn tail_program() -> (Program, Func, Func) {
@@ -150,16 +167,19 @@ fn tail_program() -> (Program, Func, Func) {
 #[test]
 fn a_tail_call_definition_closes_retained_values_and_arguments() {
     let (mut program, function, target) = tail_program();
-    let mut retained = None;
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let value = body.value::<I32>(7)?;
             let argument = value.argument();
-            retained = Some((value, argument.clone()));
+            *capture.borrow_mut() = Some((value, argument.clone()));
             body.tail_call(target, std::slice::from_ref(&argument))
         })
         .unwrap();
-    let (value, argument) = retained.unwrap();
+    program.export("run", function).unwrap();
+    program.build_reachable_functions().unwrap();
+    let (value, argument) = retained.borrow_mut().take().unwrap();
     assert_closed(&value);
     let ValueSource::Expression { arena, .. } = &value.source else {
         panic!("an admitted value retains its body");
@@ -172,30 +192,28 @@ fn a_tail_call_definition_closes_retained_values_and_arguments() {
 }
 
 #[test]
-fn a_failed_tail_closes_its_values_without_retaining_the_import() {
-    use wasmparser::{Parser, Payload};
-
+fn a_failed_tail_closes_its_values_and_arguments() {
     let (mut program, function, target) = tail_program();
-    let mut foreign = None;
+    let foreign =
+        crate::function::tests::capture_from_body(|discarded| discarded.value::<I32>(0).unwrap());
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
     assert_eq!(
-        program.define(function, |discarded| {
-            foreign = Some(discarded.value::<I32>(0).unwrap());
-            Ok(())
-        }),
-        Err(BuildError::MissingBody)
-    );
-    let foreign = foreign.unwrap();
-    let mut retained = None;
-    assert_eq!(
-        program.define(function, |body| {
-            let value = body.value::<I32>(7)?;
-            let argument = value.add(&foreign).argument();
-            retained = Some((value, argument.clone()));
-            body.tail_call(target, std::slice::from_ref(&argument))
-        }),
+        {
+            program
+                .define(function, move |body| {
+                    let value = body.value::<I32>(7)?;
+                    let argument = value.add(&foreign).argument();
+                    *capture.borrow_mut() = Some((value, argument.clone()));
+                    body.tail_call(target, std::slice::from_ref(&argument))
+                })
+                .unwrap();
+            program.export("run", function).unwrap();
+            program.build_reachable_functions()
+        },
         Err(BuildError::ForeignBody)
     );
-    let (value, argument) = retained.unwrap();
+    let (value, argument) = retained.borrow_mut().take().unwrap();
     assert_closed(&value);
     let ValueSource::Expression { arena, .. } = &value.source else {
         panic!("an admitted value retains its body");
@@ -204,12 +222,6 @@ fn a_failed_tail_closes_its_values_without_retaining_the_import() {
         argument.resolve(arena, Type::I32, 0),
         Err(BuildError::BodyClosed)
     );
-
-    program.define(function, |body| body.return_(7)).unwrap();
-    let bytes = program.compile().unwrap();
-    assert!(Parser::new(0)
-        .parse_all(&bytes)
-        .all(|payload| !matches!(payload.unwrap(), Payload::ImportSection(_))));
 }
 
 #[test]
@@ -219,18 +231,11 @@ fn retaining_a_failed_expression_leaves_the_body_usable() {
         parameters: vec![Type::I32],
         results: vec![Type::I32],
     });
-    let mut foreign_zero = None;
-    assert_eq!(
-        program.define(function, |discarded| {
-            foreign_zero = Some(discarded.value::<I32>(0).unwrap());
-            Ok(())
-        }),
-        Err(BuildError::MissingBody)
-    );
-    let foreign_zero = foreign_zero.unwrap();
+    let foreign_zero =
+        crate::function::tests::capture_from_body(|discarded| discarded.value::<I32>(0).unwrap());
 
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let value = body.parameter::<I32>(0).unwrap();
             assert_eq!(
                 body.value(value.add(&foreign_zero)).err(),
@@ -240,6 +245,7 @@ fn retaining_a_failed_expression_leaves_the_body_usable() {
             body.return_(retained.add(1))
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -257,9 +263,10 @@ fn expression_identity_reuses_nodes_but_keeps_read_events_distinct() {
         parameters: vec![Type::I32],
         results: vec![Type::I32],
     });
-    let mut retained = None;
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let input = body.parameter::<I32>(0).unwrap();
             let sum = input.add(1);
             assert!(sum.same_expression(&sum.clone()));
@@ -267,11 +274,13 @@ fn expression_identity_reuses_nodes_but_keeps_read_events_distinct() {
             let first = body.load::<I32>(memory, 0).unwrap();
             let second = body.load::<I32>(memory, 0).unwrap();
             assert!(!first.same_expression(&second));
-            retained = Some(sum.clone());
+            *capture.borrow_mut() = Some(sum.clone());
             body.return_(&sum)
         })
         .unwrap();
-    let sum = retained.unwrap();
+    program.export("run", function).unwrap();
+    program.build_reachable_functions().unwrap();
+    let sum = retained.borrow_mut().take().unwrap();
     assert!(sum.same_expression(&sum.clone()));
 }
 
@@ -283,7 +292,7 @@ fn equivalent_literals_share_admitted_expressions() {
         results: vec![Type::I32],
     });
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let literal = Val::<I8>::from(-1);
             assert!(literal.same_expression(&Val::<I8>::from(0x1ff_u32)));
             let byte = body.value(&literal).unwrap();
@@ -305,29 +314,20 @@ fn equivalent_literals_share_admitted_expressions() {
             body.return_(input)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
 #[test]
 fn expression_identity_is_false_for_foreign_or_failed_values() {
+    let foreign = crate::function::tests::capture_from_body(|body| body.value::<I32>(7).unwrap());
     let mut program = Program::new();
-    let signature = Signature {
+    let second = program.declare(Signature {
         parameters: vec![],
         results: vec![Type::I32],
-    };
-    let first = program.declare(signature.clone());
-    let second = program.declare(signature);
-    let mut foreign = None;
+    });
     program
-        .define(first, |body| {
-            let value = body.value::<I32>(7)?;
-            foreign = Some(value.clone());
-            body.return_(value)
-        })
-        .unwrap();
-    let foreign = foreign.unwrap();
-    program
-        .define(second, |body| {
+        .define(second, move |body| {
             let current = body.value::<I32>(7).unwrap();
             assert!(!current.same_expression(&foreign));
             let failed = current.add(&foreign);
@@ -337,6 +337,8 @@ fn expression_identity_is_false_for_foreign_or_failed_values() {
             body.return_(current)
         })
         .unwrap();
+    program.export("run", second).unwrap();
+    program.compile().unwrap();
 }
 
 #[test]
@@ -346,17 +348,11 @@ fn a_folded_result_still_checks_the_computed_count_owner() {
         parameters: vec![Type::I32],
         results: vec![Type::I32],
     });
-    let mut foreign = None;
-    assert_eq!(
-        program.define(function, |discarded| {
-            foreign = Some(discarded.parameter::<I32>(0).unwrap());
-            Ok(())
-        }),
-        Err(BuildError::MissingBody)
-    );
-    let foreign = foreign.unwrap();
+    let foreign = crate::function::tests::capture_from_body(|discarded| {
+        discarded.parameter::<I32>(0).unwrap()
+    });
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let zero = body.value::<I32>(0).unwrap();
             for result in [
                 zero.shl(&foreign),
@@ -380,6 +376,7 @@ fn a_folded_result_still_checks_the_computed_count_owner() {
             body.return_(zero)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }
 
@@ -390,17 +387,10 @@ fn arithmetic_identity_folds_preserve_operand_errors() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let mut foreign_zero = None;
-    assert_eq!(
-        program.define(function, |discarded| {
-            foreign_zero = Some(discarded.value::<I32>(0).unwrap());
-            Ok(())
-        }),
-        Err(BuildError::MissingBody)
-    );
-    let foreign_zero = foreign_zero.unwrap();
+    let foreign_zero =
+        crate::function::tests::capture_from_body(|discarded| discarded.value::<I32>(0).unwrap());
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let value = body.value::<I32>(7).unwrap();
             let failed = value.sub(&foreign_zero);
             for product in [
@@ -431,5 +421,6 @@ fn arithmetic_identity_folds_preserve_operand_errors() {
             body.return_(value.sub(0))
         })
         .unwrap();
+    program.export("run", function).unwrap();
     assert!(program.compile().is_ok());
 }

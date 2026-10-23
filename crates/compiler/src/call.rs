@@ -47,7 +47,6 @@ impl Program {
         let function = Func(self.functions.len());
         self.functions.push(Declaration {
             signature: import.signature,
-            building: false,
             kind: FunctionKind::Imported {
                 module: import.module,
                 name: import.name,
@@ -79,7 +78,7 @@ impl BlockBuilder<'_> {
     ///         results: vec![Type::I64],
     ///     },
     /// });
-    /// let block = program.function::<fn() -> u64>(|body, ()| body.tail_call(dispatch, &[]))?;
+    /// let block = program.function::<fn() -> u64>(move |body, ()| body.tail_call(dispatch, &[]));
     /// program.export("block", block)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
@@ -141,11 +140,11 @@ impl BlockBuilder<'_> {
     /// use relocade_compiler::{I32, Program};
     /// let mut program = Program::new();
     /// let increment =
-    ///     program.function::<fn(u32) -> u32>(|helper, (input,)| helper.return_(input.add(1)))?;
-    /// let function = program.function::<fn() -> u32>(|mut body, ()| {
+    ///     program.function::<fn(u32) -> u32>(move |helper, (input,)| helper.return_(input.add(1)));
+    /// let function = program.function::<fn() -> u32>(move |mut body, ()| {
     ///     let result = body.call::<I32>(increment, &[7.into()])?;
     ///     body.return_(result.add(1))
-    /// })?;
+    /// });
     /// program.export("run", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())
@@ -233,17 +232,11 @@ mod tests {
             parameters: vec![],
             results: vec![Type::I32],
         });
-        let mut foreign = None;
-        assert_eq!(
-            program.define(function, |discarded| {
-                foreign = Some(discarded.value::<I1>(true).unwrap());
-                Ok(())
-            }),
-            Err(BuildError::MissingBody)
-        );
-        let foreign = foreign.unwrap();
+        let foreign = crate::function::tests::capture_from_body(|discarded| {
+            discarded.value::<I1>(true).unwrap()
+        });
         program
-            .define(function, |mut body| {
+            .define(function, move |mut body| {
                 assert_eq!(
                     body.call::<I1>(target, &[true.into()]).err(),
                     Some(BuildError::TypeMismatch {
@@ -266,6 +259,7 @@ mod tests {
                 body.return_(7)
             })
             .unwrap();
+        program.export("run", function).unwrap();
         let bytes = program.compile().unwrap();
         assert!(Parser::new(0)
             .parse_all(&bytes)
@@ -280,10 +274,10 @@ mod tests {
             results: vec![Type::I32],
         };
         let helper = program.declare(signature.clone());
-        program.define(helper, |body| body.return_(7)).unwrap();
+        program.define(helper, move |body| body.return_(7)).unwrap();
         let function = program.declare(signature);
         program
-            .define(function, |mut body| {
+            .define(function, move |mut body| {
                 let mut escaped = None;
                 body.if_(false, |mut branch| {
                     escaped = Some(branch.call::<I32>(helper, &[])?);
@@ -297,6 +291,7 @@ mod tests {
                 body.return_(0)
             })
             .unwrap();
+        program.export("run", function).unwrap();
         assert!(program.compile().is_ok());
     }
 }

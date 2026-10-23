@@ -6,14 +6,14 @@
 //! for typed result shapes. [`Mem`] and [`MemoryImport`] describe external memory.
 //! Their API documentation covers value visibility, effect ordering and examples.
 //!
-//! Build functions, choose their exports, then compile the module:
+//! Define functions, choose their exports, then construct and compile reachable bodies:
 //!
 //! ```
 //! use relocade_compiler::Program;
 //!
 //! let mut program = Program::new();
 //! let increment =
-//!     program.function::<fn(u32) -> u32>(|body, (value,)| body.return_(value.add(1)))?;
+//!     program.function::<fn(u32) -> u32>(move |body, (value,)| body.return_(value.add(1)));
 //! program.export("increment", increment)?;
 //! let bytes = program.compile()?;
 //! # Ok::<(), relocade_compiler::BuildError>(())
@@ -108,9 +108,7 @@ impl fmt::Display for BuildError {
             Self::UnknownTable => formatter.write_str("unknown function table declaration"),
             Self::UnknownMemory => formatter.write_str("unknown memory declaration"),
             Self::UnknownFunction => formatter.write_str("unknown function declaration"),
-            Self::AlreadyDefined => {
-                formatter.write_str("function already has an open or finished body")
-            }
+            Self::AlreadyDefined => formatter.write_str("function already has a definition"),
             Self::MissingBody => formatter.write_str("function has no finished body"),
             Self::UnknownParameter => formatter.write_str("unknown function parameter"),
             Self::ForeignBody => formatter.write_str("value or label belongs to another body"),
@@ -152,7 +150,7 @@ pub struct WasmFeatures {
     pub wide_arithmetic: bool,
 }
 
-/// The declarations, completed function bodies and exports of a module.
+/// The function definitions, imports and exports of a module.
 #[derive(Default)]
 pub struct Program {
     functions: Vec<Declaration>,
@@ -165,11 +163,13 @@ pub struct Program {
 struct Declaration {
     signature: Signature,
     kind: FunctionKind,
-    building: bool,
 }
 
 enum FunctionKind {
-    Defined(Option<FunctionGraph>),
+    Declared,
+    Pending(function::BuildBody),
+    Building,
+    Built(FunctionGraph),
     Imported { module: String, name: String },
 }
 
@@ -187,15 +187,13 @@ impl Program {
         }
     }
 
-    /// Declares a function that must be defined before compilation.
-    /// Exported definitions and helpers reachable from them are emitted in
-    /// declaration order. Unused definitions are omitted after specialization.
+    /// Declares a function for forward references. A reachable declaration must
+    /// have a builder registered with [`Self::define`] before it is constructed.
     pub fn declare(&mut self, signature: Signature) -> Func {
         let function = Func(self.functions.len());
         self.functions.push(Declaration {
             signature,
-            kind: FunctionKind::Defined(None),
-            building: false,
+            kind: FunctionKind::Declared,
         });
         function
     }
@@ -212,16 +210,12 @@ impl Program {
         Ok(())
     }
 
-    /// Encodes the module as WebAssembly bytes, consuming the program.
-    /// Every defined function must have a completed body.
-    pub fn compile(self) -> Result<Vec<u8>, BuildError> {
-        if self
-            .functions
-            .iter()
-            .any(|function| matches!(function.kind, FunctionKind::Defined(None)))
-        {
-            return Err(BuildError::MissingBody);
-        }
+    /// Constructs IR starting from exports, then infers effects, optimizes and
+    /// emits WebAssembly. Each reachable body builder runs once. Unused definitions
+    /// and declarations are ignored. Calls removed by optimization may still require
+    /// constructing their callee to determine its effects.
+    pub fn compile(mut self) -> Result<Vec<u8>, BuildError> {
+        self.build_reachable_functions()?;
         Ok(module::encode(self))
     }
 }

@@ -22,7 +22,7 @@ fn guarded_join(outward: bool) -> TestModule {
     fixture.function(
         &[Type::I1, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let choice = body.parameter::<I1>(0)?;
             let numerator = body.parameter::<I32>(1)?;
             let denominator = body.parameter::<I32>(2)?;
@@ -97,7 +97,7 @@ fn a_selected_recipe_reuses_the_value_available_on_each_incoming_path() {
     let module = fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let early = body.parameter::<I1>(0)?;
             let publish = body.parameter::<I1>(1)?;
             let input = body.parameter::<I32>(2)?;
@@ -129,7 +129,7 @@ fn a_selected_recipe_reuses_the_value_available_on_each_incoming_path() {
 fn missing_optional_predecessors_keep_zero_divisors_out_of_the_calculation() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 8]);
-    let module = fixture.function(&[Type::I32, Type::I32], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I32, Type::I32], &[Type::I32], move |mut body| {
         let numerator = body.parameter::<I32>(0)?;
         let denominator = body.parameter::<I32>(1)?;
         let quotient = numerator.unsigned().div(&denominator);
@@ -149,7 +149,7 @@ fn missing_optional_predecessors_keep_zero_divisors_out_of_the_calculation() {
 fn separate_loads_keep_their_snapshots_across_a_write() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[7, 0, 0, 0]);
-    let module = fixture.function(&[], &[Type::I32], |mut body| {
+    let module = fixture.function(&[], &[Type::I32], move |mut body| {
         let old = body.load::<I32>(memory, 0)?.add(1);
         body.store::<I32>(memory, 0, 9)?;
         let new = body.load::<I32>(memory, 0)?.add(1);
@@ -163,7 +163,7 @@ fn loop_backedges_preserve_parallel_tuple_swaps_and_current_iteration_values() {
     let module = Fixture::new().function(
         &[Type::I32],
         &[Type::I64, Type::I32, Type::I32],
-        |mut body| {
+        move |mut body| {
             let count = body.parameter::<I32>(0)?;
             let results = body.loop_::<(I32, I32, I32, I64), (I64, I32, I32)>(
                 (count, 3, 7, 100u64),
@@ -203,7 +203,7 @@ fn loop_backedges_preserve_parallel_tuple_swaps_and_current_iteration_values() {
 fn conditional_reuse_inside_a_loop_uses_the_current_iteration() {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", &[0; 4]);
-    let module = fixture.function(&[Type::I32, Type::I1], &[Type::I32], |mut body| {
+    let module = fixture.function(&[Type::I32, Type::I1], &[Type::I32], move |mut body| {
         let count = body.parameter::<I32>(0)?;
         let square = body.parameter::<I1>(1)?;
         let result =
@@ -238,7 +238,7 @@ fn narrow_signed_calculations_keep_their_carrier_meaning_through_joins() {
     let module = fixture.function(
         &[Type::I1, Type::I8],
         &[Type::I64, Type::I32],
-        |mut body| {
+        move |mut body| {
             let choice = body.parameter::<I1>(0)?;
             let byte = body.parameter::<I8>(1)?;
             let shifted = byte.signed().shr(1);

@@ -11,57 +11,55 @@ use relocade_compiler::{Program, I1, I32, I64, I8};
 fn exit_publication_freezes_both_flag_histories_without_poisoning_later_queries() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(bool, bool, u32) -> u64>(|mut body, _| {
-            let mut state = State::new(&cpu);
-            let direction_predicate = body.parameter::<I1>(0)?;
-            let carry_value = body.parameter::<I1>(1)?;
-            let stop = body.parameter::<I32>(2)?;
-            let incoming_carry = state.read_flag(&mut body, Flag::CF)?;
-            state.write_flags(
-                &mut body,
-                FlagChange::partial([(Flag::DF, true.into())]).when(direction_predicate),
-            )?;
-            let direction = state.read_flag(&mut body, Flag::DF)?;
-            body.if_(stop.eq(1), |mut arm| {
-                state.publish(&mut arm, 0x1001, 1)?;
-                arm.return_(
-                    incoming_carry
-                        .unsigned()
-                        .extend::<I64>()
-                        .or(direction.unsigned().extend::<I64>().shl(1)),
-                )
-            })?;
-            state.write_flag(&mut body, Flag::CF, carry_value)?;
-            let carry = state.read_flag(&mut body, Flag::CF)?;
-            body.if_(stop.eq(2), |mut arm| {
-                state.publish(&mut arm, 0x1002, 2)?;
-                arm.return_(
-                    carry
-                        .unsigned()
-                        .extend::<I64>()
-                        .or(direction.unsigned().extend::<I64>().shl(1)),
-                )
-            })?;
-            // The earlier concrete publication resolves AF inside its exit arm.
-            // This live-path query must not reuse that descendant-scoped value.
-            let auxiliary = state.read_flag(&mut body, Flag::AF)?;
-            state.write_flags(&mut body, ArithmeticOp::Add.apply::<I8>(0xff, 1).flags)?;
-            state.write_flag(&mut body, Flag::DF, false)?;
-            let carry = state.read_flag(&mut body, Flag::CF)?;
-            let direction = state.read_flag(&mut body, Flag::DF)?;
-            let zero = state.condition(&mut body, Condition::E)?;
-            state.publish(&mut body, 0x1004, 4)?;
-            body.return_(
+    let function = program.function::<fn(bool, bool, u32) -> u64>(move |mut body, _| {
+        let mut state = State::new(&cpu);
+        let direction_predicate = body.parameter::<I1>(0)?;
+        let carry_value = body.parameter::<I1>(1)?;
+        let stop = body.parameter::<I32>(2)?;
+        let incoming_carry = state.read_flag(&mut body, Flag::CF)?;
+        state.write_flags(
+            &mut body,
+            FlagChange::partial([(Flag::DF, true.into())]).when(direction_predicate),
+        )?;
+        let direction = state.read_flag(&mut body, Flag::DF)?;
+        body.if_(stop.eq(1), |mut arm| {
+            state.publish(&mut arm, 0x1001, 1)?;
+            arm.return_(
+                incoming_carry
+                    .unsigned()
+                    .extend::<I64>()
+                    .or(direction.unsigned().extend::<I64>().shl(1)),
+            )
+        })?;
+        state.write_flag(&mut body, Flag::CF, carry_value)?;
+        let carry = state.read_flag(&mut body, Flag::CF)?;
+        body.if_(stop.eq(2), |mut arm| {
+            state.publish(&mut arm, 0x1002, 2)?;
+            arm.return_(
                 carry
                     .unsigned()
                     .extend::<I64>()
-                    .or(direction.unsigned().extend::<I64>().shl(1))
-                    .or(zero.unsigned().extend::<I64>().shl(2))
-                    .or(auxiliary.unsigned().extend::<I64>().shl(3)),
+                    .or(direction.unsigned().extend::<I64>().shl(1)),
             )
-        })
-        .unwrap();
+        })?;
+        // The earlier concrete publication resolves AF inside its exit arm.
+        // This live-path query must not reuse that descendant-scoped value.
+        let auxiliary = state.read_flag(&mut body, Flag::AF)?;
+        state.write_flags(&mut body, ArithmeticOp::Add.apply::<I8>(0xff, 1).flags)?;
+        state.write_flag(&mut body, Flag::DF, false)?;
+        let carry = state.read_flag(&mut body, Flag::CF)?;
+        let direction = state.read_flag(&mut body, Flag::DF)?;
+        let zero = state.condition(&mut body, Condition::E)?;
+        state.publish(&mut body, 0x1004, 4)?;
+        body.return_(
+            carry
+                .unsigned()
+                .extend::<I64>()
+                .or(direction.unsigned().extend::<I64>().shl(1))
+                .or(zero.unsigned().extend::<I64>().shl(2))
+                .or(auxiliary.unsigned().extend::<I64>().shl(3)),
+        )
+    });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
         execution_target: None,

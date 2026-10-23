@@ -17,7 +17,7 @@ fn exclusive_switch_arms() -> TestModule {
     fixture.function(
         &[Type::I32, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let selector = body.parameter::<I32>(0)?;
             let input = body.parameter::<I32>(1)?;
             let address = body.parameter::<I32>(2)?;
@@ -43,7 +43,7 @@ fn nested_uses_in_switch_arms() -> TestModule {
     fixture.function(
         &[Type::I32, Type::I1, Type::I1, Type::I32, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let selector = body.parameter::<I32>(0)?;
             let first = body.parameter::<I1>(1)?;
             let second = body.parameter::<I1>(2)?;
@@ -72,7 +72,7 @@ fn nested_uses_in_switch_arms() -> TestModule {
 fn dependency_used_after_the_join() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let base = body.parameter::<I32>(1)?.add(1);
         let branch_value = base.xor(7);
@@ -91,7 +91,7 @@ fn sequential_controls() -> TestModule {
     fixture.function(
         &[Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let first = body.parameter::<I1>(0)?;
             let second = body.parameter::<I1>(1)?;
             let shared = body.parameter::<I32>(2)?.xor(1);
@@ -108,7 +108,7 @@ fn sequential_controls_inside_an_exclusive_arm() -> TestModule {
     fixture.function(
         &[Type::I1, Type::I1, Type::I1, Type::I32],
         &[Type::I32],
-        |mut body| {
+        move |mut body| {
             let outer = body.parameter::<I1>(0)?;
             let first = body.parameter::<I1>(1)?;
             let second = body.parameter::<I1>(2)?;
@@ -129,7 +129,7 @@ fn sequential_controls_inside_an_exclusive_arm() -> TestModule {
 fn shared_address_needed_by_a_parent_load() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]);
-    fixture.function(&[Type::I1, Type::I32], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I32], &[Type::I32], move |mut body| {
         let condition = body.parameter::<I1>(0)?;
         let address = body.parameter::<I32>(1)?.add(4);
         let previous = body.load_at::<I32>(state, &address, 0)?;
@@ -163,7 +163,7 @@ fn snapshot_across_arm_writes(source: Snapshot) -> TestModule {
         signature(&[Type::I32], &[Type::I32]),
         &[Value::I32(7)],
     );
-    fixture.function(&[Type::I1, Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1, Type::I1], &[Type::I32], move |mut body| {
         let destination = body.parameter::<I1>(0)?;
         let choose_load = body.parameter::<I1>(1)?;
         let previous = match source {

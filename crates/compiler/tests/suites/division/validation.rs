@@ -8,18 +8,11 @@ fn division_and_remainder_preserve_foreign_operand_validation() {
     for kind in KINDS {
         let mut program = Program::new();
         let function = program.declare(signature(&[], &[Type::I32]));
-        let mut foreign = None;
-        assert_eq!(
-            program.define(function, |body| {
-                foreign = Some(body.value::<I32>(1)?);
-                Ok(())
-            }),
-            Err(BuildError::MissingBody)
-        );
-        let foreign = foreign.unwrap();
-        let mut result = None;
+        let foreign = crate::fixture::capture_from_body(|body| body.value::<I32>(1).unwrap());
+        let result = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let capture = result.clone();
         program
-            .define(function, |body| {
+            .define(function, move |body| {
                 let cached = Val::<I32>::from(7).unsigned().div(0).and(0);
                 body.value(&cached).unwrap();
                 assert_eq!(
@@ -36,20 +29,25 @@ fn division_and_remainder_preserve_foreign_operand_validation() {
                         Some(BuildError::ForeignBody)
                     );
                 }
-                result = Some(kind.apply(body.value::<I32>(0).unwrap(), 1));
+                *capture.borrow_mut() = Some(kind.apply(body.value::<I32>(0).unwrap(), 1));
                 body.return_(0)
             })
             .unwrap();
+        program.export("first", function).unwrap();
+        program.compile().unwrap();
+        let result = result.borrow_mut().take().unwrap();
+        let mut program = Program::new();
         let next_function = program.declare(signature(&[], &[Type::I32]));
         program
-            .define(next_function, |next| {
+            .define(next_function, move |next| {
                 assert_eq!(
-                    next.value(result.unwrap().add(1)).err(),
+                    next.value(result.add(1)).err(),
                     Some(BuildError::ForeignBody)
                 );
                 next.return_(0)
             })
             .unwrap();
+        program.export("next", next_function).unwrap();
         assert!(program.compile().is_ok());
     }
 }
@@ -59,7 +57,7 @@ fn folded_division_operands_and_results_keep_the_original_child_visibility() {
     for kind in KINDS {
         let mut fixture = Fixture::new();
         let memory = fixture.memory("state", &[7, 0, 0, 0]);
-        let module = fixture.function(&[], &[Type::I32], |mut body| {
+        let module = fixture.function(&[], &[Type::I32], move |mut body| {
             let mut retained = None;
             body.if_(false, |mut child| {
                 let input = child.load::<I32>(memory, 0)?.and(0).add(1);
@@ -121,7 +119,8 @@ fn nonfolding_standalone_constants_form_reusable_native_expressions() {
     for expression in expressions {
         assert!(expression.same_expression(&expression.clone()));
         for _ in 0..2 {
-            let module = Fixture::new().function(&[], &[Type::I32], |body| {
+            let expression = expression.clone();
+            let module = Fixture::new().function(&[], &[Type::I32], move |body| {
                 let first = body.value(&expression)?;
                 let second = body.value(&expression)?;
                 assert!(first.same_expression(&second));
@@ -153,7 +152,8 @@ fn unbound_calculations_compose_through_unary_binary_and_value_selection_owners(
     let result = condition.select(expression.sub(1), combined);
     let mut bytes = None;
     for _ in 0..2 {
-        let module = Fixture::new().function(&[], &[Type::I32], |body| {
+        let result = result.clone();
+        let module = Fixture::new().function(&[], &[Type::I32], move |body| {
             let first = body.value(&result)?;
             assert!(first.same_expression(&body.value(&result)?));
             body.return_(first)
@@ -169,7 +169,7 @@ fn unbound_calculations_compose_through_unary_binary_and_value_selection_owners(
         assert!(code.iter().any(|op| matches!(op, Operator::Select)));
     }
     // Admitting an unbound calculation still checks every already-bound operand.
-    let module = Fixture::new().function(&[Type::I32], &[Type::I32], |body| {
+    let module = Fixture::new().function(&[Type::I32], &[Type::I32], move |body| {
         let parameter = body.parameter::<I32>(0)?;
         let result = expression.add(&parameter).mul(0);
         let chosen = Val::<I1>::from(false).select(&expression, parameter);

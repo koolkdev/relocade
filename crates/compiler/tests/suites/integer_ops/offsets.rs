@@ -15,7 +15,7 @@ fn narrow<T: IntType>(cases: &[(i32, i64, i64)])
 where
     I64: AtLeast<T>,
 {
-    let module = Fixture::new().function(&[T::TYPE], &[Type::I64, Type::I64], |body| {
+    let module = Fixture::new().function(&[T::TYPE], &[Type::I64, Type::I64], move |body| {
         let value = body.parameter::<T>(0)?.sub(4).add(6).sub(1);
         body.return_((
             value.unsigned().extend::<I64>(),
@@ -74,7 +74,7 @@ fn constant_offsets_wrap_at_logical_width_and_stop_at_observation_boundaries() {
 }
 
 fn check_mask_widths() {
-    let module = Fixture::new().function(&[Type::I64], &[Type::I64; 6], |body| {
+    let module = Fixture::new().function(&[Type::I64], &[Type::I64; 6], move |body| {
         let input = body.parameter::<I64>(0)?;
         body.return_([
             input.and(0_u64),
@@ -114,7 +114,7 @@ fn check_mask_widths() {
 }
 
 fn check_masked_offsets() {
-    let module = Fixture::new().function(&[Type::I32], &[Type::I32; 6], |body| {
+    let module = Fixture::new().function(&[Type::I32], &[Type::I32; 6], move |body| {
         let input = body.parameter::<I32>(0)?;
         body.return_([
             input.add(7).and(7).add(1).and(7),

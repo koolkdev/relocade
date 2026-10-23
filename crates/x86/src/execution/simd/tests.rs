@@ -11,46 +11,44 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let runtime = Runtime::declare(&mut program);
-    let function = program
-        .raw_function(
-            Signature {
-                parameters: vec![Type::I32],
-                results: crate::abi::RUN.signature().results,
-            },
-            |body| {
-                let raised = body.parameter::<I32>(0)?;
-                let exceptions = SimdExceptions {
-                    invalid: raised.and(1).ne(0),
-                    denormal: raised.and(2).ne(0),
-                    zero_divide: raised.and(4).ne(0),
-                    overflow: raised.and(8).ne(0),
-                    underflow: raised.and(16).ne(0),
-                    precision: raised.and(32).ne(0),
-                };
-                let mut execution = ExecutionBuilder::new(
-                    body,
-                    &cpu,
-                    None,
-                    runtime,
-                    0x1000,
-                    Compiler::new(SegmentProfile::Flat32).target(),
-                )?;
-                if fallback_enabled {
-                    execution = execution.with_interpreter_fallback();
-                }
-                let (nop, _) =
-                    crate::decode::snapshot(&[0x90], 0x1000, SegmentDefaultSize::Bits32).unwrap();
-                execution.execute(nop)?;
-                execution.record_simd_exceptions(&exceptions)?;
-                execution.write_xmm(RegisterCode::from_code(0), 0_u128.into())?;
-                execution.complete(|body, _| {
-                    body.return_(crate::ExecutionExitValues::from(
-                        crate::ExecutionExit::HostReturn,
-                    ))
-                })
-            },
-        )
-        .unwrap();
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![Type::I32],
+            results: crate::abi::RUN.signature().results,
+        },
+        move |body| {
+            let raised = body.parameter::<I32>(0)?;
+            let exceptions = SimdExceptions {
+                invalid: raised.and(1).ne(0),
+                denormal: raised.and(2).ne(0),
+                zero_divide: raised.and(4).ne(0),
+                overflow: raised.and(8).ne(0),
+                underflow: raised.and(16).ne(0),
+                precision: raised.and(32).ne(0),
+            };
+            let mut execution = ExecutionBuilder::new(
+                body,
+                &cpu,
+                None,
+                runtime,
+                0x1000,
+                Compiler::new(SegmentProfile::Flat32).target(),
+            )?;
+            if fallback_enabled {
+                execution = execution.with_interpreter_fallback();
+            }
+            let (nop, _) =
+                crate::decode::snapshot(&[0x90], 0x1000, SegmentDefaultSize::Bits32).unwrap();
+            execution.execute(nop)?;
+            execution.record_simd_exceptions(&exceptions)?;
+            execution.write_xmm(RegisterCode::from_code(0), 0_u128.into())?;
+            execution.complete(|body, _| {
+                body.return_(crate::ExecutionExitValues::from(
+                    crate::ExecutionExit::HostReturn,
+                ))
+            })
+        },
+    );
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,

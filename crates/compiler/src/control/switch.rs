@@ -47,7 +47,7 @@ impl BlockBuilder<'_> {
     /// ```
     /// use relocade_compiler::{I32, Program};
     /// let mut program = Program::new();
-    /// let function = program.function::<fn(u8) -> u32>(|mut body, (selector,)| {
+    /// let function = program.function::<fn(u8) -> u32>(move |mut body, (selector,)| {
     ///     let value = body.switch_value::<I32, _>(&selector, &[2, 5], |arm, key| {
     ///         arm.yield_(match key {
     ///             Some(2) => 20,
@@ -56,7 +56,7 @@ impl BlockBuilder<'_> {
     ///         })
     ///     })?;
     ///     body.return_(value)
-    /// })?;
+    /// });
     /// program.export("choose", function)?;
     /// let bytes = program.compile()?;
     /// # Ok::<(), relocade_compiler::BuildError>(())

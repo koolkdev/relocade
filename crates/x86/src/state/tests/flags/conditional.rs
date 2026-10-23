@@ -16,53 +16,51 @@ mod composition;
 fn conditional_publication(local_base: bool) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(bool, bool, bool) -> u64>(|mut body, _| {
-            let mut state = State::new(&cpu);
-            if local_base {
-                state.write_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
-            }
-            let initial_equal = state.condition(&mut body, Condition::E)?;
-            let first = body.parameter::<I1>(0)?;
-            state.write_flags(
-                &mut body,
-                ArithmeticOp::Add.apply::<I8>(255, 1).flags.when(first),
-            )?;
-            let first_equal = state.condition(&mut body, Condition::E)?;
-            let stop = body.parameter::<I1>(2)?;
-            body.if_(stop, |mut arm| {
-                state.publish(&mut arm, 0x1002, 1)?;
-                arm.return_(
-                    initial_equal
-                        .unsigned()
-                        .extend::<I64>()
-                        .shl(1)
-                        .or(first_equal.unsigned().extend::<I64>()),
-                )
-            })?;
-            let second = body.parameter::<I1>(1)?;
-            state.write_flags(
-                &mut body,
-                FlagChange::from(StatusSource::<I16>::Logic {
-                    result: 0x8000.into(),
-                })
-                .when(second),
-            )?;
-            let equal = state.condition(&mut body, Condition::E)?;
-            let not_equal = state.condition(&mut body, Condition::NE)?;
-            let less = state.condition(&mut body, Condition::L)?;
-            let carry = state.condition(&mut body, Condition::B)?;
-            state.publish(&mut body, 0x1004, 2)?;
-            body.return_(
-                equal
+    let function = program.function::<fn(bool, bool, bool) -> u64>(move |mut body, _| {
+        let mut state = State::new(&cpu);
+        if local_base {
+            state.write_flags(&mut body, ArithmeticOp::Subtract.apply::<I32>(4, 5).flags)?;
+        }
+        let initial_equal = state.condition(&mut body, Condition::E)?;
+        let first = body.parameter::<I1>(0)?;
+        state.write_flags(
+            &mut body,
+            ArithmeticOp::Add.apply::<I8>(255, 1).flags.when(first),
+        )?;
+        let first_equal = state.condition(&mut body, Condition::E)?;
+        let stop = body.parameter::<I1>(2)?;
+        body.if_(stop, |mut arm| {
+            state.publish(&mut arm, 0x1002, 1)?;
+            arm.return_(
+                initial_equal
                     .unsigned()
                     .extend::<I64>()
-                    .or(not_equal.unsigned().extend::<I64>().shl(1))
-                    .or(less.unsigned().extend::<I64>().shl(2))
-                    .or(carry.unsigned().extend::<I64>().shl(3)),
+                    .shl(1)
+                    .or(first_equal.unsigned().extend::<I64>()),
             )
-        })
-        .unwrap();
+        })?;
+        let second = body.parameter::<I1>(1)?;
+        state.write_flags(
+            &mut body,
+            FlagChange::from(StatusSource::<I16>::Logic {
+                result: 0x8000.into(),
+            })
+            .when(second),
+        )?;
+        let equal = state.condition(&mut body, Condition::E)?;
+        let not_equal = state.condition(&mut body, Condition::NE)?;
+        let less = state.condition(&mut body, Condition::L)?;
+        let carry = state.condition(&mut body, Condition::B)?;
+        state.publish(&mut body, 0x1004, 2)?;
+        body.return_(
+            equal
+                .unsigned()
+                .extend::<I64>()
+                .or(not_equal.unsigned().extend::<I64>().shl(1))
+                .or(less.unsigned().extend::<I64>().shl(2))
+                .or(carry.unsigned().extend::<I64>().shl(3)),
+        )
+    });
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,
@@ -117,30 +115,28 @@ fn preserving_or_consuming_carry_uses_the_selected_conditional_source() {
     for preserve_carry in [false, true] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let function = program
-            .function::<fn(bool) -> u64>(|mut body, _| {
-                let mut state = State::new(&cpu);
-                let replace = body.parameter::<I1>(0)?;
-                state.write_flags(
-                    &mut body,
-                    FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() }).when(replace),
-                )?;
-                let result = if preserve_carry {
-                    let addition = ArithmeticOp::Add.apply::<I8>(255, 1);
-                    let result = addition.result.unsigned().extend::<I64>();
-                    state.write_flags(&mut body, addition.flags.preserving(StatusFlag::CF))?;
-                    result
-                } else {
-                    let carry = state.condition(&mut body, Condition::B)?;
-                    let addition = ArithmeticOp::Add.apply_with_carry::<I8>(255, 0, carry);
-                    let result = addition.result.unsigned().extend::<I64>();
-                    state.write_flags(&mut body, addition.flags)?;
-                    result
-                };
-                state.publish(&mut body, 0x1004, 2)?;
-                body.return_(result)
-            })
-            .unwrap();
+        let function = program.function::<fn(bool) -> u64>(move |mut body, _| {
+            let mut state = State::new(&cpu);
+            let replace = body.parameter::<I1>(0)?;
+            state.write_flags(
+                &mut body,
+                FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() }).when(replace),
+            )?;
+            let result = if preserve_carry {
+                let addition = ArithmeticOp::Add.apply::<I8>(255, 1);
+                let result = addition.result.unsigned().extend::<I64>();
+                state.write_flags(&mut body, addition.flags.preserving(StatusFlag::CF))?;
+                result
+            } else {
+                let carry = state.condition(&mut body, Condition::B)?;
+                let addition = ArithmeticOp::Add.apply_with_carry::<I8>(255, 0, carry);
+                let result = addition.result.unsigned().extend::<I64>();
+                state.write_flags(&mut body, addition.flags)?;
+                result
+            };
+            state.publish(&mut body, 0x1004, 2)?;
+            body.return_(result)
+        });
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
             execution_target: None,
@@ -179,28 +175,26 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
     for (pending_history, replace) in [(false, false), (false, true), (true, false), (true, true)] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let function = program
-            .function::<fn(bool) -> u64>(|mut body, _| {
-                let mut state = State::new(&cpu);
-                if pending_history {
-                    let pending = body.parameter::<I1>(0)?;
-                    state.write_flags(
-                        &mut body,
-                        ArithmeticOp::Add.apply::<I16>(2, 3).flags.when(pending),
-                    )?;
-                }
-                let folded = body
-                    .value::<I32>(7)?
-                    .add(9)
-                    .eq(if replace { 16 } else { 17 });
+        let function = program.function::<fn(bool) -> u64>(move |mut body, _| {
+            let mut state = State::new(&cpu);
+            if pending_history {
+                let pending = body.parameter::<I1>(0)?;
                 state.write_flags(
                     &mut body,
-                    FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() }).when(folded),
+                    ArithmeticOp::Add.apply::<I16>(2, 3).flags.when(pending),
                 )?;
-                state.publish(&mut body, 0x1002, 1)?;
-                body.return_(0_u64)
-            })
-            .unwrap();
+            }
+            let folded = body
+                .value::<I32>(7)?
+                .add(9)
+                .eq(if replace { 16 } else { 17 });
+            state.write_flags(
+                &mut body,
+                FlagChange::from(StatusSource::<I8>::Logic { result: 0.into() }).when(folded),
+            )?;
+            state.publish(&mut body, 0x1002, 1)?;
+            body.return_(0_u64)
+        });
         program.export("run", function).unwrap();
         let compiled = CompiledModule {
             execution_target: None,
@@ -246,78 +240,73 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
         results: vec![Type::I32],
     });
     foreign_program
-        .define(foreign_function, |foreign_body| {
+        .define(foreign_function, move |foreign_body| {
             let foreign = foreign_body.parameter::<I32>(0).unwrap();
             let mut program = Program::new();
             let cpu = Cpu::declare(&mut program);
-            let function = program
-                .function::<fn(bool) -> u32>(|mut body, _| {
-                    let mut state = State::new(&cpu);
-                    let pending = body.parameter::<I1>(0)?;
-                    let current = StatusSource::<I8>::Logic { result: 42.into() };
-                    state.write_flags(&mut body, FlagChange::from(current).when(pending))?;
-                    let mut child = None;
-                    body.if_(false, |mut arm| {
-                        child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
-                        Ok(())
-                    })?;
-                    for (invalid, error) in [
-                        (foreign, BuildError::ForeignBody),
-                        (child.unwrap(), BuildError::OutOfScope),
-                    ] {
-                        let valid = StatusSource::<I32>::Logic { result: 3.into() };
-                        assert_eq!(
-                            state.write_flags(
-                                &mut body,
-                                FlagChange::from(valid).when(invalid.eq(0))
-                            ),
-                            Err(error.clone())
-                        );
-                        for false_first in [false, true] {
-                            let change =
-                                FlagChange::from(StatusSource::<I32>::Logic { result: 3.into() });
-                            let change = if false_first {
-                                change.when(false).when(invalid.eq(0))
-                            } else {
-                                change.when(invalid.eq(0)).when(false)
+            let function = program.function::<fn(bool) -> u32>(move |mut body, _| {
+                let mut state = State::new(&cpu);
+                let pending = body.parameter::<I1>(0)?;
+                let current = StatusSource::<I8>::Logic { result: 42.into() };
+                state.write_flags(&mut body, FlagChange::from(current).when(pending))?;
+                let mut child = None;
+                body.if_(false, |mut arm| {
+                    child = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
+                    Ok(())
+                })?;
+                for (invalid, error) in [
+                    (foreign, BuildError::ForeignBody),
+                    (child.unwrap(), BuildError::OutOfScope),
+                ] {
+                    let valid = StatusSource::<I32>::Logic { result: 3.into() };
+                    assert_eq!(
+                        state.write_flags(&mut body, FlagChange::from(valid).when(invalid.eq(0))),
+                        Err(error.clone())
+                    );
+                    for false_first in [false, true] {
+                        let change =
+                            FlagChange::from(StatusSource::<I32>::Logic { result: 3.into() });
+                        let change = if false_first {
+                            change.when(false).when(invalid.eq(0))
+                        } else {
+                            change.when(invalid.eq(0)).when(false)
+                        };
+                        assert_eq!(state.write_flags(&mut body, change), Err(error.clone()));
+                    }
+                    for condition in [false, true] {
+                        for flag in StatusFlag::ALL {
+                            let invalid_source = StatusSource::<I32>::Explicit {
+                                flags: StatusFlag::ALL.map(|candidate| {
+                                    if candidate == flag {
+                                        invalid.eq(0)
+                                    } else {
+                                        false.into()
+                                    }
+                                }),
                             };
-                            assert_eq!(state.write_flags(&mut body, change), Err(error.clone()));
-                        }
-                        for condition in [false, true] {
-                            for flag in StatusFlag::ALL {
-                                let invalid_source = StatusSource::<I32>::Explicit {
-                                    flags: StatusFlag::ALL.map(|candidate| {
-                                        if candidate == flag {
-                                            invalid.eq(0)
-                                        } else {
-                                            false.into()
-                                        }
-                                    }),
-                                };
-                                assert_eq!(
-                                    state.write_flags(
-                                        &mut body,
-                                        FlagChange::from(invalid_source).when(condition)
-                                    ),
-                                    Err(error.clone())
-                                );
-                            }
                             assert_eq!(
                                 state.write_flags(
                                     &mut body,
-                                    FlagChange::from(StatusSource::Logic {
-                                        result: invalid.clone()
-                                    })
-                                    .when(condition),
+                                    FlagChange::from(invalid_source).when(condition)
                                 ),
                                 Err(error.clone())
                             );
                         }
+                        assert_eq!(
+                            state.write_flags(
+                                &mut body,
+                                FlagChange::from(StatusSource::Logic {
+                                    result: invalid.clone()
+                                })
+                                .when(condition),
+                            ),
+                            Err(error.clone())
+                        );
                     }
-                    state.publish(&mut body, 0x1002, 1)?;
-                    body.return_(0)
-                })
-                .unwrap();
+                }
+                state.publish(&mut body, 0x1002, 1)?;
+                body.return_(0)
+            });
             program.export("run", function).unwrap();
             let bytes = program.compile().unwrap();
             Validator::new().validate_all(&bytes).unwrap();
@@ -325,29 +314,29 @@ fn rejected_conditional_sources_and_predicates_leave_pending_flags_unchanged() {
             foreign_body.return_(0)
         })
         .unwrap();
+    foreign_program.export("foreign", foreign_function).unwrap();
+    foreign_program.compile().unwrap();
 }
 
 #[test]
 fn conditional_publication_keeps_constant_control_depth_as_history_grows() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program
-        .function::<fn(u32) -> u32>(|mut body, _| {
-            let mut state = State::new(&cpu);
-            let selector = body.parameter::<I32>(0)?;
-            for index in 0..256 {
-                state.write_flags(
-                    &mut body,
-                    FlagChange::from(StatusSource::<I32>::Logic {
-                        result: index.into(),
-                    })
-                    .when(selector.eq(index)),
-                )?;
-            }
-            state.publish(&mut body, 0x1200, 256)?;
-            body.return_(0)
-        })
-        .unwrap();
+    let function = program.function::<fn(u32) -> u32>(move |mut body, _| {
+        let mut state = State::new(&cpu);
+        let selector = body.parameter::<I32>(0)?;
+        for index in 0..256 {
+            state.write_flags(
+                &mut body,
+                FlagChange::from(StatusSource::<I32>::Logic {
+                    result: index.into(),
+                })
+                .when(selector.eq(index)),
+            )?;
+        }
+        state.publish(&mut body, 0x1200, 256)?;
+        body.return_(0)
+    });
     program.export("run", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();

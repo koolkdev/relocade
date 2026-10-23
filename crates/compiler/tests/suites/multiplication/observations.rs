@@ -72,7 +72,7 @@ where
             Type::I1,
             Type::I32,
         ],
-        |mut body| {
+        move |mut body| {
             let left = body.parameter::<I32>(0)?.truncate::<T>().sub(1);
             let right = body.parameter::<I32>(1)?.truncate::<T>().add(1);
             let product = left.mul(right);
@@ -132,7 +132,7 @@ fn multiplication_bounds_mask_only_products_that_can_exceed_the_logical_width() 
         (0x0f, vec!["and", "and", "multiply"]),
         (0xff, vec!["multiply", "and"]),
     ] {
-        let module = Fixture::new().expression(&[Type::I8; 2], |body| {
+        let module = Fixture::new().expression(&[Type::I8; 2], move |body| {
             let left = body.parameter::<I8>(0).unwrap().and(mask);
             let right = body.parameter::<I8>(1).unwrap().and(mask);
             left.mul(right).unsigned().extend::<I32>()
@@ -159,7 +159,7 @@ const SNAPSHOT_CASES: &[(i32, i32, [u8; 8])] = &[
 fn product_snapshot() -> TestModule {
     let mut fixture = Fixture::new();
     let memory = fixture.memory("state", SNAPSHOT_INITIAL);
-    fixture.function(&[Type::I1], &[Type::I32], |mut body| {
+    fixture.function(&[Type::I1], &[Type::I32], move |mut body| {
         let branch = body.parameter::<I1>(0)?;
         let left = body.load::<I8>(memory, 0)?.unsigned().extend::<I32>();
         let right = body.load::<I32>(memory, 4)?;

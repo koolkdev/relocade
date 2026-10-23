@@ -12,13 +12,11 @@ fn machine_changes_are_observed_before_a_later_call_restores_them() {
         maximum: None,
         shared: false,
     });
-    let toggle = program
-        .function::<fn() -> u32>(|mut body, ()| {
-            let value = body.load::<I32>(machine, 0)?;
-            body.store(machine, 0, value.xor(1))?;
-            body.return_(0)
-        })
-        .unwrap();
+    let toggle = program.function::<fn() -> u32>(move |mut body, ()| {
+        let value = body.load::<I32>(machine, 0)?;
+        body.store(machine, 0, value.xor(1))?;
+        body.return_(0)
+    });
     program.export("toggle", toggle).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
         execution_target: None,
@@ -35,9 +33,7 @@ fn host_edits_are_observed_without_module_memory_imports() {
     use super::{Argument, Event, Observation, Outcome, Snapshot};
 
     let mut program = Program::new();
-    let entry = program
-        .function::<fn() -> u32>(|body, ()| body.return_(0))
-        .unwrap();
+    let entry = program.function::<fn() -> u32>(move |body, ()| body.return_(0));
     program.export("entry", entry).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
         execution_target: None,

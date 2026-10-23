@@ -1,6 +1,6 @@
 //! Reclaim unused storage after placement has released its value-ID caches.
 use super::{
-    super::{BlockItem, EffectId, Exit, FunctionGraph},
+    super::{BlockItem, EffectId, Exit, FunctionGraph, OperationKind},
     liveness::Retained,
 };
 
@@ -49,6 +49,7 @@ pub(super) fn compact(graph: &mut FunctionGraph, reachable: &[bool], mut retaine
     for (index, block) in graph.blocks.iter_mut().enumerate() {
         if !reachable[index] {
             block.items = Vec::new();
+            block.callees = Vec::new();
             block.parameters = Vec::new();
             block.exit = Exit::Trap;
         }
@@ -84,11 +85,17 @@ pub(super) fn compact(graph: &mut FunctionGraph, reachable: &[bool], mut retaine
         .collect();
     graph.effects.shrink_to_fit();
     for block in &mut graph.blocks {
+        block.callees.clear();
         for parameter in &mut block.parameters {
             *parameter = remapping.value(*parameter);
         }
         for item in &mut block.items {
             *item = remapping.producer(*item);
+            if let BlockItem::Effect(effect) = item {
+                if let OperationKind::Call { target } = graph.effects[effect.0].operation.kind() {
+                    block.callees.push(target);
+                }
+            }
         }
         block.exit.map_inputs(|value| remapping.value(value));
     }

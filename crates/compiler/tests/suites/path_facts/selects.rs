@@ -5,7 +5,7 @@ fn correlated_fields(independent: bool) -> TestModule {
     Fixture::new().function(
         &[Type::I1, Type::I1, Type::I64, Type::I64],
         &[Type::I1],
-        |body| {
+        move |body| {
             let first = body.parameter::<I1>(0)?;
             let second = if independent {
                 body.parameter::<I1>(1)?

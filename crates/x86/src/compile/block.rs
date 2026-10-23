@@ -113,26 +113,22 @@ impl Compiler {
         let memory = decoded_instructions
             .iter()
             .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
-            .then(|| Memory::declare(&mut program, profile))
-            .transpose()?;
+            .then(|| Memory::declare(&mut program, profile));
         let runtime = Runtime::declare(&mut program);
-        let function = program.function::<crate::abi::ExecutionSignature>(|body, ()| {
-            let mut execution = ExecutionBuilder::new(
-                body,
-                &cpu,
-                memory.as_ref(),
-                runtime,
-                start_eip,
-                self.target,
-            )?
-            .with_interpreter_fallback()
-            .with_observed_cpu(self.observed_cpu.as_ref());
-            execution.guard_fetch_span(bytes.len() - remaining_bytes.len())?;
+        let target = self.target;
+        let observed_cpu = self.observed_cpu;
+        let byte_len = bytes.len() - remaining_bytes.len();
+        let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
+            let mut execution =
+                ExecutionBuilder::new(body, &cpu, memory.as_ref(), runtime, start_eip, target)?
+                    .with_interpreter_fallback()
+                    .with_observed_cpu(observed_cpu.as_ref());
+            execution.guard_fetch_span(byte_len)?;
             for decoded_instruction in decoded_instructions {
                 execution.execute(decoded_instruction)?;
             }
             execution.dispatch()
-        })?;
+        });
         let entry = format!("block_{start_eip:x}");
         program.export(&entry, function)?;
         Ok(CompiledModule {

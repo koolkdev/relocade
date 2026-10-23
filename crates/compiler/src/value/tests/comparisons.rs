@@ -8,7 +8,7 @@ fn uniform_constant_choices_fold_comparisons_in_both_operand_orders() {
         results: vec![Type::I1],
     });
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let first = body.parameter::<I32>(0).unwrap().eq(0);
             let second = body.parameter::<I32>(1).unwrap().eq(0);
             let choice = first.select::<I16>(0, second.select::<I16>(1, 2));
@@ -27,6 +27,7 @@ fn uniform_constant_choices_fold_comparisons_in_both_operand_orders() {
             body.return_(choice.eq(3))
         })
         .unwrap();
+    program.export("run", function).unwrap();
     program.compile().unwrap();
 }
 
@@ -39,7 +40,7 @@ fn constant_choice_comparisons_use_the_logical_sign() {
             results: vec![Type::I1],
         });
         program
-            .define(function, |body| {
+            .define(function, move |body| {
                 let condition = body.parameter::<I32>(0).unwrap().eq(0);
                 let high_bit = Val::<T>::literal(1_u64 << (T::TYPE.bits() - 1));
                 let minus_one = Val::<T>::literal(T::TYPE.mask());
@@ -57,6 +58,7 @@ fn constant_choice_comparisons_use_the_logical_sign() {
                 body.return_(choice.signed().lt(0))
             })
             .unwrap();
+        program.export("run", function).unwrap();
         program.compile().unwrap();
     }
     check::<I8>();
@@ -73,7 +75,7 @@ fn mixed_or_unknown_choices_keep_a_runtime_comparison() {
         results: vec![Type::I1, Type::I1],
     });
     program
-        .define(function, |body| {
+        .define(function, move |body| {
             let condition = body.parameter::<I32>(0).unwrap().eq(0);
             let unknown = body.parameter::<I32>(1).unwrap();
             let mixed = condition.select::<I32>(0, 3).eq(3);
@@ -107,7 +109,7 @@ fn folded_choice_comparisons_retain_the_conditions_scope() {
         results: vec![Type::I1],
     });
     program
-        .define(function, |mut body| {
+        .define(function, move |mut body| {
             let input = body.parameter::<I32>(0).unwrap();
             let mut comparison = None;
             body.if_(true, |mut child| {
@@ -129,5 +131,6 @@ fn folded_choice_comparisons_retain_the_conditions_scope() {
             body.return_(false)
         })
         .unwrap();
+    program.export("run", function).unwrap();
     program.compile().unwrap();
 }

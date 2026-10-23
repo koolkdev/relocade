@@ -12,7 +12,7 @@ use super::{
     DecodeContinuation, DecodeState, InstructionDecoder, RuntimeDecoder,
 };
 
-impl RuntimeDecoder<'_> {
+impl RuntimeDecoder {
     pub(super) fn decode_cycle(
         &self,
         mut body: BlockBuilder<'_>,
@@ -82,7 +82,7 @@ impl RuntimeDecoder<'_> {
     }
 }
 
-impl<C> InstructionDecoder<'_, '_, C>
+impl<C> InstructionDecoder<'_, C>
 where
     C: Fn(BlockBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
