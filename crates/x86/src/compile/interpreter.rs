@@ -122,15 +122,9 @@ impl Compiler {
             },
             move |body, decoded, continuation| {
                 let ends_block = decoded.instruction.ends_block();
-                let mut execution = ExecutionBuilder::new(
-                    body,
-                    &cpu,
-                    Some(&memory),
-                    runtime,
-                    &decoded.eip,
-                    target,
-                )?
-                .with_cpu_features_from_context()?;
+                let mut execution =
+                    ExecutionBuilder::new(body, &cpu, &memory, runtime, &decoded.eip, target)?
+                        .with_cpu_features_from_context()?;
                 execution.execute(decoded)?;
                 if ends_block {
                     execution.dispatch()

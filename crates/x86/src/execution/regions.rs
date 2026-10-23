@@ -30,7 +30,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
     ) -> impl for<'body> Fn(BlockBuilder<'body>) -> ExecutionBuilder<'body, 'module> + use<'module>
     {
         let state = self.state.clone();
-        let memory = self.memory.clone();
+        let accesses = self.accesses.clone();
         let segments = self.segments.clone();
         let target = self.target;
         let cpu_features = self.cpu_features.clone();
@@ -44,7 +44,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         move |body| ExecutionBuilder {
             body,
             state: state.clone(),
-            memory: memory.clone(),
+            accesses: accesses.clone(),
             segments: segments.clone(),
             target,
             cpu_features: cpu_features.clone(),

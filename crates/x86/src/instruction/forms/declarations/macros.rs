@@ -143,25 +143,19 @@ macro_rules! declaration_opcode {
 
 macro_rules! declaration_effect {
     (serializing) => {
-        Effect::Serializing
+        ExecutionEffect::Serializing
     };
     (port_io) => {
-        Effect::PortIo
+        ExecutionEffect::PortIo
     };
     (segment_load) => {
-        Effect::SegmentLoad
-    };
-    (memory_read) => {
-        Effect::MemoryRead
-    };
-    (memory_write) => {
-        Effect::MemoryWrite
+        ExecutionEffect::SegmentLoad
     };
     (control_transfer) => {
-        Effect::ControlTransfer
+        ExecutionEffect::ControlTransfer
     };
     (unconditional_fault) => {
-        Effect::UnconditionalFault
+        ExecutionEffect::UnconditionalFault
     };
 }
 

@@ -110,17 +110,14 @@ impl Compiler {
 
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
-        let memory = decoded_instructions
-            .iter()
-            .any(|decoded_instruction| decoded_instruction.instruction.uses_memory())
-            .then(|| Memory::declare(&mut program, profile));
+        let memory = Memory::declare(&mut program, profile);
         let runtime = Runtime::declare(&mut program);
         let target = self.target;
         let observed_cpu = self.observed_cpu;
         let byte_len = bytes.len() - remaining_bytes.len();
         let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
             let mut execution =
-                ExecutionBuilder::new(body, &cpu, memory.as_ref(), runtime, start_eip, target)?
+                ExecutionBuilder::new(body, &cpu, &memory, runtime, start_eip, target)?
                     .with_interpreter_fallback()
                     .with_observed_cpu(observed_cpu.as_ref());
             execution.guard_fetch_span(byte_len)?;

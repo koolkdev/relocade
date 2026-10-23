@@ -1,6 +1,7 @@
 mod budget;
 mod dispatch;
 mod fetch;
+mod memory;
 
 use super::*;
 use crate::SegmentProfile;

@@ -125,11 +125,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         linear: impl Into<Val<I32>>,
     ) -> Result<Val<T>, BuildError> {
         let access = self.resolve_access(&linear.into(), T::BYTES, Intent::Read)?;
-        self.memory
-            .as_ref()
-            .expect("a memory read declares guest memory")
-            .memory()
-            .read(&mut self.body, &access, 0)
+        self.accesses.memory().read(&mut self.body, &access, 0)
     }
 
     pub(super) fn read_memory<T: TransferType>(
@@ -174,11 +170,7 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         bindings: &[RegisterValue],
     ) -> Result<MemoryOperand<'memory>, BuildError> {
         let offset = address::resolve(&mut self.body, &mut self.state, address.offset, bindings)?;
-        let memory = self
-            .memory
-            .as_ref()
-            .expect("a memory operand declares guest memory")
-            .memory();
+        let memory = self.accesses.memory();
         let access = self.checked(&address.segment, &offset, span, intent)?;
         Ok(MemoryOperand {
             memory,
