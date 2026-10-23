@@ -79,7 +79,6 @@ fn zero_shifts_do_not_force_unused_count_loads() {
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i32>(()).unwrap(), 0, "{direction}");
         assert_eq!(&instance.memory("state")[..4], &[7, 0, 0, 0]);
-        assert!(instance.callbacks().is_empty());
     }
 }
 

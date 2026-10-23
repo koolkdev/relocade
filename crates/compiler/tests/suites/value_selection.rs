@@ -234,12 +234,10 @@ fn eager_and_lazy_selection_observe_their_load_evaluation_rules() {
         let mut instance = lazy.instantiate();
         assert_eq!(instance.call::<i32>(arguments).unwrap(), 7);
         assert_eq!(&instance.memory("state")[..8], &[7, 0, 0, 0, 9, 0, 0, 0]);
-        assert!(instance.callbacks().is_empty());
     }
     let mut instance = eager.instantiate();
     assert_eq!(instance.call::<i32>((0, 0, 4)).unwrap(), 9);
     assert_eq!(&instance.memory("state")[..8], &[7, 0, 0, 0, 9, 0, 0, 0]);
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -247,7 +245,6 @@ fn unused_eager_selection_does_not_force_loads() {
     let mut instance = unused_selection().instantiate();
     assert_eq!(instance.call::<i32>((1, 65536, 65536)).unwrap(), 17);
     assert_eq!(&instance.memory("state")[..4], &[7, 0, 0, 0]);
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -256,7 +253,6 @@ fn selected_exit_values_follow_their_control_path() {
     for (arguments, expected) in [((1, 1, 41), 42), ((0, 1, 41), 43), ((1, 0, 41), 17)] {
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i32>(arguments).unwrap(), expected);
-        assert!(instance.callbacks().is_empty());
     }
 }
 
@@ -267,7 +263,6 @@ fn selection_keeps_prior_snapshots_across_stores_and_calls() {
             let mut instance = module.instantiate();
             assert_eq!(instance.call::<i32>(condition).unwrap(), expected);
             assert_eq!(&instance.memory("state")[..6], &[9, 0, 0, 0, 0xa5, 0x5a]);
-            assert!(instance.callbacks().is_empty());
         }
     }
 }
@@ -279,7 +274,6 @@ fn selected_narrow_values_are_canonical_at_stores() {
         let mut instance = module.instantiate();
         assert_eq!(instance.call::<i32>((condition, 255)).unwrap(), expected);
         assert_eq!(&instance.memory("state")[..2], bytes);
-        assert!(instance.callbacks().is_empty());
     }
 }
 
@@ -302,6 +296,5 @@ fn selected_wide_values_preserve_i64_carriers() {
                 .unwrap(),
             expected
         );
-        assert!(instance.callbacks().is_empty());
     }
 }

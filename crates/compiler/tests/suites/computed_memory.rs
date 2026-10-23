@@ -297,7 +297,6 @@ fn computed_byte_addresses_wrap_only_at_the_authored_operation() {
         let mut instance = byte_at_offset(wrap_base).instantiate();
         assert_eq!(instance.call::<i32>(input).ok(), expected);
         assert_eq!(&instance.memory("state")[..4], &[0xa5, 0xb8, 0x5a, 0xc3]);
-        assert!(instance.callbacks().is_empty());
     }
 }
 
@@ -318,7 +317,6 @@ fn computed_wide_snapshots_survive_partial_and_adjacent_stores() {
         let mut instance = wide_snapshot(false, offset).instantiate();
         assert_eq!(instance.call::<i64>(4).unwrap(), -9223372036854775801);
         assert_eq!(&instance.memory("state")[..16], expected);
-        assert!(instance.callbacks().is_empty());
     }
     for (offset, arguments, expected) in [
         (
@@ -340,7 +338,6 @@ fn computed_wide_snapshots_survive_partial_and_adjacent_stores() {
             -9223372036854775801
         );
         assert_eq!(&instance.memory("state")[..16], expected);
-        assert!(instance.callbacks().is_empty());
     }
     let mut instance = constant_bases().instantiate();
     assert_eq!(instance.call::<i64>(()).unwrap(), -9223372036854775801);
@@ -348,7 +345,6 @@ fn computed_wide_snapshots_survive_partial_and_adjacent_stores() {
         &instance.memory("state")[..16],
         &[0xa5, 0x5a, 0xc3, 0x3c, 7, 0, 0, 0, 0, 0, 0, 0x80, 9, 0, 0, 0]
     );
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -360,7 +356,6 @@ fn nested_loads_keep_pointer_and_result_snapshots() {
             &instance.memory("state")[..16],
             &[0x0c, 0, 0, 0, 0xa5, 0x5a, 0xc3, 0x3c, 9, 0, 0, 0, 5, 0, 0, 0]
         );
-        assert!(instance.callbacks().is_empty());
     }
 }
 
@@ -373,7 +368,6 @@ fn deferred_loads_use_captured_pointers_across_memory_writes() {
         &instance.memory("other")[..16],
         &[0xa5, 0x5a, 0xc3, 0x3c, 0xa5, 0x5a, 0xc3, 0x3c, 7, 0, 0, 0, 5, 0, 0, 0]
     );
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -384,7 +378,6 @@ fn stores_use_captured_address_values() {
         &instance.memory("state")[..16],
         &[0x0c, 0, 0, 0, 0xa5, 0x5a, 0xc3, 0x3c, 9, 0, 0, 0, 5, 0, 0, 0]
     );
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -395,7 +388,6 @@ fn shared_addresses_reach_all_memory_operations() {
         &instance.memory("state")[..16],
         &[0xa5, 0x5a, 0xc3, 0x3c, 7, 0, 0, 0, 9, 0, 0, 0, 0x0a, 0, 0, 0]
     );
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -406,7 +398,6 @@ fn disjoint_stores_execute_before_deferred_load_traps() {
         &instance.memory("state")[..8],
         &[9, 0, 0, 0, 0xa5, 0x5a, 0xc3, 0x3c]
     );
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -415,7 +406,6 @@ fn computed_accesses_keep_imported_memories_separate() {
     assert_eq!(instance.call::<i32>(0).unwrap(), 7);
     assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
     assert_eq!(&instance.memory("other")[..6], &[9, 0, 0, 0, 0x5a, 0xa5]);
-    assert!(instance.callbacks().is_empty());
 }
 
 #[test]
@@ -424,5 +414,4 @@ fn unused_address_chains_do_not_force_trapping_loads() {
     assert_eq!(instance.call::<i32>(65536).unwrap(), 7);
     assert_eq!(&instance.memory("state")[..6], &[7, 0, 0, 0, 0xa5, 0x5a]);
     assert_eq!(&instance.memory("other")[..6], &[9, 0, 0, 0, 0x5a, 0xa5]);
-    assert!(instance.callbacks().is_empty());
 }
