@@ -15,7 +15,7 @@ pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use limit::SegmentLimit;
 pub use packed::Descriptor;
 pub use profile::SegmentProfile;
-pub use query::SegmentDescriptorInfo;
+pub use query::{SegmentDescriptorInfo, SegmentDescriptorInfoValues};
 pub(crate) use selection::SegmentSelection;
 pub use tables::DescriptorTables;
 

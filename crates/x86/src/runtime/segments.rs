@@ -1,7 +1,9 @@
 //! Descriptor imports, immediately decoded into named architectural values.
 
 use super::Runtime;
-use crate::{segment::SegmentValues, Exception, ExceptionVector, Segment, SegmentDescriptorInfo};
+use crate::{
+    segment::SegmentValues, Exception, ExceptionVector, Segment, SegmentDescriptorInfoValues,
+};
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
 
 pub(crate) struct ResolvedValues {
@@ -16,20 +18,8 @@ impl Runtime {
         self,
         body: &mut BlockBuilder<'_>,
         selector: &Val<I16>,
-    ) -> Result<SegmentDescriptorInfo<Val<I1>, Val<I32>>, BuildError> {
-        let (lar_valid, lsl_valid, readable, writable, access_rights, limit) =
-            body.call::<(I1, I1, I1, I1, I32, I32)>(
-                self.query_segment_descriptor,
-                &[selector.into()],
-            )?;
-        Ok(SegmentDescriptorInfo {
-            lar_valid,
-            lsl_valid,
-            readable,
-            writable,
-            access_rights,
-            limit,
-        })
+    ) -> Result<SegmentDescriptorInfoValues, BuildError> {
+        self.query_segment_descriptor.call(body, selector)
     }
 
     /// The host reads only canonical table registers and dedicated descriptor

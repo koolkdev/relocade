@@ -5,7 +5,7 @@ use relocade_compiler::{BuildError, Val, I1, I16, I32};
 use super::ExecutionBuilder;
 use crate::{
     address::MemoryAddress, memory::Intent, register::RegisterType, segment::SegmentValues,
-    ExecutionProfile, Segment, SegmentDescriptorInfo,
+    ExecutionProfile, Segment, SegmentDescriptorInfoValues,
 };
 
 /// A resolved segment cache and its destination, not yet installed in CPU state.
@@ -40,7 +40,7 @@ impl ExecutionBuilder<'_, '_> {
     pub(crate) fn query_segment_descriptor(
         &mut self,
         selector: &Val<I16>,
-    ) -> Result<SegmentDescriptorInfo<Val<I1>, Val<I32>>, BuildError> {
+    ) -> Result<SegmentDescriptorInfoValues, BuildError> {
         self.runtime
             .query_segment_descriptor(&mut self.body, selector)
     }
