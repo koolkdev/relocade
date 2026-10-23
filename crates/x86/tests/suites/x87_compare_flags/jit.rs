@@ -1,19 +1,8 @@
 //! Native comparisons publish flags; exception restarts preserve the preceding producer.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{machine::expected, step::TestModule, x87::loaded_memory_operand};
 use relocade_x86::compile_block_from_bytes;
-
-fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16), opcode: u16) -> CpuState {
-    cpu = complete_x87(cpu, 6, opcode);
-    cpu.x87.status.top = cpu.x87.status.top.wrapping_sub(1) & 7;
-    cpu.x87.status.c1 = 0;
-    cpu.x87.data_offset = address;
-    cpu.x87.data_selector = 0x23;
-    let top = cpu.x87.status.top;
-    write_value(&mut cpu, usize::from(top), value);
-    cpu
-}
 
 #[test]
 fn native_and_extended_ordering() {
@@ -52,8 +41,9 @@ fn native_and_extended_ordering() {
             image.map(4, 0x8000, false);
             image.data(0x8000, &bits.to_le_bytes());
             image.data(0x8008, &1.0_f64.to_bits().to_le_bytes());
-            let right = loaded(image.cpu, 0x4008, ONE, 0x0505);
-            let left = loaded(right, 0x4000, value, (u16::from(load & 7) << 8) | 0x05);
+            let right = loaded_memory_operand(image.cpu, 0x4008, ONE, 0x0505);
+            let left =
+                loaded_memory_operand(right, 0x4000, value, (u16::from(load & 7) << 8) | 0x05);
             let result = completed(left, 0x07e9, flags, 0, 1);
             assert_eq!(
                 block.observe(&image.input(), 1),

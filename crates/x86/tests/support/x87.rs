@@ -64,6 +64,24 @@ pub(crate) fn stack_image(code: &[u8], top: u8, tags: u16) -> Image {
     image
 }
 
+pub(crate) fn store_operand_image(
+    code: &[u8],
+    source: (u64, u16),
+    control: u16,
+    empty: bool,
+) -> Image {
+    let mut image = stack_image(code, 7, 0xffff);
+    image.cpu.x87.status.precision = 0;
+    set_control(&mut image.cpu.x87.control, control);
+    if empty {
+        // Empty slots retain a payload so a mistaken read remains observable.
+        write_register_bits(&mut image.cpu, 7, source);
+    } else {
+        write_value(&mut image.cpu, 7, source);
+    }
+    image
+}
+
 pub(crate) fn register_bits(cpu: &CpuState, physical: usize) -> (u64, u16) {
     let register = cpu.x87.registers[physical];
     (register.significand, register.sign_exponent)
@@ -82,6 +100,23 @@ pub(crate) fn complete_x87(mut cpu: CpuState, bytes: u32, opcode: u16) -> CpuSta
     // operations retain the architecturally undefined data pointer.
     cpu.x87.opcode = opcode;
     retire(cpu, bytes as usize)
+}
+
+/// Checkpoint after a six-byte absolute memory load of a literal extended value.
+pub(crate) fn loaded_memory_operand(
+    cpu: CpuState,
+    address: u32,
+    value: (u64, u16),
+    opcode: u16,
+) -> CpuState {
+    let mut cpu = complete_x87(cpu, 6, opcode);
+    cpu.x87.status.top = cpu.x87.status.top.wrapping_sub(1) & 7;
+    cpu.x87.status.c1 = 0;
+    cpu.x87.data_offset = address;
+    cpu.x87.data_selector = 0x23;
+    let top = cpu.x87.status.top;
+    write_value(&mut cpu, usize::from(top), value);
+    cpu
 }
 
 pub(crate) fn real80(value: (u64, u16)) -> [u8; 10] {

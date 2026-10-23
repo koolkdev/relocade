@@ -1,19 +1,8 @@
 //! Native ordering retains exact values; operand exceptions restart before effects.
 
 use super::*;
-use crate::support::{machine::expected, step::TestModule};
+use crate::support::{machine::expected, step::TestModule, x87::loaded_memory_operand};
 use relocade_x86::compile_block_from_bytes;
-
-fn loaded(mut cpu: CpuState, address: u32, value: (u64, u16), opcode: u16) -> CpuState {
-    cpu = complete_x87(cpu, 6, opcode);
-    cpu.x87.status.top = cpu.x87.status.top.wrapping_sub(1) & 7;
-    cpu.x87.status.c1 = 0;
-    cpu.x87.data_offset = address;
-    cpu.x87.data_selector = 0x23;
-    let top = cpu.x87.status.top;
-    write_value(&mut cpu, usize::from(top), value);
-    cpu
-}
 
 fn native_values() {
     // Each native encoding has an independently specified extended snapshot.
@@ -71,10 +60,10 @@ fn native_values() {
             let mut steps = Vec::new();
             let mut cpu = image.cpu;
             if !memory {
-                cpu = loaded(cpu, 0x4008, values[right].1, 0x0505);
+                cpu = loaded_memory_operand(cpu, 0x4008, values[right].1, 0x0505);
                 steps.push(dispatch(cpu));
             }
-            cpu = loaded(cpu, 0x4000, values[left].1, 0x0505);
+            cpu = loaded_memory_operand(cpu, 0x4000, values[left].1, 0x0505);
             steps.push(dispatch(cpu));
             cpu = completed(
                 cpu,
@@ -130,7 +119,7 @@ fn operand_exception_restart() {
                 image.map(4, 0x8000, false);
                 image.data(0x8000, &1.0_f64.to_bits().to_le_bytes());
                 image.data(0x8008, &source.to_le_bytes());
-                let first = loaded(image.cpu, 0x4000, ONE, 0x0505);
+                let first = loaded_memory_operand(image.cpu, 0x4000, ONE, 0x0505);
                 assert_eq!(
                     block.observe(&image.input(), 1),
                     expected(
@@ -278,7 +267,7 @@ fn binary32_and_integer_comparisons_stay_compiled() {
         image.map(4, 0x8000, false);
         image.data(0x8000, &source.to_le_bytes());
         image.data(0x8008, &right.to_le_bytes());
-        let first = loaded(
+        let first = loaded_memory_operand(
             image.cpu,
             0x4000,
             value,
@@ -320,7 +309,7 @@ fn sign_changes_update_native_integer_comparisons() {
         image.cpu.x87.status = status(0x20);
         image.map(4, 0x8000, false);
         image.data(0x8000, &input.to_le_bytes());
-        let first = loaded(image.cpu, 0x4000, before, 0x0305);
+        let first = loaded_memory_operand(image.cpu, 0x4000, before, 0x0305);
         let mut changed = complete_x87(first, 2, 0x0100 | u16::from(operation));
         let top = changed.x87.status.top;
         write_value(&mut changed, usize::from(top), after);
