@@ -84,7 +84,7 @@ fn jump_relative<T: RegisterType>(
     displacement: Input<I32>,
     condition: Option<Condition>,
     fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
@@ -115,7 +115,7 @@ fn jump_if_count_zero<T: RegisterType>(
     displacement: Input<I32>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
@@ -131,7 +131,7 @@ fn loop_relative<T: RegisterType>(
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
     loop_condition: Option<Condition>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
@@ -144,9 +144,8 @@ where
         taken = taken.and(execution.condition(condition)?);
     }
     let target = relative_target::<T>(&fallthrough, displacement);
-    let next_eip = execution.branch(taken, target, fallthrough)?;
-    execution.write_address_register(Gpr32::Ecx, count)?;
-    Ok(next_eip)
+    execution.branch(taken, target, fallthrough)?;
+    execution.write_address_register(Gpr32::Ecx, count)
 }
 
 fn call_relative<T: RegisterType>(
@@ -154,15 +153,13 @@ fn call_relative<T: RegisterType>(
     displacement: Input<I32>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
     let displacement = displacement.read(execution)?;
     let target = relative_target::<T>(&fallthrough, displacement);
-    let target = execution.jump(target)?;
-    execution.push(fallthrough.truncate::<T>(), T::BYTES)?;
-    Ok(target)
+    execution.call::<T>(target, fallthrough)
 }
 
 fn call_indirect<T: RegisterType>(
@@ -170,15 +167,14 @@ fn call_indirect<T: RegisterType>(
     source: Input<T>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
     // The target observes entry registers and memory before the return-address push.
     let target = source.read(execution)?;
-    let target = execution.jump(target.unsigned().extend::<I32>())?;
-    execution.push(fallthrough.truncate::<T>(), T::BYTES)?;
-    Ok(target)
+    let target = target.unsigned().extend::<I32>();
+    execution.call::<T>(target, fallthrough)
 }
 
 fn jump_indirect<T: RegisterType>(
@@ -186,7 +182,7 @@ fn jump_indirect<T: RegisterType>(
     source: Input<T>,
     _condition: Option<Condition>,
     _fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
@@ -199,14 +195,10 @@ fn return_near<T: RegisterType>(
     discard_bytes: Input<I16>,
     _condition: Option<Condition>,
     _fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
+) -> Result<(), BuildError>
 where
     I32: AtLeast<T>,
 {
     let discard_bytes = discard_bytes.read(execution)?;
-    let frame = execution.pop_frame(T::BYTES, T::BYTES)?;
-    let value = frame.field::<T>(execution, 0)?.read(execution)?;
-    let target = execution.jump(value.unsigned().extend::<I32>())?;
-    frame.commit(execution, discard_bytes.unsigned().extend::<I32>())?;
-    Ok(target)
+    execution.return_near::<T>(discard_bytes)
 }

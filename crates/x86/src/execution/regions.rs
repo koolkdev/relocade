@@ -1,8 +1,8 @@
 //! Nested execution inherits a restart boundary and returns values or dispatches.
 
-use relocade_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1, I32};
+use relocade_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1};
 
-use super::ExecutionBuilder;
+use super::{ExecutionBuilder, Transfer};
 
 impl<'module> ExecutionBuilder<'_, 'module> {
     /// Completes a conditional transfer with its own effects and destination.
@@ -11,12 +11,13 @@ impl<'module> ExecutionBuilder<'_, 'module> {
     pub(crate) fn dispatch_if(
         &mut self,
         condition: impl Into<Val<I1>>,
-        transfer: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<Val<I32>, BuildError>,
+        transfer: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let nested = self.nested_builder();
         self.body.if_(condition, |body| {
             let mut arm = nested(body);
-            arm.eip = transfer(&mut arm)?;
+            transfer(&mut arm)?;
+            arm.eip = arm.transfer.eip();
             arm.completed += 1;
             arm.dispatch()
         })
@@ -54,6 +55,8 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             x87_opcode: x87_opcode.clone(),
             runtime,
             eip: eip.clone(),
+            transfer: Transfer::Fallthrough(eip.clone()),
+            requires_dispatch: false,
             completed,
             // A child can contain partial effects of the current instruction,
             // so it cannot restart that instruction from its entry state.

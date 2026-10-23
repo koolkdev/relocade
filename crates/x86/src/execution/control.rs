@@ -1,12 +1,14 @@
 //! Code fetch and control transfers check CS before instruction effects.
 
 mod far;
+mod interrupts;
+mod transfer;
 
-pub(crate) use far::CodeTarget;
+pub(super) use transfer::Transfer;
 
-use relocade_compiler::{BuildError, Val, I1, I32};
+use relocade_compiler::{AtLeast, BuildError, Val, I1, I16, I32};
 
-use crate::{exception::Exception, memory::Intent, segment::Segment};
+use crate::{exception::Exception, memory::Intent, register::RegisterType, segment::Segment};
 
 use super::ExecutionBuilder;
 
@@ -31,9 +33,10 @@ impl ExecutionBuilder<'_, '_> {
         Ok(())
     }
 
-    pub(crate) fn jump(&mut self, target: Val<I32>) -> Result<Val<I32>, BuildError> {
+    pub(crate) fn jump(&mut self, target: Val<I32>) -> Result<(), BuildError> {
         self.check_code_target(&target, None)?;
-        Ok(target)
+        self.transfer = Transfer::Jump(target);
+        Ok(())
     }
 
     pub(crate) fn branch(
@@ -41,9 +44,46 @@ impl ExecutionBuilder<'_, '_> {
         taken: Val<I1>,
         target: Val<I32>,
         fallthrough: Val<I32>,
-    ) -> Result<Val<I32>, BuildError> {
+    ) -> Result<(), BuildError> {
         self.check_code_target(&target, Some(&taken))?;
-        Ok(taken.select(target, fallthrough))
+        self.transfer = Transfer::Branch {
+            taken,
+            target,
+            fallthrough,
+        };
+        Ok(())
+    }
+
+    /// The target is captured before the return-address push. Neither a denied
+    /// target nor a failed push completes the call.
+    pub(crate) fn call<T: RegisterType>(
+        &mut self,
+        target: Val<I32>,
+        return_eip: Val<I32>,
+    ) -> Result<(), BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        self.check_code_target(&target, None)?;
+        self.push(return_eip.truncate::<T>(), T::BYTES)?;
+        self.transfer = Transfer::Call(target);
+        Ok(())
+    }
+
+    pub(crate) fn return_near<T: RegisterType>(
+        &mut self,
+        discard_bytes: Val<I16>,
+    ) -> Result<(), BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        let frame = self.pop_frame(T::BYTES, T::BYTES)?;
+        let value = frame.field::<T>(self, 0)?.read(self)?;
+        let target = value.unsigned().extend::<I32>();
+        self.check_code_target(&target, None)?;
+        frame.commit(self, discard_bytes.unsigned().extend::<I32>())?;
+        self.transfer = Transfer::Return(target);
+        Ok(())
     }
 
     fn check_code_target(
