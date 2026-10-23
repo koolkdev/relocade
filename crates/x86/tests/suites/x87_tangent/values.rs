@@ -1,7 +1,7 @@
 //! 500-bit tangent references after exact P4 pi66 reduction.
 //! Arbitrarily tiny positive tangents use x < tan(x) < x + half an ulp.
 
-use super::super::x87_trigonometric::values::Bounds;
+use crate::support::x87::reference::Bounds;
 pub(super) const VALUES: &[((u64, u16), Bounds)] = &[
     (
         (0x0000000000000000, 0x0000),
