@@ -1,5 +1,5 @@
 use super::*;
-use crate::{test_step as step, CompiledModule};
+use crate::test_step as step;
 use relocade_compiler::{Program, Signature, Type};
 
 #[test]
@@ -25,11 +25,7 @@ fn integer_rounding_preserves_evidence_across_word_boundaries() {
         )
         .unwrap();
     program.export("round", function).unwrap();
-    let module = step::TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "round".into(),
-        execution_target: None,
-    });
+    let module = step::TestModule::from_bytes(&program.compile().unwrap(), "round");
     for value in [0, 1, 3, (1 << 63) - 1, 1 << 63, (1 << 63) + 1, u64::MAX] {
         for fraction in 0..4 {
             for distance in [0, 1, 2, 31, 32, 63, 64, 65, 128, 16384] {

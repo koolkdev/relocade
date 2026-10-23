@@ -2,11 +2,7 @@ use super::*;
 use crate::test_step::{MmioUpdate, Observation};
 
 fn transfer(input: &Input, entry: &str) -> Observation {
-    let module = TestModule::new(&CompiledModule {
-        bytes: transfers().to_vec(),
-        entry: entry.into(),
-        execution_target: None,
-    });
+    let module = TestModule::from_bytes(transfers(), entry);
     module.observe(input, 1)
 }
 
@@ -214,11 +210,7 @@ fn remapping() {
         )
         .unwrap();
     program.export("read", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "read".into(),
-        execution_target: None,
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "read");
     let mut input = input();
     input.mmio_pages = vec![(8, 0x6000)];
     input.mmio_updates = vec![MmioUpdate {

@@ -4,11 +4,10 @@ use super::cached_reads_and_writes;
 use crate::alu::ArithmeticOp;
 use crate::flags::{Flag, FlagChange};
 use crate::state::{Cpu, State};
-use crate::CompiledModule;
 use relocade_compiler::{Program, Signature, Type, I1, I8};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
-fn stored_reader<const N: usize>(flags: [Flag; N]) -> CompiledModule {
+fn stored_reader<const N: usize>(flags: [Flag; N]) -> Vec<u8> {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -25,23 +24,19 @@ fn stored_reader<const N: usize>(flags: [Flag; N]) -> CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    program.compile().unwrap()
 }
 
 // Inspect only helper boundaries and direct byte loads, not instruction ordering.
-fn entry_shape(module: &CompiledModule) -> (Vec<Vec<ValType>>, Vec<u64>) {
-    Validator::new().validate_all(&module.bytes).unwrap();
+fn entry_shape(bytes: &[u8], entry_name: &str) -> (Vec<Vec<ValType>>, Vec<u64>) {
+    Validator::new().validate_all(bytes).unwrap();
     let mut types = Vec::new();
     let mut functions = Vec::new();
     let mut entry = None;
     let mut calls = Vec::new();
     let mut loads = Vec::new();
     let mut body_index = 0;
-    for payload in Parser::new(0).parse_all(&module.bytes) {
+    for payload in Parser::new(0).parse_all(bytes) {
         match payload.unwrap() {
             Payload::TypeSection(section) => {
                 types.extend(section.into_iter_err_on_gc_types().map(Result::unwrap))
@@ -60,7 +55,7 @@ fn entry_shape(module: &CompiledModule) -> (Vec<Vec<ValType>>, Vec<u64>) {
             Payload::ExportSection(section) => {
                 for export in section {
                     let export = export.unwrap();
-                    if export.kind == ExternalKind::Func && export.name == module.entry {
+                    if export.kind == ExternalKind::Func && export.name == entry_name {
                         entry = Some(export.index);
                     }
                 }
@@ -124,7 +119,7 @@ fn uncached_status_flags_are_grouped_once_and_cached_overlap_requests_only_missi
             vec![18, 19, 20, 21, 22],
         ),
     ] {
-        let (calls, mut loads) = entry_shape(&module);
+        let (calls, mut loads) = entry_shape(&module, "run");
         assert_eq!(
             calls,
             [vec![ValType::I32; 4]],
@@ -142,7 +137,7 @@ fn uncached_status_flags_are_grouped_once_and_cached_overlap_requests_only_missi
         ([Flag::ID, Flag::ID], vec![22]),
         ([Flag::AC, Flag::TF], vec![18, 21]),
     ] {
-        let (calls, mut loads) = entry_shape(&stored_reader(flags));
+        let (calls, mut loads) = entry_shape(&stored_reader(flags), "run");
         assert!(
             calls.is_empty(),
             "direct-only requests need no status helper"
@@ -151,7 +146,7 @@ fn uncached_status_flags_are_grouped_once_and_cached_overlap_requests_only_missi
         loads.dedup();
         assert_eq!(loads, expected_loads);
     }
-    let (calls, _) = entry_shape(&cached_reads_and_writes());
+    let (calls, _) = entry_shape(cached_reads_and_writes().bytes(), "run");
     assert_eq!(calls, [vec![ValType::I32; 1], vec![ValType::I32; 3]], "single CF, then only the missing PF/AF/ZF subset; overlapping reads and local writes need no other helper");
 }
 

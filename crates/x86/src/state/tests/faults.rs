@@ -1,11 +1,11 @@
 use super::super::{Cpu, State};
 use crate::exception::Exception;
 use crate::flags::Flag;
-use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use crate::{CompiledModule, CpuState, Gpr32};
+use crate::test_step::TestModule;
+use crate::{CpuState, Gpr32};
 use relocade_compiler::{Program, Signature, Type, I1, I32};
 
-fn conditional_fault(completed: u32) -> CompiledModule {
+fn conditional_fault(completed: u32) -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -42,11 +42,7 @@ fn conditional_fault(completed: u32) -> CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
@@ -59,7 +55,7 @@ fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
     initial.flags.status_source.kind = 9;
     initial.registers.eax = 0xffff_ffff;
     for (completed, fault_count, continued_count) in [(0, u64::MAX, 0), (2, 1, 2)] {
-        let module = TestModule::new(&conditional_fault(completed));
+        let module = conditional_fault(completed);
         for denied in [false, true] {
             let mut expected = initial;
             let result = if denied {
@@ -76,28 +72,16 @@ fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
                 expected.instruction_count = continued_count;
                 7
             };
-            let input = Input {
-                arguments: vec![
-                    Argument::I32(i32::from(denied)),
-                    Argument::I32(0x8000_1000_u32 as i32),
-                    Argument::I32(0xf123_4567_u32 as i32),
+            super::fixture::assert_result(
+                &module,
+                &initial,
+                &[
+                    i32::from(denied),
+                    0x8000_1000_u32 as i32,
+                    0xf123_4567_u32 as i32,
                 ],
-                ..Input::new(&initial.to_bytes())
-            };
-            assert_eq!(
-                module.observe(&input, 1),
-                Observation {
-                    events: vec![Event::Return {
-                        outcome: Outcome::Returned(vec![Argument::I64(result)]),
-                        snapshot: Snapshot {
-                            cpu: expected.to_bytes().to_vec(),
-                            guest: None
-                        },
-                    }],
-                    guest_unchanged: true,
-                    machine_unchanged: true,
-                },
-                "completed {completed}, denied {denied}"
+                &expected,
+                result,
             );
         }
     }

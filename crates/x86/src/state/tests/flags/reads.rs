@@ -7,7 +7,7 @@ use crate::alu::{ArithmeticOp, StatusSource};
 use crate::flags::{Flag, FlagChange};
 use crate::state::{Cpu, State};
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use crate::{CompiledModule, CpuState};
+use crate::CpuState;
 use relocade_compiler::{Program, Signature, Type, I1, I8};
 
 fn assert_reads(module: &TestModule, initial: &CpuState, arguments: &[i32], expected: &[i32]) {
@@ -32,7 +32,7 @@ fn assert_reads(module: &TestModule, initial: &CpuState, arguments: &[i32], expe
     );
 }
 
-fn mixed_history(local_base: bool) -> CompiledModule {
+fn mixed_history(local_base: bool) -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -89,11 +89,7 @@ fn mixed_history(local_base: bool) -> CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
@@ -125,14 +121,14 @@ fn ordered_reads_compose_stored_local_partial_and_conditional_flags_without_publ
             ],
         ),
     ] {
-        let module = TestModule::new(&mixed_history(local));
+        let module = mixed_history(local);
         for (arguments, expected) in rows {
             assert_reads(&module, &initial, &arguments, &expected);
         }
     }
 }
 
-fn cached_reads_and_writes() -> CompiledModule {
+fn cached_reads_and_writes() -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -177,16 +173,12 @@ fn cached_reads_and_writes() -> CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
 fn grouped_and_single_reads_share_cache_but_retain_values_across_later_writes() {
-    let module = TestModule::new(&cached_reads_and_writes());
+    let module = cached_reads_and_writes();
     let mut initial = initial_cpu();
     initial.flags.bytes.df = 0x81;
     initial.flags.bytes.id = 0x81;

@@ -1,6 +1,6 @@
 use super::*;
 use crate::floating::BinaryFormat;
-use crate::{test_step as step, CompiledModule};
+use crate::test_step as step;
 use relocade_compiler::{Program, Signature, Type, I32, I64};
 
 #[test]
@@ -39,11 +39,7 @@ fn loaded_binary64_values_compare_without_source_exceptions() {
         )
         .unwrap();
     program.export("classify", function).unwrap();
-    let module = step::TestModule::new(&CompiledModule {
-        bytes: program.compile().unwrap(),
-        entry: "classify".into(),
-        execution_target: None,
-    });
+    let module = step::TestModule::from_bytes(&program.compile().unwrap(), "classify");
     // Loaded subnormals are normal extended values; loaded SNaNs are quiet.
     // Comparison bits are LT/EQ/UN/IE/DE.
     for (bits, comparison, loaded_bits) in [
@@ -114,11 +110,7 @@ fn binary32_promotion_preserves_ordering_and_source_exceptions() {
             )
             .unwrap();
         program.export("compare", function).unwrap();
-        let module = step::TestModule::new(&CompiledModule {
-            bytes: program.compile().unwrap(),
-            entry: "compare".into(),
-            execution_target: None,
-        });
+        let module = step::TestModule::from_bytes(&program.compile().unwrap(), "compare");
         // LT/EQ/UN/IE/DE: loading quiets SNaN and normalizes narrow denormals;
         // a memory operand must still report its original exception evidence.
         for (left, right, loaded, direct) in [

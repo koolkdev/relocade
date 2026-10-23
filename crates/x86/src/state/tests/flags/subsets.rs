@@ -2,8 +2,8 @@ use crate::flags::{FlagMask, StatusFlag};
 use crate::state::access::cpu_load;
 use crate::state::Cpu;
 use crate::test_step::{Argument, CallPatches, Event, Input, Outcome, TestModule};
+use crate::CpuState;
 use crate::FlagBytes;
-use crate::{CompiledModule, CpuState};
 use relocade_compiler::{Program, Signature, Type, Val, I1, I64};
 use wasmparser::{Operator, Parser, Payload, ValType, Validator};
 
@@ -153,7 +153,7 @@ fn record_cases() -> Vec<CpuState> {
     cases
 }
 
-fn all_masks_reader() -> CompiledModule {
+fn all_masks_reader() -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program
@@ -184,17 +184,13 @@ fn all_masks_reader() -> CompiledModule {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    }
+    TestModule::from_bytes(&program.compile().unwrap(), "run")
 }
 
 #[test]
 fn every_mask_reads_every_record_kind_without_changing_cpu_bytes() {
     let cases = record_cases();
-    let module = TestModule::new(&all_masks_reader());
+    let module = all_masks_reader();
     let input = Input {
         patches_before_calls: cases
             .iter()

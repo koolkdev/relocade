@@ -42,11 +42,7 @@ fn field_module() -> TestModule {
     program.export("fields", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
-    TestModule::new(&crate::CompiledModule {
-        execution_target: None,
-        bytes,
-        entry: "fields".into(),
-    })
+    TestModule::from_bytes(&bytes, "fields")
 }
 
 #[test]
@@ -165,13 +161,7 @@ fn wide_field_modules() -> [TestModule; 2] {
     }
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
-    ["read_fields", "write_fields"].map(|entry| {
-        TestModule::new(&crate::CompiledModule {
-            execution_target: None,
-            bytes: bytes.clone(),
-            entry: entry.into(),
-        })
-    })
+    ["read_fields", "write_fields"].map(|entry| TestModule::from_bytes(&bytes, entry))
 }
 
 fn wide_input(linear: u32, next_frame: u32, permissions: [u32; 2]) -> Input {

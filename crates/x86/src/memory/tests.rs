@@ -326,16 +326,8 @@ fn check(module: &TestModule, input: &Input, result: i64, changes: &[(u32, u8)])
 fn memory_widths_execute_in_wasmtime() {
     let bytes = accesses();
     for case in WIDTHS {
-        let read = TestModule::new(&crate::CompiledModule {
-            execution_target: None,
-            bytes: bytes.clone(),
-            entry: format!("read{}", case.name),
-        });
-        let write = TestModule::new(&crate::CompiledModule {
-            execution_target: None,
-            bytes: bytes.clone(),
-            entry: format!("write{}", case.name),
-        });
+        let read = TestModule::from_bytes(&bytes, &format!("read{}", case.name));
+        let write = TestModule::from_bytes(&bytes, &format!("write{}", case.name));
         let read_args = [Argument::I32(case.linear as i32)];
         let write_args = [Argument::I32(case.linear as i32), case.argument];
         let initial_first = vec![0xff; case.first.len()];
@@ -401,16 +393,8 @@ fn memory_widths_execute_in_wasmtime() {
 fn aligned_and_unaligned_single_page_transfers_ignore_unrelated_pte_bits() {
     let bytes = accesses();
     for case in WIDTHS.iter().filter(|case| !case.second.is_empty()) {
-        let read = TestModule::new(&crate::CompiledModule {
-            execution_target: None,
-            bytes: bytes.clone(),
-            entry: format!("read{}", case.name),
-        });
-        let write = TestModule::new(&crate::CompiledModule {
-            execution_target: None,
-            bytes: bytes.clone(),
-            entry: format!("write{}", case.name),
-        });
+        let read = TestModule::from_bytes(&bytes, &format!("read{}", case.name));
+        let write = TestModule::from_bytes(&bytes, &format!("write{}", case.name));
         let payload = [case.first, case.second].concat();
         for offset in [0, 1] {
             let address = 0x4000 + offset;
@@ -460,11 +444,7 @@ fn wrapping_writes_report_read_only_first_page_faults() {
             0x0004_0003_ffff_fffc,
         ),
     ] {
-        let write = TestModule::new(&crate::CompiledModule {
-            execution_target: None,
-            bytes: bytes.clone(),
-            entry: entry.into(),
-        });
+        let write = TestModule::from_bytes(&bytes, entry);
         let input = Input {
             guest: vec![(0x8ff8, vec![0xa5; 8]), (0xa000, vec![0x5a; 8])],
             // The final page is present and read-only, page zero is writable,
@@ -485,16 +465,8 @@ fn wrapping_writes_report_read_only_first_page_faults() {
 fn multi_byte_accesses_wrap_between_real_page_mappings() {
     let bytes = accesses();
     for case in WIDTHS.iter().filter(|case| !case.second.is_empty()) {
-        let read = TestModule::new(&crate::CompiledModule {
-            bytes: bytes.clone(),
-            entry: format!("read{}", case.name),
-            execution_target: None,
-        });
-        let write = TestModule::new(&crate::CompiledModule {
-            bytes: bytes.clone(),
-            entry: format!("write{}", case.name),
-            execution_target: None,
-        });
+        let read = TestModule::from_bytes(&bytes, &format!("read{}", case.name));
+        let write = TestModule::from_bytes(&bytes, &format!("write{}", case.name));
         let payload = [case.first, case.second].concat();
         let mut input = Input {
             guest: vec![

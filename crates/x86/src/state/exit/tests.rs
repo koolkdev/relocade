@@ -1,7 +1,7 @@
 use super::{budget_exhausted, exception, unsupported, ExecutionExit};
 use crate::exception::Exception;
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule};
-use crate::{CompiledModule, CpuState};
+use crate::CpuState;
 use relocade_compiler::{Program, Signature, Type, I32, I8};
 
 fn exit_module() -> Vec<u8> {
@@ -104,11 +104,7 @@ fn host_exit_words_in_wasmtime() {
         ("unsupported", 0xf3, 0x89ab_cdef, 0x0008_00f3_89ab_cdef),
         ("budget_exhausted", 0xffff, u32::MAX, i64::MIN),
     ] {
-        let module = TestModule::new(&CompiledModule {
-            execution_target: None,
-            bytes: bytes.clone(),
-            entry: name.into(),
-        });
+        let module = TestModule::from_bytes(&bytes, name);
         let input = Input {
             arguments: vec![Argument::I32(detail), Argument::I32(address as i32)],
             ..Input::new(&cpu)

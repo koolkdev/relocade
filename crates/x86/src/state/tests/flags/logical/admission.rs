@@ -1,10 +1,10 @@
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::initial_cpu;
 use crate::alu::ArithmeticOp;
 use crate::flags::{Flag, FlagChange};
 use crate::state::access::cpu_load;
+use crate::state::tests::fixture::assert_result;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::CompiledModule;
 use relocade_compiler::{BuildError, Program, Signature, Type, I1, I64, I8};
 
 #[test]
@@ -108,11 +108,7 @@ fn rejected_mixed_changes_leave_status_and_direction_history_intact() {
                 )
                 .unwrap();
             program.export("run", function).unwrap();
-            let module = TestModule::new(&CompiledModule {
-                execution_target: None,
-                bytes: program.compile().unwrap(),
-                entry: "run".into(),
-            });
+            let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
             let mut initial = initial_cpu();
             initial.flags.bytes.df = 0xfe;
             for predicate in [0, 1] {

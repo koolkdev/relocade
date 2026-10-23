@@ -1,9 +1,9 @@
-use super::super::fixture::{assert_result, initial_cpu};
+use super::super::fixture::initial_cpu;
 use crate::alu::ArithmeticOp;
 use crate::flags::{Condition, Flag};
+use crate::state::tests::fixture::assert_result;
 use crate::state::{Cpu, State};
 use crate::test_step::TestModule;
-use crate::CompiledModule;
 use crate::FlagBytes;
 use relocade_compiler::{Program, Signature, Type, I1, I32, I64, I8};
 
@@ -35,11 +35,7 @@ fn common_flag_reads_use_low_bits_without_changing_the_record() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     for (kind, left, right, stored_carry, carry) in [
         (0, 0x1234_5678, 0x8765_4321, 0xfe, 0),
         (0, 0x1234_5678, 0x8765_4321, 0xff, 1),
@@ -98,11 +94,7 @@ fn common_writes_accept_constants_and_computed_bits_and_replace_cached_reads() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     for old_direction in [0xfe, 0xff] {
         let mut initial = initial_cpu();
         initial.flags.bytes.df = old_direction;
@@ -171,11 +163,7 @@ fn direction_changes_and_status_queries_retain_a_local_subtraction_recipe() {
         )
         .unwrap();
     program.export("run", function).unwrap();
-    let module = TestModule::new(&CompiledModule {
-        execution_target: None,
-        bytes: program.compile().unwrap(),
-        entry: "run".into(),
-    });
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "run");
     let initial = initial_cpu();
     let mut expected = initial;
     expected.flags.status_source.kind = 1;
