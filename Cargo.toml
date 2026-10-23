@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/compiler", "crates/x86", "crates/interpreter", "crates/test-support", "crates/machine", "crates/wasm-runtime", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer", "tests/browser"]
+members = ["crates/derive", "crates/compiler", "crates/x86", "crates/interpreter", "crates/test-support", "crates/machine", "crates/wasm-bindings", "crates/wasm-runtime", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer", "tests/browser"]
 default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/wasm-runtime", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer"]
 
 [workspace.package]

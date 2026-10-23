@@ -11,6 +11,8 @@ const env = {
     WASM_BINDGEN_TEST_TIMEOUT: process.env.WASM_BINDGEN_TEST_TIMEOUT ?? "120",
     CARGO_ENCODED_RUSTFLAGS: [
         "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+        "-C", "link-arg=--growable-table",
+        "-C", "link-arg=--export=__stack_pointer",
         "-C", "link-arg=--shared-memory",
         "-C", "link-arg=--import-memory",
         // Shared memories require a maximum; allow the full Wasm32 address space.
