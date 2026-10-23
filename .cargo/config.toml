@@ -1,0 +1,3 @@
+[target.wasm32-unknown-unknown]
+# Direct Rust calls own function-table entries; aggregate callbacks use Rust's C stack ABI.
+rustflags = ["-C", "link-arg=--growable-table", "-C", "link-arg=--export=__stack_pointer"]
