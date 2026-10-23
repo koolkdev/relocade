@@ -38,8 +38,9 @@ pub async fn shared_memory() -> Result<(), String> {
         updated.await.unwrap();
         let mut bytes = [0; 4];
         access.read(reader.offset, &mut bytes);
-        access.write(reader.offset + 4, &[5, 6, 7, 8]);
-        (initial, bytes)
+        let scalar = access.load::<u64>(reader.offset + 1);
+        access.store(reader.offset + 9, 0xfedc_ba98_7654_3210_u64);
+        (initial, bytes, scalar)
     });
 
     started.await.map_err(|error| error.to_string())?;
@@ -48,12 +49,16 @@ pub async fn shared_memory() -> Result<(), String> {
     backend
         .ensure_memory_size(&memory, 2 * 65536)
         .map_err(|error| error.to_string())?;
-    backend.memory(&memory).write(65536, &[1, 2, 3, 4]);
+    backend
+        .memory(&memory)
+        .write(65536, &[1, 2, 3, 4, 5, 6, 7, 8, 0xf9]);
     written.send(()).unwrap();
-    let (initial, mut bytes) = task.await.map_err(|error| error.to_string())?;
+    let (initial, bytes, scalar) = task.await.map_err(|error| error.to_string())?;
     assert_eq!(initial, [42]);
     assert_eq!(bytes, [1, 2, 3, 4]);
-    backend.memory(&memory).read(65540, &mut bytes);
-    assert_eq!(bytes, [5, 6, 7, 8]);
+    assert_eq!(scalar, 0xf908_0706_0504_0302);
+    let mut stored = [0; 8];
+    backend.memory(&memory).read(65545, &mut stored);
+    assert_eq!(stored, [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe]);
     Ok(())
 }

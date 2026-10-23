@@ -111,7 +111,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
         }
         let memory = WebAssembly::Memory::new(&descriptor)
             .map_err(|error| js_error("create Wasm memory", error))?;
-        Ok(Memory::new(memory))
+        Memory::new(memory, declaration.shared)
     }
 
     fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {

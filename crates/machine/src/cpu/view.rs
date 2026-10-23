@@ -5,7 +5,7 @@ use relocade_x86::{
 use std::mem::offset_of;
 
 use crate::{ConfigurationError, CpuConfig};
-use relocade_wasm_runtime::MemoryAccess;
+use relocade_wasm_runtime::{Load, MemoryAccess, MemoryValue, Store};
 
 /// A live view of published CPU state. Each register access transfers only its
 /// own bytes; there is no cached snapshot or deferred writeback.
@@ -19,15 +19,12 @@ macro_rules! register {
     ($get:ident, $set:ident, $type:ty, $field:ident, $byte:expr) => {
         #[inline]
         pub fn $get(&self) -> $type {
-            <$type>::from_le_bytes(self.read(offset_of!(CpuState, registers.$field) + $byte))
+            self.load(offset_of!(CpuState, registers.$field) + $byte)
         }
 
         #[inline]
         pub fn $set(&mut self, value: $type) {
-            self.write(
-                (offset_of!(CpuState, registers.$field) + $byte) as u32,
-                &value.to_le_bytes(),
-            );
+            self.store(offset_of!(CpuState, registers.$field) + $byte, value);
         }
     };
 }
@@ -66,25 +63,22 @@ impl<'a> CpuView<'a> {
 
     #[inline]
     pub fn eip(&self) -> u32 {
-        u32::from_le_bytes(self.read(offset_of!(CpuState, eip)))
+        self.load(offset_of!(CpuState, eip))
     }
 
     #[inline]
     pub fn set_eip(&mut self, value: u32) {
-        self.write(offset_of!(CpuState, eip) as u32, &value.to_le_bytes());
+        self.store(offset_of!(CpuState, eip), value);
     }
 
     #[inline]
     pub fn instruction_count(&self) -> u64 {
-        u64::from_le_bytes(self.read(offset_of!(CpuState, instruction_count)))
+        self.load(offset_of!(CpuState, instruction_count))
     }
 
     #[inline]
     pub fn set_instruction_count(&mut self, value: u64) {
-        self.write(
-            offset_of!(CpuState, instruction_count) as u32,
-            &value.to_le_bytes(),
-        );
+        self.store(offset_of!(CpuState, instruction_count), value);
     }
 
     /// Returns represented EFLAGS bits, resolving any lazy arithmetic flags.
@@ -183,6 +177,24 @@ impl<'a> CpuView<'a> {
         crate::config::validate_cpu(self.config.execution_target(), snapshot)?;
         self.write(0, &snapshot.to_bytes());
         Ok(())
+    }
+
+    #[inline]
+    fn load<V: MemoryValue>(&self, offset: usize) -> V
+    where
+        MemoryAccess<'a>: Load<V>,
+    {
+        self.storage
+            .load((offset_of!(ExecutionContext, cpu) + offset) as u32)
+    }
+
+    #[inline]
+    fn store<V: MemoryValue>(&mut self, offset: usize, value: V)
+    where
+        MemoryAccess<'a>: Store<V>,
+    {
+        self.storage
+            .store((offset_of!(ExecutionContext, cpu) + offset) as u32, value);
     }
 
     #[inline]

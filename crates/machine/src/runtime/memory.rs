@@ -128,9 +128,9 @@ impl<M: Clone + 'static, S: WasmSharedMemory> RuntimeMemory<M, S> {
         access: &mut impl WasmMemoryAccess<Memory = M>,
         target: u64,
     ) {
-        access.memory(&self.context).write(
+        access.memory(&self.context).store(
             offset_of!(ExecutionContext, instruction_target) as u32,
-            &target.to_le_bytes(),
+            target,
         );
     }
 }
