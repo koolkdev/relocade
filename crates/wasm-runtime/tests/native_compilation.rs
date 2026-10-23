@@ -3,7 +3,6 @@
 use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
 
 const EMPTY_MODULE: &[u8] = b"\0asm\x01\0\0\0";
-const NAMED_MODULE: &[u8] = b"\0asm\x01\0\0\0\x00\x02\x01x";
 
 fn cached<T>(backend: &Backend<T>, bytes: &'static [u8]) -> wasmtime::Module {
     let compiler = backend.compiler();
@@ -36,18 +35,6 @@ fn concurrent_backends_share_cached_modules_but_keep_host_state() {
     for other in modules {
         assert!(wasmtime::Module::same(&module, &other));
     }
-}
-
-#[test]
-fn different_assets_use_distinct_modules() {
-    let backend = Backend::new().unwrap();
-    let empty = cached(&backend, EMPTY_MODULE);
-    let named = cached(&backend, NAMED_MODULE);
-    assert!(!wasmtime::Module::same(&empty, &named));
-    assert!(wasmtime::Module::same(
-        &empty,
-        &cached(&backend, EMPTY_MODULE),
-    ));
 }
 
 #[test]

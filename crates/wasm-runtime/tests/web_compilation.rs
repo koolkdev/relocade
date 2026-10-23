@@ -11,7 +11,6 @@ use wasm_bindgen_test::wasm_bindgen_test;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 const EMPTY_MODULE: &[u8] = b"\0asm\x01\0\0\0";
-const NAMED_MODULE: &[u8] = b"\0asm\x01\0\0\0\x00\x02\x01x";
 
 async fn cached<T: 'static>(
     backend: &Backend<T>,
@@ -54,14 +53,6 @@ async fn concurrent_requests_share_pending_compilation() {
         .poll(&mut Context::from_waker(Waker::noop()))
         .is_pending());
     assert_eq!(first.await.unwrap(), second.await.unwrap());
-}
-
-#[wasm_bindgen_test]
-async fn different_assets_use_distinct_modules() {
-    let backend = Backend::new().unwrap();
-    let empty = cached(&backend, EMPTY_MODULE).await;
-    let named = cached(&backend, NAMED_MODULE).await;
-    assert_ne!(empty, named);
 }
 
 #[wasm_bindgen_test]

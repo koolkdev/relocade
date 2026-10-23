@@ -10,6 +10,7 @@ const CALLS: Function<fn() -> I32> = Function::new("example", "calls");
 const SET_CALLS: Function<fn(I32)> = Function::new("example", "setCalls");
 const READ: Function<fn(I32, I32) -> I64> = Function::new("example", "read");
 const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
+const NEXT: Function<fn() -> I64> = Function::new("example", "next");
 const RUN: Function<fn() -> I64> = Function::new("example", "run");
 
 use relocade_wasm_runtime::Backend;
@@ -82,11 +83,15 @@ async fn check_stateful_callbacks() {
         let advance = backend.function(&instance, advance_export).unwrap();
         backend.set_table_function(&table, 0, &advance).unwrap();
 
+        // The consumer shares memory and imports the producer's export under a new name.
         let mut consumer = Program::new();
-        let direct = consumer.import_function(advance_export);
+        let shared = consumer.import_memory(MEMORY);
+        let direct = consumer.import_function(NEXT);
         let functions = consumer.import_table(FUNCTIONS);
         let run = consumer
             .function(RUN.signature(), |mut body| {
+                let current = body.load::<I64>(shared, 0)?;
+                body.store(shared, 0, current.add(4))?;
                 body.call::<I64>(direct, &[])?;
                 body.tail_call_indirect(functions, 0, &[])
             })
@@ -101,7 +106,8 @@ async fn check_stateful_callbacks() {
             .instantiate(
                 &module,
                 &[
-                    backend.bind(advance_export, &advance),
+                    backend.bind(MEMORY, &memory),
+                    backend.bind(NEXT, &advance),
                     backend.bind(FUNCTIONS, &table),
                 ],
             )
@@ -116,7 +122,8 @@ async fn check_stateful_callbacks() {
     for initial in [0x20_0000_0000_0001_i64, -0x20_0000_0000_0021_i64] {
         backend.state_mut().calls = 0;
         backend.write_memory(&memory, 0, &initial.to_le_bytes());
-        for (calls, increment) in [(2, 3), (4, 10)] {
+        // Each invocation adds four in the consumer, then the next two callback counts.
+        for (calls, increment) in [(2, 7), (4, 18)] {
             assert_eq!(backend.call(&entry).unwrap(), initial + increment);
             assert_eq!(backend.state().calls, calls);
             let mut bytes = [0; 8];
