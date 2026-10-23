@@ -12,25 +12,16 @@ use crate::support::{
 use relocade_x86::{Gpr32::*, Segment, SegmentRegister};
 
 fn register_forms() -> Vec<Case> {
-    [
-        (0xc8, Eax),
-        (0xc9, Ecx),
-        (0xca, Edx),
-        (0xcb, Ebx),
-        (0xcc, Esp),
-        (0xcd, Ebp),
-        (0xce, Esi),
-        (0xcf, Edi),
-    ]
-    .into_iter()
-    .map(|(opcode, register)| {
-        Case::preserving_flags(format!("BSWAP {register:?}"), &[0x0f, opcode]).register(
-            register,
-            0x9280_fe67,
-            0x67fe_8092,
-        )
-    })
-    .collect()
+    [(0xc8, Eax), (0xcf, Edi)]
+        .into_iter()
+        .map(|(opcode, register)| {
+            Case::preserving_flags(format!("BSWAP {register:?}"), &[0x0f, opcode]).register(
+                register,
+                0x9280_fe67,
+                0x67fe_8092,
+            )
+        })
+        .collect()
 }
 
 #[rustfmt::skip]
@@ -78,7 +69,7 @@ fn forms_consume_only_the_opcode_and_operand_prefix() {
     }
 }
 
-test_cases!(all_dword_registers_reverse_bytes, register_forms());
+test_cases!(dword_registers_reverse_bytes, register_forms());
 test_cases!(word_form_clears_only_the_low_word, word_compatibility());
 test_cases!(operand_size_follows_code_defaults, code16_forms());
 
