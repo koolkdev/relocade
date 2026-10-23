@@ -140,7 +140,7 @@ async fn check_callback() {
     let function = backend.function(&instance, RUN).unwrap();
     for (calls, value, eip) in [(1, 52, 0x102), (2, 65, 0x104)] {
         assert_eq!(
-            backend.call(&function).unwrap(),
+            backend.call(&function, ()),
             i64::from(value) | (i64::from(value) << 32)
         );
         assert_eq!(backend.state().data.calls, calls);

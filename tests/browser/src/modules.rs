@@ -33,9 +33,9 @@ async fn execute(
     let run = backend
         .function(&instance, RUN)
         .map_err(|error| error.to_string())?;
-    let first = backend.call(&run).map_err(|error| error.to_string())?;
+    let first = backend.call(&run, ());
     backend.state().set(50);
-    let second = backend.call(&run).map_err(|error| error.to_string())?;
+    let second = backend.call(&run, ());
     Ok((first, second))
 }
 

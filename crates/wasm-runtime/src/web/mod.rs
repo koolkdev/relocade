@@ -2,12 +2,8 @@ use crate::{
     Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmCompiler, WasmMemoryAccess,
 };
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
-use relocade_compiler::{
-    abi::{self, Function as FunctionDeclaration},
-    I64,
-};
+use relocade_compiler::abi;
 use std::{
-    any::Any,
     cell::{Ref, RefCell, RefMut},
     ops::{Deref, DerefMut},
     rc::Rc,
@@ -15,6 +11,7 @@ use std::{
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
+mod calls;
 mod host;
 mod memory;
 pub use host::Context;
@@ -24,8 +21,6 @@ pub use memory::SharedMemory;
 pub struct Backend<T = ()> {
     store: Rc<RefCell<Store<T>>>,
     modules: Rc<ModuleCache<Module>>,
-    // Rust must retain the closures for as long as guest modules can call them.
-    callbacks: Vec<Box<dyn Any>>,
 }
 
 struct Store<T> {
@@ -66,9 +61,6 @@ impl WasmCompiler for Compiler {
     }
 }
 
-/// A resolved `() -> i64` export, kept distinct from raw host function handles.
-pub struct Function(JsFunction);
-
 impl Backend {
     pub fn new() -> Result<Self> {
         Self::with_state(())
@@ -87,7 +79,6 @@ impl<T: 'static> Backend<T> {
                 memories: Vec::new(),
             })),
             modules: MODULES.with(Rc::clone),
-            callbacks: Vec::new(),
         })
     }
 }
@@ -99,7 +90,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type Compiler = Compiler;
     type Instance = WebAssembly::Instance;
     type Table = WebAssembly::Table;
-    type Function = Function;
     type ImportFunction = JsFunction;
     type SharedMemory = SharedMemory;
 
@@ -215,38 +205,15 @@ impl<T: 'static> WasmBackend for Backend<T> {
             .map_err(|error| js_error("instantiate Wasm", error))
     }
 
-    fn function(
-        &mut self,
-        instance: &Self::Instance,
-        declaration: FunctionDeclaration<fn() -> I64>,
-    ) -> Result<Function> {
-        Reflect::get(&instance.exports(), &declaration.name.into())
-            .and_then(|value| value.dyn_into::<JsFunction>())
-            .map(Function)
-            .map_err(|error| js_error("resolve Wasm function", error))
-    }
-
-    fn import_function(&self, function: &Function) -> JsFunction {
-        function.0.clone()
-    }
-
-    fn set_table_function(
+    fn set_table_import(
         &mut self,
         table: &Self::Table,
         index: u32,
-        function: &Function,
+        function: JsFunction,
     ) -> Result<()> {
         table
-            .set(index, &function.0)
+            .set(index, &function)
             .map_err(|error| js_error("set Wasm table function", error))
-    }
-
-    fn call(&mut self, function: &Function) -> Result<i64> {
-        let value = function
-            .0
-            .call0(&JsValue::UNDEFINED)
-            .map_err(|error| js_error("call Wasm function", error))?;
-        i64::try_from(value).map_err(|error| js_error("read Wasm i64 result", error))
     }
 }
 

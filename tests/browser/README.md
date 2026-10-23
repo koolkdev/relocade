@@ -1,8 +1,12 @@
 # Browser tests
 
 All browser tests use the same threaded Rust build: shared host memory, atomics,
-and per-thread TLS. `npm test` runs the wasm-runtime, machine and renderer tests
-with wasm-bindgen-test, then the worker integration checks. Both stages run
+and per-thread TLS. The linker also exports Rust's stack pointer and permits its
+function table to grow, so typed runtime calls can stay entirely inside Wasm.
+Arguments and scalar results pass directly; aggregate results follow Rust's C
+return convention through generated Wasm glue. `npm test` runs the wasm-bindings,
+wasm-runtime, machine and renderer tests with wasm-bindgen-test, then the worker
+integration checks. Both stages run
 through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
 

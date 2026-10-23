@@ -62,7 +62,7 @@ async fn check_shared_memory() {
     ];
     let instance = backend.instantiate(&module, &imports).await.unwrap();
     let run = backend.function(&instance, RUN).unwrap();
-    assert_eq!(backend.call(&run).unwrap(), 0x00efcdab12345678);
+    assert_eq!(backend.call(&run, ()), 0x00efcdab12345678);
 
     backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
     assert!(backend.ensure_memory_size(&memory, 4 * 65536).is_err());

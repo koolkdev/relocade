@@ -1,15 +1,11 @@
 use crate::{Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmMemoryAccess};
-use relocade_compiler::{
-    abi::{self, Function},
-    I64,
-};
+use relocade_compiler::abi;
 use std::ops::{Deref, DerefMut};
-use wasmtime::{
-    AsContextMut, Func, Instance, Linker, Ref, RefType, Store, Table, TableType, TypedFunc,
-};
+use wasmtime::{AsContextMut, Func, Instance, Linker, Ref, RefType, Store, Table, TableType};
 
 pub use wasmtime::Module;
 
+mod calls;
 mod compilation;
 mod host;
 mod memory;
@@ -46,7 +42,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type Compiler = Compiler;
     type Instance = Instance;
     type Table = Table;
-    type Function = TypedFunc<(), i64>;
     type ImportFunction = Func;
     type SharedMemory = SharedMemory;
 
@@ -133,39 +128,10 @@ impl<T: 'static> WasmBackend for Backend<T> {
             .map_err(|error| Error::new("instantiate Wasm", error))
     }
 
-    fn function(
-        &mut self,
-        instance: &Instance,
-        declaration: Function<fn() -> I64>,
-    ) -> Result<Self::Function> {
-        instance
-            .get_typed_func(&mut self.store, declaration.name)
-            .map_err(|error| Error::new("resolve Wasm function", error))
-    }
-
-    fn import_function(&self, function: &Self::Function) -> Func {
-        *function.func()
-    }
-
-    fn set_table_function(
-        &mut self,
-        table: &Table,
-        index: u32,
-        function: &Self::Function,
-    ) -> Result<()> {
+    fn set_table_import(&mut self, table: &Table, index: u32, function: Func) -> Result<()> {
         table
-            .set(
-                &mut self.store,
-                u64::from(index),
-                Ref::Func(Some(*function.func())),
-            )
+            .set(&mut self.store, u64::from(index), Ref::Func(Some(function)))
             .map_err(|error| Error::new("set Wasm table function", error))
-    }
-
-    fn call(&mut self, function: &Self::Function) -> Result<i64> {
-        function
-            .call(&mut self.store, ())
-            .map_err(|error| Error::new("call Wasm function", error))
     }
 }
 
