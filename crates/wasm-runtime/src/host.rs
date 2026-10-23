@@ -55,7 +55,7 @@ macro_rules! signature {
         impl<Backend, R, $($parameter),*> HostSignature<Backend> for fn($($parameter),*) -> R
         where
             Backend: WasmBackend,
-            R: Results + HostValue,
+            R: Results + HostValue + relocade_compiler::abi::AbiType<Logical = R>,
             $($parameter: ValueType + HostValue),*
         {
             type Callback = Box<dyn Fn(Backend::Context<'_>, $($parameter::Carrier),*) -> R::Carrier + Send + Sync>;

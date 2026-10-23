@@ -28,7 +28,7 @@ mod sealed {
 // result shapes and receive their typed values without implementing binding.
 #[allow(private_bounds)]
 pub trait Results: sealed::Shape {
-    type Values: sealed::Values;
+    type Values: sealed::Values + Clone + Into<Arguments>;
 }
 
 impl<T: ValueType> Results for T {
@@ -36,6 +36,17 @@ impl<T: ValueType> Results for T {
 }
 
 impl<T: ValueType> sealed::Shape for T {}
+
+impl<H: crate::abi::slots::Scalar, T: crate::abi::slots::Slots> sealed::Shape
+    for crate::abi::slots::Cons<H, T>
+{
+}
+
+impl<H: crate::abi::slots::Scalar, T: crate::abi::slots::Slots> Results
+    for crate::abi::slots::Cons<H, T>
+{
+    type Values = (Val<H>, T::Values);
+}
 
 impl<T: ValueType> sealed::Values for Val<T> {
     fn types() -> Vec<Type> {
@@ -138,7 +149,11 @@ pub(super) fn check_count(expected: usize, actual: usize) -> Result<(), BuildErr
 }
 
 macro_rules! tuples {
-    ($($shape:ident $index:tt),+) => {
+    () => {};
+    (@rest $first:ident $value:ident $(, $rest:ident $rest_value:ident)*) => {
+        tuples!($($rest $rest_value),*);
+    };
+    ($($shape:ident $value:ident),+) => {
         impl<$($shape: Results),+> Results for ($($shape,)+) {
             type Values = ($($shape::Values,)+);
         }
@@ -159,26 +174,17 @@ macro_rules! tuples {
 
         impl<$($shape: Into<Arguments>),+> From<($($shape,)+)> for Arguments {
             fn from(values: ($($shape,)+)) -> Self {
+                let ($($value,)+) = values;
                 let mut arguments = Vec::new();
-                $(arguments.extend(values.$index.into().0);)+
+                $(arguments.extend($value.into().0);)+
                 Self(arguments)
             }
         }
+        tuples!(@rest $($shape $value),+);
     };
 }
 
-tuples!(A 0);
-tuples!(A 0, B 1);
-tuples!(A 0, B 1, C 2);
-tuples!(A 0, B 1, C 2, D 3);
-tuples!(A 0, B 1, C 2, D 3, E 4);
-tuples!(A 0, B 1, C 2, D 3, E 4, F 5);
-tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
-tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
-tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8);
-tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9);
-tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
-tuples!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
+tuples!(A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l);
 
 pub(super) fn types<R: Results>() -> Vec<Type> {
     <R::Values as sealed::Values>::types()

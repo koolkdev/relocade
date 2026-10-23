@@ -1,15 +1,25 @@
-//! Derives the portable Rust/Wasm value contract.
+//! Portable ABI codecs and compiler values derived from the same Rust definitions.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
+mod compiler_value;
 mod input;
 mod wasm_abi;
 
 #[proc_macro_derive(WasmAbi)]
 pub fn derive_wasm_abi(input: TokenStream) -> TokenStream {
     derive(input, wasm_abi::structs::expand, wasm_abi::enums::expand)
+}
+
+#[proc_macro_derive(CompilerValue)]
+pub fn derive_compiler_value(input: TokenStream) -> TokenStream {
+    derive(
+        input,
+        compiler_value::structs::expand,
+        compiler_value::enums::expand,
+    )
 }
 
 fn derive(
