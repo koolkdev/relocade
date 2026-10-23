@@ -16,6 +16,93 @@ const SHARED: Memory = Memory {
 const WRITE: Function<fn() -> I32> = Function::new("example", "write");
 const RUN: Function<fn() -> I64> = Function::new("example", "run");
 
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn memory_transfers_preserve_ranges_after_growth() {
+    let mut backend = Backend::new().unwrap();
+    for shared in [false, true] {
+        let memory = backend.create_memory(Memory { shared, ..SHARED }).unwrap();
+        // Exercise the established transfer functions before growing either memory.
+        backend.write_memory(&memory, 31, &[0x12, 0x34, 0x56]);
+        let mut original = [0; 3];
+        backend.read_memory(&memory, 31, &mut original);
+        assert_eq!(original, [0x12, 0x34, 0x56]);
+        backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
+        #[cfg(target_arch = "wasm32")]
+        assert_ne!(std::arch::wasm32::memory_grow::<0>(1), usize::MAX);
+
+        for length in [0, 1, 7, 8, 31, 129, 4097] {
+            let source: Vec<_> = (0..length).map(|i| (i * 17 + 3) as u8).collect();
+            let offset = 65533;
+            backend.write_memory(&memory, offset - 1, &vec![0xa5; length + 2]);
+            backend.write_memory(&memory, offset, &source);
+            let mut destination = vec![0x5a; length + 4];
+            backend.read_memory(&memory, offset - 1, &mut destination[1..length + 3]);
+            assert_eq!(destination[0], 0x5a);
+            assert_eq!(destination[1], 0xa5);
+            assert_eq!(&destination[2..length + 2], source);
+            assert_eq!(destination[length + 2], 0xa5);
+            assert_eq!(destination[length + 3], 0x5a);
+        }
+        backend.write_memory(&memory, 2 * 65536, &[]);
+        backend.read_memory(&memory, 2 * 65536, &mut []);
+    }
+}
+
+fn check_scalars<A: WasmMemoryAccess>(access: &mut A, memory: &A::Memory, offset: u32) {
+    macro_rules! check {
+        ($type:ty, $value:expr, $bytes:expr) => {{
+            let expected = $bytes;
+            access.write_memory(memory, offset, &expected);
+            assert_eq!(access.load_memory::<$type>(memory, offset), $value);
+            access.write_memory(memory, offset - 1, &vec![0xa5; expected.len() + 2]);
+            access.store_memory(memory, offset, $value);
+            let mut actual = vec![0; expected.len() + 2];
+            access.read_memory(memory, offset - 1, &mut actual);
+            assert_eq!(actual[0], 0xa5);
+            assert_eq!(&actual[1..=expected.len()], expected);
+            assert_eq!(actual[expected.len() + 1], 0xa5);
+        }};
+    }
+    check!(u8, 0xd2_u8, [0xd2]);
+    check!(u16, 0xb7d2_u16, [0xd2, 0xb7]);
+    check!(u32, 0x89ab_cdef_u32, [0xef, 0xcd, 0xab, 0x89]);
+    check!(
+        u64,
+        0xfedc_ba98_7654_3210_u64,
+        [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe]
+    );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn scalar_transfers_preserve_widths_after_growth() {
+    let mut backend = Backend::new().unwrap();
+    for shared in [false, true] {
+        let memory = backend.create_memory(Memory { shared, ..SHARED }).unwrap();
+        check_scalars(&mut backend, &memory, 17);
+        backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
+        #[cfg(target_arch = "wasm32")]
+        assert_ne!(std::arch::wasm32::memory_grow::<0>(1), usize::MAX);
+        check_scalars(&mut backend, &memory, 65533);
+        check_scalars(&mut backend.context(), &memory, 65539);
+        // A wider load must not read beyond a valid scalar's allocated range.
+        let end = 2 * 65536;
+        backend.write_memory(
+            &memory,
+            end - 8,
+            &[0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe],
+        );
+        assert_eq!(backend.load_memory::<u8>(&memory, end - 1), 0xfe);
+        assert_eq!(backend.load_memory::<u16>(&memory, end - 2), 0xfedc);
+        assert_eq!(backend.load_memory::<u32>(&memory, end - 4), 0xfedc_ba98);
+        assert_eq!(
+            backend.load_memory::<u64>(&memory, end - 8),
+            0xfedc_ba98_7654_3210
+        );
+    }
+}
+
 async fn check_shared_memory() {
     let mut backend = Backend::new().unwrap();
     let private = backend
@@ -52,10 +139,8 @@ async fn check_shared_memory() {
         backend.bind_host(
             WRITE,
             Box::new(move |mut context| {
-                let mut bytes = [0; 4];
-                context.read_memory(&callback_memory, 0, &mut bytes);
-                assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12]);
-                context.write_memory(&callback_memory, 4, &[0xab, 0xcd, 0xef, 0]);
+                assert_eq!(context.load_memory::<u32>(&callback_memory, 0), 0x1234_5678);
+                context.store_memory::<u32>(&callback_memory, 4, 0x00ef_cdab);
                 0
             }),
         ),
@@ -73,12 +158,15 @@ async fn check_shared_memory() {
         let mut bytes = [0; 4];
         reader.read(65534, &mut bytes);
         assert_eq!(bytes, [1, 2, 3, 4]);
+        reader.store::<u16>(65535, 0xface);
+        assert_eq!(context.load_memory::<u32>(&memory, 65534), 0x04fa_ce01);
     }
     drop(backend);
     // The reader owns the allocation, including its newly grown portion.
     let mut bytes = [0; 8];
     reader.clone().read(0, &mut bytes);
     assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12, 0xab, 0xcd, 0xef, 0]);
+    assert_eq!(reader.load::<u64>(0), 0x00ef_cdab_1234_5678);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

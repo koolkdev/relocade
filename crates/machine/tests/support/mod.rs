@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use relocade_machine::{CpuConfig, CpuStorage, MachineConfig, MemoryStorage};
+use relocade_machine::{CpuConfig, CpuOffset, MachineConfig, MemoryStorage, ScalarAccess};
 use relocade_x86::ExecutionContext;
 use std::{cell::RefCell, mem::offset_of, rc::Rc};
 
@@ -9,24 +9,37 @@ pub struct Storage {
     bytes: Vec<u8>,
 }
 
-impl CpuStorage for Storage {
-    fn read_cpu(&self, offset: u32, bytes: &mut [u8]) {
+impl MemoryStorage<CpuOffset> for Storage {
+    fn read(&self, CpuOffset(offset): CpuOffset, bytes: &mut [u8]) {
         self.cpu_reads.borrow_mut().push((offset, bytes.len()));
         let offset = offset_of!(ExecutionContext, cpu) + offset as usize;
         bytes.copy_from_slice(&self.context.borrow()[offset..][..bytes.len()]);
     }
-    fn write_cpu(&mut self, offset: u32, bytes: &[u8]) {
+    fn write(&mut self, CpuOffset(offset): CpuOffset, bytes: &[u8]) {
         let offset = offset_of!(ExecutionContext, cpu) + offset as usize;
         self.context.borrow_mut()[offset..][..bytes.len()].copy_from_slice(bytes);
     }
 }
 
 impl MemoryStorage for Storage {
-    fn read_backing(&self, offset: u32, bytes: &mut [u8]) {
+    fn read(&self, offset: u32, bytes: &mut [u8]) {
         bytes.copy_from_slice(&self.bytes[offset as usize..][..bytes.len()]);
     }
-    fn write_backing(&mut self, offset: u32, bytes: &[u8]) {
+    fn write(&mut self, offset: u32, bytes: &[u8]) {
         self.bytes[offset as usize..][..bytes.len()].copy_from_slice(bytes);
+    }
+}
+
+impl<A, V: relocade_wasm_runtime::MemoryValue> ScalarAccess<A, V> for Storage
+where
+    Self: MemoryStorage<A>,
+{
+    fn load(&self, address: A) -> V {
+        V::read_with(|bytes| self.read(address, bytes))
+    }
+
+    fn store(&mut self, address: A, value: V) {
+        self.write(address, value.to_le_bytes().as_ref());
     }
 }
 

@@ -1,5 +1,5 @@
-use super::{Backend, Memory, Store};
-use crate::{HostFunction, HostSignature, WasmContext, WasmMemoryAccess};
+use super::{Backend, Store};
+use crate::{HostFunction, HostSignature, WasmContext};
 use js_sys::Function as JsFunction;
 use relocade_wasm_bindings::{Flat, WasmTuple};
 use std::{cell::RefMut, rc::Rc};
@@ -30,16 +30,5 @@ impl<T> WasmContext for Context<'_, T> {
     }
     fn state_mut(&mut self) -> &mut T {
         &mut self.0.state
-    }
-}
-
-impl<T> WasmMemoryAccess for Context<'_, T> {
-    type Memory = Memory;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        self.0.read_memory(memory, offset, bytes);
-    }
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        self.0.write_memory(memory, offset, bytes);
     }
 }

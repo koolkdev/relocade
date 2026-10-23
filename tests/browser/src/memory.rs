@@ -37,6 +37,10 @@ pub async fn shared_memory() -> Result<(), String> {
         updated.await.unwrap();
         let mut bytes = [0; 4];
         reader.memory.read(reader.offset, &mut bytes);
+        assert_eq!(reader.memory.load::<u32>(reader.offset), 0x0403_0201);
+        reader
+            .memory
+            .store::<u64>(reader.offset + 5, 0xfedc_ba98_7654_3210);
         (initial, bytes)
     });
 
@@ -51,5 +55,9 @@ pub async fn shared_memory() -> Result<(), String> {
     let (initial, bytes) = task.await.map_err(|error| error.to_string())?;
     assert_eq!(initial, [42]);
     assert_eq!(bytes, [1, 2, 3, 4]);
+    assert_eq!(
+        backend.load_memory::<u64>(&memory, 65541),
+        0xfedc_ba98_7654_3210
+    );
     Ok(())
 }

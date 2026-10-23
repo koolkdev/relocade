@@ -23,7 +23,7 @@
 //! # use relocade_machine::CpuContext;
 //! # fn update(machine: &mut CpuContext<'_>) -> Result<(), Box<dyn std::error::Error>> {
 //! let ax = machine.cpu().ax();
-//! machine.memory().write(0x200, &ax.to_le_bytes())?;
+//! machine.memory().write_u16(0x200, ax)?;
 //! machine.cpu().set_ax(ax.wrapping_add(1));
 //! let saved = machine.cpu().snapshot();
 //! machine.cpu().restore(&saved)?;
@@ -41,16 +41,7 @@ mod storage;
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{CpuContext, CpuView};
 pub use memory::{Memory, MemoryError, MemoryView};
-pub use storage::MemoryStorage;
-
-/// Transfers to the CPU and guest memory supplied by the runtime. CPU offsets
-/// are relative to the start of `CpuState` in the execution context.
-/// Writes take effect immediately; implementations must not cache a CPU snapshot.
-/// Backing transfers receive ranges already checked against configured capacity.
-pub trait CpuStorage: MemoryStorage {
-    fn read_cpu(&self, offset: u32, bytes: &mut [u8]);
-    fn write_cpu(&mut self, offset: u32, bytes: &[u8]);
-}
+pub use storage::{CpuOffset, CpuStorage, MemoryStorage, ScalarAccess};
 
 #[cfg(feature = "worker")]
 pub use runtime::worker;

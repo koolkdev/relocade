@@ -4,7 +4,7 @@ use relocade_x86::{
 };
 use std::mem::offset_of;
 
-use crate::{ConfigurationError, CpuConfig, CpuStorage};
+use crate::{ConfigurationError, CpuConfig, CpuOffset, CpuStorage};
 
 /// A live view of published CPU state. Each register access transfers only its
 /// own bytes; there is no cached snapshot or deferred writeback.
@@ -14,18 +14,20 @@ pub struct CpuView<'a, S: CpuStorage + ?Sized = dyn CpuStorage + 'a> {
     storage: &'a mut S,
 }
 
-macro_rules! register {
-    ($get:ident, $set:ident, $type:ty, $field:ident, $byte:expr) => {
-        pub fn $get(&self) -> $type {
-            <$type>::from_le_bytes(self.read(offset_of!(CpuState, registers.$field) + $byte))
-        }
+macro_rules! registers {
+    ($type:ty; $(($get:ident, $set:ident, $field:ident, $byte:expr)),* $(,)?) => {
+        $(
+            pub fn $get(&self) -> $type {
+                self.storage.load(CpuOffset((offset_of!(CpuState, registers.$field) + $byte) as u32))
+            }
 
-        pub fn $set(&mut self, value: $type) {
-            self.storage.write_cpu(
-                (offset_of!(CpuState, registers.$field) + $byte) as u32,
-                &value.to_le_bytes(),
-            );
-        }
+            pub fn $set(&mut self, value: $type) {
+                self.storage.store(
+                    CpuOffset((offset_of!(CpuState, registers.$field) + $byte) as u32),
+                    value,
+                );
+            }
+        )*
     };
 }
 
@@ -35,48 +37,58 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
         Self { config, storage }
     }
 
-    register!(eax, set_eax, u32, eax, 0);
-    register!(ecx, set_ecx, u32, ecx, 0);
-    register!(edx, set_edx, u32, edx, 0);
-    register!(ebx, set_ebx, u32, ebx, 0);
-    register!(esp, set_esp, u32, esp, 0);
-    register!(ebp, set_ebp, u32, ebp, 0);
-    register!(esi, set_esi, u32, esi, 0);
-    register!(edi, set_edi, u32, edi, 0);
-    register!(ax, set_ax, u16, eax, 0);
-    register!(cx, set_cx, u16, ecx, 0);
-    register!(dx, set_dx, u16, edx, 0);
-    register!(bx, set_bx, u16, ebx, 0);
-    register!(sp, set_sp, u16, esp, 0);
-    register!(bp, set_bp, u16, ebp, 0);
-    register!(si, set_si, u16, esi, 0);
-    register!(di, set_di, u16, edi, 0);
-    register!(al, set_al, u8, eax, 0);
-    register!(cl, set_cl, u8, ecx, 0);
-    register!(dl, set_dl, u8, edx, 0);
-    register!(bl, set_bl, u8, ebx, 0);
-    register!(ah, set_ah, u8, eax, 1);
-    register!(ch, set_ch, u8, ecx, 1);
-    register!(dh, set_dh, u8, edx, 1);
-    register!(bh, set_bh, u8, ebx, 1);
+    registers!(u32;
+        (eax, set_eax, eax, 0),
+        (ecx, set_ecx, ecx, 0),
+        (edx, set_edx, edx, 0),
+        (ebx, set_ebx, ebx, 0),
+        (esp, set_esp, esp, 0),
+        (ebp, set_ebp, ebp, 0),
+        (esi, set_esi, esi, 0),
+        (edi, set_edi, edi, 0),
+    );
+
+    registers!(u16;
+        (ax, set_ax, eax, 0),
+        (cx, set_cx, ecx, 0),
+        (dx, set_dx, edx, 0),
+        (bx, set_bx, ebx, 0),
+        (sp, set_sp, esp, 0),
+        (bp, set_bp, ebp, 0),
+        (si, set_si, esi, 0),
+        (di, set_di, edi, 0),
+    );
+
+    registers!(u8;
+        (al, set_al, eax, 0),
+        (cl, set_cl, ecx, 0),
+        (dl, set_dl, edx, 0),
+        (bl, set_bl, ebx, 0),
+        (ah, set_ah, eax, 1),
+        (ch, set_ch, ecx, 1),
+        (dh, set_dh, edx, 1),
+        (bh, set_bh, ebx, 1),
+    );
 
     pub fn eip(&self) -> u32 {
-        u32::from_le_bytes(self.read(offset_of!(CpuState, eip)))
+        self.storage
+            .load(CpuOffset(offset_of!(CpuState, eip) as u32))
     }
 
     pub fn set_eip(&mut self, value: u32) {
         self.storage
-            .write_cpu(offset_of!(CpuState, eip) as u32, &value.to_le_bytes());
+            .store(CpuOffset(offset_of!(CpuState, eip) as u32), value);
     }
 
     pub fn instruction_count(&self) -> u64 {
-        u64::from_le_bytes(self.read(offset_of!(CpuState, instruction_count)))
+        self.storage
+            .load(CpuOffset(offset_of!(CpuState, instruction_count) as u32))
     }
 
     pub fn set_instruction_count(&mut self, value: u64) {
-        self.storage.write_cpu(
-            offset_of!(CpuState, instruction_count) as u32,
-            &value.to_le_bytes(),
+        self.storage.store(
+            CpuOffset(offset_of!(CpuState, instruction_count) as u32),
+            value,
         );
     }
 
@@ -90,8 +102,10 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     pub fn set_eflags(&mut self, value: u32) {
         let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
         flags.set_eflags(value);
-        self.storage
-            .write_cpu(offset_of!(CpuState, flags) as u32, &flags.to_bytes());
+        self.storage.write(
+            CpuOffset(offset_of!(CpuState, flags) as u32),
+            &flags.to_bytes(),
+        );
     }
 
     pub fn carry(&self) -> bool {
@@ -119,7 +133,7 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
             "segment {segment:?} violates execution profile {profile:?}"
         );
         self.storage
-            .write_cpu(segment_offset(segment) as u32, &value.to_bytes());
+            .write(CpuOffset(segment_offset(segment) as u32), &value.to_bytes());
     }
 
     pub fn segments(&self) -> Segments {
@@ -131,8 +145,10 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     }
 
     pub fn set_gdtr(&mut self, value: DescriptorTableRegister) {
-        self.storage
-            .write_cpu(offset_of!(CpuState, gdtr) as u32, &value.to_bytes());
+        self.storage.write(
+            CpuOffset(offset_of!(CpuState, gdtr) as u32),
+            &value.to_bytes(),
+        );
     }
 
     pub fn idtr(&self) -> DescriptorTableRegister {
@@ -141,8 +157,10 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
 
     pub fn set_idtr(&mut self, value: DescriptorTableRegister) -> Result<(), ConfigurationError> {
         crate::config::validate_idtr(self.config.execution_target().profile, value)?;
-        self.storage
-            .write_cpu(offset_of!(CpuState, idtr) as u32, &value.to_bytes());
+        self.storage.write(
+            CpuOffset(offset_of!(CpuState, idtr) as u32),
+            &value.to_bytes(),
+        );
         Ok(())
     }
 
@@ -152,8 +170,10 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
 
     pub fn set_ldtr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
         crate::config::validate_system_segment(value, true)?;
-        self.storage
-            .write_cpu(offset_of!(CpuState, ldtr) as u32, &value.to_bytes());
+        self.storage.write(
+            CpuOffset(offset_of!(CpuState, ldtr) as u32),
+            &value.to_bytes(),
+        );
         Ok(())
     }
 
@@ -163,8 +183,10 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
 
     pub fn set_tr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
         crate::config::validate_system_segment(value, false)?;
-        self.storage
-            .write_cpu(offset_of!(CpuState, tr) as u32, &value.to_bytes());
+        self.storage.write(
+            CpuOffset(offset_of!(CpuState, tr) as u32),
+            &value.to_bytes(),
+        );
         Ok(())
     }
 
@@ -180,13 +202,13 @@ impl<'a, S: CpuStorage + ?Sized> CpuView<'a, S> {
     /// execution target.
     pub fn restore(&mut self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
         crate::config::validate_cpu(self.config.execution_target(), snapshot)?;
-        self.storage.write_cpu(0, &snapshot.to_bytes());
+        self.storage.write(CpuOffset(0), &snapshot.to_bytes());
         Ok(())
     }
 
     fn read<const N: usize>(&self, offset: usize) -> [u8; N] {
         let mut bytes = [0; N];
-        self.storage.read_cpu(offset as u32, &mut bytes);
+        self.storage.read(CpuOffset(offset as u32), &mut bytes);
         bytes
     }
 }

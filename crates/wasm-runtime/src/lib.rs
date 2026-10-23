@@ -7,6 +7,7 @@
 //! Portable Rust codecs and browser adapters are supplied by
 //! `relocade-wasm-bindings`. That crate owns direct calls, callback lifetimes and
 //! generated return adapters. Native bindings use Wasmtime typed functions.
+//! Memory transfers use direct Wasm loads, stores and copies on imported memories.
 //! wasm32 applications must link with `--growable-table` and
 //! `--export=__stack_pointer`, as configured by this workspace. Callbacks retain
 //! their Rust owners through Wasm externrefs until their last engine reference
@@ -43,10 +44,12 @@ pub use web::{Backend, Compiler, Context, Memory, Module, SharedMemory};
 mod calls;
 mod host;
 mod imports;
+mod memory;
 mod module_cache;
 pub use calls::{CallSignature, ExportFunction, Function};
 pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
+pub use memory::{MemoryValue, WasmMemoryAccess, WasmSharedMemory};
 pub use module_cache::ModuleCache;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
@@ -58,43 +61,6 @@ pub trait WasmCompiler: Clone + Send + 'static {
 
     /// Compiles on the calling thread without creating a guest instance.
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
-}
-
-/// Access to linear memory through a Wasm backend or its scoped context.
-/// Handles belong to that engine. Transfers require an allocated, in-bounds
-/// range; violating this storage invariant is a programming error.
-pub trait WasmMemoryAccess {
-    /// A handle to engine-owned memory that host functions can capture. Access to
-    /// the contents still requires the owning backend or its scoped context.
-    type Memory: Clone + Send + Sync + 'static;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]);
-}
-
-impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
-    type Memory = A::Memory;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        (**self).read_memory(memory, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        (**self).write_memory(memory, offset, bytes);
-    }
-}
-
-/// An independently owned handle for shared linear memory. Reads may overlap
-/// guest or host writes and do not provide a consistent snapshot of a range.
-/// The range must be allocated and in bounds, as with [`WasmMemoryAccess`].
-///
-/// Native handles can cross threads. Browser handles stay on their JavaScript
-/// thread; the underlying shared WebAssembly.Memory can be sent to a worker.
-pub trait WasmSharedMemory: Clone + 'static {
-    fn read(&self, offset: u32, bytes: &mut [u8]);
-    /// Transfers bytes without excluding other readers, writers or guest execution.
-    fn write(&self, offset: u32, bytes: &[u8]);
-    fn byte_len(&self) -> u64;
 }
 
 /// Scoped access to host state and live Wasm memory, during a callback or while

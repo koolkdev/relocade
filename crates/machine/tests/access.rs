@@ -47,9 +47,11 @@ fn register_access_is_live_and_preserves_aliases() {
     assert_eq!(cpu.ah(), 0x98);
     cpu.set_eip(0x100);
     assert_eq!(&context.borrow()[60..64], &[0, 1, 0, 0]);
+    cpu.set_instruction_count(0xfedc_ba98_7654_3210);
+    assert_eq!(cpu.instruction_count(), 0xfedc_ba98_7654_3210);
     assert_eq!(
         *storage.cpu_reads.borrow(),
-        [(28, 4), (28, 2), (28, 1), (29, 1)]
+        [(28, 4), (28, 2), (28, 1), (29, 1), (168, 8)]
     );
     assert_eq!(config.cpu.cpu().eip, 0);
 }
@@ -150,6 +152,11 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     let (config, mut storage) = configuration(map);
     let mut machine = CpuContext::new(&config.cpu, &config.machine, &mut storage);
     let mut memory = machine.memory();
+    memory.write_u64(0x11, 0xfedc_ba98_7654_3210).unwrap();
+    let mut scalar = [0; 8];
+    memory.read_backing(0x1011, &mut scalar).unwrap();
+    assert_eq!(scalar, [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe]);
+    assert_eq!(memory.read_u64(0x11).unwrap(), 0xfedc_ba98_7654_3210);
     memory.write_backing(0, &[0xaa, 0xbb]).unwrap();
     memory.write(0xffe, &[1, 2, 3, 4]).unwrap();
     let mut bytes = [0; 4];
@@ -162,12 +169,22 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     assert_eq!(memory.read_u16(0xfff).unwrap(), 0xaa56);
     memory.write_u8(0x1000, 0x99).unwrap();
     assert_eq!(memory.read_u8(0x1000).unwrap(), 0xaa);
+    memory.write_u64(0xffc, 0x1122_3344_5566_7788).unwrap();
+    assert_eq!(memory.read_u64(0xffc).unwrap(), 0x0000_bbaa_5566_7788);
+    assert_eq!(memory.read_u32(0xffe).unwrap(), 0xbbaa_5566);
+    memory.write_u32(0xffe, 0x1234_5678).unwrap();
+    assert_eq!(memory.read_u32(0xffe).unwrap(), 0xbbaa_5678);
+    memory.write_u64(0x1000, 0).unwrap();
+    assert_eq!(memory.read_u64(0x1000).unwrap(), 0xbbaa);
     memory.write_backing(0xffe, &[0xcc, 0xdd]).unwrap();
     memory.read(0x1ffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0xcc, 0xdd, 0xff, 0xff]);
     memory.write(0x2ffe, &[1, 2, 3, 4]).unwrap();
     memory.read(0x2ffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0xff; 4]);
+    memory.write_u64(0x2ffc, 0).unwrap();
+    assert_eq!(memory.read_u64(0x2ffc).unwrap(), u64::MAX);
+    assert_eq!(memory.read_u32(0x2001).unwrap(), u32::MAX);
     memory.read(0x200000, &mut bytes).unwrap();
     assert_eq!(bytes, [0xff; 4]);
 }
@@ -201,6 +218,13 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
         memory.write_segment(&ds, 0x10, &[0x42]).unwrap();
         memory.read(0x100000, &mut byte).unwrap();
         assert_eq!(byte, [0x42]);
+        memory.write_u32(0x100001, 0x8765_4321).unwrap();
+        assert_eq!(memory.read_u32(0x100001).unwrap(), 0x8765_4321);
+        let mut bytes = [0; 4];
+        memory
+            .read_backing(if enabled { 0x2001 } else { 1 }, &mut bytes)
+            .unwrap();
+        assert_eq!(bytes, [0x21, 0x43, 0x65, 0x87]);
     }
 }
 
@@ -298,6 +322,22 @@ fn invalid_spans_fail_before_any_transfer() {
     assert_eq!(memory.read_u16(u32::MAX), Err(MemoryError::AddressRange));
     assert_eq!(
         memory.write_u16(u32::MAX, 0x1234),
+        Err(MemoryError::AddressRange)
+    );
+    assert_eq!(
+        memory.read_u32(u32::MAX - 2),
+        Err(MemoryError::AddressRange)
+    );
+    assert_eq!(
+        memory.write_u32(u32::MAX - 2, 0),
+        Err(MemoryError::AddressRange)
+    );
+    assert_eq!(
+        memory.read_u64(u32::MAX - 6),
+        Err(MemoryError::AddressRange)
+    );
+    assert_eq!(
+        memory.write_u64(u32::MAX - 6, 0),
         Err(MemoryError::AddressRange)
     );
     memory.read(u32::MAX, &mut byte).unwrap();
