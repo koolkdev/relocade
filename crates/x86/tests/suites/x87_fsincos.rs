@@ -1,12 +1,10 @@
 //! Both trigonometric components share operand exceptions, but round independently.
 
-use super::x87_trigonometric::values;
-
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::dispatch,
-    x87::{complete_x87, set_control, stack_image, write_value},
+    x87::{complete_x87, reference::trigonometric, set_control, stack_image, write_value},
 };
 use relocade_x86::SegmentProfile;
 
@@ -19,7 +17,7 @@ fn encoding() {
 
 fn values(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
-    for reference in values::VALUES {
+    for reference in trigonometric::VALUES {
         for negative in [false, true] {
             for rc in 0..4 {
                 let input = (

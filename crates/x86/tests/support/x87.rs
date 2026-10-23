@@ -1,6 +1,7 @@
 //! Architectural x87 fixtures share raw values, stack images and status expectations.
 
 pub(crate) mod arithmetic;
+pub(crate) mod reference;
 
 use relocade_x86::{CpuState, X87Control, X87Status};
 

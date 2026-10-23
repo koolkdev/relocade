@@ -2,15 +2,15 @@
 
 #[path = "x87_trigonometric/pairs.rs"]
 mod pairs;
-#[path = "x87_trigonometric/values.rs"]
-pub(super) mod values;
 
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{dispatch, expected, Exit, Step},
     step::TestModule,
-    x87::{complete_x87, set_control, stack_image, write_value, INDEFINITE},
+    x87::{
+        complete_x87, reference::trigonometric, set_control, stack_image, write_value, INDEFINITE,
+    },
 };
 use relocade_x86::{Compiler, CpuState, SegmentProfile};
 
@@ -25,7 +25,7 @@ fn encoding() {
 
 fn values(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
-    for reference in values::VALUES {
+    for reference in trigonometric::VALUES {
         for negative in [false, true] {
             let input = (
                 reference.input.0,
