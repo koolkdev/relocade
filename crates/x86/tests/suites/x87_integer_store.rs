@@ -6,7 +6,7 @@ mod effects;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{dispatch, Exit, Image, Step},
-    x87::{complete_x87, real80, set_control, stack_image, status, write_register_bits},
+    x87::{complete_x87, real80, stack_image, status, store_operand_image, write_register_bits},
 };
 use relocade_x86::{CpuState, SegmentProfile};
 
@@ -104,20 +104,7 @@ impl Case {
 }
 
 fn initial_image(code: &[u8], case: &Case) -> Image {
-    let exponent = case.source.1 & 0x7fff;
-    let tag = if case.empty {
-        3
-    } else if exponent == 0 && case.source.0 == 0 {
-        1
-    } else if exponent == 0 || exponent == 0x7fff || case.source.0 & TOP == 0 {
-        2
-    } else {
-        0
-    };
-    let mut image = stack_image(code, 7, 0x3fff | (tag << 14));
-    image.cpu.x87.status.precision = 0;
-    set_control(&mut image.cpu.x87.control, case.control);
-    write_register_bits(&mut image.cpu, 7, case.source);
+    let mut image = store_operand_image(code, case.source, case.control, case.empty);
     image.map(4, 0x8000, true);
     image.data(0x7fff, &[0xa6; 10]);
     image

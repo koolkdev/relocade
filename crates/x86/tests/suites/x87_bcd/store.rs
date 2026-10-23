@@ -4,6 +4,7 @@
 mod effects;
 
 use super::*;
+use crate::support::x87::store_operand_image;
 
 const TOP: u64 = 1 << 63;
 const PE: u16 = 0x20;
@@ -37,19 +38,8 @@ fn instruction(address: u32) -> Vec<u8> {
 }
 
 fn initial_image(code: &[u8], case: &Case) -> Image {
-    let exponent = case.source.1 & 0x7fff;
-    let tag = if case.empty {
-        3
-    } else if exponent == 0 && case.source.0 == 0 {
-        1
-    } else if exponent == 0 || exponent == 0x7fff || case.source.0 & TOP == 0 {
-        2
-    } else {
-        0
-    };
-    let mut image = image(code, 7, 0x3fff | (tag << 14));
-    set_control(&mut image.cpu.x87.control, case.control);
-    write_register_bits(&mut image.cpu, 7, case.source);
+    let mut image = store_operand_image(code, case.source, case.control, case.empty);
+    image.map(4, 0x8000, true);
     image.data(0x8000, &[0xa6; 12]);
     image
 }
