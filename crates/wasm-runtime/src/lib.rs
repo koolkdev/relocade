@@ -4,6 +4,14 @@
 //! on wasm32. Compiled code may be reused across compatible backends. Instances
 //! bind to one backend's memories, tables and functions.
 //!
+//! Portable Rust codecs and browser adapters are supplied by
+//! `relocade-wasm-bindings`. That crate owns direct calls, callback lifetimes and
+//! generated return adapters. Native bindings use Wasmtime typed functions.
+//! wasm32 applications must link with `--growable-table` and
+//! `--export=__stack_pointer`, as configured by this workspace. Callbacks retain
+//! their Rust owners through Wasm externrefs until their last engine reference
+//! is collected. Wasm traps and invalid ABI values are fatal programming errors.
+//!
 //! ```
 //! use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
 //!
@@ -17,10 +25,7 @@
 //! ```
 #![deny(unsafe_code)]
 
-use relocade_compiler::{
-    abi::{Function, Memory as MemoryDeclaration},
-    I64,
-};
+use relocade_compiler::abi::{Function as FunctionDeclaration, Memory as MemoryDeclaration, Value};
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 
@@ -35,10 +40,12 @@ pub use native::{Backend, Compiler, Context, Memory, Module, SharedMemory};
 #[cfg(target_arch = "wasm32")]
 pub use web::{Backend, Compiler, Context, Memory, Module, SharedMemory};
 
+mod calls;
 mod host;
 mod imports;
 mod module_cache;
-pub use host::{HostFunction, HostSignature, HostValue};
+pub use calls::{CallSignature, ExportFunction, Function};
+pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
 pub use module_cache::ModuleCache;
 
@@ -103,7 +110,7 @@ pub trait WasmContext: WasmMemoryAccess {
 /// One Wasm resource owner. Preparation futures, environment state and handles
 /// other than memory need not be `Send`. Memory is Wasm32 with
 /// 64-KiB pages; tables contain nullable function references. Host callbacks are wrapped by
-/// [`HostFunction`]; the runtime's callable exports use `() -> i64`.
+/// [`HostFunction`]; callable exports retain their signature through [`ExportFunction`].
 ///
 /// Instances retain their imports. Exported functions and table entries remain
 /// valid after the original module and instance handles are dropped.
@@ -117,9 +124,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     type Compiler: WasmCompiler<Module = Self::Module>;
     type Instance;
     type Table: 'static;
-    /// An exported function with signature `() -> i64`.
-    type Function;
-    /// An engine function handle, after its binding's signature has been checked.
+    /// An engine function handle produced by a typed binding.
     type ImportFunction: Clone;
     /// Retains a shared allocation independently of this backend.
     type SharedMemory: WasmSharedMemory;
@@ -165,7 +170,17 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// New slots contain null. A smaller minimum leaves the table unchanged.
     fn ensure_table_size(&mut self, table: &Self::Table, minimum: u32) -> Result<()>;
 
-    /// Binds a memory, table or previously resolved `() -> i64` function.
+    /// Binds a memory, table or previously resolved function with the same signature.
+    ///
+    /// Rebinding cannot change the function's logical widths:
+    /// ```compile_fail
+    /// use relocade_compiler::abi::Function as Declaration;
+    /// use relocade_wasm_runtime::{Backend, Function, WasmBackend};
+    /// fn wrong(backend: &Backend, function: &Function<Backend, fn(u16) -> u32>) {
+    ///     const WIDE: Declaration<fn(u32) -> u32> = Declaration::new("example", "wide");
+    ///     backend.bind(WIDE, function);
+    /// }
+    /// ```
     fn bind<'a, D: ImportBinding<'a, Self>>(
         &self,
         declaration: D,
@@ -178,20 +193,21 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     }
 
     /// Wraps a callback in the engine and binds it to the shared declaration.
-    /// Callbacks receive a scoped context followed by the Wasm carrier arguments;
-    /// narrow integers use zero-extended i32, as in the compiler's import ABI.
-    /// Callbacks must also return narrow results zero-extended to their logical width.
+    /// Callbacks receive a scoped context followed by the declared Rust values.
+    /// The shared ABI codec converts their Wasm representations, including
+    /// zero-extension of signed narrow values. Logical marker declarations retain
+    /// their canonical Rust carrier values.
     /// Callbacks implement Fn + Send + Sync; mutable or non-Send environment state
     /// is accessed through the context. Memory handles can be captured normally.
-    /// The backend retains callbacks while linked modules can call them.
+    /// Linked modules retain callbacks for as long as they can call them.
     /// The import owns its handle without borrowing the backend.
     ///
     /// ```
-    /// use relocade_compiler::{abi::Function, I16, I32};
+    /// use relocade_compiler::abi::Function;
     /// use relocade_wasm_runtime::{HostFunction, WasmBackend};
-    /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
-    /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
-    ///     let _ = backend.bind_host(READ, Box::new(|_, port, width| port + width));
+    /// const READ: Function<fn(u16, u32) -> u32> = Function::new("example", "read");
+    /// fn bind<B: HostFunction<fn(u16, u32) -> u32>>(backend: &mut B) {
+    ///     let _ = backend.bind_host(READ, Box::new(|_, port, width| u32::from(port) + width));
     /// }
     /// ```
     ///
@@ -215,7 +231,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// ```
     fn bind_host<'a, S: HostSignature<Self>>(
         &mut self,
-        declaration: Function<'a, S>,
+        declaration: FunctionDeclaration<'a, S>,
         callback: S::Callback,
     ) -> Import<'a, Self>
     where
@@ -225,7 +241,15 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     }
 
     /// Obtains the import handle without discarding the cached callable export.
-    fn import_function(&self, function: &Self::Function) -> Self::ImportFunction;
+    fn import_function<S: CallSignature>(
+        &self,
+        function: &Function<Self, S>,
+    ) -> Self::ImportFunction
+    where
+        Self: ExportFunction<S>,
+    {
+        self.function_import(&function.handle)
+    }
 
     fn instantiate(
         &mut self,
@@ -233,20 +257,79 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
         imports: &[Import<'_, Self>],
     ) -> impl Future<Output = Result<Self::Instance>>;
 
-    fn function(
+    /// Resolves an export using the same declaration as the generated function.
+    /// The declaration must describe that export. Logical widths are erased in
+    /// Wasm; both backends check the physical signature when resolving it.
+    fn function<S: CallSignature>(
         &mut self,
         instance: &Self::Instance,
-        declaration: Function<fn() -> I64>,
-    ) -> Result<Self::Function>;
+        declaration: FunctionDeclaration<S>,
+    ) -> Result<Function<Self, S>>
+    where
+        Self: ExportFunction<S>,
+    {
+        self.resolve_function(instance, declaration)
+            .map(Function::new)
+    }
 
     /// Installs a function in an existing table slot.
-    fn set_table_function(
+    fn set_table_function<S: CallSignature>(
         &mut self,
         table: &Self::Table,
         index: u32,
-        function: &Self::Function,
+        function: &Function<Self, S>,
+    ) -> Result<()>
+    where
+        Self: ExportFunction<S>,
+    {
+        let function = self.import_function(function);
+        self.set_table_import(table, index, function)
+    }
+
+    /// Installs an engine handle supplied by a typed function binding.
+    #[doc(hidden)]
+    fn set_table_import(
+        &mut self,
+        table: &Self::Table,
+        index: u32,
+        function: Self::ImportFunction,
     ) -> Result<()>;
 
-    /// Calls a previously resolved `() -> i64` export without another lookup.
-    fn call(&mut self, function: &Self::Function) -> Result<i64>;
+    /// Calls a cached export with ordinary Rust arguments and results.
+    /// Arguments form a tuple, including `()` for no arguments and `(value,)`
+    /// for one argument. No export lookup is performed during the call.
+    /// Wasm traps and invalid ABI values are fatal programming errors.
+    ///
+    /// ```
+    /// use relocade_compiler::{abi::Function, Program};
+    /// use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// const ADD: Function<fn(u32, u32) -> u32> = Function::new("example", "add");
+    /// let mut program = Program::new();
+    /// ADD.define(&mut program, |body, (a, b)| body.return_(a.add(b)))?;
+    /// let mut backend = Backend::new()?;
+    /// let module = backend.compiler().compile(&program.compile()?).await?;
+    /// let instance = backend.instantiate(&module, &[]).await?;
+    /// let add = backend.function(&instance, ADD)?;
+    /// assert_eq!(backend.call(&add, (u32::MAX, 2)), 1);
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// Argument values must match the cached signature:
+    /// ```compile_fail
+    /// use relocade_wasm_runtime::{Backend, Function, WasmBackend};
+    /// fn wrong(backend: &mut Backend, function: &Function<Backend, fn(u16) -> bool>) {
+    ///     backend.call(function, (1_u32,));
+    /// }
+    /// ```
+    fn call<S: CallSignature>(
+        &mut self,
+        function: &Function<Self, S>,
+        arguments: Value<S::Parameters>,
+    ) -> Value<S::Return>
+    where
+        Self: ExportFunction<S>,
+    {
+        self.invoke_function(&function.handle, arguments)
+    }
 }

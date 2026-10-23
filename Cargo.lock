@@ -1409,11 +1409,13 @@ dependencies = [
  "js-sys",
  "pollster",
  "relocade-compiler",
+ "relocade-wasm-bindings",
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "wasm-encoder 0.254.0",
  "wasmtime",
 ]
 

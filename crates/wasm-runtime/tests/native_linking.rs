@@ -80,7 +80,7 @@ fn modules_share_live_memory_and_functions_after_linking() {
         // callable functions remain alive in the backend.
         backend.write_memory(&memory, 0, &7_u64.to_le_bytes());
         for expected in [0x1_0000_000c, 0x2_0000_0011] {
-            assert_eq!(backend.call(&entry).unwrap(), expected);
+            assert_eq!(backend.call(&entry, ()), expected);
             let mut bytes = [0; 8];
             backend.read_memory(&memory, 0, &mut bytes);
             assert_eq!(i64::from_le_bytes(bytes), expected);
