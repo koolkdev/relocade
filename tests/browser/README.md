@@ -1,7 +1,7 @@
 # Browser tests
 
 All browser tests use the same threaded Rust build: shared host memory, atomics,
-and per-thread TLS. `npm test` runs the existing wasm-runtime, runtime and renderer tests
+and per-thread TLS. `npm test` runs the wasm-runtime, machine and renderer tests
 with wasm-bindgen-test, then the worker integration checks. Both stages run
 through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
@@ -23,8 +23,15 @@ The shared runner selects `CHROME_BINARY` and configures software WebGPU for
 the renderer tests. ChromeDriver is not required.
 CI uses the same entrypoint in [the browser job](../../.github/workflows/tests.yml).
 
-Cargo test filters can be passed to `npm test`, for example
-`npm test -- --test memory`. The worker checks still run afterward.
+For focused backend tests without the worker checks, use `npm run test:backends`.
+It accepts Cargo test filters, for example:
+
+```sh
+npm run test:backends -- --test memory
+```
+
+Cargo test filters can also be passed to `npm test`, for example
+`npm test -- --test memory`; the worker checks still run afterward.
 For only the worker checks, run `npm run build && npm run test:workers`.
 `npm run dev` opens those checks for manual inspection after building them.
 The build script defaults to `target/browser` and honors `CARGO_TARGET_DIR`.
