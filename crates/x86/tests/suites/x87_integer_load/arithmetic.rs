@@ -1,8 +1,9 @@
 //! Integer loads preserve exact inputs for the first arithmetic operation.
 
 use super::*;
+use crate::support::wasm::operators;
 use relocade_x86::Compiler;
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 #[test]
 fn first_product_uses_exact_integer_load() {
@@ -49,10 +50,7 @@ fn first_product_uses_exact_integer_load() {
                 .compile_block(0x1000, &code, 2)
                 .unwrap(),
         );
-        let native = Parser::new(0).parse_all(module.bytes()).any(|payload| {
-            matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if
-                body.get_operators_reader().unwrap().into_iter().any(|op| matches!(op.unwrap(), Operator::F64Mul)))
-        });
+        let native = operators(module.bytes()).any(|op| matches!(op, Operator::F64Mul));
         assert_eq!(native, !matches!(source, Qword(_)), "{source:?}");
         for negative_factor in [false, true] {
             let mut image = initial_image(&code, source, 0xffff);

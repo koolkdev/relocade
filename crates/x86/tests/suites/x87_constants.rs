@@ -1,5 +1,6 @@
 //! Architectural constants retain extended precision and have distinct load rounding.
 
+use crate::support::wasm::operators;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{dispatch, expected, Exit, Step},
@@ -7,7 +8,7 @@ use crate::support::{
     x87::{complete_x87, set_control, stack_image, write_value, INDEFINITE},
 };
 use relocade_x86::{Compiler, SegmentProfile};
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 // Literal extended encodings for nearest, down, up and truncate. The five
 // irrational constants are rounded by RC, independently of precision control.
@@ -211,10 +212,7 @@ fn native_constant_sequence() {
         .specialize_on_cpu(&image.cpu)
         .compile_block(0x1000, &code, 5)
         .unwrap();
-    assert!(Parser::new(0).parse_all(&compiled.bytes).any(|payload| {
-        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
-            .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Add)))
-    }));
+    assert!(operators(&compiled.bytes).any(|op| matches!(op, Operator::F64Add)));
     let mut cpu = complete_x87(image.cpu, 2, 0x01e8);
     cpu = complete_x87(cpu, 2, 0x01e0);
     cpu = complete_x87(cpu, 6, 0x0205);

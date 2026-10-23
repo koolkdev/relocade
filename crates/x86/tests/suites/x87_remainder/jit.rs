@@ -1,9 +1,10 @@
 //! Native quotient estimates, preserved precision, and precise restart boundaries.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule, x87::INDEFINITE};
 use relocade_x86::Compiler;
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 fn binary64_bits(value: f64) -> (u64, u16) {
     let bits = value.to_bits();
@@ -32,13 +33,7 @@ fn native_quotient(opcode: u8) {
         .compile_block(0x1000, &code, 3)
         .unwrap();
     assert_eq!(
-        Parser::new(0)
-            .parse_all(&compiled.bytes)
-            .filter_map(|payload| match payload.unwrap() {
-                Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
-                _ => None,
-            })
-            .flat_map(|reader| reader.into_iter().map(Result::unwrap))
+        operators(&compiled.bytes)
             .filter(|op| matches!(op, Operator::F64Div))
             .count(),
         1,
@@ -187,10 +182,7 @@ fn preserves_native_precision(opcode: u8) {
         .specialize_on_cpu(&cpu)
         .compile_block(0x1000, &code, 4)
         .unwrap();
-    assert!(Parser::new(0).parse_all(&compiled.bytes).any(|payload| {
-        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
-            .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Add)))
-    }));
+    assert!(operators(&compiled.bytes).any(|op| matches!(op, Operator::F64Add)));
 }
 
 #[test]

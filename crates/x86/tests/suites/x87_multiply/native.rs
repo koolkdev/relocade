@@ -6,15 +6,16 @@ mod boundaries;
 mod range;
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 fn assert_native_multiply(module: &TestModule) {
-    assert!(Parser::new(0).parse_all(module.bytes()).any(|payload| {
-        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if
-            body.get_operators_reader().unwrap().into_iter().any(|op| matches!(op.unwrap(), Operator::F64Mul)))
-    }), "the fixture must reach native multiplication");
+    assert!(
+        operators(module.bytes()).any(|op| matches!(op, Operator::F64Mul)),
+        "the fixture must reach native multiplication"
+    );
 }
 
 fn compiler() -> Compiler {

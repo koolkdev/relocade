@@ -2,12 +2,13 @@ use crate::alu::ArithmeticOp;
 use crate::alu::StatusSource;
 use crate::flags::{Condition, FlagChange, StatusFlag};
 use crate::state::{Cpu, State};
+use crate::support::wasm::function_bodies;
 use crate::test_step::TestModule;
 use crate::{CompiledModule, FlagBytes};
 use relocade_compiler::{
     BlockBuilder, BuildError, Program, Signature, Type, Val, I1, I32, I64, I8,
 };
-use wasmparser::{Operator, Parser, Payload, Validator};
+use wasmparser::{Operator, Validator};
 
 use super::super::fixture::{assert_result, initial_cpu};
 
@@ -38,22 +39,14 @@ fn condition_bits(flags: [u8; 6]) -> i64 {
 
 fn consumer_ops(bytes: &[u8]) -> Vec<Operator<'_>> {
     Validator::new().validate_all(bytes).unwrap();
-    Parser::new(0)
-        .parse_all(bytes)
-        .find_map(|payload| {
-            if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-                Some(
-                    body.get_operators_reader()
-                        .unwrap()
-                        .into_iter()
-                        .map(Result::unwrap)
-                        .collect(),
-                )
-            } else {
-                None
-            }
-        })
+    function_bodies(bytes)
+        .next()
         .unwrap()
+        .get_operators_reader()
+        .unwrap()
+        .into_iter()
+        .map(Result::unwrap)
+        .collect()
 }
 
 #[test]

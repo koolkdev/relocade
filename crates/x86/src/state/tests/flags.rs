@@ -1,5 +1,6 @@
 use crate::alu::ArithmeticOp;
 use crate::state::access::cpu_load;
+use crate::support::wasm::function_bodies;
 use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot};
 use crate::{CpuState, Gpr32};
 
@@ -16,7 +17,7 @@ use super::super::{Cpu, Register, State};
 use crate::alu::StatusSource;
 use crate::flags::{Condition, StatusFlag};
 use relocade_compiler::{BuildError, Program, Signature, Type, I1, I32, I8};
-use wasmparser::{Operator, Parser, Payload, Validator};
+use wasmparser::{Operator, Validator};
 
 #[test]
 fn a_terminating_publication_retains_the_earlier_flag_recipe() {
@@ -67,29 +68,27 @@ fn a_terminating_publication_retains_the_earlier_flag_recipe() {
 
 fn flag_stores(bytes: &[u8]) -> Vec<(usize, u64, i32)> {
     let mut stores = Vec::new();
-    for payload in Parser::new(0).parse_all(bytes) {
-        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-            let mut depth = 0;
-            let mut literal = None;
-            for operation in body.get_operators_reader().unwrap() {
-                let operation = operation.unwrap();
-                match operation {
-                    Operator::If { .. } | Operator::Block { .. } | Operator::Loop { .. } => {
-                        depth += 1;
-                    }
-                    Operator::End if depth > 0 => depth -= 1,
-                    Operator::I32Store { memarg } | Operator::I32Store8 { memarg }
-                        if memarg.offset <= 17 =>
-                    {
-                        stores.push((depth, memarg.offset, literal.unwrap()));
-                    }
-                    _ => {}
+    for body in function_bodies(bytes) {
+        let mut depth = 0;
+        let mut literal = None;
+        for operation in body.get_operators_reader().unwrap() {
+            let operation = operation.unwrap();
+            match operation {
+                Operator::If { .. } | Operator::Block { .. } | Operator::Loop { .. } => {
+                    depth += 1;
                 }
-                literal = match operation {
-                    Operator::I32Const { value } => Some(value),
-                    _ => None,
-                };
+                Operator::End if depth > 0 => depth -= 1,
+                Operator::I32Store { memarg } | Operator::I32Store8 { memarg }
+                    if memarg.offset <= 17 =>
+                {
+                    stores.push((depth, memarg.offset, literal.unwrap()));
+                }
+                _ => {}
             }
+            literal = match operation {
+                Operator::I32Const { value } => Some(value),
+                _ => None,
+            };
         }
     }
     stores

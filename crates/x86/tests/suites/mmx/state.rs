@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::x87::{complete_x87, register_bits, set_control, status};
 
 // EMMS; FLD m64; MOVD eax,mm7; FDECSTP; FADD ST0,ST0; FSTP m64.
@@ -178,15 +179,12 @@ test_frontends!(mmx_suppressed_x87_write, suppressed_write);
 #[test]
 fn mmx_read_preserves_native_x87_arithmetic() {
     use relocade_x86::Compiler;
-    use wasmparser::{Operator, Parser, Payload};
+    use wasmparser::Operator;
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);
     let module = Compiler::new(SegmentProfile::Flat32)
         .specialize_on_cpu(&observed)
         .compile_block(0x1000, &READ_THROUGH_MMX, 6)
         .unwrap();
-    assert!(Parser::new(0).parse_all(&module.bytes).any(|payload| {
-        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if
-            body.get_operators_reader().unwrap().into_iter().any(|op| matches!(op.unwrap(), Operator::F64Add)))
-    }));
+    assert!(operators(&module.bytes).any(|op| matches!(op, Operator::F64Add)));
 }

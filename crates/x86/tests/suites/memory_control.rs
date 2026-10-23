@@ -3,13 +3,14 @@
 #[path = "memory_control/cache.rs"]
 mod cache;
 
+use crate::support::wasm::{function_bodies, memory_import_index};
 use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
 use relocade_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile, Segments};
-use wasmparser::{Operator, Parser, Payload, TypeRef};
+use wasmparser::Operator;
 
 fn fences(frontend: Frontend) {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
@@ -59,43 +60,26 @@ fn explicit_fences_remain_between_memory_effects() {
     for modrm in [0xe8, 0xf0, 0xf8] {
         let code = [0x89, 0x03, 0x0f, 0xae, modrm, 0x8b, 0x13];
         let module = compile_block_from_bytes(0x1000, &code, 3).unwrap();
-        let mut memory_index = 0;
-        let mut guest = None;
+        let guest = memory_import_index(&module.bytes, "relocade", "guest");
         let mut fence_count = 0;
         let mut ordered_guest_accesses = false;
-        for payload in Parser::new(0).parse_all(&module.bytes) {
-            match payload.unwrap() {
-                Payload::ImportSection(imports) => {
-                    for import in imports {
-                        let import = import.unwrap();
-                        if matches!(import.ty, TypeRef::Memory(_)) {
-                            if import.module == "relocade" && import.name == "guest" {
-                                guest = Some(memory_index);
-                            }
-                            memory_index += 1;
-                        }
+        for body in function_bodies(&module.bytes) {
+            let mut stored = false;
+            let mut fenced_store = false;
+            for operator in body.get_operators_reader().unwrap() {
+                match operator.unwrap() {
+                    Operator::I32Store { memarg } if Some(memarg.memory) == guest => {
+                        stored = true;
                     }
-                }
-                Payload::CodeSectionEntry(body) => {
-                    let mut stored = false;
-                    let mut fenced_store = false;
-                    for operator in body.get_operators_reader().unwrap() {
-                        match operator.unwrap() {
-                            Operator::I32Store { memarg } if Some(memarg.memory) == guest => {
-                                stored = true;
-                            }
-                            Operator::AtomicFence => {
-                                fence_count += 1;
-                                fenced_store = stored;
-                            }
-                            Operator::I32Load { memarg } if Some(memarg.memory) == guest => {
-                                ordered_guest_accesses |= fenced_store;
-                            }
-                            _ => {}
-                        }
+                    Operator::AtomicFence => {
+                        fence_count += 1;
+                        fenced_store = stored;
                     }
+                    Operator::I32Load { memarg } if Some(memarg.memory) == guest => {
+                        ordered_guest_accesses |= fenced_store;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         assert!(ordered_guest_accesses);

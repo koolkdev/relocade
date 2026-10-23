@@ -1,9 +1,10 @@
 //! PC53/nearest quotients preserve precision evidence, x87 range and restart state.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 fn compiler() -> Compiler {
     let mut observed = CpuState::default();
@@ -17,10 +18,10 @@ fn native_module(code: &[u8], instruction_count: u32) -> TestModule {
             .compile_block(0x1000, code, instruction_count)
             .unwrap(),
     );
-    assert!(Parser::new(0).parse_all(module.bytes()).any(|payload| {
-        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
-            .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Div)))
-    }), "fixture must reach native division");
+    assert!(
+        operators(module.bytes()).any(|op| matches!(op, Operator::F64Div)),
+        "fixture must reach native division"
+    );
     module
 }
 

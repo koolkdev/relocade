@@ -1,23 +1,18 @@
 //! Native roots retain their views and rejected operands restart before effects.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{CompiledModule, Compiler, CpuState};
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 fn native_shape(compiled: &CompiledModule) {
     let mut roots = 0;
-    for payload in Parser::new(0).parse_all(&compiled.bytes) {
-        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-            for op in body.get_operators_reader().unwrap() {
-                match op.unwrap() {
-                    Operator::F64Sqrt => roots += 1,
-                    Operator::Loop { .. } => {
-                        panic!("native root emitted an integer refinement loop")
-                    }
-                    _ => {}
-                }
-            }
+    for op in operators(&compiled.bytes) {
+        match op {
+            Operator::F64Sqrt => roots += 1,
+            Operator::Loop { .. } => panic!("native root emitted an integer refinement loop"),
+            _ => {}
         }
     }
     assert_eq!(roots, 1);

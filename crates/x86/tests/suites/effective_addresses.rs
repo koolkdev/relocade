@@ -1,4 +1,5 @@
 //! LEA computes an address without accessing data or changing flags.
+use crate::support::wasm::imports;
 use crate::support::{
     cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly},
     encoding::check_length,
@@ -7,7 +8,7 @@ use crate::support::{
     step::TestModule,
 };
 use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32::*};
-use wasmparser::{Parser, Payload, TypeRef};
+use wasmparser::TypeRef;
 
 #[rustfmt::skip]
 fn address_cases() -> Vec<Case> {
@@ -73,17 +74,10 @@ test_cases!(
 fn snapshot_lea_imports_no_guest_data_or_page_table_memory() {
     for code in [&[0x8d, 0x03][..], &[0x66, 0x8d, 0x44, 0x8b, 0x80][..]] {
         let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
-        let mut memories = Vec::new();
-        for payload in Parser::new(0).parse_all(&module.bytes) {
-            if let Payload::ImportSection(imports) = payload.unwrap() {
-                for import in imports {
-                    let import = import.unwrap();
-                    if matches!(import.ty, TypeRef::Memory(_)) {
-                        memories.push((import.module, import.name));
-                    }
-                }
-            }
-        }
+        let memories: Vec<_> = imports(&module.bytes)
+            .filter(|import| matches!(import.ty, TypeRef::Memory(_)))
+            .map(|import| (import.module, import.name))
+            .collect();
         assert_eq!(memories, [("relocade", "executionContext")]);
     }
 }

@@ -1,9 +1,10 @@
 //! Native loaded values and full-width register values stay on their exact paths.
 
 use super::*;
+use crate::support::wasm::operators;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
-use wasmparser::{Operator, Parser, Payload};
+use wasmparser::Operator;
 
 #[test]
 fn loaded_values_use_native_rounding() {
@@ -15,13 +16,7 @@ fn loaded_values_use_native_rounding() {
             .specialize_on_cpu(&observed)
             .compile_block(0x1000, &code, 2)
             .unwrap();
-        let operations = Parser::new(0)
-            .parse_all(&compiled.bytes)
-            .filter_map(|payload| match payload.unwrap() {
-                Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
-                _ => None,
-            })
-            .flat_map(|reader| reader.into_iter().map(Result::unwrap))
+        let operations = operators(&compiled.bytes)
             .filter_map(|op| match op {
                 Operator::F64Nearest => Some(0),
                 Operator::F64Floor => Some(1),
