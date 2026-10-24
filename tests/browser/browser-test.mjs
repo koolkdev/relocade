@@ -14,7 +14,7 @@ export async function run(url = "/", bindings) {
     try {
         browser = await chromium.launch({
             executablePath: process.env.CHROME_BINARY,
-            args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+            args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--js-flags=--expose-gc"],
         });
         page = await browser.newPage();
         page.on("console", message => console.log(message.text()));
