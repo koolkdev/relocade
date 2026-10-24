@@ -93,13 +93,6 @@ pub(super) fn callback<P: Parameters, R: Returns>(
     adapters::callback(P::types(), R::layout(), &target, &anchor, context)
 }
 
-/// Keeps a callback owner rooted across its direct Wasm call. The generated
-/// adapter pushes the externref before calling Rust and consumes it afterward.
-#[wasm_bindgen]
-pub fn __relocade_wasm_bindings_retain_callback(anchor: &JsValue) {
-    std::hint::black_box(anchor);
-}
-
 pub(super) trait Parameters: Sized + 'static {
     fn types() -> Vec<ValType>;
     /// `index` must identify the C signature for these parameters and R::Abi.

@@ -27,7 +27,6 @@ pub(super) fn module(shape: &Shape) -> Vec<u8> {
             .copied()
             .take(if indirect { 0 } else { 1 }),
     );
-    types.ty().function([ValType::EXTERNREF], []);
     module.section(&types);
     let mut imports = ImportSection::new();
     imports.import(
@@ -36,9 +35,8 @@ pub(super) fn module(shape: &Shape) -> Vec<u8> {
         EntityType::Function(if callback { 1 } else { 0 }),
     );
     if callback {
-        imports.import("env", "retain", EntityType::Function(2));
         global(&mut imports, "context", ValType::I32, false);
-        global(&mut imports, "anchor", ValType::EXTERNREF, false);
+        global(&mut imports, "anchor", ValType::EXTERNREF, true);
         if indirect {
             global(&mut imports, "stack", ValType::I32, true);
         }
@@ -66,11 +64,7 @@ pub(super) fn module(shape: &Shape) -> Vec<u8> {
     let mut exports = ExportSection::new();
     // Reexport a scalar target directly. Instantiation checks its physical type,
     // while the call itself needs no extra adapter function or memory access.
-    exports.export(
-        "run",
-        ExportKind::Func,
-        if callback { 2 } else { u32::from(indirect) },
-    );
+    exports.export("run", ExportKind::Func, u32::from(needs_body));
     module.section(&exports);
     if needs_body {
         let body = if callback {
@@ -128,7 +122,8 @@ fn callback_body(shape: &Shape) -> Function {
     let saved_stack = shape.parameters.len() as u32;
     let return_pointer = saved_stack + 1;
     let first_result = saved_stack + if indirect { 2 } else { 0 };
-    // Keep the callback's owner on the operand stack across all Rust execution.
+    // Reading before Rust and writing afterward keeps this owner live across the
+    // call. Each callback has its own global; nested calls restore the same owner.
     body.instruction(&Op::GlobalGet(1));
     if let Some(area) = &shape.area {
         // Rust's stack is 16-byte aligned. Its callee grows below this return
@@ -157,7 +152,7 @@ fn callback_body(shape: &Shape) -> Function {
     } else if !shape.results.is_empty() {
         body.instruction(&Op::LocalSet(first_result));
     }
-    body.instruction(&Op::Call(1));
+    body.instruction(&Op::GlobalSet(1));
     for index in 0..shape.results.len() as u32 {
         body.instruction(&Op::LocalGet(first_result + index));
     }

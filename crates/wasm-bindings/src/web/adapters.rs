@@ -93,15 +93,15 @@ pub(super) fn callback(
 ) -> Result<JsFunction> {
     let env = Object::new();
     set(&env, "target", target)?;
-    set(&env, "anchor", anchor)?;
+    let descriptor = Object::new();
+    set(&descriptor, "value", &"externref".into())?;
+    set(&descriptor, "mutable", &true.into())?;
+    let anchor = WebAssembly::Global::new(&descriptor, anchor)
+        .map_err(|error| js_error("create callback owner", error))?;
+    set(&env, "anchor", &anchor)?;
     set(&env, "context", &context.into())?;
-    // These are actual Wasm exports, not wasm-bindgen's JavaScript wrappers.
-    let exports = wasm_bindgen::exports();
-    let retain = Reflect::get(&exports, &"__relocade_wasm_bindings_retain_callback".into())
-        .map_err(|error| js_error("resolve Rust callback keeper", error))?;
-    set(&env, "retain", &retain)?;
     if returns.area.is_some() {
-        let stack = Reflect::get(&exports, &"__stack_pointer".into())
+        let stack = Reflect::get(&wasm_bindgen::exports(), &"__stack_pointer".into())
             .map_err(|error| js_error("resolve Rust stack pointer", error))?;
         set(&env, "stack", &stack)?;
     }

@@ -1388,6 +1388,7 @@ dependencies = [
  "js-sys",
  "relocade-derive",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "wasm-encoder 0.254.0",
 ]
