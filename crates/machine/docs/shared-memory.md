@@ -23,7 +23,7 @@ Borrowing the local handle does not exclude access through other shared handles.
 
 `CpuContext::memory()` returns `MemoryView` directly in stopped access, hooks and
 deferred handlers.
-Their views borrow the stopped CPU or callback; `cpu.memory()` returns an owned
+Their views borrow the stopped CPU; `cpu.memory()` returns an owned
 handle whose lifetime is independent of execution.
 
 Share the existing backend handle with `worker::Message(memory.backing().clone())`.

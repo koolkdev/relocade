@@ -42,23 +42,23 @@ pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-pub use hooks::{Hook, HookResult, HookResultCase, HookResultValues};
+pub use hooks::{Hook, HookResult};
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{SharedMemory, WasmBackend, WasmCompiler, WasmContext};
 use state::RuntimeState;
-use std::ops::{Deref, DerefMut};
-#[cfg(target_arch = "wasm32")]
-use std::rc::Rc as ResourceOwner;
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::Arc as ResourceOwner;
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
 
 type Backend<T> = relocade_wasm_runtime::Backend<RuntimeState<T>>;
 
 /// One guest CPU and its engine resources, executable dispatch and pending calls.
 pub struct Cpu<T: 'static = ()> {
     backend: Backend<T>,
-    bindings: ResourceOwner<RuntimeMemory>,
+    bindings: RuntimeMemory,
     dispatch: Dispatch<T>,
+    hooks: HashMap<u32, Box<hooks::Handler<T>>>,
     host_call_incomplete: bool,
 }
 
@@ -75,13 +75,14 @@ impl<T: 'static> Cpu<T> {
     /// Port and MMIO reads currently return all ones; their writes are ignored.
     pub async fn with_state(config: MachineConfig, cpu: CpuConfig, state: T) -> Result<Self> {
         let mut backend = Backend::with_state(RuntimeState::new(state))?;
-        let bindings = ResourceOwner::new(RuntimeMemory::new(&mut backend, config, cpu)?);
+        let bindings = RuntimeMemory::new(&mut backend, config, cpu)?;
         let host_imports = io::unconnected_imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         Ok(Self {
             backend,
             bindings,
             dispatch,
+            hooks: HashMap::new(),
             host_call_incomplete: false,
         })
     }
@@ -102,8 +103,12 @@ impl<T: 'static> Cpu<T> {
     ) -> Result<()> {
         let module = self.backend.compiler().compile(bytes).await?;
         self.dispatch
-            .install(&mut self.backend, &self.bindings, &module, &[], entries)
-            .await
+            .install(&mut self.backend, &self.bindings, &module, entries)
+            .await?;
+        for entry in entries {
+            self.hooks.remove(&entry.address);
+        }
+        Ok(())
     }
 
     /// Borrows the stopped CPU, guest memory and environment state. Writes take
