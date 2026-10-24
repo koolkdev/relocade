@@ -35,7 +35,7 @@ macro_rules! register {
 impl<'a> CpuView<'a> {
     /// Borrows an initialized `ExecutionContext` image compatible with the execution target.
     #[inline]
-    pub fn new(config: &'a CpuConfig, storage: MemoryAccess<'a>) -> Self {
+    pub(crate) fn new(config: &'a CpuConfig, storage: MemoryAccess<'a>) -> Self {
         Self { config, storage }
     }
 

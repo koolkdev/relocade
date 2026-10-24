@@ -2,11 +2,11 @@ mod common;
 #[path = "ioctl/modes.rs"]
 mod modes;
 
-use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosServices, FileAccess};
+use common::{error, path_service, service, success, SERVICE_PROGRAM};
+use relocade_dos::{Dos, FileAccess};
 use std::io::Write;
 
-fn information(dos: &mut Dos<Backend<DosServices>>, handle: u16) -> u16 {
+fn information(dos: &mut Dos, handle: u16) -> u16 {
     let cpu = service(dos, 0x4400, handle, 0, 0xffff);
     assert_eq!(success(&cpu), cpu.registers.edx as u16);
     cpu.registers.edx as u16

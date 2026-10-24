@@ -7,6 +7,13 @@ browser, this task lives in a worker alongside message handlers. The
 execution loop remains deferred; this note records its intended ownership and
 scheduling.
 
+The task owns one `Cpu<T>` for its lifetime. `T` is its guest environment state;
+BIOS/DOS hooks and deferred services execute on the same worker. The CPU selects
+the native or browser engine internally and binds its fixed memory resources
+when installing callbacks. A `CpuContext` borrows live state only while the guest
+is stopped, and must be released before entering Wasm again. Shared resources
+can synchronize access independently of this CPU-local ownership.
+
 ```text
 UI --input/control messages--> worker message handlers
                                       |

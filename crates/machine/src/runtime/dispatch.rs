@@ -2,9 +2,9 @@
 
 mod table;
 
-use super::code;
-use crate::{Result, RuntimeMemory};
-use relocade_wasm_runtime::{ExportFunction, Function, Import};
+use super::{code, Backend, RuntimeMemory};
+use crate::Result;
+use relocade_wasm_runtime::{Function, Import, Module, WasmBackend};
 use relocade_x86::{abi, ExecutionExit};
 use table::DispatchTable;
 
@@ -17,18 +17,18 @@ pub struct DispatchEntry<'a> {
 /// Bound dispatcher, interpreter, host imports and callable entries for one CPU.
 /// Keeps module linking and publication together so every entry uses the same
 /// runtime bindings and execution table.
-pub(crate) struct Dispatch<B: ExportFunction<abi::ExecutionSignature>> {
-    dispatch: Function<B, abi::ExecutionSignature>,
-    interpret: Function<B, abi::ExecutionSignature>,
-    table: DispatchTable<B>,
-    host_imports: Vec<Import<'static, B>>,
+pub(crate) struct Dispatch<T: 'static> {
+    dispatch: Function<Backend<T>, abi::ExecutionSignature>,
+    interpret: Function<Backend<T>, abi::ExecutionSignature>,
+    table: DispatchTable<Backend<T>>,
+    host_imports: Vec<Import<'static, Backend<T>>>,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
+impl<T: 'static> Dispatch<T> {
     pub(crate) async fn new(
-        backend: &mut B,
-        bindings: &RuntimeMemory<B::Memory, B::SharedMemory>,
-        host_imports: Vec<Import<'static, B>>,
+        backend: &mut Backend<T>,
+        bindings: &RuntimeMemory,
+        host_imports: Vec<Import<'static, Backend<T>>>,
     ) -> Result<Self> {
         let target = bindings.configuration().execution_target();
         let module = code::dispatcher(backend, target).await?;
@@ -43,10 +43,10 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
     }
 
     async fn link_dispatcher(
-        backend: &mut B,
-        bindings: &RuntimeMemory<B::Memory, B::SharedMemory>,
-        module: &B::Module,
-        host_imports: Vec<Import<'static, B>>,
+        backend: &mut Backend<T>,
+        bindings: &RuntimeMemory,
+        module: &Module,
+        host_imports: Vec<Import<'static, Backend<T>>>,
     ) -> Result<Self> {
         let table = DispatchTable::new(backend)?;
         let mut imports = bindings.imports(backend).to_vec();
@@ -60,16 +60,16 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
         })
     }
 
-    pub(crate) fn run(&self, backend: &mut B) -> ExecutionExit {
+    pub(crate) fn run(&self, backend: &mut Backend<T>) -> ExecutionExit {
         self.dispatch.call(backend, ())
     }
 
     pub(crate) async fn install(
         &mut self,
-        backend: &mut B,
-        bindings: &RuntimeMemory<B::Memory, B::SharedMemory>,
-        module: &B::Module,
-        additional: &[Import<'_, B>],
+        backend: &mut Backend<T>,
+        bindings: &RuntimeMemory,
+        module: &Module,
+        additional: &[Import<'_, Backend<T>>],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let instance = self
@@ -80,11 +80,11 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
 
     async fn instantiate(
         &self,
-        backend: &mut B,
-        bindings: &RuntimeMemory<B::Memory, B::SharedMemory>,
-        module: &B::Module,
-        additional: &[Import<'_, B>],
-    ) -> Result<B::Instance> {
+        backend: &mut Backend<T>,
+        bindings: &RuntimeMemory,
+        module: &Module,
+        additional: &[Import<'_, Backend<T>>],
+    ) -> Result<<Backend<T> as WasmBackend>::Instance> {
         let mut imports = bindings.imports(backend).to_vec();
         imports.extend(self.table.imports(backend));
         imports.extend([

@@ -1,4 +1,8 @@
-use crate::{CpuConfig, CpuView, HookResult, MachineConfig, MemoryView, RuntimeState};
+use super::RuntimeState;
+use crate::{CpuConfig, CpuView, HookResult, MachineConfig, MemoryView};
+
+#[cfg(test)]
+mod tests;
 use relocade_wasm_runtime::{MemoryAccess, StateAccess};
 use relocade_x86::{ExecutionExit, ExecutionTarget};
 
@@ -18,7 +22,7 @@ impl<'a, T> CpuContext<'a, T> {
     /// contents and capacities must match the configurations; CPU state must
     /// satisfy the execution target. CPU edits check compatibility before writing.
     #[inline]
-    pub fn new(
+    pub(super) fn new(
         cpu: &'a CpuConfig,
         config: &'a MachineConfig,
         context: MemoryAccess<'a>,

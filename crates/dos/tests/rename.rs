@@ -1,10 +1,10 @@
 mod common;
 
-use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosServices, FileAccess};
+use common::{error, path_service, service, success, SERVICE_PROGRAM};
+use relocade_dos::{Dos, FileAccess};
 use relocade_x86::{CpuState, Segment, SegmentRegister};
 
-fn rename(dos: &mut Dos<Backend<DosServices>>, from: &[u8], to: &[u8]) -> CpuState {
+fn rename(dos: &mut Dos, from: &[u8], to: &[u8]) -> CpuState {
     // Use a distinct ES and cross its offset boundary to exercise both pointers.
     const SEGMENT: u16 = 0x2000;
     const OFFSET: u16 = 0xfffc;
