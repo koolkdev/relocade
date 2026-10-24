@@ -1,5 +1,10 @@
 //! Borrowed access to one allocation, independent of store lookup and host state.
 
+mod scalar;
+mod value;
+pub use scalar::{Load, Store};
+pub use value::MemoryValue;
+
 /// Byte-addressed custom storage. Transfers must be in bounds and take effect
 /// immediately; implementations must not cache snapshots or defer writes.
 pub trait MemoryStorage {
@@ -77,7 +82,7 @@ enum Region<'a> {
     #[cfg(not(target_arch = "wasm32"))]
     Shared(&'a crate::native::SharedMemory),
     #[cfg(target_arch = "wasm32")]
-    Web(&'a crate::web::memory::Allocation),
+    Web(&'a crate::web::memory::Transfers),
 }
 
 impl<'a> MemoryAccess<'a> {
@@ -112,7 +117,7 @@ impl<'a> MemoryAccess<'a> {
 
     #[cfg(target_arch = "wasm32")]
     #[inline]
-    pub(crate) fn web(memory: &'a crate::web::memory::Allocation) -> Self {
+    pub(crate) fn web(memory: &'a crate::web::memory::Transfers) -> Self {
         Self {
             region: Region::Web(memory),
         }

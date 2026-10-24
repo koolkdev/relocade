@@ -50,7 +50,8 @@ pub use calls::{CallSignature, ExportFunction, Function};
 pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
 pub use memory::{
-    MemoryAccess, MemoryStorage, SharedMemoryStorage, WasmMemoryAccess, WasmSharedMemory,
+    Load, MemoryAccess, MemoryStorage, MemoryValue, SharedMemoryStorage, Store, WasmMemoryAccess,
+    WasmSharedMemory,
 };
 pub use module_cache::ModuleCache;
 pub use state::StateAccess;
