@@ -10,6 +10,9 @@ use wasm_encoder::{
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+#[path = "direct/lifetime.rs"]
+mod lifetime;
+
 // A raw Wasm signature keeps the test independent of Rust's binding metadata.
 fn echo(types: &[ValType], callback: Option<&JsFunction>) -> WebAssembly::Instance {
     let mut module = Module::new();
@@ -140,53 +143,6 @@ fn unit_and_scalar_functions_support_direct_calls_and_callbacks() {
             .call((-1,)),
         (-1,)
     );
-}
-
-struct Owner(Rc<Cell<bool>>);
-
-impl Owner {
-    fn check(&self) {
-        assert!(!self.0.get());
-    }
-}
-
-impl Drop for Owner {
-    fn drop(&mut self) {
-        self.0.set(true);
-    }
-}
-
-#[wasm_bindgen_test::wasm_bindgen_test]
-fn table_references_keep_callbacks_alive_after_the_binding_is_dropped() {
-    let descriptor = Object::new();
-    Reflect::set(&descriptor, &"initial".into(), &1.into()).unwrap();
-    Reflect::set(&descriptor, &"element".into(), &"anyfunc".into()).unwrap();
-    let table = WebAssembly::Table::new(&descriptor).unwrap();
-    let dropped = Rc::new(Cell::new(false));
-    let calls = Rc::new(Cell::new(0));
-    {
-        let owner = Owner(Rc::clone(&dropped));
-        let calls = Rc::clone(&calls);
-        let target = callback::<Scalars, Scalars>(move |values| {
-            owner.check();
-            calls.set(calls.get() + 1);
-            assert_values(values);
-            values
-        })
-        .unwrap();
-        forbid_js_calls(&target);
-        let function = Function::<Scalars, Scalars>::new(&target).unwrap();
-        table.set(0, function.as_function()).unwrap();
-    }
-    assert!(!dropped.get());
-    let target = table.get(0).unwrap();
-    let function = Function::<Scalars, Scalars>::new(&target).unwrap();
-    drop(table);
-    drop(target);
-    for _ in 0..3 {
-        assert_values(function.call(values()));
-    }
-    assert_eq!(calls.get(), 3);
 }
 
 #[wasm_bindgen_test::wasm_bindgen_test]
