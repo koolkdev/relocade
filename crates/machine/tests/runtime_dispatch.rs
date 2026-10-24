@@ -6,7 +6,11 @@ use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
 };
-use std::mem::offset_of;
+use std::{
+    future::{poll_fn, Future},
+    mem::offset_of,
+    pin::pin,
+};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -43,16 +47,25 @@ async fn check_dispatch_table() {
         .write(0x300, &[0x40, 0xe9, 0xfc, 0xfd])
         .unwrap(); // INC AX; JMP 0100
     let module = callable(10);
-    runtime
-        .install_module(
-            &module,
-            &[DispatchEntry {
-                address: 0x200,
-                export: "entry",
-            }],
-        )
+    let stopped = runtime.context();
+    let entries = [DispatchEntry {
+        address: 0x200,
+        export: "entry",
+    }];
+    {
+        let mut installing = pin!(runtime.install_module(&module, &entries));
+        poll_fn(|cx| {
+            let result = installing.as_mut().poll(cx);
+            // Browser compilation and linking can both suspend. Neither retains
+            // a backend borrow that would prevent ordinary stopped-state access.
+            assert_eq!(stopped.cpu().eip(), 0x100);
+            stopped.cpu().set_bx(0x1234);
+            result
+        })
         .await
         .unwrap();
+    }
+    assert_eq!(stopped.cpu().bx(), 0x1234);
     // A later batch grows both tables while preserving the first callable.
     let mut entries: Vec<_> = (0..4094)
         .map(|offset| DispatchEntry {
@@ -65,7 +78,7 @@ async fn check_dispatch_table() {
         export: "entry",
     });
     runtime.install_module(&module, &entries).await.unwrap();
-    assert_eq!(runtime.run(3).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(3).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu().ax(), 11);
     assert_eq!(runtime.context().cpu().eip(), 0x100);
     let mut marker = [0; 4];
@@ -90,7 +103,7 @@ async fn check_dispatch_table() {
         .await
         .is_err());
     // Failure to resolve a later export must not replace the earlier entry.
-    assert_eq!(runtime.run(3).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(3).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu().ax(), 22);
     runtime
         .install_module(
@@ -102,14 +115,14 @@ async fn check_dispatch_table() {
         )
         .await
         .unwrap();
-    assert_eq!(runtime.run(3).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(3).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu().ax(), 43);
     assert_eq!(runtime.context().cpu().eip(), 0x100);
     assert_eq!(runtime.context().cpu().instruction_count(), 9);
 
     // The final slot in the later batch also dispatches to its installed function.
     runtime.context().cpu().set_eip(0x250);
-    assert_eq!(runtime.run(2).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(2).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu().ax(), 54);
     assert_eq!(runtime.context().cpu().eip(), 0x100);
     assert_eq!(runtime.context().cpu().instruction_count(), 11);

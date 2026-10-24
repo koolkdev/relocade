@@ -1,11 +1,9 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
-use super::{Result, RuntimeState};
-use crate::{CpuConfig, CpuContext, MachineConfig};
+use super::Result;
+use crate::{CpuConfig, MachineConfig};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
-use relocade_wasm_runtime::{
-    Import, Memory, SharedMemory, WasmBackend, WasmContext, WasmMemoryAccess, WasmSharedMemory,
-};
+use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, ExecutionContext};
 use std::mem::offset_of;
 
@@ -22,8 +20,8 @@ pub(super) struct RuntimeMemory {
 }
 
 impl RuntimeMemory {
-    pub fn new<T: 'static>(
-        backend: &mut super::Backend<T>,
+    pub fn new(
+        backend: &mut super::Backend,
         machine_config: MachineConfig,
         config: CpuConfig,
     ) -> Result<Self> {
@@ -80,20 +78,6 @@ impl RuntimeMemory {
             backend.bind(abi::GUEST, &self.guest),
             backend.bind(abi::PHYSICAL_MAP, &self.mapping),
         ]
-    }
-
-    pub(crate) fn context<'a, T: 'static>(
-        &'a self,
-        access: &'a mut impl WasmContext<State = RuntimeState<T>, Memory = Memory>,
-    ) -> CpuContext<'a, T> {
-        let (context, state) = access.memory_and_state(&self.context);
-        CpuContext::new(
-            &self.config,
-            &self.machine_config,
-            context,
-            self.shared_guest.view(),
-            state,
-        )
     }
 
     pub(crate) fn set_instruction_target(

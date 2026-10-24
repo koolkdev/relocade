@@ -3,7 +3,7 @@
 use crate::screen::{self, ScrollDirection, Window};
 use relocade_machine::{real_mode_interrupt, CpuContext, HookResult};
 
-pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+pub(super) async fn interrupt<T>(mut call: CpuContext<T>) -> HookResult {
     let cpu = call.cpu();
     let function = cpu.ah();
     let al = cpu.al();
@@ -12,7 +12,7 @@ pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     let cx = cpu.cx();
     let dx = cpu.dx();
     if matches!(function, 0x02 | 0x03 | 0x08..=0x0a) && !screen::valid_page(page) {
-        return unsupported(call);
+        return unsupported(&mut call);
     }
     match function {
         0x00 if al == 3 => {
@@ -77,12 +77,12 @@ pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             call.cpu().set_ax(u16::from_le_bytes([mode, columns]));
             call.cpu().set_bh(active);
         }
-        _ => return unsupported(call),
+        _ => return unsupported(&mut call),
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call)
 }
 
-fn unsupported<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+fn unsupported<T>(call: &mut CpuContext<T>) -> HookResult {
     call.cpu().set_ah(0x86);
     real_mode_interrupt::set_carry(call, true);
     real_mode_interrupt::return_from_interrupt(call)

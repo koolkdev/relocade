@@ -7,9 +7,9 @@ instructions still use ordinary Wasm loads and stores.
 Borrow memory before starting execution:
 
 ```rust
-let mut memory = runtime.memory();
+let memory = runtime.memory();
 let view = memory.view();
-let run = runtime.run_async(budget);
+let run = runtime.run(budget);
 // A separate display task can read without borrowing runtime or run.
 let character = view.read_u8(0xb8000)?;
 ```
@@ -17,14 +17,16 @@ let character = view.read_u8(0xb8000)?;
 `Memory` owns the backing handle and an immutable copy of the configured
 physical map. Its memory views use the same RAM, ROM, A20 and hole rules as the stopped
 machine. `TextScreen::read(&view)` can sample the
-screen while a deferred input operation owns the runtime context. The same
+screen while a service awaits input. The same
 `MemoryView` supports reads through `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
-`CpuContext::memory()` returns `MemoryView` directly in stopped access, hooks and
-deferred handlers.
-Their views borrow the stopped CPU; `cpu.memory()` returns an owned
-handle whose lifetime is independent of execution.
+`CpuContext::memory()` returns `MemoryView` directly for embedding access and
+async services. Those views borrow an owned context handle and take short storage
+borrows within each operation. A service context is valid only while its invocation
+is active; completion, cancellation or CPU destruction revokes it.
+`cpu.memory()` returns an independent shared handle that remains usable after the
+CPU is dropped and during guest execution.
 
 Share the existing backend handle with `worker::Message(memory.backing().clone())`.
 The worker transport moves native handles and preserves browser shared-memory

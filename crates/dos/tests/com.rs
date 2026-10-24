@@ -17,7 +17,7 @@ async fn check_hello() {
     let mut dos = common::dos().await;
     dos.load_com(HELLO, Default::default()).unwrap();
     {
-        let mut machine = dos.cpu().context();
+        let machine = dos.cpu().context();
         for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
             assert_eq!(machine.cpu().segment(segment).selector, 0x1000);
         }
@@ -32,14 +32,23 @@ async fn check_hello() {
         assert_eq!(word, [0, 0]);
     }
     assert_eq!(dos.exit_status(), None);
-    assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(1)),
+        ExecutionExit::BudgetExhausted
+    );
     assert!(common::output(dos.stdout()).is_empty()); // INT completed, before entering the hook.
-    assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(1)),
+        ExecutionExit::BudgetExhausted
+    );
     assert_eq!(common::output(dos.stdout()), b"Hello, DOS!\r\n");
     assert_eq!(dos.cpu().context().cpu().al(), b'$');
     assert_eq!(dos.cpu().context().cpu().sp(), 0xfffe);
     assert_eq!(dos.cpu().context().cpu().eip(), 0x107);
-    assert_eq!(dos.cpu().run(u64::MAX).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(u64::MAX)),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(dos.exit_status(), Some(Ok(7)));
     assert!(common::output(dos.stdout()).is_empty());
 }
@@ -57,7 +66,10 @@ async fn check_com_bounds_and_return() {
         .read(0x1fffd, &mut end)
         .unwrap();
     assert_eq!(end, [0x41, 0, 0]);
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(dos.cpu().context().cpu().instruction_count(), 2);
     assert_eq!(
@@ -80,7 +92,10 @@ async fn check_com_bounds_and_return() {
         .read(0x1fffd, &mut end)
         .unwrap();
     assert_eq!(end, [0, 0, 0]);
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
 }
 
@@ -88,7 +103,10 @@ async fn check_unsupported_service() {
     let mut dos = common::dos().await;
     dos.load_com(&[0xb4, 0xfe, 0xcd, 0x21], Default::default())
         .unwrap();
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(
         dos.exit_status(),
         Some(Err(ServiceError::UnsupportedFunction(0xfe)))
@@ -121,7 +139,10 @@ async fn check_unterminated_string() {
     dos.load_com(&image, Default::default()).unwrap();
     dos.cpu().context().memory().write(0x3ffff, b"Z").unwrap();
     dos.cpu().context().memory().write(0x30000, b"A").unwrap();
-    assert_eq!(dos.cpu().run(u64::MAX).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(u64::MAX)),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(
         dos.exit_status(),
         Some(Err(ServiceError::UnterminatedString))

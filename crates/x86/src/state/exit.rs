@@ -17,10 +17,6 @@ pub enum ExecutionExit {
     /// A host-call function requested a return to the embedding.
     /// The embedding owns the reason, such as process termination or a service error.
     HostReturn,
-    /// A host-call function queued work to be awaited outside guest execution.
-    /// Runtime hooks produce this exit through `CpuContext::defer`; returning it
-    /// without a queued handler is a programming error.
-    Deferred,
     /// The instruction budget was consumed at a completed block boundary.
     BudgetExhausted,
     Exception(Exception),

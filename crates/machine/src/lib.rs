@@ -1,8 +1,9 @@
-//! Initial machine configuration and scoped access to live guest state.
+//! Machine configuration, live state access and asynchronous guest execution.
 //!
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
-//! size and the fixed physical map. Execution backends provide storage; [`CpuContext`] borrows that storage to
-//! expose the current CPU and [`MemoryView`] with the machine's access policy.
+//! size and the fixed physical map. [`CpuContext`] owns access handles that expose
+//! live CPU state and [`MemoryView`] with the machine's access policy. Each
+//! operation borrows storage briefly, so handles and views can remain across awaits.
 //!
 //! ```
 //! use relocade_machine::{CpuConfig, MachineConfig};
@@ -21,7 +22,7 @@
 //!
 //! ```
 //! # use relocade_machine::CpuContext;
-//! # fn update(machine: &mut CpuContext<'_>) -> Result<(), Box<dyn std::error::Error>> {
+//! # fn update(machine: &mut CpuContext) -> Result<(), Box<dyn std::error::Error>> {
 //! let ax = machine.cpu().ax();
 //! machine.memory().write(0x200, &ax.to_le_bytes())?;
 //! machine.cpu().set_ax(ax.wrapping_add(1));

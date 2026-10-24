@@ -5,7 +5,7 @@ use relocade_x86::{CpuState, ExecutionExit, Segment, SegmentRegister};
 
 fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuState {
     {
-        let mut machine = dos.cpu().context();
+        let machine = dos.cpu().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ah(function);
@@ -15,7 +15,10 @@ fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuSta
             SegmentRegister::real_mode(Segment::Es, segment),
         );
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::BudgetExhausted
+    );
     dos.cpu().context().cpu().snapshot()
 }
 
@@ -88,7 +91,10 @@ async fn check_memory_services() {
     dos.cpu().context().memory().write(0xfff0, b"!").unwrap();
     assert_error(&service(&mut dos, 0x48, 1, 0), 7);
     dos.load_com(&[0xc3], Default::default()).unwrap(); // Loading resets the arena; RET terminates.
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::HostReturn
+    );
     dos.cpu().context().memory().read(0xfff0, &mut mcb).unwrap();
     assert_eq!(mcb, [b'Z', 0, 0, 0, 0x90]); // All root-process memory released.
 }

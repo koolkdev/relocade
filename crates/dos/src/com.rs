@@ -7,7 +7,7 @@ const SEGMENT_SIZE: u32 = 64 * 1024;
 const STACK_OFFSET: u16 = (SEGMENT_SIZE - 2) as u16;
 
 pub(crate) fn load<T>(
-    machine: &mut CpuContext<'_, T>,
+    machine: &mut CpuContext<T>,
     image: &[u8],
     options: &LoadOptions<'_>,
 ) -> Result<u16, LoadError> {

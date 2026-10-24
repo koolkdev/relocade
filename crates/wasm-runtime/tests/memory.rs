@@ -225,3 +225,87 @@ fn transfers_follow_rust_memory_growth() {
         .grow(1);
     check_scalars(&mut access, 1);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn custom_storage_keeps_scalar_overrides_and_default_byte_transfers() {
+    use relocade_wasm_runtime::{MemoryStorage, SharedMemoryStorage};
+    use std::cell::RefCell;
+
+    struct Bytes([u8; 24]);
+    impl MemoryStorage for Bytes {
+        fn read(&self, offset: u32, bytes: &mut [u8]) {
+            bytes.copy_from_slice(&self.0[offset as usize..][..bytes.len()]);
+        }
+        fn write(&mut self, offset: u32, bytes: &[u8]) {
+            self.0[offset as usize..][..bytes.len()].copy_from_slice(bytes);
+        }
+    }
+    check_scalars(&mut MemoryAccess::from_storage(&mut Bytes([0; 24])), 0);
+
+    struct Scalars(RefCell<Vec<(bool, u32, u64)>>);
+    macro_rules! scalar_override {
+        ($load:ident, $store:ident, $type:ty, $this:ident $(, $mutable:ident)?) => {
+            fn $load(&self, offset: u32) -> $type {
+                self.0.borrow_mut().push((false, offset, std::mem::size_of::<$type>() as u64));
+                <$type>::MAX - 1
+            }
+            fn $store(&$($mutable)? $this, offset: u32, value: $type) {
+                $this.0.borrow_mut().push((true, offset, u64::from(value)));
+            }
+        };
+    }
+    impl MemoryStorage for Scalars {
+        fn read(&self, _: u32, _: &mut [u8]) {
+            panic!("scalar load fell back to bytes")
+        }
+        fn write(&mut self, _: u32, _: &[u8]) {
+            panic!("scalar store fell back to bytes")
+        }
+        scalar_override!(load_u8, store_u8, u8, self, mut);
+        scalar_override!(load_u16, store_u16, u16, self, mut);
+        scalar_override!(load_u32, store_u32, u32, self, mut);
+        scalar_override!(load_u64, store_u64, u64, self, mut);
+    }
+    impl SharedMemoryStorage for Scalars {
+        fn read(&self, _: u32, _: &mut [u8]) {
+            panic!("scalar load fell back to bytes")
+        }
+        fn write(&self, _: u32, _: &[u8]) {
+            panic!("scalar store fell back to bytes")
+        }
+        scalar_override!(load_u8, store_u8, u8, self);
+        scalar_override!(load_u16, store_u16, u16, self);
+        scalar_override!(load_u32, store_u32, u32, self);
+        scalar_override!(load_u64, store_u64, u64, self);
+    }
+    for shared in [false, true] {
+        let mut storage = Scalars(RefCell::new(Vec::new()));
+        let mut access = if shared {
+            MemoryAccess::from_shared_storage(&storage)
+        } else {
+            MemoryAccess::from_storage(&mut storage)
+        };
+        assert_eq!(access.load::<u8>(1), 0xfe);
+        assert_eq!(access.load::<u16>(3), 0xfffe);
+        assert_eq!(access.load::<u32>(5), 0xffff_fffe);
+        assert_eq!(access.load::<u64>(9), 0xffff_ffff_ffff_fffe);
+        access.store(1, 0x81_u8);
+        access.store(3, 0xfedc_u16);
+        access.store(5, 0xfedc_ba98_u32);
+        access.store(9, 0xfedc_ba98_7654_3210_u64);
+        assert_eq!(
+            *storage.0.borrow(),
+            [
+                (false, 1, 1),
+                (false, 3, 2),
+                (false, 5, 4),
+                (false, 9, 8),
+                (true, 1, 0x81),
+                (true, 3, 0xfedc),
+                (true, 5, 0xfedc_ba98),
+                (true, 9, 0xfedc_ba98_7654_3210),
+            ]
+        );
+    }
+}

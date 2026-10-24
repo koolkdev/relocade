@@ -1,86 +1,80 @@
-use super::RuntimeState;
-use crate::{CpuConfig, CpuView, HookResult, MachineConfig, MemoryView};
+//! Owned access handles whose operations borrow live machine storage briefly.
 
-#[cfg(test)]
-mod tests;
-use relocade_wasm_runtime::{MemoryAccess, StateAccess};
-use relocade_x86::{ExecutionExit, ExecutionTarget};
+mod storage;
+use super::{core::MachineCore, RuntimeMemory};
+use crate::{CpuView, MemoryView};
+use relocade_wasm_runtime::MemoryAccess;
+use relocade_x86::ExecutionTarget;
+use std::rc::Rc;
+use storage::{ContextMemory, Region};
 
-/// Scoped access to a stopped CPU, its guest memory and environment state.
-/// `Cpu::context`, synchronous hooks and deferred handlers all lend this same
-/// capability. CPU and memory edits apply directly to their live storage.
-pub struct CpuContext<'a, T = ()> {
-    cpu: &'a CpuConfig,
-    config: &'a MachineConfig,
-    context: MemoryAccess<'a>,
-    guest: MemoryAccess<'a>,
-    state: StateAccess<'a, RuntimeState<T>>,
+/// Owned access to CPU state, guest memory and environment data. CPU and memory
+/// views retain this handle, not a backend borrow, and may remain across awaits.
+/// A service handle is valid only while its invocation is active. Completing or
+/// cancelling that call, or dropping the CPU, revokes all copies of its handle.
+pub struct CpuContext<T = ()> {
+    bindings: Rc<RuntimeMemory>,
+    cpu: ContextMemory<T>,
+    guest: ContextMemory<T>,
 }
 
-impl<'a, T> CpuContext<'a, T> {
-    /// Binds an initialized `ExecutionContext` image and guest backing. Their
-    /// contents and capacities must match the configurations; CPU state must
-    /// satisfy the execution target. CPU edits check compatibility before writing.
-    #[inline]
-    pub(super) fn new(
-        cpu: &'a CpuConfig,
-        config: &'a MachineConfig,
-        context: MemoryAccess<'a>,
-        guest: MemoryAccess<'a>,
-        state: impl Into<StateAccess<'a, RuntimeState<T>>>,
-    ) -> Self {
+impl<T> Clone for CpuContext<T> {
+    fn clone(&self) -> Self {
         Self {
-            cpu,
-            config,
-            context,
-            guest,
-            state: state.into(),
+            bindings: Rc::clone(&self.bindings),
+            cpu: self.cpu.clone(),
+            guest: self.guest.clone(),
+        }
+    }
+}
+
+impl<T> CpuContext<T> {
+    pub(super) fn new(core: &Rc<MachineCore<T>>, invocation: Option<u64>) -> Self {
+        Self {
+            bindings: Rc::clone(&core.bindings),
+            cpu: ContextMemory::new(core, invocation, Region::Cpu),
+            guest: ContextMemory::new(core, invocation, Region::Guest),
         }
     }
 
     pub fn execution_target(&self) -> ExecutionTarget {
-        self.cpu.execution_target()
+        self.bindings.config.execution_target()
     }
 
     #[inline]
-    pub fn cpu(&mut self) -> CpuView<'_> {
-        CpuView::new(self.cpu, self.context.reborrow())
+    pub fn cpu(&self) -> CpuView<'_> {
+        CpuView::new(
+            &self.bindings.config,
+            MemoryAccess::from_shared_storage(&self.cpu),
+        )
     }
 
     #[inline]
-    pub fn memory(&mut self) -> MemoryView<'_> {
-        MemoryView::new(self.config, self.guest.reborrow())
+    pub fn memory(&self) -> MemoryView<'_> {
+        MemoryView::new(
+            &self.bindings.machine_config,
+            MemoryAccess::from_shared_storage(&self.guest),
+        )
     }
 
-    /// The environment state owned by this backend.
-    #[inline]
-    pub fn state(&self) -> &T {
-        &self.state.data
-    }
-
-    #[inline]
-    pub fn state_mut(&mut self) -> &mut T {
-        &mut self.state.data
-    }
-
-    /// Queues an async handler for `Cpu::run_async` after any guest call returns.
+    /// Borrows environment data for one operation. Return owned values or service
+    /// handles to use later; the borrow cannot escape this closure.
     ///
-    /// Return this method's `HookResult::Exit(ExecutionExit::Deferred)` from the hook to
-    /// suspend guest execution.
-    /// The handler must own its captures; it cannot capture this context's borrows.
-    /// `Cpu::run_async` gives it fresh access to the stopped CPU, memory and
-    /// state. That access may be held across awaits. The handler owns the ABI
-    /// return, just like a synchronous hook, and need not be Send.
-    ///
-    /// Keep the same run future alive while waiting. Dropping it during the
-    /// handler cancels the handler; see `Cpu::run_async`.
-    pub fn defer<F>(&mut self, handler: F) -> HookResult
-    where
-        T: 'static,
-        F: AsyncFnOnce(&mut CpuContext<'_, T>) -> HookResult + 'static,
-    {
-        assert!(self.state.pending.is_none(), "host call already deferred");
-        self.state.pending = Some(Box::new(handler));
-        HookResult::Exit(ExecutionExit::Deferred)
+    /// ```compile_fail
+    /// use relocade_machine::CpuContext;
+    /// fn escape(context: &CpuContext<String>) -> &str {
+    ///     context.with_state(|state| state.as_str())
+    /// }
+    /// ```
+    pub fn with_state<R>(&self, operation: impl FnOnce(&T) -> R) -> R {
+        let core = self.cpu.core();
+        let state = core.state.borrow();
+        operation(&state)
+    }
+
+    pub fn with_state_mut<R>(&self, operation: impl FnOnce(&mut T) -> R) -> R {
+        let core = self.cpu.core();
+        let mut state = core.state.borrow_mut();
+        operation(&mut state)
     }
 }

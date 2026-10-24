@@ -9,7 +9,7 @@ fn rename(dos: &mut Dos, from: &[u8], to: &[u8]) -> CpuState {
     const SEGMENT: u16 = 0x2000;
     const OFFSET: u16 = 0xfffc;
     {
-        let mut machine = dos.cpu().context();
+        let machine = dos.cpu().context();
         machine.cpu().set_segment(
             Segment::Es,
             SegmentRegister::real_mode(Segment::Es, SEGMENT),

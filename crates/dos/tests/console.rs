@@ -89,7 +89,7 @@ async fn check_handle_output() {
         (99, 4, false, 6, true, b"".as_slice()),
     ] {
         {
-            let mut machine = dos.cpu().context();
+            let machine = dos.cpu().context();
             let mut cpu = machine.cpu();
             cpu.set_eip(0x100);
             cpu.set_ax(0x4000);
@@ -98,8 +98,11 @@ async fn check_handle_output() {
             cpu.set_dx(0x200);
             cpu.set_eflags(0x642 | u32::from(carry_before));
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
-        let mut machine = dos.cpu().context();
+        assert_eq!(
+            pollster::block_on(dos.cpu().run(10)),
+            ExecutionExit::BudgetExhausted
+        );
+        let machine = dos.cpu().context();
         let cpu = machine.cpu();
         assert_eq!(cpu.ax(), expected_ax);
         assert_eq!(cpu.eflags(), 0x642 | u32::from(expected_carry));

@@ -146,33 +146,38 @@ impl<T: 'static> WasmBackend for Backend<T> {
         Ok(())
     }
 
-    async fn instantiate(
+    fn instantiate(
         &mut self,
         module: &Self::Module,
         imports: &[Import<'_, Self>],
-    ) -> Result<Self::Instance> {
-        let bindings = Object::create(&JsValue::NULL.unchecked_into());
-        for import in imports {
-            let namespace = Reflect::get(&bindings, &import.module().into())
-                .map_err(|error| js_error("read Wasm imports", error))?;
-            let namespace = if namespace.is_undefined() {
-                let namespace = Object::create(&JsValue::NULL.unchecked_into());
-                set(&bindings, import.module(), &namespace)?;
-                namespace
-            } else {
-                namespace.unchecked_into::<Object>()
-            };
-            let value: JsValue = match import.value() {
-                ImportValue::Memory(memory) => memory.allocation.memory.clone().into(),
-                ImportValue::Table(table) => (*table).clone().into(),
-                ImportValue::Function(function) => function.clone().into(),
-            };
-            set(&namespace, import.name(), &value)?;
+    ) -> impl std::future::Future<Output = Result<Self::Instance>> + use<T> {
+        let promise: Result<_> = (|| {
+            let bindings = Object::create(&JsValue::NULL.unchecked_into());
+            for import in imports {
+                let namespace = Reflect::get(&bindings, &import.module().into())
+                    .map_err(|error| js_error("read Wasm imports", error))?;
+                let namespace = if namespace.is_undefined() {
+                    let namespace = Object::create(&JsValue::NULL.unchecked_into());
+                    set(&bindings, import.module(), &namespace)?;
+                    namespace
+                } else {
+                    namespace.unchecked_into::<Object>()
+                };
+                let value: JsValue = match import.value() {
+                    ImportValue::Memory(memory) => memory.allocation.memory.clone().into(),
+                    ImportValue::Table(table) => (*table).clone().into(),
+                    ImportValue::Function(function) => function.clone().into(),
+                };
+                set(&namespace, import.name(), &value)?;
+            }
+            Ok(WebAssembly::instantiate_module(&module.0, &bindings))
+        })();
+        async move {
+            JsFuture::from(promise?)
+                .await
+                .map(|instance| instance.unchecked_into())
+                .map_err(|error| js_error("instantiate Wasm", error))
         }
-        JsFuture::from(WebAssembly::instantiate_module(&module.0, &bindings))
-            .await
-            .map(|instance| instance.unchecked_into())
-            .map_err(|error| js_error("instantiate Wasm", error))
     }
 
     fn set_table_import(

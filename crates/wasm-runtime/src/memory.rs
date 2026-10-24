@@ -5,18 +5,45 @@ mod value;
 pub use scalar::{Load, Store};
 pub use value::MemoryValue;
 
+macro_rules! scalar_storage {
+    ($load:ident, $store:ident, $type:ty, $this:ident $(, $mutability:ident)?) => {
+        fn $load(&self, offset: u32) -> $type {
+            let mut bytes = [0; std::mem::size_of::<$type>()];
+            self.read(offset, &mut bytes);
+            <$type>::from_le_bytes(bytes)
+        }
+
+        fn $store(& $($mutability)? $this, offset: u32, value: $type) {
+            $this.write(offset, &value.to_le_bytes());
+        }
+    };
+}
+
 /// Byte-addressed custom storage. Transfers must be in bounds and take effect
 /// immediately; implementations must not cache snapshots or defer writes.
+/// Scalar methods default to little-endian byte transfers. Forwarding storage
+/// should override them when its backing provides dedicated per-width access.
 pub trait MemoryStorage {
     fn read(&self, offset: u32, bytes: &mut [u8]);
     fn write(&mut self, offset: u32, bytes: &[u8]);
+
+    scalar_storage!(load_u8, store_u8, u8, self, mut);
+    scalar_storage!(load_u16, store_u16, u16, self, mut);
+    scalar_storage!(load_u32, store_u32, u32, self, mut);
+    scalar_storage!(load_u64, store_u64, u64, self, mut);
 }
 
 /// Custom storage that permits independent readers and writers. Its owner
 /// supplies any required synchronization; transfers need not be atomic snapshots.
+/// Scalar defaults and overrides follow the same contract as [`MemoryStorage`].
 pub trait SharedMemoryStorage {
     fn read(&self, offset: u32, bytes: &mut [u8]);
     fn write(&self, offset: u32, bytes: &[u8]);
+
+    scalar_storage!(load_u8, store_u8, u8, self);
+    scalar_storage!(load_u16, store_u16, u16, self);
+    scalar_storage!(load_u32, store_u32, u32, self);
+    scalar_storage!(load_u64, store_u64, u64, self);
 }
 
 /// Access to linear memory through a Wasm backend or its scoped context.
