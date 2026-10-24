@@ -6,8 +6,8 @@ mod jit;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::Exit,
-    x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
+    machine::{dispatch, Exit},
+    x87::{complete_x87, set_control, stack_image, write_value, INDEFINITE},
 };
 use relocade_x86::SegmentProfile;
 

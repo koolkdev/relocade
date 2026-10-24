@@ -9,10 +9,10 @@ mod memory;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Step},
+    machine::{dispatch, Exit, Step},
     x87::{
-        complete_x87 as complete, dispatch, real80, register_bits, set_control,
-        stack_image as initial_image, status, write_register_bits, INDEFINITE,
+        complete_x87 as complete, real80, register_bits, set_control, stack_image as initial_image,
+        status, write_register_bits, INDEFINITE,
     },
 };
 use relocade_x86::{ExecutionProfile, SegmentProfile, X87Status};

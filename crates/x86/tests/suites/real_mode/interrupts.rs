@@ -17,7 +17,7 @@ fn interrupt_image(code: &[u8], vector: u8) -> Image {
 }
 
 fn entered(image: &Image, length: usize) -> CpuState {
-    let mut cpu = retired(image, length);
+    let mut cpu = retire(image.cpu, length);
     cpu.eip = 0xffff;
     cpu.segments.cs = cache(Segment::Cs, 0xffff);
     cpu.registers.esp -= 6;
@@ -156,7 +156,7 @@ fn conditional_entry(frontend: Frontend) {
         let cpu = if overflow {
             entered(&image, 1)
         } else {
-            retired(&image, 1)
+            retire(image.cpu, 1)
         };
         let frame = [1, 0x10, 0, 0, 0x16, 0x5f];
         let ram = if overflow {
@@ -291,14 +291,14 @@ fn prior_work(frontend: Frontend) {
         if fault {
             image.cpu.registers.esp = 0xabcd_0001;
         }
-        let mut moved = retired(&image, 3);
+        let mut moved = retire(image.cpu, 3);
         moved.registers.eax = 0x1111_1234;
         let mut cpu = if fault {
             moved
         } else if overflow {
             entered(&image, 4)
         } else {
-            retired(&image, 4)
+            retire(image.cpu, 4)
         };
         cpu.registers.eax = moved.registers.eax;
         cpu.instruction_count = moved.instruction_count.wrapping_add(u64::from(!fault));

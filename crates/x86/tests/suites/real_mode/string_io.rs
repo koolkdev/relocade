@@ -65,7 +65,7 @@ fn transfers(frontend: Frontend) {
                 });
             }
         }
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         let index = if input_port {
             &mut cpu.registers.edi
         } else {
@@ -123,7 +123,7 @@ fn faults(frontend: Frontend) {
             let mut ram = Vec::new();
             let mut events = Vec::new();
             let exit = if count == 0 {
-                cpu = retired(&image, code.len());
+                cpu = retire(image.cpu, code.len());
                 Exit::Dispatch(cpu.eip)
             } else {
                 cpu.registers.ecx = 2;
@@ -178,7 +178,7 @@ fn segments_and_mmio(frontend: Frontend) {
         let mut input = image.input();
         input.mmio_pages = vec![(4, 0x9000), (5, 0xa000)];
         input.observe_mmio = true;
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         let events = if input_port {
             input.port_reads = vec![0x1234];
             cpu.registers.edi += 2;
@@ -237,7 +237,7 @@ fn segments_and_mmio(frontend: Frontend) {
     image.map(0, 0x9000, true);
     let mut input = image.input();
     input.port_reads = vec![0x1122, 0x3344];
-    let mut cpu = retired(&image, code.len());
+    let mut cpu = retire(image.cpu, code.len());
     cpu.registers.edi = 0xabcd_0002;
     cpu.registers.ecx = 0x1234_0000;
     let mut wanted = expected(

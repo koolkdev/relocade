@@ -13,10 +13,10 @@ mod specialization;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Step},
+    machine::{dispatch, Exit, Step},
     x87::{
         arithmetic::{check_arithmetic, ArithmeticCase as Case},
-        complete_x87, dispatch, set_control, stack_image, status, write_register_bits, write_value,
+        complete_x87, set_control, stack_image, status, write_register_bits, write_value,
         INDEFINITE,
     },
 };

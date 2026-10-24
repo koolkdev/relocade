@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::support::execution::ImageSequences;
+use crate::support::machine::{dispatch, Exit, Step};
 
 #[derive(Debug)]
 pub(crate) struct ArithmeticCase {

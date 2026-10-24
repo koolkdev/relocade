@@ -5,10 +5,9 @@ mod faults;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
+    machine::{dispatch, Exit, Image, Step},
     x87::{
-        complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits,
-        INDEFINITE,
+        complete_x87, real80, set_control, stack_image, status, write_register_bits, INDEFINITE,
     },
 };
 use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile};

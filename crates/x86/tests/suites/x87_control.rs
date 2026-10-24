@@ -10,7 +10,7 @@ mod words;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{expected, Exit, Image, Step},
+    machine::{dispatch, expected, retire, Exit, Image, Step},
     step::TestModule,
     x87::{set_control, status},
 };
@@ -35,20 +35,6 @@ fn initial_image(code: &[u8]) -> Image {
 fn pending(image: &mut Image) {
     set_control(&mut image.cpu.x87.control, 0x035f);
     image.cpu.x87.status = status(0xbaa0);
-}
-
-fn retire(mut cpu: CpuState, bytes: u32) -> CpuState {
-    cpu.eip = cpu.eip.wrapping_add(bytes);
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
-}
-
-fn dispatch(cpu: CpuState) -> Step<'static> {
-    Step {
-        cpu,
-        ram: &[],
-        exit: Exit::Dispatch(cpu.eip),
-    }
 }
 
 fn initialized(mut cpu: CpuState) -> CpuState {
@@ -124,7 +110,7 @@ fn no_wait_stores(frontend: Frontend) {
         image.cpu.registers.eax = 0xabcd_1234;
         image.map(4, 0x8000, true);
         image.data(0x8000, &[0x11, 0x22, 0x33, 0x44]);
-        let mut cpu = retire(image.cpu, store.len() as u32);
+        let mut cpu = retire(image.cpu, store.len());
         let ram = stored.as_ref().map(|bytes| (0x8001, bytes.as_slice()));
         if stored.is_none() {
             cpu.registers.eax = 0xabcd_baa0;

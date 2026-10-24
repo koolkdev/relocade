@@ -11,10 +11,10 @@ mod specialization;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Step},
+    machine::{dispatch, Exit, Step},
     x87::{
         arithmetic::{check_arithmetic, ArithmeticCase as Case},
-        complete_x87, dispatch, stack_image, write_value, INDEFINITE,
+        complete_x87, stack_image, write_value, INDEFINITE,
     },
 };
 use relocade_x86::SegmentProfile;

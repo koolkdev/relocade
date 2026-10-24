@@ -8,7 +8,7 @@ mod mmio;
 use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
+    machine::{retire, Exit, Image, Step},
     x87::{stack_image, write_register_bits},
 };
 use relocade_x86::{CpuState, SegmentProfile};
@@ -50,9 +50,8 @@ fn image(code: &[u8], mask: [u8; 16]) -> Image {
     image
 }
 
-fn retired(mut cpu: CpuState, length: usize, bytes: usize) -> CpuState {
-    cpu.eip += length as u32;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
+fn retired(cpu: CpuState, length: usize, bytes: usize) -> CpuState {
+    let mut cpu = retire(cpu, length);
     if bytes == 8 {
         cpu.x87.tag_word = 0;
         cpu.x87.status.top = 0;

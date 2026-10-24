@@ -11,8 +11,8 @@ mod transfers;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
-    x87::{complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits},
+    machine::{dispatch, retire, Exit, Image, Step},
+    x87::{complete_x87, real80, set_control, stack_image, status, write_register_bits},
 };
 use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
 
@@ -55,12 +55,6 @@ fn image(code: &[u8], profile: ExecutionProfile) -> Image {
     image.map(4, 0x8000, true);
     image.data(0x8010, &[0xa5; 512]);
     image
-}
-
-fn retire(mut cpu: CpuState, bytes: usize) -> CpuState {
-    cpu.eip += bytes as u32;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
 }
 
 fn saved_bytes(cpu: &CpuState, header: [u32; 8], order: [usize; 8]) -> [u8; 512] {
