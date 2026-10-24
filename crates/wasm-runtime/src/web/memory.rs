@@ -1,6 +1,9 @@
-use crate::{MemoryAccess, Result, SharedMemoryStorage, WasmSharedMemory};
-use js_sys::{Reflect, SharedArrayBuffer, Uint8Array, WebAssembly};
-use std::rc::Rc;
+mod transfers;
+pub(crate) use transfers::Transfers;
+
+use crate::{Error, MemoryAccess, Result, SharedMemoryStorage, WasmSharedMemory};
+use js_sys::{Reflect, SharedArrayBuffer, WebAssembly};
+use std::{fmt, rc::Rc};
 use wasm_bindgen::JsCast;
 
 /// A retained allocation on this JavaScript thread.
@@ -9,31 +12,30 @@ pub struct Memory {
     pub(super) allocation: Rc<Allocation>,
 }
 
-#[derive(Debug)]
 pub(crate) struct Allocation {
     pub(super) memory: WebAssembly::Memory,
+    transfers: Transfers,
+}
+
+impl fmt::Debug for Allocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Allocation")
+            .field("memory", &self.memory)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Memory {
-    pub(super) fn new(memory: WebAssembly::Memory) -> Self {
-        Self {
-            allocation: Rc::new(Allocation { memory }),
-        }
+    pub(super) fn new(memory: WebAssembly::Memory, shared: bool) -> Result<Self> {
+        let transfers = Transfers::new(&memory, shared)?;
+        Ok(Self {
+            allocation: Rc::new(Allocation { memory, transfers }),
+        })
     }
 
     #[inline]
     pub(super) fn access(&self) -> MemoryAccess<'_> {
-        MemoryAccess::web(&self.allocation)
-    }
-}
-
-impl Allocation {
-    pub(crate) fn read(&self, offset: u32, bytes: &mut [u8]) {
-        range(&self.memory, offset, bytes.len()).copy_to(bytes);
-    }
-
-    pub(crate) fn write(&self, offset: u32, bytes: &[u8]) {
-        range(&self.memory, offset, bytes.len()).copy_from(bytes);
+        MemoryAccess::web(&self.allocation.transfers)
     }
 }
 
@@ -57,21 +59,25 @@ impl<'de> serde::Deserialize<'de> for SharedMemory {
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
         let memory = serde_wasm_bindgen::preserve::deserialize(deserializer)?;
-        Self::from_memory(memory)
-            .ok_or_else(|| serde::de::Error::custom("expected shared WebAssembly.Memory"))
+        Self::from_memory(memory).map_err(serde::de::Error::custom)
     }
 }
 
 impl SharedMemory {
     /// Accepts a shared memory, including one received through worker postMessage.
     /// Private memories cannot be read independently of their backend.
-    pub fn from_memory(memory: WebAssembly::Memory) -> Option<Self> {
-        memory
-            .buffer()
-            .is_instance_of::<SharedArrayBuffer>()
-            .then(|| Self {
-                memory: Memory::new(memory),
-            })
+    pub fn from_memory(memory: WebAssembly::Memory) -> Result<Self> {
+        if !memory.buffer().is_instance_of::<SharedArrayBuffer>() {
+            return Err(Error::new(
+                "import shared memory",
+                "expected shared WebAssembly.Memory",
+            ));
+        }
+        // Bind against this worker's Rust memory; only the engine memory resource
+        // crosses the worker boundary.
+        Ok(Self {
+            memory: Memory::new(memory, true)?,
+        })
     }
 
     /// The JavaScript resource to share with another worker using postMessage.
@@ -93,22 +99,12 @@ impl WasmSharedMemory for SharedMemory {
 
 impl SharedMemoryStorage for SharedMemory {
     fn read(&self, offset: u32, bytes: &mut [u8]) {
-        self.memory.allocation.read(offset, bytes);
+        self.memory.allocation.transfers.read(offset, bytes);
     }
 
     fn write(&self, offset: u32, bytes: &[u8]) {
-        self.memory.allocation.write(offset, bytes);
+        self.memory.allocation.transfers.write(offset, bytes);
     }
-}
-
-pub(super) fn range(memory: &WebAssembly::Memory, offset: u32, len: usize) -> Uint8Array {
-    // Growth detaches private buffers and leaves old shared buffers with their
-    // original length. Obtain the current buffer for every transfer.
-    Uint8Array::new_with_byte_offset_and_length(
-        &memory.buffer(),
-        offset,
-        len.try_into().expect("Wasm32 memory range"),
-    )
 }
 
 pub(super) fn size(memory: &WebAssembly::Memory) -> Result<u64> {

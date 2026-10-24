@@ -35,10 +35,8 @@ async fn check_callback_access() {
             Box::new(move |mut caller, value| {
                 let (mut memory, state) = caller.memory_and_state(&callback_memory);
                 state.set(state.get() + 1);
-                let mut bytes = [0; 4];
-                memory.read(0, &mut bytes);
-                let value = u32::from_le_bytes(bytes) + value;
-                memory.write(0, &value.to_le_bytes());
+                let value = memory.load::<u32>(0) + value;
+                memory.store(0, value);
                 value
             }),
         )];
@@ -46,15 +44,13 @@ async fn check_callback_access() {
         let run = backend.function(&instance, RUN).unwrap();
         {
             let (mut memory, state) = backend.memory_and_state(&memory);
-            memory.write(0, &10_u32.to_le_bytes());
+            memory.store(0, 10_u32);
             state.set(20);
         }
         assert_eq!(run.call(&mut backend, (2,)), 12);
         assert_eq!(run.call(&mut backend, (3,)), 15);
         let (memory, state) = backend.memory_and_state(&memory);
-        let mut bytes = [0; 4];
-        memory.read(0, &mut bytes);
-        assert_eq!(u32::from_le_bytes(bytes), 15);
+        assert_eq!(memory.load::<u32>(0), 15);
         assert_eq!(state.get(), 22);
         assert_eq!(calls.get(), 22);
     }
