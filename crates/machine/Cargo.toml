@@ -9,7 +9,6 @@ publish.workspace = true
 worker = ["dep:web-thread", "dep:serde"]
 
 [dependencies]
-relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-wasm-runtime = { path = "../wasm-runtime" }
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"], optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }

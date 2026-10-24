@@ -9,8 +9,8 @@ scheduling.
 
 The task owns one `Cpu<T>` for its lifetime. `T` is its guest environment state;
 BIOS/DOS hooks and deferred services execute on the same worker. The CPU selects
-the native or browser engine internally and binds its fixed memory resources
-when installing callbacks. A `CpuContext` borrows live state only while the guest
+the native or browser engine internally and retains its initialized memory resources.
+Hooks run in Rust after Wasm returns. A `CpuContext` borrows live state while the guest
 is stopped, and must be released before entering Wasm again. Shared resources
 can synchronize access independently of this CPU-local ownership.
 

@@ -1061,12 +1061,20 @@ These entries currently return four Wasm `i32` values. Embeddings should bind
 host agree on the layout; enum tags are independent of architectural vector numbers.
 There is no manually packed exit word or restriction to a 16-bit error code.
 
+Generated host entries return `HostCall { address }` with the handler's guest
+linear address and CPU state already published. The CPU owns the handler
+registry and consumes this exit internally: Wasm returns before Rust invokes
+the handler. Entries have no service callback import. Reentering dispatch after
+a hook retains the original instruction target; hooks do not retire guest
+instructions. An address without a registered handler is a programming error.
+
 `HostReturn` requests a return to the embedding. `Deferred` requests the queued
 host operation, which the runtime awaits after the guest call returns. Hook
 continuation is a separate `HookResult::Continue` variant; `HookResult::Exit`
-carries the complete execution outcome. Synchronous and deferred hook handlers
-return this same type. Dispatch and interpreter callbacks use the same typed
-execution contract as generated entries.
+carries an execution outcome. Synchronous and deferred handlers use this same
+Rust-only type. They must not return `HostCall`, which is reserved for generated
+entries. Handler captures may be local to the CPU's thread and need not be
+`Send` or `Sync`.
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

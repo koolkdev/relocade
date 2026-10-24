@@ -74,7 +74,17 @@ impl<T: 'static> Cpu<T> {
         }
         self.bindings
             .set_instruction_target(&mut self.backend, target);
-        Ok(self.dispatch.run(&mut self.backend))
+        loop {
+            let exit = self.dispatch.run(&mut self.backend);
+            let ExecutionExit::HostCall { address } = exit else {
+                return Ok(exit);
+            };
+            let handler = self.hooks.get(&address).expect("registered host entry");
+            match handler(&mut self.bindings.context(&mut self.backend)) {
+                HookResult::Continue => {}
+                HookResult::Exit(exit) => return Ok(exit),
+            }
+        }
     }
 
     async fn run_deferred(&mut self) -> HookResult {

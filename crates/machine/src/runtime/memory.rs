@@ -10,8 +10,8 @@ use relocade_x86::{abi, ExecutionContext};
 use std::mem::offset_of;
 
 /// The runtime's initialized Wasm memories. This owner allocates backend memory
-/// from the machine configuration and supplies module bindings. The CPU's
-/// callbacks retain these resources and borrow access when the guest is stopped.
+/// from the machine configuration and supplies module bindings. The CPU owns
+/// these resources and lends access while the guest is stopped.
 pub(super) struct RuntimeMemory {
     pub(crate) config: CpuConfig,
     pub(crate) machine_config: MachineConfig,
