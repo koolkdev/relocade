@@ -1,12 +1,12 @@
-use super::callback::DeferredCall;
+use super::deferred::DeferredCall;
 use std::ops::{Deref, DerefMut};
 
 /// Backend-owned state for one runtime, including a queued async host handler.
-/// Pass this to the backend's `with_state` constructor. Cpu and host-call
-/// accessors lend `data` directly. Neither the data nor pending work needs Send.
+/// Pass this to the backend's `with_state` constructor. CPU contexts lend
+/// `data` directly. Neither the data nor pending work needs Send.
 #[derive(Default)]
 pub struct RuntimeState<T = ()> {
-    /// Environment data lent by `Cpu::state` and `HostCall::state`.
+    /// Environment data lent by `Cpu::state` and `CpuContext::state`.
     pub data: T,
     pub(crate) pending: Option<Box<dyn DeferredCall<T>>>,
 }

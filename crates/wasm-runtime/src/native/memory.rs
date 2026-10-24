@@ -1,4 +1,4 @@
-use crate::{Error, Result, WasmSharedMemory};
+use crate::{Error, MemoryAccess, Result, SharedMemoryStorage, StateAccess, WasmSharedMemory};
 use relocade_compiler::abi;
 use std::sync::atomic::{AtomicU8, Ordering};
 use wasmtime::{AsContext, AsContextMut, Extern, MemoryType};
@@ -36,21 +36,26 @@ impl Memory {
         }
     }
 
-    pub(super) fn read(&self, store: impl AsContext, offset: u32, bytes: &mut [u8]) {
+    pub(super) fn access<'a, T>(
+        &'a self,
+        store: wasmtime::StoreContextMut<'a, T>,
+    ) -> MemoryAccess<'a> {
         match self {
-            Self::Private(memory) => memory
-                .read(store, offset as usize, bytes)
-                .expect("in-bounds Wasm memory range"),
-            Self::Shared(memory) => memory.read(offset, bytes),
+            Self::Private(memory) => MemoryAccess::from_bytes(memory.data_mut(store)),
+            Self::Shared(memory) => memory.view(),
         }
     }
 
-    pub(super) fn write(&self, store: impl AsContextMut, offset: u32, bytes: &[u8]) {
+    pub(super) fn access_and_state<'a, T>(
+        &'a self,
+        store: &'a mut wasmtime::StoreContextMut<'_, T>,
+    ) -> (MemoryAccess<'a>, StateAccess<'a, T>) {
         match self {
-            Self::Private(memory) => memory
-                .write(store, offset as usize, bytes)
-                .expect("in-bounds Wasm memory range"),
-            Self::Shared(memory) => memory.write(offset, bytes),
+            Self::Private(memory) => {
+                let (bytes, state) = memory.data_and_store_mut(store);
+                (MemoryAccess::from_bytes(bytes), state.into())
+            }
+            Self::Shared(memory) => (memory.view(), store.data_mut().into()),
         }
     }
 
@@ -88,13 +93,20 @@ impl Memory {
 }
 
 impl WasmSharedMemory for SharedMemory {
+    fn view(&self) -> MemoryAccess<'_> {
+        MemoryAccess::shared(self)
+    }
+
+    fn byte_len(&self) -> u64 {
+        self.0.size() * 65536
+    }
+}
+
+impl SharedMemoryStorage for SharedMemory {
     fn write(&self, offset: u32, bytes: &[u8]) {
         for (cell, byte) in self.range(offset, bytes.len()).iter().zip(bytes) {
             cell.store(*byte, Ordering::Relaxed);
         }
-    }
-    fn byte_len(&self) -> u64 {
-        self.0.size() * 65536
     }
 
     fn read(&self, offset: u32, bytes: &mut [u8]) {

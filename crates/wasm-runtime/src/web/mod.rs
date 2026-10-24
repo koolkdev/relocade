@@ -1,10 +1,11 @@
 use crate::{
-    Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmCompiler, WasmMemoryAccess,
+    Error, Import, ImportValue, MemoryAccess, ModuleCache, Result, StateAccess, WasmBackend,
+    WasmCompiler, WasmContext, WasmMemoryAccess,
 };
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::abi;
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::RefCell,
     ops::{Deref, DerefMut},
     rc::Rc,
 };
@@ -12,32 +13,17 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 mod calls;
+mod context;
 mod host;
-mod memory;
-pub use host::Context;
-pub use memory::SharedMemory;
+pub(crate) mod memory;
+pub use context::Context;
+pub use memory::{Memory, SharedMemory};
 
 /// One guest's instances, callbacks and host state.
 pub struct Backend<T = ()> {
-    store: Rc<RefCell<Store<T>>>,
+    store: Rc<RefCell<T>>,
     modules: Rc<ModuleCache<Module>>,
 }
-
-struct Store<T> {
-    state: T,
-    memories: Vec<WebAssembly::Memory>,
-}
-
-impl<T> Store<T> {
-    fn memory(&self, memory: &Memory) -> &WebAssembly::Memory {
-        &self.memories[memory.0]
-    }
-}
-
-/// A handle to memory owned by one backend. Clones identify the same JavaScript
-/// resource; access requires the originating backend or its scoped context.
-#[derive(Clone, Debug)]
-pub struct Memory(usize);
 
 /// Compiled code whose JavaScript handle can be posted to another worker.
 /// Equality compares handle identity, including across clones of this value.
@@ -74,17 +60,13 @@ impl<T: 'static> Backend<T> {
                 Rc::new(ModuleCache::default());
         }
         Ok(Self {
-            store: Rc::new(RefCell::new(Store {
-                state,
-                memories: Vec::new(),
-            })),
+            store: Rc::new(RefCell::new(state)),
             modules: MODULES.with(Rc::clone),
         })
     }
 }
 
 impl<T: 'static> WasmBackend for Backend<T> {
-    type State = T;
     type Context<'a> = Context<'a, T>;
     type Module = Module;
     type Compiler = Compiler;
@@ -92,18 +74,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type Table = WebAssembly::Table;
     type ImportFunction = JsFunction;
     type SharedMemory = SharedMemory;
-
-    fn state(&self) -> impl Deref<Target = T> {
-        Ref::map(self.store.borrow(), |store| &store.state)
-    }
-
-    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
-        RefMut::map(self.store.borrow_mut(), |store| &mut store.state)
-    }
-
-    fn context(&mut self) -> Context<'_, T> {
-        Context(self.store.borrow_mut())
-    }
 
     fn compiler(&self) -> Compiler {
         Compiler
@@ -122,21 +92,22 @@ impl<T: 'static> WasmBackend for Backend<T> {
         }
         let memory = WebAssembly::Memory::new(&descriptor)
             .map_err(|error| js_error("create Wasm memory", error))?;
-        let mut store = self.store.borrow_mut();
-        let handle = Memory(store.memories.len());
-        store.memories.push(memory);
-        Ok(handle)
+        Ok(Memory::new(memory))
     }
 
     fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
-        SharedMemory::from_memory(self.store.borrow().memory(memory).clone())
+        memory
+            .allocation
+            .memory
+            .buffer()
+            .is_instance_of::<js_sys::SharedArrayBuffer>()
+            .then(|| SharedMemory {
+                memory: memory.clone(),
+            })
     }
 
     fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
-        let mut store = self.store.borrow_mut();
-        let handle = Memory(store.memories.len());
-        store.memories.push(memory.memory().clone());
-        handle
+        memory.memory.clone()
     }
 
     fn create_table(&mut self, minimum: u32) -> Result<Self::Table> {
@@ -157,8 +128,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
     }
 
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()> {
-        let store = self.store.borrow();
-        let memory = store.memory(memory);
+        let memory = &memory.allocation.memory;
         let pages = byte_len.div_ceil(65536);
         let current = memory::size(memory)?;
         if pages > current {
@@ -193,7 +163,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
                 namespace.unchecked_into::<Object>()
             };
             let value: JsValue = match import.value() {
-                ImportValue::Memory(memory) => self.store.borrow().memory(memory).clone().into(),
+                ImportValue::Memory(memory) => memory.allocation.memory.clone().into(),
                 ImportValue::Table(table) => (*table).clone().into(),
                 ImportValue::Function(function) => function.clone().into(),
             };
@@ -220,24 +190,8 @@ impl<T: 'static> WasmBackend for Backend<T> {
 impl<T> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        self.store.borrow().read_memory(memory, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        self.store.borrow_mut().write_memory(memory, offset, bytes);
-    }
-}
-
-impl<T> WasmMemoryAccess for Store<T> {
-    type Memory = Memory;
-
-    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory::range(self.memory(memory), offset, bytes.len()).copy_to(bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory::write(self.memory(memory), offset, bytes);
+    fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
+        memory.access()
     }
 }
 
@@ -252,4 +206,24 @@ fn js_error(operation: &'static str, error: JsValue) -> Error {
         operation,
         error.as_string().unwrap_or_else(|| format!("{error:?}")),
     )
+}
+
+impl<T: 'static> WasmContext for Backend<T> {
+    type State = T;
+
+    fn state(&self) -> impl Deref<Target = T> {
+        self.store.borrow()
+    }
+
+    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
+        self.store.borrow_mut()
+    }
+
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Memory,
+    ) -> (MemoryAccess<'a>, StateAccess<'a, T>) {
+        let state = self.store.borrow_mut();
+        (memory.access(), state.into())
+    }
 }

@@ -1,4 +1,7 @@
-use crate::{Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmMemoryAccess};
+use crate::{
+    Error, Import, ImportValue, MemoryAccess, ModuleCache, Result, StateAccess, WasmBackend,
+    WasmContext, WasmMemoryAccess,
+};
 use relocade_compiler::abi;
 use std::ops::{Deref, DerefMut};
 use wasmtime::{AsContextMut, Func, Instance, Linker, Ref, RefType, Store, Table, TableType};
@@ -7,10 +10,11 @@ pub use wasmtime::Module;
 
 mod calls;
 mod compilation;
+mod context;
 mod host;
 mod memory;
 pub use compilation::Compiler;
-pub use host::Context;
+pub use context::Context;
 pub use memory::{Memory, SharedMemory};
 
 /// One store for guest instances and their imports. Runtime owns execution policy.
@@ -36,7 +40,6 @@ impl<T: 'static> Backend<T> {
 }
 
 impl<T: 'static> WasmBackend for Backend<T> {
-    type State = T;
     type Context<'a> = Context<'a, T>;
     type Module = Module;
     type Compiler = Compiler;
@@ -44,18 +47,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type Table = Table;
     type ImportFunction = Func;
     type SharedMemory = SharedMemory;
-
-    fn state(&self) -> impl Deref<Target = T> {
-        self.store.data()
-    }
-
-    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
-        self.store.data_mut()
-    }
-
-    fn context(&mut self) -> Context<'_, T> {
-        Context(self.store.as_context_mut())
-    }
 
     fn compiler(&self) -> Compiler {
         self.compilation.compiler()
@@ -138,11 +129,35 @@ impl<T: 'static> WasmBackend for Backend<T> {
 impl<T: 'static> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
-    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory.read(&self.store, offset, bytes);
+    fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
+        memory.access(self.store.as_context_mut())
+    }
+}
+
+impl<T: 'static> WasmContext for Backend<T> {
+    type State = T;
+
+    fn state(&self) -> impl Deref<Target = T> {
+        self.store.data()
     }
 
-    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory.write(&mut self.store, offset, bytes);
+    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
+        self.store.data_mut()
+    }
+
+    fn memory_and_state<'a>(
+        &'a mut self,
+        memory: &'a Memory,
+    ) -> (MemoryAccess<'a>, StateAccess<'a, T>) {
+        match memory {
+            Memory::Private(memory) => {
+                let (bytes, store) = memory.data_and_store_mut(&mut self.store);
+                (MemoryAccess::from_bytes(bytes), store.into())
+            }
+            Memory::Shared(memory) => (
+                crate::WasmSharedMemory::view(memory),
+                self.store.data_mut().into(),
+            ),
+        }
     }
 }

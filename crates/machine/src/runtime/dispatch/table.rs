@@ -17,7 +17,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     pub(super) fn new(backend: &mut B) -> Result<Self> {
         let memory = backend.create_memory(abi::EXECUTION_ENTRIES)?;
         let addresses = EntryTable::default();
-        backend.write_memory(&memory, 0, &addresses.to_bytes());
+        backend.memory(&memory).write(0, &addresses.to_bytes());
         Ok(Self {
             memory,
             functions: backend.create_table(abi::EXECUTION_FUNCTIONS.minimum)?,
@@ -84,7 +84,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             backend.set_table_function(&self.functions, slot, &function)?;
         }
         // All functions exist before their addresses become visible to dispatch.
-        backend.write_memory(&self.memory, 0, &bytes);
+        backend.memory(&self.memory).write(0, &bytes);
         self.addresses = addresses;
         self.next_slot = next_slot;
         Ok(())

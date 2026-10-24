@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
 
 const EMPTY_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 

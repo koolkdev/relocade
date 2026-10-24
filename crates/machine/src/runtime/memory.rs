@@ -1,26 +1,26 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
-use super::Result;
-use crate::{CpuConfig, MachineConfig};
+use super::{Result, RuntimeState};
+use crate::{CpuConfig, CpuContext, MachineConfig};
 use relocade_compiler::abi::Memory;
-use relocade_wasm_runtime::{Import, WasmBackend};
+use relocade_wasm_runtime::{Import, WasmBackend, WasmContext, WasmMemoryAccess, WasmSharedMemory};
 use relocade_x86::{abi, ExecutionContext};
-use std::sync::Arc;
+use std::mem::offset_of;
 
 /// The runtime's initialized Wasm memories. This owner allocates backend memory
-/// from the machine configuration and supplies module bindings and scoped host
-/// access. Architectural access policy belongs to `relocade_machine`.
-#[derive(Clone)]
-pub struct RuntimeMemory<M> {
-    pub(crate) config: Arc<CpuConfig>,
-    pub(crate) machine_config: Arc<MachineConfig>,
+/// from the machine configuration and supplies module bindings. The CPU's
+/// callbacks retain these resources and borrow access when the guest is stopped.
+pub struct RuntimeMemory<M, S> {
+    pub(crate) config: CpuConfig,
+    pub(crate) machine_config: MachineConfig,
     pub(crate) context: M,
     pub(crate) guest: M,
     pub(crate) mapping: M,
+    pub(crate) shared_guest: S,
 }
 
-impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
-    pub fn new<B: WasmBackend<Memory = M>>(
+impl<M: Clone + 'static, S: WasmSharedMemory> RuntimeMemory<M, S> {
+    pub fn new<B: WasmBackend<Memory = M, SharedMemory = S>>(
         backend: &mut B,
         machine_config: MachineConfig,
         config: CpuConfig,
@@ -30,8 +30,7 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
             maximum: Some(1),
             ..abi::EXECUTION_CONTEXT
         })?;
-        backend.write_memory(
-            &context,
+        backend.memory(&context).write(
             0,
             &ExecutionContext {
                 cpu: *config.cpu(),
@@ -52,13 +51,17 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
             maximum: Some(mapping_pages),
             ..abi::PHYSICAL_MAP
         })?;
-        backend.write_memory(&mapping, 0, &mapping_bytes);
+        backend.memory(&mapping).write(0, &mapping_bytes);
+        let shared_guest = backend
+            .shared_memory(&guest)
+            .expect("guest backing is shared");
         Ok(Self {
-            config: Arc::new(config),
-            machine_config: Arc::new(machine_config),
+            config,
+            machine_config,
             context,
             guest,
             mapping,
+            shared_guest,
         })
     }
 
@@ -82,5 +85,30 @@ impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
             backend.bind(abi::GUEST, &self.guest),
             backend.bind(abi::PHYSICAL_MAP, &self.mapping),
         ]
+    }
+
+    pub(crate) fn context<'a, T: 'static>(
+        &'a self,
+        access: &'a mut impl WasmContext<State = RuntimeState<T>, Memory = M>,
+    ) -> CpuContext<'a, T> {
+        let (context, state) = access.memory_and_state(&self.context);
+        CpuContext::new(
+            &self.config,
+            &self.machine_config,
+            context,
+            self.shared_guest.view(),
+            state,
+        )
+    }
+
+    pub(crate) fn set_instruction_target(
+        &self,
+        access: &mut impl WasmMemoryAccess<Memory = M>,
+        target: u64,
+    ) {
+        access.memory(&self.context).write(
+            offset_of!(ExecutionContext, instruction_target) as u32,
+            &target.to_le_bytes(),
+        );
     }
 }
