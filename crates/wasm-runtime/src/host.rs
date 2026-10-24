@@ -4,7 +4,7 @@ use relocade_wasm_bindings::{slots::Tuple, AbiValue, Value, WasmRepr};
 /// Derives a scoped Rust callback from the shared Rust function signature.
 /// Aggregate fields are flattened by the shared ABI before engine adaptation.
 pub trait HostSignature<B: WasmBackend>: CallSignature {
-    type Callback: Send + Sync;
+    type Callback;
     fn invoke<'a>(
         callback: &'a Self::Callback,
         context: B::Context<'a>,
@@ -27,7 +27,10 @@ macro_rules! signature {
             $($parameter: AbiValue,)*
             ($($parameter,)*): AbiValue<Value = ($(Value<$parameter>,)*), Logical: WasmRepr<Slots: Tuple>>,
         {
+            #[cfg(not(target_arch = "wasm32"))]
             type Callback = Box<dyn Fn(Backend::Context<'_>, $(Value<$parameter>),*) -> Value<R> + Send + Sync>;
+            #[cfg(target_arch = "wasm32")]
+            type Callback = Box<dyn Fn(Backend::Context<'_>, $(Value<$parameter>),*) -> Value<R>>;
             fn invoke<'a>(callback: &'a Self::Callback, context: Backend::Context<'a>, arguments: Value<Self::Parameters>) -> Value<R> where Backend: 'a {
                 let ($($argument,)*) = arguments;
                 callback(context, $($argument),*)

@@ -41,7 +41,7 @@ async fn check_guest_memory() {
     .unwrap();
     let backend = Backend::with_state(RuntimeState::new(())).unwrap();
     let mut runtime = support::create_cpu(backend, config).await.unwrap();
-    let mut shared = runtime.memory();
+    let shared = runtime.memory();
     let reader = shared.view();
     runtime
         .context()

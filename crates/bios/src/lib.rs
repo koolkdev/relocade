@@ -13,7 +13,7 @@ mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::MemoryView;
-use relocade_machine::{real_mode_interrupt, Hook, HookResult, HostCall};
+use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HookResult};
 pub use screen::{
     write_text, TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
@@ -62,7 +62,7 @@ pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 3] {
     ]
 }
 
-fn clock<T>(call: &mut HostCall<'_, T>) -> HookResult {
+fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     if call.cpu().ah() == 0 {
         let mut data = [0; 5];
         call.memory()

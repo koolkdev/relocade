@@ -11,7 +11,7 @@ use crate::{
     stdio::OutputStream,
     DosServices,
 };
-use relocade_machine::{HookResult, HostCall};
+use relocade_machine::{CpuContext, HookResult};
 use relocade_x86::Segment;
 
 // DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
@@ -19,7 +19,7 @@ const CONSOLE_LINE_CAPACITY: u8 = 128;
 
 /// AH=3Fh: read an edited line or the requested raw byte count, according to the handle.
 pub(in crate::services) fn read_handle(
-    call: &mut HostCall<'_, DosServices>,
+    call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
     stream: OutputStream,
 ) -> HookResult {
@@ -45,7 +45,7 @@ pub(in crate::services) fn read_handle(
 }
 
 fn return_handle_line(
-    call: &mut HostCall<'_, DosServices>,
+    call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
     mut bytes: Vec<u8>,
     stream: OutputStream,
@@ -62,7 +62,10 @@ fn return_handle_line(
     return_handle_buffer(call, state)
 }
 
-fn return_handle_buffer(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
+fn return_handle_buffer(
+    call: &mut CpuContext<'_, DosServices>,
+    state: &mut DosState,
+) -> HookResult {
     let cpu = call.cpu();
     let count = transfer_count(cpu.dx(), cpu.cx());
     let line = &mut state.files.stdio.console_line;
@@ -71,7 +74,7 @@ fn return_handle_buffer(call: &mut HostCall<'_, DosServices>, state: &mut DosSta
     return_bytes(call, &bytes)
 }
 
-fn read_raw(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
+fn read_raw(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
     let cpu = call.cpu();
     let count = transfer_count(cpu.dx(), cpu.cx());
     let input = state.files.stdio.input.clone();
@@ -97,7 +100,7 @@ fn read_raw(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookR
     return_bytes(call, &bytes)
 }
 
-fn return_bytes(call: &mut HostCall<'_, DosServices>, bytes: &[u8]) -> HookResult {
+fn return_bytes(call: &mut CpuContext<'_, DosServices>, bytes: &[u8]) -> HookResult {
     if !bytes.is_empty() {
         let cpu = call.cpu();
         let offset = cpu.dx();

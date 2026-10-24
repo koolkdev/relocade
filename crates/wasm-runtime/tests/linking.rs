@@ -64,16 +64,18 @@ async fn check_stateful_callbacks() {
             ),
             backend.bind_host(
                 READ,
-                Box::new(move |caller, offset, _| {
+                Box::new(move |mut caller, offset, _| {
                     let mut bytes = [0; 8];
-                    caller.read_memory(&read_memory, offset as u32, &mut bytes);
+                    caller.memory(&read_memory).read(offset as u32, &mut bytes);
                     i64::from_le_bytes(bytes)
                 }),
             ),
             backend.bind_host(
                 WRITE,
                 Box::new(move |mut caller, offset, _, value| {
-                    caller.write_memory(&write_memory, offset as u32, &value.to_le_bytes());
+                    caller
+                        .memory(&write_memory)
+                        .write(offset as u32, &value.to_le_bytes());
                 }),
             ),
         ];
@@ -117,13 +119,13 @@ async fn check_stateful_callbacks() {
     let mut memory_size = 65536;
     for initial in [0x20_0000_0000_0001_i64, -0x20_0000_0000_0021_i64] {
         backend.state_mut().calls = 0;
-        backend.write_memory(&memory, 0, &initial.to_le_bytes());
+        backend.memory(&memory).write(0, &initial.to_le_bytes());
         // Each invocation adds four in the consumer, then the next two callback counts.
         for (calls, increment) in [(2, 7), (4, 18)] {
             assert_eq!(backend.call(&entry, ()), initial + increment);
             assert_eq!(backend.state().calls, calls);
             let mut bytes = [0; 8];
-            backend.read_memory(&memory, 0, &mut bytes);
+            backend.memory(&memory).read(0, &mut bytes);
             assert_eq!(i64::from_le_bytes(bytes), initial + increment);
             memory_size += 65536;
             backend.ensure_memory_size(&memory, memory_size).unwrap();
@@ -251,7 +253,7 @@ async fn check_tuple_callbacks() {
     let entry = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&entry, ()), 0x20_0000_0000_0003);
     let mut bytes = [0; 32];
-    backend.read_memory(&memory, 0, &mut bytes);
+    backend.memory(&memory).read(0, &mut bytes);
     assert_eq!(
         &bytes[..16],
         &[1, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 0, 255, 255, 255, 255]

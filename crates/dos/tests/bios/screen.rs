@@ -6,7 +6,7 @@ use relocade_x86::ExecutionExit;
 fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        let mut memory = dos.cpu().memory();
+        let memory = dos.cpu().memory();
         let view = memory.view();
         let screen = TextScreen::read(&view);
         assert_eq!(screen.page, 0);

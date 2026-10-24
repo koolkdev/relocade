@@ -1,7 +1,8 @@
 mod read;
 mod write;
 
-use crate::{MachineConfig, MemoryStorage};
+use crate::MachineConfig;
+use relocade_wasm_runtime::MemoryAccess;
 use relocade_x86::{PhysicalMemoryMap, SegmentRegister};
 use std::fmt;
 
@@ -11,12 +12,13 @@ use std::fmt;
 /// The view borrows one storage handle; other shared handles remain usable.
 pub struct MemoryView<'a> {
     config: &'a MachineConfig,
-    storage: &'a mut dyn MemoryStorage,
+    storage: MemoryAccess<'a>,
 }
 
 impl<'a> MemoryView<'a> {
     /// Borrows backing storage matching the configured map and capacity.
-    pub fn new(config: &'a MachineConfig, storage: &'a mut dyn MemoryStorage) -> Self {
+    #[inline]
+    pub fn new(config: &'a MachineConfig, storage: MemoryAccess<'a>) -> Self {
         Self { config, storage }
     }
 

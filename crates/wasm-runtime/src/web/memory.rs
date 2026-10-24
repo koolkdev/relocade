@@ -1,11 +1,56 @@
-use crate::{Result, WasmSharedMemory};
+use crate::{MemoryAccess, Result, SharedMemoryStorage, WasmSharedMemory};
 use js_sys::{Reflect, SharedArrayBuffer, Uint8Array, WebAssembly};
+use std::rc::Rc;
 use wasm_bindgen::JsCast;
 
-/// An independent reader for a shared WebAssembly.Memory.
-#[derive(Clone, serde::Serialize)]
-#[serde(transparent)]
-pub struct SharedMemory(#[serde(with = "serde_wasm_bindgen::preserve")] WebAssembly::Memory);
+/// A retained allocation on this JavaScript thread.
+#[derive(Clone, Debug)]
+pub struct Memory {
+    pub(super) allocation: Rc<Allocation>,
+}
+
+#[derive(Debug)]
+pub(crate) struct Allocation {
+    pub(super) memory: WebAssembly::Memory,
+}
+
+impl Memory {
+    pub(super) fn new(memory: WebAssembly::Memory) -> Self {
+        Self {
+            allocation: Rc::new(Allocation { memory }),
+        }
+    }
+
+    #[inline]
+    pub(super) fn access(&self) -> MemoryAccess<'_> {
+        MemoryAccess::web(&self.allocation)
+    }
+}
+
+impl Allocation {
+    pub(crate) fn read(&self, offset: u32, bytes: &mut [u8]) {
+        range(&self.memory, offset, bytes.len()).copy_to(bytes);
+    }
+
+    pub(crate) fn write(&self, offset: u32, bytes: &[u8]) {
+        range(&self.memory, offset, bytes.len()).copy_from(bytes);
+    }
+}
+
+/// A shared allocation retained independently of its backend.
+#[derive(Clone)]
+pub struct SharedMemory {
+    pub(super) memory: Memory,
+}
+
+impl serde::Serialize for SharedMemory {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serde_wasm_bindgen::preserve::serialize(self.memory(), serializer)
+    }
+}
 
 impl<'de> serde::Deserialize<'de> for SharedMemory {
     fn deserialize<D: serde::Deserializer<'de>>(
@@ -24,31 +69,36 @@ impl SharedMemory {
         memory
             .buffer()
             .is_instance_of::<SharedArrayBuffer>()
-            .then_some(Self(memory))
+            .then(|| Self {
+                memory: Memory::new(memory),
+            })
     }
 
     /// The JavaScript resource to share with another worker using postMessage.
     /// This requires a cross-origin-isolated page.
     pub fn memory(&self) -> &WebAssembly::Memory {
-        &self.0
+        &self.memory.allocation.memory
     }
 }
 
 impl WasmSharedMemory for SharedMemory {
-    fn write(&self, offset: u32, bytes: &[u8]) {
-        write(&self.0, offset, bytes);
-    }
-    fn byte_len(&self) -> u64 {
-        size(&self.0).expect("shared Wasm memory size") * 65536
+    fn view(&self) -> MemoryAccess<'_> {
+        self.memory.access()
     }
 
-    fn read(&self, offset: u32, bytes: &mut [u8]) {
-        range(&self.0, offset, bytes.len()).copy_to(bytes);
+    fn byte_len(&self) -> u64 {
+        size(self.memory()).expect("shared Wasm memory size") * 65536
     }
 }
 
-pub(super) fn write(memory: &WebAssembly::Memory, offset: u32, bytes: &[u8]) {
-    range(memory, offset, bytes.len()).copy_from(bytes);
+impl SharedMemoryStorage for SharedMemory {
+    fn read(&self, offset: u32, bytes: &mut [u8]) {
+        self.memory.allocation.read(offset, bytes);
+    }
+
+    fn write(&self, offset: u32, bytes: &[u8]) {
+        self.memory.allocation.write(offset, bytes);
+    }
 }
 
 pub(super) fn range(memory: &WebAssembly::Memory, offset: u32, len: usize) -> Uint8Array {

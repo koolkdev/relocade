@@ -1,6 +1,6 @@
 #![cfg(target_arch = "wasm32")]
 
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
 use std::{
     future::Future,
     pin::pin,

@@ -51,9 +51,11 @@ async fn check_shared_memory() {
             WRITE,
             Box::new(move |mut context| {
                 let mut bytes = [0; 4];
-                context.read_memory(&callback_memory, 0, &mut bytes);
+                context.memory(&callback_memory).read(0, &mut bytes);
                 assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12]);
-                context.write_memory(&callback_memory, 4, &[0xab, 0xcd, 0xef, 0]);
+                context
+                    .memory(&callback_memory)
+                    .write(4, &[0xab, 0xcd, 0xef, 0]);
                 0
             }),
         ),
@@ -62,20 +64,30 @@ async fn check_shared_memory() {
     let run = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&run, ()), 0x00efcdab12345678);
 
+    let mut retained = reader.view();
     backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
+    retained.write(65536, &[0x55, 0x66]);
+    let mut grown = [0; 2];
+    retained.read(65536, &mut grown);
+    assert_eq!(grown, [0x55, 0x66]);
     assert!(backend.ensure_memory_size(&memory, 4 * 65536).is_err());
-    // A pending host service can hold this context while another owner reads.
+    // Stopped access and independent readers observe the same live allocation.
     {
-        let mut context = backend.context();
-        context.write_memory(&memory, 65534, &[1, 2, 3, 4]);
+        backend.memory(&memory).write(65534, &[1, 2, 3, 4]);
         let mut bytes = [0; 4];
-        reader.read(65534, &mut bytes);
+        reader.view().read(65534, &mut bytes);
         assert_eq!(bytes, [1, 2, 3, 4]);
+        for _ in 0..2 {
+            backend.memory(&memory).write(0, &[0; 8]);
+            assert_eq!(run.call(&mut backend, ()), 0x00efcdab12345678);
+            backend.memory(&memory).read(4, &mut bytes);
+            assert_eq!(bytes, [0xab, 0xcd, 0xef, 0]);
+        }
     }
     drop(backend);
     // The reader owns the allocation, including its newly grown portion.
     let mut bytes = [0; 8];
-    reader.clone().read(0, &mut bytes);
+    reader.clone().view().read(0, &mut bytes);
     assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12, 0xab, 0xcd, 0xef, 0]);
 }
 
@@ -101,4 +113,38 @@ fn deserialization_rejects_private_memory() {
         serde_wasm_bindgen::from_value::<relocade_wasm_runtime::SharedMemory>(private.into())
             .is_err()
     );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn shared_custom_storage_keeps_live_access_across_growth() {
+    use relocade_wasm_runtime::SharedMemoryStorage;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct Shared(Arc<Mutex<Vec<u8>>>);
+    impl SharedMemoryStorage for Shared {
+        fn read(&self, offset: u32, bytes: &mut [u8]) {
+            bytes.copy_from_slice(&self.0.lock().unwrap()[offset as usize..][..bytes.len()]);
+        }
+        fn write(&self, offset: u32, bytes: &[u8]) {
+            self.0.lock().unwrap()[offset as usize..][..bytes.len()].copy_from_slice(bytes);
+        }
+    }
+    impl WasmSharedMemory for Shared {
+        fn byte_len(&self) -> u64 {
+            self.0.lock().unwrap().len() as u64
+        }
+    }
+
+    let shared = Shared(Arc::new(Mutex::new(vec![1, 2])));
+    let other = shared.clone();
+    let mut access = shared.view();
+    other.0.lock().unwrap().extend_from_slice(&[3, 4]);
+    let mut bytes = [0; 4];
+    access.read(0, &mut bytes);
+    assert_eq!(bytes, [1, 2, 3, 4]);
+    access.reborrow().write(2, &[5, 6]);
+    other.view().read(0, &mut bytes);
+    assert_eq!(bytes, [1, 2, 5, 6]);
 }
