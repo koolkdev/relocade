@@ -1,6 +1,7 @@
 use support::Configuration;
+#[path = "support.rs"]
 mod support;
-use relocade_machine::{ConfigurationError, MemoryError};
+use crate::{ConfigurationError, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment,
     SegmentRegister, Segments, StatusSourceState,

@@ -1,14 +1,12 @@
 mod support;
 use relocade_compiler::{Program, I32};
 
-use relocade_machine::{DispatchEntry, RuntimeState};
+use relocade_machine::DispatchEntry;
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
 };
 use std::mem::offset_of;
-
-use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -25,8 +23,7 @@ async fn check_dispatch_table() {
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    let backend = Backend::with_state(RuntimeState::new(())).unwrap();
-    let mut runtime = support::create_cpu(backend, config).await.unwrap();
+    let mut runtime = support::create_cpu((), config).await.unwrap();
     // JMP 0200. An uninstalled destination faults; only our callable writes the marker.
     runtime
         .context()

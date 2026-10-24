@@ -1,9 +1,11 @@
-use relocade_machine::{ConfigurationError, CpuConfig, MachineConfig, RuntimeMemory};
-use relocade_wasm_runtime::Backend;
+use relocade_machine::{ConfigurationError, Cpu, CpuConfig, MachineConfig};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, ExecutionTarget, PhysicalMapping, PhysicalMemoryMap,
     SegmentProfile,
 };
+
+#[cfg(target_arch = "wasm32")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn target() -> ExecutionTarget {
     Compiler::new(ExecutionProfile::Real16).target()
@@ -17,9 +19,7 @@ fn cpu_must_match_the_execution_profile() {
     ));
 }
 
-#[test]
-fn memory_map_must_match_the_execution_profile() {
-    let mut backend = Backend::new().unwrap();
+async fn check_memory_profile() {
     let config = MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap();
     let protected = CpuConfig::new(
         Compiler::new(SegmentProfile::Flat32).target(),
@@ -27,11 +27,23 @@ fn memory_map_must_match_the_execution_profile() {
     )
     .unwrap();
     assert!(matches!(
-        RuntimeMemory::new(&mut backend, config, protected),
+        Cpu::new(config, protected).await,
         Err(relocade_machine::Error::Configuration(
             ConfigurationError::UnsupportedProfile
         ))
     ));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn memory_map_must_match_the_execution_profile() {
+    pollster::block_on(check_memory_profile());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn memory_map_must_match_the_execution_profile() {
+    check_memory_profile().await;
 }
 
 #[test]

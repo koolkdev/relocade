@@ -46,5 +46,4 @@ pub use relocade_wasm_runtime::{MemoryAccess, MemoryStorage, SharedMemoryStorage
 pub use runtime::worker;
 pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, Hook, HookResult, Result,
-    RuntimeBackend, RuntimeMemory, RuntimeState,
 };

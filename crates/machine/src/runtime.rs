@@ -8,15 +8,12 @@
 //! between synchronous Wasm calls.
 //!
 //! ```
-//! use relocade_machine::{CpuConfig, MachineConfig};
-//! use relocade_machine::{Cpu, RuntimeBackend, RuntimeState};
+//! use relocade_machine::{Cpu, CpuConfig, MachineConfig};
 //!
-//! async fn example<B: RuntimeBackend<State = RuntimeState>>(
-//!     backend: B,
-//!     config: MachineConfig,
-//!     cpu: CpuConfig,
-//! ) -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut runtime = Cpu::new(backend, config, cpu).await?;
+//! async fn example(config: MachineConfig, cpu: CpuConfig)
+//!     -> Result<(), Box<dyn std::error::Error>>
+//! {
+//!     let mut runtime = Cpu::new(config, cpu).await?;
 //!     runtime.context().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //!     let exit = runtime.run(100)?;
 //!     let ax = runtime.context().cpu().ax();
@@ -26,7 +23,6 @@
 //! ```
 #![forbid(unsafe_code)]
 
-mod backend;
 mod code;
 mod context;
 mod deferred;
@@ -42,33 +38,43 @@ mod state;
 pub mod worker;
 
 use crate::{CpuConfig, MachineConfig, Memory};
-pub use backend::RuntimeBackend;
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
 pub use hooks::{Hook, HookResult, HookResultCase, HookResultValues};
-pub use memory::RuntimeMemory;
-use relocade_wasm_runtime::WasmCompiler;
-pub use state::RuntimeState;
+use memory::RuntimeMemory;
+use relocade_wasm_runtime::{SharedMemory, WasmBackend, WasmCompiler, WasmContext};
+use state::RuntimeState;
 use std::ops::{Deref, DerefMut};
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc as ResourceOwner;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc as ResourceOwner;
 
+type Backend<T> = relocade_wasm_runtime::Backend<RuntimeState<T>>;
+
 /// One guest CPU and its engine resources, executable dispatch and pending calls.
-pub struct Cpu<B: RuntimeBackend> {
-    backend: B,
-    bindings: ResourceOwner<RuntimeMemory<B::Memory, B::SharedMemory>>,
-    dispatch: Dispatch<B>,
+pub struct Cpu<T: 'static = ()> {
+    backend: Backend<T>,
+    bindings: ResourceOwner<RuntimeMemory>,
+    dispatch: Dispatch<T>,
     host_call_incomplete: bool,
 }
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
+impl Cpu {
+    /// Allocates a CPU with no environment state.
+    pub async fn new(config: MachineConfig, cpu: CpuConfig) -> Result<Self> {
+        Self::with_state(config, cpu, ()).await
+    }
+}
+
+impl<T: 'static> Cpu<T> {
     /// Allocates the configured CPU and memory and links its executable dispatch.
+    /// The environment state stays with this CPU, including during host calls.
     /// Port and MMIO reads currently return all ones; their writes are ignored.
-    pub async fn new(mut backend: B, config: MachineConfig, cpu: CpuConfig) -> Result<Self> {
+    pub async fn with_state(config: MachineConfig, cpu: CpuConfig, state: T) -> Result<Self> {
+        let mut backend = Backend::with_state(RuntimeState::new(state))?;
         let bindings = ResourceOwner::new(RuntimeMemory::new(&mut backend, config, cpu)?);
         let host_imports = io::unconnected_imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
@@ -109,7 +115,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Shares guest memory through a handle that can outlive this runtime.
     /// Native handles can move to another thread; browser handles preserve their
     /// shared allocation during worker transport. CPU and dispatch storage remain private.
-    pub fn memory(&self) -> Memory<B::SharedMemory> {
+    pub fn memory(&self) -> Memory<SharedMemory> {
         Memory::with_backing(
             self.bindings.machine_config.clone(),
             self.bindings.shared_guest.clone(),

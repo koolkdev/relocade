@@ -1,8 +1,8 @@
 use relocade_compiler::{abi::Function, Program};
-use relocade_wasm_runtime::WasmCompiler;
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit};
 
-use super::{Cpu, CpuContext, DispatchEntry, ResourceOwner, Result, RuntimeBackend, RuntimeState};
+use super::{Cpu, CpuContext, DispatchEntry, ResourceOwner, Result};
 
 /// Result of a synchronous or deferred host hook.
 /// The same type crosses generated hook entries through the shared Wasm ABI.
@@ -63,7 +63,7 @@ impl<T> Hook<T> {
     }
 }
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
+impl<T: 'static> Cpu<T> {
     /// Generates and installs ordinary callable entries, each with its own direct
     /// host import. Dispatch neither classifies hooks nor calls a hook registry.
     ///

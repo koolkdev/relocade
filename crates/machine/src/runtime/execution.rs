@@ -1,7 +1,8 @@
-use super::{Cpu, Error, HookResult, Result, RuntimeBackend, RuntimeState};
+use super::{Cpu, Error, HookResult, Result};
+use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
+impl<T: 'static> Cpu<T> {
     /// Runs until the budget is consumed at a block boundary, a guest exit
     /// occurs, or a host function requests a return. Whole blocks can exceed the
     /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.

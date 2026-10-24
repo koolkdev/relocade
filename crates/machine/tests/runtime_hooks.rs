@@ -1,13 +1,11 @@
 mod support;
 
-use relocade_machine::{real_mode_interrupt, Hook, HookResult, RuntimeState};
+use relocade_machine::{real_mode_interrupt, Hook, HookResult};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment, Segments,
 };
 use std::{cell::Cell, rc::Rc};
-
-use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -27,8 +25,7 @@ async fn check_interrupt_hooks() {
     .unwrap();
     // Non-Send state belongs to the backend, while hooks may capture immutable metadata.
     let calls = Rc::new(Cell::new(0));
-    let backend = Backend::with_state(RuntimeState::new(calls)).unwrap();
-    let mut runtime = support::create_cpu(backend, config).await.unwrap();
+    let mut runtime = support::create_cpu(calls, config).await.unwrap();
     runtime.context().cpu().set_sp(0xff00);
     runtime.context().cpu().set_eflags(0x202);
     runtime
@@ -182,8 +179,7 @@ async fn check_mapped_hook_access() {
         .unwrap(),
     )
     .unwrap();
-    let backend = Backend::with_state(RuntimeState::new(0_u32)).unwrap();
-    let mut cpu = support::create_cpu(backend, config).await.unwrap();
+    let mut cpu = support::create_cpu(0_u32, config).await.unwrap();
     cpu.context().cpu().set_eax(40);
     cpu.context()
         .memory()
