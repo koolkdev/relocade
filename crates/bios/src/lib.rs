@@ -62,7 +62,7 @@ pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 3] {
     ]
 }
 
-fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+async fn clock<T>(mut call: CpuContext<T>) -> HookResult {
     if call.cpu().ah() == 0 {
         let mut data = [0; 5];
         call.memory()
@@ -78,7 +78,7 @@ fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     } else {
         // Unsupported BIOS function.
         call.cpu().set_ah(0x86);
-        real_mode_interrupt::set_carry(call, true);
+        real_mode_interrupt::set_carry(&mut call, true);
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call)
 }

@@ -6,6 +6,7 @@ use super::{code, Backend, RuntimeMemory};
 use crate::Result;
 use relocade_wasm_runtime::{Function, Import, Module, WasmBackend};
 use relocade_x86::{abi, ExecutionExit};
+use std::{cell::RefCell, future::Future};
 use table::DispatchTable;
 
 /// An ordinary `() -> ExecutionExit` export to publish at a guest linear address.
@@ -17,18 +18,18 @@ pub struct DispatchEntry<'a> {
 /// Bound dispatcher, interpreter, host imports and callable entries for one CPU.
 /// Keeps module linking and publication together so every entry uses the same
 /// runtime bindings and execution table.
-pub(crate) struct Dispatch<T: 'static> {
-    dispatch: Function<Backend<T>, abi::ExecutionSignature>,
-    interpret: Function<Backend<T>, abi::ExecutionSignature>,
-    table: DispatchTable<Backend<T>>,
-    host_imports: Vec<Import<'static, Backend<T>>>,
+pub(crate) struct Dispatch {
+    dispatch: Function<Backend, abi::ExecutionSignature>,
+    interpret: Function<Backend, abi::ExecutionSignature>,
+    table: DispatchTable<Backend>,
+    host_imports: Vec<Import<'static, Backend>>,
 }
 
-impl<T: 'static> Dispatch<T> {
+impl Dispatch {
     pub(crate) async fn new(
-        backend: &mut Backend<T>,
+        backend: &mut Backend,
         bindings: &RuntimeMemory,
-        host_imports: Vec<Import<'static, Backend<T>>>,
+        host_imports: Vec<Import<'static, Backend>>,
     ) -> Result<Self> {
         let target = bindings.configuration().execution_target();
         let module = code::dispatcher(backend, target).await?;
@@ -41,10 +42,10 @@ impl<T: 'static> Dispatch<T> {
     }
 
     async fn link_dispatcher(
-        backend: &mut Backend<T>,
+        backend: &mut Backend,
         bindings: &RuntimeMemory,
         module: &Module,
-        host_imports: Vec<Import<'static, Backend<T>>>,
+        host_imports: Vec<Import<'static, Backend>>,
     ) -> Result<Self> {
         let table = DispatchTable::new(backend)?;
         let mut imports = bindings.imports(backend).to_vec();
@@ -58,27 +59,30 @@ impl<T: 'static> Dispatch<T> {
         })
     }
 
-    pub(crate) fn run(&self, backend: &mut Backend<T>) -> ExecutionExit {
+    pub(crate) fn run(&self, backend: &mut Backend) -> ExecutionExit {
         self.dispatch.call(backend, ())
     }
 
     pub(crate) async fn install(
         &mut self,
-        backend: &mut Backend<T>,
+        backend: &RefCell<Backend>,
         bindings: &RuntimeMemory,
         module: &Module,
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let instance = self.instantiate(backend, bindings, module).await?;
-        self.table.install(backend, &instance, entries)
+        let linking = self.instantiate(&mut backend.borrow_mut(), bindings, module);
+        let instance = linking.await?;
+        self.table
+            .install(&mut backend.borrow_mut(), &instance, entries)
     }
 
-    async fn instantiate(
+    fn instantiate(
         &self,
-        backend: &mut Backend<T>,
+        backend: &mut Backend,
         bindings: &RuntimeMemory,
         module: &Module,
-    ) -> Result<<Backend<T> as WasmBackend>::Instance> {
+    ) -> impl Future<Output = relocade_wasm_runtime::Result<<Backend as WasmBackend>::Instance>> + use<>
+    {
         let mut imports = bindings.imports(backend).to_vec();
         imports.extend(self.table.imports(backend));
         imports.extend([
@@ -86,9 +90,6 @@ impl<T: 'static> Dispatch<T> {
             backend.bind(abi::INTERPRET, &self.interpret),
         ]);
         imports.extend(self.host_imports.iter().cloned());
-        backend
-            .instantiate(module, &imports)
-            .await
-            .map_err(Into::into)
+        backend.instantiate(module, &imports)
     }
 }

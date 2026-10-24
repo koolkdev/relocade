@@ -72,7 +72,7 @@ impl<'a> Image<'a> {
 }
 
 pub(crate) fn load<T>(
-    machine: &mut CpuContext<'_, T>,
+    machine: &mut CpuContext<T>,
     file: &[u8],
     options: &LoadOptions<'_>,
 ) -> Result<u16, LoadError> {

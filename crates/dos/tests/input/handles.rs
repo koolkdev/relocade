@@ -36,7 +36,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             .unwrap();
         assert_eq!(&unchanged, b"untouched");
         {
-            let mut machine = dos.cpu().context();
+            let machine = dos.cpu().context();
             let mut cpu = machine.cpu();
             cpu.set_eip(0x100);
             cpu.set_ax(0x3f00);
@@ -48,7 +48,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         {
-            let mut run = pin!(dos.cpu().run_async(20));
+            let mut run = pin!(dos.cpu().run(20));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"ab\x08C").unwrap();
@@ -57,11 +57,11 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             input.write_all(b"\r").unwrap();
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
+                Poll::Ready(ExecutionExit::BudgetExhausted)
             ));
         }
         {
-            let mut machine = dos.cpu().context();
+            let machine = dos.cpu().context();
             machine.memory().read(0x10400, &mut unchanged).unwrap();
             assert_eq!(&unchanged, b"aCtouched");
             let cpu = machine.cpu();

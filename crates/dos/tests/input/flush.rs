@@ -11,7 +11,7 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
             dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
             dos.stdin().write_all(b"old\r").unwrap();
             {
-                let mut machine = dos.cpu().context();
+                let machine = dos.cpu().context();
                 machine.memory().write(0x10400, &[8, 0]).unwrap();
                 let mut cpu = machine.cpu();
                 cpu.set_ax(0x0c00 | function);
@@ -19,20 +19,17 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 cpu.set_dx(0x400);
                 cpu.set_eflags(0x643);
             }
-            assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+            crate::common::assert_pending(dos.cpu().run(10));
             assert!(common::output(dos.stdout()).is_empty());
             assert_eq!(dos.cpu().context().cpu().sp(), 0xfff8);
             // Calling run again cannot flush input or push another interrupt frame.
-            assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+            crate::common::assert_pending(dos.cpu().run(10));
             dos.stdin()
                 .write_all(if function == 0x0a { b"K\r" } else { b"K" })
                 .unwrap();
-            assert_eq!(
-                dos.cpu().run_async(10).await.unwrap(),
-                ExecutionExit::BudgetExhausted
-            );
+            assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
             {
-                let mut machine = dos.cpu().context();
+                let machine = dos.cpu().context();
                 if function == 0x0a {
                     let mut buffer = [0; 4];
                     machine.memory().read(0x10400, &mut buffer).unwrap();

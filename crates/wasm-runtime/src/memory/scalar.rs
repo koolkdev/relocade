@@ -1,6 +1,4 @@
-#[cfg(target_arch = "wasm32")]
-use super::Region;
-use super::{MemoryAccess, MemoryValue};
+use super::{MemoryAccess, MemoryValue, Region};
 
 /// Loads one little-endian scalar from an allocated, in-bounds range.
 /// Shared access does not promise an atomic snapshot of the value.
@@ -33,13 +31,16 @@ impl MemoryAccess<'_> {
 }
 
 macro_rules! scalar {
-    ($type:ty) => {
+    ($type:ty, $load:ident, $store:ident) => {
         impl Load<$type> for MemoryAccess<'_> {
             #[inline]
             fn load(&self, offset: u32) -> $type {
-                #[cfg(target_arch = "wasm32")]
-                if let Region::Web(transfers) = &self.region {
-                    return transfers.load(offset);
+                match &self.region {
+                    Region::Custom(storage) => return storage.$load(offset),
+                    Region::SharedCustom(storage) => return storage.$load(offset),
+                    #[cfg(target_arch = "wasm32")]
+                    Region::Web(transfers) => return transfers.load(offset),
+                    _ => {}
                 }
                 let mut bytes = <$type as MemoryValue>::Bytes::default();
                 self.read(offset, &mut bytes);
@@ -50,10 +51,12 @@ macro_rules! scalar {
         impl Store<$type> for MemoryAccess<'_> {
             #[inline]
             fn store(&mut self, offset: u32, value: $type) {
-                #[cfg(target_arch = "wasm32")]
-                if let Region::Web(transfers) = &mut self.region {
-                    transfers.store(offset, value);
-                    return;
+                match &mut self.region {
+                    Region::Custom(storage) => return storage.$store(offset, value),
+                    Region::SharedCustom(storage) => return storage.$store(offset, value),
+                    #[cfg(target_arch = "wasm32")]
+                    Region::Web(transfers) => return transfers.store(offset, value),
+                    _ => {}
                 }
                 self.write(offset, &value.to_le_bytes());
             }
@@ -61,7 +64,7 @@ macro_rules! scalar {
     };
 }
 
-scalar!(u8);
-scalar!(u16);
-scalar!(u32);
-scalar!(u64);
+scalar!(u8, load_u8, store_u8);
+scalar!(u16, load_u16, store_u16);
+scalar!(u32, load_u32, store_u32);
+scalar!(u64, load_u64, store_u64);

@@ -241,11 +241,15 @@ pub trait WasmBackend: WasmContext + Sized {
         self.function_import(&function.handle)
     }
 
+    /// Starts linking with owned import handles and returns an independent future.
+    /// The backend, module and import slice may be used again before awaiting it.
+    /// Native linking, including a module's start function, completes when this
+    /// method is called; the browser returns a future for its instantiation promise.
     fn instantiate(
         &mut self,
         module: &Self::Module,
         imports: &[Import<'_, Self>],
-    ) -> impl Future<Output = Result<Self::Instance>>;
+    ) -> impl Future<Output = Result<Self::Instance>> + use<Self>;
 
     /// Resolves an export using the same declaration as the generated function.
     /// The declaration must describe that export. Logical widths are erased in

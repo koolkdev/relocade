@@ -51,7 +51,7 @@ async fn check_guest_memory() {
         .memory()
         .write(0x100, &[0xc7, 0x06, 0xfe, 0x0f, 0x41, 0x07, 0xeb, 0])
         .unwrap();
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
     runtime.context().memory().write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
     let mut bytes = [0; 4];
     reader.read(0xffe, &mut bytes).unwrap();

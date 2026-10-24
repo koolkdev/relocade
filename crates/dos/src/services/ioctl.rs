@@ -9,7 +9,7 @@ const GET_INPUT_STATUS: u8 = 0x06;
 const GET_OUTPUT_STATUS: u8 = 0x07;
 
 /// Query or set BX's device information, or query its input/output readiness.
-pub(super) fn ioctl(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
+pub(super) fn ioctl(call: &mut CpuContext<DosServices>, state: &mut DosState) -> HookResult {
     let handle = call.cpu().bx();
     let result = match call.cpu().al() {
         GET_DEVICE_INFORMATION => state.files.device_information(handle).map(|info| {

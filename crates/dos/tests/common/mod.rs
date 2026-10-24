@@ -19,7 +19,7 @@ pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
 
 pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
-        let mut machine = dos.cpu().context();
+        let machine = dos.cpu().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
@@ -27,7 +27,10 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_cx(cx);
         cpu.set_dx(dx);
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::BudgetExhausted
+    );
     dos.cpu().context().cpu().snapshot()
 }
 
@@ -68,4 +71,11 @@ pub fn mz_image(code: &[u8]) -> Vec<u8> {
     }
     image.extend_from_slice(code);
     image
+}
+
+/// Poll once and release the waiter while the runner retains the service.
+pub fn assert_pending(future: impl std::future::Future) {
+    let mut future = std::pin::pin!(future);
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(future.as_mut().poll(&mut cx).is_pending());
 }

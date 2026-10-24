@@ -95,28 +95,31 @@ impl<T: 'static> WasmBackend for Backend<T> {
         memory.ensure_size(&mut self.store, byte_len)
     }
 
-    async fn instantiate(
+    fn instantiate(
         &mut self,
         module: &Module,
         imports: &[Import<'_, Self>],
-    ) -> Result<Instance> {
-        let mut linker = Linker::new(self.store.engine());
-        for import in imports {
-            let (module, name) = (import.module(), import.name());
-            match import.value() {
-                ImportValue::Memory(memory) => {
-                    linker.define(&self.store, module, name, memory.as_extern())
+    ) -> impl std::future::Future<Output = Result<Instance>> + use<T> {
+        let result = (|| {
+            let mut linker = Linker::new(self.store.engine());
+            for import in imports {
+                let (module, name) = (import.module(), import.name());
+                match import.value() {
+                    ImportValue::Memory(memory) => {
+                        linker.define(&self.store, module, name, memory.as_extern())
+                    }
+                    ImportValue::Table(table) => linker.define(&self.store, module, name, **table),
+                    ImportValue::Function(function) => {
+                        linker.define(&self.store, module, name, *function)
+                    }
                 }
-                ImportValue::Table(table) => linker.define(&self.store, module, name, **table),
-                ImportValue::Function(function) => {
-                    linker.define(&self.store, module, name, *function)
-                }
+                .map_err(|error| Error::new("bind Wasm import", error))?;
             }
-            .map_err(|error| Error::new("bind Wasm import", error))?;
-        }
-        linker
-            .instantiate(&mut self.store, module)
-            .map_err(|error| Error::new("instantiate Wasm", error))
+            linker
+                .instantiate(&mut self.store, module)
+                .map_err(|error| Error::new("instantiate Wasm", error))
+        })();
+        std::future::ready(result)
     }
 
     fn set_table_import(&mut self, table: &Table, index: u32, function: Func) -> Result<()> {

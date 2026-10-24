@@ -7,7 +7,7 @@ const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
 
 fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
-        let mut machine = dos.cpu().context();
+        let machine = dos.cpu().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
@@ -16,7 +16,10 @@ fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_dx(dx);
         cpu.set_eflags(0x643);
     }
-    assert_eq!(dos.cpu().run(15).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(15)),
+        ExecutionExit::BudgetExhausted
+    );
     let cpu = dos.cpu().context().cpu().snapshot();
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
     assert_eq!(cpu.flags.eflags(), 0x643);

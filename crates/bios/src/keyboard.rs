@@ -190,31 +190,22 @@ impl Drop for WaitForKey {
     }
 }
 
-pub(super) fn interrupt<T: AsRef<Keyboard> + 'static>(call: &mut CpuContext<'_, T>) -> HookResult {
-    let keyboard = call.state().as_ref().clone();
+pub(super) async fn interrupt<T: AsRef<Keyboard> + 'static>(mut call: CpuContext<T>) -> HookResult {
+    let keyboard = call.with_state(|state| state.as_ref().clone());
     match call.cpu().ah() {
-        0x00 => match keyboard.try_read() {
-            Some(key) => call.cpu().set_ax(key.word()),
-            None => {
-                return call.defer(async move |call| {
-                    let key = keyboard.read().await;
-                    call.cpu().set_ax(key.word());
-                    real_mode_interrupt::return_from_interrupt(call)
-                });
-            }
-        },
+        0x00 => call.cpu().set_ax(keyboard.read().await.word()),
         0x01 => {
             let key = keyboard.peek();
             if let Some(key) = key {
                 call.cpu().set_ax(key.word());
             }
-            real_mode_interrupt::set_zero(call, key.is_none());
+            real_mode_interrupt::set_zero(&mut call, key.is_none());
         }
         0x02 => call.cpu().set_al(keyboard.0.borrow().shifts.bits()),
         _ => {
             call.cpu().set_ah(0x86);
-            real_mode_interrupt::set_carry(call, true);
+            real_mode_interrupt::set_carry(&mut call, true);
         }
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call)
 }

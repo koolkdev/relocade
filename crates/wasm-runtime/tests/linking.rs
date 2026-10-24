@@ -272,3 +272,44 @@ fn callbacks_preserve_flat_tuple_carriers() {
 async fn callbacks_preserve_flat_tuple_carriers() {
     check_tuple_callbacks().await;
 }
+
+async fn check_owned_instantiation() {
+    let mut backend = Backend::with_state(0_u32).unwrap();
+    let memory = backend.create_memory(MEMORY).unwrap();
+    let mut program = Program::new();
+    let guest = program.import_memory(MEMORY);
+    let run = program.function::<fn() -> I64>(move |mut body, ()| {
+        let value = body.load::<I64>(guest, 0)?;
+        body.return_(value)
+    });
+    RUN.export(&mut program, run).unwrap();
+    let module = backend
+        .compiler()
+        .compile(&program.compile().unwrap())
+        .await
+        .unwrap();
+    let linking = {
+        let imports = [backend.bind(MEMORY, &memory)];
+        backend.instantiate(&module, &imports)
+    };
+    drop(module);
+    // Both the input handles and backend borrow end before this future completes.
+    backend.memory(&memory).store(0, 0x1234_5678_9abc_def0_u64);
+    *backend.state_mut() = 7;
+    let instance = linking.await.unwrap();
+    let run = backend.function(&instance, RUN).unwrap();
+    assert_eq!(run.call(&mut backend, ()), 0x1234_5678_9abc_def0);
+    assert_eq!(*backend.state(), 7);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn instantiation_owns_its_inputs_without_borrowing_the_backend() {
+    pollster::block_on(check_owned_instantiation());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn instantiation_owns_its_inputs_without_borrowing_the_backend() {
+    check_owned_instantiation().await;
+}
