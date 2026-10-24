@@ -45,5 +45,6 @@ pub use relocade_wasm_runtime::{MemoryAccess, MemoryStorage, SharedMemoryStorage
 #[cfg(feature = "worker")]
 pub use runtime::worker;
 pub use runtime::{
-    real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, Hook, HookResult, Result,
+    real_mode_interrupt, Call, CallCpu, CallMemory, Cpu, CpuContext, DispatchEntry, Error, Hook,
+    HookResult, Result,
 };

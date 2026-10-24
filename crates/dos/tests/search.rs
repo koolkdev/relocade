@@ -230,7 +230,10 @@ async fn check_discovery_program() {
     program.resize(0x90, 0);
     program.extend_from_slice(b"*.DAT\0");
     dos.load_com(&program, Default::default()).unwrap();
-    assert_eq!(dos.cpu().run(500).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        common::ready(dos.cpu().run(500)).unwrap(),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(common::output(dos.stdout()), b"first\nsecond\n");
 }

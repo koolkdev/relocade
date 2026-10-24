@@ -9,7 +9,7 @@ Borrow memory before starting execution:
 ```rust
 let mut memory = runtime.memory();
 let view = memory.view();
-let run = runtime.run_async(budget);
+let run = runtime.run(budget);
 // A separate display task can read without borrowing runtime or run.
 let character = view.read_u8(0xb8000)?;
 ```
@@ -17,14 +17,15 @@ let character = view.read_u8(0xb8000)?;
 `Memory` owns the backing handle and an immutable copy of the configured
 physical map. Its memory views use the same RAM, ROM, A20 and hole rules as the stopped
 machine. `TextScreen::read(&view)` can sample the
-screen while a deferred input operation owns the runtime context. The same
+screen while an input operation waits. The same
 `MemoryView` supports reads through `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
-`CpuContext::memory()` returns `MemoryView` directly in stopped access, hooks and
-deferred handlers.
-Their views borrow the stopped CPU or callback; `cpu.memory()` returns an owned
-handle whose lifetime is independent of execution.
+`CpuContext::memory()` returns `MemoryView` in stopped access and synchronous
+hooks. Its view borrows the stopped CPU or callback. Async handlers receive a
+`Call`: its memory methods borrow internally for each transfer and return no live
+memory reference. `cpu.memory()` returns an owned handle whose lifetime is
+independent of execution.
 
 Share the existing backend handle with `worker::Message(memory.backing().clone())`.
 The worker transport moves native handles and preserves browser shared-memory

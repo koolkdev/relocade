@@ -43,9 +43,12 @@ An explicit stop command needs a control path that can wake the task while a
 service is pending; merely checking commands after a read completes is insufficient.
 Cancellation does not undo side effects already performed.
 
-The task keeps the active service future alive through ordinary waits. This
-ownership does not make dropping that future cancellation-safe; explicit
-stop/reload behavior must follow the service API's cancellation contract.
+The CPU owns active service futures through ordinary waits and execution-budget
+returns. Dropping a `run` waiter leaves those operations alive; the next run
+resumes them. `cancel_pending_call` drops their futures and invalidates retained
+call handles, without undoing prior effects. Use it when replacing the suspended
+program or its continuation. An application stop still needs to wake the execution
+task so it can perform that explicit cancellation.
 
 ## Event-loop scheduling
 

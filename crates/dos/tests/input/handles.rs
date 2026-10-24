@@ -48,7 +48,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         {
-            let mut run = pin!(dos.cpu().run_async(20));
+            let mut run = pin!(dos.cpu().run(20));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"ab\x08C").unwrap();

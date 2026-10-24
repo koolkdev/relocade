@@ -92,14 +92,20 @@ async fn check_interrupt_hooks() {
         ])
         .await
         .unwrap();
-    assert_eq!(runtime.run(5).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        support::ready(runtime.run(5)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     assert_eq!(runtime.context().state().get(), 1);
     assert_eq!(runtime.context().cpu().ax(), 11);
     assert_eq!(runtime.context().cpu().segment(Segment::Cs).selector, 0);
     assert_eq!(runtime.context().cpu().eip(), 0x10e);
     assert_eq!(runtime.context().cpu().sp(), 0xff00);
     assert_eq!(runtime.context().cpu().eflags() & 0x201, 0x200);
-    assert_eq!(runtime.run(2).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        support::ready(runtime.run(2)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     let mut result = [0; 2];
     runtime.context().memory().read(0x202, &mut result).unwrap();
     assert_eq!(u16::from_le_bytes(result), 11);
@@ -115,7 +121,10 @@ async fn check_interrupt_hooks() {
         .memory()
         .write(0x500, &[0x43, 0xea, 0x20, 0, 0, 0x10])
         .unwrap();
-    assert_eq!(runtime.run(7).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        support::ready(runtime.run(7)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     assert_eq!(runtime.state().get(), 2);
     assert_eq!(runtime.context().cpu().bx(), 1);
     assert_eq!(runtime.context().cpu().eip(), 0x10e);
@@ -140,7 +149,7 @@ async fn check_interrupt_hooks() {
         ),
     ] {
         runtime.context().cpu().set_eip(address);
-        assert_eq!(runtime.run(1).unwrap(), expected);
+        assert_eq!(support::ready(runtime.run(1)).unwrap(), expected);
         assert_eq!(runtime.context().cpu().instruction_count(), 14);
         assert_eq!(runtime.context().cpu().eip(), address);
     }
@@ -222,14 +231,13 @@ async fn check_mapped_hook_access() {
     .unwrap();
 
     assert_eq!(*cpu.state(), 0);
-    assert_eq!(cpu.run(0).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(
-        cpu.run_async(0).await.unwrap(),
-        ExecutionExit::BudgetExhausted
-    );
+    assert_eq!(cpu.run(0).await.unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(*cpu.state(), 0);
     for (calls, value) in [(1, 52), (2, 65)] {
-        assert_eq!(cpu.run(5).unwrap(), ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            support::ready(cpu.run(5)).unwrap(),
+            ExecutionExit::BudgetExhausted
+        );
         assert_eq!(*cpu.state(), calls);
         assert_eq!(cpu.context().cpu().eax(), value);
         assert_eq!(cpu.context().cpu().ebx(), value);

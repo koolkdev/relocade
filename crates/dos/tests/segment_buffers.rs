@@ -78,10 +78,10 @@ fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
             cpu.set_cx(3);
             cpu.set_dx(0xffff);
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert!(common::poll_once(dos.cpu().run(10)).is_pending());
         dos.stdin().write_all(b"abc\r").unwrap();
         assert_eq!(
-            dos.cpu().run_async(10).await.unwrap(),
+            dos.cpu().run(10).await.unwrap(),
             ExecutionExit::BudgetExhausted
         );
         assert_eq!(dos.cpu().context().cpu().ax(), 1);

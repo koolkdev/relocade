@@ -37,10 +37,16 @@ fn runtime(code: &[u8]) -> Cpu {
 fn budget_checks_resume_at_block_boundaries() {
     let mut runtime = runtime(&[0x40, 0x43, 0xeb, 0xfc]); // INC AX; INC BX; JMP 0100
     let initial = runtime.context().cpu().snapshot();
-    assert_eq!(runtime.run(0).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        support::ready(runtime.run(0)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     assert_eq!(runtime.context().cpu().snapshot(), initial);
     for iteration in 1..=3 {
-        assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            support::ready(runtime.run(1)).unwrap(),
+            ExecutionExit::BudgetExhausted
+        );
         let cpu = runtime.context().cpu().snapshot();
         assert_eq!(
             (cpu.registers.eax, cpu.registers.ebx, cpu.eip),
@@ -50,7 +56,10 @@ fn budget_checks_resume_at_block_boundaries() {
     }
     runtime.context().cpu().set_instruction_count(u64::MAX - 3);
     runtime.context().cpu().set_eax(40);
-    assert_eq!(runtime.run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        support::ready(runtime.run(10)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     assert_eq!(runtime.context().cpu().instruction_count(), u64::MAX);
     assert_eq!(runtime.context().cpu().eax(), 41);
 }
@@ -59,7 +68,10 @@ fn budget_checks_resume_at_block_boundaries() {
 fn runtimes_keep_private_cpu_and_backing() {
     let mut first = runtime(&[0xb8, 0x34, 0x12, 0xa3, 0, 2, 0xeb, 0]);
     let mut second = runtime(&[0x90]);
-    assert_eq!(first.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        support::ready(first.run(1)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     let mut bytes = [0; 2];
     first.context().memory().read(0x200, &mut bytes).unwrap();
     assert_eq!(bytes, [0x34, 0x12]);
@@ -105,15 +117,15 @@ fn host_backing_access_respects_configured_capacity() {
 fn guest_exits_preserve_progress_and_live_code_can_be_replaced() {
     let mut runtime = runtime(&[0x40, 0x0f, 0x0b]); // INC AX; UD2
     assert_eq!(
-        runtime.run(u64::MAX).unwrap(),
+        support::ready(runtime.run(u64::MAX)).unwrap(),
         ExecutionExit::Exception(Exception::InvalidOpcode)
     );
     assert_eq!(
-        (
-            runtime.context().cpu().eax(),
-            runtime.context().cpu().eip(),
-            runtime.context().cpu().instruction_count()
-        ),
+        {
+            let mut context = runtime.context();
+            let cpu = context.cpu();
+            (cpu.eax(), cpu.eip(), cpu.instruction_count())
+        },
         (1, 0x101, 1)
     );
     runtime
@@ -122,17 +134,18 @@ fn guest_exits_preserve_progress_and_live_code_can_be_replaced() {
         .write(0x101, &[0x40, 0xf4])
         .unwrap(); // INC AX; unsupported HLT
     assert_eq!(
-        runtime.run(u64::MAX).unwrap(),
+        support::ready(runtime.run(u64::MAX)).unwrap(),
         ExecutionExit::UnsupportedInstruction {
             eip: 0x102,
             opcode: 0xf4
         }
     );
     assert_eq!(
-        (
-            runtime.context().cpu().eax(),
-            runtime.context().cpu().instruction_count()
-        ),
+        {
+            let mut context = runtime.context();
+            let cpu = context.cpu();
+            (cpu.eax(), cpu.instruction_count())
+        },
         (2, 2)
     );
 }
@@ -180,9 +193,16 @@ fn guest_access_uses_the_map_and_open_bus() {
         .memory()
         .write_backing(0x1000, &[0x34, 0x12])
         .unwrap();
-    assert_eq!(runtime.run(6).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(
-        (runtime.context().cpu().eax(), runtime.context().cpu().ebx()),
+        support::ready(runtime.run(6)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    assert_eq!(
+        {
+            let mut context = runtime.context();
+            let cpu = context.cpu();
+            (cpu.eax(), cpu.ebx())
+        },
         (0x12ff, 0xffff)
     );
     let mut bytes = [0; 2];
@@ -204,21 +224,28 @@ fn real_interrupt_executes_handler_and_returns_through_saved_frame() {
         .memory()
         .write(0x1010, &[0xb8, 0xef, 0xbe, 0xcf])
         .unwrap(); // MOV AX,BEEF; IRET
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(
-        (
-            runtime.context().cpu().segment(Segment::Cs).selector,
-            runtime.context().cpu().eip()
-        ),
+        support::ready(runtime.run(1)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    assert_eq!(
+        {
+            let mut context = runtime.context();
+            let cpu = context.cpu();
+            (cpu.segment(Segment::Cs).selector, cpu.eip())
+        },
         (0x100, 0x10)
     );
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(
-        (
-            runtime.context().cpu().segment(Segment::Cs).selector,
-            runtime.context().cpu().eip(),
-            runtime.context().cpu().esp()
-        ),
+        support::ready(runtime.run(1)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    assert_eq!(
+        {
+            let mut context = runtime.context();
+            let cpu = context.cpu();
+            (cpu.segment(Segment::Cs).selector, cpu.eip(), cpu.esp())
+        },
         (0, 0x102, 0xff00)
     );
     assert_eq!(runtime.context().cpu().eax(), 0xbeef);
@@ -242,9 +269,12 @@ fn prepared_code_uses_configured_cpu_features() {
     let code = [0x0f, 0x44, 0xc0, 0xeb, 0]; // CMOVE AX,AX; JMP next
     enabled.context().memory().write(0x100, &code).unwrap();
     disabled.context().memory().write(0x100, &code).unwrap();
-    assert_eq!(enabled.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(
-        disabled.run(1).unwrap(),
+        support::ready(enabled.run(1)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    assert_eq!(
+        support::ready(disabled.run(1)).unwrap(),
         ExecutionExit::Exception(Exception::InvalidOpcode)
     );
 }

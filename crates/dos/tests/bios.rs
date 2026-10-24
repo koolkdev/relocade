@@ -36,7 +36,10 @@ async fn check_bios_clock() {
             cpu.set_dx(0xffff);
             cpu.set_eflags(0x0a57); // OF, IF, ZF, AF, PF and CF.
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            common::ready(dos.cpu().run(10)).unwrap(),
+            ExecutionExit::BudgetExhausted
+        );
         let cpu = dos.cpu().context().cpu().snapshot();
         assert_eq!(cpu.registers.eax as u16, rollover);
         assert_eq!(cpu.registers.ebx as u16, 0xabcd);
@@ -55,7 +58,10 @@ async fn check_bios_clock() {
         cpu.set_ax(0xff42);
         cpu.set_eflags(0x0a56); // Same flags, with carry clear.
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        common::ready(dos.cpu().run(10)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     let cpu = dos.cpu().context().cpu().snapshot();
     assert_eq!(cpu.registers.eax as u16, 0x8642);
     assert_eq!(cpu.flags.eflags(), 0x0a57); // Unsupported calls set only carry.

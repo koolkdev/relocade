@@ -98,13 +98,18 @@ async fn check_handle_output() {
             cpu.set_dx(0x200);
             cpu.set_eflags(0x642 | u32::from(carry_before));
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
-        let mut machine = dos.cpu().context();
-        let cpu = machine.cpu();
-        assert_eq!(cpu.ax(), expected_ax);
-        assert_eq!(cpu.eflags(), 0x642 | u32::from(expected_carry));
-        assert_eq!(cpu.sp(), 0xfffe);
-        assert_eq!(cpu.eip(), 0x102);
+        assert_eq!(
+            common::ready(dos.cpu().run(10)).unwrap(),
+            ExecutionExit::BudgetExhausted
+        );
+        {
+            let mut machine = dos.cpu().context();
+            let cpu = machine.cpu();
+            assert_eq!(cpu.ax(), expected_ax);
+            assert_eq!(cpu.eflags(), 0x642 | u32::from(expected_carry));
+            assert_eq!(cpu.sp(), 0xfffe);
+            assert_eq!(cpu.eip(), 0x102);
+        }
         if handle == 2 {
             assert_eq!(common::output(dos.stderr()), output);
             assert!(common::output(dos.stdout()).is_empty());

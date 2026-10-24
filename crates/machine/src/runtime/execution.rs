@@ -1,96 +1,132 @@
-use super::{Cpu, Error, HookResult, Result};
+use super::{
+    deferred::{CallFrame, Invocation},
+    state::PendingCall,
+    Call, Cpu, HookResult, Result,
+};
 use relocade_wasm_runtime::WasmContext;
 use relocade_x86::ExecutionExit;
+use std::{
+    future::poll_fn,
+    rc::Rc,
+    task::{Context, Poll},
+};
 
 impl<T: 'static> Cpu<T> {
-    /// Runs until the budget is consumed at a block boundary, a guest exit
-    /// occurs, or a host function requests a return. Whole blocks can exceed the
-    /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
-    /// Zero does not enter Wasm. The target saturates at u64::MAX.
-    ///
-    /// A deferred host operation returns Deferred. Subsequent synchronous runs
-    /// also return Deferred without polling it; use `run_async` to wait and resume.
-    /// An interrupted async handler returns `Error::CancelledHostCall` until
-    /// the embedding replaces its continuation and clears the pending call.
-    pub fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
+    /// Runs until the instruction budget is consumed or the guest exits,
+    /// awaiting host input as needed. Ready operations complete in the same poll.
+    /// Whole blocks can exceed the budget; straight-line code and REP have no
+    /// fixed overshoot or elapsed-time bound.
+    /// Waits do not replenish the budget. Dropping this waiter preserves pending
+    /// services and their locals; a later run resumes the same operation.
+    /// Use `cancel_pending_call` when replacing the suspended program.
+    /// A zero budget neither enters Wasm nor polls pending work.
+    pub async fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
         if instruction_budget == 0 {
             return Ok(ExecutionExit::BudgetExhausted);
         }
         let target = self.instruction_target(instruction_budget);
-        self.enter(target)
+        poll_fn(|cx| self.poll_run(cx, target)).await
     }
 
-    /// Runs with the same instruction budget as `run`, waiting for deferred host
-    /// operations before continuing the guest. Waits do not replenish the budget.
-    /// Other host returns and guest exits are returned to the embedding.
-    ///
-    /// Generated guest calls remain synchronous. Async handlers borrow the
-    /// stopped runtime after the guest call returns, then dispatch resumes at
-    /// the continuation they set. Keep this same future alive across waits.
-    ///
-    /// Dropping it during an async handler cancels that handler without undoing
-    /// its side effects. Further nonzero runs return `Error::CancelledHostCall`.
-    /// Before resuming, replace the guest continuation (for example, load a new
-    /// program) and clear the interrupted call with `cancel_pending_call`.
-    /// Zero does not enter Wasm or poll pending work.
-    pub async fn run_async(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
-        if instruction_budget == 0 {
-            return Ok(ExecutionExit::BudgetExhausted);
-        }
-        let target = self.instruction_target(instruction_budget);
-        let mut exit = self.enter(target)?;
-        while exit == ExecutionExit::Deferred {
-            exit = match self.run_deferred().await {
-                HookResult::Continue => self.enter(target)?,
-                HookResult::Exit(exit) => exit,
-            };
-        }
-        Ok(exit)
-    }
-
-    /// Drops a queued handler and clears any interrupted call, without changing CPU state.
-    /// Use when replacing a suspended program or its continuation.
-    /// Cancellation does not undo side effects already performed by the operation.
+    /// Drops queued and suspended operations without undoing their side effects.
+    /// The embedding must replace their guest continuation before running again.
+    /// Call handles become invalid before their futures are dropped.
     pub fn cancel_pending_call(&mut self) {
-        let pending = self.backend.state_mut().pending.take();
-        self.host_call_incomplete = false;
+        let pending = {
+            let mut core = self.core.borrow_mut();
+            core.active_call = None;
+            let pending = core.backend.state_mut().pending.take();
+            pending
+        };
         drop(pending);
+        while let Some(frame) = self.calls.pop() {
+            self.drop_invocation(frame.invocation);
+        }
     }
 
     fn instruction_target(&mut self, instruction_budget: u64) -> u64 {
-        self.context()
+        self.core
+            .borrow_mut()
             .cpu()
             .instruction_count()
             .saturating_add(instruction_budget)
     }
 
-    fn enter(&mut self, target: u64) -> Result<ExecutionExit> {
-        if self.host_call_incomplete {
-            return Err(Error::CancelledHostCall);
+    fn poll_run(&mut self, cx: &mut Context<'_>, target: u64) -> Poll<Result<ExecutionExit>> {
+        loop {
+            if self.core.borrow_mut().cpu().instruction_count() >= target {
+                return Poll::Ready(Ok(ExecutionExit::BudgetExhausted));
+            }
+            let pending = self.core.borrow_mut().backend.state_mut().pending.take();
+            if let Some(pending) = pending {
+                self.start_call(pending);
+            }
+            if let Some(frame) = self.calls.last_mut() {
+                assert_eq!(self.core.borrow().active_call, Some(frame.id));
+                let result = match &mut frame.invocation {
+                    Invocation::Registered { handler, slot } => {
+                        self.handlers[*handler].poll(*slot, cx)
+                    }
+                    Invocation::Once(future) => future.as_mut().poll(cx),
+                };
+                let Poll::Ready(result) = result else {
+                    return Poll::Pending;
+                };
+                let frame = self.calls.pop().expect("completed host call");
+                self.core.borrow_mut().active_call = None;
+                self.drop_invocation(frame.invocation);
+                match result {
+                    HookResult::Continue => {}
+                    HookResult::Exit(ExecutionExit::Deferred) => {
+                        assert!(
+                            self.core.borrow().backend.state().pending.is_some(),
+                            "deferred exit must queue a host call"
+                        );
+                        continue;
+                    }
+                    HookResult::Exit(exit) => return Poll::Ready(Ok(exit)),
+                }
+            }
+            let exit = {
+                let core = &mut *self.core.borrow_mut();
+                core.bindings
+                    .set_instruction_target(&mut core.backend, target);
+                core.dispatch.run(&mut core.backend)
+            };
+            if exit != ExecutionExit::Deferred {
+                return Poll::Ready(Ok(exit));
+            }
+            assert!(
+                self.core.borrow().backend.state().pending.is_some(),
+                "deferred exit must queue a host call"
+            );
         }
-        // A previous synchronous run may already have stopped at a deferred call.
-        if self.backend.state().pending.is_some() {
-            return Ok(ExecutionExit::Deferred);
-        }
-        self.bindings
-            .set_instruction_target(&mut self.backend, target);
-        Ok(self.dispatch.run(&mut self.backend))
     }
 
-    async fn run_deferred(&mut self) -> HookResult {
-        let handler = self
-            .backend
-            .state_mut()
-            .pending
-            .take()
-            .expect("deferred exit must have a handler");
-        // Cancellation leaves this set so a later run cannot replay the hook.
-        self.host_call_incomplete = true;
-        let result = {
-            let mut context = self.context();
-            handler.run(&mut context).await
+    fn start_call(&mut self, pending: PendingCall<T>) {
+        self.next_call = self
+            .next_call
+            .checked_add(1)
+            .expect("host invocation identity exhausted");
+        let id = self.next_call;
+        self.core.borrow_mut().active_call = Some(id);
+        let call = Call {
+            core: Rc::downgrade(&self.core),
+            id,
         };
-        self.host_call_incomplete = false;
-        result
+        let invocation = match pending {
+            PendingCall::Registered(handler) => {
+                let slot = self.handlers[handler].start(call);
+                Invocation::Registered { handler, slot }
+            }
+            PendingCall::Once(factory) => Invocation::Once(factory.start(call)),
+        };
+        self.calls.push(CallFrame { id, invocation });
+    }
+
+    fn drop_invocation(&mut self, invocation: Invocation) {
+        if let Invocation::Registered { handler, slot } = invocation {
+            self.handlers[handler].clear(slot);
+        }
     }
 }

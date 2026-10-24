@@ -2,7 +2,11 @@ use relocade_compiler::{abi::Function, Program};
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit};
 
-use super::{Cpu, CpuContext, DispatchEntry, ResourceOwner, Result};
+use super::{
+    deferred::{AsyncHandler, Handler as AsyncFactory},
+    Call, Cpu, CpuContext, DispatchEntry, ResourceOwner, Result,
+};
+use std::future::Future;
 
 /// Result of a synchronous or deferred host hook.
 /// The same type crosses generated hook entries through the shared Wasm ABI.
@@ -22,7 +26,12 @@ pub enum HookResult {
     Exit(ExecutionExit),
 }
 
-type Handler<T> = dyn Fn(&mut CpuContext<'_, T>) -> HookResult + Send + Sync;
+type SyncHandler<T> = dyn Fn(&mut CpuContext<'_, T>) -> HookResult + Send + Sync;
+
+enum Handler<T: 'static> {
+    Sync(Box<SyncHandler<T>>),
+    Async(Box<dyn AsyncHandler<T>>),
+}
 
 /// A host function reached at a guest linear address through ordinary dispatch.
 /// `T` is the backend's environment state, borrowed through the caller.
@@ -38,12 +47,12 @@ type Handler<T> = dyn Fn(&mut CpuContext<'_, T>) -> HookResult + Send + Sync;
 /// }
 /// let hook = Hook::new(0xf0100, terminate);
 /// ```
-pub struct Hook<T = ()> {
+pub struct Hook<T: 'static = ()> {
     address: u32,
-    handler: Box<Handler<T>>,
+    handler: Handler<T>,
 }
 
-impl<T> Hook<T> {
+impl<T: 'static> Hook<T> {
     /// On Continue, the handler must set the guest continuation in CPU state.
     /// Exit returns its execution exit without changing that state.
     /// To defer work, return the result of [`CpuContext::defer`], which queues the
@@ -58,7 +67,22 @@ impl<T> Hook<T> {
     ) -> Self {
         Self {
             address,
-            handler: Box::new(handler),
+            handler: Handler::Sync(Box::new(handler)),
+        }
+    }
+
+    /// Registers an ordinary async service. The guest call returns to Rust before
+    /// the future is polled. Ready services finish within that same run poll.
+    /// One pinned slot is reused per simultaneous invocation; captures and futures
+    /// may contain worker-local values and need not implement Send or Sync.
+    pub fn asynchronous<F, Fut>(address: u32, handler: F) -> Self
+    where
+        F: Fn(Call<T>) -> Fut + 'static,
+        Fut: Future<Output = HookResult> + 'static,
+    {
+        Self {
+            address,
+            handler: Handler::Async(Box::new(AsyncFactory::new(handler))),
         }
     }
 }
@@ -72,6 +96,8 @@ impl<T: 'static> Cpu<T> {
     /// instructions; continuing execution retains the current instruction target.
     /// Handlers must not reenter guest execution. They may use `CpuContext::defer`
     /// to await owned work and complete in Rust before guest execution resumes.
+    // Linking exclusively owns the backend; no service is polled during setup.
+    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
         let hooks: Vec<_> = hooks.into_iter().collect();
         let names: Vec<_> = (0..hooks.len())
@@ -94,10 +120,19 @@ impl<T: 'static> Cpu<T> {
                 body.trap()
             });
             program.export(name, function)?;
-            let resources = ResourceOwner::clone(&self.bindings);
-            imports.push(self.backend.bind_host(
+            let handler = match hook.handler {
+                Handler::Sync(handler) => handler,
+                Handler::Async(handler) => {
+                    let id = self.handlers.len();
+                    self.handlers.push(handler);
+                    Box::new(move |context: &mut CpuContext<'_, T>| context.queue_registered(id))
+                }
+            };
+            let mut core = self.core.borrow_mut();
+            let resources = ResourceOwner::clone(&core.bindings);
+            imports.push(core.backend.bind_host(
                 declaration,
-                Box::new(move |mut caller| (hook.handler)(&mut resources.context(&mut caller))),
+                Box::new(move |mut caller| handler(&mut resources.context(&mut caller))),
             ));
             entries.push(DispatchEntry {
                 address: hook.address,
@@ -105,11 +140,13 @@ impl<T: 'static> Cpu<T> {
             });
         }
         let bytes = program.compile()?;
-        let module = self.backend.compiler().compile(&bytes).await?;
-        self.dispatch
+        let compiler = self.core.borrow().backend.compiler();
+        let module = compiler.compile(&bytes).await?;
+        let core = &mut *self.core.borrow_mut();
+        core.dispatch
             .install(
-                &mut self.backend,
-                &self.bindings,
+                &mut core.backend,
+                &core.bindings,
                 &module,
                 &imports,
                 &entries,

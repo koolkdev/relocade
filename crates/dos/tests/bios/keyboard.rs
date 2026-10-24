@@ -25,7 +25,10 @@ fn invoke(dos: &mut Dos, ip: u32, ax: u16) -> CpuState {
         cpu.set_bx(0xabcd);
         cpu.set_eflags(0x643);
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        common::ready(dos.cpu().run(10)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     let cpu = dos.cpu().context().cpu().snapshot();
     assert_eq!(cpu.registers.ebx as u16, 0xabcd);
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
@@ -88,7 +91,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().run_async(10));
+            let mut run = pin!(dos.cpu().run(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());
             keyboard.push(KeyStroke {
                 character: 0,
@@ -115,7 +118,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             machine.cpu().set_ax(0);
         }
         {
-            let mut run = pin!(dos.cpu().run_async(10));
+            let mut run = pin!(dos.cpu().run(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());
         }
         keyboard.push(KeyStroke {

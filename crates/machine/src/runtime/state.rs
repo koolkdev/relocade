@@ -1,37 +1,24 @@
 use super::deferred::DeferredCall;
-use std::ops::{Deref, DerefMut};
+use std::{cell::RefCell, rc::Rc};
 
-/// Backend-owned state for one runtime, including a queued async host handler.
-/// CPU contexts lend `data` directly. Neither the data nor pending work needs Send.
+/// Requests leave Wasm before the execution owner starts or polls host work.
+pub(super) enum PendingCall<T: 'static> {
+    Registered(usize),
+    Once(Box<dyn DeferredCall<T>>),
+}
+
+/// Callback state contains requests, never running service futures.
 #[derive(Default)]
-pub(super) struct RuntimeState<T = ()> {
-    /// Environment data lent by `Cpu::state` and `CpuContext::state`.
-    pub data: T,
-    pub(crate) pending: Option<Box<dyn DeferredCall<T>>>,
+pub(super) struct RuntimeState<T: 'static = ()> {
+    pub data: Rc<RefCell<T>>,
+    pub pending: Option<PendingCall<T>>,
 }
 
 impl<T> RuntimeState<T> {
-    pub fn new(data: T) -> Self {
+    pub fn new(data: Rc<RefCell<T>>) -> Self {
         Self {
             data,
             pending: None,
         }
-    }
-}
-
-// Preserve the backend's borrow guard while lending only environment data.
-pub(crate) struct Data<S>(pub S);
-
-impl<T, S: Deref<Target = RuntimeState<T>>> Deref for Data<S> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        &self.0.data
-    }
-}
-
-impl<T, S: DerefMut<Target = RuntimeState<T>>> DerefMut for Data<S> {
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.0.data
     }
 }

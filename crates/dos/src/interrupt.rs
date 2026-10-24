@@ -28,7 +28,7 @@ pub(crate) fn defer<T: 'static>(
 ) -> HookResult {
     call.defer(async move |call| {
         let value = input.await;
-        invoke(call, |call, state| resume(call, state, value))
+        call.with_context(|call| invoke(call, |call, state| resume(call, state, value)))
     })
 }
 

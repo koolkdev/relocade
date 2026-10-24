@@ -28,12 +28,12 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
             cpu.set_cx(5);
             cpu.set_dx(0x400);
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert!(common::poll_once(dos.cpu().run(10)).is_pending());
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().run_async(10));
+            let mut run = pin!(dos.cpu().run(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"\0\r").unwrap();
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);

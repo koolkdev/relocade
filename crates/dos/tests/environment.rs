@@ -49,7 +49,10 @@ async fn check_environments() {
             .unwrap();
         assert_eq!(&mcb[1..3], &[0, 0x10]); // The root PSP owns the environment.
         assert_eq!(&mcb[3..5], &[3, 0]); // 48 bytes occupy three paragraphs.
-        assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+        assert_eq!(
+            common::ready(dos.cpu().run(100)).unwrap(),
+            ExecutionExit::HostReturn
+        );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
         assert_eq!(common::output(dos.stdout()), expected);
     }

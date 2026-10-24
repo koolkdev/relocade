@@ -19,16 +19,16 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 cpu.set_dx(0x400);
                 cpu.set_eflags(0x643);
             }
-            assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+            assert!(common::poll_once(dos.cpu().run(10)).is_pending());
             assert!(common::output(dos.stdout()).is_empty());
             assert_eq!(dos.cpu().context().cpu().sp(), 0xfff8);
             // Calling run again cannot flush input or push another interrupt frame.
-            assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+            assert!(common::poll_once(dos.cpu().run(10)).is_pending());
             dos.stdin()
                 .write_all(if function == 0x0a { b"K\r" } else { b"K" })
                 .unwrap();
             assert_eq!(
-                dos.cpu().run_async(10).await.unwrap(),
+                dos.cpu().run(10).await.unwrap(),
                 ExecutionExit::BudgetExhausted
             );
             {

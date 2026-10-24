@@ -27,7 +27,10 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_cx(cx);
         cpu.set_dx(dx);
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        ready(dos.cpu().run(10)).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     dos.cpu().context().cpu().snapshot()
 }
 
@@ -68,4 +71,20 @@ pub fn mz_image(code: &[u8]) -> Vec<u8> {
     }
     image.extend_from_slice(code);
     image
+}
+
+/// Poll a run once so tests can observe suspension without keeping its waiter.
+pub fn poll_once<T>(future: impl std::future::Future<Output = T>) -> std::task::Poll<T> {
+    let mut future = std::pin::pin!(future);
+    future
+        .as_mut()
+        .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+}
+
+/// Ready-input fixtures must finish without an executor turn or a blocking wait.
+pub fn ready<T>(future: impl std::future::Future<Output = T>) -> T {
+    match poll_once(future) {
+        std::task::Poll::Ready(value) => value,
+        std::task::Poll::Pending => panic!("expected the run to complete in one poll"),
+    }
 }
