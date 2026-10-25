@@ -35,9 +35,7 @@ impl<T: 'static> Dispatch<T> {
         // Link the dispatcher first; the interpreter imports its entry points.
         let dispatch = Self::link_dispatcher(backend, bindings, &module, host_imports).await?;
         let module = code::interpreter(backend, target).await?;
-        let instance = dispatch
-            .instantiate(backend, bindings, &module, &[])
-            .await?;
+        let instance = dispatch.instantiate(backend, bindings, &module).await?;
         dispatch.table.install_interpreter(backend, &instance)?;
         Ok(dispatch)
     }
@@ -69,12 +67,9 @@ impl<T: 'static> Dispatch<T> {
         backend: &mut Backend<T>,
         bindings: &RuntimeMemory,
         module: &Module,
-        additional: &[Import<'_, Backend<T>>],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let instance = self
-            .instantiate(backend, bindings, module, additional)
-            .await?;
+        let instance = self.instantiate(backend, bindings, module).await?;
         self.table.install(backend, &instance, entries)
     }
 
@@ -83,7 +78,6 @@ impl<T: 'static> Dispatch<T> {
         backend: &mut Backend<T>,
         bindings: &RuntimeMemory,
         module: &Module,
-        additional: &[Import<'_, Backend<T>>],
     ) -> Result<<Backend<T> as WasmBackend>::Instance> {
         let mut imports = bindings.imports(backend).to_vec();
         imports.extend(self.table.imports(backend));
@@ -92,7 +86,6 @@ impl<T: 'static> Dispatch<T> {
             backend.bind(abi::INTERPRET, &self.interpret),
         ]);
         imports.extend(self.host_imports.iter().cloned());
-        imports.extend(additional.iter().cloned());
         backend
             .instantiate(module, &imports)
             .await

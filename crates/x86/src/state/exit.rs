@@ -3,7 +3,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 /// A return from a generated execution entry.
 ///
-/// Every generated execution entry and runtime callback shares this Rust ABI.
+/// Every generated execution entry shares this Rust ABI.
 #[derive(
     relocade_wasm_bindings::WasmAbi,
     relocade_compiler::abi::CompilerValue,
@@ -28,6 +28,12 @@ pub enum ExecutionExit {
     UnsupportedInstruction {
         eip: u32,
         opcode: u8,
+    },
+    /// A generated entry requests the handler at this guest linear address.
+    /// CPU state is published; the runtime consumes this exit before resuming.
+    /// Reserved for execution entries, not handler results.
+    HostCall {
+        address: u32,
     },
 }
 
