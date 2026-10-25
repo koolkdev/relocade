@@ -9,6 +9,68 @@ This is a public repository. Commit messages use `component: title`.
   Check instruction availability as well as semantics against Intel's manuals.
   Existing support for later extensions does not expand this target.
 
+## Design and implementation approach
+
+Correctness, coherent ownership, readable consumer code, runtime cost, and
+reviewability are simultaneous requirements. Passing tests does not establish
+that the design is appropriate.
+
+- Preserve the whole agreed objective. Later questions and corrections refine
+  the task unless they explicitly replace earlier decisions. Before changing
+  direction, reconcile the new approach with the accepted ownership model,
+  consumer API, performance requirements, and work that must be preserved.
+
+- Start from a concrete production use case. Trace the existing execution and
+  data flow, identify the responsible owners, and inspect the mechanisms already
+  available. Distinguish architectural requirements and backend constraints
+  from choices made by the current implementation.
+
+- For substantial ownership, lifecycle, representation, or API changes, make the
+  intended final shape concrete before expanding the implementation. Show
+  representative caller code and explain who owns the resources, state, and
+  transitions. Resolve uncertain interactions with a small executable example
+  using the actual production boundaries before migrating many consumers.
+
+- Prefer representations that make the required behavior straightforward.
+  Before adding a layer, protocol, mode, wrapper, or special case, consider
+  whether improving an existing owner or representation would eliminate the
+  need. Repeated forwarding, parallel bookkeeping, and caller-managed
+  coordination are reasons to reconsider the boundary. Moving that machinery
+  into a helper does not by itself simplify the model.
+
+- Use existing mechanisms and ordinary language facilities where they fit.
+  New infrastructure must have a concrete responsibility or invariant that
+  existing mechanisms cannot express clearly. Evaluate its complexity across
+  the implementation and its consumers, including the code it replaces.
+
+- Treat architectural feedback as a reason to revisit the affected design.
+  Recheck related consumers and the whole PR stack, not only the highlighted
+  lines. Remove obsolete interfaces, assumptions, and tests when their
+  justification disappears. Apply a correction consistently wherever the same
+  reasoning applies.
+
+- Preserve the properties demonstrated by an experiment. If the production
+  design changes ownership, dispatch, allocation, or execution boundaries,
+  verify the relevant behavior and cost again before broad adoption. Results
+  from isolated prototypes do not establish the properties of their combined
+  replacement.
+
+- Organize PRs around durable, independently understandable changes. Establish
+  the intended final design, then choose small buildable steps toward it.
+  Avoid introducing abstractions that a later PR in the same stack removes.
+  Rework dependency order and consumer migration before resorting to temporary
+  adapters or one oversized PR.
+
+- Make explanations concrete: identify the production problem, show the
+  resulting caller or execution flow, and explain why added mechanisms are
+  necessary. Separate required behavior from implementation choices and
+  measured results from expectations.
+
+Apply this proportionately. Routine changes should proceed directly. Resolve
+ordinary implementation choices independently; bring concrete alternatives
+when an unresolved product requirement or consequential tradeoff needs user
+input. Keep exploratory notes and temporary experiments outside the repository.
+
 ## Clean product code
 
 - Commit implementation, permanent behavior tests and useful project documentation only.
