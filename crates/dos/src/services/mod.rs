@@ -9,7 +9,11 @@ mod memory;
 mod search;
 mod system;
 
-use crate::{files::CreateMode, state::DosState, DosServices, ServiceError};
+use crate::{
+    files::CreateMode,
+    state::{DosState, ProcessState},
+    DosServices, ServiceError,
+};
 use relocade_machine::{CpuContext, HookResult};
 use relocade_x86::ExecutionExit;
 
@@ -126,11 +130,9 @@ fn return_to_host(
     state: &mut DosState,
     status: Result<u8, ServiceError>,
 ) -> HookResult {
-    if status.is_ok() {
-        // The only process has exited; all of its conventional memory is free.
-        crate::memory::reset(&mut call.memory());
-        state.files.close_all();
-    }
-    state.exit_status = Some(status);
+    // The root process has ended; release its resources while retaining the session.
+    crate::memory::reset(&mut call.memory());
+    state.files.close_all();
+    state.process = ProcessState::Exited(status);
     HookResult::Exit(ExecutionExit::HostReturn)
 }

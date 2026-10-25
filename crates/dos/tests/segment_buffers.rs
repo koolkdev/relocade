@@ -10,18 +10,25 @@ const BASE: u32 = 0x30000;
 fn use_data_segment(dos: &mut Dos) {
     // Keep buffers away from the program and interrupt stack.
     dos.cpu()
+        .unwrap()
         .context()
         .cpu()
         .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x3000));
 }
 
 fn write_memory(dos: &mut Dos, address: u32, bytes: &[u8]) {
-    dos.cpu().context().memory().write(address, bytes).unwrap();
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(address, bytes)
+        .unwrap();
 }
 
 fn read_memory<const N: usize>(dos: &mut Dos, address: u32) -> [u8; N] {
     let mut bytes = [0; N];
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(address, &mut bytes)
@@ -32,10 +39,10 @@ fn read_memory<const N: usize>(dos: &mut Dos, address: u32) -> [u8; N] {
 #[test]
 fn file_transfers_stop_at_the_segment_end_and_advance_only_by_the_returned_count() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("IN.BIN", b"ABCD".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         let input = success(&path_service(&mut dos, b"IN.BIN", 0x3d00, 0));
         let output = success(&path_service(&mut dos, b"OUT.BIN", 0x3c00, 0));
         use_data_segment(&mut dos);
@@ -66,25 +73,25 @@ fn file_transfers_stop_at_the_segment_end_and_advance_only_by_the_returned_count
 #[test]
 fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         use_data_segment(&mut dos);
         write_memory(&mut dos, BASE + 0xffff, &[0xcc; 3]);
         {
-            let mut machine = dos.cpu().context();
+            let mut machine = dos.cpu().unwrap().context();
             let mut cpu = machine.cpu();
             cpu.set_ax(0x3f00);
             cpu.set_bx(0);
             cpu.set_cx(3);
             cpu.set_dx(0xffff);
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(dos.cpu().unwrap().run(10).unwrap(), ExecutionExit::Deferred);
         dos.stdin().write_all(b"abc\r").unwrap();
         assert_eq!(
-            dos.cpu().run_async(10).await.unwrap(),
+            dos.cpu().unwrap().run_async(10).await.unwrap(),
             ExecutionExit::BudgetExhausted
         );
-        assert_eq!(dos.cpu().context().cpu().ax(), 1);
+        assert_eq!(dos.cpu().unwrap().context().cpu().ax(), 1);
         assert_eq!(
             read_memory::<3>(&mut dos, BASE + 0xffff),
             [b'a', 0xcc, 0xcc]
@@ -102,14 +109,14 @@ fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
 #[test]
 fn current_directory_wraps_its_destination_offset() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         success(&path_service(&mut dos, b"DIR", 0x3900, 0));
         success(&path_service(&mut dos, b"DIR", 0x3b00, 0));
         use_data_segment(&mut dos);
         write_memory(&mut dos, BASE + 0xffff, &[0xcc; 4]);
         write_memory(&mut dos, BASE, &[0xdd; 4]);
-        dos.cpu().context().cpu().set_si(0xffff);
+        dos.cpu().unwrap().context().cpu().set_si(0xffff);
 
         assert_eq!(success(&service(&mut dos, 0x4700, 0, 0, 0)), 0x0100);
         assert_eq!(read_memory::<4>(&mut dos, BASE), [b'I', b'R', 0, 0xdd]);
@@ -123,23 +130,23 @@ fn current_directory_wraps_its_destination_offset() {
 #[test]
 fn dollar_terminated_output_wraps_its_source_offset() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         use_data_segment(&mut dos);
         write_memory(&mut dos, BASE + 0xffff, b"Abad$");
         write_memory(&mut dos, BASE, b"B$");
 
         service(&mut dos, 0x0900, 0, 0, 0xffff);
         assert_eq!(common::output(dos.stdout()), b"AB");
-        assert_eq!(dos.cpu().context().cpu().al(), b'$');
+        assert_eq!(dos.cpu().unwrap().context().cpu().al(), b'$');
     });
 }
 
 #[test]
 fn buffered_input_wraps_its_payload_after_the_header() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         use_data_segment(&mut dos);
         write_memory(&mut dos, BASE + 0xfffd, &[4, 0, 0xcc, 0xcc, 0xcc]);
         write_memory(&mut dos, BASE, &[0xdd; 3]);

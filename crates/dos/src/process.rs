@@ -1,4 +1,4 @@
-//! Initialization shared by the COM and MZ loaders.
+//! Process initialization shared by the COM and MZ loaders.
 
 use crate::{memory, LoadError, LoadOptions};
 use relocade_machine::MemoryView;
@@ -13,7 +13,7 @@ pub(crate) struct Allocation {
     pub(crate) paragraphs: u16,
 }
 
-/// Validates startup inputs and memory requirements before replacing the process.
+/// Allocates the root process, its PSP and environment in conventional memory.
 pub(crate) fn allocate(
     memory: &mut MemoryView<'_>,
     minimum: usize,
@@ -30,7 +30,6 @@ pub(crate) fn allocate(
         return Err(LoadError::InsufficientMemory);
     }
     let paragraphs = maximum.max(minimum).min(usize::from(available)) as u16;
-    memory::reset(memory);
     let segment = memory::allocate(memory, paragraphs, memory::FIRST_SEGMENT)
         .expect("validated root-process allocation");
     let environment_segment = memory::allocate(memory, environment_paragraphs, segment)

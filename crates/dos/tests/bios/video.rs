@@ -7,7 +7,7 @@ const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
 
 fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
-        let mut machine = dos.cpu().context();
+        let mut machine = dos.cpu().unwrap().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
@@ -16,8 +16,11 @@ fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_dx(dx);
         cpu.set_eflags(0x643);
     }
-    assert_eq!(dos.cpu().run(15).unwrap(), ExecutionExit::BudgetExhausted);
-    let cpu = dos.cpu().context().cpu().snapshot();
+    assert_eq!(
+        dos.cpu().unwrap().run(15).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    let cpu = dos.cpu().unwrap().context().cpu().snapshot();
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
     assert_eq!(cpu.flags.eflags(), 0x643);
     cpu
@@ -26,8 +29,8 @@ fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
 #[test]
 fn video_services_share_pages_cursors_and_cell_attributes() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         video(&mut dos, 0x0100, 0, 0x2007, 0); // Hide cursor.
         video(&mut dos, 0x0200, 0x0300, 0, 0x0204); // Page 3, row 2, column 4.
         video(&mut dos, 0x0958, 0x032e, 3, 0); // Three yellow-on-green X cells.
@@ -62,6 +65,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         );
         let mut page_offset = [0; 2];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x44e, &mut page_offset)
@@ -96,8 +100,8 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
 #[test]
 fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         video(&mut dos, 0x0200, 0, 0, 0x184f);
         // 4000 visible bytes occupy a 4096-byte page. Fifty cells starting at
         // the last visible cell include the padding and the next page's first cell.
@@ -105,6 +109,7 @@ fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
         for address in [0xb8f9e, 0xb8fa0, 0xb8ffe, 0xb9000] {
             let mut cell = [0; 2];
             dos.cpu()
+                .unwrap()
                 .context()
                 .memory()
                 .read(address, &mut cell)
@@ -116,6 +121,7 @@ fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
         video(&mut dos, 0x0a4b, 0, 50, 0);
         let mut cell = [0; 2];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0xb9000, &mut cell)
@@ -127,11 +133,12 @@ fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
 #[test]
 fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         for (row, text) in [b"1234", b"5678", b"abcd"].into_iter().enumerate() {
             let bytes: Vec<_> = text.iter().flat_map(|&byte| [byte, 0x17]).collect();
             dos.cpu()
+                .unwrap()
                 .context()
                 .memory()
                 .write(0xb8000 + row as u32 * 160, &bytes)
@@ -175,9 +182,10 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
 #[test]
 fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .write(0xb8f00, &[b' ', 0x2a])

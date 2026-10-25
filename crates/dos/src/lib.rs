@@ -1,4 +1,4 @@
-//! A minimal DOS environment for one real-mode COM or MZ program.
+//! A persistent DOS environment for real-mode COM and MZ programs.
 //!
 //! COM programs start at PSP:0100. They receive the
 //! available conventional memory; the image and initial stack use its first 64 KiB.
@@ -16,7 +16,7 @@
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
 //! eight-column stops. An empty input source returns
 //! [`relocade_x86::ExecutionExit::Deferred`] from a synchronous run. Use
-//! [`Cpu::run_async`] to await input and complete the pending read.
+//! [`relocade_machine::Cpu::run_async`] to await input and complete the pending read.
 //! AH=0Bh and IOCTL AX=4406h query input without consuming it; AX=4407h reports
 //! output readiness. Console status describes queued keys, not a buffered line.
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
@@ -28,14 +28,14 @@
 //! with CRLF and retains unread bytes for later console reads. Input echoes to
 //! the console even when stdout is redirected. A leading Ctrl-Z sets EOF on
 //! that open handle and its duplicates. Handle reads at EOF return zero until
-//! EOF is cleared through AH=40h or AX=4401h, or a program load replaces the handles.
+//! EOF is cleared through AH=40h or AX=4401h.
 //! AX=4401h switches device handles between cooked and raw mode. Raw AH=3Fh reads
 //! await the requested byte count, limited by the segment boundary, without editing,
 //! echo, CRLF insertion or interpreting Ctrl-Z as EOF. Raw AH=40h writes preserve
 //! tabs and control bytes. Duplicates share mode and EOF changes; separate opens
 //! keep their own state. Switching modes preserves the buffered cooked-line remainder.
 //! Keep the same run future alive while waiting; dropping an active read
-//! cancels it and requires reloading the program before further execution.
+//! cancels it and requires a new environment before further execution.
 //! Character and buffered reads stay blocked at redirected file EOF; host file
 //! growth does not yet wake them. AH=3Fh file reads return zero at EOF.
 //! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
@@ -52,7 +52,7 @@
 //! AH=56h renames or moves closed files on the same drive without replacing a destination.
 //! AH=0Eh/19h select/query the current drive; AH=3Bh/47h change/query a drive's directory.
 //! AH=39h/3Ah create directories or remove empty ones, excluding root and current.
-//! Guest relative paths use the selected drive's directory; both persist across loads.
+//! Guest relative paths use the selected drive's directory.
 //! AH=1Ah/2Fh select/query the DTA; AH=4Eh/4Fh find matching 8.3 names.
 //! Search dates are initially fixed at 1980-01-01; long-name aliases are not generated.
 //! AH=30h reports DOS 5.00; AH=25h/35h set/query the real interrupt vector table.
@@ -65,8 +65,15 @@
 //! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
 //! AH=09h string output follows the current stdout handle, just like AH=40h.
 //! AX=4400h reports file/device information for the object behind a handle.
-//! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
-//! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
+//! [`Dos::new`] creates an idle environment. Mount filesystems and obtain console
+//! handles before launching a process with [`Dos::launch_com`] or [`Dos::launch_mz`].
+//! Launch takes startup inputs in [`LoadOptions`]. The session creates its CPU on
+//! the first launch and reuses it for later programs. Launching while a process is
+//! active returns [`LaunchError::ProcessActive`], including while it awaits input.
+//! Termination releases process memory, open files and searches. Mounted filesystems,
+//! current directories, console queues and the BIOS screen survive between processes.
+//! A service error also ends the process and releases its resources.
+//! Nested guest EXEC and resident programs are not yet supported.
 //! The host controls execution through [`Dos::cpu`]. The CPU selects the native
 //! or browser Wasm engine and retains the DOS service state.
 //!
@@ -75,12 +82,14 @@
 //! # {
 //! use std::io::Read;
 //!
-//! let mut dos = relocade_dos::Dos::new().await?;
+//! let mut dos = relocade_dos::Dos::new()?;
 //! let mut disk = relocade_vfs::MemoryFileSystem::new();
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
-//! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
-//! assert_eq!(dos.cpu().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
+//! dos.launch_com(
+//!     &[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default(),
+//! ).await?;
+//! assert_eq!(dos.cpu().unwrap().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
 //! let mut output = Vec::new();
 //! dos.stdout().read_to_end(&mut output)?;
@@ -104,53 +113,108 @@ mod services;
 mod state;
 mod stdio;
 
-pub use error::{LoadError, MountError, ServiceError};
+pub use error::{LaunchError, LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
-use relocade_machine::Cpu;
+use relocade_machine::{Cpu, CpuContext, Memory};
 pub use state::DosServices;
-use state::DosState;
+use state::{DosState, ProcessState};
 use std::{cell::RefCell, rc::Rc};
 
-/// A DOS environment that owns its service state for one guest program.
+/// A DOS session with persistent guest memory, CPU, mounted filesystems and console.
 pub struct Dos {
     state: Rc<RefCell<DosState>>,
-    cpu: Cpu<DosServices>,
+    memory: Memory,
+    cpu: Option<Cpu<DosServices>>,
 }
 
 impl Dos {
-    /// Prepares the memory map, interrupt vectors and DOS service hooks.
-    /// Load a program before entering guest execution.
-    pub async fn new() -> relocade_machine::Result<Self> {
-        let state = Rc::new(RefCell::new(DosState::default()));
-        let services = DosServices::new(Rc::clone(&state));
-        let mut cpu = Cpu::with_state(kernel::configuration(), kernel::cpu(), services).await?;
-        kernel::initialize(&mut cpu.context().memory());
-        relocade_bios::initialize(&mut cpu.context().memory());
-        cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
-            .await?;
-        Ok(Self { state, cpu })
+    /// Initializes DOS and BIOS memory without creating a CPU or starting a process.
+    pub fn new() -> Result<Self, relocade_machine::Error> {
+        let memory = Memory::new(kernel::configuration())?;
+        kernel::initialize(&mut memory.view());
+        relocade_bios::initialize(&mut memory.view());
+        Ok(Self {
+            state: Rc::new(RefCell::new(DosState::default())),
+            memory,
+            cpu: None,
+        })
     }
 
-    /// Loads a COM image of 1..=65,278 bytes and initializes its PSP, stack and CPU.
-    /// Replaces the process allocation and clears buffered I/O and exit status.
-    /// Invalid images or options leave the existing program and its state unchanged.
-    pub fn load_com(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
-        let psp_segment = com::load(&mut self.cpu.context(), image, &options)?;
-        self.cpu.cancel_pending_call();
-        self.state.borrow_mut().reset_process(psp_segment);
-        Ok(())
+    /// Launches a COM image of 1..=65,278 bytes when no process is active.
+    /// Initializes the PSP, environment, standard handles, stack and entry state.
+    /// Creates the session's CPU on first use. Use [`Self::cpu`] to run the program.
+    /// A rejected image leaves the previous program's memory and exit status intact.
+    pub async fn launch_com(
+        &mut self,
+        image: &[u8],
+        options: LoadOptions<'_>,
+    ) -> Result<(), LaunchError> {
+        self.launch(|machine| com::load(machine, image, &options))
+            .await
     }
 
-    /// Loads a DOS MZ executable, applies relocations and initializes its PSP and CPU.
-    /// Replaces the root process and clears buffered I/O and exit status.
-    /// Invalid images or options leave the existing program and its state unchanged.
+    /// Launches an MZ executable with relocations and its memory request.
+    /// Like [`Self::launch_com`], requires the previous process to have terminated.
     /// Overlay loading is not supported.
-    pub fn load_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
-        let psp_segment = mz::load(&mut self.cpu.context(), image, &options)?;
-        self.cpu.cancel_pending_call();
-        self.state.borrow_mut().reset_process(psp_segment);
+    pub async fn launch_mz(
+        &mut self,
+        image: &[u8],
+        options: LoadOptions<'_>,
+    ) -> Result<(), LaunchError> {
+        self.launch(|machine| mz::load(machine, image, &options))
+            .await
+    }
+
+    async fn launch(
+        &mut self,
+        load: impl FnOnce(&mut CpuContext<'_, DosServices>) -> Result<u16, LoadError>,
+    ) -> Result<(), LaunchError> {
+        // Check before borrowing the CPU: a suspended service may still own it.
+        if self.has_active_process() {
+            return Err(LaunchError::ProcessActive);
+        }
+        if self.cpu.is_none() {
+            let services = DosServices::new(Rc::clone(&self.state));
+            let mut cpu = Cpu::with_memory(self.memory.clone(), kernel::cpu(), services).await?;
+            cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
+                .await?;
+            self.cpu = Some(cpu);
+        }
+        let psp_segment = load(&mut self.cpu.as_mut().unwrap().context())?;
+        let mut state = self.state.borrow_mut();
+        state.files.start_process();
+        state.dta_segment = psp_segment;
+        state.dta_offset = process::COMMAND_TAIL_OFFSET;
+        state.process = ProcessState::Active;
         Ok(())
+    }
+
+    /// The session's CPU, available once a launch has initialized it.
+    /// Run an active program until DOS records an [`Self::exit_status`].
+    /// Guest exceptions and budget exhaustion leave the process available to resume.
+    pub fn cpu(&mut self) -> Option<&mut Cpu<DosServices>> {
+        self.cpu.as_mut()
+    }
+
+    /// Whether a launched process has yet to terminate, including while awaiting input
+    /// or stopped at a guest exception or instruction budget.
+    pub fn has_active_process(&self) -> bool {
+        matches!(self.state.borrow().process, ProcessState::Active)
+    }
+
+    /// The last process's termination status, or None before launch and while active.
+    /// A successful launch clears this status; a rejected launch preserves it.
+    pub fn exit_status(&self) -> Option<Result<u8, ServiceError>> {
+        match self.state.borrow().process {
+            ProcessState::Exited(status) => Some(status),
+            ProcessState::Idle | ProcessState::Active => None,
+        }
+    }
+
+    /// Shares guest memory independently of any process or CPU.
+    pub fn memory(&self) -> Memory {
+        self.memory.clone()
     }
 
     /// Mounts a filesystem at A: through Z:, replacing any previous mount.
@@ -159,7 +223,7 @@ impl Dos {
     /// Resets that drive's current directory to its root and discards its DOS
     /// attributes and searches. Open handles continue to access their original files.
     pub fn mount(
-        &mut self,
+        &self,
         letter: char,
         filesystem: relocade_vfs::MemoryFileSystem,
     ) -> std::io::Result<()> {
@@ -170,10 +234,9 @@ impl Dos {
     /// DOS AH=43h may change that attribute; existing handles keep their access rights.
     /// Paths are case-insensitive; relative paths start at the drive root.
     /// An omitted drive defaults to C:, independently of the guest's current drive.
-    /// Files persist across program loads.
     /// Replacing a mounted path leaves existing open handles on the previous bytes.
     pub fn mount_file(
-        &mut self,
+        &self,
         path: &str,
         contents: Vec<u8>,
         access: FileAccess,
@@ -191,31 +254,24 @@ impl Dos {
         self.state.borrow().files.read_file(path)
     }
 
-    pub fn cpu(&mut self) -> &mut Cpu<DosServices> {
-        &mut self.cpu
-    }
-
-    /// None until a DOS service terminates the process or reports a service error.
-    pub fn exit_status(&self) -> Option<Result<u8, ServiceError>> {
-        self.state.borrow().exit_status
-    }
-
     /// Returns an owned console input writer. Bytes use the guest's encoding.
     /// Writes enqueue bytes immediately and wake a pending console read; flush
     /// is a no-op. The writer can be cloned and used while `run_async` is pending.
-    /// Redirected stdin reads its file instead. Loading a program clears buffered
-    /// input and output; existing stream handles remain connected to the console.
+    /// Redirected stdin reads its file instead. Stream handles belong to this
+    /// environment; a new environment has its own input and output queues.
     ///
     /// ```no_run
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>>
     /// # {
     /// use std::io::Write;
     ///
-    /// let mut dos = relocade_dos::Dos::new().await?;
-    /// dos.load_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
+    /// let mut dos = relocade_dos::Dos::new()?;
     /// let mut input = dos.stdin();
+    /// dos.launch_com(
+    ///     &[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default(),
+    /// ).await?;
     /// // An event handler can retain this writer while the cpu waits.
-    /// let run = dos.cpu().run_async(100);
+    /// let run = dos.cpu().unwrap().run_async(100);
     /// input.write_all(b"y")?;
     /// run.await?;
     /// assert_eq!(dos.exit_status(), Some(Ok(b'y')));
@@ -245,8 +301,8 @@ impl Dos {
     /// Copies the active 80-by-25 color text page and its cursor for a renderer.
     /// DOS CON output, BIOS video services and direct guest writes all update
     /// this memory. File redirection does not write to the screen.
-    pub fn screen(&mut self) -> relocade_bios::TextScreen {
-        relocade_bios::TextScreen::read(&self.cpu.context().memory())
+    pub fn screen(&self) -> relocade_bios::TextScreen {
+        relocade_bios::TextScreen::read(&self.memory.view())
     }
 
     /// Returns an owned reader that drains currently buffered standard output.

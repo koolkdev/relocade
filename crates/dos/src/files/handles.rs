@@ -37,7 +37,28 @@ pub(super) struct OpenFile {
     written: bool,
 }
 
+fn standard_handles() -> [Option<OpenHandle>; HANDLE_COUNT] {
+    let mut handles: [Option<OpenHandle>; HANDLE_COUNT] = Default::default();
+    for (slot, device) in handles.iter_mut().zip([
+        Device::Console(OutputStream::Stdout),
+        Device::Console(OutputStream::Stdout),
+        Device::Console(OutputStream::Stderr),
+        Device::Auxiliary,
+        Device::Printer,
+    ]) {
+        *slot = Some(OpenHandle::Device(Rc::new(OpenDevice::new(
+            device,
+            AccessMode::ReadWrite,
+        ))));
+    }
+    handles
+}
+
 impl Files {
+    pub(crate) fn start_process(&mut self) {
+        self.handles = standard_handles();
+    }
+
     pub(super) fn is_open(&self, file: &File) -> bool {
         // DOS sharing keeps an open file's name alive until its last handle closes.
         self.handles.iter().flatten().any(
@@ -304,28 +325,11 @@ impl Files {
         })
     }
 
-    pub(crate) fn reset_handles(&mut self) {
-        self.close_all();
-        self.stdio.clear();
-        self.search_directories.clear();
-        for (slot, device) in self.handles.iter_mut().zip([
-            Device::Console(OutputStream::Stdout),
-            Device::Console(OutputStream::Stdout),
-            Device::Console(OutputStream::Stderr),
-            Device::Auxiliary,
-            Device::Printer,
-        ]) {
-            *slot = Some(OpenHandle::Device(Rc::new(OpenDevice::new(
-                device,
-                AccessMode::ReadWrite,
-            ))));
-        }
-    }
-
     pub(crate) fn close_all(&mut self) {
         for handle in std::mem::take(&mut self.handles).into_iter().flatten() {
             self.commit_handle(handle);
         }
+        self.search_directories.clear();
     }
 
     pub(super) fn handle(&self, handle: u16) -> Result<&OpenHandle, DosError> {

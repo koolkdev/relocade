@@ -6,10 +6,10 @@ use relocade_dos::FileAccess;
 #[test]
 fn create_new_preserves_existing_files_and_returns_a_writable_handle() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA/KEEP.BIN", b"keep".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"KEEP.BIN", 0x4301, 0x07));
 
@@ -20,7 +20,7 @@ fn create_new_preserves_existing_files_and_returns_a_writable_handle() {
             0x07
         );
 
-        dos.cpu().context().cpu().set_eflags(0x0a57);
+        dos.cpu().unwrap().context().cpu().set_eflags(0x0a57);
         let cpu = path_service(&mut dos, b"NEW.BIN", 0x5b00, 0x03);
         let handle = success(&cpu);
         assert_eq!(handle, 5); // First slot after the five standard handles.
@@ -29,7 +29,12 @@ fn create_new_preserves_existing_files_and_returns_a_writable_handle() {
             path_service(&mut dos, b"NEW.BIN", 0x4300, 0).registers.ecx,
             0x23
         );
-        dos.cpu().context().memory().write(0x10400, b"new").unwrap();
+        dos.cpu()
+            .unwrap()
+            .context()
+            .memory()
+            .write(0x10400, b"new")
+            .unwrap();
         assert_eq!(success(&service(&mut dos, 0x4000, handle, 3, 0x400)), 3);
         error(&path_service(&mut dos, b"NEW.BIN", 0x5b00, 0), 80);
         assert_eq!(dos.read_file("DATA/NEW.BIN").unwrap(), b"new");
@@ -46,10 +51,10 @@ fn create_new_preserves_existing_files_and_returns_a_writable_handle() {
 #[test]
 fn create_new_validates_paths_attributes_and_capacity_before_publishing_a_file() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DIR/KEEP.BIN", b"keep".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         for (path, attributes, code) in [
             (b"MISSING/NEW.BIN".as_slice(), 0, 3),
             (b"DIR", 0, 5),

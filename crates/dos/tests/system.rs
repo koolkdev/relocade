@@ -4,9 +4,9 @@ use common::{error, service, SERVICE_PROGRAM};
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 
 async fn check_system_services() {
-    let mut dos = common::dos().await;
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    dos.cpu().context().cpu().set_eflags(0x0a56); // OF, IF, ZF, AF and PF.
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
+
+    dos.cpu().unwrap().context().cpu().set_eflags(0x0a56); // OF, IF, ZF, AF and PF.
     error(&service(&mut dos, 0x3e00, 0xffff, 0, 0), 6); // Set carry.
     let cpu = service(&mut dos, 0x3000, 0x1234, 0x5678, 0x9abc);
     assert_eq!(cpu.registers.eax as u16, 5);
@@ -20,6 +20,7 @@ async fn check_system_services() {
 
     // A non-normalized pointer survives a set/get round trip exactly.
     dos.cpu()
+        .unwrap()
         .context()
         .cpu()
         .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1234));
@@ -27,6 +28,7 @@ async fn check_system_services() {
     assert_eq!(cpu.flags.eflags() & 1, 1);
     let mut vector = [0; 4];
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(0x3fc, &mut vector)
@@ -51,7 +53,6 @@ async fn check_system_services() {
 }
 
 async fn check_guest_interrupt_vector() {
-    let mut dos = common::dos().await;
     let mut program = vec![
         0xb8, 0x60, 0x25, // MOV AX,2560: install INT 60h
         0xba, 0x20, 1, // MOV DX,0120: handler within CS=DS
@@ -63,11 +64,16 @@ async fn check_guest_interrupt_vector() {
     ];
     program.resize(0x20, 0);
     program.extend_from_slice(&[0xb8, 0x34, 0x12, 0xcf]); // MOV AX,1234; IRET
-    dos.load_com(&program, Default::default()).unwrap();
-    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+
+    let mut dos = common::dos(&program).await;
+    assert_eq!(
+        dos.cpu().unwrap().run(100).unwrap(),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     let mut result = [0; 2];
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(0x10300, &mut result)

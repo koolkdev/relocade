@@ -5,13 +5,6 @@ use relocade_dos::{Dos, FileAccess, MountError};
 use relocade_x86::{CpuState, ExecutionExit};
 
 async fn check_file_program() {
-    let mut dos = common::dos().await;
-    dos.mount_file(
-        r"C:\DATA\HELLO.TXT",
-        b"file\r\n".to_vec(),
-        FileAccess::ReadOnly,
-    )
-    .unwrap();
     let mut program = vec![
         0xb8, 0, 0x3d, // MOV AX,3D00: open read-only
         0xba, 0x40, 1, // MOV DX,0140: pathname
@@ -32,13 +25,19 @@ async fn check_file_program() {
     ];
     program.resize(0x40, 0);
     program.extend_from_slice(b"data/hello.txt\0");
-    // Program replacement keeps mounts and resets the program's file handles.
-    for _ in 0..2 {
-        dos.load_com(&program, Default::default()).unwrap();
-        assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
-        assert_eq!(dos.exit_status(), Some(Ok(0)));
-        assert_eq!(common::output(dos.stdout()), b"file\r\n");
-    }
+    let mut dos = common::dos(&program).await;
+    dos.mount_file(
+        r"C:\DATA\HELLO.TXT",
+        b"file\r\n".to_vec(),
+        FileAccess::ReadOnly,
+    )
+    .unwrap();
+    assert_eq!(
+        dos.cpu().unwrap().run(100).unwrap(),
+        ExecutionExit::HostReturn
+    );
+    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(common::output(dos.stdout()), b"file\r\n");
 }
 
 fn open(dos: &mut Dos, path: &[u8], mode: u8) -> CpuState {
@@ -52,6 +51,7 @@ fn create(dos: &mut Dos, path: &[u8], attributes: u16) -> CpuState {
 fn buffer(dos: &mut Dos) -> [u8; 8] {
     let mut bytes = [0; 8];
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(0x10200, &mut bytes)
@@ -60,7 +60,7 @@ fn buffer(dos: &mut Dos) -> [u8; 8] {
 }
 
 async fn check_handles() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     for path in ["", "C:\\", r"D:\X.BIN", "X?.BIN", "X\0.BIN", "é.bin"] {
         assert_eq!(
             dos.mount_file(path, vec![], FileAccess::ReadOnly),
@@ -69,7 +69,7 @@ async fn check_handles() {
     }
     dos.mount_file("X.BIN", b"abcd".to_vec(), FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     error(&open(&mut dos, b"MISSING.BIN", 0), 2);
     error(&open(&mut dos, b"MISSING/X.BIN", 0), 3);
     error(&open(&mut dos, b"X.BIN", 2), 5); // Read/write mode on a read-only mount.
@@ -84,6 +84,7 @@ async fn check_handles() {
     assert_eq!(buffer(&mut dos)[0], b'a'); // Independent cursor.
     assert_eq!(success(&service(&mut dos, 0x3f00, 5, 0, 0x200)), 0);
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .write(0x10200, b"!!!!!!!!")
@@ -105,8 +106,10 @@ async fn check_handles() {
     assert_eq!(success(&service(&mut dos, 0x3f00, 7, 8, 0x200)), 3);
     assert_eq!(&buffer(&mut dos)[..3], b"new");
 
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    error(&service(&mut dos, 0x3f00, 6, 1, 0x200), 6); // Old program's handle closed.
+    for handle in 5..=7 {
+        success(&service(&mut dos, 0x3e00, handle, 0, 0));
+    }
+    error(&service(&mut dos, 0x3f00, 6, 1, 0x200), 6); // Closed handle is invalid.
     for handle in 5..20 {
         assert_eq!(success(&open(&mut dos, b"X.BIN", 0)), handle);
     }
@@ -114,7 +117,9 @@ async fn check_handles() {
     success(&service(&mut dos, 0x3e00, 10, 0, 0));
     assert_eq!(success(&open(&mut dos, b"X.BIN", 0)), 10);
 
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    for handle in 5..20 {
+        success(&service(&mut dos, 0x3e00, handle, 0, 0));
+    }
     assert_eq!(success(&open(&mut dos, b"X.BIN", 0x10)), 5); // Deny other reads.
     error(&open(&mut dos, b"X.BIN", 0), 5);
     success(&service(&mut dos, 0x3e00, 5, 0, 0));
@@ -122,10 +127,9 @@ async fn check_handles() {
 }
 
 async fn check_standard_handles() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     dos.mount_file("X.BIN", b"file".to_vec(), FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
 
     success(&service(&mut dos, 0x3e00, 1, 0, 0)); // Close stdout.
     error(&service(&mut dos, 0x3e00, 1, 0, 0), 6);
@@ -146,16 +150,10 @@ async fn check_standard_handles() {
         assert_eq!(success(&open(&mut dos, b"X.BIN", 0)), handle);
     }
     error(&open(&mut dos, b"X.BIN", 0), 4);
-
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    assert_eq!(success(&open(&mut dos, b"X.BIN", 0)), 5);
-    assert_eq!(success(&service(&mut dos, 0x3f00, 5, 4, 0x200)), 4);
-    assert_eq!(success(&service(&mut dos, 0x4000, 1, 4, 0x200)), 4);
-    assert_eq!(common::output(dos.stdout()), b"file"); // New program gets fresh standard handles.
 }
 
 #[test]
-fn standard_handles_can_be_closed_reused_and_reset() {
+fn standard_handles_can_be_closed_and_reused() {
     pollster::block_on(check_standard_handles());
 }
 
@@ -174,17 +172,22 @@ fn position(cpu: &CpuState) -> u32 {
 }
 
 fn write(dos: &mut Dos, handle: u16, bytes: &[u8]) -> CpuState {
-    dos.cpu().context().memory().write(0x10200, bytes).unwrap();
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(0x10200, bytes)
+        .unwrap();
     service(dos, 0x4000, handle, bytes.len() as u16, 0x200)
 }
 
 async fn check_writes() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     dos.mount_file("SAVE.BIN", b"abcdef".to_vec(), FileAccess::ReadWrite)
         .unwrap();
     assert_eq!(dos.read_file("MISSING.BIN"), None);
     assert_eq!(dos.read_file("D:\\SAVE.BIN"), None);
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x42)), 5); // Read/write, deny none.
     assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x40)), 6); // Read only.
     assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x41)), 7); // Write only.
@@ -252,22 +255,22 @@ async fn check_writes() {
     assert_eq!(success(&open(&mut dos, b"SAVE.BIN", 0x42)), 5);
     error(&open(&mut dos, b"SAVE.BIN", 0), 5);
 
-    dos.load_com(&[0xb8, 0, 0x4c, 0xcd, 0x21], Default::default())
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default())
+        .await
         .unwrap();
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
     assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYc\0\0\0");
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    error(&write(&mut dos, 5, b"!"), 6); // Prior program's handles have closed.
+    error(&write(&mut dos, 5, b"!"), 6); // Guest termination closed the handle.
 }
 
 async fn check_seek() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     let mut contents = vec![0; 0x10008];
     contents[..4].copy_from_slice(b"head");
     contents[0x10000..].copy_from_slice(b"taildata");
     dos.mount_file("RECORDS.BIN", contents, FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     assert_eq!(success(&open(&mut dos, b"RECORDS.BIN", 0)), 5);
     assert_eq!(success(&open(&mut dos, b"RECORDS.BIN", 0)), 6);
 
@@ -314,7 +317,6 @@ async fn check_seek() {
 }
 
 async fn check_save_program() {
-    let mut dos = common::dos().await;
     let mut program = vec![
         0xb4, 0x3c, // MOV AH,3C: create file
         0x31, 0xc9, // XOR CX,CX: normal attributes
@@ -331,14 +333,18 @@ async fn check_save_program() {
     program.extend_from_slice(b"SAVE.DAT\0");
     program.resize(0x50, 0);
     program.extend_from_slice(b"saved");
-    dos.load_com(&program, Default::default()).unwrap();
-    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+    let mut dos = common::dos(&program).await;
+
+    assert_eq!(
+        dos.cpu().unwrap().run(100).unwrap(),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(dos.read_file(r"C:\save.dat").unwrap(), b"saved");
 }
 
 async fn check_creation() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     dos.mount_file(
         "DATA/KEEP.BIN",
         b"old contents".to_vec(),
@@ -347,7 +353,7 @@ async fn check_creation() {
     .unwrap();
     dos.mount_file("READONLY.BIN", b"keep".to_vec(), FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     error(&create(&mut dos, b"MISSING/NEW.BIN", 0), 3);
     error(&create(&mut dos, b"DATA", 0), 5); // A directory occupies this name.
     error(&create(&mut dos, b"INVALID.BIN", 0x10), 5); // Directory attribute.
@@ -413,7 +419,7 @@ async fn check_creation() {
     assert_eq!(success(&create(&mut dos, b"DATA/KEEP.BIN", 0)), 8);
     assert_eq!(dos.read_file("DATA/KEEP.BIN").unwrap(), b"");
 
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    success(&service(&mut dos, 0x3e00, 5, 0, 0));
     assert_eq!(success(&create(&mut dos, b"DATA/NEW.BIN", 0)), 5);
     assert_eq!(dos.read_file("DATA/NEW.BIN"), Some(Vec::new()));
     assert_eq!(dos.read_file("LOCKED.BIN").unwrap(), b"protected");
@@ -425,7 +431,7 @@ fn program_reads_a_mounted_file_and_prints_it() {
 }
 
 #[test]
-fn file_handles_report_counts_errors_and_reset_between_programs() {
+fn file_handles_report_counts_errors_and_reuse_closed_slots() {
     pollster::block_on(check_handles());
 }
 

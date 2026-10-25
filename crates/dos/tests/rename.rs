@@ -9,7 +9,7 @@ fn rename(dos: &mut Dos, from: &[u8], to: &[u8]) -> CpuState {
     const SEGMENT: u16 = 0x2000;
     const OFFSET: u16 = 0xfffc;
     {
-        let mut machine = dos.cpu().context();
+        let mut machine = dos.cpu().unwrap().context();
         machine.cpu().set_segment(
             Segment::Es,
             SegmentRegister::real_mode(Segment::Es, SEGMENT),
@@ -26,15 +26,15 @@ fn rename(dos: &mut Dos, from: &[u8], to: &[u8]) -> CpuState {
 #[test]
 fn rename_moves_contents_and_attributes_using_es_di() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA/OLD.BIN", b"saved".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         success(&path_service(&mut dos, b"SAVES", 0x3900, 0));
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"OLD.BIN", 0x4301, 0x07));
 
-        dos.cpu().context().cpu().set_eflags(0x0a57);
+        dos.cpu().unwrap().context().cpu().set_eflags(0x0a57);
         let cpu = rename(&mut dos, b"old.bin", b"c:..\\saves\\new.bin");
         success(&cpu);
         assert_eq!(cpu.flags.eflags(), 0x0a56);
@@ -48,6 +48,7 @@ fn rename_moves_contents_and_attributes_using_es_di() {
         success(&path_service(&mut dos, b"\\SAVES\\NEW.BIN", 0x4e00, 0x06));
         let mut dta = [0; 43];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10080, &mut dta)
@@ -69,12 +70,12 @@ fn rename_moves_contents_and_attributes_using_es_di() {
 #[test]
 fn rename_checks_names_paths_and_open_handles_before_moving_a_file() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA/KEEP.BIN", b"keep".to_vec(), FileAccess::ReadWrite)
             .unwrap();
         dos.mount_file("DATA/TAKEN.BIN", b"taken".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"DIR", 0x3900, 0));
         let unterminated = [b'X'; 128];

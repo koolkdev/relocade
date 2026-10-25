@@ -4,10 +4,10 @@ use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;
 
 async fn check_deletion() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     dos.mount_file("DATA/FILE.BIN", b"keep".to_vec(), FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
     error(&path_service(&mut dos, b"FILE.BIN", 0x4100, 0), 5);
     assert_eq!(dos.read_file("DATA/FILE.BIN").unwrap(), b"keep");
@@ -18,7 +18,7 @@ async fn check_deletion() {
     success(&service(&mut dos, 0x3e00, handle, 0, 0));
     error(&path_service(&mut dos, b"FILE.BIN", 0x4100, 0), 5);
     success(&service(&mut dos, 0x3e00, duplicate, 0, 0));
-    dos.cpu().context().cpu().set_eflags(0x0a57);
+    dos.cpu().unwrap().context().cpu().set_eflags(0x0a57);
     let cpu = path_service(&mut dos, b"c:file.bin", 0x4100, 0);
     success(&cpu);
     assert_eq!(cpu.flags.eflags(), 0x0a56);
@@ -56,7 +56,6 @@ async fn check_deletion() {
     success(&path_service(&mut dos, b"\\DATA\\FILE.BIN", 0x4100, 0));
     assert_eq!(success(&service(&mut dos, 0x3f00, old, 1, 0x400)), 0);
     success(&service(&mut dos, 0x3e00, old, 0, 0));
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(dos.read_file("DATA/FILE.BIN"), None);
 }
 
