@@ -31,22 +31,20 @@ use std::ops::{Deref, DerefMut};
 
 mod error;
 pub use error::{Error, Result};
-#[cfg(not(target_arch = "wasm32"))]
-mod native;
-#[cfg(target_arch = "wasm32")]
-mod web;
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::{Backend, Compiler, Context, Memory, Module, SharedMemory};
-#[cfg(target_arch = "wasm32")]
-pub use web::{Backend, Compiler, Context, Memory, Module, SharedMemory};
+#[cfg_attr(not(target_arch = "wasm32"), path = "native/mod.rs")]
+#[cfg_attr(target_arch = "wasm32", path = "web/mod.rs")]
+mod backend;
+pub use backend::{Backend, Compiler, Context, Memory, Module, SharedMemory};
 
 mod calls;
 mod host;
 mod imports;
+mod memory;
 mod module_cache;
 pub use calls::{CallSignature, ExportFunction, Function};
 pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
+pub use memory::{Load, MemoryAccess, MemoryValue, Store, WasmMemoryAccess, WasmSharedMemory};
 pub use module_cache::ModuleCache;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
@@ -60,43 +58,6 @@ pub trait WasmCompiler: Clone + Send + 'static {
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
 }
 
-/// Access to linear memory through a Wasm backend or its scoped context.
-/// Handles belong to that engine. Transfers require an allocated, in-bounds
-/// range; violating this storage invariant is a programming error.
-pub trait WasmMemoryAccess {
-    /// A handle to engine-owned memory that host functions can capture. Access to
-    /// the contents still requires the owning backend or its scoped context.
-    type Memory: Clone + Send + Sync + 'static;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]);
-}
-
-impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
-    type Memory = A::Memory;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        (**self).read_memory(memory, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        (**self).write_memory(memory, offset, bytes);
-    }
-}
-
-/// An independently owned handle for shared linear memory. Reads may overlap
-/// guest or host writes and do not provide a consistent snapshot of a range.
-/// The range must be allocated and in bounds, as with [`WasmMemoryAccess`].
-///
-/// Native handles can cross threads. Browser handles stay on their JavaScript
-/// thread; the underlying shared WebAssembly.Memory can be sent to a worker.
-pub trait WasmSharedMemory: Clone + 'static {
-    fn read(&self, offset: u32, bytes: &mut [u8]);
-    /// Transfers bytes without excluding other readers, writers or guest execution.
-    fn write(&self, offset: u32, bytes: &[u8]);
-    fn byte_len(&self) -> u64;
-}
-
 /// Scoped access to host state and live Wasm memory, during a callback or while
 /// execution is stopped. A stopped view may be held across an await; drop it
 /// before entering Wasm again. Callback views cannot outlive their callback.
@@ -107,8 +68,9 @@ pub trait WasmContext: WasmMemoryAccess {
     fn state_mut(&mut self) -> &mut Self::State;
 }
 
-/// One Wasm resource owner. Preparation futures, environment state and handles
-/// other than memory need not be `Send`. Memory is Wasm32 with
+/// One Wasm resource owner. Memory keys and callbacks implement Send + Sync on
+/// both backends; accessing a key requires its owning backend or context.
+/// Preparation futures and environment state need not be Send. Memory is Wasm32 with
 /// 64-KiB pages; tables contain nullable function references. Host callbacks are wrapped by
 /// [`HostFunction`]; callable exports retain their signature through [`ExportFunction`].
 ///
@@ -197,8 +159,8 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// The shared ABI codec converts their Wasm representations, including
     /// zero-extension of signed narrow values. Logical marker declarations retain
     /// their canonical Rust carrier values.
-    /// Callbacks implement Fn + Send + Sync; mutable or non-Send environment state
-    /// is accessed through the context. Memory handles can be captured normally.
+    /// Callbacks implement Fn + Send + Sync. Mutable or non-Send environment
+    /// state is accessed through the context. Memory keys can be captured normally.
     /// Linked modules retain callbacks for as long as they can call them.
     /// The import owns its handle without borrowing the backend.
     ///
@@ -330,6 +292,6 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     where
         Self: ExportFunction<S>,
     {
-        self.invoke_function(&function.handle, arguments)
+        function.call(self, arguments)
     }
 }

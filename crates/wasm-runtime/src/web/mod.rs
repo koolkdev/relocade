@@ -1,5 +1,6 @@
 use crate::{
-    Error, Import, ImportValue, ModuleCache, Result, WasmBackend, WasmCompiler, WasmMemoryAccess,
+    Error, Import, ImportValue, MemoryAccess, ModuleCache, Result, WasmBackend, WasmCompiler,
+    WasmMemoryAccess,
 };
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::abi;
@@ -12,10 +13,12 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 mod calls;
+mod context;
 mod host;
-mod memory;
-pub use host::Context;
-pub use memory::SharedMemory;
+pub(crate) mod memory;
+pub use context::Context;
+pub(crate) use memory::MemoryRegion;
+pub use memory::{Memory, SharedMemory};
 
 /// One guest's instances, callbacks and host state.
 pub struct Backend<T = ()> {
@@ -25,19 +28,20 @@ pub struct Backend<T = ()> {
 
 struct Store<T> {
     state: T,
-    memories: Vec<WebAssembly::Memory>,
+    memories: Vec<Rc<memory::Allocation>>,
 }
 
 impl<T> Store<T> {
-    fn memory(&self, memory: &Memory) -> &WebAssembly::Memory {
+    fn memory(&self, memory: &Memory) -> &Rc<memory::Allocation> {
         &self.memories[memory.0]
     }
-}
 
-/// A handle to memory owned by one backend. Clones identify the same JavaScript
-/// resource; access requires the originating backend or its scoped context.
-#[derive(Clone, Debug)]
-pub struct Memory(usize);
+    fn insert_memory(&mut self, allocation: Rc<memory::Allocation>) -> Memory {
+        let memory = Memory(self.memories.len());
+        self.memories.push(allocation);
+        memory
+    }
+}
 
 /// Compiled code whose JavaScript handle can be posted to another worker.
 /// Equality compares handle identity, including across clones of this value.
@@ -122,21 +126,26 @@ impl<T: 'static> WasmBackend for Backend<T> {
         }
         let memory = WebAssembly::Memory::new(&descriptor)
             .map_err(|error| js_error("create Wasm memory", error))?;
-        let mut store = self.store.borrow_mut();
-        let handle = Memory(store.memories.len());
-        store.memories.push(memory);
-        Ok(handle)
+        let allocation = Rc::new(memory::Allocation::new(memory, declaration.shared)?);
+        Ok(self.store.borrow_mut().insert_memory(allocation))
     }
 
     fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
-        SharedMemory::from_memory(self.store.borrow().memory(memory).clone())
+        let store = self.store.borrow();
+        let allocation = store.memory(memory);
+        allocation
+            .memory
+            .buffer()
+            .is_instance_of::<js_sys::SharedArrayBuffer>()
+            .then(|| SharedMemory {
+                allocation: Rc::clone(allocation),
+            })
     }
 
     fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
-        let mut store = self.store.borrow_mut();
-        let handle = Memory(store.memories.len());
-        store.memories.push(memory.memory().clone());
-        handle
+        self.store
+            .borrow_mut()
+            .insert_memory(Rc::clone(&memory.allocation))
     }
 
     fn create_table(&mut self, minimum: u32) -> Result<Self::Table> {
@@ -158,7 +167,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
 
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()> {
         let store = self.store.borrow();
-        let memory = store.memory(memory);
+        let memory = &store.memory(memory).memory;
         let pages = byte_len.div_ceil(65536);
         let current = memory::size(memory)?;
         if pages > current {
@@ -193,7 +202,9 @@ impl<T: 'static> WasmBackend for Backend<T> {
                 namespace.unchecked_into::<Object>()
             };
             let value: JsValue = match import.value() {
-                ImportValue::Memory(memory) => self.store.borrow().memory(memory).clone().into(),
+                ImportValue::Memory(memory) => {
+                    self.store.borrow().memory(memory).memory.clone().into()
+                }
                 ImportValue::Table(table) => (*table).clone().into(),
                 ImportValue::Function(function) => function.clone().into(),
             };
@@ -221,23 +232,26 @@ impl<T> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
     fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        self.store.borrow().read_memory(memory, offset, bytes);
+        self.store
+            .borrow()
+            .memory(memory)
+            .access()
+            .read(offset, bytes);
     }
 
     fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        self.store.borrow_mut().write_memory(memory, offset, bytes);
-    }
-}
-
-impl<T> WasmMemoryAccess for Store<T> {
-    type Memory = Memory;
-
-    fn read_memory(&self, memory: &Memory, offset: u32, bytes: &mut [u8]) {
-        memory::range(self.memory(memory), offset, bytes.len()).copy_to(bytes);
+        self.store
+            .borrow()
+            .memory(memory)
+            .access()
+            .write(offset, bytes);
     }
 
-    fn write_memory(&mut self, memory: &Memory, offset: u32, bytes: &[u8]) {
-        memory::write(self.memory(memory), offset, bytes);
+    fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
+        MemoryAccess::new(MemoryRegion::Stored(Ref::map(
+            self.store.borrow(),
+            |store| &store.memory(memory).transfers,
+        )))
     }
 }
 
