@@ -1,4 +1,4 @@
-use crate::{interrupt, memory, services, DosServices};
+use crate::{memory, services, DosServices};
 use relocade_machine::{real_mode_interrupt::HOOK_STUB, Hook};
 use relocade_machine::{CpuConfig, MachineConfig, MemoryView};
 use relocade_x86::{
@@ -63,8 +63,8 @@ pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
 
 pub(crate) fn hooks() -> [Hook<DosServices>; 2] {
     [
-        interrupt::hook(address(INT20_ENTRY), services::int20),
-        interrupt::hook(address(INT21_ENTRY), services::int21),
+        Hook::new(address(INT20_ENTRY), services::int20),
+        Hook::new(address(INT21_ENTRY), services::int21),
     ]
 }
 

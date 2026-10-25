@@ -319,7 +319,9 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x1005,
             18,
             4101,
-            relocade_x86::ExecutionExit::Deferred,
+            relocade_x86::ExecutionExit::HostCall {
+                address: 0x89ab_cdef,
+            },
         ),
     ] {
         let block = compile_block_from_bytes(start, bytes, limit).unwrap();

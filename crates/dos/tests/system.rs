@@ -67,7 +67,7 @@ async fn check_guest_interrupt_vector() {
 
     let mut dos = common::dos(&program).await;
     assert_eq!(
-        dos.cpu().unwrap().run(100).unwrap(),
+        pollster::block_on(dos.cpu().unwrap().run(100)),
         ExecutionExit::HostReturn
     );
     assert_eq!(dos.exit_status(), Some(Ok(0)));

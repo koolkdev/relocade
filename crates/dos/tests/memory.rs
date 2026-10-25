@@ -16,7 +16,7 @@ fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuSta
         );
     }
     assert_eq!(
-        dos.cpu().unwrap().run(10).unwrap(),
+        pollster::block_on(dos.cpu().unwrap().run(10)),
         ExecutionExit::BudgetExhausted
     );
     dos.cpu().unwrap().context().cpu().snapshot()
@@ -97,7 +97,7 @@ async fn check_memory_services() {
     assert_error(&service(&mut dos, 0x48, 1, 0), 7);
     let mut dos = common::dos(&[0xc3]).await; // RET terminates through INT 20h.
     assert_eq!(
-        dos.cpu().unwrap().run(10).unwrap(),
+        pollster::block_on(dos.cpu().unwrap().run(10)),
         ExecutionExit::HostReturn
     );
     dos.cpu()

@@ -28,12 +28,12 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
             cpu.set_cx(5);
             cpu.set_dx(0x400);
         }
-        assert_eq!(dos.cpu().unwrap().run(10).unwrap(), ExecutionExit::Deferred);
+        crate::common::assert_pending(dos.cpu().unwrap().run(10));
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().unwrap().run_async(10));
+            let mut run = pin!(dos.cpu().unwrap().run(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"\0\r").unwrap();
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
@@ -43,7 +43,7 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
             assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
+                Poll::Ready(ExecutionExit::BudgetExhausted)
             ));
         }
         let cpu = dos.cpu().unwrap().context().cpu().snapshot();
@@ -52,16 +52,16 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
         let mut bytes = [0; 5];
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes, b"\x1a\x08\0\rK");
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 1, 0x400)), 1);
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut bytes[..1])
             .unwrap();
         assert_eq!(bytes[0], b'Z');
@@ -85,8 +85,8 @@ fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
         let mut bytes = [0; 4];
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut bytes[..2])
             .unwrap();
         assert_eq!(&bytes[..2], b"R\x1a");
@@ -94,8 +94,8 @@ fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 4, 0x400)), 4);
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes, b"bc\r\n");
@@ -107,23 +107,23 @@ fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
         success(&service(&mut dos, 0x4401, 0, 0, 0xe3)); // Clear EOF.
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .write(0x1ffff, b"??")
             .unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 3, 0xffff)), 1);
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x1ffff, &mut bytes[..2])
             .unwrap();
         assert_eq!(&bytes[..2], b"X?");
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 2, 0x400)), 2);
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut bytes[..2])
             .unwrap();
         assert_eq!(&bytes[..2], b"YZ");

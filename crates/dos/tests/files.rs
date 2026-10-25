@@ -32,10 +32,7 @@ async fn check_file_program() {
         FileAccess::ReadOnly,
     )
     .unwrap();
-    assert_eq!(
-        dos.cpu().unwrap().run(100).unwrap(),
-        ExecutionExit::HostReturn
-    );
+    assert_eq!(dos.cpu().unwrap().run(100).await, ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(common::output(dos.stdout()), b"file\r\n");
 }
@@ -335,10 +332,7 @@ async fn check_save_program() {
     program.extend_from_slice(b"saved");
     let mut dos = common::dos(&program).await;
 
-    assert_eq!(
-        dos.cpu().unwrap().run(100).unwrap(),
-        ExecutionExit::HostReturn
-    );
+    assert_eq!(dos.cpu().unwrap().run(100).await, ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(dos.read_file(r"C:\save.dat").unwrap(), b"saved");
 }

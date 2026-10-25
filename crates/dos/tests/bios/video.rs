@@ -17,7 +17,7 @@ fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_eflags(0x643);
     }
     assert_eq!(
-        dos.cpu().unwrap().run(15).unwrap(),
+        pollster::block_on(dos.cpu().unwrap().run(15)),
         ExecutionExit::BudgetExhausted
     );
     let cpu = dos.cpu().unwrap().context().cpu().snapshot();

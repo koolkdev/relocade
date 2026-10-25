@@ -109,10 +109,6 @@ impl Files {
         Ok(Some(handle as u16))
     }
 
-    pub(crate) fn console_eof(&self, handle: u16) -> bool {
-        self.console(handle).eof()
-    }
-
     pub(crate) fn set_console_eof(&self, handle: u16, eof: bool) {
         self.console(handle).set_eof(eof);
     }

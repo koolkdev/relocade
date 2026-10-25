@@ -9,7 +9,6 @@ pub enum Error {
     Configuration(ConfigurationError),
     Memory(MemoryError),
     Wasm(relocade_wasm_runtime::Error),
-    CancelledHostCall,
 }
 
 impl fmt::Display for Error {
@@ -19,12 +18,6 @@ impl fmt::Display for Error {
             Self::Configuration(error) => error.fmt(f),
             Self::Memory(error) => error.fmt(f),
             Self::Wasm(error) => error.fmt(f),
-            Self::CancelledHostCall => {
-                write!(
-                    f,
-                    "host call cancelled; replace its guest continuation before resuming"
-                )
-            }
         }
     }
 }
@@ -36,7 +29,6 @@ impl std::error::Error for Error {
             Self::Configuration(error) => Some(error),
             Self::Memory(error) => Some(error),
             Self::Wasm(error) => Some(error),
-            _ => None,
         }
     }
 }

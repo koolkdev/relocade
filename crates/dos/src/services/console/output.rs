@@ -15,6 +15,20 @@ pub(super) enum CharacterOutput {
     Console(OutputStream),
 }
 
+impl CharacterOutput {
+    pub(super) fn write_cooked(
+        self,
+        call: &mut CpuContext<'_, DosServices>,
+        services: &DosServices,
+        bytes: &[u8],
+    ) {
+        let state = &mut *services.borrow_mut();
+        for &byte in bytes {
+            write_cooked_character(call, state, self, byte);
+        }
+    }
+}
+
 pub(super) fn write_console(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
