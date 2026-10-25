@@ -2,8 +2,18 @@
 
 use relocade_dos::Dos;
 
-pub async fn dos() -> Dos {
-    Dos::new().await.unwrap()
+pub async fn dos(image: &[u8]) -> Dos {
+    let mut dos = Dos::new().unwrap();
+    dos.launch_com(image, Default::default()).await.unwrap();
+    dos
+}
+
+pub fn load_error(result: Result<(), relocade_dos::LaunchError>) -> relocade_dos::LoadError {
+    match result {
+        Err(relocade_dos::LaunchError::Load(error)) => error,
+        Err(error) => panic!("unexpected launch error: {error}"),
+        Ok(_) => panic!("invalid program was accepted"),
+    }
 }
 
 pub fn output(mut stream: impl std::io::Read) -> Vec<u8> {
@@ -19,7 +29,7 @@ pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
 
 pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
-        let mut machine = dos.cpu().context();
+        let mut machine = dos.cpu().unwrap().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
@@ -27,14 +37,32 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_cx(cx);
         cpu.set_dx(dx);
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
-    dos.cpu().context().cpu().snapshot()
+    assert_eq!(
+        dos.cpu().unwrap().run(10).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    dos.cpu().unwrap().context().cpu().snapshot()
+}
+
+pub fn terminate(dos: &mut Dos) {
+    {
+        let mut machine = dos.cpu().unwrap().context();
+        let mut cpu = machine.cpu();
+        cpu.set_eip(0x100);
+        cpu.set_ax(0x4c00);
+    }
+    assert_eq!(
+        dos.cpu().unwrap().run(10).unwrap(),
+        ExecutionExit::HostReturn
+    );
+    assert_eq!(dos.exit_status(), Some(Ok(0)));
 }
 
 pub fn path_service(dos: &mut Dos, path: &[u8], ax: u16, cx: u16) -> CpuState {
     let mut terminated = path.to_vec();
     terminated.push(0);
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .write(0x10300, &terminated)

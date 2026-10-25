@@ -5,7 +5,7 @@ use relocade_x86::{CpuState, ExecutionExit, Segment, SegmentRegister};
 
 fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuState {
     {
-        let mut machine = dos.cpu().context();
+        let mut machine = dos.cpu().unwrap().context();
         let mut cpu = machine.cpu();
         cpu.set_eip(0x100);
         cpu.set_ah(function);
@@ -15,8 +15,11 @@ fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuSta
             SegmentRegister::real_mode(Segment::Es, segment),
         );
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
-    dos.cpu().context().cpu().snapshot()
+    assert_eq!(
+        dos.cpu().unwrap().run(10).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    dos.cpu().unwrap().context().cpu().snapshot()
 }
 
 fn assert_success(cpu: &CpuState) {
@@ -29,9 +32,7 @@ fn assert_error(cpu: &CpuState, code: u16) {
 }
 
 async fn check_memory_services() {
-    let mut dos = common::dos().await;
-    dos.load_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
-        .unwrap(); // INT 21h; JMP $
+    let mut dos = common::dos(common::SERVICE_PROGRAM).await;
 
     // COM and its environment initially own all conventional memory. Keep the
     // program's first 64 KiB so its initial stack remains inside the allocation.
@@ -53,6 +54,7 @@ async fn check_memory_services() {
     assert_success(&service(&mut dos, 0x4a, 0x40, 0x2001));
     let mut mcb = [0; 5];
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(0x20000, &mut mcb)
@@ -68,6 +70,7 @@ async fn check_memory_services() {
     assert_error(&cpu, 8);
     assert_eq!(cpu.registers.ebx as u16, 0x7ffd);
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(0x20000, &mut mcb)
@@ -85,11 +88,24 @@ async fn check_memory_services() {
     assert_success(&cpu); // Free blocks coalesced, including their header paragraphs.
     assert_eq!(cpu.registers.eax as u16, 0x2001);
 
-    dos.cpu().context().memory().write(0xfff0, b"!").unwrap();
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(0xfff0, b"!")
+        .unwrap();
     assert_error(&service(&mut dos, 0x48, 1, 0), 7);
-    dos.load_com(&[0xc3], Default::default()).unwrap(); // Loading resets the arena; RET terminates.
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
-    dos.cpu().context().memory().read(0xfff0, &mut mcb).unwrap();
+    let mut dos = common::dos(&[0xc3]).await; // RET terminates through INT 20h.
+    assert_eq!(
+        dos.cpu().unwrap().run(10).unwrap(),
+        ExecutionExit::HostReturn
+    );
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .read(0xfff0, &mut mcb)
+        .unwrap();
     assert_eq!(mcb, [b'Z', 0, 0, 0, 0x90]); // All root-process memory released.
 }
 

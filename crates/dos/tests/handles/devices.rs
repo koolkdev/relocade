@@ -6,10 +6,10 @@ use std::io::Write;
 #[test]
 fn device_names_open_and_create_without_creating_vfs_files() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DIR/CON.TXT", b"disk".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         for (path, info) in [
             (b"con".as_slice(), 0x80c3),
             (b"CON:", 0x80c3),
@@ -47,10 +47,11 @@ fn device_names_open_and_create_without_creating_vfs_files() {
 #[test]
 fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         let handle = success(&path_service(&mut dos, b"NUL", 0x3d02, 0));
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .write(0x10400, b"A\t\x1aZ")
@@ -58,6 +59,7 @@ fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 4, 0x400)), 0);
         let mut untouched = [0; 4];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut untouched)
@@ -105,22 +107,22 @@ fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
         // Buffered input from NUL cannot receive Enter; it must suspend without spinning.
         success(&service(&mut dos, 0x4600, 1, 0, 0));
         {
-            let mut machine = dos.cpu().context();
+            let mut machine = dos.cpu().unwrap().context();
             machine.memory().write(0x10500, &[5, 0]).unwrap();
             let mut cpu = machine.cpu();
             cpu.set_eip(0x100);
             cpu.set_ax(0x0a00);
             cpu.set_dx(0x500);
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(dos.cpu().unwrap().run(10).unwrap(), ExecutionExit::Deferred);
     });
 }
 
 #[test]
 fn console_opens_keep_eof_and_access_separate_while_duplicates_share_them() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         let console = success(&path_service(&mut dos, b"CON", 0x3d02, 0));
         let duplicate = success(&service(&mut dos, 0x4500, console, 0, 0));
         dos.stdin().write_all(b"\x1a\r").unwrap();
@@ -135,6 +137,7 @@ fn console_opens_keep_eof_and_access_separate_while_duplicates_share_them() {
         assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 4);
         let mut bytes = [0; 4];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut bytes)

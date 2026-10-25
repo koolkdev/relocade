@@ -14,7 +14,7 @@ const PRINT_TAIL: &[u8] = &[
 ];
 
 async fn check_command_tails() {
-    let mut dos = common::dos().await;
+    let mut dos = relocade_dos::Dos::new().unwrap();
     let maximum = [b'x'; 126];
     for mz in [false, true] {
         let image = if mz {
@@ -28,12 +28,13 @@ async fn check_command_tails() {
                 ..Default::default()
             };
             if mz {
-                dos.load_mz(&image, options).unwrap();
+                dos.launch_mz(&image, options).await.unwrap();
             } else {
-                dos.load_com(&image, options).unwrap();
+                dos.launch_com(&image, options).await.unwrap();
             }
             let mut bytes = [0; 128];
             dos.cpu()
+                .unwrap()
                 .context()
                 .memory()
                 .read(0x10080, &mut bytes)
@@ -41,36 +42,32 @@ async fn check_command_tails() {
             assert_eq!(bytes[0] as usize, tail.len());
             assert_eq!(&bytes[1..1 + tail.len()], tail);
             assert_eq!(bytes[1 + tail.len()], 13);
-            assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+            assert_eq!(
+                dos.cpu().unwrap().run(100).unwrap(),
+                ExecutionExit::HostReturn
+            );
             assert_eq!(dos.exit_status(), Some(Ok(0)));
             assert_eq!(common::output(dos.stdout()), tail);
         }
 
-        let cpu = dos.cpu().context().cpu().snapshot();
+        let cpu_before = dos.cpu().unwrap().context().cpu().snapshot();
+        let memory = dos.memory();
         let mut before = [0; 256];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10000, &mut before)
-            .unwrap();
+        memory.view().read(0x10000, &mut before).unwrap();
         let options = LoadOptions {
             command_tail: &[b'x'; 127],
             ..Default::default()
         };
         let result = if mz {
-            dos.load_mz(&image, options)
+            dos.launch_mz(&image, options).await
         } else {
-            dos.load_com(&image, options)
+            dos.launch_com(&image, options).await
         };
-        assert_eq!(result, Err(LoadError::CommandTailTooLong));
-        assert_eq!(dos.cpu().context().cpu().snapshot(), cpu);
+        assert_eq!(common::load_error(result), LoadError::CommandTailTooLong);
         let mut after = [0; 256];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10000, &mut after)
-            .unwrap();
+        memory.view().read(0x10000, &mut after).unwrap();
         assert_eq!(after, before);
+        assert_eq!(dos.cpu().unwrap().context().cpu().snapshot(), cpu_before);
         assert_eq!(dos.exit_status(), Some(Ok(0)));
     }
 }

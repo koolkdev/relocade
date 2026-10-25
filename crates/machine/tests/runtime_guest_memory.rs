@@ -1,5 +1,5 @@
 mod support;
-use relocade_machine::MemoryError;
+use relocade_machine::{Cpu, Memory, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -37,19 +37,16 @@ async fn check_guest_memory() {
         map,
     )
     .unwrap();
-    let mut runtime = support::create_cpu((), config).await.unwrap();
-    let shared = runtime.memory();
+    let shared = Memory::new(config.machine).unwrap();
     let reader = shared.view();
-    runtime
-        .context()
-        .memory()
-        .write_backing(0x1000, &[0x12, 0x34])
-        .unwrap();
+    shared.view().write_backing(0x1000, &[0x12, 0x34]).unwrap();
     // MOV word [0FFE],0741; JMP to the next instruction.
-    runtime
-        .context()
-        .memory()
+    shared
+        .view()
         .write(0x100, &[0xc7, 0x06, 0xfe, 0x0f, 0x41, 0x07, 0xeb, 0])
+        .unwrap();
+    let mut runtime = Cpu::with_memory(shared.clone(), config.cpu, ())
+        .await
         .unwrap();
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     runtime.context().memory().write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
@@ -72,6 +69,18 @@ async fn check_guest_memory() {
     );
     drop(runtime);
     assert_eq!(reader.read_u16(0xffe).unwrap(), 0x0741);
+
+    // A later CPU has fresh registers and dispatch over the same mapped bytes.
+    shared
+        .view()
+        .write(0x100, &[0xff, 0x06, 0xfe, 0x0f, 0xeb, 0]) // INC word [0FFE]; JMP next.
+        .unwrap();
+    let mut next = Cpu::with_memory(shared.clone(), config.cpu, ())
+        .await
+        .unwrap();
+    assert_eq!(next.context().cpu().instruction_count(), 0);
+    assert_eq!(next.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(reader.read_u16(0xffe).unwrap(), 0x0742);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

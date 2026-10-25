@@ -75,7 +75,20 @@ impl<T: 'static> Cpu<T> {
     /// Port and MMIO reads currently return all ones; their writes are ignored.
     pub async fn with_state(config: MachineConfig, cpu: CpuConfig, state: T) -> Result<Self> {
         let mut backend = Backend::with_state(RuntimeState::new(state))?;
-        let bindings = RuntimeMemory::new(&mut backend, config, cpu)?;
+        let memory = Memory::allocate(&mut backend, config)?;
+        Self::prepare(backend, memory, cpu).await
+    }
+
+    /// Creates a CPU with its own registers and dispatch over existing guest memory.
+    /// The supplied memory and its physical map are retained without clearing bytes.
+    /// Coordinate execution when another CPU uses the same memory.
+    pub async fn with_memory(memory: Memory, cpu: CpuConfig, state: T) -> Result<Self> {
+        let backend = Backend::with_state(RuntimeState::new(state))?;
+        Self::prepare(backend, memory, cpu).await
+    }
+
+    async fn prepare(mut backend: Backend<T>, memory: Memory, cpu: CpuConfig) -> Result<Self> {
+        let bindings = RuntimeMemory::new(&mut backend, memory, cpu)?;
         let host_imports = io::unconnected_imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         Ok(Self {

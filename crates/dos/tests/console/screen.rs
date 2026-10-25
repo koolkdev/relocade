@@ -5,26 +5,27 @@ use relocade_x86::ExecutionExit;
 #[test]
 fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(
-            &[
-                0xb8, 1, 5, 0xcd, 0x10, // INT 10h/AH=05h: select page 1.
-                0xb4, 2, 0xb7, 1, 0xba, 2, 1, 0xcd, 0x10, // Cursor at row 1, column 2.
-                0xb8, 0x00, 0xb9, 0x8e, 0xc0, // ES = B900 (text page 1).
-                0x26, 0xc7, 0x06, 0xa4, 0, b'X', 0x1e, // ES:[164] = yellow-on-blue X.
-                0xb4, 9, 0xba, 0x00, 3, 0xcd, 0x21, // DOS writes DS:0300's string.
-                0xb8, b'!', 0x0e, 0xcd, 0x10, // BIOS teletype follows DOS's cursor.
-                0xb8, 0, 0x4c, 0xcd, 0x21,
-            ],
-            Default::default(),
-        )
-        .unwrap();
+        let mut dos = common::dos(&[
+            0xb8, 1, 5, 0xcd, 0x10, // INT 10h/AH=05h: select page 1.
+            0xb4, 2, 0xb7, 1, 0xba, 2, 1, 0xcd, 0x10, // Cursor at row 1, column 2.
+            0xb8, 0x00, 0xb9, 0x8e, 0xc0, // ES = B900 (text page 1).
+            0x26, 0xc7, 0x06, 0xa4, 0, b'X', 0x1e, // ES:[164] = yellow-on-blue X.
+            0xb4, 9, 0xba, 0x00, 3, 0xcd, 0x21, // DOS writes DS:0300's string.
+            0xb8, b'!', 0x0e, 0xcd, 0x10, // BIOS teletype follows DOS's cursor.
+            0xb8, 0, 0x4c, 0xcd, 0x21,
+        ])
+        .await;
+
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .write(0x10300, b"DOS$")
             .unwrap();
-        assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+        assert_eq!(
+            dos.cpu().unwrap().run(100).unwrap(),
+            ExecutionExit::HostReturn
+        );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
         let screen = dos.screen();
         assert_eq!(screen.page, 1);
@@ -43,6 +44,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
         assert_eq!(common::output(dos.stdout()), b"DOS"); // BIOS output is screen-only.
         let mut page_zero = [0; 2];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0xb80a4, &mut page_zero)
@@ -61,24 +63,22 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
     };
 
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(
-            &[
-                0xb4, 9, 0xba, 0x00, 3, 0xcd, 0x21, // Print DS:0300.
-                0xb4, 1, 0xcd, 0x21, // Read and echo a character.
-                0xb8, 0, 0x4c, 0xcd, 0x21,
-            ],
-            Default::default(),
-        )
-        .unwrap();
+        let mut dos = common::dos(&[
+            0xb4, 9, 0xba, 0x00, 3, 0xcd, 0x21, // Print DS:0300.
+            0xb4, 1, 0xcd, 0x21, // Read and echo a character.
+            0xb8, 0, 0x4c, 0xcd, 0x21,
+        ])
+        .await;
+
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .write(0x10300, b"Ready$")
             .unwrap();
-        let memory = dos.cpu().memory();
+        let memory = dos.cpu().unwrap().memory();
         let mut input = dos.stdin();
-        let mut run = pin!(dos.cpu().run_async(100));
+        let mut run = pin!(dos.cpu().unwrap().run_async(100));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(run.as_mut().poll(&mut cx).is_pending());
         let thread_memory = memory.clone();
@@ -108,12 +108,13 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
 #[test]
 fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         let file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
         success(&service(&mut dos, 0x4600, file, 1, 0));
         let blank = dos.screen();
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .write(0x10300, b"File$")
@@ -126,6 +127,7 @@ fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
 
         let console = success(&path_service(&mut dos, b"CON", 0x3d02, 0));
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .write(0x10300, b"E\r\nC")
@@ -141,6 +143,7 @@ fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
         // Raw AH=40h keeps control bytes that a cooked handle would stop at.
         success(&service(&mut dos, 0x4401, console, 0, 0x23));
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .write(0x10300, b"\x1aR")

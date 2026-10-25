@@ -9,9 +9,9 @@ use relocade_wasm_runtime::{
 use relocade_x86::{abi, ExecutionContext};
 use std::mem::offset_of;
 
-/// The runtime's initialized Wasm memories. This owner allocates backend memory
-/// from the machine configuration and supplies module bindings. The CPU owns
-/// these resources and lends access while the guest is stopped.
+/// The runtime's Wasm memory bindings. This owner allocates private CPU and mapping
+/// storage and imports the supplied guest backing without clearing it. The CPU
+/// lends access to these bindings while the guest is stopped.
 pub(super) struct RuntimeMemory {
     pub(crate) config: CpuConfig,
     pub(crate) machine_config: MachineConfig,
@@ -24,9 +24,10 @@ pub(super) struct RuntimeMemory {
 impl RuntimeMemory {
     pub fn new<T: 'static>(
         backend: &mut super::Backend<T>,
-        machine_config: MachineConfig,
+        memory: crate::Memory,
         config: CpuConfig,
     ) -> Result<Self> {
+        let machine_config = memory.configuration().clone();
         machine_config.validate_for(config.execution_target().profile)?;
         let context = backend.create_memory(MemoryDeclaration {
             maximum: Some(1),
@@ -41,11 +42,8 @@ impl RuntimeMemory {
             }
             .to_bytes(),
         );
-        let guest_pages = machine_config.memory_size().div_ceil(65536).max(1) as u32;
-        let guest = backend.create_memory(MemoryDeclaration {
-            minimum: guest_pages,
-            ..abi::GUEST
-        })?;
+        let shared_guest = memory.backing().clone();
+        let guest = backend.import_shared_memory(&shared_guest);
         let mapping_bytes = machine_config.memory_map().to_bytes();
         let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
         let mapping = backend.create_memory(MemoryDeclaration {
@@ -54,9 +52,6 @@ impl RuntimeMemory {
             ..abi::PHYSICAL_MAP
         })?;
         backend.memory(&mapping).write(0, &mapping_bytes);
-        let shared_guest = backend
-            .shared_memory(&guest)
-            .expect("guest backing is shared");
         Ok(Self {
             config,
             machine_config,

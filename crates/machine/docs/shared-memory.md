@@ -4,6 +4,12 @@ Guest backing is a shared Wasm memory on both backends. The CPU execution contex
 Wasm physical-map table and dispatch bookkeeping stay private to the runtime. Compiled
 instructions still use ordinary Wasm loads and stores.
 
+Memory can also be created before any CPU. `Memory::new(config)` allocates zeroed
+guest backing with its physical map. `Cpu::with_memory(memory.clone(), cpu_config,
+state).await` creates private CPU registers and dispatch over those existing bytes.
+Dropping that CPU leaves the memory available for a later CPU, without clearing or
+copying it. Callers coordinate execution if multiple CPUs share the allocation.
+
 Borrow memory before starting execution:
 
 ```rust

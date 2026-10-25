@@ -4,8 +4,9 @@ use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::{Dos, FileAccess};
 
 fn current_directory(dos: &mut Dos, drive: u16) -> Vec<u8> {
-    dos.cpu().context().cpu().set_si(0x400);
+    dos.cpu().unwrap().context().cpu().set_si(0x400);
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .write(0x10400, &[0xff; 64])
@@ -13,6 +14,7 @@ fn current_directory(dos: &mut Dos, drive: u16) -> Vec<u8> {
     assert_eq!(success(&service(dos, 0x4700, 0, 0, drive)), 0x0100);
     let mut buffer = [0; 64];
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(0x10400, &mut buffer)
@@ -23,7 +25,7 @@ fn current_directory(dos: &mut Dos, drive: u16) -> Vec<u8> {
 }
 
 async fn check_directory_paths() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     for (path, data) in [
         ("DATA/NESTED/X.DAT", b"nested".as_slice()),
         ("X.DAT", b"root"),
@@ -31,7 +33,7 @@ async fn check_directory_paths() {
         dos.mount_file(path, data.to_vec(), FileAccess::ReadOnly)
             .unwrap();
     }
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     assert_eq!(current_directory(&mut dos, 0), b"");
     success(&path_service(&mut dos, b"c:\\data/nested", 0x3b00, 0));
     assert_eq!(current_directory(&mut dos, 3), b"DATA\\NESTED");
@@ -49,6 +51,7 @@ async fn check_directory_paths() {
         );
         let mut bytes = vec![0; expected.len()];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut bytes)
@@ -69,9 +72,6 @@ async fn check_directory_paths() {
         error(&path_service(&mut dos, path, 0x3b00, 0), 3);
     }
     assert_eq!(current_directory(&mut dos, 0), b"DATA\\NESTED");
-    // Current directories belong to the DOS environment, not to an open program.
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    assert_eq!(current_directory(&mut dos, 0), b"DATA\\NESTED");
     success(&path_service(&mut dos, b"..", 0x3b00, 0));
     assert_eq!(current_directory(&mut dos, 0), b"DATA");
     success(&path_service(&mut dos, b".\\", 0x3b00, 0));
@@ -82,8 +82,8 @@ async fn check_directory_paths() {
 }
 
 async fn check_drive_services() {
-    let mut dos = common::dos().await;
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
+
     // Drive selection/query preserve CF. AH=47h reports absent drives through CF/AX.
     error(&service(&mut dos, 0x4700, 0, 0, 4), 15);
     let cpu = service(&mut dos, 0x1900, 0, 0, 0);
@@ -110,10 +110,10 @@ async fn check_drive_services() {
 }
 
 async fn check_directory_changes() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     dos.mount_file("FILE.DAT", b"keep".to_vec(), FileAccess::ReadWrite)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     error(&path_service(&mut dos, b"MISSING/CHILD", 0x3900, 0), 3);
     error(&path_service(&mut dos, b"MISSING", 0x4300, 0), 2);
     success(&path_service(&mut dos, b"save", 0x3900, 0));
@@ -140,7 +140,7 @@ async fn check_directory_changes() {
     assert_eq!(dos.read_file("FILE.DAT").unwrap(), b"keep");
 
     success(&path_service(&mut dos, b"C:SAVE", 0x3b00, 0));
-    dos.cpu().context().cpu().set_eflags(0x0a57);
+    dos.cpu().unwrap().context().cpu().set_eflags(0x0a57);
     let cpu = path_service(&mut dos, b"SLOT", 0x3900, 0);
     success(&cpu);
     assert_eq!(cpu.flags.eflags(), 0x0a56);
@@ -163,7 +163,6 @@ async fn check_directory_changes() {
     success(&path_service(&mut dos, b"TEMP", 0x4301, 0x02));
     success(&path_service(&mut dos, b"TEMP", 0x3a00, 0));
     success(&path_service(&mut dos, b"TEMP", 0x3900, 0));
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(current_directory(&mut dos, 0), b"SAVE");
     let cpu = path_service(&mut dos, b"TEMP", 0x4300, 0);
     success(&cpu);

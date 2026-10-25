@@ -1,5 +1,45 @@
 use std::fmt;
 
+/// A process could not start in the DOS environment.
+#[derive(Debug)]
+pub enum LaunchError {
+    ProcessActive,
+    Load(LoadError),
+    Machine(relocade_machine::Error),
+}
+
+impl fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ProcessActive => f.write_str("the current DOS process has not terminated"),
+            Self::Load(error) => error.fmt(f),
+            Self::Machine(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for LaunchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ProcessActive => None,
+            Self::Load(error) => Some(error),
+            Self::Machine(error) => Some(error),
+        }
+    }
+}
+
+impl From<LoadError> for LaunchError {
+    fn from(error: LoadError) -> Self {
+        Self::Load(error)
+    }
+}
+
+impl From<relocade_machine::Error> for LaunchError {
+    fn from(error: relocade_machine::Error) -> Self {
+        Self::Machine(error)
+    }
+}
+
 /// Error numbers returned to the guest in AX with carry set.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DosError {

@@ -10,18 +10,19 @@ use std::{
 #[test]
 fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file(
             "IN.TXT",
             b"F\x1a\r\n".to_vec(),
             relocade_dos::FileAccess::ReadOnly,
         )
         .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         let output_file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
         success(&service(&mut dos, 0x4600, output_file, 1, 0));
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .write(0x10400, b"untouched")
@@ -30,13 +31,14 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 0, 0x400)), 0);
         let mut unchanged = [0; 9];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut unchanged)
             .unwrap();
         assert_eq!(&unchanged, b"untouched");
         {
-            let mut machine = dos.cpu().context();
+            let mut machine = dos.cpu().unwrap().context();
             let mut cpu = machine.cpu();
             cpu.set_eip(0x100);
             cpu.set_ax(0x3f00);
@@ -48,7 +50,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         {
-            let mut run = pin!(dos.cpu().run_async(20));
+            let mut run = pin!(dos.cpu().unwrap().run_async(20));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"ab\x08C").unwrap();
@@ -61,7 +63,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             ));
         }
         {
-            let mut machine = dos.cpu().context();
+            let mut machine = dos.cpu().unwrap().context();
             machine.memory().read(0x10400, &mut unchanged).unwrap();
             assert_eq!(&unchanged, b"aCtouched");
             let cpu = machine.cpu();
@@ -85,6 +87,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         let mut byte = [0];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut byte)
@@ -97,6 +100,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 4, 0x400)), 4);
         let mut file_bytes = [0; 4];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut file_bytes)
@@ -105,6 +109,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 4, 0x400)), 0);
         assert_eq!(success(&service(&mut dos, 0x3f00, console, 8, 0x400)), 1);
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut byte)
@@ -117,6 +122,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             assert_eq!(success(&service(&mut dos, 0x3f00, console, 100, 0x400)), 5);
             let mut bytes = [0; 5];
             dos.cpu()
+                .unwrap()
                 .context()
                 .memory()
                 .read(0x10400, &mut bytes)
@@ -130,13 +136,14 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
 #[test]
 fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         dos.stdin().write_all(&[b'a'; 127]).unwrap();
         dos.stdin().write_all(b"X\r").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 500, 0x400)), 129);
         let mut bytes = [0; 129];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut bytes)
@@ -151,6 +158,7 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 0);
         let mut unchanged = [0; 129];
         dos.cpu()
+            .unwrap()
             .context()
             .memory()
             .read(0x10400, &mut unchanged)
@@ -163,8 +171,8 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
 #[test]
 fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         let file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
 
@@ -182,12 +190,12 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
                 service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
                 0x0752
             );
-            assert!(dos.load_com(&[], Default::default()).is_err());
             assert_eq!(success(&service(&mut dos, 0x3f00, console, 10, 0x400)), 0);
 
             // Character output through an alias leaves EOF set, unlike AH=40h.
             success(&service(&mut dos, 0x4600, console, 1, 0));
             dos.cpu()
+                .unwrap()
                 .context()
                 .memory()
                 .write(0x10420, b"message$")
@@ -197,7 +205,12 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             assert_eq!(common::output(dos.stdout()), b"message!");
             assert_eq!(success(&service(&mut dos, 0x3f00, console, 10, 0x400)), 0);
 
-            dos.cpu().context().memory().write(0x10400, b"!").unwrap();
+            dos.cpu()
+                .unwrap()
+                .context()
+                .memory()
+                .write(0x10400, b"!")
+                .unwrap();
             assert_eq!(success(&service(&mut dos, 0x4000, file, 1, 0x400)), 1);
             assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 0);
             // Closing/replacing a handle slot does not reset the shared open record.
@@ -222,6 +235,7 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 6);
             let mut bytes = [0; 6];
             dos.cpu()
+                .unwrap()
                 .context()
                 .memory()
                 .read(0x10400, &mut bytes)
@@ -230,44 +244,5 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             assert_eq!(common::output(dos.stdout()), b"next\r\n");
             success(&service(&mut dos, 0x3e00, duplicate, 0, 0));
         }
-
-        dos.stdin().write_all(b"\x1a\r").unwrap();
-        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 0);
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        assert_eq!(success(&service(&mut dos, 0x4400, 0, 0, 0)), 0x80c3);
-        dos.stdin().write_all(b"new\r").unwrap();
-        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 5);
-        assert_eq!(common::output(dos.stdout()), b"new\r\n");
-    });
-}
-
-#[test]
-fn program_reload_clears_the_console_line_remainder() {
-    pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        let mut input = dos.stdin();
-        input.write_all(b"old\r").unwrap();
-        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
-        assert!(dos.load_com(&[], Default::default()).is_err());
-        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
-        let mut byte = [0];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10400, &mut byte)
-            .unwrap();
-        assert_eq!(byte, [b'l']); // Failed loads preserve the current program.
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        input.write_all(b"new\r").unwrap();
-        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 20, 0x400)), 5);
-        let mut bytes = [0; 5];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10400, &mut bytes)
-            .unwrap();
-        assert_eq!(&bytes, b"new\r\n");
-        assert_eq!(common::output(dos.stdout()), b"new\r\n");
     });
 }

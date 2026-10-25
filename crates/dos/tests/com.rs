@@ -14,10 +14,9 @@ const HELLO: &[u8] = &[
 ];
 
 async fn check_hello() {
-    let mut dos = common::dos().await;
-    dos.load_com(HELLO, Default::default()).unwrap();
+    let mut dos = common::dos(HELLO).await;
     {
-        let mut machine = dos.cpu().context();
+        let mut machine = dos.cpu().unwrap().context();
         for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
             assert_eq!(machine.cpu().segment(segment).selector, 0x1000);
         }
@@ -32,14 +31,23 @@ async fn check_hello() {
         assert_eq!(word, [0, 0]);
     }
     assert_eq!(dos.exit_status(), None);
-    assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        dos.cpu().unwrap().run(1).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     assert!(common::output(dos.stdout()).is_empty()); // INT completed, before entering the hook.
-    assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        dos.cpu().unwrap().run(1).unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
     assert_eq!(common::output(dos.stdout()), b"Hello, DOS!\r\n");
-    assert_eq!(dos.cpu().context().cpu().al(), b'$');
-    assert_eq!(dos.cpu().context().cpu().sp(), 0xfffe);
-    assert_eq!(dos.cpu().context().cpu().eip(), 0x107);
-    assert_eq!(dos.cpu().run(u64::MAX).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(dos.cpu().unwrap().context().cpu().al(), b'$');
+    assert_eq!(dos.cpu().unwrap().context().cpu().sp(), 0xfffe);
+    assert_eq!(dos.cpu().unwrap().context().cpu().eip(), 0x107);
+    assert_eq!(
+        dos.cpu().unwrap().run(u64::MAX).unwrap(),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(dos.exit_status(), Some(Ok(7)));
     assert!(common::output(dos.stdout()).is_empty());
 }
@@ -48,47 +56,38 @@ async fn check_com_bounds_and_return() {
     let mut image = vec![0x90; 0xfefe];
     image[0] = 0xc3; // RET pops the initial zero word and reaches PSP's INT 20h.
     image[0xfefd] = 0x41;
-    let mut dos = common::dos().await;
-    dos.load_com(&image, Default::default()).unwrap();
+    let mut dos = common::dos(&image).await;
     let mut end = [0; 3];
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(0x1fffd, &mut end)
         .unwrap();
     assert_eq!(end, [0x41, 0, 0]);
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
-    assert_eq!(dos.cpu().context().cpu().instruction_count(), 2);
     assert_eq!(
-        dos.load_com(&[], Default::default()),
-        Err(LoadError::EmptyImage)
+        dos.cpu().unwrap().run(10).unwrap(),
+        ExecutionExit::HostReturn
+    );
+    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(dos.cpu().unwrap().context().cpu().instruction_count(), 2);
+    assert_eq!(
+        common::load_error(dos.launch_com(&[], Default::default()).await),
+        LoadError::EmptyImage
     );
     image.push(0x90);
     assert_eq!(
-        dos.load_com(&image, Default::default()),
-        Err(LoadError::ImageTooLarge)
+        common::load_error(dos.launch_com(&image, Default::default()).await),
+        LoadError::ImageTooLarge
     );
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
-
-    // Another program reuses the prepared environment and replaces its allocation.
-    dos.load_com(&[0xc3], Default::default()).unwrap();
-    assert_eq!(dos.exit_status(), None);
-    dos.cpu()
-        .context()
-        .memory()
-        .read(0x1fffd, &mut end)
-        .unwrap();
-    assert_eq!(end, [0, 0, 0]);
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
 }
 
 async fn check_unsupported_service() {
-    let mut dos = common::dos().await;
-    dos.load_com(&[0xb4, 0xfe, 0xcd, 0x21], Default::default())
-        .unwrap();
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    let mut dos = common::dos(&[0xb4, 0xfe, 0xcd, 0x21]).await;
+    assert_eq!(
+        dos.cpu().unwrap().run(10).unwrap(),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(
         dos.exit_status(),
         Some(Err(ServiceError::UnsupportedFunction(0xfe)))
@@ -117,11 +116,23 @@ async fn check_unterminated_string() {
         0xba, 0xff, 0xff, // MOV DX,FFFF
         0xb4, 9, 0xcd, 0x21, // Print DS:DX
     ];
-    let mut dos = common::dos().await;
-    dos.load_com(&image, Default::default()).unwrap();
-    dos.cpu().context().memory().write(0x3ffff, b"Z").unwrap();
-    dos.cpu().context().memory().write(0x30000, b"A").unwrap();
-    assert_eq!(dos.cpu().run(u64::MAX).unwrap(), ExecutionExit::HostReturn);
+    let mut dos = common::dos(&image).await;
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(0x3ffff, b"Z")
+        .unwrap();
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(0x30000, b"A")
+        .unwrap();
+    assert_eq!(
+        dos.cpu().unwrap().run(u64::MAX).unwrap(),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(
         dos.exit_status(),
         Some(Err(ServiceError::UnterminatedString))

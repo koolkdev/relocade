@@ -7,6 +7,7 @@ use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 fn dta(dos: &mut Dos, address: u32) -> [u8; 43] {
     let mut data = [0; 43];
     dos.cpu()
+        .unwrap()
         .context()
         .memory()
         .read(address, &mut data)
@@ -32,7 +33,7 @@ fn names(dos: &mut Dos, pattern: &[u8], attributes: u16) -> Vec<String> {
 }
 
 async fn check_searches() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     for name in [
         "DATA/A.DAT",
         "DATA/AB.DAT",
@@ -47,7 +48,7 @@ async fn check_searches() {
     }
     dos.mount_file("BOUNDARY/ABCDEFGH.DAT", vec![], FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     let cpu = service(&mut dos, 0x2f00, 0, 0, 0);
     assert_eq!(cpu.segments[Segment::Es].selector, 0x1000);
     assert_eq!(cpu.registers.ebx as u16, 0x80);
@@ -86,8 +87,14 @@ async fn check_searches() {
     // An intervening search and chdir do not affect a saved DTA's continuation.
     assert_eq!(names(&mut dos, b"*.TXT", 0), ["B.TXT"]);
     success(&path_service(&mut dos, b"\\", 0x3b00, 0));
-    dos.cpu().context().memory().write(0x10600, &saved).unwrap();
     dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(0x10600, &saved)
+        .unwrap();
+    dos.cpu()
+        .unwrap()
         .context()
         .cpu()
         .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1010));
@@ -102,20 +109,21 @@ async fn check_searches() {
     error(&service(&mut dos, 0x4f00, 0, 0, 0), 18);
     error(&service(&mut dos, 0x4f00, 0, 0, 0), 18);
     // Restore the same continuation to replay it independently.
-    dos.cpu().context().memory().write(0x10600, &saved).unwrap();
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(0x10600, &saved)
+        .unwrap();
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
     assert_eq!(found_name(&dta(&mut dos, 0x10600)), "AB.DAT");
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    let cpu = service(&mut dos, 0x2f00, 0, 0, 0);
-    assert_eq!(cpu.segments[Segment::Es].selector, 0x1000);
-    assert_eq!(cpu.registers.ebx as u16, 0x80);
 }
 
 async fn check_attributes() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     dos.mount_file("NORMAL.DAT", b"abc".to_vec(), FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     for (name, attributes) in [
         (b"HIDDEN.DAT".as_slice(), 2),
         (b"SYSTEM.DAT", 4),
@@ -144,11 +152,11 @@ async fn check_attributes() {
 }
 
 async fn check_search_deletion() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     for name in ["DATA/A.DAT", "DATA/B.DAT", "DATA/C.DAT"] {
         dos.mount_file(name, vec![], FileAccess::ReadWrite).unwrap();
     }
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
     success(&path_service(&mut dos, b"*.DAT", 0x4e00, 0));
     let saved = dta(&mut dos, 0x10080);
@@ -158,7 +166,12 @@ async fn check_search_deletion() {
     assert_eq!(found_name(&dta(&mut dos, 0x10080)), "B.DAT");
 
     // A copied DTA resumes at the same name even after an earlier entry is gone.
-    dos.cpu().context().memory().write(0x10600, &saved).unwrap();
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(0x10600, &saved)
+        .unwrap();
     service(&mut dos, 0x1a00, 0, 0, 0x600);
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
     assert_eq!(found_name(&dta(&mut dos, 0x10600)), "B.DAT");
@@ -178,7 +191,12 @@ async fn check_search_deletion() {
     found.sort();
     assert_eq!(found, ["0.DAT", "B.DAT"]);
     // Restoring the old search also skips the deleted C entry.
-    dos.cpu().context().memory().write(0x10080, &saved).unwrap();
+    dos.cpu()
+        .unwrap()
+        .context()
+        .memory()
+        .write(0x10080, &saved)
+        .unwrap();
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
     assert_eq!(found_name(&dta(&mut dos, 0x10080)), "B.DAT");
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
@@ -187,16 +205,6 @@ async fn check_search_deletion() {
 }
 
 async fn check_discovery_program() {
-    let mut dos = common::dos().await;
-    for (name, contents) in [
-        ("DATA/A.DAT", b"first\n".as_slice()),
-        ("DATA/B.DAT", b"second\n"),
-        ("DATA/OTHER.TXT", b"wrong extension"),
-        ("DATA/SUB/C.DAT", b"wrong directory"),
-    ] {
-        dos.mount_file(name, contents.to_vec(), FileAccess::ReadOnly)
-            .unwrap();
-    }
     let mut program = vec![
         0xba, 0x80, 0x01, // MOV DX,0180: directory
         0xb4, 0x3b, 0xcd, 0x21, // Change directory.
@@ -229,8 +237,21 @@ async fn check_discovery_program() {
     program.extend_from_slice(b"DATA\0");
     program.resize(0x90, 0);
     program.extend_from_slice(b"*.DAT\0");
-    dos.load_com(&program, Default::default()).unwrap();
-    assert_eq!(dos.cpu().run(500).unwrap(), ExecutionExit::HostReturn);
+
+    let mut dos = common::dos(&program).await;
+    for (name, contents) in [
+        ("DATA/A.DAT", b"first\n".as_slice()),
+        ("DATA/B.DAT", b"second\n"),
+        ("DATA/OTHER.TXT", b"wrong extension"),
+        ("DATA/SUB/C.DAT", b"wrong directory"),
+    ] {
+        dos.mount_file(name, contents.to_vec(), FileAccess::ReadOnly)
+            .unwrap();
+    }
+    assert_eq!(
+        dos.cpu().unwrap().run(500).unwrap(),
+        ExecutionExit::HostReturn
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(common::output(dos.stdout()), b"first\nsecond\n");
 }
