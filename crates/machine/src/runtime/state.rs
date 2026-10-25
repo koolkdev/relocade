@@ -1,5 +1,9 @@
-use super::callback::DeferredCall;
-use std::ops::{Deref, DerefMut};
+use super::{callback::DeferredCall, hooks::Handler};
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 /// Backend-owned state for one runtime, including a queued async host handler.
 /// Pass this to the backend's `with_state` constructor. Cpu and host-call
@@ -8,6 +12,7 @@ use std::ops::{Deref, DerefMut};
 pub struct RuntimeState<T = ()> {
     /// Environment data lent by `Cpu::state` and `HostCall::state`.
     pub data: T,
+    pub(crate) hooks: HashMap<u32, Rc<Handler<T>>>,
     pub(crate) pending: Option<Box<dyn DeferredCall<T>>>,
 }
 
@@ -15,6 +20,7 @@ impl<T> RuntimeState<T> {
     pub fn new(data: T) -> Self {
         Self {
             data,
+            hooks: HashMap::new(),
             pending: None,
         }
     }

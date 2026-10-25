@@ -1,6 +1,6 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
 use relocade_bios::{TextCell, TextScreen};
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 
 #[test]
 fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
@@ -24,7 +24,10 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             .memory()
             .write(0x10300, b"DOS$")
             .unwrap();
-        assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+        assert_eq!(
+            dos.cpu().run(100).unwrap(),
+            ExecutionExit::Host(HostExit::Return)
+        );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
         let screen = dos.screen();
         assert_eq!(screen.page, 1);
@@ -97,7 +100,7 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
         input.write_all(b"X").unwrap();
         assert!(matches!(
             run.as_mut().poll(&mut cx),
-            Poll::Ready(Ok(ExecutionExit::HostReturn))
+            Poll::Ready(Ok(ExecutionExit::Host(HostExit::Return)))
         ));
         let screen = TextScreen::read(&memory.view());
         assert_eq!(screen.cells[5].character, b'X');

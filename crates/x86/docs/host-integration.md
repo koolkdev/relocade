@@ -1038,13 +1038,15 @@ is not read. This models observed partial progress; Intel documents incomplete
 register restoration on POPAD faults without specifying every CPU's exact pattern.
 
 All execution entries use `abi::ExecutionSignature`, or `fn() -> ExecutionExit`.
-`ExecutionExit` and its nested `Exception` derive the compiler's shared ABI. The
-runtime binds this signature and returns the ordinary Rust enum directly:
+`ExecutionExit` and its nested `HostExit` and `Exception` types derive the
+compiler's shared ABI. The runtime binds this signature and returns the ordinary
+Rust enum directly:
 
 ```rust
-# use relocade_x86::{ExecutionExit, Exception};
+# use relocade_x86::{ExecutionExit, Exception, HostExit};
 # fn observe(exit: ExecutionExit) {
 match exit {
+    ExecutionExit::Host(HostExit::Return) => { /* Inspect the embedding's result. */ }
     ExecutionExit::Exception(Exception::PageFault { linear_address, error_code }) => {
         // Inspect the denied byte and the full architectural error code.
         let _ = (linear_address, error_code);
@@ -1061,12 +1063,22 @@ These entries currently return four Wasm `i32` values. Embeddings should bind
 host agree on the layout; enum tags are independent of architectural vector numbers.
 There is no manually packed exit word or restriction to a 16-bit error code.
 
-`HostReturn` requests a return to the embedding. `Deferred` requests the queued
-host operation, which the runtime awaits after the guest call returns. Hook
-continuation is a separate `HookResult::Continue` variant; `HookResult::Exit`
-carries the complete execution outcome. Synchronous and deferred hook handlers
-return this same type. Dispatch and interpreter callbacks use the same typed
-execution contract as generated entries.
+Host control flow is grouped under `ExecutionExit::Host(HostExit)`. Generated
+host entries return `ExecutionExit::Host(HostExit::Call { address })` with the
+handler's guest linear address and CPU state already published. The CPU owns the
+handler registry and consumes this exit internally: Wasm returns before Rust
+invokes the handler. Entries have no service callback import. Reentering
+dispatch after a hook retains the original instruction target; hooks do not
+retire guest instructions. An address without a registered handler is a
+programming error.
+
+`HostExit::Return` requests a return to the embedding. `HostExit::Deferred`
+requests the queued host operation, which the runtime awaits after the guest
+call returns. Hook continuation is a separate `HookResult::Continue` variant;
+`HookResult::Exit` carries an execution outcome. Synchronous and deferred
+handlers use this same Rust-only type. They must not return `HostExit::Call`,
+which is reserved for generated entries. Handler captures may be local to the
+CPU's thread and need not be `Send` or `Sync`.
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

@@ -15,7 +15,7 @@
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
 //! eight-column stops. An empty input source returns
-//! [`relocade_x86::ExecutionExit::Deferred`] from a synchronous run. Use
+//! `ExecutionExit::Host(HostExit::Deferred)` from a synchronous run. Use
 //! [`Cpu::run_async`] to await input and complete the pending read.
 //! AH=0Bh and IOCTL AX=4406h query input without consuming it; AX=4407h reports
 //! output readiness. Console status describes queued keys, not a buffered line.
@@ -82,7 +82,7 @@
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
 //! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
-//! assert_eq!(dos.cpu().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
+//! assert_eq!(dos.cpu().run(u64::MAX)?, relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return));
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
 //! let mut output = Vec::new();
 //! dos.stdout().read_to_end(&mut output)?;

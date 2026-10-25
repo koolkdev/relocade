@@ -2,7 +2,7 @@ mod common;
 
 use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosServices, FileAccess, MountError};
-use relocade_x86::{CpuState, ExecutionExit};
+use relocade_x86::{CpuState, ExecutionExit, HostExit};
 
 async fn check_file_program() {
     let mut dos = common::dos().await;
@@ -35,7 +35,10 @@ async fn check_file_program() {
     // Program replacement keeps mounts and resets the program's file handles.
     for _ in 0..2 {
         dos.load_com(&program, Default::default()).unwrap();
-        assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+        assert_eq!(
+            dos.cpu().run(100).unwrap(),
+            ExecutionExit::Host(HostExit::Return)
+        );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
         assert_eq!(common::output(dos.stdout()), b"file\r\n");
     }
@@ -254,7 +257,10 @@ async fn check_writes() {
 
     dos.load_com(&[0xb8, 0, 0x4c, 0xcd, 0x21], Default::default())
         .unwrap();
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYc\0\0\0");
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
     error(&write(&mut dos, 5, b"!"), 6); // Prior program's handles have closed.
@@ -332,7 +338,10 @@ async fn check_save_program() {
     program.resize(0x50, 0);
     program.extend_from_slice(b"saved");
     dos.load_com(&program, Default::default()).unwrap();
-    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(100).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(dos.read_file(r"C:\save.dat").unwrap(), b"saved");
 }

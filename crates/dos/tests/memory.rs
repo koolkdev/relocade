@@ -2,7 +2,7 @@ mod common;
 
 use common::Backend;
 use relocade_dos::{Dos, DosServices};
-use relocade_x86::{CpuState, ExecutionExit, Segment, SegmentRegister};
+use relocade_x86::{CpuState, ExecutionExit, HostExit, Segment, SegmentRegister};
 
 fn service(
     dos: &mut Dos<Backend<DosServices>>,
@@ -94,7 +94,10 @@ async fn check_memory_services() {
     dos.cpu().context().memory().write(0xfff0, b"!").unwrap();
     assert_error(&service(&mut dos, 0x48, 1, 0), 7);
     dos.load_com(&[0xc3], Default::default()).unwrap(); // Loading resets the arena; RET terminates.
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     dos.cpu().context().memory().read(0xfff0, &mut mcb).unwrap();
     assert_eq!(mcb, [b'Z', 0, 0, 0, 0x90]); // All root-process memory released.
 }

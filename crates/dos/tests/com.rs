@@ -1,5 +1,5 @@
 use relocade_dos::{LoadError, ServiceError};
-use relocade_x86::{ExecutionExit, Segment};
+use relocade_x86::{ExecutionExit, HostExit, Segment};
 
 mod common;
 
@@ -39,7 +39,10 @@ async fn check_hello() {
     assert_eq!(dos.cpu().context().cpu().al(), b'$');
     assert_eq!(dos.cpu().context().cpu().sp(), 0xfffe);
     assert_eq!(dos.cpu().context().cpu().eip(), 0x107);
-    assert_eq!(dos.cpu().run(u64::MAX).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(u64::MAX).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(dos.exit_status(), Some(Ok(7)));
     assert!(common::output(dos.stdout()).is_empty());
 }
@@ -57,7 +60,10 @@ async fn check_com_bounds_and_return() {
         .read(0x1fffd, &mut end)
         .unwrap();
     assert_eq!(end, [0x41, 0, 0]);
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     assert_eq!(dos.cpu().context().cpu().instruction_count(), 2);
     assert_eq!(
@@ -80,7 +86,10 @@ async fn check_com_bounds_and_return() {
         .read(0x1fffd, &mut end)
         .unwrap();
     assert_eq!(end, [0, 0, 0]);
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
 }
 
@@ -88,7 +97,10 @@ async fn check_unsupported_service() {
     let mut dos = common::dos().await;
     dos.load_com(&[0xb4, 0xfe, 0xcd, 0x21], Default::default())
         .unwrap();
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(
         dos.exit_status(),
         Some(Err(ServiceError::UnsupportedFunction(0xfe)))
@@ -121,7 +133,10 @@ async fn check_unterminated_string() {
     dos.load_com(&image, Default::default()).unwrap();
     dos.cpu().context().memory().write(0x3ffff, b"Z").unwrap();
     dos.cpu().context().memory().write(0x30000, b"A").unwrap();
-    assert_eq!(dos.cpu().run(u64::MAX).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(u64::MAX).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(
         dos.exit_status(),
         Some(Err(ServiceError::UnterminatedString))

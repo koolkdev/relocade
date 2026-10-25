@@ -1,9 +1,10 @@
 mod support;
 
-use relocade_machine::{real_mode_interrupt, Hook, HookResult, RuntimeState};
+use relocade_compiler::Program;
+use relocade_machine::{real_mode_interrupt, DispatchEntry, Hook, HookResult, RuntimeState};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segment, Segments,
+    abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
+    PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -25,7 +26,7 @@ async fn check_interrupt_hooks() {
             .unwrap(),
     )
     .unwrap();
-    // Non-Send state belongs to the backend, while hooks may capture immutable metadata.
+    // Both environment state and handler captures may be local to this thread.
     let calls = Rc::new(Cell::new(0));
     let backend = Backend::with_state(RuntimeState::new(calls)).unwrap();
     let mut runtime = support::create_cpu(backend, config).await.unwrap();
@@ -56,11 +57,11 @@ async fn check_interrupt_hooks() {
         .memory()
         .write(0x10020, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
-    let increment = 1;
+    let increment = Rc::new(Cell::new(1));
     runtime
         .install_hooks([
             Hook::<Rc<Cell<u32>>>::new(0x10020, move |call| {
-                call.state().set(call.state().get() + increment);
+                call.state().set(call.state().get() + increment.get());
                 assert_eq!(call.cpu().segment(Segment::Cs).selector, 0x1000);
                 assert_eq!(call.cpu().eip(), 0x20);
                 assert_eq!(call.cpu().sp(), 0xfefa);
@@ -77,7 +78,9 @@ async fn check_interrupt_hooks() {
                 real_mode_interrupt::set_carry(call, false);
                 real_mode_interrupt::return_from_interrupt(call)
             }),
-            Hook::new(0x400, |_| HookResult::Exit(ExecutionExit::HostReturn)),
+            Hook::new(0x400, |_| {
+                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+            }),
             Hook::new(0x401, |_| {
                 HookResult::Exit(ExecutionExit::Exception(
                     relocade_x86::Exception::PageFault {
@@ -126,7 +129,7 @@ async fn check_interrupt_hooks() {
     assert_eq!(runtime.context().cpu().instruction_count(), 14);
 
     for (address, expected) in [
-        (0x400, ExecutionExit::HostReturn),
+        (0x400, ExecutionExit::Host(HostExit::Return)),
         (
             0x401,
             ExecutionExit::Exception(relocade_x86::Exception::PageFault {
@@ -159,4 +162,120 @@ fn interrupt_hooks_return_through_guest_frames_and_allow_chaining() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn interrupt_hooks_return_through_guest_frames_and_allow_chaining() {
     check_interrupt_hooks().await;
+}
+
+async fn check_hook_replacement() {
+    let config = support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x400,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+        0x10000,
+        PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
+    )
+    .unwrap();
+    let backend = Backend::with_state(RuntimeState::new(())).unwrap();
+    let mut runtime = support::create_cpu(backend, config).await.unwrap();
+    runtime
+        .context()
+        .memory()
+        .write(0x100, &[0x43, 0xe9, 0xfc, 2])
+        .unwrap(); // INC BX; JMP 0400
+    let first = Rc::new(Cell::new(0));
+    let second = Rc::new(Cell::new(0));
+    let released = Rc::downgrade(&first);
+    let calls = Rc::clone(&second);
+    runtime
+        .install_hooks([
+            Hook::new(0x400, move |call| {
+                first.set(first.get() + 1);
+                call.cpu().set_ax(first.get());
+                call.cpu().set_eip(0x401);
+                HookResult::Continue
+            }),
+            Hook::new(0x401, move |call| {
+                calls.set(calls.get() + 1);
+                call.cpu().set_eip(0x100);
+                HookResult::Continue
+            }),
+        ])
+        .await
+        .unwrap();
+    // Both hooks consume no instructions. Reentering Wasm retains one target.
+    assert_eq!(runtime.run(3).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.context().cpu().instruction_count(), 4);
+    assert_eq!(runtime.context().cpu().ax(), 2);
+    assert_eq!(runtime.context().cpu().bx(), 2);
+    assert_eq!(second.get(), 2);
+    runtime
+        .install_hooks([Hook::new(0x400, |call| {
+            call.cpu().set_ax(50);
+            call.cpu().set_eip(0x401);
+            HookResult::Continue
+        })])
+        .await
+        .unwrap();
+    assert!(released.upgrade().is_none());
+    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.context().cpu().ax(), 50);
+    assert_eq!(second.get(), 3);
+
+    let mut program = Program::new();
+    let entry = program.function::<abi::ExecutionSignature>(|body, ()| {
+        body.return_(ExecutionExitValues::host(HostExit::Return))
+    });
+    program.export("entry", entry).unwrap();
+    let bytes = program.compile().unwrap();
+    // An unresolved later export preserves both the hook and its captured state.
+    assert!(runtime
+        .install_module(
+            &bytes,
+            &[
+                DispatchEntry {
+                    address: 0x401,
+                    export: "entry"
+                },
+                DispatchEntry {
+                    address: 0x402,
+                    export: "missing"
+                },
+            ]
+        )
+        .await
+        .is_err());
+    runtime.context().cpu().set_eip(0x401);
+    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(second.get(), 4);
+    assert_eq!(Rc::strong_count(&second), 2);
+    runtime
+        .install_module(
+            &bytes,
+            &[DispatchEntry {
+                address: 0x401,
+                export: "entry",
+            }],
+        )
+        .await
+        .unwrap();
+    assert_eq!(Rc::strong_count(&second), 1);
+    runtime.context().cpu().set_eip(0x401);
+    assert_eq!(
+        runtime.run(1).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
+    assert_eq!(second.get(), 4);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
+    pollster::block_on(check_hook_replacement());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
+    check_hook_replacement().await;
 }

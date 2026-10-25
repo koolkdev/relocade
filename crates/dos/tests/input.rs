@@ -11,7 +11,7 @@ mod handles;
 mod raw;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
-use relocade_x86::{ExecutionExit, Segment};
+use relocade_x86::{ExecutionExit, HostExit, Segment};
 use std::{
     future::Future,
     io::Write,
@@ -43,7 +43,10 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             cpu.set_ax(0x077b);
             cpu.set_eflags(0x643);
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         assert_eq!(dos.exit_status(), None);
         let suspended = dos.cpu().context().cpu().snapshot();
         assert_eq!(suspended.registers.eax as u16, 0x077b);
@@ -58,7 +61,10 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             .unwrap();
         assert_eq!(frame, [0x02, 0x01, 0x00, 0x10, 0x43, 0x06]); // IP, CS, FLAGS.
 
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         assert_eq!(dos.cpu().context().cpu().snapshot(), suspended);
         let mut repeated_frame = [0; 6];
         dos.cpu()
@@ -88,9 +94,15 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         assert!(common::output(dos.stdout()).is_empty()); // No echo.
 
         dos.cpu().context().cpu().set_eip(0x100);
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         assert!(dos.load_com(&[], Default::default()).is_err());
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         let mut input = dos.stdin();
         input.write_all(b"discarded on load").unwrap();
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
@@ -102,7 +114,10 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             0x074e
         );
         dos.cpu().context().cpu().set_eip(0x100);
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         {
             let mut run = pin!(dos.cpu().run_async(10));
             let mut cx = Context::from_waker(Waker::noop());
@@ -119,7 +134,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         dos.load_mz(&mz, Default::default()).unwrap();
         assert_eq!(
             dos.cpu().run_async(10).await.unwrap(),
-            ExecutionExit::HostReturn
+            ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
     });
@@ -156,7 +171,7 @@ fn interactive_program_prints_prompt_waits_and_exits_after_input() {
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::HostReturn))
+                Poll::Ready(Ok(ExecutionExit::Host(HostExit::Return)))
             ));
         }
         assert_eq!(dos.exit_status(), Some(Ok(b'y')));
@@ -189,7 +204,10 @@ fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
 
         let before = dos.cpu().context().cpu().snapshot();
         dos.cpu().context().cpu().set_eip(0x100);
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         let mut input = dos.stdin();
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());

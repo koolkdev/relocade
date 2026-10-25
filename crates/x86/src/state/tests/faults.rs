@@ -2,7 +2,7 @@ use super::super::{Cpu, State};
 use crate::flags::Flag;
 use crate::test_step::{returned, Argument, Event, Input, Observation, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Gpr32};
-use crate::{Exception, ExceptionValues, ExecutionExit, ExecutionExitValues};
+use crate::{Exception, ExceptionValues, ExecutionExit, ExecutionExitValues, HostExit};
 use relocade_compiler::{Program, Signature, Type, I1, I32};
 
 fn conditional_fault(completed: u32) -> CompiledModule {
@@ -33,7 +33,9 @@ fn conditional_fault(completed: u32) -> CompiledModule {
             state.write_register(&mut body, Gpr32::Edi, 77)?;
             state.write_flag(&mut body, Flag::DF, true)?;
             state.publish(&mut body, restart_eip.add(2), completed + 1)?;
-            body.return_(ExecutionExitValues::from(ExecutionExit::HostReturn))
+            body.return_(ExecutionExitValues::from(ExecutionExit::Host(
+                HostExit::Return,
+            )))
         },
     );
     program.export("run", function).unwrap();
@@ -72,7 +74,7 @@ fn faults_publish_their_boundary_and_preserve_the_continuation_in_wasmtime() {
                 expected.flags.bytes.df = 1;
                 expected.eip = 0x8000_1002;
                 expected.instruction_count = continued_count;
-                ExecutionExit::HostReturn
+                ExecutionExit::Host(HostExit::Return)
             };
             let input = Input {
                 arguments: vec![

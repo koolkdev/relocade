@@ -1,5 +1,6 @@
 use super::{Cpu, CpuAccess, Error, HookResult, HostCall, Result, RuntimeBackend, RuntimeState};
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
+use std::rc::Rc;
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Runs until the budget is consumed at a block boundary, a guest exit
@@ -7,8 +8,9 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
     /// Zero does not enter Wasm. The target saturates at u64::MAX.
     ///
-    /// A deferred host operation returns Deferred. Subsequent synchronous runs
-    /// also return Deferred without polling it; use `run_async` to wait and resume.
+    /// A deferred host operation returns `ExecutionExit::Host(HostExit::Deferred)`.
+    /// Subsequent synchronous runs return the same exit without polling it; use
+    /// `run_async` to wait and resume.
     /// An interrupted async handler returns `Error::CancelledHostCall` until
     /// the embedding replaces its continuation and clears the pending call.
     pub fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
@@ -38,7 +40,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         }
         let target = self.instruction_target(instruction_budget);
         let mut exit = self.enter(target)?;
-        while exit == ExecutionExit::Deferred {
+        while exit == ExecutionExit::Host(HostExit::Deferred) {
             exit = match self.run_deferred().await {
                 HookResult::Continue => self.enter(target)?,
                 HookResult::Exit(exit) => exit,
@@ -69,9 +71,32 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
         }
         // A previous synchronous run may already have stopped at a deferred call.
         if self.access.backend.state().pending.is_some() {
-            return Ok(ExecutionExit::Deferred);
+            return Ok(ExecutionExit::Host(HostExit::Deferred));
         }
-        Ok(self.dispatch.run(&mut self.access, target))
+        self.access.set_instruction_target(target);
+        loop {
+            let exit = self.dispatch.run(&mut self.access);
+            let ExecutionExit::Host(HostExit::Call { address }) = exit else {
+                return Ok(exit);
+            };
+            let handler = Rc::clone(
+                self.access
+                    .backend
+                    .state()
+                    .hooks
+                    .get(&address)
+                    .expect("registered host entry"),
+            );
+            let mut context = self.access.backend.context();
+            let result = self
+                .access
+                .bindings
+                .with_host_call(&mut context, |call| handler(call));
+            match result {
+                HookResult::Continue => {}
+                HookResult::Exit(exit) => return Ok(exit),
+            }
+        }
     }
 
     async fn run_deferred(&mut self) -> HookResult {

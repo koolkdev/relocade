@@ -1,8 +1,8 @@
 mod support;
 use relocade_machine::{real_mode_interrupt, Error, Hook, HookResult, RuntimeState};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
+    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
+    PhysicalMemoryMap, Segments,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -141,13 +141,19 @@ async fn check_pending_calls() {
         .await
         .unwrap();
 
-    assert_eq!(runtime.run(6).unwrap(), ExecutionExit::Deferred);
+    assert_eq!(
+        runtime.run(6).unwrap(),
+        ExecutionExit::Host(HostExit::Deferred)
+    );
     let mut shared = runtime.memory();
     let reader = shared.view();
     let suspended = runtime.context().cpu().snapshot();
     assert_eq!(suspended.instruction_count, 1);
     assert_eq!(suspended.registers.esp, 0xfefa);
-    assert_eq!(runtime.run(100).unwrap(), ExecutionExit::Deferred);
+    assert_eq!(
+        runtime.run(100).unwrap(),
+        ExecutionExit::Host(HostExit::Deferred)
+    );
     assert_eq!(runtime.context().cpu().snapshot(), suspended);
     assert_eq!(
         runtime.run_async(0).await.unwrap(),
@@ -196,7 +202,10 @@ async fn check_pending_calls() {
     runtime.context().memory().read(0x300, &mut bytes).unwrap();
     assert_eq!(bytes, [70, 0]);
 
-    assert_eq!(runtime.run(10).unwrap(), ExecutionExit::Deferred);
+    assert_eq!(
+        runtime.run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Deferred)
+    );
     runtime.cancel_pending_call();
     assert_eq!(state.dropped.get(), 3);
     assert_eq!(state.completed.get(), 2);
@@ -247,14 +256,14 @@ async fn check_pending_calls() {
                 let value = std::future::ready(value + 1).await;
                 assert_eq!(call.cpu().bx(), 99);
                 call.cpu().set_cx(value);
-                HookResult::Exit(ExecutionExit::HostReturn)
+                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
             })
         })])
         .await
         .unwrap();
     assert_eq!(
         runtime.run_async(1).await.unwrap(),
-        ExecutionExit::HostReturn
+        ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(runtime.context().cpu().cx(), 100);
     assert_eq!(runtime.context().cpu().eip(), 0x500);
