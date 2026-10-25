@@ -10,7 +10,7 @@ mod search;
 mod system;
 
 use crate::{files::CreateMode, state::DosState, DosServices, ServiceError};
-use relocade_machine::{HookResult, HostCall};
+use relocade_machine::{CpuContext, HookResult};
 use relocade_x86::{ExecutionExit, HostExit};
 
 const READ_CHARACTER_ECHO: u8 = 0x01;
@@ -58,7 +58,7 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
-pub(crate) fn int21(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
+pub(crate) fn int21(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
     match call.cpu().ah() {
         DIRECT_CONSOLE_IO => console::direct_io(call, state),
         READ_CHARACTER_ECHO | READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
@@ -111,18 +111,18 @@ pub(crate) fn int21(call: &mut HostCall<'_, DosServices>, state: &mut DosState) 
 }
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
-fn terminate_process(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
+fn terminate_process(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
     let code = call.cpu().al();
     return_to_host(call, state, Ok(code))
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) fn int20(call: &mut HostCall<'_, DosServices>, state: &mut DosState) -> HookResult {
+pub(crate) fn int20(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
     return_to_host(call, state, Ok(0))
 }
 
 fn return_to_host(
-    call: &mut HostCall<'_, DosServices>,
+    call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
     status: Result<u8, ServiceError>,
 ) -> HookResult {

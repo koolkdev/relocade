@@ -2,20 +2,15 @@
 mod support;
 use support::Configuration;
 
+use relocade_machine::Cpu;
 use relocade_machine::MemoryError;
-use relocade_machine::{Cpu, RuntimeState};
-use relocade_wasm_runtime::Backend;
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
     PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
 };
 
-fn create(config: Configuration) -> Cpu<Backend<RuntimeState>> {
-    pollster::block_on(support::create_cpu(
-        Backend::with_state(RuntimeState::default()).unwrap(),
-        config,
-    ))
-    .unwrap()
+fn create(config: Configuration) -> Cpu {
+    pollster::block_on(support::create_cpu((), config)).unwrap()
 }
 
 fn configuration() -> Configuration {
@@ -32,7 +27,7 @@ fn configuration() -> Configuration {
     .unwrap()
 }
 
-fn runtime(code: &[u8]) -> Cpu<Backend<RuntimeState>> {
+fn runtime(code: &[u8]) -> Cpu {
     let mut runtime = create(configuration());
     runtime.context().memory().write(0x100, code).unwrap();
     runtime

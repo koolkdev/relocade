@@ -67,17 +67,15 @@
 //! AX=4400h reports file/device information for the object behind a handle.
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
-//! The host chooses the Wasm backend and controls execution through
-//! [`Dos::cpu`]. Pass the backend's `with_state` constructor to [`Dos::new`];
-//! DOS creates its environment state and gives the backend a service handle.
+//! The host controls execution through [`Dos::cpu`]. The CPU selects the native
+//! or browser Wasm engine and retains the DOS service state.
 //!
 //! ```no_run
-//! # async fn example<B>(create_backend: impl FnOnce(relocade_machine::RuntimeState<relocade_dos::DosServices>) -> relocade_machine::Result<B>) -> Result<(), Box<dyn std::error::Error>>
-//! # where B: relocade_machine::RuntimeBackend<State = relocade_machine::RuntimeState<relocade_dos::DosServices>>
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>>
 //! # {
 //! use std::io::Read;
 //!
-//! let mut dos = relocade_dos::Dos::new(create_backend).await?;
+//! let mut dos = relocade_dos::Dos::new().await?;
 //! let mut disk = relocade_vfs::MemoryFileSystem::new();
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
@@ -109,29 +107,24 @@ mod stdio;
 pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
-use relocade_machine::{Cpu, RuntimeBackend, RuntimeState};
+use relocade_machine::Cpu;
 pub use state::DosServices;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
 /// A DOS environment that owns its service state for one guest program.
-pub struct Dos<B: RuntimeBackend<State = RuntimeState<DosServices>>> {
+pub struct Dos {
     state: Rc<RefCell<DosState>>,
-    cpu: Cpu<B>,
+    cpu: Cpu<DosServices>,
 }
 
-impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
+impl Dos {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
-    /// Calls the supplied backend constructor with a handle to this environment.
     /// Load a program before entering guest execution.
-    pub async fn new<E: Into<relocade_machine::Error>>(
-        create_backend: impl FnOnce(RuntimeState<DosServices>) -> Result<B, E>,
-    ) -> relocade_machine::Result<Self> {
+    pub async fn new() -> relocade_machine::Result<Self> {
         let state = Rc::new(RefCell::new(DosState::default()));
         let services = DosServices::new(Rc::clone(&state));
-        let backend = create_backend(RuntimeState::new(services))
-            .map_err(Into::<relocade_machine::Error>::into)?;
-        let mut cpu = Cpu::new(backend, kernel::configuration(), kernel::cpu()).await?;
+        let mut cpu = Cpu::with_state(kernel::configuration(), kernel::cpu(), services).await?;
         kernel::initialize(&mut cpu.context().memory());
         relocade_bios::initialize(&mut cpu.context().memory());
         cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
@@ -198,7 +191,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
         self.state.borrow().files.read_file(path)
     }
 
-    pub fn cpu(&mut self) -> &mut Cpu<B> {
+    pub fn cpu(&mut self) -> &mut Cpu<DosServices> {
         &mut self.cpu
     }
 
@@ -214,12 +207,11 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// input and output; existing stream handles remain connected to the console.
     ///
     /// ```no_run
-    /// # async fn example<B>(create_backend: impl FnOnce(relocade_machine::RuntimeState<relocade_dos::DosServices>) -> relocade_machine::Result<B>) -> Result<(), Box<dyn std::error::Error>>
-    /// # where B: relocade_machine::RuntimeBackend<State = relocade_machine::RuntimeState<relocade_dos::DosServices>>
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>>
     /// # {
     /// use std::io::Write;
     ///
-    /// let mut dos = relocade_dos::Dos::new(create_backend).await?;
+    /// let mut dos = relocade_dos::Dos::new().await?;
     /// dos.load_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let mut input = dos.stdin();
     /// // An event handler can retain this writer while the cpu waits.
@@ -239,7 +231,7 @@ impl<B: RuntimeBackend<State = RuntimeState<DosServices>>> Dos<B> {
     /// The handle can be retained while `run_async` awaits keyboard input.
     ///
     /// ```no_run
-    /// # fn example<B: relocade_machine::RuntimeBackend<State = relocade_machine::RuntimeState<relocade_dos::DosServices>>>(dos: &relocade_dos::Dos<B>) {
+    /// # fn example(dos: &relocade_dos::Dos) {
     /// dos.keyboard().push(relocade_bios::KeyStroke {
     ///     character: b'a',
     ///     scan_code: 0x1e,

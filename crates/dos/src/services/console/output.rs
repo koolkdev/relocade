@@ -7,7 +7,7 @@ use crate::{
     stdio::OutputStream,
     DosServices,
 };
-use relocade_machine::HostCall;
+use relocade_machine::CpuContext;
 
 #[derive(Clone, Copy)]
 pub(super) enum CharacterOutput {
@@ -16,7 +16,7 @@ pub(super) enum CharacterOutput {
 }
 
 pub(super) fn write_console(
-    call: &mut HostCall<'_, DosServices>,
+    call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
     stream: OutputStream,
     bytes: &[u8],
@@ -28,7 +28,7 @@ pub(super) fn write_console(
 /// DOS cooked output expands tabs, tracks its column and ignores write errors.
 /// Returns the last output byte (a space for a tab).
 pub(super) fn write_cooked_character(
-    call: &mut HostCall<'_, DosServices>,
+    call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
     output: CharacterOutput,
     byte: u8,
@@ -58,7 +58,7 @@ pub(super) fn write_cooked_character(
 
 /// Character output preserves console EOF; only AH=40h handle writes clear it.
 pub(super) fn write_characters(
-    call: &mut HostCall<'_, DosServices>,
+    call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
     handle: u16,
     bytes: &[u8],
@@ -80,7 +80,7 @@ pub(super) fn write_characters(
 
 /// AH=40h console writes share character output but honor raw mode and clear EOF.
 pub(in crate::services) fn write_handle(
-    call: &mut HostCall<'_, DosServices>,
+    call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
     handle: u16,
     bytes: &[u8],

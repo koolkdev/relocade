@@ -1,15 +1,9 @@
 mod common;
 
-use common::Backend;
-use relocade_dos::{Dos, DosServices};
+use relocade_dos::Dos;
 use relocade_x86::{CpuState, ExecutionExit, HostExit, Segment, SegmentRegister};
 
-fn service(
-    dos: &mut Dos<Backend<DosServices>>,
-    function: u8,
-    paragraphs: u16,
-    segment: u16,
-) -> CpuState {
+fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
         let mut cpu = machine.cpu();

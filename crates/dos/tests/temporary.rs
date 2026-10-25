@@ -1,14 +1,10 @@
 mod common;
 
-use common::{error, path_service, service, success, Backend, SERVICE_PROGRAM};
-use relocade_dos::{Dos, DosServices, FileAccess};
+use common::{error, path_service, service, success, SERVICE_PROGRAM};
+use relocade_dos::{Dos, FileAccess};
 use relocade_x86::{CpuState, Segment, SegmentRegister};
 
-fn temporary(
-    dos: &mut Dos<Backend<DosServices>>,
-    directory: &[u8],
-    attributes: u16,
-) -> (CpuState, Vec<u8>) {
+fn temporary(dos: &mut Dos, directory: &[u8], attributes: u16) -> (CpuState, Vec<u8>) {
     // Keep the output buffer in a separate segment and cross its offset boundary.
     const SEGMENT: u16 = 0x2000;
     const OFFSET: u16 = 0xfffc;
