@@ -1,5 +1,6 @@
 //! Logical construction and operand replacement observe different bit widths.
 
+mod normalization;
 mod vectors;
 
 use super::*;
