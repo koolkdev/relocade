@@ -17,6 +17,7 @@ mod handles;
 mod mounts;
 mod search;
 mod short_name;
+pub(crate) use character::CharacterInput;
 pub(crate) use create::CreateMode;
 pub(crate) use devices::Device;
 pub(crate) use handles::HandleType;

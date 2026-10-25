@@ -52,7 +52,14 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExi
     };
     push(cpu, &table, "dispatch", crate::ExecutionExit::HostReturn);
     table.insert(base, 2);
-    push(cpu, &table, "dispatch", crate::ExecutionExit::Deferred);
+    push(
+        cpu,
+        &table,
+        "dispatch",
+        crate::ExecutionExit::HostCall {
+            address: 0x89ab_cdef,
+        },
+    );
     table.insert(base, 3);
     push(
         cpu,
@@ -123,7 +130,9 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExi
             &table,
             "dispatch",
             match offset {
-                0 => crate::ExecutionExit::Deferred,
+                0 => crate::ExecutionExit::HostCall {
+                    address: 0x89ab_cdef,
+                },
                 8192 => crate::ExecutionExit::HostReturn,
                 _ => crate::ExecutionExit::UnsupportedInstruction {
                     eip: u32::MAX,
@@ -230,7 +239,9 @@ fn callable_dispatch_resolves_functions_and_fallback() {
         let dispatcher = Module::new(&Compiler::new(profile).compile_dispatcher().unwrap().bytes);
         let targets = [
             constant(crate::ExecutionExit::HostReturn),
-            constant(crate::ExecutionExit::Deferred),
+            constant(crate::ExecutionExit::HostCall {
+                address: 0x89ab_cdef,
+            }),
             constant(crate::ExecutionExit::UnsupportedInstruction {
                 eip: u32::MAX,
                 opcode: 0xf3,

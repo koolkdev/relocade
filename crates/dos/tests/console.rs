@@ -102,7 +102,7 @@ async fn check_handle_output() {
             cpu.set_eflags(0x642 | u32::from(carry_before));
         }
         assert_eq!(
-            dos.cpu().unwrap().run(10).unwrap(),
+            pollster::block_on(dos.cpu().unwrap().run(10)),
             ExecutionExit::BudgetExhausted
         );
         let mut machine = dos.cpu().unwrap().context();

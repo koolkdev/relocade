@@ -1,4 +1,4 @@
-//! DOS environment data shared by host APIs and service callbacks.
+//! DOS environment data and owned service handles.
 
 use crate::{files::Files, ServiceError};
 use relocade_bios::Keyboard;
@@ -23,8 +23,8 @@ pub(crate) enum ProcessState {
     Exited(Result<u8, ServiceError>),
 }
 
-/// A callback handle to the state owned by a [`crate::Dos`] environment.
-/// The backend retains this handle alongside its own pending host call.
+/// Owned access to the services of a [`crate::Dos`] environment.
+/// Pending operations retain the input records they need without borrowing DOS state.
 #[derive(Clone)]
 pub struct DosServices {
     state: Rc<RefCell<DosState>>,
@@ -35,6 +35,13 @@ impl DosServices {
     pub(crate) fn new(state: Rc<RefCell<DosState>>) -> Self {
         let keyboard = state.borrow().files.stdio.input.clone();
         Self { state, keyboard }
+    }
+
+    pub(crate) fn input(
+        &self,
+        handle: u16,
+    ) -> Result<crate::files::CharacterInput, crate::error::DosError> {
+        self.state.borrow().files.character_input(handle)
     }
 
     pub(crate) fn borrow_mut(&self) -> RefMut<'_, DosState> {

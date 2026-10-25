@@ -9,7 +9,8 @@ use relocade_wasm_runtime::{Load, MemoryAccess, MemoryValue, Store};
 
 /// A live view of published CPU state. Each register access transfers only its
 /// own bytes; there is no cached snapshot or deferred writeback.
-/// Guest execution must remain stopped for the lifetime of this view.
+/// Register operations require a stopped CPU. Views from a CPU context retain
+/// its backend borrow, excluding guest execution until the view ends.
 pub struct CpuView<'a> {
     config: &'a CpuConfig,
     storage: MemoryAccess<'a>,
@@ -224,3 +225,6 @@ fn segment_offset(segment: Segment) -> usize {
         Segment::Gs => offset_of!(CpuState, segments.gs),
     }
 }
+
+#[cfg(test)]
+mod tests;

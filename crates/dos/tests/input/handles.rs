@@ -23,8 +23,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         success(&service(&mut dos, 0x4600, output_file, 1, 0));
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .write(0x10400, b"untouched")
             .unwrap();
         // A zero-length read returns immediately even with no console input.
@@ -32,8 +32,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut unchanged = [0; 9];
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut unchanged)
             .unwrap();
         assert_eq!(&unchanged, b"untouched");
@@ -50,7 +50,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         {
-            let mut run = pin!(dos.cpu().unwrap().run_async(20));
+            let mut run = pin!(dos.cpu().unwrap().run(20));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"ab\x08C").unwrap();
@@ -59,7 +59,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             input.write_all(b"\r").unwrap();
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
+                Poll::Ready(ExecutionExit::BudgetExhausted)
             ));
         }
         {
@@ -88,8 +88,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut byte = [0];
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut byte)
             .unwrap();
         assert_eq!(byte, [b'\r']); // The original handle shares the duplicate's line.
@@ -101,8 +101,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut file_bytes = [0; 4];
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut file_bytes)
             .unwrap();
         assert_eq!(&file_bytes, b"F\x1a\r\n");
@@ -110,8 +110,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, console, 8, 0x400)), 1);
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut byte)
             .unwrap();
         assert_eq!(byte, [b'\n']);
@@ -123,8 +123,8 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             let mut bytes = [0; 5];
             dos.cpu()
                 .unwrap()
-                .context()
                 .memory()
+                .view()
                 .read(0x10400, &mut bytes)
                 .unwrap();
             assert_eq!(&bytes, expected); // One line per read even when CX permits more.
@@ -144,8 +144,8 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
         let mut bytes = [0; 129];
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes[..127], &[b'a'; 127]);
@@ -159,8 +159,8 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
         let mut unchanged = [0; 129];
         dos.cpu()
             .unwrap()
-            .context()
             .memory()
+            .view()
             .read(0x10400, &mut unchanged)
             .unwrap();
         assert_eq!(unchanged, bytes);
@@ -196,8 +196,8 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             success(&service(&mut dos, 0x4600, console, 1, 0));
             dos.cpu()
                 .unwrap()
-                .context()
                 .memory()
+                .view()
                 .write(0x10420, b"message$")
                 .unwrap();
             service(&mut dos, 0x0900, 0, 0, 0x420);
@@ -207,8 +207,8 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
 
             dos.cpu()
                 .unwrap()
-                .context()
                 .memory()
+                .view()
                 .write(0x10400, b"!")
                 .unwrap();
             assert_eq!(success(&service(&mut dos, 0x4000, file, 1, 0x400)), 1);
@@ -236,8 +236,8 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             let mut bytes = [0; 6];
             dos.cpu()
                 .unwrap()
-                .context()
                 .memory()
+                .view()
                 .read(0x10400, &mut bytes)
                 .unwrap();
             assert_eq!(&bytes, b"next\r\n"); // Repeated EOF reads left queued input intact.

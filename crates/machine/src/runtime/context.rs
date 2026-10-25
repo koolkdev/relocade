@@ -1,86 +1,55 @@
-use super::RuntimeState;
-use crate::{CpuConfig, CpuView, HookResult, MachineConfig, MemoryView};
+//! Borrowed access to the machine executing a host service.
 
-#[cfg(test)]
-mod tests;
-use relocade_wasm_runtime::{MemoryAccess, StateAccess};
-use relocade_x86::{ExecutionExit, ExecutionTarget};
+use super::machine::Machine;
+use crate::{CpuView, MemoryView};
+use relocade_wasm_runtime::{WasmMemoryAccess, WasmSharedMemory};
+use relocade_x86::ExecutionTarget;
 
-/// Scoped access to a stopped CPU, its guest memory and environment state.
-/// `Cpu::context`, synchronous hooks and deferred handlers all lend this same
-/// capability. CPU and memory edits apply directly to their live storage.
+/// Exclusive access to a stopped machine and its environment.
+/// CPU and memory views borrow live storage and apply writes immediately.
+/// A view can cross an ordinary await, keeping its machine borrow until it ends.
+/// Contexts cannot escape their handler or the borrow of [`super::Cpu`].
+///
+/// A live view excludes another run:
+/// ```compile_fail
+/// use relocade_machine::Cpu;
+/// async fn overlap(cpu: &mut Cpu) {
+///     let mut context = cpu.context();
+///     let view = context.cpu();
+///     cpu.run(1).await;
+///     let _ = view.ax();
+/// }
+/// ```
 pub struct CpuContext<'a, T = ()> {
-    cpu: &'a CpuConfig,
-    config: &'a MachineConfig,
-    context: MemoryAccess<'a>,
-    guest: MemoryAccess<'a>,
-    state: StateAccess<'a, RuntimeState<T>>,
+    pub(super) machine: &'a mut Machine<T>,
 }
 
-impl<'a, T> CpuContext<'a, T> {
-    /// Binds an initialized `ExecutionContext` image and guest backing. Their
-    /// contents and capacities must match the configurations; CPU state must
-    /// satisfy the execution target. CPU edits check compatibility before writing.
-    #[inline]
-    pub(super) fn new(
-        cpu: &'a CpuConfig,
-        config: &'a MachineConfig,
-        context: MemoryAccess<'a>,
-        guest: MemoryAccess<'a>,
-        state: impl Into<StateAccess<'a, RuntimeState<T>>>,
-    ) -> Self {
-        Self {
-            cpu,
-            config,
-            context,
-            guest,
-            state: state.into(),
-        }
-    }
-
+impl<T> CpuContext<'_, T> {
     pub fn execution_target(&self) -> ExecutionTarget {
-        self.cpu.execution_target()
+        self.machine.bindings.config.execution_target()
     }
 
     #[inline]
     pub fn cpu(&mut self) -> CpuView<'_> {
-        CpuView::new(self.cpu, self.context.reborrow())
+        CpuView::new(
+            &self.machine.bindings.config,
+            self.machine.backend.memory(&self.machine.bindings.context),
+        )
     }
 
     #[inline]
     pub fn memory(&mut self) -> MemoryView<'_> {
-        MemoryView::new(self.config, self.guest.reborrow())
+        MemoryView::new(
+            &self.machine.bindings.machine_config,
+            self.machine.bindings.shared_guest.view(),
+        )
     }
 
-    /// The environment state owned by this backend.
-    #[inline]
     pub fn state(&self) -> &T {
-        &self.state.data
+        &self.machine.state
     }
 
-    #[inline]
     pub fn state_mut(&mut self) -> &mut T {
-        &mut self.state.data
-    }
-
-    /// Queues an async handler for `Cpu::run_async` after any guest call returns.
-    ///
-    /// Return this method's `HookResult::Exit(ExecutionExit::Deferred)` from the hook to
-    /// suspend guest execution.
-    /// The handler must own its captures; it cannot capture this context's borrows.
-    /// `Cpu::run_async` gives it fresh access to the stopped CPU, memory and
-    /// state. That access may be held across awaits. The handler owns the ABI
-    /// return, just like a synchronous hook, and need not be Send.
-    ///
-    /// Keep the same run future alive while waiting. Dropping it during the
-    /// handler cancels the handler; see `Cpu::run_async`.
-    pub fn defer<F>(&mut self, handler: F) -> HookResult
-    where
-        T: 'static,
-        F: AsyncFnOnce(&mut CpuContext<'_, T>) -> HookResult + 'static,
-    {
-        assert!(self.state.pending.is_none(), "host call already deferred");
-        self.state.pending = Some(Box::new(handler));
-        HookResult::Exit(ExecutionExit::Deferred)
+        &mut self.machine.state
     }
 }

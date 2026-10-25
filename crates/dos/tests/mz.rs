@@ -72,10 +72,7 @@ async fn check_mz_execution() {
         machine.memory().read(0x10144, &mut after_image).unwrap();
         assert_eq!(after_image, [0; 4]); // Ignore bytes beyond the declared file size.
     }
-    assert_eq!(
-        dos.cpu().unwrap().run(100).unwrap(),
-        ExecutionExit::HostReturn
-    );
+    assert_eq!(dos.cpu().unwrap().run(100).await, ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(7)));
     assert_eq!(common::output(dos.stdout()), b"MZ\r\n");
 
@@ -124,10 +121,7 @@ async fn check_mz_execution() {
     assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffa);
     assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ff9);
     assert_eq!(cpu.segments[Segment::Ds].selector, 0x1000);
-    assert_eq!(
-        dos.cpu().unwrap().run(100).unwrap(),
-        ExecutionExit::HostReturn
-    );
+    assert_eq!(dos.cpu().unwrap().run(100).await, ExecutionExit::HostReturn);
     assert_eq!(dos.exit_status(), Some(Ok(255))); // AH=48h reports no space.
 }
 
@@ -138,10 +132,7 @@ async fn check_invalid_mz() {
         b'X', b'$',
     ])
     .await;
-    assert_eq!(
-        dos.cpu().unwrap().run(100).unwrap(),
-        ExecutionExit::HostReturn
-    );
+    assert_eq!(dos.cpu().unwrap().run(100).await, ExecutionExit::HostReturn);
     let cpu_before = dos.cpu().unwrap().context().cpu().snapshot();
     let memory = dos.memory();
     let mut before = vec![0; 0x90010];

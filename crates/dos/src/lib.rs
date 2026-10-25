@@ -14,9 +14,8 @@
 //! AH=06h polls stdin without echo or writes one byte to stdout.
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
-//! eight-column stops. An empty input source returns
-//! [`relocade_x86::ExecutionExit::Deferred`] from a synchronous run. Use
-//! [`relocade_machine::Cpu::run_async`] to await input and complete the pending read.
+//! eight-column stops. [`Cpu::run`] awaits missing input and resumes the same
+//! service future when it becomes ready.
 //! AH=0Bh and IOCTL AX=4406h query input without consuming it; AX=4407h reports
 //! output readiness. Console status describes queued keys, not a buffered line.
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
@@ -34,8 +33,9 @@
 //! echo, CRLF insertion or interpreting Ctrl-Z as EOF. Raw AH=40h writes preserve
 //! tabs and control bytes. Duplicates share mode and EOF changes; separate opens
 //! keep their own state. Switching modes preserves the buffered cooked-line remainder.
-//! Keep the same run future alive while waiting; dropping an active read
-//! cancels it and requires a new environment before further execution.
+//! The CPU owns pending reads. Dropping a run waiter preserves the read and its
+//! editing locals; a later run resumes it. Dropping the DOS environment ends the
+//! pending service along with the machine.
 //! Character and buffered reads stay blocked at redirected file EOF; host file
 //! growth does not yet wake them. AH=3Fh file reads return zero at EOF.
 //! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
@@ -89,7 +89,7 @@
 //! dos.launch_com(
 //!     &[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default(),
 //! ).await?;
-//! assert_eq!(dos.cpu().unwrap().run(u64::MAX)?, relocade_x86::ExecutionExit::HostReturn);
+//! assert_eq!(dos.cpu().unwrap().run(u64::MAX).await, relocade_x86::ExecutionExit::HostReturn);
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
 //! let mut output = Vec::new();
 //! dos.stdout().read_to_end(&mut output)?;
@@ -256,7 +256,7 @@ impl Dos {
 
     /// Returns an owned console input writer. Bytes use the guest's encoding.
     /// Writes enqueue bytes immediately and wake a pending console read; flush
-    /// is a no-op. The writer can be cloned and used while `run_async` is pending.
+    /// is a no-op. The writer can be cloned and used while `run` is pending.
     /// Redirected stdin reads its file instead. Stream handles belong to this
     /// environment; a new environment has its own input and output queues.
     ///
@@ -271,9 +271,9 @@ impl Dos {
     ///     &[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default(),
     /// ).await?;
     /// // An event handler can retain this writer while the cpu waits.
-    /// let run = dos.cpu().unwrap().run_async(100);
+    /// let run = dos.cpu().unwrap().run(100);
     /// input.write_all(b"y")?;
-    /// run.await?;
+    /// run.await;
     /// assert_eq!(dos.exit_status(), Some(Ok(b'y')));
     /// # Ok(())
     /// # }
@@ -284,7 +284,7 @@ impl Dos {
 
     /// Returns the input queue shared by BIOS INT 16h and DOS console reads.
     /// Host adapters supply translated characters, BIOS scan codes and shift state.
-    /// The handle can be retained while `run_async` awaits keyboard input.
+    /// The handle can be retained while `run` awaits keyboard input.
     ///
     /// ```no_run
     /// # fn example(dos: &relocade_dos::Dos) {
@@ -307,7 +307,7 @@ impl Dos {
 
     /// Returns an owned reader that drains currently buffered standard output.
     /// An empty buffer returns zero, even if the guest may produce more later.
-    /// It can be used while `run_async` waits. DOS redirection follows the handle's
+    /// It can be used while `run` waits. DOS redirection follows the handle's
     /// destination, so bytes redirected to a file do not appear here.
     pub fn stdout(&self) -> impl std::io::Read + Clone + 'static {
         self.state

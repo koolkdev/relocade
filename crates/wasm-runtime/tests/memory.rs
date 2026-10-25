@@ -225,3 +225,19 @@ fn transfers_follow_rust_memory_growth() {
         .grow(1);
     check_scalars(&mut access, 1);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn custom_storage_uses_little_endian_byte_transfers() {
+    use relocade_wasm_runtime::MemoryStorage;
+    struct Bytes([u8; 24]);
+    impl MemoryStorage for Bytes {
+        fn read(&self, offset: u32, bytes: &mut [u8]) {
+            bytes.copy_from_slice(&self.0[offset as usize..][..bytes.len()]);
+        }
+        fn write(&mut self, offset: u32, bytes: &[u8]) {
+            self.0[offset as usize..][..bytes.len()].copy_from_slice(bytes);
+        }
+    }
+    check_scalars(&mut MemoryAccess::from_storage(&mut Bytes([0; 24])), 0);
+}

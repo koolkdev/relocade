@@ -67,3 +67,6 @@ impl fmt::Display for MemoryError {
 }
 
 impl std::error::Error for MemoryError {}
+
+#[cfg(test)]
+mod tests;

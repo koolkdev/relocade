@@ -62,7 +62,7 @@ pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 3] {
     ]
 }
 
-fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     if call.cpu().ah() == 0 {
         let mut data = [0; 5];
         call.memory()

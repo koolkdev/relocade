@@ -71,7 +71,7 @@ fn file_transfers_stop_at_the_segment_end_and_advance_only_by_the_returned_count
 }
 
 #[test]
-fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
+fn pending_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
     pollster::block_on(async {
         let mut dos = common::dos(SERVICE_PROGRAM).await;
 
@@ -85,10 +85,10 @@ fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
             cpu.set_cx(3);
             cpu.set_dx(0xffff);
         }
-        assert_eq!(dos.cpu().unwrap().run(10).unwrap(), ExecutionExit::Deferred);
+        crate::common::assert_pending(dos.cpu().unwrap().run(10));
         dos.stdin().write_all(b"abc\r").unwrap();
         assert_eq!(
-            dos.cpu().unwrap().run_async(10).await.unwrap(),
+            dos.cpu().unwrap().run(10).await,
             ExecutionExit::BudgetExhausted
         );
         assert_eq!(dos.cpu().unwrap().context().cpu().ax(), 1);

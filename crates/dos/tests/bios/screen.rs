@@ -42,7 +42,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
         assert_eq!(geometry, [3, 80, 0, 0, 0x10, 0]);
 
         assert_eq!(
-            dos.cpu().unwrap().run(10).unwrap(),
+            pollster::block_on(dos.cpu().unwrap().run(10)),
             ExecutionExit::BudgetExhausted
         );
         let screen = TextScreen::read(&view);

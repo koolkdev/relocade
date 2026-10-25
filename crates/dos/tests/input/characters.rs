@@ -15,11 +15,11 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
                 cpu.set_bx(0x1234);
                 cpu.set_eflags(0x643);
             }
-            assert_eq!(dos.cpu().unwrap().run(10).unwrap(), ExecutionExit::Deferred);
+            crate::common::assert_pending(dos.cpu().unwrap().run(10));
             assert!(common::output(dos.stdout()).is_empty());
             dos.stdin().write_all(b"KZ").unwrap();
             assert_eq!(
-                dos.cpu().unwrap().run_async(10).await.unwrap(),
+                dos.cpu().unwrap().run(10).await,
                 ExecutionExit::BudgetExhausted
             );
             {

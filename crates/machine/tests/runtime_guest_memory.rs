@@ -48,7 +48,7 @@ async fn check_guest_memory() {
     let mut runtime = Cpu::with_memory(shared.clone(), config.cpu, ())
         .await
         .unwrap();
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
     runtime.context().memory().write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
     let mut bytes = [0; 4];
     reader.read(0xffe, &mut bytes).unwrap();
@@ -79,7 +79,7 @@ async fn check_guest_memory() {
         .await
         .unwrap();
     assert_eq!(next.context().cpu().instruction_count(), 0);
-    assert_eq!(next.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(next.run(1).await, ExecutionExit::BudgetExhausted);
     assert_eq!(reader.read_u16(0xffe).unwrap(), 0x0742);
 }
 

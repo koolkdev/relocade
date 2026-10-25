@@ -249,7 +249,7 @@ async fn check_discovery_program() {
             .unwrap();
     }
     assert_eq!(
-        dos.cpu().unwrap().run(500).unwrap(),
+        pollster::block_on(dos.cpu().unwrap().run(500)),
         ExecutionExit::HostReturn
     );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
