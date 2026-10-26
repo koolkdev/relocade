@@ -14,6 +14,21 @@ pub enum Memory {
 #[derive(Clone)]
 pub struct SharedMemory(wasmtime::SharedMemory);
 
+impl SharedMemory {
+    /// Allocates zeroed shared memory independently of a backend, in 64-KiB pages.
+    pub fn new(minimum: u32, maximum: u32) -> Result<Self> {
+        let memory_type = MemoryType::builder()
+            .min(minimum.into())
+            .max(Some(maximum.into()))
+            .shared(true)
+            .build()
+            .map_err(|error| Error::new("create Wasm memory", error))?;
+        wasmtime::SharedMemory::new(super::compilation::shared()?.engine(), memory_type)
+            .map(Self)
+            .map_err(|error| Error::new("create Wasm memory", error))
+    }
+}
+
 pub(crate) enum MemoryRegion<'a> {
     Private(&'a mut [u8]),
     Shared(&'a SharedMemory),
@@ -48,12 +63,7 @@ impl Memory {
             let maximum = declaration.maximum.ok_or_else(|| {
                 Error::new("create Wasm memory", "shared memory requires a maximum")
             })?;
-            wasmtime::SharedMemory::new(
-                store.as_context().engine(),
-                MemoryType::shared(declaration.minimum, maximum),
-            )
-            .map(|memory| Self::Shared(SharedMemory(memory)))
-            .map_err(|error| Error::new("create Wasm memory", error))
+            SharedMemory::new(declaration.minimum, maximum).map(Self::Shared)
         } else {
             wasmtime::Memory::new(
                 &mut store,

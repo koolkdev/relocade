@@ -4,7 +4,7 @@ pub(crate) use access::MemoryRegion;
 use transfers::Transfers;
 
 use crate::{Error, MemoryAccess, Result, WasmSharedMemory};
-use js_sys::{Reflect, SharedArrayBuffer, WebAssembly};
+use js_sys::{Object, Reflect, SharedArrayBuffer, WebAssembly};
 use std::{fmt, rc::Rc};
 use wasm_bindgen::JsCast;
 
@@ -62,6 +62,11 @@ impl<'de> serde::Deserialize<'de> for SharedMemory {
 }
 
 impl SharedMemory {
+    /// Allocates zeroed shared memory independently of a backend, in 64-KiB pages.
+    pub fn new(minimum: u32, maximum: u32) -> Result<Self> {
+        Self::from_memory(allocate(minimum, Some(maximum), true)?)
+    }
+
     /// Accepts a shared memory, including one received through worker postMessage.
     /// Private memories cannot be read independently of their backend.
     pub fn from_memory(memory: WebAssembly::Memory) -> Result<Self> {
@@ -109,4 +114,19 @@ pub(super) fn size(memory: &WebAssembly::Memory) -> Result<u64> {
         .as_f64()
         .expect("ArrayBuffer byteLength is a number") as u64;
     Ok(byte_length / 65536)
+}
+
+pub(super) fn allocate(
+    minimum: u32,
+    maximum: Option<u32>,
+    shared: bool,
+) -> Result<WebAssembly::Memory> {
+    let descriptor = Object::new();
+    super::set(&descriptor, "initial", &minimum.into())?;
+    super::set(&descriptor, "shared", &shared.into())?;
+    if let Some(maximum) = maximum {
+        super::set(&descriptor, "maximum", &maximum.into())?;
+    }
+    WebAssembly::Memory::new(&descriptor)
+        .map_err(|error| super::js_error("create Wasm memory", error))
 }

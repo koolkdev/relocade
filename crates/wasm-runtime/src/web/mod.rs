@@ -118,14 +118,8 @@ impl<T: 'static> WasmBackend for Backend<T> {
     }
 
     fn create_memory(&mut self, declaration: abi::Memory) -> Result<Self::Memory> {
-        let descriptor = Object::new();
-        set(&descriptor, "initial", &declaration.minimum.into())?;
-        set(&descriptor, "shared", &declaration.shared.into())?;
-        if let Some(maximum) = declaration.maximum {
-            set(&descriptor, "maximum", &maximum.into())?;
-        }
-        let memory = WebAssembly::Memory::new(&descriptor)
-            .map_err(|error| js_error("create Wasm memory", error))?;
+        let memory =
+            memory::allocate(declaration.minimum, declaration.maximum, declaration.shared)?;
         let allocation = Rc::new(memory::Allocation::new(memory, declaration.shared)?);
         Ok(self.store.borrow_mut().insert_memory(allocation))
     }

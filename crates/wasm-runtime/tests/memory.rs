@@ -3,7 +3,7 @@ use relocade_compiler::{
     Program, I32, I64,
 };
 use relocade_wasm_runtime::{
-    MemoryAccess, WasmBackend, WasmCompiler, WasmMemoryAccess, WasmSharedMemory,
+    MemoryAccess, SharedMemory, WasmBackend, WasmCompiler, WasmMemoryAccess, WasmSharedMemory,
 };
 
 use relocade_wasm_runtime::Backend;
@@ -19,6 +19,11 @@ const WRITE: Function<fn() -> I32> = Function::new("example", "write");
 const RUN: Function<fn() -> I64> = Function::new("example", "run");
 
 async fn check_shared_memory() {
+    assert!(SharedMemory::new(2, 1).is_err());
+    assert!(SharedMemory::new(0, 65537).is_err());
+    let reader = SharedMemory::new(SHARED.minimum, SHARED.maximum.unwrap()).unwrap();
+    assert_eq!(reader.byte_len(), 65536);
+    assert_eq!(reader.view().load::<u64>(0), 0);
     let mut backend = Backend::new().unwrap();
     let private = backend
         .create_memory(Memory {
@@ -27,8 +32,9 @@ async fn check_shared_memory() {
         })
         .unwrap();
     assert!(backend.shared_memory(&private).is_none());
-    let memory = backend.create_memory(SHARED).unwrap();
-    let reader = backend.shared_memory(&memory).unwrap();
+    let memory = backend.import_shared_memory(&reader);
+    backend.shared_memory(&memory).unwrap().write(0, &[0x42]);
+    assert_eq!(reader.view().load::<u8>(0), 0x42);
 
     let mut program = Program::new();
     let guest = program.import_memory(SHARED);
