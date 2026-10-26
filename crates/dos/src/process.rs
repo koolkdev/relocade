@@ -1,80 +1,132 @@
-//! Initialization shared by the COM and MZ loaders.
+//! A launched DOS process and the resources released when it terminates.
 
-use crate::{memory, LoadError, LoadOptions};
+mod startup;
+pub(crate) use startup::{allocate, initial_cpu, COMMAND_TAIL_OFFSET, PSP_BYTES, PSP_PARAGRAPHS};
+
+use crate::{
+    files::{FileSystem, Files},
+    memory, ServiceError,
+};
 use relocade_machine::MemoryView;
-use relocade_x86::{CpuState, FlagsState, Segment, SegmentRegister, Segments};
+use std::{
+    cell::{RefCell, RefMut},
+    rc::Rc,
+};
 
-pub(crate) const COMMAND_TAIL_OFFSET: u16 = 0x80;
-pub(crate) const PSP_BYTES: usize = 0x100;
-pub(crate) const PSP_PARAGRAPHS: u16 = 0x10;
+/// The lifecycle of one successfully launched DOS process.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ProcessStatus {
+    /// Execution may continue, including after a budget stop or while awaiting input.
+    Active,
+    /// DOS terminated the process with an exit code or a service error.
+    Exited(Result<u8, ServiceError>),
+}
 
-pub(crate) struct Allocation {
+/// One DOS program's PSP identity, lifecycle and active resources.
+pub(crate) struct Process {
+    psp_segment: u16,
+    state: RefCell<State>,
+}
+
+enum State {
+    Active(Resources),
+    Exited(Result<u8, ServiceError>),
+}
+
+struct Resources {
+    files: Files,
+    dta: DiskTransferAddress,
+}
+
+/// An active process borrowed for one DOS call.
+pub(crate) struct ProcessContext<'call> {
+    owner: &'call Rc<Process>,
+    state: RefMut<'call, State>,
+}
+
+pub(crate) struct DiskTransferAddress {
     pub(crate) segment: u16,
-    pub(crate) paragraphs: u16,
+    pub(crate) offset: u16,
 }
 
-/// Validates startup inputs and memory requirements before replacing the process.
-pub(crate) fn allocate(
-    memory: &mut MemoryView<'_>,
-    minimum: usize,
-    maximum: usize,
-    options: &LoadOptions<'_>,
-) -> Result<Allocation, LoadError> {
-    options.validate_command_tail()?;
-    let environment = options.environment_block()?;
-    let environment_paragraphs =
-        environment.len().div_ceil(memory::PARAGRAPH_BYTES as usize) as u16;
-    // Reserve the environment's data and its MCB in the same arena.
-    let available = memory::AVAILABLE_PARAGRAPHS - environment_paragraphs - 1;
-    if minimum > usize::from(available) {
-        return Err(LoadError::InsufficientMemory);
+impl DiskTransferAddress {
+    pub(crate) fn address(&self) -> u32 {
+        u32::from(self.segment) * 16 + u32::from(self.offset)
     }
-    let paragraphs = maximum.max(minimum).min(usize::from(available)) as u16;
-    memory::reset(memory);
-    let segment = memory::allocate(memory, paragraphs, memory::FIRST_SEGMENT)
-        .expect("validated root-process allocation");
-    let environment_segment = memory::allocate(memory, environment_paragraphs, segment)
-        .expect("validated environment allocation");
-    memory
-        .write(
-            u32::from(environment_segment) * memory::PARAGRAPH_BYTES,
-            &environment,
-        )
-        .expect("process environment");
-    let mut psp = [0; PSP_BYTES];
-    // PSP:0000 contains INT 20h, the process termination instruction.
-    psp[..2].copy_from_slice(&[0xcd, 0x20]);
-    // PSP:0002 stores the first paragraph beyond the process allocation.
-    psp[2..4].copy_from_slice(&(segment + paragraphs).to_le_bytes());
-    // PSP:0016 is the parent's PSP segment. The root process is its own parent.
-    psp[0x16..0x18].copy_from_slice(&segment.to_le_bytes());
-    // PSP:002C points to the separately allocated environment block.
-    psp[0x2c..0x2e].copy_from_slice(&environment_segment.to_le_bytes());
-    // PSP:0080 holds the byte count; the tail and its CR follow at 0081.
-    let tail_offset = usize::from(COMMAND_TAIL_OFFSET);
-    psp[tail_offset] = options.command_tail.len() as u8;
-    let tail_end = tail_offset + 1 + options.command_tail.len();
-    psp[tail_offset + 1..tail_end].copy_from_slice(options.command_tail);
-    psp[tail_end] = b'\r';
-    memory
-        .write(u32::from(segment) * memory::PARAGRAPH_BYTES, &psp)
-        .expect("process PSP");
-    Ok(Allocation {
-        segment,
-        paragraphs,
-    })
 }
 
-pub(crate) fn initial_cpu(psp_segment: u16) -> CpuState {
-    let mut segments = Segments::real_mode();
-    for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
-        segments[segment] = SegmentRegister::real_mode(segment, psp_segment);
+impl Process {
+    pub(crate) fn new(psp_segment: u16) -> Self {
+        Self {
+            psp_segment,
+            state: RefCell::new(State::Active(Resources {
+                files: Files::default(),
+                dta: DiskTransferAddress {
+                    segment: psp_segment,
+                    offset: COMMAND_TAIL_OFFSET,
+                },
+            })),
+        }
     }
-    let mut flags = FlagsState::default();
-    flags.bytes.if_ = 1; // Start with maskable interrupts enabled.
-    CpuState {
-        segments,
-        flags,
-        ..CpuState::default()
+
+    /// The PSP segment assigned at launch. Its memory may be reused after exit.
+    pub(crate) fn psp_segment(&self) -> u16 {
+        self.psp_segment
+    }
+
+    /// Reads this process's current status without retaining an execution borrow.
+    pub(crate) fn status(&self) -> ProcessStatus {
+        match &*self.state.borrow() {
+            State::Active(_) => ProcessStatus::Active,
+            State::Exited(status) => ProcessStatus::Exited(*status),
+        }
+    }
+
+    pub(crate) fn context(self: &Rc<Self>) -> ProcessContext<'_> {
+        ProcessContext {
+            owner: self,
+            state: self.state.borrow_mut(),
+        }
+    }
+}
+
+impl ProcessContext<'_> {
+    pub(crate) fn psp_segment(&self) -> u16 {
+        self.owner.psp_segment()
+    }
+
+    pub(crate) fn retain(&self) -> Rc<Process> {
+        Rc::clone(self.owner)
+    }
+
+    fn resources(&mut self) -> &mut Resources {
+        match &mut *self.state {
+            State::Active(resources) => resources,
+            State::Exited(_) => unreachable!("DOS service requires an active process"),
+        }
+    }
+
+    pub(crate) fn files(&mut self) -> &mut Files {
+        &mut self.resources().files
+    }
+
+    pub(crate) fn dta(&mut self) -> &mut DiskTransferAddress {
+        &mut self.resources().dta
+    }
+
+    /// Records termination and releases resources through the existing state borrow.
+    pub(crate) fn terminate(
+        &mut self,
+        status: Result<u8, ServiceError>,
+        memory: &mut MemoryView<'_>,
+        filesystem: &mut FileSystem,
+    ) {
+        let previous = std::mem::replace(&mut *self.state, State::Exited(status));
+        let State::Active(resources) = previous else {
+            unreachable!("DOS service requires an active process");
+        };
+        resources.files.close_all(filesystem);
+        // Only the root process is supported; its exit releases the whole arena.
+        memory::reset(memory);
     }
 }

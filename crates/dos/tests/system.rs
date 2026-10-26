@@ -5,7 +5,7 @@ use relocade_x86::{ExecutionExit, HostExit, Segment, SegmentRegister};
 
 async fn check_system_services() {
     let mut dos = common::dos().await;
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     dos.cpu().context().cpu.set_eflags(0x0a56); // OF, IF, ZF, AF and PF.
     error(&service(&mut dos, 0x3e00, 0xffff, 0, 0), 6); // Set carry.
     let cpu = service(&mut dos, 0x3000, 0x1234, 0x5678, 0x9abc);
@@ -59,7 +59,7 @@ async fn check_guest_interrupt_vector() {
     ];
     program.resize(0x20, 0);
     program.extend_from_slice(&[0xb8, 0x34, 0x12, 0xcf]); // MOV AX,1234; IRET
-    dos.load_com(&program, Default::default()).unwrap();
+    dos.launch_com(&program, Default::default()).unwrap();
     assert_eq!(
         dos.cpu().run(100).unwrap(),
         ExecutionExit::Host(HostExit::Return)

@@ -9,7 +9,7 @@ fn create_new_preserves_existing_files_and_returns_a_writable_handle() {
         let mut dos = common::dos().await;
         dos.mount_file("DATA/KEEP.BIN", b"keep".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"KEEP.BIN", 0x4301, 0x07));
 
@@ -49,7 +49,7 @@ fn create_new_validates_paths_attributes_and_capacity_before_publishing_a_file()
         let mut dos = common::dos().await;
         dos.mount_file("DIR/KEEP.BIN", b"keep".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         for (path, attributes, code) in [
             (b"MISSING/NEW.BIN".as_slice(), 0, 3),
             (b"DIR", 0, 5),

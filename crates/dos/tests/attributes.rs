@@ -26,7 +26,7 @@ async fn check_file_attributes() {
         .unwrap();
     dos.mount_file("LOCKED.DAT", vec![], FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     dos.cpu().context().cpu.set_eflags(0x0a57);
     assert_eq!(attributes(&mut dos, b"LOCKED.DAT"), 0x21);
     assert_eq!(dos.cpu().context().cpu.eflags(), 0x0a56);
@@ -59,7 +59,8 @@ async fn check_file_attributes() {
         success(&path_service(&mut dos, b"\\LOCKED.DAT", 0x3d42, 0)),
         8
     );
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(attributes(&mut dos, b"FILE.BIN"), 0x26);
     dos.mount_file("DATA/FILE.BIN", vec![], FileAccess::ReadOnly)
         .unwrap();
@@ -70,7 +71,7 @@ async fn check_directory_attributes_and_errors() {
     let mut dos = common::dos().await;
     dos.mount_file("DATA/FILE.BIN", vec![], FileAccess::ReadWrite)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     success(&path_service(&mut dos, b"DATA", 0x4301, 0x13));
     assert_eq!(attributes(&mut dos, b"DATA"), 0x13);
     error(&path_service(&mut dos, b"DATA", 0x4e00, 0x10), 18);
@@ -101,7 +102,7 @@ async fn check_archive_on_close() {
     let mut dos = common::dos().await;
     dos.mount_file("DATA.BIN", b"abc".to_vec(), FileAccess::ReadWrite)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     dos.cpu().context().memory.write(0x10400, b"x").unwrap();
     success(&path_service(&mut dos, b"DATA.BIN", 0x4301, 0x06));
 
@@ -149,7 +150,7 @@ async fn check_archive_cleanup_and_replacement() {
     let mut dos = common::dos().await;
     dos.mount_file("DATA.BIN", b"abc".to_vec(), FileAccess::ReadWrite)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     success(&path_service(&mut dos, b"DATA.BIN", 0x4301, 0));
     let handle = success(&path_service(&mut dos, b"DATA.BIN", 0x3d42, 0));
     let duplicate = success(&service(&mut dos, 0x4500, handle, 0, 0));
@@ -170,15 +171,17 @@ async fn check_archive_cleanup_and_replacement() {
     assert_eq!(attributes(&mut dos, b"DATA.BIN"), 0);
     assert_eq!(dos.read_file("DATA.BIN").unwrap(), b"replacement");
 
-    // Reloading closes every handle through the same process-cleanup path.
+    // Termination closes every handle through the same process-cleanup path.
     let handle = success(&path_service(&mut dos, b"DATA.BIN", 0x3d42, 0));
     success(&service(&mut dos, 0x4500, handle, 0, 0));
     success(&service(&mut dos, 0x4000, handle, 0, 0));
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(attributes(&mut dos, b"DATA.BIN"), 0x20);
     success(&path_service(&mut dos, b"DATA.BIN", 0x4301, 0));
     success(&path_service(&mut dos, b"DATA.BIN", 0x3d40, 0)); // Unmodified open.
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(attributes(&mut dos, b"DATA.BIN"), 0);
 }
 

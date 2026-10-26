@@ -8,7 +8,7 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         for function in [0x01, 0x08] {
-            dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+            dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
             {
                 let mut machine = dos.cpu().context();
                 let cpu = &mut machine.cpu;
@@ -42,6 +42,7 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
                 common::output(dos.stdout()),
                 if function == 1 { b"KZ".as_slice() } else { b"" }
             );
+            common::terminate(&mut dos);
         }
     });
 }
@@ -52,7 +53,7 @@ fn character_input_and_echo_follow_separate_standard_handle_redirections() {
         let mut dos = common::dos().await;
         dos.mount_file("IN.TXT", b"A\t\x1a".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         let input = success(&path_service(&mut dos, b"IN.TXT", 0x3d00, 0));
         let output = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));

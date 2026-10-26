@@ -54,11 +54,11 @@ pub(super) fn write_characters(
     handle: u16,
     bytes: &[u8],
 ) -> Result<(), DosError> {
-    match call.dos.files.writable_handle_type(handle)? {
+    match call.process.files().writable_handle_type(handle)? {
         HandleType::Device(Device::Console(stream)) => write_console(call, stream, bytes),
         HandleType::File => {
             if !bytes.is_empty() {
-                call.dos.files.write(handle, bytes)?;
+                call.process.files().write(handle, bytes)?;
             }
         }
         HandleType::Device(Device::Null) => {}
@@ -76,13 +76,13 @@ pub(in crate::services) fn write_handle(
     bytes: &[u8],
 ) -> Result<usize, DosError> {
     let HandleType::Device(Device::Console(stream)) =
-        call.dos.files.writable_handle_type(handle)?
+        call.process.files().writable_handle_type(handle)?
     else {
-        return call.dos.files.write(handle, bytes);
+        return call.process.files().write(handle, bytes);
     };
     // Even a zero-byte handle write clears EOF on this record and its duplicates.
-    call.dos.files.set_console_eof(handle, false);
-    if call.dos.files.console_raw(handle) {
+    call.process.files().set_console_eof(handle, false);
+    if call.process.files().console_raw(handle) {
         write_console(call, stream, bytes);
         return Ok(bytes.len());
     }

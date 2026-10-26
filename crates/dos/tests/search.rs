@@ -43,7 +43,7 @@ async fn check_searches() {
     }
     dos.mount_file("BOUNDARY/ABCDEFGH.DAT", vec![], FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     let cpu = service(&mut dos, 0x2f00, 0, 0, 0);
     assert_eq!(cpu.segments[Segment::Es].selector, 0x1000);
     assert_eq!(cpu.registers.ebx as u16, 0x80);
@@ -101,7 +101,8 @@ async fn check_searches() {
     dos.cpu().context().memory.write(0x10600, &saved).unwrap();
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
     assert_eq!(found_name(&dta(&mut dos, 0x10600)), "AB.DAT");
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     let cpu = service(&mut dos, 0x2f00, 0, 0, 0);
     assert_eq!(cpu.segments[Segment::Es].selector, 0x1000);
     assert_eq!(cpu.registers.ebx as u16, 0x80);
@@ -111,7 +112,7 @@ async fn check_attributes() {
     let mut dos = common::dos().await;
     dos.mount_file("NORMAL.DAT", b"abc".to_vec(), FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     for (name, attributes) in [
         (b"HIDDEN.DAT".as_slice(), 2),
         (b"SYSTEM.DAT", 4),
@@ -144,7 +145,7 @@ async fn check_search_deletion() {
     for name in ["DATA/A.DAT", "DATA/B.DAT", "DATA/C.DAT"] {
         dos.mount_file(name, vec![], FileAccess::ReadWrite).unwrap();
     }
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
     success(&path_service(&mut dos, b"*.DAT", 0x4e00, 0));
     let saved = dta(&mut dos, 0x10080);
@@ -225,7 +226,7 @@ async fn check_discovery_program() {
     program.extend_from_slice(b"DATA\0");
     program.resize(0x90, 0);
     program.extend_from_slice(b"*.DAT\0");
-    dos.load_com(&program, Default::default()).unwrap();
+    dos.launch_com(&program, Default::default()).unwrap();
     assert_eq!(
         dos.cpu().run(500).unwrap(),
         ExecutionExit::Host(HostExit::Return)

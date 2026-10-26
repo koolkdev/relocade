@@ -50,7 +50,7 @@ fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
         // The name sequence starts at zero; both files and directories occupy names.
         dos.mount_file("TMP/00000000", b"keep".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         success(&path_service(&mut dos, b"TMP/00000001", 0x3900, 0));
         dos.cpu().context().cpu.set_eflags(0x0a57);
         let (cpu, buffer) = temporary(&mut dos, b"c:\\tmp\\", 0x07);
@@ -101,7 +101,8 @@ fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
             success(&path_service(&mut dos, path, 0x4300, 0));
         }
         // DOS does not delete temporary files on program exit or replacement.
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        common::terminate(&mut dos);
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         assert_eq!(dos.read_file(name).unwrap(), b"saved");
     });
 }
@@ -119,7 +120,7 @@ fn temporary_file_errors_preserve_the_buffer_and_do_not_create_files() {
             FileAccess::ReadWrite,
         )
         .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         for (directory, attributes, code) in [
             (b"MISSING\\".as_slice(), 0, 3),
             (b"DATA/KEEP.BIN", 0, 3),

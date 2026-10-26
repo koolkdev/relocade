@@ -15,27 +15,27 @@ const GET_OUTPUT_STATUS: u8 = 0x07;
 pub(super) fn ioctl(call: &mut DosContext<'_, '_>) -> HookResult {
     let handle = call.execution.cpu.bx();
     let result = match call.execution.cpu.al() {
-        GET_DEVICE_INFORMATION => call.dos.files.device_information(handle).map(|info| {
+        GET_DEVICE_INFORMATION => call.process.files().device_information(handle).map(|info| {
             call.execution.cpu.set_dx(info);
             call.execution.cpu.set_ax(info);
         }),
         SET_DEVICE_INFORMATION => {
             let info = call.execution.cpu.dx();
-            call.dos
-                .files
+            call.process
+                .files()
                 .set_device_information(handle, info)
                 .map(|previous| {
                     call.execution.cpu.set_al(previous);
                 })
         }
         GET_INPUT_STATUS => call
-            .dos
-            .files
+            .process
+            .files()
             .input_available(&call.dos.stdio.input, handle)
             .map(|available| {
                 call.execution.cpu.set_al(if available { 0xff } else { 0 });
             }),
-        GET_OUTPUT_STATUS => call.dos.files.output_ready(handle).map(|ready| {
+        GET_OUTPUT_STATUS => call.process.files().output_ready(handle).map(|ready| {
             call.execution.cpu.set_al(if ready { 0xff } else { 0 });
         }),
         _ => Err(DosError::InvalidFunction),

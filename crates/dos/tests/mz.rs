@@ -48,7 +48,7 @@ async fn check_mz_execution() {
     let mut dos = common::dos().await;
     let mut file = executable();
     file.extend_from_slice(b"not part of the load module");
-    dos.load_mz(&file, Default::default()).unwrap();
+    dos.launch_mz(&file, Default::default()).unwrap();
     {
         let machine = dos.cpu().context();
         let cpu = machine.cpu.snapshot();
@@ -83,21 +83,29 @@ async fn check_mz_execution() {
     for (maximum, expected_end) in [(0x10, 0x1035_u16), (0xffff, 0x9ffe)] {
         let mut file = executable();
         set_word(&mut file, 0x0c, maximum);
-        dos.load_mz(&file, Default::default()).unwrap();
+        dos.launch_mz(&file, Default::default()).unwrap();
         let mut end = [0; 2];
         dos.cpu().context().memory.read(0x10002, &mut end).unwrap();
         assert_eq!(u16::from_le_bytes(end), expected_end);
         assert_eq!(dos.exit_status(), None);
+        assert_eq!(
+            dos.cpu().run(100).unwrap(),
+            ExecutionExit::Host(HostExit::Return)
+        );
     }
 
     // A zero final-page count means a complete 512-byte page.
     let mut file = executable();
     file.resize(512, 0);
     set_word(&mut file, 0x02, 0);
-    dos.load_mz(&file, Default::default()).unwrap();
+    dos.launch_mz(&file, Default::default()).unwrap();
     let mut end = [0; 2];
     dos.cpu().context().memory.read(0x10002, &mut end).unwrap();
     assert_eq!(u16::from_le_bytes(end), 0x105e);
+    assert_eq!(
+        dos.cpu().run(100).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
 
     // MINALLOC=MAXALLOC=0 loads at the top of memory. Keep its stack within
     // the reserved bytes before the code; this program cannot allocate more.
@@ -106,7 +114,7 @@ async fn check_mz_execution() {
     set_word(&mut file, 0x0c, 0);
     set_word(&mut file, 0x0e, 0);
     set_word(&mut file, 0x10, 0x12);
-    dos.load_mz(&file, Default::default()).unwrap();
+    dos.launch_mz(&file, Default::default()).unwrap();
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffa);
     assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ff9);
@@ -121,7 +129,7 @@ async fn check_mz_execution() {
 async fn check_invalid_mz() {
     let mut dos = common::dos().await;
     // Leave output and an exit status in the current process before failed loads.
-    dos.load_com(
+    dos.launch_com(
         &[
             0xba, 0x0c, 1, 0xb4, 9, 0xcd, 0x21, // Print DS:010C.
             0xb8, 3, 0x4c, 0xcd, 0x21, // Exit 3.
@@ -145,7 +153,7 @@ async fn check_invalid_mz() {
     // All short inputs and a truncated load module must be rejected.
     for length in 0..file.len() {
         assert!(
-            dos.load_mz(&file[..length], Default::default()).is_err(),
+            dos.launch_mz(&file[..length], Default::default()).is_err(),
             "length {length}"
         );
     }
@@ -164,8 +172,8 @@ async fn check_invalid_mz() {
         let mut invalid = file.clone();
         set_word(&mut invalid, offset, value);
         assert_eq!(
-            dos.load_mz(&invalid, Default::default()),
-            Err(error),
+            dos.launch_mz(&invalid, Default::default()),
+            Err(error.into()),
             "header offset {offset:x}"
         );
     }

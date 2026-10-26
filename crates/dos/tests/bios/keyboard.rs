@@ -1,7 +1,7 @@
 use crate::common;
 use relocade_bios::{KeyStroke, ShiftState};
-use relocade_dos::Dos;
-use relocade_x86::{CpuState, ExecutionExit};
+use relocade_dos::{Dos, LaunchError};
+use relocade_x86::{CpuState, ExecutionExit, HostExit};
 use std::{
     future::Future,
     io::Write,
@@ -36,7 +36,7 @@ fn invoke(dos: &mut Dos, ip: u32, ax: u16) -> CpuState {
 fn bios_peeks_reads_and_reports_shift_state_without_echo() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
         let keyboard = dos.keyboard();
         let cpu = invoke(&mut dos, 0x100, 0x017b);
         assert_eq!(cpu.flags.eflags(), 0x643);
@@ -80,7 +80,7 @@ impl Wake for WakeCount {
 fn bios_wait_uses_the_existing_async_interrupt_return() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
         dos.cpu().context().cpu.set_ax(0);
         dos.cpu().context().cpu.set_eflags(0x643);
         let keyboard = dos.keyboard();
@@ -108,7 +108,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             assert_eq!(cpu.sp(), 0xfffe);
             assert_eq!(cpu.eflags(), 0x643);
         }
-        // Cancellation releases the input waker, and a successful load recovers.
+        // Cancellation releases the input waker without terminating the process.
+        let caller = dos.cpu().context().cpu.snapshot();
         {
             let mut machine = dos.cpu().context();
             machine.cpu.set_eip(0x100);
@@ -123,7 +124,22 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             scan_code: 0x2d,
         });
         assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        assert_eq!(
+            dos.launch_com(PROGRAM, Default::default()),
+            Err(LaunchError::ProcessActive)
+        );
+        dos.cpu().context().cpu.restore(&caller).unwrap();
+        dos.cpu().cancel_pending_call();
+        {
+            let mut execution = dos.cpu().context();
+            execution.cpu.set_eip(0x104); // PROGRAM's DOS INT 21h entry.
+            execution.cpu.set_ax(0x4c00);
+        }
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Return)
+        );
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
     });
 }
@@ -132,7 +148,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
 fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
         let keyboard = dos.keyboard();
         keyboard.push(KeyStroke {
             character: 0,

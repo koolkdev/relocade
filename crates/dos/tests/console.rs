@@ -11,7 +11,7 @@ use std::io::{Read, Write};
 fn cooked_character_output_shares_tab_stops_with_strings_and_line_echo() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu().context().memory.write(0x10300, b"abc$").unwrap();
         service(&mut dos, 0x0900, 0, 0, 0x300);
         assert_eq!(common::output(dos.stdout()), b"abc");
@@ -61,7 +61,7 @@ fn cooked_character_output_shares_tab_stops_with_strings_and_line_echo() {
 
 async fn check_handle_output() {
     let mut dos = common::dos().await;
-    dos.load_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
+    dos.launch_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
         .unwrap(); // INT 21h; JMP $
     dos.cpu().context().memory.write(0x10200, b"A$\0Z").unwrap();
     // Deliberately start with the opposite carry value. IRET must restore all
@@ -114,7 +114,7 @@ async fn check_handle_output() {
 
 async fn check_redirected_string() {
     let mut dos = common::dos().await;
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(success(&service(&mut dos, 0x4500, 1, 0, 0)), 5); // Save stdout.
     assert_eq!(success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0)), 6);
     success(&service(&mut dos, 0x4600, 6, 1, 0));
@@ -145,13 +145,14 @@ async fn check_redirected_string() {
     assert_eq!(common::output(dos.stdout()), b"out");
     assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"out");
     service(&mut dos, 0x0900, 0, 0, 0x200);
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert!(common::output(dos.stdout()).is_empty());
 }
 
 async fn check_direct_console_io() {
     let mut dos = common::dos().await;
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     dos.cpu().context().cpu.set_eflags(0x603);
     let cpu = service(&mut dos, 0x06aa, 0, 0, 0xff);
     assert_eq!(cpu.registers.eax as u16, 0x0600);
@@ -184,7 +185,8 @@ async fn check_direct_console_io() {
     service(&mut dos, 0x0600, 0, 0, u16::from(b'X'));
     success(&service(&mut dos, 0x4600, 2, 1, 0));
     service(&mut dos, 0x0600, 0, 0, u16::from(b'Y'));
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert!(common::output(dos.stdout()).is_empty());
     assert!(common::output(dos.stderr()).is_empty());
     let cpu = service(&mut dos, 0x06aa, 0, 0, 0xff);
@@ -196,7 +198,7 @@ async fn check_redirected_character_io() {
     let mut dos = common::dos().await;
     dos.mount_file("IN.TXT", b"F\x1a".to_vec(), FileAccess::ReadOnly)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     dos.stdin().write_all(b"K").unwrap();
     assert_eq!(success(&service(&mut dos, 0x4500, 0, 0, 0)), 5); // Save stdin.
     assert_eq!(success(&path_service(&mut dos, b"IN.TXT", 0x3d00, 0)), 6);

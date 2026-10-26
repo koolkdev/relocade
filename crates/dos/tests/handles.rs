@@ -9,7 +9,7 @@ async fn check_shared_file_handles() {
     let mut dos = common::dos().await;
     dos.mount_file("DATA.BIN", b"abcdef".to_vec(), FileAccess::ReadWrite)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(success(&path_service(&mut dos, b"DATA.BIN", 0x3d42, 0)), 5);
     assert_eq!(success(&service(&mut dos, 0x4500, 5, 0, 0)), 6);
     assert_eq!(success(&path_service(&mut dos, b"DATA.BIN", 0x3d40, 0)), 7);
@@ -42,7 +42,8 @@ async fn check_shared_file_handles() {
     error(&service(&mut dos, 0x4000, 5, 1, 0x200), 5); // Access rights survive duplication.
 
     // Sharing restrictions remain until the last duplicate closes.
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(success(&path_service(&mut dos, b"DATA.BIN", 0x3d22, 0)), 5);
     assert_eq!(success(&service(&mut dos, 0x4500, 5, 0, 0)), 6);
     success(&service(&mut dos, 0x3e00, 5, 0, 0));
@@ -53,7 +54,7 @@ async fn check_shared_file_handles() {
 
 async fn check_redirection_and_capacity() {
     let mut dos = common::dos().await;
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     assert_eq!(success(&service(&mut dos, 0x4500, 1, 0, 0)), 5); // Save stdout.
     assert_eq!(success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0)), 6);
     success(&service(&mut dos, 0x4600, 6, 1, 0)); // Redirect stdout to the file.
@@ -83,7 +84,8 @@ async fn check_redirection_and_capacity() {
     assert_eq!(success(&service(&mut dos, 0x4000, 19, 4, 0x200)), 4);
     assert_eq!(common::output(dos.stdout()), b"file");
 
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    common::terminate(&mut dos);
+    dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     error(&service(&mut dos, 0x4500, 19, 0, 0), 6);
     assert_eq!(success(&service(&mut dos, 0x4500, 1, 0, 0)), 5);
 }

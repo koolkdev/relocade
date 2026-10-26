@@ -11,7 +11,7 @@ use std::{
 fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu()
             .context()
             .memory
@@ -85,7 +85,7 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
 fn buffered_input_reserves_cr_space_and_handles_zero_capacity() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         for (capacity, input, expected, echoed) in [
             (0u8, b"N".to_vec(), vec![], vec![]),
             (1, b"X\r".to_vec(), b"\r".to_vec(), b"\x07\r".to_vec()),
@@ -138,7 +138,7 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
             relocade_dos::FileAccess::ReadOnly,
         )
         .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let input_handle = success(&path_service(&mut dos, b"IN.TXT", 0x3d00, 0));
         success(&service(&mut dos, 0x4600, input_handle, 0, 0));
         let output_handle = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
@@ -159,6 +159,7 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
         assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"one\rtwo\r");
         assert!(common::output(dos.stdout()).is_empty());
         assert_eq!(success(&service(&mut dos, 0x4201, input_handle, 0, 0)), 9);
+        let caller = dos.cpu().context().cpu.snapshot();
         dos.cpu().context().cpu.set_ax(0x0a00);
         dos.cpu().context().cpu.set_dx(0x400);
         dos.cpu().context().cpu.set_eip(0x100);
@@ -166,7 +167,10 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
             dos.cpu().run(10).unwrap(),
             ExecutionExit::Host(HostExit::Deferred)
         ); // EOF doesn't read K.
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.cpu().context().cpu.restore(&caller).unwrap();
+        dos.cpu().cancel_pending_call();
+        common::terminate(&mut dos);
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu().context().memory.write(0x10400, &[8, 0]).unwrap();
         dos.stdin().write_all(b"new\r").unwrap();
         service(&mut dos, 0x0a00, 0, 0, 0x400);

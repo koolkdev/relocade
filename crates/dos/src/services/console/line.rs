@@ -41,8 +41,8 @@ impl LineInput {
             Err(error) => return return_result(call, Err(error)),
         }
         let input = match call
-            .dos
-            .files
+            .process
+            .files()
             .wait_for_character(&call.dos.stdio.input, self.input_handle)
         {
             Ok(input) => input,
@@ -61,14 +61,16 @@ impl LineInput {
     fn read_available(&mut self, call: &mut DosContext<'_, '_>) -> Result<bool, DosError> {
         // NUL returns zero forever, so it cannot complete a line. Wait without spinning.
         if matches!(
-            call.dos.files.readable_handle_type(self.input_handle)?,
+            call.process
+                .files()
+                .readable_handle_type(self.input_handle)?,
             HandleType::Device(Device::Null)
         ) {
             return Ok(false);
         }
         while let Some(byte) = call
-            .dos
-            .files
+            .process
+            .files()
             .read_character(&call.dos.stdio.input, self.input_handle)?
         {
             if self.accept(call, byte) {

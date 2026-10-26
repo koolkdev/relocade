@@ -35,7 +35,8 @@
 //! tabs and control bytes. Duplicates share mode and EOF changes; separate opens
 //! keep their own state. Switching modes preserves the buffered cooked-line remainder.
 //! Keep the same run future alive while waiting; dropping an active read
-//! cancels it and requires reloading the program before further execution.
+//! cancels it. To resume, replace its guest continuation and call
+//! [`Cpu::cancel_pending_call`]. Cancellation does not terminate the DOS process.
 //! Character and buffered reads stay blocked at redirected file EOF; host file
 //! growth does not yet wake them. AH=3Fh file reads return zero at EOF.
 //! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
@@ -65,8 +66,8 @@
 //! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
 //! AH=09h string output follows the current stdout handle, just like AH=40h.
 //! AX=4400h reports file/device information for the object behind a handle.
-//! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
-//! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
+//! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
+//! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
 //! The host controls execution through [`Dos::cpu`]. The CPU selects the native
 //! or browser Wasm engine; its hooks retain the DOS service state.
 //!
@@ -79,7 +80,7 @@
 //! let mut disk = relocade_vfs::MemoryFileSystem::new();
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
-//! dos.load_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
+//! dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
 //! assert_eq!(dos.cpu().run(u64::MAX)?, relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return));
 //! assert_eq!(dos.exit_status(), Some(Ok(7)));
 //! let mut output = Vec::new();
@@ -104,14 +105,15 @@ mod services;
 mod state;
 mod stdio;
 
-pub use error::{LoadError, MountError, ServiceError};
+pub use error::{LaunchError, LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
-use relocade_machine::{Cpu, Memory};
+use process::{Process, ProcessStatus};
+use relocade_machine::{Cpu, CpuContext, Memory};
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
-/// A DOS environment that owns its service state for one guest program.
+/// A DOS session with persistent CPU, memory, filesystems and console resources.
 pub struct Dos {
     state: Rc<RefCell<DosState>>,
     cpu: Cpu,
@@ -136,24 +138,42 @@ impl Dos {
         Ok(Self { state, cpu })
     }
 
-    /// Loads a COM image of 1..=65,278 bytes and initializes its PSP, stack and CPU.
-    /// Replaces the process allocation and clears buffered I/O and exit status.
-    /// Invalid images or options leave the existing program and its state unchanged.
-    pub fn load_com(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
-        let psp_segment = com::load(&mut self.cpu.context(), image, &options)?;
-        self.cpu.cancel_pending_call();
-        self.state.borrow_mut().reset_process(psp_segment);
-        Ok(())
+    /// Launches a COM image of 1..=65,278 bytes when no process is active.
+    /// Initializes its PSP, environment, standard handles, stack and CPU entry state.
+    /// Successful launches clear buffered console I/O and the previous exit status.
+    /// Rejected launches leave the previous program and session state unchanged.
+    pub fn launch_com(
+        &mut self,
+        image: &[u8],
+        options: LoadOptions<'_>,
+    ) -> Result<(), LaunchError> {
+        self.launch(|execution| com::load(execution, image, &options))
     }
 
-    /// Loads a DOS MZ executable, applies relocations and initializes its PSP and CPU.
-    /// Replaces the root process and clears buffered I/O and exit status.
-    /// Invalid images or options leave the existing program and its state unchanged.
+    /// Launches an MZ executable, applying relocations and its memory request.
+    /// Like [`Self::launch_com`], requires the previous process to have terminated.
     /// Overlay loading is not supported.
-    pub fn load_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LoadError> {
-        let psp_segment = mz::load(&mut self.cpu.context(), image, &options)?;
+    pub fn launch_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LaunchError> {
+        self.launch(|execution| mz::load(execution, image, &options))
+    }
+
+    fn launch(
+        &mut self,
+        load: impl FnOnce(&mut CpuContext<'_>) -> Result<u16, LoadError>,
+    ) -> Result<(), LaunchError> {
+        let mut state = self.state.borrow_mut();
+        // Reject before touching CPU state, including a pending input call.
+        if state
+            .process
+            .as_ref()
+            .is_some_and(|process| process.status() == ProcessStatus::Active)
+        {
+            return Err(LaunchError::ProcessActive);
+        }
+        let psp_segment = load(&mut self.cpu.context())?;
         self.cpu.cancel_pending_call();
-        self.state.borrow_mut().reset_process(psp_segment);
+        state.stdio.clear();
+        state.process = Some(Rc::new(Process::new(psp_segment)));
         Ok(())
     }
 
@@ -169,7 +189,14 @@ impl Dos {
     ) -> std::io::Result<()> {
         let state = &mut *self.state.borrow_mut();
         state.filesystem.mount(letter, filesystem)?;
-        state.files.invalidate_searches(letter.to_ascii_uppercase());
+        if let Some(process) = &state.process {
+            if process.status() == ProcessStatus::Active {
+                process
+                    .context()
+                    .files()
+                    .invalidate_searches(letter.to_ascii_uppercase());
+            }
+        }
         Ok(())
     }
 
@@ -204,7 +231,14 @@ impl Dos {
 
     /// None until a DOS service terminates the process or reports a service error.
     pub fn exit_status(&self) -> Option<Result<u8, ServiceError>> {
-        self.state.borrow().exit_status
+        self.state
+            .borrow()
+            .process
+            .as_ref()
+            .and_then(|process| match process.status() {
+                ProcessStatus::Active => None,
+                ProcessStatus::Exited(status) => Some(status),
+            })
     }
 
     /// Returns an owned console input writer. Bytes use the guest's encoding.
@@ -219,7 +253,7 @@ impl Dos {
     /// use std::io::Write;
     ///
     /// let mut dos = relocade_dos::Dos::new().await?;
-    /// dos.load_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
+    /// dos.launch_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let mut input = dos.stdin();
     /// // An event handler can retain this writer while the cpu waits.
     /// let run = dos.cpu().run_async(100);

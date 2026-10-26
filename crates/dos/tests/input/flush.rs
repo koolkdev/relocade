@@ -8,7 +8,7 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         for function in [0x01, 0x07, 0x08, 0x0a] {
-            dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+            dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
             dos.stdin().write_all(b"old\r").unwrap();
             {
                 let mut machine = dos.cpu().context();
@@ -59,6 +59,7 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 _ => b"",
             };
             assert_eq!(common::output(dos.stdout()), expected);
+            common::terminate(&mut dos);
         }
     });
 }
@@ -67,7 +68,7 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
 fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         service(&mut dos, 0x0200, 0, 0, u16::from(b'P'));
         dos.stdin().write_all(b"old\r").unwrap();
         dos.cpu().context().cpu.set_eflags(0x603);
@@ -118,7 +119,7 @@ fn flush_redirected_stdin_preserves_file_position_and_console_queue() {
         let mut dos = common::dos().await;
         dos.mount_file("IN.TXT", b"AB".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         let file = success(&path_service(&mut dos, b"IN.TXT", 0x3d00, 0));
         success(&service(&mut dos, 0x4600, file, 0, 0));

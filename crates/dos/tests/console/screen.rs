@@ -6,7 +6,7 @@ use relocade_x86::{ExecutionExit, HostExit};
 fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(
+        dos.launch_com(
             &[
                 0xb8, 1, 5, 0xcd, 0x10, // INT 10h/AH=05h: select page 1.
                 0xb4, 2, 0xb7, 1, 0xba, 2, 1, 0xcd, 0x10, // Cursor at row 1, column 2.
@@ -61,7 +61,7 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
 
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(
+        dos.launch_com(
             &[
                 0xb4, 9, 0xba, 0x00, 3, 0xcd, 0x21, // Print DS:0300.
                 0xb4, 1, 0xcd, 0x21, // Read and echo a character.
@@ -108,7 +108,7 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
 fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
         success(&service(&mut dos, 0x4600, file, 1, 0));
         let blank = dos.screen();

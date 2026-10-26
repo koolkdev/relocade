@@ -28,9 +28,9 @@ async fn check_command_tails() {
                 ..Default::default()
             };
             if mz {
-                dos.load_mz(&image, options).unwrap();
+                dos.launch_mz(&image, options).unwrap();
             } else {
-                dos.load_com(&image, options).unwrap();
+                dos.launch_com(&image, options).unwrap();
             }
             let mut bytes = [0; 128];
             dos.cpu()
@@ -61,11 +61,11 @@ async fn check_command_tails() {
             ..Default::default()
         };
         let result = if mz {
-            dos.load_mz(&image, options)
+            dos.launch_mz(&image, options)
         } else {
-            dos.load_com(&image, options)
+            dos.launch_com(&image, options)
         };
-        assert_eq!(result, Err(LoadError::CommandTailTooLong));
+        assert_eq!(result, Err(LoadError::CommandTailTooLong.into()));
         assert_eq!(dos.cpu().context().cpu.snapshot(), cpu);
         let mut after = [0; 256];
         dos.cpu()
