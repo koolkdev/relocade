@@ -1,12 +1,15 @@
-use super::buffers::{transfer_count, write_wrapping};
+use super::buffers::write_wrapping;
 use crate::{
     error::DosError,
-    files::{CreateMode, Device, HandleType},
+    files::CreateMode,
     interrupt::{return_result, DosContext},
     path::MAX_PATH_BYTES,
 };
 use relocade_machine::HookResult;
 use relocade_x86::Segment;
+
+mod io;
+pub(super) use io::{read, write};
 
 /// AH=71h: report that long-filename services are absent so callers can use 8.3.
 pub(super) fn long_filename(call: &mut DosContext<'_, '_>) -> HookResult {
@@ -135,54 +138,6 @@ pub(super) fn force_duplicate(call: &mut DosContext<'_, '_>) -> HookResult {
         call.process
             .files()
             .force_duplicate(&mut call.dos.filesystem(), source, destination);
-    return_result(call, result)
-}
-
-/// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
-pub(super) fn read(call: &mut DosContext<'_, '_>) -> HookResult {
-    let handle = call.execution.cpu.bx();
-    let kind = call.process.files().readable_handle_type(handle);
-    match kind {
-        Ok(HandleType::Device(Device::Console(stream))) => {
-            return super::console::read_handle(call, stream);
-        }
-        Ok(HandleType::File | HandleType::Device(Device::Null)) => {}
-        Ok(HandleType::Device(Device::Auxiliary | Device::Printer)) => {
-            return return_result(call, Err(DosError::AccessDenied));
-        }
-        Err(error) => return return_result(call, Err(error)),
-    }
-    let cpu = &call.execution.cpu;
-    let offset = cpu.dx();
-    let count = transfer_count(offset, cpu.cx());
-    let segment = cpu.segment(Segment::Ds);
-    let mut bytes = vec![0; count];
-    let result = call.process.files().read(handle, &mut bytes).map(|count| {
-        call.execution
-            .memory
-            .write_segment(&segment, u32::from(offset), &bytes[..count])
-            .expect("real-mode buffer");
-        call.execution.cpu.set_ax(count as u16);
-    });
-    return_result(call, result)
-}
-
-/// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
-pub(super) fn write(call: &mut DosContext<'_, '_>) -> HookResult {
-    let handle = call.execution.cpu.bx();
-    let cpu = &call.execution.cpu;
-    let offset = cpu.dx();
-    let count = transfer_count(offset, cpu.cx());
-    let segment = cpu.segment(Segment::Ds);
-    let mut bytes = vec![0; count];
-    if count != 0 {
-        call.execution
-            .memory
-            .read_segment(&segment, u32::from(offset), &mut bytes)
-            .expect("real-mode buffer");
-    }
-    let result = super::console::write_handle(call, handle, &bytes)
-        .map(|count| call.execution.cpu.set_ax(count as u16));
     return_result(call, result)
 }
 

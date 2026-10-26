@@ -1,87 +1,41 @@
-use super::output::{write_cooked_character, CharacterOutput};
-use crate::{
-    error::DosError,
-    files::{Device, HandleType},
-    interrupt::{return_result, DosContext},
+use super::{
+    input,
+    output::{write_cooked_character, CharacterOutput},
 };
-use relocade_machine::HookResult;
+use crate::{error::DosError, files::Handle, interrupt::DosContext};
+
+/// Edits a line with capacity for its final carriage return.
+pub(in crate::services) async fn read_line(
+    call: &mut DosContext<'_, '_>,
+    source: &Handle,
+    capacity: u8,
+    echo: CharacterOutput,
+) -> Result<Vec<u8>, DosError> {
+    let mut editor = LineEditor {
+        bytes: Vec::new(),
+        capacity,
+        echo,
+        extended_key: false,
+        first: true,
+    };
+    loop {
+        let byte = input::read_character(source, &call.dos.stdio().input).await?;
+        if editor.accept(call, byte) {
+            return Ok(editor.bytes);
+        }
+    }
+}
 
 /// A line being edited, including its final carriage return once complete.
-pub(super) struct LineInput {
+struct LineEditor {
     bytes: Vec<u8>,
     capacity: u8,
-    input_handle: u16,
     echo: CharacterOutput,
     extended_key: bool,
     first: bool,
 }
 
-impl LineInput {
-    /// Capacity includes the carriage return and must be nonzero.
-    pub(super) fn new(capacity: u8, input_handle: u16, echo: CharacterOutput) -> Self {
-        Self {
-            bytes: Vec::new(),
-            capacity,
-            input_handle,
-            echo,
-            extended_key: false,
-            first: true,
-        }
-    }
-
-    /// Reads queued input and defers for missing characters until the line is complete.
-    pub(super) fn read(
-        mut self,
-        call: &mut DosContext<'_, '_>,
-        complete: impl FnOnce(&mut DosContext<'_, '_>, Vec<u8>) -> HookResult + 'static,
-    ) -> HookResult {
-        match self.read_available(call) {
-            Ok(true) => return complete(call, self.bytes),
-            Ok(false) => {}
-            Err(error) => return return_result(call, Err(error)),
-        }
-        let input = match call
-            .process
-            .files()
-            .wait_for_character(&call.dos.stdio().input, self.input_handle)
-        {
-            Ok(input) => input,
-            Err(error) => return return_result(call, Err(error)),
-        };
-        call.defer(input, move |call, byte| {
-            if self.accept(call, byte) {
-                complete(call, self.bytes)
-            } else {
-                self.read(call, complete)
-            }
-        })
-    }
-
-    /// Consumes queued input, returning true when Enter completes the line.
-    fn read_available(&mut self, call: &mut DosContext<'_, '_>) -> Result<bool, DosError> {
-        // NUL returns zero forever, so it cannot complete a line. Wait without spinning.
-        if matches!(
-            call.process
-                .files()
-                .readable_handle_type(self.input_handle)?,
-            HandleType::Device(Device::Null)
-        ) {
-            return Ok(false);
-        }
-        loop {
-            let byte = call
-                .process
-                .files()
-                .read_character(&call.dos.stdio().input, self.input_handle)?;
-            let Some(byte) = byte else {
-                return Ok(false);
-            };
-            if self.accept(call, byte) {
-                return Ok(true);
-            }
-        }
-    }
-
+impl LineEditor {
     fn accept(&mut self, call: &mut DosContext<'_, '_>, byte: u8) -> bool {
         if self.extended_key {
             self.extended_key = false;

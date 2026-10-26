@@ -16,7 +16,10 @@ fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_dx(dx);
         cpu.set_eflags(0x643);
     }
-    assert_eq!(dos.cpu().run(15).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(15)),
+        ExecutionExit::BudgetExhausted
+    );
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
     assert_eq!(cpu.flags.eflags(), 0x643);

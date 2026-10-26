@@ -1,112 +1,115 @@
-use super::{Cpu, Error, HookResult, Result};
+//! Idle machine ownership and retained execution across pending host services.
+
+use super::{machine::Machine, Cpu, HookResult};
+use futures_util::future::LocalBoxFuture;
 use relocade_x86::{ExecutionExit, HostExit};
-use std::rc::Rc;
+use std::{cell::Cell, future::poll_fn, rc::Rc, task::Poll};
 
-impl<T: 'static> Cpu<T> {
-    /// Runs until the budget is consumed at a block boundary, a guest exit
-    /// occurs, or a host function requests a return. Whole blocks can exceed the
-    /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
-    /// Zero does not enter Wasm. The target saturates at u64::MAX.
-    ///
-    /// A deferred host operation returns `ExecutionExit::Host(HostExit::Deferred)`.
-    /// Subsequent synchronous runs return the same exit without polling it; use
-    /// `run_async` to wait and resume.
-    /// An interrupted async handler returns `Error::CancelledHostCall` until
-    /// the embedding replaces its continuation and clears the pending call.
-    pub fn run(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
-        if instruction_budget == 0 {
-            return Ok(ExecutionExit::BudgetExhausted);
-        }
-        let target = self.instruction_target(instruction_budget);
-        self.enter(target)
+pub(super) enum Execution<T> {
+    // Taken only while synchronously transferring ownership into Pending.
+    Idle(Option<Machine<T>>),
+    Pending {
+        future: LocalBoxFuture<'static, (Machine<T>, ExecutionExit)>,
+        replacement_budget: Rc<Cell<Option<u64>>>,
+    },
+}
+
+impl<T: 'static> Execution<T> {
+    pub fn new(machine: Machine<T>) -> Self {
+        Self::Idle(Some(machine))
     }
 
-    /// Runs with the same instruction budget as `run`, waiting for deferred host
-    /// operations before continuing the guest. Waits do not replenish the budget.
-    /// Other host returns and guest exits are returned to the embedding.
-    ///
-    /// Generated guest calls remain synchronous. Async handlers borrow the
-    /// stopped runtime after the guest call returns, then dispatch resumes at
-    /// the continuation they set. Keep this same future alive across waits.
-    ///
-    /// Dropping it during an async handler cancels that handler without undoing
-    /// its side effects. Further nonzero runs return `Error::CancelledHostCall`.
-    /// Before resuming, replace the guest continuation (for example, load a new
-    /// program) and clear the interrupted call with `cancel_pending_call`.
-    /// Zero does not enter Wasm or poll pending work.
-    pub async fn run_async(&mut self, instruction_budget: u64) -> Result<ExecutionExit> {
-        if instruction_budget == 0 {
-            return Ok(ExecutionExit::BudgetExhausted);
-        }
-        let target = self.instruction_target(instruction_budget);
-        let mut exit = self.enter(target)?;
-        while exit == ExecutionExit::Host(HostExit::Deferred) {
-            exit = match self.run_deferred().await {
-                HookResult::Continue => self.enter(target)?,
-                HookResult::Exit(exit) => exit,
-            };
-        }
-        Ok(exit)
-    }
-
-    /// Drops a queued handler and clears any interrupted call, without changing CPU state.
-    /// Use when replacing a suspended program or its continuation.
-    /// Cancellation does not undo side effects already performed by the operation.
-    pub fn cancel_pending_call(&mut self) {
-        let pending = self.machine.pending.take();
-        self.host_call_incomplete = false;
-        drop(pending);
-    }
-
-    fn instruction_target(&mut self, instruction_budget: u64) -> u64 {
-        self.context()
-            .cpu
-            .instruction_count()
-            .saturating_add(instruction_budget)
-    }
-
-    fn enter(&mut self, target: u64) -> Result<ExecutionExit> {
-        if self.host_call_incomplete {
-            return Err(Error::CancelledHostCall);
-        }
-        // A previous synchronous run may already have stopped at a deferred call.
-        if self.machine.pending.is_some() {
-            return Ok(ExecutionExit::Host(HostExit::Deferred));
-        }
-        self.machine
-            .bindings
-            .set_instruction_target(&mut self.machine.backend, target);
-        loop {
-            let exit = self.machine.dispatch.run(&mut self.machine.backend);
-            let ExecutionExit::Host(HostExit::Call { address }) = exit else {
-                return Ok(exit);
-            };
-            let handler = Rc::clone(
-                self.machine
-                    .hooks
-                    .get(&address)
-                    .expect("registered host entry"),
-            );
-            match handler(&mut self.machine.context()) {
-                HookResult::Continue => {}
-                HookResult::Exit(exit) => return Ok(exit),
+    pub fn machine(&self) -> &Machine<T> {
+        match self {
+            Self::Idle(machine) => machine.as_ref().expect("idle machine"),
+            Self::Pending { .. } => {
+                panic!("host service is suspended; complete it before accessing the machine")
             }
         }
     }
 
-    async fn run_deferred(&mut self) -> HookResult {
-        let handler = self
-            .machine
-            .pending
-            .take()
-            .expect("deferred exit must have a handler");
-        // Cancellation leaves this set so a later run cannot replay the hook.
-        self.host_call_incomplete = true;
-        let result = {
-            let mut context = self.context();
-            handler.run(&mut context).await
-        };
-        self.host_call_incomplete = false;
-        result
+    pub fn machine_mut(&mut self) -> &mut Machine<T> {
+        match self {
+            Self::Idle(machine) => machine.as_mut().expect("idle machine"),
+            Self::Pending { .. } => {
+                panic!("host service is suspended; complete it before accessing the machine")
+            }
+        }
+    }
+
+    async fn run(&mut self, budget: u64) -> ExecutionExit {
+        if budget == 0 {
+            return ExecutionExit::BudgetExhausted;
+        }
+        match self {
+            Self::Idle(machine) => {
+                // Guest-only runs leave the machine here and allocate no future.
+                let exit = machine
+                    .as_mut()
+                    .expect("idle machine")
+                    .dispatch(Some(budget));
+                let ExecutionExit::Host(HostExit::Call { address }) = exit else {
+                    return exit;
+                };
+                let machine = machine.take().expect("idle machine");
+                let replacement_budget = Rc::new(Cell::new(None));
+                *self = Self::Pending {
+                    future: Box::pin(execute(machine, address, Rc::clone(&replacement_budget))),
+                    replacement_budget,
+                };
+            }
+            Self::Pending {
+                replacement_budget, ..
+            } => replacement_budget.set(Some(budget)),
+        }
+        poll_fn(|cx| {
+            let Self::Pending { future, .. } = self else {
+                unreachable!("running host services");
+            };
+            match future.as_mut().poll(cx) {
+                Poll::Ready((machine, exit)) => {
+                    *self = Self::Idle(Some(machine));
+                    Poll::Ready(exit)
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        })
+        .await
+    }
+}
+
+async fn execute<T>(
+    mut machine: Machine<T>,
+    mut address: u32,
+    replacement_budget: Rc<Cell<Option<u64>>>,
+) -> (Machine<T>, ExecutionExit) {
+    let exit = loop {
+        match machine.call_host(address).await {
+            HookResult::Continue => {}
+            HookResult::Exit(exit) => break exit,
+        }
+        // A replacement waiter supplies one budget, applied after the
+        // pending service returns. Ordinary waits do not replenish it.
+        match machine.dispatch(replacement_budget.take()) {
+            ExecutionExit::Host(HostExit::Call { address: next }) => address = next,
+            exit => break exit,
+        }
+    };
+    (machine, exit)
+}
+
+impl<T: 'static> Cpu<T> {
+    /// Runs until the instruction budget is consumed or the guest exits,
+    /// awaiting host services as needed. Ready services complete in the same poll.
+    /// Whole blocks can exceed the budget; straight-line code and REP have no
+    /// fixed overshoot or elapsed-time bound. The target saturates at u64::MAX.
+    ///
+    /// Waits do not replenish this run's budget. Dropping its waiter preserves
+    /// the pending service and its locals. A subsequent run resumes that service
+    /// and supplies a new budget for continued guest execution. A zero budget
+    /// returns `BudgetExhausted` without entering Wasm or polling pending work.
+    /// Dropping the CPU drops the suspended call chain and its machine together.
+    pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
+        self.execution.run(instruction_budget).await
     }
 }

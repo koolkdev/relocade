@@ -1,18 +1,17 @@
 # Worker execution
 
-The intended interactive embedding uses one persistent async task owning the
-guest environment, runtime and active service for the program's lifetime. In a
-browser, this task lives in a worker alongside message handlers. The
-[worker transport](workers.md) supplies threads and messages. The persistent CPU
-execution loop remains deferred; this note records its intended ownership and
-scheduling.
+An interactive embedding can use one persistent async task owning the guest
+environment and runtime for the session's lifetime. In a browser, this task lives
+in a worker alongside message handlers. The [worker transport](workers.md) supplies
+threads and messages; the application supplies its execution loop and controls.
 
 The task owns one `Cpu<T>` for its lifetime. `T` is its guest environment state;
-BIOS/DOS hooks and deferred services execute on the same worker. The CPU selects
-the native or browser engine internally and retains its initialized memory resources.
-Hooks run in Rust after Wasm returns. A `CpuContext` borrows live state while the guest
-is stopped, and must be released before entering Wasm again. Shared resources
-can synchronize access independently of this CPU-local ownership.
+BIOS/DOS service futures execute on the same worker. The CPU selects the native
+or browser engine internally and retains its initialized memory resources.
+Hooks run in Rust after Wasm returns. A `CpuContext` borrows the executing machine;
+its CPU views bind storage directly and keep that backend borrow until they end.
+Services can hold ordinary views and local references across input awaits.
+Shared guest-memory handles support independent readers.
 
 ```text
 UI --input/control messages--> worker message handlers
@@ -41,11 +40,32 @@ The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
 An explicit stop command needs a control path that can wake the task while a
 service is pending; merely checking commands after a read completes is insufficient.
-Cancellation does not undo side effects already performed.
+The owning task stops by dropping the CPU and its pending service. Completed
+side effects, including writes visible through shared memory or file handles, remain.
 
-The task keeps the active service future alive through ordinary waits. This
-ownership does not make dropping that future cancellation-safe; explicit
-stop/reload behavior must follow the service API's cancellation contract.
+The CPU holds its machine directly between runs. Reaching a host service creates
+an execution future that owns the machine and call chain until execution stops.
+The future then returns the machine and exit result to the CPU and is released.
+Runs that finish without reaching a host service allocate no execution future.
+
+Dropping a `run` waiter preserves the pending future and its call chain; a later
+`run` resumes it and supplies a new budget for subsequent guest execution.
+Zero-budget runs do not poll pending work.
+
+While a host service is pending, complete it before borrowing
+CPU/environment state or installing modules and hooks. Use owned input/output
+handles and `cpu.memory()` for interactive I/O and display. Dropping the CPU
+releases the suspended call chain and its machine together.
+
+Create a persistent DOS session and its CPU with `Dos::new().await`, then
+mount filesystems and retain console handles before `launch_com(...)` or
+`launch_mz(...)`. These synchronous launches reuse the CPU and guest memory.
+Use `dos.process()` to retain the current program and inspect its `ProcessStatus`.
+It returns `None` before the first launch; an exited process remains observable.
+A launch while active returns `LaunchError::ProcessActive`, including when a
+service is pending. Normal DOS termination releases process resources while the
+session's mounts, directories, memory and console remain available. Launch does
+not cancel a program. Guest break handling and nested EXEC are separate DOS work.
 
 ## Event-loop scheduling
 

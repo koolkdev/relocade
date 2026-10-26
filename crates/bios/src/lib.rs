@@ -57,14 +57,14 @@ pub fn initialize(memory: &mut MemoryView<'_>) {
 pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
     [
         Hook::new(CLOCK_ADDRESS, clock),
-        Hook::new(KEYBOARD_ADDRESS, move |call| {
-            keyboard::interrupt(call, &keyboard)
+        Hook::new(KEYBOARD_ADDRESS, async move |call| {
+            keyboard::interrupt(call, &keyboard).await
         }),
         Hook::new(VIDEO_ADDRESS, video::interrupt),
     ]
 }
 
-fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     if call.cpu.ah() == 0 {
         let mut data = [0; 5];
         call.memory

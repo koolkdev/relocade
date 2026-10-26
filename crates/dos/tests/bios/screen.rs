@@ -44,7 +44,10 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
             Default::default(),
         )
         .unwrap();
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            pollster::block_on(dos.cpu().run(10)),
+            ExecutionExit::BudgetExhausted
+        );
         let screen = TextScreen::read(&view);
         assert_eq!(
             screen.cells[0],

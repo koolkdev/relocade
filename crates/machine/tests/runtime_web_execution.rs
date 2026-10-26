@@ -28,11 +28,11 @@ async fn runtime_executes_with_live_cpu_and_memory() {
         .write(0x100, &[0x40, 0xeb, 0xfd]) // INC AX; JMP 0100
         .unwrap();
     runtime.context().cpu.set_eax(41);
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu.eax(), 42);
     assert_eq!(runtime.context().cpu.eip(), 0x100);
     runtime.context().cpu.set_eax(100);
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu.eax(), 101);
     assert_eq!(runtime.context().cpu.instruction_count(), 4);
     // The same backing model controls CPUID and instruction admission.
@@ -43,11 +43,11 @@ async fn runtime_executes_with_live_cpu_and_memory() {
         .unwrap();
     runtime.context().cpu.set_eip(0x100);
     runtime.context().cpu.set_eax(1);
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu.edx(), 0x0788_8101);
     let before = runtime.context().cpu.snapshot();
     assert_eq!(
-        runtime.run(1).unwrap(),
+        runtime.run(1).await,
         ExecutionExit::Exception(Exception::InvalidOpcode)
     );
     assert_eq!(runtime.context().cpu.snapshot(), before);

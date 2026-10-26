@@ -5,22 +5,15 @@ use super::{
     file_handle::{FileHandle, SeekOrigin},
     AccessMode, Device, FileSystem, Files,
 };
-use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
-use relocade_bios::Keyboard;
+use crate::{error::DosError, stdio::OutputStream};
 use relocade_vfs::File;
 use std::rc::Rc;
 
 // A DOS process starts with 20 handles, including its five standard devices.
 pub(super) const HANDLE_COUNT: usize = 20;
 
-#[derive(Clone, Copy)]
-pub(crate) enum HandleType {
-    File,
-    Device(Device),
-}
-
 #[derive(Clone)]
-pub(super) enum Handle {
+pub(crate) enum Handle {
     // Separate opens have separate cursors; duplicated handles share this record.
     File(FileHandle),
     Device(Rc<DeviceHandle>),
@@ -57,14 +50,7 @@ impl Files {
             .any(|handle| matches!(handle, Handle::File(open) if open.same_file(file)))
     }
 
-    pub(super) fn open_file(
-        &mut self,
-        file: File,
-        path: ResolvedPath,
-        access: AccessMode,
-        sharing: u8,
-    ) -> Result<u16, DosError> {
-        let entry = FileHandle::new(file, path, access, sharing)?;
+    pub(super) fn insert_file(&mut self, entry: FileHandle) -> Result<u16, DosError> {
         if self
             .handles
             .iter()
@@ -85,62 +71,21 @@ impl Files {
             .ok_or(DosError::TooManyOpenFiles)
     }
 
-    pub(crate) fn handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
-        Ok(match self.handle(handle)? {
-            Handle::File(_) => HandleType::File,
-            Handle::Device(device) => HandleType::Device(device.kind),
-        })
-    }
-
-    pub(crate) fn readable_handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
-        let readable = match self.handle(handle)? {
-            Handle::File(file) => file.access().can_read(),
-            Handle::Device(device) => device.access.can_read(),
-        };
-        if !readable {
+    /// Resolves the current slot once; the returned record survives later slot changes.
+    pub(crate) fn readable_handle(&self, number: u16) -> Result<Handle, DosError> {
+        let handle = self.handle(number)?;
+        if !handle.access().can_read() {
             return Err(DosError::AccessDenied);
         }
-        self.handle_type(handle)
+        Ok(handle.clone())
     }
 
-    pub(crate) fn writable_handle_type(&self, handle: u16) -> Result<HandleType, DosError> {
-        let writable = match self.handle(handle)? {
-            Handle::File(file) => file.access().can_write(),
-            Handle::Device(device) => device.access.can_write(),
-        };
-        if !writable {
+    pub(crate) fn writable_handle(&self, number: u16) -> Result<Handle, DosError> {
+        let handle = self.handle(number)?;
+        if !handle.access().can_write() {
             return Err(DosError::AccessDenied);
         }
-        self.handle_type(handle)
-    }
-
-    pub(crate) fn read(&self, handle: u16, buffer: &mut [u8]) -> Result<usize, DosError> {
-        match self.handle(handle)? {
-            Handle::File(file) => file.read(buffer),
-            Handle::Device(device) => {
-                if !device.access.can_read() || !matches!(device.kind, Device::Null) {
-                    return Err(DosError::AccessDenied);
-                }
-                if !buffer.is_empty() {
-                    device.set_eof(true);
-                }
-                Ok(0)
-            }
-        }
-    }
-
-    pub(crate) fn write(&self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
-        match self.handle(handle)? {
-            Handle::File(file) => file.write(bytes),
-            Handle::Device(device) => {
-                if !device.access.can_write() || !matches!(device.kind, Device::Null) {
-                    return Err(DosError::AccessDenied);
-                }
-                // Even a zero-byte handle write clears EOF on this record and its duplicates.
-                device.set_eof(false);
-                Ok(bytes.len())
-            }
-        }
+        Ok(handle.clone())
     }
 
     pub(crate) fn seek(&self, handle: u16, origin: u8, offset: u32) -> Result<u32, DosError> {
@@ -217,44 +162,25 @@ impl Files {
         })
     }
 
-    /// DOS status queries ask the device, not the buffered handle-read line or EOF bit.
-    pub(crate) fn input_available(
-        &self,
-        keyboard: &Keyboard,
-        handle: u16,
-    ) -> Result<bool, DosError> {
-        Ok(match self.handle(handle)? {
-            Handle::File(file) => file.input_available(),
-            Handle::Device(device) => match device.kind {
-                Device::Console(_) => keyboard.has_input(),
-                Device::Null => true,
-                Device::Auxiliary | Device::Printer => false,
-            },
-        })
-    }
-
-    pub(crate) fn output_ready(&self, handle: u16) -> Result<bool, DosError> {
-        Ok(match self.handle(handle)? {
-            // DOS reports files ready even when opened for reading only.
-            Handle::File(_) => true,
-            Handle::Device(device) => match device.kind {
-                Device::Console(_) | Device::Null => true,
-                // These standard device slots have no attached host streams yet.
-                Device::Auxiliary | Device::Printer => false,
-            },
-        })
-    }
-
     pub(crate) fn close_all(self, filesystem: &mut FileSystem) {
         for handle in self.handles.into_iter().flatten() {
             Self::commit_handle(filesystem, handle);
         }
     }
 
-    pub(super) fn handle(&self, handle: u16) -> Result<&Handle, DosError> {
+    pub(crate) fn handle(&self, handle: u16) -> Result<&Handle, DosError> {
         self.handles
             .get(usize::from(handle))
             .and_then(Option::as_ref)
             .ok_or(DosError::InvalidHandle)
+    }
+}
+
+impl Handle {
+    fn access(&self) -> AccessMode {
+        match self {
+            Self::File(file) => file.access(),
+            Self::Device(device) => device.access,
+        }
     }
 }

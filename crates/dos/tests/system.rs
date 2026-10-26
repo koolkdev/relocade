@@ -63,7 +63,7 @@ async fn check_guest_interrupt_vector() {
     program.extend_from_slice(&[0xb8, 0x34, 0x12, 0xcf]); // MOV AX,1234; IRET
     dos.launch_com(&program, Default::default()).unwrap();
     assert_eq!(
-        dos.cpu().run(100).unwrap(),
+        pollster::block_on(dos.cpu().run(100)),
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(

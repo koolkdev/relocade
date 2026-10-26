@@ -2,25 +2,29 @@
 
 use crate::{
     error::DosError,
-    files::{Device, HandleType},
+    files::{Device, Handle},
     interrupt::DosContext,
     stdio::OutputStream,
 };
 
 #[derive(Clone, Copy)]
-pub(super) enum CharacterOutput {
+pub(in crate::services) enum CharacterOutput {
     Stdout,
     Console(OutputStream),
 }
 
-pub(super) fn write_console(call: &mut DosContext<'_, '_>, stream: OutputStream, bytes: &[u8]) {
+pub(in crate::services) fn write_console(
+    call: &mut DosContext<'_, '_>,
+    stream: OutputStream,
+    bytes: &[u8],
+) {
     call.dos.stdio().output(stream).extend(bytes);
     relocade_bios::write_text(&mut call.execution.memory, bytes);
 }
 
 /// DOS cooked output expands tabs, tracks its column and ignores write errors.
 /// Returns the last output byte (a space for a tab).
-pub(super) fn write_cooked_character(
+pub(in crate::services) fn write_cooked_character(
     call: &mut DosContext<'_, '_>,
     output: CharacterOutput,
     byte: u8,
@@ -43,45 +47,18 @@ pub(super) fn write_characters(
     handle: u16,
     bytes: &[u8],
 ) -> Result<(), DosError> {
-    let kind = call.process.files().writable_handle_type(handle)?;
-    match kind {
-        HandleType::Device(Device::Console(stream)) => write_console(call, stream, bytes),
-        HandleType::File => {
+    let handle = call.process.files().writable_handle(handle)?;
+    match handle {
+        Handle::File(file) => {
             if !bytes.is_empty() {
-                call.process.files().write(handle, bytes)?;
+                file.write(bytes)?;
             }
         }
-        HandleType::Device(Device::Null) => {}
-        HandleType::Device(Device::Auxiliary | Device::Printer) => {
-            return Err(DosError::AccessDenied);
-        }
+        Handle::Device(device) => match device.kind() {
+            Device::Console(stream) => write_console(call, stream, bytes),
+            Device::Null => {}
+            Device::Auxiliary | Device::Printer => return Err(DosError::AccessDenied),
+        },
     }
     Ok(())
-}
-
-/// AH=40h console writes share character output but honor raw mode and clear EOF.
-pub(in crate::services) fn write_handle(
-    call: &mut DosContext<'_, '_>,
-    handle: u16,
-    bytes: &[u8],
-) -> Result<usize, DosError> {
-    let kind = call.process.files().writable_handle_type(handle)?;
-    let HandleType::Device(Device::Console(stream)) = kind else {
-        return call.process.files().write(handle, bytes);
-    };
-    // Even a zero-byte handle write clears EOF on this record and its duplicates.
-    call.process.files().set_console_eof(handle, false);
-    if call.process.files().console_raw(handle) {
-        write_console(call, stream, bytes);
-        return Ok(bytes.len());
-    }
-    // Cooked writes stop before Ctrl-Z and count source bytes, including tabs.
-    let count = bytes
-        .iter()
-        .position(|&byte| byte == 0x1a)
-        .unwrap_or(bytes.len());
-    for &byte in &bytes[..count] {
-        write_cooked_character(call, CharacterOutput::Console(stream), byte);
-    }
-    Ok(count)
 }

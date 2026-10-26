@@ -1,6 +1,6 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;
-use relocade_x86::{ExecutionExit, HostExit};
+use relocade_x86::ExecutionExit;
 use std::io::Write;
 
 #[test]
@@ -16,16 +16,10 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
                 cpu.set_bx(0x1234);
                 cpu.set_eflags(0x643);
             }
-            assert_eq!(
-                dos.cpu().run(10).unwrap(),
-                ExecutionExit::Host(HostExit::Deferred)
-            );
+            crate::common::assert_pending(dos.cpu().run(10));
             assert!(common::output(dos.stdout()).is_empty());
             dos.stdin().write_all(b"KZ").unwrap();
-            assert_eq!(
-                dos.cpu().run_async(10).await.unwrap(),
-                ExecutionExit::BudgetExhausted
-            );
+            assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
             {
                 let machine = dos.cpu().context();
                 let cpu = &machine.cpu;

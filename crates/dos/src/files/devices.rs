@@ -16,14 +16,18 @@ pub(crate) enum Device {
     Printer,
 }
 
-pub(super) struct DeviceHandle {
-    pub kind: Device,
-    pub access: AccessMode,
+pub(crate) struct DeviceHandle {
+    pub(super) kind: Device,
+    pub(super) access: AccessMode,
     flags: Cell<u8>,
 }
 
 impl DeviceHandle {
-    pub fn new(kind: Device, access: AccessMode) -> Self {
+    pub(crate) fn kind(&self) -> Device {
+        self.kind
+    }
+
+    pub(super) fn new(kind: Device, access: AccessMode) -> Self {
         let attributes = match kind {
             Device::Console(_) => 0x03, // Standard input and output.
             Device::Null => 0x04,
@@ -36,20 +40,20 @@ impl DeviceHandle {
         }
     }
 
-    pub fn information(&self) -> u16 {
+    pub(super) fn information(&self) -> u16 {
         // DH reports the character-driver attribute; DL belongs to this open record.
         0x8000 | u16::from(self.flags.get())
     }
 
-    pub fn eof(&self) -> bool {
+    pub(crate) fn eof(&self) -> bool {
         self.flags.get() & INPUT_NOT_EOF == 0
     }
 
-    pub fn raw(&self) -> bool {
+    pub(crate) fn raw(&self) -> bool {
         self.flags.get() & RAW_MODE != 0
     }
 
-    pub fn set_eof(&self, eof: bool) {
+    pub(crate) fn set_eof(&self, eof: bool) {
         let flags = self.flags.get();
         self.flags.set(if eof {
             flags & !INPUT_NOT_EOF
@@ -108,24 +112,5 @@ impl Files {
         let handle = self.vacant_handle()?;
         self.handles[handle] = Some(Handle::Device(Rc::new(DeviceHandle::new(kind, access))));
         Ok(Some(handle as u16))
-    }
-
-    pub(crate) fn console_eof(&self, handle: u16) -> bool {
-        self.console(handle).eof()
-    }
-
-    pub(crate) fn set_console_eof(&self, handle: u16, eof: bool) {
-        self.console(handle).set_eof(eof);
-    }
-
-    pub(crate) fn console_raw(&self, handle: u16) -> bool {
-        self.console(handle).raw()
-    }
-
-    fn console(&self, handle: u16) -> &DeviceHandle {
-        match self.handle(handle).expect("validated console handle") {
-            Handle::Device(device) if matches!(device.kind, Device::Console(_)) => device,
-            _ => unreachable!("console handle"),
-        }
     }
 }

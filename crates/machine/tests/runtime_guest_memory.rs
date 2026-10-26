@@ -48,7 +48,7 @@ async fn check_guest_memory() {
     let mut runtime = Cpu::new(shared.clone(), config.cpu, ()).await.unwrap();
     let mut other = Cpu::new(shared.clone(), config.cpu, ()).await.unwrap();
     runtime.context().cpu.set_ax(0x1234);
-    assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu.eip(), 0x108);
     assert_eq!(other.context().cpu.eip(), 0x100);
     assert_eq!(other.context().cpu.ax(), 0);

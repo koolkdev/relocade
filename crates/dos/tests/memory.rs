@@ -15,7 +15,10 @@ fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuSta
             SegmentRegister::real_mode(Segment::Es, segment),
         );
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::BudgetExhausted
+    );
     dos.cpu().context().cpu.snapshot()
 }
 
@@ -82,7 +85,7 @@ async fn check_memory_services() {
     common::terminate(&mut dos);
     dos.launch_com(&[0xc3], Default::default()).unwrap(); // The next process can use the released arena.
     assert_eq!(
-        dos.cpu().run(10).unwrap(),
+        pollster::block_on(dos.cpu().run(10)),
         ExecutionExit::Host(HostExit::Return)
     );
     dos.cpu().context().memory.read(0xfff0, &mut mcb).unwrap();

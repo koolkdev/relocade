@@ -57,17 +57,16 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
-pub(crate) fn int21(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(crate) async fn int21(call: &mut DosContext<'_, '_>) -> HookResult {
     match call.execution.cpu.ah() {
         DIRECT_CONSOLE_IO => console::direct_io(call),
-        READ_CHARACTER_ECHO | READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
-            console::read_character(call)
-        }
+        READ_CHARACTER_ECHO => console::read_character(call, true).await,
+        READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => console::read_character(call, false).await,
         WRITE_CHARACTER => console::write_character(call),
         WRITE_STRING => console::write_string(call),
-        READ_BUFFERED => console::read_buffered(call),
+        READ_BUFFERED => console::read_buffered(call).await,
         INPUT_STATUS => console::input_status(call),
-        FLUSH_INPUT => console::flush_input(call),
+        FLUSH_INPUT => console::flush_input(call).await,
         SELECT_DRIVE => directories::select_drive(call),
         GET_DRIVE => directories::get_drive(call),
         SET_VECTOR => system::set_vector(call),
@@ -88,7 +87,7 @@ pub(crate) fn int21(call: &mut DosContext<'_, '_>) -> HookResult {
         OPEN_HANDLE => files::open(call),
         CLOSE_HANDLE => files::close(call),
         COMMIT_HANDLE | COMMIT_HANDLE_ALIAS => files::commit(call),
-        READ_HANDLE => files::read(call),
+        READ_HANDLE => files::read(call).await,
         WRITE_HANDLE => files::write(call),
         DELETE_FILE => files::delete(call),
         SEEK_HANDLE => files::seek(call),
@@ -112,6 +111,6 @@ fn terminate_process(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) fn int20(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(crate) async fn int20(call: &mut DosContext<'_, '_>) -> HookResult {
     call.exit(Ok(0))
 }

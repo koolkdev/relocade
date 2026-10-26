@@ -1,8 +1,9 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{callback::DeferredCall, hooks::Handler, Backend, CpuContext, Dispatch, RuntimeMemory};
+use super::{hooks::Handler, Backend, CpuContext, Dispatch, HookResult, RuntimeMemory};
 use crate::CpuView;
 use relocade_wasm_runtime::WasmMemoryAccess;
+use relocade_x86::ExecutionExit;
 use std::{collections::HashMap, rc::Rc};
 
 pub(super) struct Machine<T> {
@@ -10,8 +11,7 @@ pub(super) struct Machine<T> {
     pub bindings: RuntimeMemory,
     pub state: T,
     pub dispatch: Dispatch,
-    pub hooks: HashMap<u32, Rc<Handler<T>>>,
-    pub pending: Option<Box<dyn DeferredCall<T>>>,
+    pub hooks: HashMap<u32, Rc<dyn Handler<T>>>,
 }
 
 impl<T> Machine<T> {
@@ -23,7 +23,25 @@ impl<T> Machine<T> {
             ),
             memory: self.bindings.guest.view(),
             state: &mut self.state,
-            pending: &mut self.pending,
         }
+    }
+
+    pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
+        if let Some(budget) = budget {
+            let target = self
+                .context()
+                .cpu
+                .instruction_count()
+                .saturating_add(budget);
+            self.bindings
+                .set_instruction_target(&mut self.backend, target);
+        }
+        self.dispatch.run(&mut self.backend)
+    }
+
+    pub async fn call_host(&mut self, address: u32) -> HookResult {
+        // The registration stays alive while its future borrows the machine.
+        let handler = Rc::clone(self.hooks.get(&address).expect("registered host entry"));
+        handler.call(&mut self.context()).await
     }
 }

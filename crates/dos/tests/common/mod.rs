@@ -6,6 +6,13 @@ pub async fn dos() -> Dos {
     Dos::new().await.unwrap()
 }
 
+/// Poll once and release the waiter while the CPU retains the pending service.
+pub fn assert_pending(future: impl std::future::Future) {
+    let mut future = std::pin::pin!(future);
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(future.as_mut().poll(&mut cx).is_pending());
+}
+
 pub fn output(mut stream: impl std::io::Read) -> Vec<u8> {
     let mut bytes = Vec::new();
     stream.read_to_end(&mut bytes).unwrap();
@@ -27,7 +34,10 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_cx(cx);
         cpu.set_dx(dx);
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::BudgetExhausted
+    );
     dos.cpu().context().cpu.snapshot()
 }
 
@@ -39,7 +49,7 @@ pub fn terminate(dos: &mut Dos) {
         execution.cpu.set_ax(0x4c00);
     }
     assert_eq!(
-        dos.cpu().run(10).unwrap(),
+        pollster::block_on(dos.cpu().run(10)),
         ExecutionExit::Host(relocade_x86::HostExit::Return)
     );
     assert_eq!(
