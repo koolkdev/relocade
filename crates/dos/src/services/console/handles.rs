@@ -21,11 +21,11 @@ pub(in crate::services) fn read_handle(
     stream: OutputStream,
 ) -> HookResult {
     let handle = call.execution.cpu.bx();
-    if call.dos.files.console_eof(handle) {
+    if call.process.files().console_eof(handle) {
         call.execution.cpu.set_ax(0);
         return return_result(call, Ok(()));
     }
-    if call.dos.files.console_raw(handle) {
+    if call.process.files().console_raw(handle) {
         return read_raw(call);
     }
     if call.execution.cpu.cx() == 0 || !call.dos.stdio.console_line.is_empty() {
@@ -48,7 +48,7 @@ fn return_handle_line(
 ) -> HookResult {
     let handle = call.execution.cpu.bx();
     let eof = bytes.first() == Some(&0x1a);
-    call.dos.files.set_console_eof(handle, eof);
+    call.process.files().set_console_eof(handle, eof);
     write_console(call, stream, b"\n");
     // Ctrl-Z at the start of a console line reports EOF.
     if !eof {

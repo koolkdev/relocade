@@ -9,7 +9,7 @@ fn device_names_open_and_create_without_creating_vfs_files() {
         let mut dos = common::dos().await;
         dos.mount_file("DIR/CON.TXT", b"disk".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         for (path, info) in [
             (b"con".as_slice(), 0x80c3),
             (b"CON:", 0x80c3),
@@ -48,7 +48,7 @@ fn device_names_open_and_create_without_creating_vfs_files() {
 fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let handle = success(&path_service(&mut dos, b"NUL", 0x3d02, 0));
         dos.cpu()
             .context()
@@ -123,7 +123,7 @@ fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
 fn console_opens_keep_eof_and_access_separate_while_duplicates_share_them() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let console = success(&path_service(&mut dos, b"CON", 0x3d02, 0));
         let duplicate = success(&service(&mut dos, 0x4500, console, 0, 0));
         dos.stdin().write_all(b"\x1a\r").unwrap();

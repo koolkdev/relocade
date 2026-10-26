@@ -62,7 +62,6 @@ pub(crate) struct FileSystem {
     next_temporary_name: u32,
 }
 
-#[derive(Default)]
 pub(crate) struct Files {
     handles: [Option<OpenHandle>; HANDLE_COUNT],
     search_directories: Vec<Option<search::SearchDirectory>>,

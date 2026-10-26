@@ -1,4 +1,4 @@
-use super::{buffers::write_wrapping, return_to_host};
+use super::buffers::write_wrapping;
 use crate::{
     interrupt::{return_result, DosContext},
     ServiceError,
@@ -20,7 +20,7 @@ use output::{write_characters, write_cooked_character, CharacterOutput};
 /// AH=0Ch: flush stdin, then invoke the input service selected by AL.
 pub(super) fn flush_input(call: &mut DosContext<'_, '_>) -> HookResult {
     // DOS proceeds to the requested service even if the flush failed.
-    let _ = call.dos.files.flush_input(&call.dos.stdio.input, 0);
+    let _ = call.process.files().flush_input(&call.dos.stdio.input, 0);
     let function = call.execution.cpu.al();
     if matches!(
         function,
@@ -43,8 +43,8 @@ pub(super) fn flush_input(call: &mut DosContext<'_, '_>) -> HookResult {
 pub(super) fn input_status(call: &mut DosContext<'_, '_>) -> HookResult {
     // Closed stdin falls back to the console; AH=0Bh has no handle-error return.
     let available = call
-        .dos
-        .files
+        .process
+        .files()
         .input_available(&call.dos.stdio.input, 0)
         .unwrap_or_else(|_| call.dos.stdio.input.has_input());
     call.execution.cpu.set_al(if available { 0xff } else { 0 });
@@ -55,7 +55,10 @@ pub(super) fn input_status(call: &mut DosContext<'_, '_>) -> HookResult {
 pub(super) fn direct_io(call: &mut DosContext<'_, '_>) -> HookResult {
     let byte = call.execution.cpu.dl();
     if byte == 0xff {
-        let result = call.dos.files.read_character(&call.dos.stdio.input, 0);
+        let result = call
+            .process
+            .files()
+            .read_character(&call.dos.stdio.input, 0);
         let character = match result {
             Ok(character) => character,
             Err(error) => return return_result(call, Err(error)),
@@ -73,9 +76,17 @@ pub(super) fn direct_io(call: &mut DosContext<'_, '_>) -> HookResult {
 /// AH=01h/07h/08h: wait for one character, echoing through stdout for AH=01h.
 pub(super) fn read_character(call: &mut DosContext<'_, '_>) -> HookResult {
     let echo = call.execution.cpu.ah() == super::READ_CHARACTER_ECHO;
-    match call.dos.files.read_character(&call.dos.stdio.input, 0) {
+    match call
+        .process
+        .files()
+        .read_character(&call.dos.stdio.input, 0)
+    {
         Ok(Some(byte)) => return_character(call, byte, echo),
-        Ok(None) => match call.dos.files.wait_for_character(&call.dos.stdio.input, 0) {
+        Ok(None) => match call
+            .process
+            .files()
+            .wait_for_character(&call.dos.stdio.input, 0)
+        {
             Ok(input) => call.defer(input, move |call, byte| return_character(call, byte, echo)),
             Err(error) => return_result(call, Err(error)),
         },
@@ -146,5 +157,5 @@ pub(super) fn write_string(call: &mut DosContext<'_, '_>) -> HookResult {
         }
         write_cooked_character(call, CharacterOutput::Stdout, byte[0]);
     }
-    return_to_host(call, Err(ServiceError::UnterminatedString))
+    call.exit(Err(ServiceError::UnterminatedString))
 }

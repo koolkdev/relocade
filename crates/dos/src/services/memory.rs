@@ -11,7 +11,7 @@ pub(super) fn allocate(call: &mut DosContext<'_, '_>) -> HookResult {
     let result = memory::allocate(
         &mut call.execution.memory,
         paragraphs,
-        memory::FIRST_SEGMENT,
+        call.process.psp_segment(),
     );
     let result = result.map(|segment| call.execution.cpu.set_ax(segment));
     return_result(call, result)

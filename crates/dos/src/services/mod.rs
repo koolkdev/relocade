@@ -11,7 +11,6 @@ mod system;
 
 use crate::{files::CreateMode, interrupt::DosContext, ServiceError};
 use relocade_machine::HookResult;
-use relocade_x86::{ExecutionExit, HostExit};
 
 const READ_CHARACTER_ECHO: u8 = 0x01;
 const WRITE_CHARACTER: u8 = 0x02;
@@ -102,27 +101,17 @@ pub(crate) fn int21(call: &mut DosContext<'_, '_>) -> HookResult {
         RESIZE_MEMORY => memory::resize(call),
         TERMINATE_PROCESS => terminate_process(call),
         LONG_FILENAME => files::long_filename(call),
-        function => return_to_host(call, Err(ServiceError::UnsupportedFunction(function))),
+        function => call.exit(Err(ServiceError::UnsupportedFunction(function))),
     }
 }
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
 fn terminate_process(call: &mut DosContext<'_, '_>) -> HookResult {
     let code = call.execution.cpu.al();
-    return_to_host(call, Ok(code))
+    call.exit(Ok(code))
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
 pub(crate) fn int20(call: &mut DosContext<'_, '_>) -> HookResult {
-    return_to_host(call, Ok(0))
-}
-
-fn return_to_host(call: &mut DosContext<'_, '_>, status: Result<u8, ServiceError>) -> HookResult {
-    if status.is_ok() {
-        // The only process has exited; all of its conventional memory is free.
-        crate::memory::reset(&mut call.execution.memory);
-        call.dos.files.close_all(&mut call.dos.filesystem);
-    }
-    call.dos.exit_status = Some(status);
-    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+    call.exit(Ok(0))
 }

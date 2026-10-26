@@ -1,28 +1,11 @@
-//! DOS environment data shared by host APIs and service callbacks.
+//! Resources shared by successive DOS processes.
 
-use crate::{
-    files::{FileSystem, Files},
-    process,
-    stdio::Stdio,
-    ServiceError,
-};
+use crate::{files::FileSystem, process::Process, stdio::Stdio};
+use std::rc::Rc;
 
 #[derive(Default)]
 pub(crate) struct DosState {
     pub(crate) filesystem: FileSystem,
-    pub(crate) files: Files,
     pub(crate) stdio: Stdio,
-    pub(crate) dta_segment: u16,
-    pub(crate) dta_offset: u16,
-    pub(crate) exit_status: Option<Result<u8, ServiceError>>,
-}
-
-impl DosState {
-    pub(crate) fn reset_process(&mut self, psp_segment: u16) {
-        self.files.reset_handles(&mut self.filesystem);
-        self.stdio.clear();
-        self.dta_segment = psp_segment;
-        self.dta_offset = process::COMMAND_TAIL_OFFSET;
-        self.exit_status = None;
-    }
+    pub(crate) process: Option<Rc<Process>>,
 }

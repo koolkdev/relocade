@@ -31,6 +31,20 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     dos.cpu().context().cpu.snapshot()
 }
 
+/// Terminates a process running SERVICE_PROGRAM through its DOS interrupt.
+pub fn terminate(dos: &mut Dos) {
+    {
+        let mut execution = dos.cpu().context();
+        execution.cpu.set_eip(0x100);
+        execution.cpu.set_ax(0x4c00);
+    }
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(relocade_x86::HostExit::Return)
+    );
+    assert_eq!(dos.exit_status(), Some(Ok(0)));
+}
+
 pub fn path_service(dos: &mut Dos, path: &[u8], ax: u16, cx: u16) -> CpuState {
     let mut terminated = path.to_vec();
     terminated.push(0);

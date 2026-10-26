@@ -28,9 +28,9 @@ async fn check_environments() {
             program.to_vec()
         };
         if mz {
-            dos.load_mz(&image, options).unwrap();
+            dos.launch_mz(&image, options).unwrap();
         } else {
-            dos.load_com(&image, options).unwrap();
+            dos.launch_com(&image, options).unwrap();
         }
         let mut psp = [0; 256];
         dos.cpu().context().memory.read(0x10000, &mut psp).unwrap();
@@ -54,7 +54,7 @@ async fn check_environments() {
     }
 
     // Reloading with default options replaces the old variables and path.
-    dos.load_com(&[0xc3], Default::default()).unwrap();
+    dos.launch_com(&[0xc3], Default::default()).unwrap();
     let mut pointer = [0; 2];
     dos.cpu()
         .context()
@@ -72,7 +72,11 @@ async fn check_environments() {
 
 async fn check_environment_validation() {
     let mut dos = common::dos().await;
-    dos.load_com(&[0xc3], Default::default()).unwrap();
+    dos.launch_com(&[0xc3], Default::default()).unwrap();
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     let saved_cpu = dos.cpu().context().cpu.snapshot();
     let mut before = vec![0; 0x90010]; // Root MCB, PSP, program and environment.
     dos.cpu()
@@ -118,15 +122,18 @@ async fn check_environment_validation() {
             LoadError::EnvironmentTooLarge,
         ),
     ] {
-        assert_eq!(dos.load_com(&[0xc3], options), Err(error));
-        assert_eq!(dos.load_mz(&common::mz_image(&[0xc3]), options), Err(error));
+        assert_eq!(dos.launch_com(&[0xc3], options), Err(error.into()));
+        assert_eq!(
+            dos.launch_mz(&common::mz_image(&[0xc3]), options),
+            Err(error.into())
+        );
     }
     // This image fit without an environment, but its minimum now exceeds RAM.
     let mut image = common::mz_image(&[0xc3]);
     image[0x0a..0x0c].copy_from_slice(&0x8fef_u16.to_le_bytes());
     assert_eq!(
-        dos.load_mz(&image, Default::default()),
-        Err(LoadError::InsufficientMemory)
+        dos.launch_mz(&image, Default::default()),
+        Err(LoadError::InsufficientMemory.into())
     );
     let mut after = vec![0; before.len()];
     dos.cpu().context().memory.read(0xfff0, &mut after).unwrap();
@@ -134,7 +141,7 @@ async fn check_environment_validation() {
     assert_eq!(dos.cpu().context().cpu.snapshot(), saved_cpu);
 
     let maximum_path = vec![b'x'; 65531];
-    dos.load_com(
+    dos.launch_com(
         &[0xc3],
         LoadOptions {
             program_path: &maximum_path,

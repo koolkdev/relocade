@@ -29,7 +29,7 @@ fn rename_moves_contents_and_attributes_using_es_di() {
         let mut dos = common::dos().await;
         dos.mount_file("DATA/OLD.BIN", b"saved".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         success(&path_service(&mut dos, b"SAVES", 0x3900, 0));
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"OLD.BIN", 0x4301, 0x07));
@@ -70,7 +70,7 @@ fn rename_checks_names_paths_and_open_handles_before_moving_a_file() {
             .unwrap();
         dos.mount_file("DATA/TAKEN.BIN", b"taken".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"DIR", 0x3900, 0));
         let unterminated = [b'X'; 128];

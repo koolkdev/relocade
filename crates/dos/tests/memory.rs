@@ -30,7 +30,7 @@ fn assert_error(cpu: &CpuState, code: u16) {
 
 async fn check_memory_services() {
     let mut dos = common::dos().await;
-    dos.load_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
+    dos.launch_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
         .unwrap(); // INT 21h; JMP $
 
     // COM and its environment initially own all conventional memory. Keep the
@@ -79,7 +79,8 @@ async fn check_memory_services() {
 
     dos.cpu().context().memory.write(0xfff0, b"!").unwrap();
     assert_error(&service(&mut dos, 0x48, 1, 0), 7);
-    dos.load_com(&[0xc3], Default::default()).unwrap(); // Loading resets the arena; RET terminates.
+    common::terminate(&mut dos);
+    dos.launch_com(&[0xc3], Default::default()).unwrap(); // The next process can use the released arena.
     assert_eq!(
         dos.cpu().run(10).unwrap(),
         ExecutionExit::Host(HostExit::Return)
