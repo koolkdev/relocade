@@ -44,7 +44,10 @@ impl LineInput {
             Ok(false) => {}
             Err(error) => return return_result(call, Err(error)),
         }
-        let input = match state.files.wait_for_character(self.input_handle) {
+        let input = match state
+            .files
+            .wait_for_character(&state.stdio.input, self.input_handle)
+        {
             Ok(input) => input,
             Err(error) => return return_result(call, Err(error)),
         };
@@ -70,7 +73,10 @@ impl LineInput {
         ) {
             return Ok(false);
         }
-        while let Some(byte) = state.files.read_character(self.input_handle)? {
+        while let Some(byte) = state
+            .files
+            .read_character(&state.stdio.input, self.input_handle)?
+        {
             if self.accept(call, state, byte) {
                 return Ok(true);
             }

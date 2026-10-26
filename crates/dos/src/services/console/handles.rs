@@ -31,7 +31,7 @@ pub(in crate::services) fn read_handle(
     if state.files.console_raw(handle) {
         return read_raw(call, state);
     }
-    if call.cpu.cx() == 0 || !state.files.stdio.console_line.is_empty() {
+    if call.cpu.cx() == 0 || !state.stdio.console_line.is_empty() {
         return return_handle_buffer(call, state);
     }
     let line = LineInput::new(
@@ -57,7 +57,7 @@ fn return_handle_line(
     // Ctrl-Z at the start of a console line reports EOF.
     if !eof {
         bytes.push(b'\n');
-        state.files.stdio.console_line.extend(bytes);
+        state.stdio.console_line.extend(bytes);
     }
     return_handle_buffer(call, state)
 }
@@ -68,7 +68,7 @@ fn return_handle_buffer(
 ) -> HookResult {
     let cpu = &call.cpu;
     let count = transfer_count(cpu.dx(), cpu.cx());
-    let line = &mut state.files.stdio.console_line;
+    let line = &mut state.stdio.console_line;
     let count = count.min(line.len());
     let bytes: Vec<_> = line.drain(..count).collect();
     return_bytes(call, &bytes)
@@ -77,7 +77,7 @@ fn return_handle_buffer(
 fn read_raw(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
     let cpu = &call.cpu;
     let count = transfer_count(cpu.dx(), cpu.cx());
-    let input = state.files.stdio.input.clone();
+    let input = state.stdio.input.clone();
     let mut bytes = Vec::with_capacity(count);
     while bytes.len() < count {
         match input.try_read_character() {

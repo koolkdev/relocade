@@ -5,6 +5,7 @@ use super::{
     COMPATIBILITY_SHARING,
 };
 use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
+use relocade_bios::Keyboard;
 use relocade_vfs::File;
 use std::{
     cell::{RefCell, RefMut},
@@ -284,14 +285,18 @@ impl Files {
     }
 
     /// DOS status queries ask the device, not the buffered handle-read line or EOF bit.
-    pub(crate) fn input_available(&self, handle: u16) -> Result<bool, DosError> {
+    pub(crate) fn input_available(
+        &self,
+        keyboard: &Keyboard,
+        handle: u16,
+    ) -> Result<bool, DosError> {
         Ok(match self.handle(handle)? {
             OpenHandle::File(file) => {
                 let file = file.borrow();
                 u64::from(file.position) < file.file.len()
             }
             OpenHandle::Device(device) => match device.kind {
-                Device::Console(_) => self.stdio.input.has_input(),
+                Device::Console(_) => keyboard.has_input(),
                 Device::Null => true,
                 Device::Auxiliary | Device::Printer => false,
             },
@@ -312,7 +317,6 @@ impl Files {
 
     pub(crate) fn reset_handles(&mut self, filesystem: &mut FileSystem) {
         self.close_all(filesystem);
-        self.stdio.clear();
         self.search_directories.clear();
         for (slot, device) in self.handles.iter_mut().zip([
             Device::Console(OutputStream::Stdout),
