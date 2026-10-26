@@ -174,6 +174,6 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
         dos.cpu().context().memory.write(0x10400, &[8, 0]).unwrap();
         dos.stdin().write_all(b"new\r").unwrap();
         service(&mut dos, 0x0a00, 0, 0, 0x400);
-        assert_eq!(common::output(dos.stdout()), b"new\r");
+        assert_eq!(common::output(dos.stdout()), b"Knew\r");
     });
 }

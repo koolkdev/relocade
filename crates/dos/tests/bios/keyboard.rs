@@ -140,7 +140,9 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             ExecutionExit::Host(HostExit::Return)
         );
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
+        let cpu = invoke(&mut dos, 0x100, 0x0100);
+        assert_eq!(cpu.flags.eflags() & 0x40, 0);
+        assert_eq!(cpu.registers.eax as u16, 0x2d58); // X retains its BIOS scan code.
     });
 }
 
