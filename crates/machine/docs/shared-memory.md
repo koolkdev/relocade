@@ -22,15 +22,14 @@ Retain memory access while the CPU executes:
 let memory = runtime.memory();
 let view = memory.view();
 let run = runtime.run(budget);
-// A separate display task can read without borrowing runtime or run.
-let character = view.read_u8(0xb8000)?;
+// A separate host task can read without borrowing runtime or run.
+let value = view.read_u8(0x200)?;
 ```
 
 `Memory` owns the backing handle and an immutable copy of the configured
 physical map. Its memory views use the same RAM, ROM, A20 and hole rules as the stopped
-machine. `TextScreen::read(&view)` can sample the
-screen while a service awaiting input owns the runtime context. The same
-`MemoryView` supports reads through `&MemoryView` and writes through `&mut MemoryView`.
+machine, including connected MMIO devices. `MemoryView` supports reads through
+`&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
 `CpuContext` lends separate `cpu`, `memory`, `io` and `state` fields during stopped
@@ -66,8 +65,9 @@ Browser worker sharing requires cross-origin isolation, typically served with
 
 Reads sample live bytes; they do not freeze the guest or provide an atomic frame.
 Wasmtime host accesses use byte atomics so concurrent Rust access is safe. A
-renderer may see part of an update and sample the remainder next frame. Presentation
-cadence and worker lifetime belong to the application.
+host reader may see part of an update and sample the remainder later. Display
+snapshots belong to the video device; see the [VGA device](../../vga/README.md).
+Worker lifetime belongs to the application.
 
 ## Devices
 

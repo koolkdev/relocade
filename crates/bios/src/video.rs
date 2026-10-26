@@ -16,14 +16,11 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     }
     match function {
         0x00 if al == 3 => {
-            screen::initialize(&mut call.memory);
+            screen::initialize(&mut call.memory, call.io);
             call.cpu.set_al(0x30); // BIOS mode-set return for color text modes.
         }
-        0x01 => call
-            .memory
-            .write_u16(screen::CURSOR_SHAPE, cx)
-            .expect("video cursor shape"),
-        0x02 => screen::set_cursor_position(&mut call.memory, page, dx),
+        0x01 => screen::set_cursor_shape(&mut call.memory, call.io, cx),
+        0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
         0x03 => {
             let position = screen::cursor_position(&call.memory, page);
             let shape = call
@@ -33,7 +30,7 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             call.cpu.set_dx(position);
             call.cpu.set_cx(shape);
         }
-        0x05 if screen::valid_page(al) => screen::select_page(&mut call.memory, al),
+        0x05 if screen::valid_page(al) => screen::select_page(&mut call.memory, call.io, al),
         0x06 | 0x07 => {
             let [left, top] = cx.to_le_bytes();
             let [right, bottom] = dx.to_le_bytes();
@@ -68,7 +65,7 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             (function == 0x09).then_some(attribute),
             cx,
         ),
-        0x0e => screen::write_text(&mut call.memory, &[al]),
+        0x0e => screen::write_text(&mut call.memory, call.io, &[al]),
         0x0f => {
             let memory = &call.memory;
             let mode = memory.read_u8(screen::MODE).expect("video mode");

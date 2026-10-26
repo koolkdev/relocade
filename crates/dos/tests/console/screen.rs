@@ -1,6 +1,6 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
-use relocade_bios::{TextCell, TextScreen};
 use relocade_dos::ProcessStatus;
+use relocade_vga::TextCell;
 use relocade_x86::{ExecutionExit, HostExit};
 
 #[test]
@@ -30,7 +30,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             ProcessStatus::Exited(Ok(0))
         );
         let screen = dos.screen();
-        assert_eq!(screen.page, 1);
+        assert_eq!(screen.start_address, 0x800);
         assert_eq!(
             screen.cells[82],
             TextCell {
@@ -42,7 +42,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             [83, 84, 85].map(|index| screen.cells[index].character),
             *b"OS!"
         );
-        assert_eq!((screen.cursor.row, screen.cursor.column), (1, 6));
+        assert_eq!(screen.cursor.address, 0x800 + 80 + 6);
         assert_eq!(common::output(dos.stdout()), b"DOS"); // BIOS output is screen-only.
         let mut page_zero = [0; 2];
         dos.cpu()
@@ -74,11 +74,11 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             .memory
             .write(0x10300, b"Ready$")
             .unwrap();
-        let memory = dos.cpu().memory();
+        let vga = dos.vga();
         let mut input = dos.stdin();
         common::assert_pending(dos.cpu().run(100));
-        let thread_memory = memory.clone();
-        let screen = std::thread::spawn(move || TextScreen::read(&thread_memory.view()))
+        let thread_vga = vga.clone();
+        let screen = std::thread::spawn(move || thread_vga.screen())
             .join()
             .unwrap();
         assert_eq!(dos.screen(), screen);
@@ -89,16 +89,16 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
                 .collect::<Vec<_>>(),
             b"Ready"
         );
-        assert_eq!(screen.cursor.column, 5);
+        assert_eq!(screen.cursor.address, 5);
 
         input.write_all(b"X").unwrap();
         assert_eq!(
             dos.cpu().run(100).await,
             ExecutionExit::Host(HostExit::Return)
         );
-        let screen = TextScreen::read(&memory.view());
+        let screen = vga.screen();
         assert_eq!(screen.cells[5].character, b'X');
-        assert_eq!(screen.cursor.column, 6);
+        assert_eq!(screen.cursor.address, 6);
     });
 }
 
@@ -141,7 +141,7 @@ fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
             [80, 81, 82, 83].map(|index| screen.cells[index].character),
             *b"CD\x1aR"
         );
-        assert_eq!((screen.cursor.row, screen.cursor.column), (1, 4));
+        assert_eq!(screen.cursor.address, 80 + 4);
         assert_eq!(common::output(dos.stdout()), b"D\x1aR");
     });
 }

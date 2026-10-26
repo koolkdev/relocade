@@ -167,19 +167,18 @@ async fn check_pixels() {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
-    use relocade_bios::{TextCell, TextCursor, TextRenderer, TextScreen};
+    use relocade_vga::{TextCell, TextCursor, TextRenderer, TextScreen};
     let mut screen = TextScreen {
         cells: [TextCell {
             character: b' ',
             attribute: 7,
         }; 80 * 25],
         cursor: TextCursor {
-            row: 24,
-            column: 79,
+            address: 1999,
             start_scan_line: 6,
             end_scan_line: 7,
         },
-        page: 0,
+        start_address: 0,
     };
     screen.cells[0] = TextCell {
         character: 0xdb,

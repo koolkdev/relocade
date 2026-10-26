@@ -49,10 +49,12 @@ impl TextRenderer {
     ///
     /// Attribute bit 7 enables character blinking; background colors use bits 4–6.
     /// Cursor scan lines use the low five bits, and start bit 5 hides the cursor.
-    /// Reversed shapes and positions outside the screen are hidden.
+    /// Reversed shapes and positions outside the screen are hidden. Cursor skew
+    /// delays the cursor by the number of cells in cursor-end bits 5–6, hiding
+    /// it when that delay crosses the right edge of its scan line.
     ///
     /// ```
-    /// # use relocade_bios::{TextRenderer, TextScreen};
+    /// # use relocade_vga::{TextRenderer, TextScreen};
     /// # use std::time::Duration;
     /// # fn draw(screen: &TextScreen, elapsed: Duration) {
     /// let mut renderer = TextRenderer::new();
@@ -63,7 +65,12 @@ impl TextRenderer {
     pub fn render(&mut self, screen: &TextScreen, elapsed: Duration) -> &[u8] {
         let blink_on = (elapsed.as_millis() / 500).is_multiple_of(2);
         let cursor = screen.cursor;
-        let cursor_visible = blink_on && cursor.start_scan_line & 0x20 == 0;
+        let cursor_index = usize::from(cursor.address.wrapping_sub(screen.start_address));
+        let cursor_skew = usize::from((cursor.end_scan_line >> 5) & 3);
+        let cursor_visible = blink_on
+            && cursor.start_scan_line & 0x20 == 0
+            && cursor_index < screen.cells.len()
+            && cursor_index % TextScreen::COLUMNS + cursor_skew < TextScreen::COLUMNS;
         let cursor_start = usize::from(cursor.start_scan_line & 0x1f);
         let cursor_end = usize::from(cursor.end_scan_line & 0x1f);
         for (index, cell) in screen.cells.iter().enumerate() {
@@ -72,9 +79,7 @@ impl TextRenderer {
             let foreground = PALETTE[usize::from(cell.attribute & 0x0f)];
             let background = PALETTE[usize::from((cell.attribute >> 4) & 7)];
             let glyph_visible = blink_on || cell.attribute & 0x80 == 0;
-            let cursor_here = cursor_visible
-                && row == usize::from(cursor.row)
-                && column == usize::from(cursor.column);
+            let cursor_here = cursor_visible && index == cursor_index + cursor_skew;
             let glyph_start = usize::from(cell.character) * GLYPH_HEIGHT;
             for (y, &bits) in FONT[glyph_start..glyph_start + GLYPH_HEIGHT]
                 .iter()
@@ -84,7 +89,9 @@ impl TextRenderer {
                 let offset =
                     ((row * GLYPH_HEIGHT + y) * Self::WIDTH as usize + column * GLYPH_WIDTH) * 4;
                 for (x, pixel) in self.pixels[offset..offset + GLYPH_WIDTH * 4]
-                    .chunks_exact_mut(4)
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
                     .enumerate()
                 {
                     let lit = cursor_line || (glyph_visible && bits & (0x80 >> x) != 0);

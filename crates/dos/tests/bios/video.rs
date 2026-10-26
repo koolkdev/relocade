@@ -1,6 +1,6 @@
 use crate::common;
-use relocade_bios::TextCell;
 use relocade_dos::Dos;
+use relocade_vga::TextCell;
 use relocade_x86::{CpuState, ExecutionExit};
 
 const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
@@ -32,22 +32,23 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         video(&mut dos, 0x0100, 0, 0x2007, 0); // Hide cursor.
-        video(&mut dos, 0x0200, 0x0300, 0, 0x0204); // Page 3, row 2, column 4.
-        video(&mut dos, 0x0958, 0x032e, 3, 0); // Three yellow-on-green X cells.
-        let cursor = video(&mut dos, 0x0300, 0x0300, 0, 0);
+        video(&mut dos, 0x0200, 0x0700, 0, 0x0204); // Page 7, row 2, column 4.
+        assert_eq!(dos.screen().cursor.address, 0); // Inactive-page cursor stays in BIOS data.
+        video(&mut dos, 0x0958, 0x072e, 3, 0); // Three yellow-on-green X cells.
+        let cursor = video(&mut dos, 0x0300, 0x0700, 0, 0);
         assert_eq!(cursor.registers.ecx as u16, 0x2007);
         assert_eq!(cursor.registers.edx as u16, 0x0204); // AH=09h preserves cursor.
         assert_eq!(
-            video(&mut dos, 0x0800, 0x0300, 0, 0).registers.eax as u16,
+            video(&mut dos, 0x0800, 0x0700, 0, 0).registers.eax as u16,
             0x2e58
         );
-        video(&mut dos, 0x0a59, 0x03ff, 1, 0); // AH=0Ah preserves the attribute.
-        video(&mut dos, 0x0503, 0, 0, 0);
+        video(&mut dos, 0x0a59, 0x07ff, 1, 0); // AH=0Ah preserves the attribute.
+        video(&mut dos, 0x0507, 0, 0, 0);
         let mode = video(&mut dos, 0x0f00, 0x00a5, 0, 0);
         assert_eq!(mode.registers.eax as u16, 0x5003);
-        assert_eq!(mode.registers.ebx as u16, 0x03a5);
+        assert_eq!(mode.registers.ebx as u16, 0x07a5);
         let screen = dos.screen();
-        assert_eq!(screen.page, 3);
+        assert_eq!(screen.start_address, 0x3800);
         assert_eq!(screen.cursor.start_scan_line, 0x20);
         assert_eq!(
             screen.cells[164],
@@ -69,11 +70,11 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
             .memory
             .read(0x44e, &mut page_offset)
             .unwrap();
-        assert_eq!(page_offset, [0, 0x30]);
+        assert_eq!(page_offset, [0, 0x70]);
         // Teletype writes the active page, independently of incoming BH.
         video(&mut dos, 0x0e5a, 0xff00, 0, 0);
         assert_eq!(dos.screen().cells[164].character, b'Z');
-        assert_eq!(dos.screen().cursor.column, 5);
+        assert_eq!(dos.screen().cursor.address, 0x38a5);
 
         // Mode reset returns AL=30h and clears pages and cursors.
         assert_eq!(
@@ -81,10 +82,9 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
             0x0030
         );
         let screen = dos.screen();
-        assert_eq!(screen.page, 0);
-        assert_eq!(screen.cursor.row, 0);
-        assert_eq!(screen.cursor.column, 0);
-        video(&mut dos, 0x0503, 0, 0, 0);
+        assert_eq!(screen.start_address, 0);
+        assert_eq!(screen.cursor.address, 0);
+        video(&mut dos, 0x0507, 0, 0, 0);
         assert_eq!(
             dos.screen().cells[164],
             TextCell {
@@ -97,7 +97,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
 }
 
 #[test]
-fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
+fn repeated_writes_cross_page_padding_and_wrap_the_video_offset() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
@@ -116,6 +116,20 @@ fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
         let mut cell = [0; 2];
         dos.cpu().context().memory.read(0xb9000, &mut cell).unwrap();
         assert_eq!(cell, [b'K', 0x1e]);
+
+        // Page 7 plus an out-of-range BIOS cursor wraps the 16-bit byte offset:
+        // 7000 + (255 * 80) * 2 = 10F60, so the write lands at B800:0F60.
+        video(&mut dos, 0x0200, 0x0700, 0, 0xff00);
+        video(&mut dos, 0x0951, 0x071e, 1, 0);
+        dos.cpu().context().memory.read(0xb8f60, &mut cell).unwrap();
+        assert_eq!(cell, [b'Q', 0x1e]);
+        video(&mut dos, 0x0a4b, 0x0700, 1, 0);
+        dos.cpu().context().memory.read(0xb8f60, &mut cell).unwrap();
+        assert_eq!(cell, [b'K', 0x1e]);
+        assert_eq!(
+            video(&mut dos, 0x0300, 0x0700, 0, 0).registers.edx as u16,
+            0xff00
+        );
     });
 }
 
@@ -162,8 +176,7 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
             );
         }
         assert_eq!(screen.cells[0].character, b'1');
-        assert_eq!(screen.cursor.column, 0);
-        assert_eq!(screen.cursor.row, 0);
+        assert_eq!(screen.cursor.address, 0);
     });
 }
 
@@ -195,8 +208,7 @@ fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
                 attribute: 0x2a
             }
         );
-        assert_eq!(screen.cursor.row, 24);
-        assert_eq!(screen.cursor.column, 0);
+        assert_eq!(screen.cursor.address, 24 * 80);
 
         video(&mut dos, 0x0200, 0, 0, 0x0203);
         for byte in [b'A', 8, b'B', b'\r', b'\n', b'C', 7] {
@@ -205,7 +217,6 @@ fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
         let screen = dos.screen();
         assert_eq!(screen.cells[2 * 80 + 3].character, b'B');
         assert_eq!(screen.cells[3 * 80].character, b'C');
-        assert_eq!(screen.cursor.row, 3);
-        assert_eq!(screen.cursor.column, 1);
+        assert_eq!(screen.cursor.address, 3 * 80 + 1);
     });
 }

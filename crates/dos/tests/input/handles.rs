@@ -79,7 +79,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         assert_eq!(screen.cells[0].character, b'a');
         assert_eq!(screen.cells[1].character, b'C'); // Backspace erased the previous b.
         assert_eq!(screen.cells[2].character, b' ');
-        assert_eq!((screen.cursor.row, screen.cursor.column), (1, 0));
+        assert_eq!(screen.cursor.address, 80);
         common::error(&service(&mut dos, 0x3f00, 99, 0, 0x400), 6);
         assert_eq!(success(&service(&mut dos, 0x3f00, console, 0, 0x400)), 0);
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);

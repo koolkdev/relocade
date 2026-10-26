@@ -1,20 +1,21 @@
 use crate::common;
-use relocade_bios::{TextCell, TextCursor, TextScreen};
+use relocade_vga::{TextCell, TextCursor, TextScreen};
 use relocade_x86::ExecutionExit;
 
 #[test]
-fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
+fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         let memory = dos.cpu().memory();
-        let view = memory.view();
-        let screen = TextScreen::read(&view);
-        assert_eq!(screen.page, 0);
+        let vga = dos.vga();
+        let mut view = memory.view();
+        view.write_backing(0xb8000, &[0x99, 0xee]).unwrap();
+        let screen = vga.screen();
+        assert_eq!(screen.start_address, 0);
         assert_eq!(
             screen.cursor,
             TextCursor {
-                row: 0,
-                column: 0,
+                address: 0,
                 start_scan_line: 6,
                 end_scan_line: 7,
             }
@@ -48,7 +49,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
             pollster::block_on(dos.cpu().run(10)),
             ExecutionExit::BudgetExhausted
         );
-        let screen = TextScreen::read(&view);
+        let screen = vga.screen();
         assert_eq!(
             screen.cells[0],
             TextCell {
@@ -64,19 +65,43 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
             }
         );
         assert!(common::output(dos.stdout()).is_empty());
+        let mut backing = [0; 2];
+        view.read_backing(0xb8000, &mut backing).unwrap();
+        assert_eq!(backing, [0x99, 0xee]);
 
-        // A different active page and its cursor are read from the BIOS data area.
+        // BIOS bookkeeping alone does not program the hardware.
         {
             let mut machine = dos.cpu().context();
             let memory = &mut machine.memory;
             memory.write(0x462, &[3]).unwrap();
             memory.write(0x456, &[79, 24]).unwrap();
-            memory.write(0xbbf9e, &[b'Z', 0x2f]).unwrap();
+            memory.write(0xbff9e, &[b'Z', 0x2f]).unwrap();
         }
-        let page = TextScreen::read(&view);
-        assert_eq!(page.page, 3);
-        assert_eq!(page.cursor.row, 24);
-        assert_eq!(page.cursor.column, 79);
+        assert_eq!(vga.screen(), screen);
+        {
+            let mut context = dos.cpu().context();
+            context
+                .memory
+                .write(
+                    0x10100,
+                    &[
+                        0xba, 0xd4, 0x03, // MOV DX,03D4.
+                        0xb8, 0x0c, 0x38, 0xef, // CRTC start high = 38.
+                        0xb8, 0x0d, 0, 0xef, // CRTC start low = 00 (page 7).
+                        0xb8, 0x0e, 0x3f, 0xef, // Cursor high = 3F.
+                        0xb8, 0x0f, 0xcf, 0xef, // Cursor low = CF (last visible cell).
+                        0xeb, 0xfe,
+                    ],
+                )
+                .unwrap();
+            context.cpu.set_eip(0x100);
+        }
+        assert_eq!(dos.cpu().run(30).await, ExecutionExit::BudgetExhausted);
+        let page = vga.screen();
+        assert_eq!(page.start_address, 0x3800);
+        assert_eq!(page.cursor.address, 0x3fcf);
+        assert_eq!(view.read_u8(0x462).unwrap(), 3);
+        assert_eq!(view.read_u16(0x456).unwrap(), 0x184f);
         assert_eq!(
             page.cells[TextScreen::COLUMNS * TextScreen::ROWS - 1],
             TextCell {
@@ -85,5 +110,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
             }
         );
         assert_eq!(screen.cells[0].character, b'A'); // Snapshots remain owned.
+        drop(dos);
+        assert_eq!(vga.screen(), page); // The device outlives execution.
     });
 }

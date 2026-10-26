@@ -14,23 +14,34 @@ the same. Skip surface acquisition while the window/canvas has zero size.
 For the current text screen, the two crates connect directly:
 
 ```rust,ignore
-let mut text = relocade_bios::TextRenderer::new();
+let vga = dos.vga();
+let mut text = relocade_vga::TextRenderer::new();
 let mut renderer = relocade_renderer::Renderer::new(device, queue, format)?;
 
-// On each redraw, after acquiring an output texture view:
-let screen = relocade_bios::TextScreen::read(&memory);
+// On the renderer worker, sample before acquiring an output texture:
+let screen = vga.screen();
+// Acquire the surface texture and create its `view` here.
 let pixels = text.render(&screen, elapsed);
 renderer.render(
-    [relocade_bios::TextRenderer::WIDTH, relocade_bios::TextRenderer::HEIGHT],
+    [relocade_vga::TextRenderer::WIDTH, relocade_vga::TextRenderer::HEIGHT],
     pixels,
     &view,
 )?;
+// Present that texture here.
 ```
 
+The VGA lock is released before rasterization or GPU work. Browser device access,
+including `screen()`, must run on a worker; the main thread handles canvas events.
+The renderer worker can own the device, queue, surface and presentation lifecycle.
+The embedding supplies platform surface setup and forwards resize/lifecycle
+messages. See the [VGA threading contract](../vga/README.md).
+
 No emulation state crosses into the GPU renderer. A native window and browser
-canvas use the same path. Aspect ratio belongs to the embedding's output sizing;
-for a DOS display it can choose a 4:3 target even though the source has 640×200 pixels.
+canvas use the same pixel-rendering path. Aspect ratio belongs to the embedding's
+output sizing; for a DOS display it can choose a 4:3 target even though the source
+has 640×200 pixels.
 
 The `pixels` integration test reads back actual GPU output to check orientation,
 nearest-neighbor scaling, color encoding, alpha, updates and resizing. It runs on
-native wgpu and browser WebGPU. The native variant also checks BIOS text output.
+native wgpu and browser WebGPU. The native variant also checks a rasterized VGA
+text frame.
