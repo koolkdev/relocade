@@ -27,11 +27,11 @@ async fn check_interrupt_hooks() {
     // Both environment state and handler captures may be local to this thread.
     let calls = Rc::new(Cell::new(0));
     let mut runtime = support::create_cpu(calls, config).await.unwrap();
-    runtime.context().cpu().set_sp(0xff00);
-    runtime.context().cpu().set_eflags(0x202);
+    runtime.context().cpu.set_sp(0xff00);
+    runtime.context().cpu.set_eflags(0x202);
     runtime
         .context()
-        .memory()
+        .memory
         .write(
             0x100,
             &[
@@ -46,30 +46,30 @@ async fn check_interrupt_hooks() {
         .unwrap();
     runtime
         .context()
-        .memory()
+        .memory
         .write(0x84, &[0x20, 0, 0, 0x10])
         .unwrap();
     runtime
         .context()
-        .memory()
+        .memory
         .write(0x10020, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     let increment = Rc::new(Cell::new(1));
     runtime
         .install_hooks([
             Hook::<Rc<Cell<u32>>>::new(0x10020, move |call| {
-                call.state().set(call.state().get() + increment.get());
-                assert_eq!(call.cpu().segment(Segment::Cs).selector, 0x1000);
-                assert_eq!(call.cpu().eip(), 0x20);
-                assert_eq!(call.cpu().sp(), 0xfefa);
-                assert_eq!(call.cpu().ax(), 1);
-                assert!(call.cpu().carry());
-                assert_eq!(call.cpu().eflags() & 0x200, 0);
+                call.state.set(call.state.get() + increment.get());
+                assert_eq!(call.cpu.segment(Segment::Cs).selector, 0x1000);
+                assert_eq!(call.cpu.eip(), 0x20);
+                assert_eq!(call.cpu.sp(), 0xfefa);
+                assert_eq!(call.cpu.ax(), 1);
+                assert!(call.cpu.carry());
+                assert_eq!(call.cpu.eflags() & 0x200, 0);
                 let mut word = [0; 2];
-                call.memory().read(0x200, &mut word).unwrap();
-                call.cpu().set_ax(1 + u16::from_le_bytes(word));
+                call.memory.read(0x200, &mut word).unwrap();
+                call.cpu.set_ax(1 + u16::from_le_bytes(word));
                 let mut frame = [0; 6];
-                call.memory().read(0xfefa, &mut frame).unwrap();
+                call.memory.read(0xfefa, &mut frame).unwrap();
                 assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
                 assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
                 real_mode_interrupt::set_carry(call, false);
@@ -96,34 +96,30 @@ async fn check_interrupt_hooks() {
         .await
         .unwrap();
     assert_eq!(runtime.run(5).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.context().state().get(), 1);
-    assert_eq!(runtime.context().cpu().ax(), 11);
-    assert_eq!(runtime.context().cpu().segment(Segment::Cs).selector, 0);
-    assert_eq!(runtime.context().cpu().eip(), 0x10e);
-    assert_eq!(runtime.context().cpu().sp(), 0xff00);
-    assert_eq!(runtime.context().cpu().eflags() & 0x201, 0x200);
+    assert_eq!(runtime.context().state.get(), 1);
+    assert_eq!(runtime.context().cpu.ax(), 11);
+    assert_eq!(runtime.context().cpu.segment(Segment::Cs).selector, 0);
+    assert_eq!(runtime.context().cpu.eip(), 0x10e);
+    assert_eq!(runtime.context().cpu.sp(), 0xff00);
+    assert_eq!(runtime.context().cpu.eflags() & 0x201, 0x200);
     assert_eq!(runtime.run(2).unwrap(), ExecutionExit::BudgetExhausted);
     let mut result = [0; 2];
-    runtime.context().memory().read(0x202, &mut result).unwrap();
+    runtime.context().memory.read(0x202, &mut result).unwrap();
     assert_eq!(u16::from_le_bytes(result), 11);
 
     // Replace the IVT destination with guest code that chains to the original hook.
+    runtime.context().memory.write(0x84, &[0, 5, 0, 0]).unwrap();
     runtime
         .context()
-        .memory()
-        .write(0x84, &[0, 5, 0, 0])
-        .unwrap();
-    runtime
-        .context()
-        .memory()
+        .memory
         .write(0x500, &[0x43, 0xea, 0x20, 0, 0, 0x10])
         .unwrap();
     assert_eq!(runtime.run(7).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.state().get(), 2);
-    assert_eq!(runtime.context().cpu().bx(), 1);
-    assert_eq!(runtime.context().cpu().eip(), 0x10e);
-    assert_eq!(runtime.context().cpu().sp(), 0xff00);
-    assert_eq!(runtime.context().cpu().instruction_count(), 14);
+    assert_eq!(runtime.context().cpu.bx(), 1);
+    assert_eq!(runtime.context().cpu.eip(), 0x10e);
+    assert_eq!(runtime.context().cpu.sp(), 0xff00);
+    assert_eq!(runtime.context().cpu.instruction_count(), 14);
 
     for (address, expected) in [
         (0x400, ExecutionExit::Host(HostExit::Return)),
@@ -142,10 +138,10 @@ async fn check_interrupt_hooks() {
             },
         ),
     ] {
-        runtime.context().cpu().set_eip(address);
+        runtime.context().cpu.set_eip(address);
         assert_eq!(runtime.run(1).unwrap(), expected);
-        assert_eq!(runtime.context().cpu().instruction_count(), 14);
-        assert_eq!(runtime.context().cpu().eip(), address);
+        assert_eq!(runtime.context().cpu.instruction_count(), 14);
+        assert_eq!(runtime.context().cpu.eip(), address);
     }
 }
 
@@ -183,14 +179,14 @@ async fn check_mapped_hook_access() {
     )
     .unwrap();
     let mut cpu = support::create_cpu(0_u32, config).await.unwrap();
-    cpu.context().cpu().set_eax(40);
+    cpu.context().cpu.set_eax(40);
     cpu.context()
-        .memory()
+        .memory
         .write(0x1020, &10_u32.to_le_bytes())
         .unwrap();
-    cpu.context().memory().write_backing(0x20, &[0xa5]).unwrap();
+    cpu.context().memory.write_backing(0x20, &[0xa5]).unwrap();
     cpu.context()
-        .memory()
+        .memory
         .write_backing(
             0x100,
             &[
@@ -201,7 +197,7 @@ async fn check_mapped_hook_access() {
         )
         .unwrap();
     cpu.context()
-        .memory()
+        .memory
         .write_backing(
             0x300,
             &[
@@ -212,13 +208,13 @@ async fn check_mapped_hook_access() {
         .unwrap();
     cpu.install_hooks([Hook::new(0x200, |call| {
         let mut bytes = [0; 4];
-        call.memory().read(0x1020, &mut bytes).unwrap();
-        let value = call.cpu().eax() + u32::from_le_bytes(bytes);
-        call.cpu().set_eax(value);
-        call.cpu().set_eip(0x300);
-        call.memory().write(0x1024, &value.to_le_bytes()).unwrap();
-        call.memory().write_u8(0x20, 0xff).unwrap();
-        *call.state_mut() += 1;
+        call.memory.read(0x1020, &mut bytes).unwrap();
+        let value = call.cpu.eax() + u32::from_le_bytes(bytes);
+        call.cpu.set_eax(value);
+        call.cpu.set_eip(0x300);
+        call.memory.write(0x1024, &value.to_le_bytes()).unwrap();
+        call.memory.write_u8(0x20, 0xff).unwrap();
+        *call.state += 1;
         HookResult::Continue
     })])
     .await
@@ -234,13 +230,13 @@ async fn check_mapped_hook_access() {
     for (calls, value) in [(1, 52), (2, 65)] {
         assert_eq!(cpu.run(5).unwrap(), ExecutionExit::BudgetExhausted);
         assert_eq!(*cpu.state(), calls);
-        assert_eq!(cpu.context().cpu().eax(), value);
-        assert_eq!(cpu.context().cpu().ebx(), value);
-        assert_eq!(cpu.context().cpu().eip(), 0x100);
+        assert_eq!(cpu.context().cpu.eax(), value);
+        assert_eq!(cpu.context().cpu.ebx(), value);
+        assert_eq!(cpu.context().cpu.eip(), 0x100);
         let mut bytes = [0; 4];
-        cpu.context().memory().read(0x1024, &mut bytes).unwrap();
+        cpu.context().memory.read(0x1024, &mut bytes).unwrap();
         assert_eq!(u32::from_le_bytes(bytes), value);
-        assert_eq!(cpu.context().memory().read_u8(0x20).unwrap(), 0xa5);
+        assert_eq!(cpu.context().memory.read_u8(0x20).unwrap(), 0xa5);
     }
 }
 
@@ -271,7 +267,7 @@ async fn check_hook_replacement() {
     let mut runtime = support::create_cpu((), config).await.unwrap();
     runtime
         .context()
-        .memory()
+        .memory
         .write(0x100, &[0x43, 0xe9, 0xfc, 2])
         .unwrap(); // INC BX; JMP 0400
     let first = Rc::new(Cell::new(0));
@@ -282,13 +278,13 @@ async fn check_hook_replacement() {
         .install_hooks([
             Hook::new(0x400, move |call| {
                 first.set(first.get() + 1);
-                call.cpu().set_ax(first.get());
-                call.cpu().set_eip(0x401);
+                call.cpu.set_ax(first.get());
+                call.cpu.set_eip(0x401);
                 HookResult::Continue
             }),
             Hook::new(0x401, move |call| {
                 calls.set(calls.get() + 1);
-                call.cpu().set_eip(0x100);
+                call.cpu.set_eip(0x100);
                 HookResult::Continue
             }),
         ])
@@ -296,21 +292,21 @@ async fn check_hook_replacement() {
         .unwrap();
     // Both hooks consume no instructions. Reentering Wasm retains one target.
     assert_eq!(runtime.run(3).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.context().cpu().instruction_count(), 4);
-    assert_eq!(runtime.context().cpu().ax(), 2);
-    assert_eq!(runtime.context().cpu().bx(), 2);
+    assert_eq!(runtime.context().cpu.instruction_count(), 4);
+    assert_eq!(runtime.context().cpu.ax(), 2);
+    assert_eq!(runtime.context().cpu.bx(), 2);
     assert_eq!(second.get(), 2);
     runtime
         .install_hooks([Hook::new(0x400, |call| {
-            call.cpu().set_ax(50);
-            call.cpu().set_eip(0x401);
+            call.cpu.set_ax(50);
+            call.cpu.set_eip(0x401);
             HookResult::Continue
         })])
         .await
         .unwrap();
     assert!(released.upgrade().is_none());
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.context().cpu().ax(), 50);
+    assert_eq!(runtime.context().cpu.ax(), 50);
     assert_eq!(second.get(), 3);
 
     let mut program = Program::new();
@@ -336,7 +332,7 @@ async fn check_hook_replacement() {
         )
         .await
         .is_err());
-    runtime.context().cpu().set_eip(0x401);
+    runtime.context().cpu.set_eip(0x401);
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(second.get(), 4);
     assert_eq!(Rc::strong_count(&second), 2);
@@ -351,7 +347,7 @@ async fn check_hook_replacement() {
         .await
         .unwrap();
     assert_eq!(Rc::strong_count(&second), 1);
-    runtime.context().cpu().set_eip(0x401);
+    runtime.context().cpu.set_eip(0x401);
     assert_eq!(
         runtime.run(1).unwrap(),
         ExecutionExit::Host(HostExit::Return)

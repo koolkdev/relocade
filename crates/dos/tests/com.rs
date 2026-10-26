@@ -17,18 +17,18 @@ async fn check_hello() {
     let mut dos = common::dos().await;
     dos.load_com(HELLO, Default::default()).unwrap();
     {
-        let mut machine = dos.cpu().context();
+        let machine = dos.cpu().context();
         for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
-            assert_eq!(machine.cpu().segment(segment).selector, 0x1000);
+            assert_eq!(machine.cpu.segment(segment).selector, 0x1000);
         }
-        assert_eq!(machine.cpu().eip(), 0x100);
-        assert_eq!(machine.cpu().sp(), 0xfffe);
+        assert_eq!(machine.cpu.eip(), 0x100);
+        assert_eq!(machine.cpu.sp(), 0xfffe);
         let mut psp = [0; 256];
-        machine.memory().read(0x10000, &mut psp).unwrap();
+        machine.memory.read(0x10000, &mut psp).unwrap();
         assert_eq!(&psp[..4], &[0xcd, 0x20, 0xfe, 0x9f]);
         assert_eq!(&psp[0x80..0x82], &[0, 13]);
         let mut word = [1; 2];
-        machine.memory().read(0x1fffe, &mut word).unwrap();
+        machine.memory.read(0x1fffe, &mut word).unwrap();
         assert_eq!(word, [0, 0]);
     }
     assert_eq!(dos.exit_status(), None);
@@ -36,9 +36,9 @@ async fn check_hello() {
     assert!(common::output(dos.stdout()).is_empty()); // INT completed, before entering the hook.
     assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert_eq!(common::output(dos.stdout()), b"Hello, DOS!\r\n");
-    assert_eq!(dos.cpu().context().cpu().al(), b'$');
-    assert_eq!(dos.cpu().context().cpu().sp(), 0xfffe);
-    assert_eq!(dos.cpu().context().cpu().eip(), 0x107);
+    assert_eq!(dos.cpu().context().cpu.al(), b'$');
+    assert_eq!(dos.cpu().context().cpu.sp(), 0xfffe);
+    assert_eq!(dos.cpu().context().cpu.eip(), 0x107);
     assert_eq!(
         dos.cpu().run(u64::MAX).unwrap(),
         ExecutionExit::Host(HostExit::Return)
@@ -54,18 +54,14 @@ async fn check_com_bounds_and_return() {
     let mut dos = common::dos().await;
     dos.load_com(&image, Default::default()).unwrap();
     let mut end = [0; 3];
-    dos.cpu()
-        .context()
-        .memory()
-        .read(0x1fffd, &mut end)
-        .unwrap();
+    dos.cpu().context().memory.read(0x1fffd, &mut end).unwrap();
     assert_eq!(end, [0x41, 0, 0]);
     assert_eq!(
         dos.cpu().run(10).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
-    assert_eq!(dos.cpu().context().cpu().instruction_count(), 2);
+    assert_eq!(dos.cpu().context().cpu.instruction_count(), 2);
     assert_eq!(
         dos.load_com(&[], Default::default()),
         Err(LoadError::EmptyImage)
@@ -80,11 +76,7 @@ async fn check_com_bounds_and_return() {
     // Another program reuses the prepared environment and replaces its allocation.
     dos.load_com(&[0xc3], Default::default()).unwrap();
     assert_eq!(dos.exit_status(), None);
-    dos.cpu()
-        .context()
-        .memory()
-        .read(0x1fffd, &mut end)
-        .unwrap();
+    dos.cpu().context().memory.read(0x1fffd, &mut end).unwrap();
     assert_eq!(end, [0, 0, 0]);
     assert_eq!(
         dos.cpu().run(10).unwrap(),
@@ -131,8 +123,8 @@ async fn check_unterminated_string() {
     ];
     let mut dos = common::dos().await;
     dos.load_com(&image, Default::default()).unwrap();
-    dos.cpu().context().memory().write(0x3ffff, b"Z").unwrap();
-    dos.cpu().context().memory().write(0x30000, b"A").unwrap();
+    dos.cpu().context().memory.write(0x3ffff, b"Z").unwrap();
+    dos.cpu().context().memory.write(0x30000, b"A").unwrap();
     assert_eq!(
         dos.cpu().run(u64::MAX).unwrap(),
         ExecutionExit::Host(HostExit::Return)

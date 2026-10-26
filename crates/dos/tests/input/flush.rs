@@ -12,8 +12,8 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
             dos.stdin().write_all(b"old\r").unwrap();
             {
                 let mut machine = dos.cpu().context();
-                machine.memory().write(0x10400, &[8, 0]).unwrap();
-                let mut cpu = machine.cpu();
+                machine.memory.write(0x10400, &[8, 0]).unwrap();
+                let cpu = &mut machine.cpu;
                 cpu.set_ax(0x0c00 | function);
                 cpu.set_bx(0x1234);
                 cpu.set_dx(0x400);
@@ -24,7 +24,7 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 ExecutionExit::Host(HostExit::Deferred)
             );
             assert!(common::output(dos.stdout()).is_empty());
-            assert_eq!(dos.cpu().context().cpu().sp(), 0xfff8);
+            assert_eq!(dos.cpu().context().cpu.sp(), 0xfff8);
             // Calling run again cannot flush input or push another interrupt frame.
             assert_eq!(
                 dos.cpu().run(10).unwrap(),
@@ -38,15 +38,15 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 ExecutionExit::BudgetExhausted
             );
             {
-                let mut machine = dos.cpu().context();
+                let machine = dos.cpu().context();
                 if function == 0x0a {
                     let mut buffer = [0; 4];
-                    machine.memory().read(0x10400, &mut buffer).unwrap();
+                    machine.memory.read(0x10400, &mut buffer).unwrap();
                     assert_eq!(&buffer, b"\x08\x01K\r");
                 } else {
-                    assert_eq!(machine.cpu().al(), b'K');
+                    assert_eq!(machine.cpu.al(), b'K');
                 }
-                let cpu = machine.cpu();
+                let cpu = &machine.cpu;
                 assert_eq!(cpu.bx(), 0x1234);
                 assert_eq!(cpu.dx(), 0x400);
                 assert_eq!(cpu.eflags(), 0x643);
@@ -70,7 +70,7 @@ fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
         service(&mut dos, 0x0200, 0, 0, u16::from(b'P'));
         dos.stdin().write_all(b"old\r").unwrap();
-        dos.cpu().context().cpu().set_eflags(0x603);
+        dos.cpu().context().cpu.set_eflags(0x603);
         let cpu = service(&mut dos, 0x0c06, 0, 0, 0xff);
         assert_eq!(cpu.registers.eax as u8, 0);
         assert_eq!(cpu.flags.eflags(), 0x643);
@@ -83,7 +83,7 @@ fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
         assert_eq!(service(&mut dos, 0x0b00, 0, 0, 0).registers.eax as u8, 0);
         for function in [0, 0x0c, 0xff] {
             dos.stdin().write_all(b"old").unwrap();
-            dos.cpu().context().cpu().set_eflags(0x603);
+            dos.cpu().context().cpu.set_eflags(0x603);
             let cpu = service(&mut dos, 0x0c00 | function, 0, 0, 0);
             assert_eq!(cpu.registers.eax as u8, 0);
             assert_eq!(cpu.flags.eflags(), 0x603);
@@ -98,7 +98,7 @@ fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
         let mut buffer = [0; 4];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut buffer)
             .unwrap();
         assert_eq!(&buffer, b"bc\r\n");

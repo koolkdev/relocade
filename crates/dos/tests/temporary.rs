@@ -13,13 +13,13 @@ fn temporary(dos: &mut Dos, directory: &[u8], attributes: u16) -> (CpuState, Vec
     buffer[directory.len()] = 0;
     {
         let mut machine = dos.cpu().context();
-        machine.cpu().set_segment(
+        machine.cpu.set_segment(
             Segment::Ds,
             SegmentRegister::real_mode(Segment::Ds, SEGMENT),
         );
         for (index, byte) in buffer.iter().enumerate() {
             let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));
-            machine.memory().write(address, &[*byte]).unwrap();
+            machine.memory.write(address, &[*byte]).unwrap();
         }
     }
     let cpu = service(dos, 0x5a00, 0, attributes, OFFSET);
@@ -27,12 +27,12 @@ fn temporary(dos: &mut Dos, directory: &[u8], attributes: u16) -> (CpuState, Vec
     for (index, byte) in buffer.iter_mut().enumerate() {
         let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));
         machine
-            .memory()
+            .memory
             .read(address, std::slice::from_mut(byte))
             .unwrap();
     }
     machine
-        .cpu()
+        .cpu
         .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1000));
     (cpu, buffer)
 }
@@ -52,7 +52,7 @@ fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
             .unwrap();
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
         success(&path_service(&mut dos, b"TMP/00000001", 0x3900, 0));
-        dos.cpu().context().cpu().set_eflags(0x0a57);
+        dos.cpu().context().cpu.set_eflags(0x0a57);
         let (cpu, buffer) = temporary(&mut dos, b"c:\\tmp\\", 0x07);
         let handle = success(&cpu);
         assert_eq!(handle, 5);
@@ -72,11 +72,7 @@ fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
         success(&cpu);
         assert_eq!(cpu.registers.ecx as u16, 0x27);
 
-        dos.cpu()
-            .context()
-            .memory()
-            .write(0x10400, b"saved")
-            .unwrap();
+        dos.cpu().context().memory.write(0x10400, b"saved").unwrap();
         assert_eq!(success(&service(&mut dos, 0x4000, handle, 5, 0x400)), 5);
         success(&service(&mut dos, 0x4200, handle, 0, 0));
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 5, 0x500)), 5);

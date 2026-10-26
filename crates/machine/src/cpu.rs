@@ -1,6 +1,6 @@
 use relocade_x86::{
-    CpuState, DescriptorTableRegister, ExecutionContext, FlagsState, Segment, SegmentRegister,
-    Segments, SystemSegmentRegister,
+    CpuState, DescriptorTableRegister, ExecutionContext, ExecutionTarget, FlagsState, Segment,
+    SegmentRegister, Segments, SystemSegmentRegister,
 };
 use std::mem::offset_of;
 
@@ -33,6 +33,11 @@ macro_rules! register {
 }
 
 impl<'a> CpuView<'a> {
+    /// The execution profile and CPU model represented by these registers.
+    pub fn execution_target(&self) -> ExecutionTarget {
+        self.config.execution_target()
+    }
+
     /// Borrows an initialized `ExecutionContext` image compatible with the execution target.
     #[inline]
     pub(crate) fn new(config: &'a CpuConfig, storage: MemoryAccess<'a>) -> Self {

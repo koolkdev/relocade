@@ -6,7 +6,7 @@ use relocade_x86::{CpuState, ExecutionExit, HostExit, Segment, SegmentRegister};
 fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
-        let mut cpu = machine.cpu();
+        let cpu = &mut machine.cpu;
         cpu.set_eip(0x100);
         cpu.set_ah(function);
         cpu.set_bx(paragraphs);
@@ -16,7 +16,7 @@ fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuSta
         );
     }
     assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
-    dos.cpu().context().cpu().snapshot()
+    dos.cpu().context().cpu.snapshot()
 }
 
 fn assert_success(cpu: &CpuState) {
@@ -52,11 +52,7 @@ async fn check_memory_services() {
     assert_success(&service(&mut dos, 0x49, 0, 0x2012));
     assert_success(&service(&mut dos, 0x4a, 0x40, 0x2001));
     let mut mcb = [0; 5];
-    dos.cpu()
-        .context()
-        .memory()
-        .read(0x20000, &mut mcb)
-        .unwrap();
+    dos.cpu().context().memory.read(0x20000, &mut mcb).unwrap();
     assert_eq!(mcb, [b'M', 0, 0x10, 0x40, 0]);
     assert_error(&service(&mut dos, 0x49, 0, 0x2002), 9); // Interior pointer.
     let cpu = service(&mut dos, 0x48, 0xffff, 0);
@@ -67,11 +63,7 @@ async fn check_memory_services() {
     let cpu = service(&mut dos, 0x4a, 0xffff, 0x2001);
     assert_error(&cpu, 8);
     assert_eq!(cpu.registers.ebx as u16, 0x7ffd);
-    dos.cpu()
-        .context()
-        .memory()
-        .read(0x20000, &mut mcb)
-        .unwrap();
+    dos.cpu().context().memory.read(0x20000, &mut mcb).unwrap();
     assert_eq!(mcb, [b'M', 0, 0x10, 0xfd, 0x7f]);
     assert_success(&service(&mut dos, 0x49, 0, 0x2001));
     assert_error(&service(&mut dos, 0x49, 0, 0x2001), 9);
@@ -85,14 +77,14 @@ async fn check_memory_services() {
     assert_success(&cpu); // Free blocks coalesced, including their header paragraphs.
     assert_eq!(cpu.registers.eax as u16, 0x2001);
 
-    dos.cpu().context().memory().write(0xfff0, b"!").unwrap();
+    dos.cpu().context().memory.write(0xfff0, b"!").unwrap();
     assert_error(&service(&mut dos, 0x48, 1, 0), 7);
     dos.load_com(&[0xc3], Default::default()).unwrap(); // Loading resets the arena; RET terminates.
     assert_eq!(
         dos.cpu().run(10).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    dos.cpu().context().memory().read(0xfff0, &mut mcb).unwrap();
+    dos.cpu().context().memory.read(0xfff0, &mut mcb).unwrap();
     assert_eq!(mcb, [b'Z', 0, 0, 0, 0x90]); // All root-process memory released.
 }
 

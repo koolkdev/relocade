@@ -22,7 +22,7 @@ pub(super) fn write_console(
     bytes: &[u8],
 ) {
     state.files.stdio.output(stream).extend(bytes);
-    relocade_bios::write_text(&mut call.memory(), bytes);
+    relocade_bios::write_text(&mut call.memory, bytes);
 }
 
 /// DOS cooked output expands tabs, tracks its column and ignores write errors.

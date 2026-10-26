@@ -42,17 +42,17 @@ async fn check_guest_memory() {
     let reader = shared.view();
     runtime
         .context()
-        .memory()
+        .memory
         .write_backing(0x1000, &[0x12, 0x34])
         .unwrap();
     // MOV word [0FFE],0741; JMP to the next instruction.
     runtime
         .context()
-        .memory()
+        .memory
         .write(0x100, &[0xc7, 0x06, 0xfe, 0x0f, 0x41, 0x07, 0xeb, 0])
         .unwrap();
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
-    runtime.context().memory().write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
+    runtime.context().memory.write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
     let mut bytes = [0; 4];
     reader.read(0xffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0x41, 7, 0x12, 0x34]);

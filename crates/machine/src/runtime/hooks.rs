@@ -25,8 +25,8 @@ pub(super) type Handler<T> = dyn Fn(&mut CpuContext<'_, T>) -> HookResult;
 /// use relocade_x86::{ExecutionExit, HostExit};
 ///
 /// fn terminate(call: &mut CpuContext<'_, Option<u8>>) -> HookResult {
-///     let code = call.cpu().al();
-///     *call.state_mut() = Some(code);
+///     let code = call.cpu.al();
+///     *call.state = Some(code);
 ///     HookResult::Exit(ExecutionExit::Host(HostExit::Return))
 /// }
 /// let hook = Hook::new(0xf0100, terminate);

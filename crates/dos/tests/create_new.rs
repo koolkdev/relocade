@@ -20,7 +20,7 @@ fn create_new_preserves_existing_files_and_returns_a_writable_handle() {
             0x07
         );
 
-        dos.cpu().context().cpu().set_eflags(0x0a57);
+        dos.cpu().context().cpu.set_eflags(0x0a57);
         let cpu = path_service(&mut dos, b"NEW.BIN", 0x5b00, 0x03);
         let handle = success(&cpu);
         assert_eq!(handle, 5); // First slot after the five standard handles.
@@ -29,7 +29,7 @@ fn create_new_preserves_existing_files_and_returns_a_writable_handle() {
             path_service(&mut dos, b"NEW.BIN", 0x4300, 0).registers.ecx,
             0x23
         );
-        dos.cpu().context().memory().write(0x10400, b"new").unwrap();
+        dos.cpu().context().memory.write(0x10400, b"new").unwrap();
         assert_eq!(success(&service(&mut dos, 0x4000, handle, 3, 0x400)), 3);
         error(&path_service(&mut dos, b"NEW.BIN", 0x5b00, 0), 80);
         assert_eq!(dos.read_file("DATA/NEW.BIN").unwrap(), b"new");

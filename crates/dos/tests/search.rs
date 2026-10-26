@@ -6,11 +6,7 @@ use relocade_x86::{ExecutionExit, HostExit, Segment, SegmentRegister};
 
 fn dta(dos: &mut Dos, address: u32) -> [u8; 43] {
     let mut data = [0; 43];
-    dos.cpu()
-        .context()
-        .memory()
-        .read(address, &mut data)
-        .unwrap();
+    dos.cpu().context().memory.read(address, &mut data).unwrap();
     data
 }
 
@@ -86,10 +82,10 @@ async fn check_searches() {
     // An intervening search and chdir do not affect a saved DTA's continuation.
     assert_eq!(names(&mut dos, b"*.TXT", 0), ["B.TXT"]);
     success(&path_service(&mut dos, b"\\", 0x3b00, 0));
-    dos.cpu().context().memory().write(0x10600, &saved).unwrap();
+    dos.cpu().context().memory.write(0x10600, &saved).unwrap();
     dos.cpu()
         .context()
-        .cpu()
+        .cpu
         .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1010));
     // Preserve a non-normalized segment:offset pair exactly in AH=2Fh.
     let cpu = service(&mut dos, 0x1a00, 0, 0, 0x500);
@@ -102,7 +98,7 @@ async fn check_searches() {
     error(&service(&mut dos, 0x4f00, 0, 0, 0), 18);
     error(&service(&mut dos, 0x4f00, 0, 0, 0), 18);
     // Restore the same continuation to replay it independently.
-    dos.cpu().context().memory().write(0x10600, &saved).unwrap();
+    dos.cpu().context().memory.write(0x10600, &saved).unwrap();
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
     assert_eq!(found_name(&dta(&mut dos, 0x10600)), "AB.DAT");
     dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
@@ -158,7 +154,7 @@ async fn check_search_deletion() {
     assert_eq!(found_name(&dta(&mut dos, 0x10080)), "B.DAT");
 
     // A copied DTA resumes at the same name even after an earlier entry is gone.
-    dos.cpu().context().memory().write(0x10600, &saved).unwrap();
+    dos.cpu().context().memory.write(0x10600, &saved).unwrap();
     service(&mut dos, 0x1a00, 0, 0, 0x600);
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
     assert_eq!(found_name(&dta(&mut dos, 0x10600)), "B.DAT");
@@ -178,7 +174,7 @@ async fn check_search_deletion() {
     found.sort();
     assert_eq!(found, ["0.DAT", "B.DAT"]);
     // Restoring the old search also skips the deleted C entry.
-    dos.cpu().context().memory().write(0x10080, &saved).unwrap();
+    dos.cpu().context().memory.write(0x10080, &saved).unwrap();
     success(&service(&mut dos, 0x4f00, 0, 0, 0));
     assert_eq!(found_name(&dta(&mut dos, 0x10080)), "B.DAT");
     success(&service(&mut dos, 0x4f00, 0, 0, 0));

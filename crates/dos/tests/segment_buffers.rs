@@ -11,19 +11,19 @@ fn use_data_segment(dos: &mut Dos) {
     // Keep buffers away from the program and interrupt stack.
     dos.cpu()
         .context()
-        .cpu()
+        .cpu
         .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x3000));
 }
 
 fn write_memory(dos: &mut Dos, address: u32, bytes: &[u8]) {
-    dos.cpu().context().memory().write(address, bytes).unwrap();
+    dos.cpu().context().memory.write(address, bytes).unwrap();
 }
 
 fn read_memory<const N: usize>(dos: &mut Dos, address: u32) -> [u8; N] {
     let mut bytes = [0; N];
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .read(address, &mut bytes)
         .unwrap();
     bytes
@@ -72,7 +72,7 @@ fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
         write_memory(&mut dos, BASE + 0xffff, &[0xcc; 3]);
         {
             let mut machine = dos.cpu().context();
-            let mut cpu = machine.cpu();
+            let cpu = &mut machine.cpu;
             cpu.set_ax(0x3f00);
             cpu.set_bx(0);
             cpu.set_cx(3);
@@ -87,7 +87,7 @@ fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
             dos.cpu().run_async(10).await.unwrap(),
             ExecutionExit::BudgetExhausted
         );
-        assert_eq!(dos.cpu().context().cpu().ax(), 1);
+        assert_eq!(dos.cpu().context().cpu.ax(), 1);
         assert_eq!(
             read_memory::<3>(&mut dos, BASE + 0xffff),
             [b'a', 0xcc, 0xcc]
@@ -112,7 +112,7 @@ fn current_directory_wraps_its_destination_offset() {
         use_data_segment(&mut dos);
         write_memory(&mut dos, BASE + 0xffff, &[0xcc; 4]);
         write_memory(&mut dos, BASE, &[0xdd; 4]);
-        dos.cpu().context().cpu().set_si(0xffff);
+        dos.cpu().context().cpu.set_si(0xffff);
 
         assert_eq!(success(&service(&mut dos, 0x4700, 0, 0, 0)), 0x0100);
         assert_eq!(read_memory::<4>(&mut dos, BASE), [b'I', b'R', 0, 0xdd]);
@@ -134,7 +134,7 @@ fn dollar_terminated_output_wraps_its_source_offset() {
 
         service(&mut dos, 0x0900, 0, 0, 0xffff);
         assert_eq!(common::output(dos.stdout()), b"AB");
-        assert_eq!(dos.cpu().context().cpu().al(), b'$');
+        assert_eq!(dos.cpu().context().cpu.al(), b'$');
     });
 }
 

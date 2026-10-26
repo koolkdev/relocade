@@ -56,7 +56,7 @@ fn buffer(dos: &mut Dos) -> [u8; 8] {
     let mut bytes = [0; 8];
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .read(0x10200, &mut bytes)
         .unwrap();
     bytes
@@ -88,7 +88,7 @@ async fn check_handles() {
     assert_eq!(success(&service(&mut dos, 0x3f00, 5, 0, 0x200)), 0);
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .write(0x10200, b"!!!!!!!!")
         .unwrap();
     assert_eq!(success(&service(&mut dos, 0x3f00, 5, 8, 0x200)), 2);
@@ -177,7 +177,7 @@ fn position(cpu: &CpuState) -> u32 {
 }
 
 fn write(dos: &mut Dos, handle: u16, bytes: &[u8]) -> CpuState {
-    dos.cpu().context().memory().write(0x10200, bytes).unwrap();
+    dos.cpu().context().memory.write(0x10200, bytes).unwrap();
     service(dos, 0x4000, handle, bytes.len() as u16, 0x200)
 }
 

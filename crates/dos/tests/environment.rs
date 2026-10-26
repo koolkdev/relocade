@@ -33,18 +33,14 @@ async fn check_environments() {
             dos.load_com(&image, options).unwrap();
         }
         let mut psp = [0; 256];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10000, &mut psp)
-            .unwrap();
+        dos.cpu().context().memory.read(0x10000, &mut psp).unwrap();
         let environment = u16::from_le_bytes([psp[0x2c], psp[0x2d]]);
         let program_end = u16::from_le_bytes([psp[2], psp[3]]);
         assert_eq!(environment, program_end + 1); // A distinct MCB follows the program.
         let mut mcb = [0; 5];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(u32::from(environment - 1) * 16, &mut mcb)
             .unwrap();
         assert_eq!(&mcb[1..3], &[0, 0x10]); // The root PSP owns the environment.
@@ -62,13 +58,13 @@ async fn check_environments() {
     let mut pointer = [0; 2];
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .read(0x1002c, &mut pointer)
         .unwrap();
     let mut empty = [0; 5];
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .read(u32::from(u16::from_le_bytes(pointer)) * 16, &mut empty)
         .unwrap();
     assert_eq!(empty, [0, 0, 1, 0, 0]);
@@ -77,11 +73,11 @@ async fn check_environments() {
 async fn check_environment_validation() {
     let mut dos = common::dos().await;
     dos.load_com(&[0xc3], Default::default()).unwrap();
-    let saved_cpu = dos.cpu().context().cpu().snapshot();
+    let saved_cpu = dos.cpu().context().cpu.snapshot();
     let mut before = vec![0; 0x90010]; // Root MCB, PSP, program and environment.
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .read(0xfff0, &mut before)
         .unwrap();
     let too_large = vec![b'x'; 65532]; // Plus the two NULs, count and final NUL.
@@ -133,13 +129,9 @@ async fn check_environment_validation() {
         Err(LoadError::InsufficientMemory)
     );
     let mut after = vec![0; before.len()];
-    dos.cpu()
-        .context()
-        .memory()
-        .read(0xfff0, &mut after)
-        .unwrap();
+    dos.cpu().context().memory.read(0xfff0, &mut after).unwrap();
     assert_eq!(after, before);
-    assert_eq!(dos.cpu().context().cpu().snapshot(), saved_cpu);
+    assert_eq!(dos.cpu().context().cpu.snapshot(), saved_cpu);
 
     let maximum_path = vec![b'x'; 65531];
     dos.load_com(
@@ -153,14 +145,14 @@ async fn check_environment_validation() {
     let mut pointer = [0; 2];
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .read(0x1002c, &mut pointer)
         .unwrap();
     let address = u32::from(u16::from_le_bytes(pointer)) * 16;
     let mut last = [0; 2];
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .read(address + 65534, &mut last)
         .unwrap();
     assert_eq!(last, [b'x', 0]);

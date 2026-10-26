@@ -25,16 +25,14 @@ pub fn set_zero<T>(call: &mut CpuContext<'_, T>, zero: bool) {
 
 fn set_flag<T>(call: &mut CpuContext<'_, T>, mask: u8, value: bool) {
     // INT pushed FLAGS, CS, IP. Updating live flags would be undone by IRET.
-    let address = {
-        let cpu = call.cpu();
-        cpu.segment(Segment::Ss).base + u32::from(cpu.sp().wrapping_add(4))
-    };
+    let cpu = &call.cpu;
+    let address = cpu.segment(Segment::Ss).base + u32::from(cpu.sp().wrapping_add(4));
     let mut flags = [0];
-    call.memory()
+    call.memory
         .read(address, &mut flags)
         .expect("real-mode interrupt frame");
     flags[0] = (flags[0] & !mask) | if value { mask } else { 0 };
-    call.memory()
+    call.memory
         .write(address, &flags)
         .expect("real-mode interrupt frame");
 }
@@ -42,7 +40,7 @@ fn set_flag<T>(call: &mut CpuContext<'_, T>, mask: u8, value: bool) {
 /// Resumes at the IRET in [`HOOK_STUB`], preserving the interrupt frame.
 /// The current CS:IP must point to the stub's hook entry.
 pub fn return_from_interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
-    let mut cpu = call.cpu();
+    let cpu = &mut call.cpu;
     let iret_ip = (cpu.eip() as u16).wrapping_add(1);
     cpu.set_eip(u32::from(iret_ip));
     HookResult::Continue

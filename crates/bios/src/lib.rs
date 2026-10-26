@@ -63,21 +63,21 @@ pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 3] {
 }
 
 fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
-    if call.cpu().ah() == 0 {
+    if call.cpu.ah() == 0 {
         let mut data = [0; 5];
-        call.memory()
+        call.memory
             .read(CLOCK_TICKS, &mut data)
             .expect("BIOS clock data");
-        let mut cpu = call.cpu();
+        let cpu = &mut call.cpu;
         cpu.set_dx(u16::from_le_bytes([data[0], data[1]]));
         cpu.set_cx(u16::from_le_bytes([data[2], data[3]]));
         cpu.set_al(data[4]);
-        call.memory()
+        call.memory
             .write(MIDNIGHT_ROLLOVER, &[0])
             .expect("BIOS midnight rollover");
     } else {
         // Unsupported BIOS function.
-        call.cpu().set_ah(0x86);
+        call.cpu.set_ah(0x86);
         real_mode_interrupt::set_carry(call, true);
     }
     real_mode_interrupt::return_from_interrupt(call)

@@ -21,7 +21,7 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
         input.write_all(b"\x1a\x08").unwrap();
         {
             let mut machine = dos.cpu().context();
-            let mut cpu = machine.cpu();
+            let cpu = &mut machine.cpu;
             cpu.set_eip(0x100);
             cpu.set_ax(0x3f00);
             cpu.set_bx(handle);
@@ -49,20 +49,20 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
                 Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
             ));
         }
-        let cpu = dos.cpu().context().cpu().snapshot();
+        let cpu = dos.cpu().context().cpu.snapshot();
         assert_eq!(success(&cpu), 5);
         assert_eq!(cpu.registers.esp as u16, 0xfffe);
         let mut bytes = [0; 5];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes, b"\x1a\x08\0\rK");
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 1, 0x400)), 1);
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut bytes[..1])
             .unwrap();
         assert_eq!(bytes[0], b'Z');
@@ -86,7 +86,7 @@ fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
         let mut bytes = [0; 4];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut bytes[..2])
             .unwrap();
         assert_eq!(&bytes[..2], b"R\x1a");
@@ -94,7 +94,7 @@ fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 4, 0x400)), 4);
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes, b"bc\r\n");
@@ -104,18 +104,18 @@ fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
         dos.stdin().write_all(b"XYZ").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 0);
         success(&service(&mut dos, 0x4401, 0, 0, 0xe3)); // Clear EOF.
-        dos.cpu().context().memory().write(0x1ffff, b"??").unwrap();
+        dos.cpu().context().memory.write(0x1ffff, b"??").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 3, 0xffff)), 1);
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x1ffff, &mut bytes[..2])
             .unwrap();
         assert_eq!(&bytes[..2], b"X?");
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 2, 0x400)), 2);
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut bytes[..2])
             .unwrap();
         assert_eq!(&bytes[..2], b"YZ");

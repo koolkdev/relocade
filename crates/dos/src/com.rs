@@ -18,7 +18,7 @@ pub(crate) fn load<T>(
         return Err(LoadError::ImageTooLarge);
     }
     let allocation = process::allocate(
-        &mut machine.memory(),
+        &mut machine.memory,
         (SEGMENT_SIZE / memory::PARAGRAPH_BYTES) as usize,
         usize::from(memory::AVAILABLE_PARAGRAPHS),
         options,
@@ -30,7 +30,7 @@ pub(crate) fn load<T>(
     let mut contents = vec![0; SEGMENT_SIZE as usize - process::PSP_BYTES];
     contents[..image.len()].copy_from_slice(image);
     machine
-        .memory()
+        .memory
         .write(psp_address + process::PSP_BYTES as u32, &contents)
         .expect("fixed COM process allocation");
 
@@ -38,7 +38,7 @@ pub(crate) fn load<T>(
     cpu.registers.esp = u32::from(STACK_OFFSET);
     cpu.eip = process::PSP_BYTES as u32;
     machine
-        .cpu()
+        .cpu
         .restore(&cpu)
         .expect("COM entry state satisfies the real-mode execution target");
     Ok(psp_segment)
