@@ -53,11 +53,13 @@ pub fn initialize(memory: &mut MemoryView<'_>) {
 }
 
 /// Returns hooks for installation alongside another environment's hooks.
-/// The environment lends the same keyboard used by its console input.
-pub fn hooks<T: AsRef<Keyboard> + 'static>() -> [Hook<T>; 3] {
+/// The keyboard is captured by the hooks and may be shared with console input.
+pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
     [
         Hook::new(CLOCK_ADDRESS, clock),
-        Hook::new(KEYBOARD_ADDRESS, keyboard::interrupt),
+        Hook::new(KEYBOARD_ADDRESS, move |call| {
+            keyboard::interrupt(call, &keyboard)
+        }),
         Hook::new(VIDEO_ADDRESS, video::interrupt),
     ]
 }
