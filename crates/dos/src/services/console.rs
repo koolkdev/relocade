@@ -17,7 +17,11 @@ use output::{write_characters, write_cooked_character, CharacterOutput};
 /// AH=0Ch: flush stdin and select a service in the existing interrupt frame.
 pub(super) fn flush_input(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> bool {
     // DOS proceeds to the requested service even if the flush failed.
-    let _ = state.files.flush_input(0);
+    let _ = state
+        .process
+        .active()
+        .files
+        .flush_input(&state.stdio.input, 0);
     let function = call.cpu.al();
     if matches!(
         function,
@@ -42,9 +46,11 @@ pub(super) fn input_status(
 ) -> HookResult {
     // Closed stdin falls back to the console; AH=0Bh has no handle-error return.
     let available = state
+        .process
+        .active()
         .files
-        .input_available(0)
-        .unwrap_or_else(|_| state.files.stdio.input.has_input());
+        .input_available(&state.stdio.input, 0)
+        .unwrap_or_else(|_| state.stdio.input.has_input());
     call.cpu.set_al(if available { 0xff } else { 0 });
     return_from_interrupt(call)
 }
@@ -56,7 +62,11 @@ pub(super) fn direct_io(
 ) -> HookResult {
     let byte = call.cpu.dl();
     if byte == 0xff {
-        let result = state.files.read_character(0);
+        let result = state
+            .process
+            .active()
+            .files
+            .read_character(&state.stdio.input, 0);
         let character = match result {
             Ok(character) => character,
             Err(error) => return return_result(call, Err(error)),

@@ -41,7 +41,7 @@ pub(in crate::services) async fn read_handle(
         }
         bytes
     } else {
-        let buffered = !services.borrow_mut().files.stdio.console_line.is_empty();
+        let buffered = !services.borrow_mut().stdio.console_line.is_empty();
         if count != 0 && !buffered {
             let line = LineInput::new(CONSOLE_LINE_CAPACITY, CharacterOutput::Console(stream));
             let mut bytes = match line.read(call, services, &input).await {
@@ -54,11 +54,11 @@ pub(in crate::services) async fn read_handle(
             write_console(call, state, stream, b"\n");
             if !eof {
                 bytes.push(b'\n');
-                state.files.stdio.console_line.extend(bytes);
+                state.stdio.console_line.extend(bytes);
             }
         }
         let state = &mut *services.borrow_mut();
-        let line = &mut state.files.stdio.console_line;
+        let line = &mut state.stdio.console_line;
         line.drain(..count.min(line.len())).collect()
     };
     if !bytes.is_empty() {

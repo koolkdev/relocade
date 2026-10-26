@@ -35,7 +35,7 @@ pub(super) fn write_console(
     stream: OutputStream,
     bytes: &[u8],
 ) {
-    state.files.stdio.output(stream).extend(bytes);
+    state.stdio.output(stream).extend(bytes);
     relocade_bios::write_text(&mut call.memory, bytes);
 }
 
@@ -47,7 +47,7 @@ pub(super) fn write_cooked_character(
     output: CharacterOutput,
     byte: u8,
 ) -> u8 {
-    let column = &mut state.files.stdio.output_column;
+    let column = &mut state.stdio.output_column;
     let (byte, count) = if byte == b'\t' {
         (b' ', 8 - (*column & 7))
     } else {
@@ -77,11 +77,11 @@ pub(super) fn write_characters(
     handle: u16,
     bytes: &[u8],
 ) -> Result<(), DosError> {
-    match state.files.writable_handle_type(handle)? {
+    match state.process.active().files.writable_handle_type(handle)? {
         HandleType::Device(Device::Console(stream)) => write_console(call, state, stream, bytes),
         HandleType::File => {
             if !bytes.is_empty() {
-                state.files.write(handle, bytes)?;
+                state.process.active_mut().files.write(handle, bytes)?;
             }
         }
         HandleType::Device(Device::Null) => {}
@@ -99,12 +99,13 @@ pub(in crate::services) fn write_handle(
     handle: u16,
     bytes: &[u8],
 ) -> Result<usize, DosError> {
-    let HandleType::Device(Device::Console(stream)) = state.files.writable_handle_type(handle)?
+    let HandleType::Device(Device::Console(stream)) =
+        state.process.active().files.writable_handle_type(handle)?
     else {
-        return state.files.write(handle, bytes);
+        return state.process.active_mut().files.write(handle, bytes);
     };
     // Even a zero-byte handle write clears EOF on this record and its duplicates.
-    let device = state.files.console(handle)?;
+    let device = state.process.active().files.console(handle)?;
     device.set_eof(false);
     if device.raw() {
         write_console(call, state, stream, bytes);

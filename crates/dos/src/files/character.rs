@@ -65,21 +65,25 @@ impl CharacterInput {
 
 impl Files {
     /// Flush the device queue without changing file cursors, buffered lines or EOF.
-    pub(crate) fn flush_input(&mut self, handle: u16) -> Result<(), DosError> {
+    pub(crate) fn flush_input(&self, keyboard: &Keyboard, handle: u16) -> Result<(), DosError> {
         match self.handle_type(handle)? {
-            HandleType::Device(Device::Console(_)) => self.stdio.input.discard_queued(),
+            HandleType::Device(Device::Console(_)) => keyboard.discard_queued(),
             HandleType::File | HandleType::Device(_) => {}
         }
         Ok(())
     }
 
-    pub(crate) fn character_input(&self, handle: u16) -> Result<CharacterInput, DosError> {
+    pub(crate) fn character_input(
+        &self,
+        keyboard: &Keyboard,
+        handle: u16,
+    ) -> Result<CharacterInput, DosError> {
         self.readable_handle_type(handle)?;
         let source = match self.handle(handle)? {
             OpenHandle::File(file) => Source::File(Rc::clone(file)),
             OpenHandle::Device(device) => match device.kind {
                 Device::Console(_) => Source::Console {
-                    keyboard: self.stdio.input.clone(),
+                    keyboard: keyboard.clone(),
                     device: Rc::clone(device),
                 },
                 Device::Null => Source::Null,
@@ -89,7 +93,11 @@ impl Files {
         Ok(CharacterInput { source })
     }
 
-    pub(crate) fn read_character(&self, handle: u16) -> Result<Option<u8>, DosError> {
-        self.character_input(handle)?.try_read_character()
+    pub(crate) fn read_character(
+        &self,
+        keyboard: &Keyboard,
+        handle: u16,
+    ) -> Result<Option<u8>, DosError> {
+        self.character_input(keyboard, handle)?.try_read_character()
     }
 }

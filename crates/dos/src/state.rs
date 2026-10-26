@@ -1,6 +1,6 @@
 //! DOS environment data and owned service handles.
 
-use crate::{files::Files, ServiceError};
+use crate::{files::FileSystem, process::ProcessState, stdio::Stdio};
 use relocade_bios::Keyboard;
 use std::{
     cell::{RefCell, RefMut},
@@ -9,18 +9,9 @@ use std::{
 
 #[derive(Default)]
 pub(crate) struct DosState {
-    pub(crate) files: Files,
-    pub(crate) dta_segment: u16,
-    pub(crate) dta_offset: u16,
+    pub(crate) filesystem: FileSystem,
+    pub(crate) stdio: Stdio,
     pub(crate) process: ProcessState,
-}
-
-#[derive(Default)]
-pub(crate) enum ProcessState {
-    #[default]
-    Idle,
-    Active,
-    Exited(Result<u8, ServiceError>),
 }
 
 /// Owned access to the services of a [`crate::Dos`] environment.
@@ -33,7 +24,7 @@ pub struct DosServices {
 
 impl DosServices {
     pub(crate) fn new(state: Rc<RefCell<DosState>>) -> Self {
-        let keyboard = state.borrow().files.stdio.input.clone();
+        let keyboard = state.borrow().stdio.input.clone();
         Self { state, keyboard }
     }
 
@@ -41,7 +32,12 @@ impl DosServices {
         &self,
         handle: u16,
     ) -> Result<crate::files::CharacterInput, crate::error::DosError> {
-        self.state.borrow().files.character_input(handle)
+        self.state
+            .borrow()
+            .process
+            .active()
+            .files
+            .character_input(&self.keyboard, handle)
     }
 
     pub(crate) fn borrow_mut(&self) -> RefMut<'_, DosState> {

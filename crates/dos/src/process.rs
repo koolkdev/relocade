@@ -1,12 +1,61 @@
-//! Process initialization shared by the COM and MZ loaders.
+//! DOS process resources and startup layout shared by the COM and MZ loaders.
 
-use crate::{memory, LoadError, LoadOptions};
+use crate::{
+    files::{FileSystem, Files},
+    memory, LoadError, LoadOptions, ServiceError,
+};
 use relocade_machine::MemoryView;
 use relocade_x86::{CpuState, FlagsState, Segment, SegmentRegister, Segments};
 
 pub(crate) const COMMAND_TAIL_OFFSET: u16 = 0x80;
 pub(crate) const PSP_BYTES: usize = 0x100;
 pub(crate) const PSP_PARAGRAPHS: u16 = 0x10;
+
+pub(crate) struct Process {
+    pub(crate) files: Files,
+    pub(crate) dta_segment: u16,
+    pub(crate) dta_offset: u16,
+}
+
+impl Process {
+    pub(crate) fn new(psp_segment: u16) -> Self {
+        Self {
+            files: Files::default(),
+            dta_segment: psp_segment,
+            dta_offset: COMMAND_TAIL_OFFSET,
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) enum ProcessState {
+    #[default]
+    Idle,
+    Active(Process),
+    Exited(Result<u8, ServiceError>),
+}
+
+impl ProcessState {
+    pub(crate) fn active(&self) -> &Process {
+        match self {
+            Self::Active(process) => process,
+            _ => unreachable!("DOS service requires an active process"),
+        }
+    }
+
+    pub(crate) fn active_mut(&mut self) -> &mut Process {
+        match self {
+            Self::Active(process) => process,
+            _ => unreachable!("DOS service requires an active process"),
+        }
+    }
+
+    pub(crate) fn finish(&mut self, filesystem: &mut FileSystem, status: Result<u8, ServiceError>) {
+        if let Self::Active(process) = std::mem::replace(self, Self::Exited(status)) {
+            process.files.close_all(filesystem);
+        }
+    }
+}
 
 pub(crate) struct Allocation {
     pub(crate) segment: u16,

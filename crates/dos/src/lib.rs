@@ -116,9 +116,10 @@ mod stdio;
 pub use error::{LaunchError, LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
+use process::{Process, ProcessState};
 use relocade_machine::{Cpu, CpuContext, Memory};
 pub use state::DosServices;
-use state::{DosState, ProcessState};
+use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
 /// A DOS session with persistent guest memory, CPU, mounted filesystems and console.
@@ -170,10 +171,7 @@ impl Dos {
         }
         let psp_segment = load(&mut self.cpu.context())?;
         let mut state = self.state.borrow_mut();
-        state.files.start_process();
-        state.dta_segment = psp_segment;
-        state.dta_offset = process::COMMAND_TAIL_OFFSET;
-        state.process = ProcessState::Active;
+        state.process = ProcessState::Active(Process::new(psp_segment));
         Ok(())
     }
 
@@ -187,15 +185,15 @@ impl Dos {
     /// Whether a launched process has yet to terminate, including while awaiting input
     /// or stopped at a guest exception or instruction budget.
     pub fn has_active_process(&self) -> bool {
-        matches!(self.state.borrow().process, ProcessState::Active)
+        matches!(self.state.borrow().process, ProcessState::Active(_))
     }
 
     /// The last process's termination status, or None before launch and while active.
     /// A successful launch clears this status; a rejected launch preserves it.
     pub fn exit_status(&self) -> Option<Result<u8, ServiceError>> {
-        match self.state.borrow().process {
-            ProcessState::Exited(status) => Some(status),
-            ProcessState::Idle | ProcessState::Active => None,
+        match &self.state.borrow().process {
+            ProcessState::Exited(status) => Some(*status),
+            ProcessState::Idle | ProcessState::Active(_) => None,
         }
     }
 
@@ -214,7 +212,14 @@ impl Dos {
         letter: char,
         filesystem: relocade_vfs::MemoryFileSystem,
     ) -> std::io::Result<()> {
-        self.state.borrow_mut().files.mount(letter, filesystem)
+        let state = &mut *self.state.borrow_mut();
+        state.filesystem.mount(letter, filesystem)?;
+        if let ProcessState::Active(process) = &mut state.process {
+            process
+                .files
+                .invalidate_searches(letter.to_ascii_uppercase());
+        }
+        Ok(())
     }
 
     /// Supplies bytes at an ASCII path on a mounted drive with an initial read-only attribute.
@@ -230,7 +235,7 @@ impl Dos {
     ) -> Result<(), MountError> {
         self.state
             .borrow_mut()
-            .files
+            .filesystem
             .mount_file(path, contents, access)
     }
 
@@ -238,7 +243,7 @@ impl Dos {
     /// Like mount_file, relative paths start at the root and default to C:.
     /// Returns None for invalid paths or files that do not exist.
     pub fn read_file(&self, path: &str) -> Option<Vec<u8>> {
-        self.state.borrow().files.read_file(path)
+        self.state.borrow().filesystem.read_file(path)
     }
 
     /// Returns an owned console input writer. Bytes use the guest's encoding.
@@ -266,7 +271,7 @@ impl Dos {
     /// # }
     /// ```
     pub fn stdin(&self) -> impl std::io::Write + Clone + 'static {
-        self.state.borrow().files.stdio.input.clone()
+        self.state.borrow().stdio.input.clone()
     }
 
     /// Returns the input queue shared by BIOS INT 16h and DOS console reads.
@@ -282,7 +287,7 @@ impl Dos {
     /// # }
     /// ```
     pub fn keyboard(&self) -> relocade_bios::Keyboard {
-        self.state.borrow().files.stdio.input.clone()
+        self.state.borrow().stdio.input.clone()
     }
 
     /// Copies the active 80-by-25 color text page and its cursor for a renderer.
@@ -299,7 +304,6 @@ impl Dos {
     pub fn stdout(&self) -> impl std::io::Read + Clone + 'static {
         self.state
             .borrow()
-            .files
             .stdio
             .output(stdio::OutputStream::Stdout)
             .clone()
@@ -310,7 +314,6 @@ impl Dos {
     pub fn stderr(&self) -> impl std::io::Read + Clone + 'static {
         self.state
             .borrow()
-            .files
             .stdio
             .output(stdio::OutputStream::Stderr)
             .clone()

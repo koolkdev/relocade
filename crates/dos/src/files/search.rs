@@ -1,4 +1,6 @@
-use super::{short_name, Files, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, SYSTEM_ATTRIBUTE};
+use super::{
+    short_name, FileSystem, Files, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, SYSTEM_ATTRIBUTE,
+};
 use crate::{error::DosError, path::ResolvedPath};
 
 pub(crate) const FIND_DATA_BYTES: usize = 43;
@@ -27,6 +29,7 @@ struct Search {
 impl Files {
     pub(crate) fn find_first(
         &mut self,
+        filesystem: &FileSystem,
         specification: &[u8],
         attributes: u8,
     ) -> Result<[u8; FIND_DATA_BYTES], DosError> {
@@ -35,16 +38,16 @@ impl Files {
             .rposition(|byte| matches!(byte, b'/' | b'\\' | b':'))
             .map_or(0, |position| position + 1);
         let directory = if split == 0 {
-            self.resolve(b".")?
+            filesystem.resolve(b".")?
         } else {
-            self.resolve(&specification[..split])?
+            filesystem.resolve(&specification[..split])?
         };
-        let filesystem = self.drives.get(directory.drive).unwrap();
-        if !filesystem.is_dir(&directory.relative) {
+        let drive = filesystem.drives.get(directory.drive).unwrap();
+        if !drive.is_dir(&directory.relative) {
             return Err(DosError::PathNotFound);
         }
         let pattern = short_name::pattern(&specification[split..]).ok_or(DosError::NoMoreFiles)?;
-        let names: Vec<_> = filesystem
+        let names: Vec<_> = drive
             .read_dir(&directory.relative)
             .expect("existing directory")
             .map(|entry| entry.file_name().to_owned())
@@ -73,35 +76,46 @@ impl Files {
                 self.search_directories.len() - 1
             }
         };
-        self.next_match(Search {
-            directory: directory as u32,
-            next_entry: 0,
-            pattern,
-            // Read-only and archive do not restrict DOS searches.
-            attributes: attributes
-                & (HIDDEN_ATTRIBUTE as u8
-                    | SYSTEM_ATTRIBUTE as u8
-                    | DIRECTORY_ATTRIBUTE
-                    | VOLUME_ATTRIBUTE),
-        })
+        self.next_match(
+            filesystem,
+            Search {
+                directory: directory as u32,
+                next_entry: 0,
+                pattern,
+                // Read-only and archive do not restrict DOS searches.
+                attributes: attributes
+                    & (HIDDEN_ATTRIBUTE as u8
+                        | SYSTEM_ATTRIBUTE as u8
+                        | DIRECTORY_ATTRIBUTE
+                        | VOLUME_ATTRIBUTE),
+            },
+        )
     }
 
     pub(crate) fn find_next(
         &self,
+        filesystem: &FileSystem,
         data: &[u8; FIND_DATA_BYTES],
     ) -> Result<[u8; FIND_DATA_BYTES], DosError> {
         if data[0] != SEARCH_MARKER {
             return Err(DosError::NoMoreFiles);
         }
-        self.next_match(Search {
-            directory: u32::from_le_bytes(data[1..5].try_into().unwrap()),
-            next_entry: u32::from_le_bytes(data[5..9].try_into().unwrap()),
-            pattern: data[9..20].try_into().unwrap(),
-            attributes: data[20],
-        })
+        self.next_match(
+            filesystem,
+            Search {
+                directory: u32::from_le_bytes(data[1..5].try_into().unwrap()),
+                next_entry: u32::from_le_bytes(data[5..9].try_into().unwrap()),
+                pattern: data[9..20].try_into().unwrap(),
+                attributes: data[20],
+            },
+        )
     }
 
-    fn next_match(&self, mut search: Search) -> Result<[u8; FIND_DATA_BYTES], DosError> {
+    fn next_match(
+        &self,
+        filesystem: &FileSystem,
+        mut search: Search,
+    ) -> Result<[u8; FIND_DATA_BYTES], DosError> {
         let directory = self
             .search_directories
             .get(search.directory as usize)
@@ -110,8 +124,8 @@ impl Files {
         if search.attributes == VOLUME_ATTRIBUTE {
             return Err(DosError::NoMoreFiles); // No volume label is configured.
         }
-        let filesystem = self.drives.get(directory.path.drive).unwrap();
-        if !filesystem.is_dir(&directory.path.relative) {
+        let drive = filesystem.drives.get(directory.path.drive).unwrap();
+        if !drive.is_dir(&directory.path.relative) {
             return Err(DosError::NoMoreFiles);
         }
         let dots = [".", ".."]
@@ -133,14 +147,14 @@ impl Files {
                 } else {
                     format!("{}/{name}", directory.path.relative)
                 };
-                let Ok(metadata) = filesystem.metadata(&relative) else {
+                let Ok(metadata) = drive.metadata(&relative) else {
                     continue; // A deleted entry keeps its slot, but is not returned.
                 };
                 let Ok(len) = u32::try_from(metadata.len()) else {
                     continue; // DOS cannot expose a file larger than its 32-bit size.
                 };
                 (
-                    self.entry_attributes(
+                    filesystem.entry_attributes(
                         &ResolvedPath {
                             drive: directory.path.drive,
                             relative,
@@ -161,6 +175,18 @@ impl Files {
             return Ok(search.result(name, attributes, len));
         }
         Err(DosError::NoMoreFiles)
+    }
+
+    pub(crate) fn invalidate_searches(&mut self, drive: char) {
+        // Keep DTA directory IDs stable; old searches must not enter the new mount.
+        for directory in &mut self.search_directories {
+            if directory
+                .as_ref()
+                .is_some_and(|directory| directory.path.drive == drive)
+            {
+                *directory = None;
+            }
+        }
     }
 }
 
