@@ -1,6 +1,6 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;
-use relocade_x86::{ExecutionExit, HostExit};
+use relocade_x86::ExecutionExit;
 use std::io::Write;
 
 #[test]
@@ -19,24 +19,15 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 cpu.set_dx(0x400);
                 cpu.set_eflags(0x643);
             }
-            assert_eq!(
-                dos.cpu().run(10).unwrap(),
-                ExecutionExit::Host(HostExit::Deferred)
-            );
+            crate::common::assert_pending(dos.cpu().run(10));
             assert!(common::output(dos.stdout()).is_empty());
-            assert_eq!(dos.cpu().context().cpu.sp(), 0xfff8);
+            assert_eq!(dos.cpu().memory().view().read_u16(0x1fff8).unwrap(), 0x102);
             // Calling run again cannot flush input or push another interrupt frame.
-            assert_eq!(
-                dos.cpu().run(10).unwrap(),
-                ExecutionExit::Host(HostExit::Deferred)
-            );
+            crate::common::assert_pending(dos.cpu().run(10));
             dos.stdin()
                 .write_all(if function == 0x0a { b"K\r" } else { b"K" })
                 .unwrap();
-            assert_eq!(
-                dos.cpu().run_async(10).await.unwrap(),
-                ExecutionExit::BudgetExhausted
-            );
+            assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
             {
                 let machine = dos.cpu().context();
                 if function == 0x0a {
@@ -47,6 +38,7 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                     assert_eq!(machine.cpu.al(), b'K');
                 }
                 let cpu = &machine.cpu;
+                assert_eq!(cpu.ah(), 0x0c);
                 assert_eq!(cpu.bx(), 0x1234);
                 assert_eq!(cpu.dx(), 0x400);
                 assert_eq!(cpu.eflags(), 0x643);
@@ -73,13 +65,14 @@ fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
         dos.stdin().write_all(b"old\r").unwrap();
         dos.cpu().context().cpu.set_eflags(0x603);
         let cpu = service(&mut dos, 0x0c06, 0, 0, 0xff);
-        assert_eq!(cpu.registers.eax as u8, 0);
+        assert_eq!(cpu.registers.eax as u16, 0x0c00);
         assert_eq!(cpu.flags.eflags(), 0x643);
         assert_eq!(common::output(dos.stdout()), b"P");
         assert_eq!(service(&mut dos, 0x0b00, 0, 0, 0).registers.eax as u8, 0);
 
         dos.stdin().write_all(b"old").unwrap();
-        service(&mut dos, 0x0c06, 0, 0, u16::from(b'!'));
+        let cpu = service(&mut dos, 0x0c06, 0, 0, u16::from(b'!'));
+        assert_eq!(cpu.registers.eax as u16, 0x0c21);
         assert_eq!(common::output(dos.stdout()), b"!");
         assert_eq!(service(&mut dos, 0x0b00, 0, 0, 0).registers.eax as u8, 0);
         for function in [0, 0x0c, 0xff] {
@@ -98,8 +91,8 @@ fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 4);
         let mut buffer = [0; 4];
         dos.cpu()
-            .context()
-            .memory
+            .memory()
+            .view()
             .read(0x10400, &mut buffer)
             .unwrap();
         assert_eq!(&buffer, b"bc\r\n");

@@ -21,7 +21,7 @@ Retain memory access while the CPU executes:
 ```rust
 let memory = runtime.memory();
 let view = memory.view();
-let run = runtime.run_async(budget);
+let run = runtime.run(budget);
 // A separate display task can read without borrowing runtime or run.
 let character = view.read_u8(0xb8000)?;
 ```
@@ -29,13 +29,13 @@ let character = view.read_u8(0xb8000)?;
 `Memory` owns the backing handle and an immutable copy of the configured
 physical map. Its memory views use the same RAM, ROM, A20 and hole rules as the stopped
 machine. `TextScreen::read(&view)` can sample the
-screen while a deferred input operation owns the runtime context. The same
+screen while a service awaiting input owns the runtime context. The same
 `MemoryView` supports reads through `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
-`CpuContext` lends separate `cpu`, `memory` and `state` fields in stopped access,
-hooks and deferred handlers. The CPU-register and guest-memory views can be
-borrowed together:
+`CpuContext` lends separate `cpu`, `memory` and `state` fields during stopped
+access and host services. The CPU-register and guest-memory views can be borrowed
+together:
 
 ```rust
 let registers = &mut call.cpu;
@@ -47,6 +47,10 @@ registers.set_ax(memory.read_u16(0x202)?);
 Those views and the context borrow the stopped CPU. Drop the context before
 resuming execution or installing modules. `cpu.memory()` returns an owned
 handle whose lifetime is independent of execution.
+
+A suspended service keeps its machine borrow; complete it before calling
+`cpu.context()` again. Independent `Memory` handles remain usable during
+execution, while a service awaits input, and after CPU destruction.
 
 Pass `memory.backing().clone()` directly as a worker task's context.
 The worker transport moves native handles and preserves browser shared-memory

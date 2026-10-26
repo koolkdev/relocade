@@ -2,6 +2,7 @@
 
 use crate::{
     error::DosError,
+    files::{Device, Handle},
     interrupt::{return_result, DosContext},
 };
 use relocade_machine::HookResult;
@@ -28,14 +29,17 @@ pub(super) fn ioctl(call: &mut DosContext<'_, '_>) -> HookResult {
                     call.execution.cpu.set_al(previous);
                 })
         }
-        GET_INPUT_STATUS => call
-            .process
-            .files()
-            .input_available(&call.dos.stdio().input, handle)
-            .map(|available| {
-                call.execution.cpu.set_al(if available { 0xff } else { 0 });
-            }),
-        GET_OUTPUT_STATUS => call.process.files().output_ready(handle).map(|ready| {
+        GET_INPUT_STATUS => call.process.files().handle(handle).map(|handle| {
+            let available = super::console::input_available(handle, &call.dos.stdio().input);
+            call.execution.cpu.set_al(if available { 0xff } else { 0 });
+        }),
+        GET_OUTPUT_STATUS => call.process.files().handle(handle).map(|handle| {
+            let ready = match handle {
+                Handle::File(_) => true,
+                Handle::Device(device) => {
+                    matches!(device.kind(), Device::Console(_) | Device::Null)
+                }
+            };
             call.execution.cpu.set_al(if ready { 0xff } else { 0 });
         }),
         _ => Err(DosError::InvalidFunction),

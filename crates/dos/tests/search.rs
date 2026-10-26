@@ -228,7 +228,7 @@ async fn check_discovery_program() {
     program.extend_from_slice(b"*.DAT\0");
     dos.launch_com(&program, Default::default()).unwrap();
     assert_eq!(
-        dos.cpu().run(500).unwrap(),
+        pollster::block_on(dos.cpu().run(500)),
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(

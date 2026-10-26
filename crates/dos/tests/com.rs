@@ -32,15 +32,18 @@ async fn check_hello() {
         assert_eq!(word, [0, 0]);
     }
     assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
-    assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(1)),
+        ExecutionExit::BudgetExhausted
+    );
     assert!(common::output(dos.stdout()).is_empty()); // INT completed, before entering the hook.
-    assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(dos.cpu().run(1).await, ExecutionExit::BudgetExhausted);
     assert_eq!(common::output(dos.stdout()), b"Hello, DOS!\r\n");
     assert_eq!(dos.cpu().context().cpu.al(), b'$');
     assert_eq!(dos.cpu().context().cpu.sp(), 0xfffe);
     assert_eq!(dos.cpu().context().cpu.eip(), 0x107);
     assert_eq!(
-        dos.cpu().run(u64::MAX).unwrap(),
+        dos.cpu().run(u64::MAX).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(
@@ -60,7 +63,7 @@ async fn check_com_bounds_and_return() {
     dos.cpu().context().memory.read(0x1fffd, &mut end).unwrap();
     assert_eq!(end, [0x41, 0, 0]);
     assert_eq!(
-        dos.cpu().run(10).unwrap(),
+        dos.cpu().run(10).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(
@@ -101,7 +104,7 @@ async fn check_com_bounds_and_return() {
     assert_eq!(&loaded[1..0xfefe], &previous[1..0xfefe]);
     assert_eq!(&loaded[0xfefe..], &[0, 0]);
     assert_eq!(
-        dos.cpu().run(10).unwrap(),
+        pollster::block_on(dos.cpu().run(10)),
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(
@@ -115,7 +118,7 @@ async fn check_unsupported_service() {
     dos.launch_com(&[0xb4, 0xfe, 0xcd, 0x21], Default::default())
         .unwrap();
     assert_eq!(
-        dos.cpu().run(10).unwrap(),
+        dos.cpu().run(10).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(
@@ -151,7 +154,7 @@ async fn check_unterminated_string() {
     dos.cpu().context().memory.write(0x3ffff, b"Z").unwrap();
     dos.cpu().context().memory.write(0x30000, b"A").unwrap();
     assert_eq!(
-        dos.cpu().run(u64::MAX).unwrap(),
+        dos.cpu().run(u64::MAX).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(

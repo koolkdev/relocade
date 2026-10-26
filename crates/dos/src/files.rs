@@ -8,7 +8,6 @@ use relocade_vfs::{Drives, MemoryFileSystem, Metadata};
 use std::{collections::BTreeMap, io::ErrorKind};
 
 mod attributes;
-mod character;
 mod create;
 mod devices;
 mod directories;
@@ -21,8 +20,9 @@ mod short_name;
 mod tests;
 pub(crate) use create::CreateMode;
 pub(crate) use devices::Device;
-pub(crate) use handles::HandleType;
-use handles::{Handle, HANDLE_COUNT};
+use file_handle::FileHandle;
+pub(crate) use handles::Handle;
+use handles::HANDLE_COUNT;
 pub(crate) use search::FIND_DATA_BYTES;
 
 const READ_ONLY_ATTRIBUTE: u16 = 0x01;
@@ -184,7 +184,7 @@ impl Files {
             ErrorKind::NotFound | ErrorKind::NotADirectory => DosError::PathNotFound,
             _ => DosError::AccessDenied,
         })?;
-        self.open_file(file, path, access, sharing)
+        self.insert_file(FileHandle::new(file, path, access, sharing)?)
     }
 }
 

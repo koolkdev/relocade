@@ -104,7 +104,7 @@ fn normal_and_error_termination_release_process_resources() {
                 execution.cpu.set_ax(function);
             }
             assert_eq!(
-                dos.cpu().run(10).unwrap(),
+                pollster::block_on(dos.cpu().run(10)),
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(
@@ -115,17 +115,6 @@ fn normal_and_error_termination_release_process_resources() {
             dos.cpu().context().memory.read(0xfff0, &mut mcb).unwrap();
             assert_eq!(mcb, [b'Z', 0, 0, 0, 0x90]);
             assert_eq!(dos.read_file("A.DAT").unwrap(), b"Zbc");
-
-            // Reentering the hook after exit cannot invoke another DOS service.
-            dos.cpu().context().cpu.set_ax(0x4c99);
-            assert_eq!(
-                dos.cpu().run(10).unwrap(),
-                ExecutionExit::Host(HostExit::Return)
-            );
-            assert_eq!(
-                dos.process().unwrap().status(),
-                ProcessStatus::Exited(status)
-            );
 
             dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
             error(&service(&mut dos, 0x3e00, handle, 0, 0), 6);
@@ -175,14 +164,28 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
 
         let mut input = dos.stdin();
         {
-            let mut run = pin!(dos.cpu().run_async(100));
+            let mut run = pin!(dos.cpu().run(100));
+            let mut cx = Context::from_waker(Waker::noop());
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            assert_eq!(first.status(), ProcessStatus::Active);
+        }
+        assert!(Rc::ptr_eq(&first, &dos.process().unwrap()));
+        assert_eq!(
+            dos.launch_com(&[0xc3], Default::default()),
+            Err(LaunchError::ProcessActive)
+        );
+        dos.mount_file("WAIT.TXT", b"available".to_vec(), FileAccess::ReadOnly)
+            .unwrap();
+        assert_eq!(dos.read_file("WAIT.TXT").unwrap(), b"available");
+        {
+            let mut run = pin!(dos.cpu().run(100));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             assert_eq!(first.status(), ProcessStatus::Active);
             input.write_all(b"Q").unwrap();
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::Host(HostExit::Return)))
+                Poll::Ready(ExecutionExit::Host(HostExit::Return))
             ));
             assert_eq!(first.status(), ProcessStatus::Exited(Ok(b'Q')));
         }
@@ -204,7 +207,7 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
         assert_eq!(second.status(), ProcessStatus::Active);
         assert_eq!(first.status(), ProcessStatus::Exited(Ok(b'Q')));
         assert_eq!(
-            dos.cpu().run(100).unwrap(),
+            pollster::block_on(dos.cpu().run(100)),
             ExecutionExit::Host(HostExit::Return)
         );
         drop(dos);
@@ -217,24 +220,31 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
 }
 
 #[test]
-fn dos_hook_without_a_process_returns_without_running_the_service() {
+fn bios_input_can_complete_before_the_first_process_launch() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         {
             let mut execution = dos.cpu().context();
-            execution.memory.write(0x7000, &[0xcd, 0x21]).unwrap();
+            execution
+                .memory
+                .write(0x7000, &[0xcd, 0x16, 0xeb, 0xfe]) // INT 16h; JMP $.
+                .unwrap();
             execution.cpu.set_eip(0x7000);
             execution.cpu.set_sp(0x8000);
-            execution.cpu.set_ax(0x4c07);
+            execution.cpu.set_ax(0);
         }
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Return)
-        );
+        common::assert_pending(dos.cpu().run(10));
+        assert!(dos.process().is_none());
+        dos.keyboard().push(relocade_bios::KeyStroke {
+            character: b'X',
+            scan_code: 0x2d,
+        });
+        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(dos.cpu().context().cpu.ax(), 0x2d58);
         assert!(dos.process().is_none());
         dos.launch_com(&[0xc3], Default::default()).unwrap();
         assert_eq!(
-            dos.cpu().run(10).unwrap(),
+            dos.cpu().run(10).await,
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(

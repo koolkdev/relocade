@@ -7,7 +7,7 @@ use std::{cell::RefCell, rc::Rc};
 
 /// Duplicated DOS handles and in-progress operations retain the same record.
 #[derive(Clone)]
-pub(super) struct FileHandle(Rc<RefCell<State>>);
+pub(crate) struct FileHandle(Rc<RefCell<State>>);
 
 pub(super) enum SeekOrigin {
     Start,
@@ -71,7 +71,7 @@ impl FileHandle {
         self.0.borrow().access
     }
 
-    pub(super) fn read(&self, buffer: &mut [u8]) -> Result<usize, DosError> {
+    pub(crate) fn read(&self, buffer: &mut [u8]) -> Result<usize, DosError> {
         let mut open = self.0.borrow_mut();
         if !open.access.can_read() {
             return Err(DosError::AccessDenied);
@@ -88,7 +88,7 @@ impl FileHandle {
         Ok(count)
     }
 
-    pub(super) fn write(&self, bytes: &[u8]) -> Result<usize, DosError> {
+    pub(crate) fn write(&self, bytes: &[u8]) -> Result<usize, DosError> {
         let mut open = self.0.borrow_mut();
         if !open.access.can_write() {
             return Err(DosError::AccessDenied);
@@ -151,7 +151,7 @@ impl FileHandle {
         u16::from(open.path.drive as u8 - b'A') | if open.written { 0 } else { FILE_NOT_WRITTEN }
     }
 
-    pub(super) fn input_available(&self) -> bool {
+    pub(crate) fn input_available(&self) -> bool {
         let open = self.0.borrow();
         u64::from(open.position) < open.file.len()
     }

@@ -3,7 +3,7 @@
 use crate::screen::{self, ScrollDirection, Window};
 use relocade_machine::{real_mode_interrupt, CpuContext, HookResult};
 
-pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     let cpu = &call.cpu;
     let function = cpu.ah();
     let al = cpu.al();

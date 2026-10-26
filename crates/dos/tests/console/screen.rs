@@ -22,7 +22,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
         .unwrap();
         dos.cpu().context().memory.write(0x10300, b"DOS$").unwrap();
         assert_eq!(
-            dos.cpu().run(100).unwrap(),
+            pollster::block_on(dos.cpu().run(100)),
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(
@@ -56,12 +56,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
 
 #[test]
 fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
-    use std::{
-        future::Future,
-        io::Write,
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
+    use std::io::Write;
 
     pollster::block_on(async {
         let mut dos = common::dos().await;
@@ -81,13 +76,12 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             .unwrap();
         let memory = dos.cpu().memory();
         let mut input = dos.stdin();
-        let mut run = pin!(dos.cpu().run_async(100));
-        let mut cx = Context::from_waker(Waker::noop());
-        assert!(run.as_mut().poll(&mut cx).is_pending());
+        common::assert_pending(dos.cpu().run(100));
         let thread_memory = memory.clone();
         let screen = std::thread::spawn(move || TextScreen::read(&thread_memory.view()))
             .join()
             .unwrap();
+        assert_eq!(dos.screen(), screen);
         assert_eq!(
             screen.cells[..5]
                 .iter()
@@ -98,10 +92,10 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
         assert_eq!(screen.cursor.column, 5);
 
         input.write_all(b"X").unwrap();
-        assert!(matches!(
-            run.as_mut().poll(&mut cx),
-            Poll::Ready(Ok(ExecutionExit::Host(HostExit::Return)))
-        ));
+        assert_eq!(
+            dos.cpu().run(100).await,
+            ExecutionExit::Host(HostExit::Return)
+        );
         let screen = TextScreen::read(&memory.view());
         assert_eq!(screen.cells[5].character, b'X');
         assert_eq!(screen.cursor.column, 6);

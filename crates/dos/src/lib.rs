@@ -14,9 +14,8 @@
 //! AH=06h polls stdin without echo or writes one byte to stdout.
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
-//! eight-column stops. An empty input source returns
-//! `ExecutionExit::Host(HostExit::Deferred)` from a synchronous run. Use
-//! [`Cpu::run_async`] to await input and complete the pending read.
+//! eight-column stops. [`Cpu::run`] awaits an empty input source and resumes
+//! the pending read when input becomes available.
 //! AH=0Bh and IOCTL AX=4406h query input without consuming it; AX=4407h reports
 //! output readiness. Console status describes queued keys, not a buffered line.
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
@@ -34,9 +33,8 @@
 //! echo, CRLF insertion or interpreting Ctrl-Z as EOF. Raw AH=40h writes preserve
 //! tabs and control bytes. Duplicates share mode and EOF changes; separate opens
 //! keep their own state. Switching modes preserves the buffered cooked-line remainder.
-//! Keep the same run future alive while waiting; dropping an active read
-//! cancels it. To resume, replace its guest continuation and call
-//! [`Cpu::cancel_pending_call`]. Cancellation does not terminate the DOS process.
+//! Dropping a run waiter preserves an active read and its local state. A later
+//! [`Cpu::run`] resumes that read. Dropping the DOS session drops its pending call.
 //! Character and buffered reads stay blocked at redirected file EOF; host file
 //! growth does not yet wake them. AH=3Fh file reads return zero at EOF.
 //! The host writes guest-encoded bytes through [`Dos::stdin`] and drains
@@ -83,7 +81,7 @@
 //! dos.mount('D', disk)?;
 //! dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
 //! let process = dos.process().unwrap();
-//! assert_eq!(dos.cpu().run(u64::MAX)?, relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return));
+//! assert_eq!(dos.cpu().run(u64::MAX).await, relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return));
 //! assert_eq!(process.status(), ProcessStatus::Exited(Ok(7)));
 //! let mut output = Vec::new();
 //! dos.stdout().read_to_end(&mut output)?;
@@ -123,7 +121,7 @@ pub struct Dos {
 
 impl Dos {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
-    /// Load a program before entering guest execution.
+    /// Launch a program before executing DOS services.
     pub async fn new() -> relocade_machine::Result<Self> {
         let state = Rc::new(DosState::default());
         let keyboard = state.stdio().input.clone();
@@ -155,7 +153,8 @@ impl Dos {
     }
 
     /// Launches an MZ executable, applying relocations and its memory request.
-    /// Like [`Self::launch_com`], requires the previous process to have terminated.
+    /// Like [`Self::launch_com`], requires the previous process to have terminated
+    /// and any pending host service to have completed.
     /// Overlay loading is not supported.
     pub fn launch_mz(&mut self, image: &[u8], options: LoadOptions<'_>) -> Result<(), LaunchError> {
         self.launch(|execution| mz::load(execution, image, &options))
@@ -175,7 +174,6 @@ impl Dos {
             return Err(LaunchError::ProcessActive);
         }
         let psp_segment = load(&mut self.cpu.context())?;
-        self.cpu.cancel_pending_call();
         self.state.start_process(psp_segment);
         Ok(())
     }
@@ -223,6 +221,9 @@ impl Dos {
         self.state.filesystem().read_file(path)
     }
 
+    /// Returns the session's CPU.
+    /// Executing a DOS hook before launch or after process termination is a
+    /// programming error and panics. BIOS and custom hooks do not require a DOS process.
     pub fn cpu(&mut self) -> &mut Cpu {
         &mut self.cpu
     }
@@ -237,7 +238,7 @@ impl Dos {
 
     /// Returns an owned console input writer. Bytes use the guest's encoding.
     /// Writes enqueue bytes immediately and wake a pending console read; flush
-    /// is a no-op. The writer can be cloned and used while `run_async` is pending.
+    /// is a no-op. The writer can be cloned and used while `run` is pending.
     /// Redirected stdin reads its file instead. Buffered input and output persist
     /// across launches; existing stream handles remain connected to the console.
     ///
@@ -252,9 +253,9 @@ impl Dos {
     /// let process = dos.process().unwrap();
     /// let mut input = dos.stdin();
     /// // An event handler can retain this writer while the cpu waits.
-    /// let run = dos.cpu().run_async(100);
+    /// let run = dos.cpu().run(100);
     /// input.write_all(b"y")?;
-    /// run.await?;
+    /// run.await;
     /// assert_eq!(process.status(), ProcessStatus::Exited(Ok(b'y')));
     /// # Ok(())
     /// # }
@@ -265,7 +266,7 @@ impl Dos {
 
     /// Returns the input queue shared by BIOS INT 16h and DOS console reads.
     /// Host adapters supply translated characters, BIOS scan codes and shift state.
-    /// The handle can be retained while `run_async` awaits keyboard input.
+    /// The handle can be retained while `run` awaits keyboard input.
     ///
     /// ```no_run
     /// # fn example(dos: &relocade_dos::Dos) {
@@ -281,14 +282,15 @@ impl Dos {
 
     /// Copies the active 80-by-25 color text page and its cursor for a renderer.
     /// DOS CON output, BIOS video services and direct guest writes all update
-    /// this memory. File redirection does not write to the screen.
-    pub fn screen(&mut self) -> relocade_bios::TextScreen {
-        relocade_bios::TextScreen::read(&self.cpu.context().memory)
+    /// this memory. The screen remains readable while a host service is pending.
+    /// File redirection does not write to the screen.
+    pub fn screen(&self) -> relocade_bios::TextScreen {
+        relocade_bios::TextScreen::read(&self.cpu.memory().view())
     }
 
     /// Returns an owned reader that drains currently buffered standard output.
     /// An empty buffer returns zero, even if the guest may produce more later.
-    /// It can be used while `run_async` waits. DOS redirection follows the handle's
+    /// It can be used while `run` waits. DOS redirection follows the handle's
     /// destination, so bytes redirected to a file do not appear here.
     pub fn stdout(&self) -> impl std::io::Read + Clone + 'static {
         self.state

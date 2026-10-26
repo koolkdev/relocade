@@ -36,7 +36,7 @@ async fn check_file_program() {
     for _ in 0..2 {
         dos.launch_com(&program, Default::default()).unwrap();
         assert_eq!(
-            dos.cpu().run(100).unwrap(),
+            pollster::block_on(dos.cpu().run(100)),
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(
@@ -265,7 +265,7 @@ async fn check_writes() {
     dos.launch_com(&[0xb8, 0, 0x4c, 0xcd, 0x21], Default::default())
         .unwrap();
     assert_eq!(
-        dos.cpu().run(10).unwrap(),
+        pollster::block_on(dos.cpu().run(10)),
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(dos.read_file("SAVE.BIN").unwrap(), b"ZYc\0\0\0");
@@ -346,7 +346,7 @@ async fn check_save_program() {
     program.extend_from_slice(b"saved");
     dos.launch_com(&program, Default::default()).unwrap();
     assert_eq!(
-        dos.cpu().run(100).unwrap(),
+        dos.cpu().run(100).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(

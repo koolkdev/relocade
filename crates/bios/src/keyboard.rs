@@ -143,10 +143,8 @@ impl Keyboard {
         }
     }
 
-    fn wait_for_key(&self) -> WaitForKey {
-        WaitForKey {
-            keyboard: self.clone(),
-        }
+    fn wait_for_key(&self) -> WaitForKey<'_> {
+        WaitForKey { keyboard: self }
     }
 }
 
@@ -166,11 +164,11 @@ impl Write for Keyboard {
     }
 }
 
-struct WaitForKey {
-    keyboard: Keyboard,
+struct WaitForKey<'a> {
+    keyboard: &'a Keyboard,
 }
 
-impl Future for WaitForKey {
+impl Future for WaitForKey<'_> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -184,28 +182,18 @@ impl Future for WaitForKey {
     }
 }
 
-impl Drop for WaitForKey {
+impl Drop for WaitForKey<'_> {
     fn drop(&mut self) {
         self.keyboard.0.borrow_mut().waker = None;
     }
 }
 
-pub(super) fn interrupt<T: 'static>(
-    call: &mut CpuContext<'_, T>,
-    keyboard: &Keyboard,
-) -> HookResult {
+pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>, keyboard: &Keyboard) -> HookResult {
     match call.cpu.ah() {
-        0x00 => match keyboard.try_read() {
-            Some(key) => call.cpu.set_ax(key.word()),
-            None => {
-                let keyboard = keyboard.clone();
-                return call.defer(async move |call| {
-                    let key = keyboard.read().await;
-                    call.cpu.set_ax(key.word());
-                    real_mode_interrupt::return_from_interrupt(call)
-                });
-            }
-        },
+        0x00 => {
+            let key = keyboard.read().await;
+            call.cpu.set_ax(key.word());
+        }
         0x01 => {
             let key = keyboard.peek();
             if let Some(key) = key {

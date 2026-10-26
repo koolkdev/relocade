@@ -44,10 +44,6 @@ pub enum HostExit {
     /// CPU state is published; the runtime consumes this exit before resuming.
     /// Reserved for execution entries, not handler results.
     Call { address: u32 },
-    /// A host-call function queued work to be awaited outside guest execution.
-    /// Runtime hooks produce this exit through `CpuContext::defer`; returning it
-    /// without a queued handler is a programming error.
-    Deferred,
 }
 
 /// CPU state must already describe the completed block.

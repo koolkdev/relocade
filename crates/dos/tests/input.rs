@@ -44,42 +44,24 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             cpu.set_ax(0x077b);
             cpu.set_eflags(0x643);
         }
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
+        crate::common::assert_pending(dos.cpu().run(10));
         assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
-        let suspended = dos.cpu().context().cpu.snapshot();
-        assert_eq!(suspended.registers.eax as u16, 0x077b);
-        assert_eq!(suspended.registers.esp as u16, 0xfff8);
-        assert_eq!(suspended.instruction_count, 1); // INT retired once.
-        let frame_address = suspended.segments.ss.base + 0xfff8;
+        let memory = dos.cpu().memory();
+        let frame_address = 0x1fff8;
         let mut frame = [0; 6];
-        dos.cpu()
-            .context()
-            .memory
-            .read(frame_address, &mut frame)
-            .unwrap();
+        memory.view().read(frame_address, &mut frame).unwrap();
         assert_eq!(frame, [0x02, 0x01, 0x00, 0x10, 0x43, 0x06]); // IP, CS, FLAGS.
 
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
-        assert_eq!(dos.cpu().context().cpu.snapshot(), suspended);
+        crate::common::assert_pending(dos.cpu().run(10));
         let mut repeated_frame = [0; 6];
-        dos.cpu()
-            .context()
-            .memory
+        memory
+            .view()
             .read(frame_address, &mut repeated_frame)
             .unwrap();
         assert_eq!(repeated_frame, frame);
 
         dos.stdin().write_all(&[0, 0x48]).unwrap(); // Extended key prefix is data.
-        assert_eq!(
-            dos.cpu().run_async(10).await.unwrap(),
-            ExecutionExit::BudgetExhausted
-        );
+        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
         {
             let machine = dos.cpu().context();
             let cpu = &machine.cpu;
@@ -95,11 +77,12 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         assert!(common::output(dos.stdout()).is_empty()); // No echo.
 
         dos.cpu().context().cpu.set_eip(0x100);
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
-        let suspended = dos.cpu().context().cpu.snapshot();
+        common::assert_pending(dos.cpu().run(10));
+        let mut suspended_frame = [0; 6];
+        memory
+            .view()
+            .read(frame_address, &mut suspended_frame)
+            .unwrap();
         assert_eq!(
             dos.launch_com(&[], Default::default()),
             Err(LaunchError::ProcessActive)
@@ -108,17 +91,16 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             dos.launch_com(SERVICE_PROGRAM, Default::default()),
             Err(LaunchError::ProcessActive)
         );
-        assert_eq!(dos.cpu().context().cpu.snapshot(), suspended);
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
+        let mut after_rejection = [0; 6];
+        memory
+            .view()
+            .read(frame_address, &mut after_rejection)
+            .unwrap();
+        assert_eq!(after_rejection, suspended_frame);
+        common::assert_pending(dos.cpu().run(10));
         let mut input = dos.stdin();
         input.write_all(b"R").unwrap();
-        assert_eq!(
-            dos.cpu().run_async(10).await.unwrap(),
-            ExecutionExit::BudgetExhausted
-        );
+        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
         assert_eq!(dos.cpu().context().cpu.ax(), 0x0752);
         input.write_all(b"Q").unwrap();
         common::terminate(&mut dos);
@@ -131,19 +113,15 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
             0x074e
         );
-        let caller = dos.cpu().context().cpu.snapshot();
         dos.cpu().context().cpu.set_eip(0x100);
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
+        common::assert_pending(dos.cpu().run(10));
         {
-            let mut run = pin!(dos.cpu().run_async(10));
+            let mut run = pin!(dos.cpu().run(10));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
         }
-        // Cancelling a run waiter leaves the DOS process active. Both valid and
-        // invalid launches preserve the interrupted call until the host recovers it.
+        // Dropping a run waiter leaves the DOS process and its read active.
+        // Rejected launches preserve that read for the next waiter.
         let mz = common::mz_image(&[0xb8, 0, 0x4c, 0xcd, 0x21]);
         assert_eq!(
             dos.launch_mz(b"invalid", Default::default()),
@@ -153,16 +131,13 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             dos.launch_mz(&mz, Default::default()),
             Err(LaunchError::ProcessActive)
         );
-        assert!(matches!(
-            dos.cpu().run(10),
-            Err(relocade_machine::Error::CancelledHostCall)
-        ));
-        dos.cpu().context().cpu.restore(&caller).unwrap();
-        dos.cpu().cancel_pending_call();
+        input.write_all(b"T").unwrap();
+        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(dos.cpu().context().cpu.ax(), 0x0754);
         common::terminate(&mut dos);
         dos.launch_mz(&mz, Default::default()).unwrap();
         assert_eq!(
-            dos.cpu().run_async(10).await.unwrap(),
+            dos.cpu().run(10).await,
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(
@@ -196,14 +171,14 @@ fn interactive_program_prints_prompt_waits_and_exits_after_input() {
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().run_async(100));
+            let mut run = pin!(dos.cpu().run(100));
             assert!(run.as_mut().poll(&mut cx).is_pending());
             assert_eq!(common::output(output.clone()), b"? ");
             input.write_all(b"y").unwrap();
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::Host(HostExit::Return)))
+                Poll::Ready(ExecutionExit::Host(HostExit::Return))
             ));
         }
         assert_eq!(
@@ -237,31 +212,26 @@ fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
         let cpu = service(&mut dos, 0x0700, 0, 0, 0);
         assert_eq!(cpu.registers.eax as u16, 0x0703); // Ctrl-C is raw data.
 
-        let before = dos.cpu().context().cpu.snapshot();
-        dos.cpu().context().cpu.set_eip(0x100);
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
-        let mut input = dos.stdin();
-        let wakes = Arc::new(WakeCount::default());
-        let waker = Waker::from(wakes.clone());
-        let mut cx = Context::from_waker(&waker);
-        {
-            let mut run = pin!(dos.cpu().run_async(10));
-            assert!(run.as_mut().poll(&mut cx).is_pending());
-            input.write_all(b"Q").unwrap();
-            assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
-            assert!(run.as_mut().poll(&mut cx).is_pending());
-        }
-        // Abandon the EOF read and restore the caller before testing console input.
-        dos.cpu().cancel_pending_call();
-        dos.cpu().context().cpu.restore(&before).unwrap();
         assert_eq!(success(&service(&mut dos, 0x4201, 6, 0, 0)), 1); // Shared file cursor.
         success(&service(&mut dos, 0x4600, 5, 0, 0));
         assert_eq!(
             service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
             0x074b
         );
+        success(&service(&mut dos, 0x4600, 6, 0, 0));
+        dos.cpu().context().cpu.set_ax(0x0700);
+        dos.cpu().context().cpu.set_eip(0x100);
+        crate::common::assert_pending(dos.cpu().run(10));
+        let mut input = dos.stdin();
+        let wakes = Arc::new(WakeCount::default());
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
+        {
+            let mut run = pin!(dos.cpu().run(10));
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            input.write_all(b"Q").unwrap();
+            assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+        }
     });
 }
