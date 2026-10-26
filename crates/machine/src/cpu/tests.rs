@@ -1,21 +1,13 @@
 use super::CpuView;
 use crate::{ConfigurationError, CpuConfig};
-use relocade_wasm_runtime::{Backend, SharedMemory, WasmBackend, WasmSharedMemory};
+use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, Segment, SegmentRegister, Segments,
     StatusSourceState,
 };
 
 fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
-    let mut backend = Backend::new().unwrap();
-    let memory = backend
-        .create_memory(relocade_compiler::abi::Memory {
-            shared: true,
-            maximum: Some(1),
-            ..relocade_x86::abi::EXECUTION_CONTEXT
-        })
-        .unwrap();
-    let memory = backend.shared_memory(&memory).unwrap();
+    let memory = SharedMemory::new(1, 1).unwrap();
     memory.view().write(
         0,
         &ExecutionContext {

@@ -1,31 +1,31 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
 use super::Result;
-use crate::{CpuConfig, MachineConfig};
+use crate::{CpuConfig, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
-use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess};
+use relocade_wasm_runtime::{Import, Memory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, ExecutionContext};
 use std::mem::offset_of;
 
-/// The runtime's initialized Wasm memories. This owner allocates backend memory
-/// from the machine configuration and supplies module bindings. The CPU owns
-/// these resources and lends access while the guest is stopped.
+/// Private CPU and mapping storage, plus an import of the supplied guest memory.
+/// Retaining the guest handle lets the context borrow it independently of the backend.
 pub(super) struct RuntimeMemory {
     pub(crate) config: CpuConfig,
-    pub(crate) machine_config: MachineConfig,
     pub(crate) context: Memory,
-    pub(crate) guest: Memory,
+    pub(crate) guest: GuestMemory,
+    guest_import: Memory,
     pub(crate) mapping: Memory,
-    pub(crate) shared_guest: SharedMemory,
 }
 
 impl RuntimeMemory {
     pub fn new(
         backend: &mut super::Backend,
-        machine_config: MachineConfig,
+        guest: GuestMemory,
         config: CpuConfig,
     ) -> Result<Self> {
-        machine_config.validate_for(config.execution_target().profile)?;
+        guest
+            .configuration()
+            .validate_for(config.execution_target().profile)?;
         let context = backend.create_memory(MemoryDeclaration {
             maximum: Some(1),
             ..abi::EXECUTION_CONTEXT
@@ -39,12 +39,8 @@ impl RuntimeMemory {
             }
             .to_bytes(),
         );
-        let guest_pages = machine_config.memory_size().div_ceil(65536).max(1) as u32;
-        let guest = backend.create_memory(MemoryDeclaration {
-            minimum: guest_pages,
-            ..abi::GUEST
-        })?;
-        let mapping_bytes = machine_config.memory_map().to_bytes();
+        let guest_import = backend.import_shared_memory(guest.backing());
+        let mapping_bytes = guest.configuration().memory_map().to_bytes();
         let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
         let mapping = backend.create_memory(MemoryDeclaration {
             minimum: mapping_pages,
@@ -52,16 +48,12 @@ impl RuntimeMemory {
             ..abi::PHYSICAL_MAP
         })?;
         backend.memory(&mapping).write(0, &mapping_bytes);
-        let shared_guest = backend
-            .shared_memory(&guest)
-            .expect("guest backing is shared");
         Ok(Self {
             config,
-            machine_config,
             context,
             guest,
+            guest_import,
             mapping,
-            shared_guest,
         })
     }
 
@@ -75,7 +67,7 @@ impl RuntimeMemory {
     ) -> [Import<'a, B>; 3] {
         [
             backend.bind(abi::EXECUTION_CONTEXT, &self.context),
-            backend.bind(abi::GUEST, &self.guest),
+            backend.bind(abi::GUEST, &self.guest_import),
             backend.bind(abi::PHYSICAL_MAP, &self.mapping),
         ]
     }

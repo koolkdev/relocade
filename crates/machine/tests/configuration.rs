@@ -1,4 +1,4 @@
-use relocade_machine::{ConfigurationError, Cpu, CpuConfig, MachineConfig};
+use relocade_machine::{ConfigurationError, Cpu, CpuConfig, MachineConfig, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, ExecutionTarget, PhysicalMapping, PhysicalMemoryMap,
     SegmentProfile,
@@ -27,7 +27,7 @@ async fn check_memory_profile() {
     )
     .unwrap();
     assert!(matches!(
-        Cpu::new(config, protected).await,
+        Cpu::new(Memory::new(config).unwrap(), protected, ()).await,
         Err(relocade_machine::Error::Configuration(
             ConfigurationError::UnsupportedProfile
         ))
