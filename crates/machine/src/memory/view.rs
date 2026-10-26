@@ -1,9 +1,10 @@
 mod read;
+mod resolve;
 mod write;
 
 use crate::MachineConfig;
 use relocade_wasm_runtime::MemoryAccess;
-use relocade_x86::{PhysicalMemoryMap, SegmentRegister};
+use relocade_x86::SegmentRegister;
 use std::fmt;
 
 /// Guest physical memory through the configured map, including A20 aliases.
@@ -36,11 +37,6 @@ fn segment_address(segment: &SegmentRegister, offset: u32, len: usize) -> Result
         .base
         .checked_add(offset)
         .ok_or(MemoryError::AddressRange)
-}
-
-fn page_span(address: u32, remaining: usize) -> usize {
-    remaining
-        .min((PhysicalMemoryMap::PAGE_BYTES - address % PhysicalMemoryMap::PAGE_BYTES) as usize)
 }
 
 fn range_fits(address: u32, len: usize, limit: u64) -> bool {
