@@ -1,6 +1,6 @@
 //! DOS character devices and the state shared by duplicated device handles.
 
-use super::{handles::OpenHandle, AccessMode, Files};
+use super::{handles::OpenHandle, AccessMode, FileSystem, Files};
 use crate::{error::DosError, path, stdio::OutputStream};
 use std::{cell::Cell, rc::Rc};
 
@@ -73,6 +73,7 @@ impl Files {
 
     pub(super) fn open_device(
         &mut self,
+        filesystem: &FileSystem,
         path: &[u8],
         access: AccessMode,
     ) -> Result<Option<u16>, DosError> {
@@ -95,8 +96,8 @@ impl Files {
         } else {
             return Ok(None);
         };
-        let path = self.file_path(path)?;
-        if !self
+        let path = filesystem.file_path(path)?;
+        if !filesystem
             .drives
             .get(path.drive)
             .unwrap()

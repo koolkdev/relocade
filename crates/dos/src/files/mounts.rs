@@ -1,6 +1,6 @@
 //! Drive mounts, host file access and the DOS paths that select them.
 
-use super::{FileAccess, Files, ARCHIVE_ATTRIBUTE};
+use super::{FileAccess, FileSystem, ARCHIVE_ATTRIBUTE};
 use crate::{
     error::DosError,
     path::{self, ResolvedPath},
@@ -9,21 +9,12 @@ use crate::{
 use relocade_vfs::MemoryFileSystem;
 use std::io;
 
-impl Files {
+impl FileSystem {
     pub(crate) fn mount(&mut self, letter: char, filesystem: MemoryFileSystem) -> io::Result<()> {
         self.drives.mount(letter, filesystem)?;
         let letter = letter.to_ascii_uppercase();
         self.current_directories.remove(&letter);
         self.attributes.retain(|path, _| path.drive != letter);
-        // Keep DTA directory IDs stable; old searches must not enter the new mount.
-        for directory in &mut self.search_directories {
-            if directory
-                .as_ref()
-                .is_some_and(|directory| directory.path.drive == letter)
-            {
-                *directory = None;
-            }
-        }
         Ok(())
     }
 

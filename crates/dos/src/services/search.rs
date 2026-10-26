@@ -30,7 +30,8 @@ pub(super) fn find_first(
     state: &mut DosState,
 ) -> HookResult {
     let attributes = call.cpu.cx() as u8;
-    let result = read_path(call).and_then(|path| state.files.find_first(&path, attributes));
+    let result = read_path(call)
+        .and_then(|path| state.files.find_first(&state.filesystem, &path, attributes));
     return_search(call, state, result)
 }
 
@@ -42,7 +43,7 @@ pub(super) fn find_next(
     let address = dta_address(state);
     let mut data = [0; FIND_DATA_BYTES];
     call.memory.read(address, &mut data).expect("real-mode DTA");
-    let result = state.files.find_next(&data);
+    let result = state.files.find_next(&state.filesystem, &data);
     return_search(call, state, result)
 }
 

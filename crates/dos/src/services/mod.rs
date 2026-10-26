@@ -129,7 +129,7 @@ fn return_to_host(
     if status.is_ok() {
         // The only process has exited; all of its conventional memory is free.
         crate::memory::reset(&mut call.memory);
-        state.files.close_all();
+        state.files.close_all(&mut state.filesystem);
     }
     state.exit_status = Some(status);
     HookResult::Exit(ExecutionExit::Host(HostExit::Return))

@@ -1,13 +1,13 @@
 //! DOS attributes shared by path queries and directory searches.
 
 use super::{
-    Files, ARCHIVE_ATTRIBUTE, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE,
+    FileSystem, ARCHIVE_ATTRIBUTE, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE,
     SYSTEM_ATTRIBUTE,
 };
 use crate::{error::DosError, path::ResolvedPath};
 use relocade_vfs::Metadata;
 
-impl Files {
+impl FileSystem {
     pub(crate) fn attributes(&self, path: &[u8]) -> Result<u16, DosError> {
         let path = self.resolve(path)?;
         Ok(u16::from(
