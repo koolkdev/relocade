@@ -9,10 +9,9 @@ mod video;
 use relocade_x86::ExecutionExit;
 
 async fn check_bios_clock() {
-    let mut dos = common::dos().await;
     // INT 1Ah followed by JMP $ exposes the returned registers to the host.
-    dos.load_com(&[0xcd, 0x1a, 0xeb, 0xfe], Default::default())
-        .unwrap();
+    let mut dos = common::dos(&[0xcd, 0x1a, 0xeb, 0xfe]).await;
+
     let mut initial = [0xff; 5];
     dos.cpu()
         .context()

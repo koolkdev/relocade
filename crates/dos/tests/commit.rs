@@ -12,10 +12,10 @@ fn attributes(dos: &mut Dos, path: &[u8]) -> u16 {
 #[test]
 fn commit_updates_metadata_without_closing_repositioning_or_releasing_sharing() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA.BIN", b"abcd".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         success(&path_service(&mut dos, b"DATA.BIN", 0x4301, 0x06));
         let writer = success(&path_service(&mut dos, b"DATA.BIN", 0x3d22, 0));
         let duplicate = success(&service(&mut dos, 0x4500, writer, 0, 0));
@@ -63,10 +63,10 @@ fn commit_updates_metadata_without_closing_repositioning_or_releasing_sharing() 
 #[test]
 fn commit_validates_handles_and_respects_device_and_replaced_file_identity() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA.BIN", b"old".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         for handle in [5, 20, u16::MAX] {
             error(&service(&mut dos, 0x6800, handle, 0, 0), 6);
         }

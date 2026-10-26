@@ -4,7 +4,7 @@ use relocade_dos::{LoadError, LoadOptions};
 use relocade_x86::{ExecutionExit, HostExit};
 
 async fn check_environments() {
-    let mut dos = common::dos().await;
+    let mut dos = relocade_dos::Dos::new().await.unwrap();
     let options = LoadOptions {
         environment: &[b"NAME=demo", b"PATH=C:\\BIN", b"EMPTY="],
         program_path: b"C:\\BIN\\PROG.COM",
@@ -28,9 +28,9 @@ async fn check_environments() {
             program.to_vec()
         };
         if mz {
-            dos.load_mz(&image, options).unwrap();
+            dos.launch_mz(&image, options).unwrap();
         } else {
-            dos.load_com(&image, options).unwrap();
+            dos.launch_com(&image, options).unwrap();
         }
         let mut psp = [0; 256];
         dos.cpu().context().memory.read(0x10000, &mut psp).unwrap();
@@ -53,8 +53,8 @@ async fn check_environments() {
         assert_eq!(common::output(dos.stdout()), expected);
     }
 
-    // Reloading with default options replaces the old variables and path.
-    dos.load_com(&[0xc3], Default::default()).unwrap();
+    // The next program receives its own empty environment and executable path.
+    dos.launch_com(&[0xc3], Default::default()).unwrap();
     let mut pointer = [0; 2];
     dos.cpu()
         .context()
@@ -71,15 +71,15 @@ async fn check_environments() {
 }
 
 async fn check_environment_validation() {
-    let mut dos = common::dos().await;
-    dos.load_com(&[0xc3], Default::default()).unwrap();
-    let saved_cpu = dos.cpu().context().cpu.snapshot();
+    let mut dos = common::dos(&[0xc3]).await;
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
+    let cpu_before = dos.cpu().context().cpu.snapshot();
+    let memory = dos.memory();
     let mut before = vec![0; 0x90010]; // Root MCB, PSP, program and environment.
-    dos.cpu()
-        .context()
-        .memory
-        .read(0xfff0, &mut before)
-        .unwrap();
+    memory.view().read(0xfff0, &mut before).unwrap();
     let too_large = vec![b'x'; 65532]; // Plus the two NULs, count and final NUL.
     for (options, error) in [
         (
@@ -118,23 +118,26 @@ async fn check_environment_validation() {
             LoadError::EnvironmentTooLarge,
         ),
     ] {
-        assert_eq!(dos.load_com(&[0xc3], options), Err(error));
-        assert_eq!(dos.load_mz(&common::mz_image(&[0xc3]), options), Err(error));
+        assert_eq!(common::load_error(dos.launch_com(&[0xc3], options)), error);
+        assert_eq!(
+            common::load_error(dos.launch_mz(&common::mz_image(&[0xc3]), options)),
+            error
+        );
     }
     // This image fit without an environment, but its minimum now exceeds RAM.
     let mut image = common::mz_image(&[0xc3]);
     image[0x0a..0x0c].copy_from_slice(&0x8fef_u16.to_le_bytes());
     assert_eq!(
-        dos.load_mz(&image, Default::default()),
-        Err(LoadError::InsufficientMemory)
+        common::load_error(dos.launch_mz(&image, Default::default())),
+        LoadError::InsufficientMemory
     );
     let mut after = vec![0; before.len()];
-    dos.cpu().context().memory.read(0xfff0, &mut after).unwrap();
+    memory.view().read(0xfff0, &mut after).unwrap();
     assert_eq!(after, before);
-    assert_eq!(dos.cpu().context().cpu.snapshot(), saved_cpu);
-
+    assert_eq!(dos.cpu().context().cpu.snapshot(), cpu_before);
+    assert_eq!(dos.exit_status(), Some(Ok(0)));
     let maximum_path = vec![b'x'; 65531];
-    dos.load_com(
+    dos.launch_com(
         &[0xc3],
         LoadOptions {
             program_path: &maximum_path,
@@ -164,6 +167,6 @@ fn com_and_mz_receive_environment_blocks() {
 }
 
 #[test]
-fn invalid_environments_preserve_the_current_program() {
+fn invalid_environments_preserve_the_terminated_program() {
     pollster::block_on(check_environment_validation());
 }

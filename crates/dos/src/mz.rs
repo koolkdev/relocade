@@ -89,7 +89,6 @@ pub(crate) fn load<T>(
         base_paragraphs + usize::from(image.max_extra)
     };
 
-    // All file and allocation checks precede replacing the current process.
     let allocation = process::allocate(
         &mut machine.memory,
         base_paragraphs + usize::from(image.min_extra),

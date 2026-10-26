@@ -2,8 +2,18 @@
 
 use relocade_dos::Dos;
 
-pub async fn dos() -> Dos {
-    Dos::new().await.unwrap()
+pub async fn dos(image: &[u8]) -> Dos {
+    let mut dos = Dos::new().await.unwrap();
+    dos.launch_com(image, Default::default()).unwrap();
+    dos
+}
+
+pub fn load_error(result: Result<(), relocade_dos::LaunchError>) -> relocade_dos::LoadError {
+    match result {
+        Err(relocade_dos::LaunchError::Load(error)) => error,
+        Err(error) => panic!("unexpected launch error: {error}"),
+        Ok(_) => panic!("invalid program was accepted"),
+    }
 }
 
 pub fn output(mut stream: impl std::io::Read) -> Vec<u8> {
@@ -12,7 +22,7 @@ pub fn output(mut stream: impl std::io::Read) -> Vec<u8> {
     bytes
 }
 
-use relocade_x86::{CpuState, ExecutionExit};
+use relocade_x86::{CpuState, ExecutionExit, HostExit};
 
 // INT 21h followed by JMP $ lets each host assertion inspect the IRET result.
 pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
@@ -29,6 +39,20 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     }
     assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
     dos.cpu().context().cpu.snapshot()
+}
+
+pub fn terminate(dos: &mut Dos) {
+    {
+        let mut machine = dos.cpu().context();
+        let cpu = &mut machine.cpu;
+        cpu.set_eip(0x100);
+        cpu.set_ax(0x4c00);
+    }
+    assert_eq!(
+        dos.cpu().run(10).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
+    assert_eq!(dos.exit_status(), Some(Ok(0)));
 }
 
 pub fn path_service(dos: &mut Dos, path: &[u8], ax: u16, cx: u16) -> CpuState {

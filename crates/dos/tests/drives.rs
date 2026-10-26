@@ -36,7 +36,7 @@ fn found_name(data: &[u8; 43]) -> &[u8] {
 #[test]
 fn mounted_drives_have_independent_directories_and_file_operations() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         let mut disk = MemoryFileSystem::new();
         disk.create_dir("DATA").unwrap();
         disk.replace_file("DATA/FILE.DAT", b"D directory".to_vec())
@@ -59,7 +59,6 @@ fn mounted_drives_have_independent_directories_and_file_operations() {
             dos.mount_file("E:/FILE", vec![], FileAccess::ReadWrite),
             Err(MountError::InvalidPath)
         );
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
 
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"d:\\data", 0x3b00, 0));
@@ -147,7 +146,6 @@ fn mounted_drives_have_independent_directories_and_file_operations() {
         let name = std::str::from_utf8(&generated[1..9]).unwrap();
         assert_eq!(dos.read_file(&format!("D:/{name}")), Some(vec![]));
         assert_eq!(dos.read_file(name), None);
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
         assert_eq!(service(&mut dos, 0x1900, 0, 0, 0).registers.eax as u8, 3);
         assert_eq!(read_guest_file(&mut dos, b"FILE.DAT"), b"D directory");
         dos.mount('Z', MemoryFileSystem::new()).unwrap();
@@ -158,7 +156,7 @@ fn mounted_drives_have_independent_directories_and_file_operations() {
 #[test]
 fn remounting_preserves_handles_and_invalidates_only_that_drives_searches() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount('D', MemoryFileSystem::new()).unwrap();
         for drive in ['C', 'D'] {
             for name in ["A.DAT", "B.DAT"] {
@@ -170,7 +168,7 @@ fn remounting_preserves_handles_and_invalidates_only_that_drives_searches() {
                 .unwrap();
             }
         }
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         success(&path_service(&mut dos, b"D:\\DATA", 0x3b00, 0));
         let handle = success(&path_service(&mut dos, b"D:A.DAT", 0x3d42, 0));
         assert_eq!(success(&service(&mut dos, 0x4400, handle, 0, 0)) & 0x1f, 3);

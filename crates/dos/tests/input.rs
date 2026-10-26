@@ -35,8 +35,8 @@ impl Wake for WakeCount {
 #[test]
 fn blocking_read_resumes_the_existing_interrupt_frame() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         {
             let mut machine = dos.cpu().context();
             let cpu = &mut machine.cpu;
@@ -92,71 +92,23 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         assert_eq!(cpu.registers.eax as u16, 0x0748);
         assert_eq!(cpu.flags.eflags(), 0x643);
         assert!(common::output(dos.stdout()).is_empty()); // No echo.
-
-        dos.cpu().context().cpu.set_eip(0x100);
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
-        assert!(dos.load_com(&[], Default::default()).is_err());
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
-        let mut input = dos.stdin();
-        input.write_all(b"discarded on load").unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        let cpu = service(&mut dos, 0x0600, 0, 0, 0xff);
-        assert_ne!(cpu.flags.eflags() & 0x40, 0);
-        input.write_all(b"N").unwrap(); // Writers survive program replacement.
-        assert_eq!(
-            service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
-            0x074e
-        );
-        dos.cpu().context().cpu.set_eip(0x100);
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
-        {
-            let mut run = pin!(dos.cpu().run_async(10));
-            let mut cx = Context::from_waker(Waker::noop());
-            assert!(run.as_mut().poll(&mut cx).is_pending());
-        }
-        // A failed load preserves the interrupted call; a successful load
-        // clears it together with the old program's CPU and stream state.
-        let mz = common::mz_image(&[0xb8, 0, 0x4c, 0xcd, 0x21]);
-        assert!(dos.load_mz(b"invalid", Default::default()).is_err());
-        assert!(matches!(
-            dos.cpu().run(10),
-            Err(relocade_machine::Error::CancelledHostCall)
-        ));
-        dos.load_mz(&mz, Default::default()).unwrap();
-        assert_eq!(
-            dos.cpu().run_async(10).await.unwrap(),
-            ExecutionExit::Host(HostExit::Return)
-        );
-        assert_eq!(dos.exit_status(), Some(Ok(0)));
     });
 }
 
 #[test]
 fn interactive_program_prints_prompt_waits_and_exits_after_input() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(
-            &[
-                0xba, 0x15, 1, // MOV DX,0115: prompt.
-                0xb4, 9, 0xcd, 0x21, // Print the prompt.
-                0xb4, 7, 0xcd, 0x21, // Wait for a raw character.
-                0x88, 0xc2, // MOV DL,AL.
-                0xb4, 6, 0xcd, 0x21, // Print that character.
-                0xb4, 0x4c, 0xcd, 0x21, // Exit with AL.
-                b'?', b' ', b'$',
-            ],
-            Default::default(),
-        )
-        .unwrap();
+        let mut dos = common::dos(&[
+            0xba, 0x15, 1, // MOV DX,0115: prompt.
+            0xb4, 9, 0xcd, 0x21, // Print the prompt.
+            0xb4, 7, 0xcd, 0x21, // Wait for a raw character.
+            0x88, 0xc2, // MOV DL,AL.
+            0xb4, 6, 0xcd, 0x21, // Print that character.
+            0xb4, 0x4c, 0xcd, 0x21, // Exit with AL.
+            b'?', b' ', b'$',
+        ])
+        .await;
+
         let mut input = dos.stdin();
         let output = dos.stdout();
         let error_output = dos.stderr();
@@ -177,24 +129,17 @@ fn interactive_program_prints_prompt_waits_and_exits_after_input() {
         assert_eq!(dos.exit_status(), Some(Ok(b'y')));
         assert_eq!(common::output(output.clone()), b"y");
         assert!(common::output(error_output.clone()).is_empty());
-        // Readers also retain their identity across replacement and later output.
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        service(&mut dos, 0x0600, 0, 0, u16::from(b'O'));
-        assert_eq!(common::output(output), b"O");
-        success(&service(&mut dos, 0x4600, 2, 1, 0));
-        service(&mut dos, 0x0600, 0, 0, u16::from(b'E'));
-        assert_eq!(common::output(error_output), b"E");
     });
 }
 
 #[test]
 fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         let mut disk = relocade_vfs::MemoryFileSystem::new();
         disk.replace_file("IN.TXT", vec![3]).unwrap();
         dos.mount('C', disk).unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         dos.stdin().write_all(b"K").unwrap();
         assert_eq!(success(&service(&mut dos, 0x4500, 0, 0, 0)), 5);
         assert_eq!(success(&path_service(&mut dos, b"IN.TXT", 0x3d00, 0)), 6);
@@ -228,5 +173,39 @@ fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
             service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
             0x074b
         );
+    });
+}
+
+#[test]
+fn stream_handles_remain_attached_to_their_original_environment() {
+    pollster::block_on(async {
+        let mut old = common::dos(SERVICE_PROGRAM).await;
+        let mut old_input = old.stdin();
+        let old_output = old.stdout();
+        let old_error = old.stderr();
+        old_input.write_all(b"old\rqueued").unwrap();
+        assert_eq!(success(&service(&mut old, 0x3f00, 0, 1, 0x400)), 1);
+        success(&service(&mut old, 0x4600, 2, 1, 0));
+        service(&mut old, 0x0600, 0, 0, u16::from(b'E'));
+        drop(old);
+
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+        old_input.write_all(b"later").unwrap();
+        let cpu = service(&mut dos, 0x0600, 0, 0, 0xff);
+        assert_ne!(cpu.flags.eflags() & 0x40, 0);
+        assert!(common::output(dos.stdout()).is_empty());
+        assert!(common::output(dos.stderr()).is_empty());
+        dos.stdin().write_all(b"new\r").unwrap();
+        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 20, 0x400)), 5);
+        let mut bytes = [0; 5];
+        dos.cpu()
+            .context()
+            .memory
+            .read(0x10400, &mut bytes)
+            .unwrap();
+        assert_eq!(&bytes, b"new\r\n");
+        assert_eq!(common::output(dos.stdout()), b"new\r\n");
+        assert_eq!(common::output(old_output), b"old\r\n");
+        assert_eq!(common::output(old_error), b"E");
     });
 }

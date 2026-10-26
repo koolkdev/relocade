@@ -6,9 +6,8 @@ use std::io::Write;
 #[test]
 fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
         for function in [0x01, 0x08] {
-            dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+            let mut dos = common::dos(SERVICE_PROGRAM).await;
             {
                 let mut machine = dos.cpu().context();
                 let cpu = &mut machine.cpu;
@@ -49,10 +48,10 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
 #[test]
 fn character_input_and_echo_follow_separate_standard_handle_redirections() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("IN.TXT", b"A\t\x1a".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         let input = success(&path_service(&mut dos, b"IN.TXT", 0x3d00, 0));
         let output = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));

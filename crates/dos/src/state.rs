@@ -1,6 +1,6 @@
 //! DOS environment data shared by host APIs and service callbacks.
 
-use crate::{files::Files, process, ServiceError};
+use crate::{files::Files, ServiceError};
 use relocade_bios::Keyboard;
 use std::{
     cell::{RefCell, RefMut},
@@ -12,16 +12,15 @@ pub(crate) struct DosState {
     pub(crate) files: Files,
     pub(crate) dta_segment: u16,
     pub(crate) dta_offset: u16,
-    pub(crate) exit_status: Option<Result<u8, ServiceError>>,
+    pub(crate) process: ProcessState,
 }
 
-impl DosState {
-    pub(crate) fn reset_process(&mut self, psp_segment: u16) {
-        self.files.reset_handles();
-        self.dta_segment = psp_segment;
-        self.dta_offset = process::COMMAND_TAIL_OFFSET;
-        self.exit_status = None;
-    }
+#[derive(Default)]
+pub(crate) enum ProcessState {
+    #[default]
+    Idle,
+    Active,
+    Exited(Result<u8, ServiceError>),
 }
 
 /// A callback handle to the state owned by a [`crate::Dos`] environment.

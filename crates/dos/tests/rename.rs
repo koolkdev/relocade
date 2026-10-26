@@ -26,10 +26,10 @@ fn rename(dos: &mut Dos, from: &[u8], to: &[u8]) -> CpuState {
 #[test]
 fn rename_moves_contents_and_attributes_using_es_di() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA/OLD.BIN", b"saved".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         success(&path_service(&mut dos, b"SAVES", 0x3900, 0));
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"OLD.BIN", 0x4301, 0x07));
@@ -65,12 +65,12 @@ fn rename_moves_contents_and_attributes_using_es_di() {
 #[test]
 fn rename_checks_names_paths_and_open_handles_before_moving_a_file() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA/KEEP.BIN", b"keep".to_vec(), FileAccess::ReadWrite)
             .unwrap();
         dos.mount_file("DATA/TAKEN.BIN", b"taken".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"DIR", 0x3900, 0));
         let unterminated = [b'X'; 128];

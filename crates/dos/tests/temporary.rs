@@ -46,11 +46,11 @@ fn generated_path(buffer: &[u8]) -> &[u8] {
 #[test]
 fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         // The name sequence starts at zero; both files and directories occupy names.
         dos.mount_file("TMP/00000000", b"keep".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         success(&path_service(&mut dos, b"TMP/00000001", 0x3900, 0));
         dos.cpu().context().cpu.set_eflags(0x0a57);
         let (cpu, buffer) = temporary(&mut dos, b"c:\\tmp\\", 0x07);
@@ -100,8 +100,8 @@ fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
             success(&service(&mut dos, 0x3e00, handle, 0, 0));
             success(&path_service(&mut dos, path, 0x4300, 0));
         }
-        // DOS does not delete temporary files on program exit or replacement.
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        // DOS does not delete temporary files on program exit.
+        common::terminate(&mut dos);
         assert_eq!(dos.read_file(name).unwrap(), b"saved");
     });
 }
@@ -109,7 +109,7 @@ fn temporary_files_preserve_collisions_and_return_a_writable_handle_and_path() {
 #[test]
 fn temporary_file_errors_preserve_the_buffer_and_do_not_create_files() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA/KEEP.BIN", b"keep".to_vec(), FileAccess::ReadWrite)
             .unwrap();
         let long_directory = "A".repeat(119); // Adding a separator and name exceeds 127 bytes.
@@ -119,7 +119,7 @@ fn temporary_file_errors_preserve_the_buffer_and_do_not_create_files() {
             FileAccess::ReadWrite,
         )
         .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         for (directory, attributes, code) in [
             (b"MISSING\\".as_slice(), 0, 3),
             (b"DATA/KEEP.BIN", 0, 3),

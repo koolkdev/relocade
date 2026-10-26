@@ -32,10 +32,10 @@ fn read_memory<const N: usize>(dos: &mut Dos, address: u32) -> [u8; N] {
 #[test]
 fn file_transfers_stop_at_the_segment_end_and_advance_only_by_the_returned_count() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("IN.BIN", b"ABCD".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         let input = success(&path_service(&mut dos, b"IN.BIN", 0x3d00, 0));
         let output = success(&path_service(&mut dos, b"OUT.BIN", 0x3c00, 0));
         use_data_segment(&mut dos);
@@ -66,8 +66,8 @@ fn file_transfers_stop_at_the_segment_end_and_advance_only_by_the_returned_count
 #[test]
 fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         use_data_segment(&mut dos);
         write_memory(&mut dos, BASE + 0xffff, &[0xcc; 3]);
         {
@@ -105,8 +105,8 @@ fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
 #[test]
 fn current_directory_wraps_its_destination_offset() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         success(&path_service(&mut dos, b"DIR", 0x3900, 0));
         success(&path_service(&mut dos, b"DIR", 0x3b00, 0));
         use_data_segment(&mut dos);
@@ -126,8 +126,8 @@ fn current_directory_wraps_its_destination_offset() {
 #[test]
 fn dollar_terminated_output_wraps_its_source_offset() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         use_data_segment(&mut dos);
         write_memory(&mut dos, BASE + 0xffff, b"Abad$");
         write_memory(&mut dos, BASE, b"B$");
@@ -141,8 +141,8 @@ fn dollar_terminated_output_wraps_its_source_offset() {
 #[test]
 fn buffered_input_wraps_its_payload_after_the_header() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         use_data_segment(&mut dos);
         write_memory(&mut dos, BASE + 0xfffd, &[4, 0, 0xcc, 0xcc, 0xcc]);
         write_memory(&mut dos, BASE, &[0xdd; 3]);
