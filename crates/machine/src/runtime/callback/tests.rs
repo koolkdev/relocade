@@ -1,12 +1,14 @@
 use super::*;
-use relocade_wasm_runtime::WasmMemoryAccess;
+use relocade_wasm_runtime::{
+    Backend, MemoryAccess, SharedMemory, WasmBackend, WasmMemoryAccess, WasmSharedMemory,
+};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, PhysicalMemoryMap, Segment, Segments,
 };
 use std::{cell::Cell, sync::Arc};
 
 struct Caller {
-    context: [u8; ExecutionContext::BYTE_LEN],
+    context: SharedMemory,
     reads: Cell<usize>,
     state: RuntimeState,
 }
@@ -26,13 +28,17 @@ impl WasmContext for Caller {
 impl WasmMemoryAccess for Caller {
     type Memory = ();
 
+    fn memory<'a>(&'a mut self, _: &'a ()) -> MemoryAccess<'a> {
+        self.context.view()
+    }
+
     fn read_memory(&self, _: &(), offset: u32, bytes: &mut [u8]) {
         self.reads.set(self.reads.get() + 1);
-        bytes.copy_from_slice(&self.context[offset as usize..][..bytes.len()]);
+        self.context.read(offset, bytes);
     }
 
     fn write_memory(&mut self, _: &(), offset: u32, bytes: &[u8]) {
-        self.context[offset as usize..][..bytes.len()].copy_from_slice(bytes);
+        self.context.write(offset, bytes);
     }
 }
 
@@ -59,13 +65,26 @@ fn callbacks_apply_compatible_segment_edits() {
         guest: (),
         mapping: (),
     };
-    let mut caller = Caller {
-        context: ExecutionContext {
+    let mut backend = Backend::new().unwrap();
+    let allocation = backend
+        .create_memory(relocade_compiler::abi::Memory {
+            shared: true,
+            maximum: Some(1),
+            ..relocade_x86::abi::EXECUTION_CONTEXT
+        })
+        .unwrap();
+    let context = backend.shared_memory(&allocation).unwrap();
+    context.write(
+        0,
+        &ExecutionContext {
             cpu,
             instruction_target: 998,
             cpu_model: model,
         }
         .to_bytes(),
+    );
+    let mut caller = Caller {
+        context,
         reads: Cell::new(0),
         state: RuntimeState::default(),
     };
@@ -87,8 +106,10 @@ fn callbacks_apply_compatible_segment_edits() {
     let mut expected = cpu;
     expected.registers.eax = 42;
     expected.segments.cs = relocade_x86::SegmentRegister::real_mode(Segment::Cs, 0x1000);
+    let mut actual = [0; ExecutionContext::BYTE_LEN];
+    caller.context.read(0, &mut actual);
     assert_eq!(
-        caller.context,
+        actual,
         ExecutionContext {
             cpu: expected,
             instruction_target: 998,

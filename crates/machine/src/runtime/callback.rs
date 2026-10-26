@@ -108,7 +108,7 @@ impl<T, C: WasmContext<State = RuntimeState<T>>> HostAccess<T> for CpuAccess<&mu
     }
 }
 
-impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
+impl<M: Clone + 'static> RuntimeMemory<M> {
     /// Lends the published CPU, guest memory and environment state
     /// to a synchronous host handler. The caller must publish CPU state before
     /// access and observe edits afterward. Ordinary port/MMIO imports do not

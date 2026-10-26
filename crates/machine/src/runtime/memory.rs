@@ -19,7 +19,7 @@ pub struct RuntimeMemory<M> {
     pub(crate) mapping: M,
 }
 
-impl<M: Clone + Send + Sync + 'static> RuntimeMemory<M> {
+impl<M: Clone + 'static> RuntimeMemory<M> {
     pub fn new<B: WasmBackend<Memory = M>>(
         backend: &mut B,
         machine_config: MachineConfig,

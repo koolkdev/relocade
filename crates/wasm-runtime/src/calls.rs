@@ -31,6 +31,22 @@ pub struct Function<B: ExportFunction<S>, S: CallSignature> {
 }
 
 impl<B: ExportFunction<S>, S: CallSignature> Function<B, S> {
+    /// Enters Wasm through the backend that owns this function's instance.
+    /// Host memory and state borrows must end before entering Wasm. Callbacks
+    /// acquire fresh access while the guest is suspended.
+    ///
+    /// ```compile_fail
+    /// use relocade_wasm_runtime::{Backend, Function, WasmBackend};
+    /// fn wrong(backend: &mut Backend<u32>, function: &Function<Backend<u32>, fn()>) {
+    ///     let mut state = backend.state_mut();
+    ///     function.call(backend, ());
+    ///     *state = 1;
+    /// }
+    /// ```
+    pub fn call(&self, backend: &mut B, arguments: Value<S::Parameters>) -> Value<S::Return> {
+        backend.invoke_function(&self.handle, arguments)
+    }
+
     pub(crate) fn new(handle: B::Handle) -> Self {
         Self {
             handle,
