@@ -47,6 +47,17 @@ pub use imports::{Import, ImportBinding, ImportValue};
 pub use memory::{Load, MemoryAccess, MemoryValue, Store, WasmMemoryAccess, WasmSharedMemory};
 pub use module_cache::ModuleCache;
 
+#[cfg(all(
+    feature = "worker",
+    target_arch = "wasm32",
+    not(target_feature = "atomics")
+))]
+compile_error!("worker requires a threaded browser build; see tests/browser/README.md");
+
+/// Rust async workers with native value transfer and browser resource posting.
+#[cfg(feature = "worker")]
+pub use web_thread as worker;
+
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
 /// The handle can move to another thread; create and await its futures there.
 /// Futures and compiled modules need not be `Send` because browser engine

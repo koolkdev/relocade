@@ -45,7 +45,7 @@ pub use memory::{Memory, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::MemoryAccess;
 
 #[cfg(feature = "worker")]
-pub use runtime::worker;
+pub use relocade_wasm_runtime::worker;
 pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, Hook, HookResult, Result,
 };

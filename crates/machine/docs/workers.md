@@ -1,43 +1,49 @@
 # Worker tasks and messages
 
-Enable the runtime's `worker` feature for `runtime::worker::{Thread, Message}`.
-`Thread` is the published `web-thread-select` library's task owner. The embedding
-creates threads and keeps them alive until their tasks finish.
+Enable the machine's `worker` feature for `worker::Thread`. This is a direct
+reexport of `web-thread-select`; the Wasm runtime exposes the same worker API
+through its own `worker` feature. The application creates workers and keeps them
+alive until their tasks finish.
 
-Rust commands and shared state use Send closure captures and ordinary Rust
-channels. Worker-local futures, backends and state can contain non-Send values
-such as `Rc`. `Thread::run_send` returns Send results through Rust memory.
-
-`Message<T>` adapts a payload to the library's `Post` transport. Native payloads
-move as Send Rust values. Browser payloads use Serde and structured cloning.
-Message types can use ordinary derives without platform conditions:
+Pass the shared allocation as the task context. Capture configuration and Rust
+channel endpoints in the closure, then construct the CPU inside the worker:
 
 ```rust,ignore
-use relocade_machine::worker::Message;
-use relocade_wasm_runtime::WasmSharedMemory;
+use relocade_machine::{worker::Thread, Cpu, Memory};
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct Reader<M> {
-    memory: M,
-    offset: u32,
-}
+let memory = Memory::new(machine_config.clone())?;
+memory.view().write(0x100, &program)?;
+let worker = Thread::new();
+let task = worker.run_send(memory.backing().clone(), move |backing| async move {
+    let memory = Memory::with_backing(machine_config, backing)?;
+    let mut cpu = Cpu::new(memory, cpu_config, ()).await?;
+    cpu.run_async(budget).await
+});
 
-let task = thread.run_send(
-    Message(Reader { memory: shared_memory, offset: 65536 }),
-    |Message(reader)| async move {
-        let mut bytes = [0; 4];
-        reader.memory.view().read(reader.offset, &mut bytes);
-        bytes
-    },
-);
+// The caller can retain mapped memory access while the worker executes.
+let view = memory.view();
+let exit = task.await??;
 ```
 
-Browser backend `Module` and `SharedMemory` types preserve their JavaScript
-objects when serialized. A received shared memory refers to the same backing
-bytes; sending the handle neither copies those bytes nor synchronizes accesses.
-Serialize the backend's `SharedMemory` handle to bind access on the receiving
-worker. Ordinary `Memory` handles stay on their JavaScript thread. Objects
-requiring transfer lists are outside `Message`'s scope.
+`SharedMemory` and compiled `Module` handles support the library's `Post`
+transport directly. Native handles move as Rust values. Browser transport
+preserves their JavaScript objects; shared-memory bytes are shared, not copied.
+The receiving worker prepares its own local access to the allocation. Retained
+handles remain usable after the allocating worker exits.
+
+Machine configuration, command payloads and channel endpoints remain ordinary
+Rust data. They use `Send` closure captures and Rust channels without
+serialization. Once running on its worker, a future can retain non-Send values
+such as `Rc`, the CPU and browser engine objects. Construct those values inside
+the task. `Thread::run_send` returns Send results through Rust memory;
+`Thread::run` posts its result and can return a shared allocation or module.
+
+Host services can await Rust channel input through `CpuContext::defer`. Keep the
+same `Cpu::run_async` future alive throughout that wait. The
+[CPU worker example](../../../tests/browser/src/cpus.rs) exercises this complete
+flow on native and browser workers: it captures configuration and channels,
+constructs local state, waits for input while the caller accesses mapped memory,
+resumes guest execution, and reuses the allocation on a later worker.
 
 ## Browser build and lifetime
 
@@ -51,7 +57,7 @@ adapter passes the library's `module` argument as wasm-bindgen's `module_or_path
 The shared build setup and browser checks live in
 [tests/browser](../../../tests/browser/README.md). Backend tests exercise engine
 operations; worker integration checks exercise channel wakeups, shared-memory
-messages and compiled-module handoff.
+lifetimes, compiled-module handoff and CPU execution.
 
 Await accepted work before dropping its thread. Browser bootstrap failure
 reporting and thread allocation reclamation are tracked in

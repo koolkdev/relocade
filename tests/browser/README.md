@@ -12,7 +12,10 @@ and worker bootstrap used by browser applications.
 
 The worker checks cover Rust channel wakeups after a task returns Pending,
 independent TLS and worker-local Rc state, shared-memory messages that preserve
-later growth and writes, and compiled-module handoff between execution owners.
+later growth and writes after the allocating worker exits, and compiled-module
+handoff between execution owners. The [CPU worker example](src/cpus.rs) retains
+caller access to mapped memory while a worker awaits Rust input, resumes guest
+execution, and imports the retained allocation into a later worker.
 
 From this directory:
 

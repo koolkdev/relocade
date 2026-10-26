@@ -1295,7 +1295,7 @@ dependencies = [
  "relocade-compiler",
  "relocade-machine",
  "relocade-wasm-runtime",
- "serde",
+ "relocade-x86",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
@@ -1351,9 +1351,7 @@ dependencies = [
  "relocade-interpreter",
  "relocade-wasm-runtime",
  "relocade-x86",
- "serde",
  "wasm-bindgen-test",
- "web-thread-select",
 ]
 
 [[package]]
@@ -1407,6 +1405,7 @@ dependencies = [
  "wasm-bindgen-test",
  "wasm-encoder 0.254.0",
  "wasmtime",
+ "web-thread-select",
 ]
 
 [[package]]

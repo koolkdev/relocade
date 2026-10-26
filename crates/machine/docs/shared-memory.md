@@ -48,11 +48,12 @@ Those views and the context borrow the stopped CPU. Drop the context before
 resuming execution or installing modules. `cpu.memory()` returns an owned
 handle whose lifetime is independent of execution.
 
-Share the existing backend handle with `worker::Message(memory.backing().clone())`.
+Pass `memory.backing().clone()` directly as a worker task's context.
 The worker transport moves native handles and preserves browser shared-memory
 objects through structured cloning. The receiver pairs the handle with its machine
 configuration using `relocade_machine::Memory::with_backing`, then borrows a
-view with `memory.view()`.
+view with `memory.view()`. Capture that configuration in the Rust task closure;
+it does not need serialization. See the [worker guide](workers.md).
 The configured guest capacity is checked against the allocation's byte length.
 
 Browser worker sharing requires cross-origin isolation, typically served with

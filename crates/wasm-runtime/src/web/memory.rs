@@ -43,6 +43,9 @@ pub struct SharedMemory {
     pub(super) allocation: Rc<Allocation>,
 }
 
+#[cfg(feature = "worker")]
+impl web_thread::Post for SharedMemory {}
+
 impl serde::Serialize for SharedMemory {
     fn serialize<S: serde::Serializer>(
         &self,
