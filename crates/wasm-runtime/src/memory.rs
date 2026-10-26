@@ -13,9 +13,6 @@ pub trait WasmMemoryAccess {
     /// the contents still requires the owning backend or its scoped context.
     type Memory: Clone + Send + Sync + 'static;
 
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]);
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]);
-
     /// Binds the allocation for a stopped phase. Drop the view before entering
     /// Wasm through this backend or context again.
     ///
@@ -33,14 +30,6 @@ pub trait WasmMemoryAccess {
 
 impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
     type Memory = A::Memory;
-
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        (**self).read_memory(memory, offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        (**self).write_memory(memory, offset, bytes);
-    }
 
     fn memory<'a>(&'a mut self, memory: &'a Self::Memory) -> MemoryAccess<'a> {
         (**self).memory(memory)

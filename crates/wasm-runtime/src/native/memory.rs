@@ -64,24 +64,6 @@ impl Memory {
         }
     }
 
-    pub(super) fn read(&self, store: impl AsContext, offset: u32, bytes: &mut [u8]) {
-        match self {
-            Self::Private(memory) => memory
-                .read(store, offset as usize, bytes)
-                .expect("in-bounds Wasm memory range"),
-            Self::Shared(memory) => memory.read(offset, bytes),
-        }
-    }
-
-    pub(super) fn write(&self, store: impl AsContextMut, offset: u32, bytes: &[u8]) {
-        match self {
-            Self::Private(memory) => memory
-                .write(store, offset as usize, bytes)
-                .expect("in-bounds Wasm memory range"),
-            Self::Shared(memory) => memory.write(offset, bytes),
-        }
-    }
-
     pub(super) fn access<'a, T>(
         &'a self,
         store: wasmtime::StoreContextMut<'a, T>,

@@ -79,12 +79,12 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             .memory()
             .write(0x10300, b"Ready$")
             .unwrap();
-        let mut memory = dos.cpu().memory();
+        let memory = dos.cpu().memory();
         let mut input = dos.stdin();
         let mut run = pin!(dos.cpu().run_async(100));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(run.as_mut().poll(&mut cx).is_pending());
-        let mut thread_memory = memory.clone();
+        let thread_memory = memory.clone();
         let screen = std::thread::spawn(move || TextScreen::read(&thread_memory.view()))
             .join()
             .unwrap();

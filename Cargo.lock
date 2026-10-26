@@ -1331,7 +1331,6 @@ dependencies = [
  "relocade-bios",
  "relocade-machine",
  "relocade-vfs",
- "relocade-wasm-runtime",
  "relocade-x86",
 ]
 

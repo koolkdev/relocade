@@ -1,5 +1,5 @@
 mod support;
-use relocade_machine::{real_mode_interrupt, Error, Hook, HookResult, RuntimeState};
+use relocade_machine::{real_mode_interrupt, Error, Hook, HookResult};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -16,8 +16,6 @@ use std::{
     },
     task::{Context, Poll, Wake, Waker},
 };
-
-use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -94,8 +92,7 @@ async fn check_pending_calls() {
     )
     .unwrap();
     let state = Rc::new(State::default());
-    let backend = Backend::with_state(RuntimeState::new(state.clone())).unwrap();
-    let mut runtime = support::create_cpu(backend, config).await.unwrap();
+    let mut runtime = support::create_cpu(state.clone(), config).await.unwrap();
     runtime.context().cpu().set_sp(0xff00);
     runtime.context().cpu().set_eflags(0x202);
     runtime
@@ -145,7 +142,7 @@ async fn check_pending_calls() {
         runtime.run(6).unwrap(),
         ExecutionExit::Host(HostExit::Deferred)
     );
-    let mut shared = runtime.memory();
+    let shared = runtime.memory();
     let reader = shared.view();
     let suspended = runtime.context().cpu().snapshot();
     assert_eq!(suspended.instruction_count, 1);

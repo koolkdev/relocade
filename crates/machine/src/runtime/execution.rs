@@ -1,8 +1,8 @@
-use super::{Cpu, CpuAccess, Error, HookResult, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::{Cpu, Error, HookResult, Result};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::rc::Rc;
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
+impl<T: 'static> Cpu<T> {
     /// Runs until the budget is consumed at a block boundary, a guest exit
     /// occurs, or a host function requests a return. Whole blocks can exceed the
     /// budget; straight-line code and REP have no fixed overshoot or elapsed-time bound.
@@ -53,7 +53,7 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     /// Use when replacing a suspended program or its continuation.
     /// Cancellation does not undo side effects already performed by the operation.
     pub fn cancel_pending_call(&mut self) {
-        let pending = self.access.backend.state_mut().pending.take();
+        let pending = self.machine.pending.take();
         self.host_call_incomplete = false;
         drop(pending);
     }
@@ -70,29 +70,24 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             return Err(Error::CancelledHostCall);
         }
         // A previous synchronous run may already have stopped at a deferred call.
-        if self.access.backend.state().pending.is_some() {
+        if self.machine.pending.is_some() {
             return Ok(ExecutionExit::Host(HostExit::Deferred));
         }
-        self.access.set_instruction_target(target);
+        self.machine
+            .bindings
+            .set_instruction_target(&mut self.machine.backend, target);
         loop {
-            let exit = self.dispatch.run(&mut self.access);
+            let exit = self.machine.dispatch.run(&mut self.machine.backend);
             let ExecutionExit::Host(HostExit::Call { address }) = exit else {
                 return Ok(exit);
             };
             let handler = Rc::clone(
-                self.access
-                    .backend
-                    .state()
+                self.machine
                     .hooks
                     .get(&address)
                     .expect("registered host entry"),
             );
-            let mut context = self.access.backend.context();
-            let result = self
-                .access
-                .bindings
-                .with_host_call(&mut context, |call| handler(call));
-            match result {
+            match handler(&mut self.machine.context()) {
                 HookResult::Continue => {}
                 HookResult::Exit(exit) => return Ok(exit),
             }
@@ -100,24 +95,17 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     }
 
     async fn run_deferred(&mut self) -> HookResult {
-        // Release the backend's state guard before borrowing it for the handler.
         let handler = self
-            .access
-            .backend
-            .state_mut()
+            .machine
             .pending
             .take()
             .expect("deferred exit must have a handler");
         // Cancellation leaves this set so a later run cannot replay the hook.
         self.host_call_incomplete = true;
-        let bindings = self.access.bindings.clone();
-        let mut context = self.access.backend.context();
-        let mut access = CpuAccess {
-            backend: &mut context,
-            bindings,
+        let result = {
+            let mut context = self.context();
+            handler.run(&mut context).await
         };
-        let mut call = HostCall::new(&self.config, &self.machine_config, &mut access);
-        let result = handler.run(&mut call).await;
         self.host_call_incomplete = false;
         result
     }

@@ -1,8 +1,8 @@
 use relocade_compiler::Program;
-use relocade_wasm_runtime::WasmCompiler;
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionExitValues, HostExitValues};
 
-use super::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
+use super::{Cpu, CpuContext, DispatchEntry, Result};
 use std::rc::Rc;
 
 /// Result of a synchronous or deferred host hook.
@@ -15,16 +15,16 @@ pub enum HookResult {
     Exit(ExecutionExit),
 }
 
-pub(super) type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> HookResult;
+pub(super) type Handler<T> = dyn Fn(&mut CpuContext<'_, T>) -> HookResult;
 
 /// A host function reached at a guest linear address through ordinary dispatch.
-/// `T` is the backend's environment state, borrowed through the caller.
+/// `T` is the machine's environment state, borrowed through the context.
 ///
 /// ```
-/// use relocade_machine::{Hook, HookResult, HostCall};
+/// use relocade_machine::{Hook, HookResult, CpuContext};
 /// use relocade_x86::{ExecutionExit, HostExit};
 ///
-/// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> HookResult {
+/// fn terminate(call: &mut CpuContext<'_, Option<u8>>) -> HookResult {
 ///     let code = call.cpu().al();
 ///     *call.state_mut() = Some(code);
 ///     HookResult::Exit(ExecutionExit::Host(HostExit::Return))
@@ -39,7 +39,7 @@ pub struct Hook<T = ()> {
 impl<T> Hook<T> {
     /// On Continue, the handler must set the guest continuation in CPU state.
     /// Exit returns its execution exit without changing that state.
-    /// To defer work, return the result of [`HostCall::defer`], which queues the
+    /// To defer work, return the result of [`CpuContext::defer`], which queues the
     /// required handler. Returning `ExecutionExit::Host(HostExit::Deferred)`
     /// without a queued handler is a programming error.
     /// Interrupt/ABI return conventions belong to the handler's environment.
@@ -47,7 +47,7 @@ impl<T> Hook<T> {
     /// data stay on the CPU's thread and do not need Send or Sync.
     pub fn new(
         address: u32,
-        handler: impl Fn(&mut HostCall<'_, T>) -> HookResult + 'static,
+        handler: impl Fn(&mut CpuContext<'_, T>) -> HookResult + 'static,
     ) -> Self {
         Self {
             address,
@@ -56,16 +56,17 @@ impl<T> Hook<T> {
     }
 }
 
-impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
+impl<T: 'static> Cpu<T> {
     /// Installs callable entries that return their address to the Rust run loop.
     /// The CPU owns the handlers and invokes them after the guest call returns.
     ///
     /// Entries begin with CPU state already published by the predecessor. They
     /// cache no CPU values across the host call. Hooks do not retire guest
     /// instructions; continuing execution retains the current instruction target.
-    /// Handlers must not reenter guest execution. They may use `HostCall::defer`
+    /// Handlers must not reenter guest execution. They may use `CpuContext::defer`
     /// to await owned work and complete in Rust before guest execution resumes.
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
+        let machine = &mut self.machine;
         let hooks: Vec<_> = hooks.into_iter().collect();
         let names: Vec<_> = (0..hooks.len())
             .map(|index| format!("hook_{index}"))
@@ -86,13 +87,15 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             });
         }
         let bytes = program.compile()?;
-        let module = self.access.backend.compiler().compile(&bytes).await?;
-        self.dispatch
-            .install(&mut self.access, &module, &entries)
+        let compiler = machine.backend.compiler();
+        let module = compiler.compile(&bytes).await?;
+        machine
+            .dispatch
+            .install(&mut machine.backend, &machine.bindings, &module, &entries)
             .await?;
         // Entry addresses also identify their handlers, including replacements.
         // Publish only after the module and its callable entries are installed.
-        self.access.backend.state_mut().hooks.extend(handlers);
+        machine.hooks.extend(handlers);
         Ok(())
     }
 }

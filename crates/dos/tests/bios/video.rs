@@ -1,17 +1,11 @@
 use crate::common;
 use relocade_bios::TextCell;
-use relocade_dos::{Dos, DosServices};
+use relocade_dos::Dos;
 use relocade_x86::{CpuState, ExecutionExit};
 
 const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
 
-fn video(
-    dos: &mut Dos<common::Backend<DosServices>>,
-    ax: u16,
-    bx: u16,
-    cx: u16,
-    dx: u16,
-) -> CpuState {
+fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
         let mut cpu = machine.cpu();

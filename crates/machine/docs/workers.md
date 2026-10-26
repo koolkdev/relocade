@@ -26,7 +26,7 @@ let task = thread.run_send(
     Message(Reader { memory: shared_memory, offset: 65536 }),
     |Message(reader)| async move {
         let mut bytes = [0; 4];
-        reader.memory.read(reader.offset, &mut bytes);
+        reader.memory.view().read(reader.offset, &mut bytes);
         bytes
     },
 );
@@ -35,8 +35,9 @@ let task = thread.run_send(
 Browser backend `Module` and `SharedMemory` types preserve their JavaScript
 objects when serialized. A received shared memory refers to the same backing
 bytes; sending the handle neither copies those bytes nor synchronizes accesses.
-Use the backend's independent shared-memory handle, not its store-local `Memory`
-index. Objects requiring transfer lists are outside `Message`'s scope.
+Serialize the backend's `SharedMemory` handle to bind access on the receiving
+worker. Ordinary `Memory` handles stay on their JavaScript thread. Objects
+requiring transfer lists are outside `Message`'s scope.
 
 ## Browser build and lifetime
 

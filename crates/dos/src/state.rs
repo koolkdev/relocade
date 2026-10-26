@@ -25,7 +25,7 @@ impl DosState {
 }
 
 /// A callback handle to the state owned by a [`crate::Dos`] environment.
-/// The backend retains this handle alongside its own pending host call.
+/// The CPU retains this handle alongside its pending host call.
 #[derive(Clone)]
 pub struct DosServices {
     state: Rc<RefCell<DosState>>,

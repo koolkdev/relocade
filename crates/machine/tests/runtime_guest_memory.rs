@@ -1,12 +1,10 @@
 mod support;
 use relocade_machine::MemoryError;
-use relocade_machine::RuntimeState;
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
 };
 
-use relocade_wasm_runtime::Backend;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -39,9 +37,8 @@ async fn check_guest_memory() {
         map,
     )
     .unwrap();
-    let backend = Backend::with_state(RuntimeState::new(())).unwrap();
-    let mut runtime = support::create_cpu(backend, config).await.unwrap();
-    let mut shared = runtime.memory();
+    let mut runtime = support::create_cpu((), config).await.unwrap();
+    let shared = runtime.memory();
     let reader = shared.view();
     runtime
         .context()

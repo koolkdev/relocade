@@ -1,14 +1,12 @@
 mod support;
 
 use relocade_compiler::Program;
-use relocade_machine::{real_mode_interrupt, DispatchEntry, Hook, HookResult, RuntimeState};
+use relocade_machine::{real_mode_interrupt, DispatchEntry, Hook, HookResult};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
     PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
 };
 use std::{cell::Cell, rc::Rc};
-
-use relocade_wasm_runtime::Backend;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -28,8 +26,7 @@ async fn check_interrupt_hooks() {
     .unwrap();
     // Both environment state and handler captures may be local to this thread.
     let calls = Rc::new(Cell::new(0));
-    let backend = Backend::with_state(RuntimeState::new(calls)).unwrap();
-    let mut runtime = support::create_cpu(backend, config).await.unwrap();
+    let mut runtime = support::create_cpu(calls, config).await.unwrap();
     runtime.context().cpu().set_sp(0xff00);
     runtime.context().cpu().set_eflags(0x202);
     runtime
@@ -99,7 +96,7 @@ async fn check_interrupt_hooks() {
         .await
         .unwrap();
     assert_eq!(runtime.run(5).unwrap(), ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.state().get(), 1);
+    assert_eq!(runtime.context().state().get(), 1);
     assert_eq!(runtime.context().cpu().ax(), 11);
     assert_eq!(runtime.context().cpu().segment(Segment::Cs).selector, 0);
     assert_eq!(runtime.context().cpu().eip(), 0x10e);
@@ -164,6 +161,101 @@ async fn interrupt_hooks_return_through_guest_frames_and_allow_chaining() {
     check_interrupt_hooks().await;
 }
 
+async fn check_mapped_hook_access() {
+    let config = support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+        0x3000,
+        PhysicalMemoryMap::new([
+            (0..=0xfff, PhysicalMapping::Rom { backing_offset: 0 }),
+            (
+                0x1000..=0x1fff,
+                PhysicalMapping::Ram {
+                    backing_offset: 0x2000,
+                },
+            ),
+        ])
+        .unwrap(),
+    )
+    .unwrap();
+    let mut cpu = support::create_cpu(0_u32, config).await.unwrap();
+    cpu.context().cpu().set_eax(40);
+    cpu.context()
+        .memory()
+        .write(0x1020, &10_u32.to_le_bytes())
+        .unwrap();
+    cpu.context().memory().write_backing(0x20, &[0xa5]).unwrap();
+    cpu.context()
+        .memory()
+        .write_backing(
+            0x100,
+            &[
+                0x66, 0x40, // INC EAX
+                0x66, 0xff, 0x06, 0x20, 0x10, // INC dword [1020]
+                0xe9, 0xf6, 0, // JMP 0200 (hook)
+            ],
+        )
+        .unwrap();
+    cpu.context()
+        .memory()
+        .write_backing(
+            0x300,
+            &[
+                0x66, 0x8b, 0x1e, 0x24, 0x10, // MOV EBX,[1024]
+                0xe9, 0xf8, 0xfd, // JMP 0100
+            ],
+        )
+        .unwrap();
+    cpu.install_hooks([Hook::new(0x200, |call| {
+        let mut bytes = [0; 4];
+        call.memory().read(0x1020, &mut bytes).unwrap();
+        let value = call.cpu().eax() + u32::from_le_bytes(bytes);
+        call.cpu().set_eax(value);
+        call.cpu().set_eip(0x300);
+        call.memory().write(0x1024, &value.to_le_bytes()).unwrap();
+        call.memory().write_u8(0x20, 0xff).unwrap();
+        *call.state_mut() += 1;
+        HookResult::Continue
+    })])
+    .await
+    .unwrap();
+
+    assert_eq!(*cpu.state(), 0);
+    assert_eq!(cpu.run(0).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        cpu.run_async(0).await.unwrap(),
+        ExecutionExit::BudgetExhausted
+    );
+    assert_eq!(*cpu.state(), 0);
+    for (calls, value) in [(1, 52), (2, 65)] {
+        assert_eq!(cpu.run(5).unwrap(), ExecutionExit::BudgetExhausted);
+        assert_eq!(*cpu.state(), calls);
+        assert_eq!(cpu.context().cpu().eax(), value);
+        assert_eq!(cpu.context().cpu().ebx(), value);
+        assert_eq!(cpu.context().cpu().eip(), 0x100);
+        let mut bytes = [0; 4];
+        cpu.context().memory().read(0x1024, &mut bytes).unwrap();
+        assert_eq!(u32::from_le_bytes(bytes), value);
+        assert_eq!(cpu.context().memory().read_u8(0x20).unwrap(), 0xa5);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn hooks_edit_published_cpu_and_mapped_memory_during_runs() {
+    pollster::block_on(check_mapped_hook_access());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn hooks_edit_published_cpu_and_mapped_memory_during_runs() {
+    check_mapped_hook_access().await;
+}
+
 async fn check_hook_replacement() {
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
@@ -176,8 +268,7 @@ async fn check_hook_replacement() {
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    let backend = Backend::with_state(RuntimeState::new(())).unwrap();
-    let mut runtime = support::create_cpu(backend, config).await.unwrap();
+    let mut runtime = support::create_cpu((), config).await.unwrap();
     runtime
         .context()
         .memory()

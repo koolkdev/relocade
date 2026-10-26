@@ -231,22 +231,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
 impl<T> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
-    fn read_memory(&self, memory: &Self::Memory, offset: u32, bytes: &mut [u8]) {
-        self.store
-            .borrow()
-            .memory(memory)
-            .access()
-            .read(offset, bytes);
-    }
-
-    fn write_memory(&mut self, memory: &Self::Memory, offset: u32, bytes: &[u8]) {
-        self.store
-            .borrow()
-            .memory(memory)
-            .access()
-            .write(offset, bytes);
-    }
-
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
         MemoryAccess::new(MemoryRegion::Stored(Ref::map(
             self.store.borrow(),

@@ -2,36 +2,35 @@
 
 use super::Result;
 use crate::{CpuConfig, MachineConfig};
-use relocade_compiler::abi::Memory;
-use relocade_wasm_runtime::{Import, WasmBackend};
+use relocade_compiler::abi::Memory as MemoryDeclaration;
+use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, ExecutionContext};
-use std::sync::Arc;
+use std::mem::offset_of;
 
 /// The runtime's initialized Wasm memories. This owner allocates backend memory
-/// from the machine configuration and supplies module bindings and scoped host
-/// access. Architectural access policy belongs to `relocade_machine`.
-#[derive(Clone)]
-pub struct RuntimeMemory<M> {
-    pub(crate) config: Arc<CpuConfig>,
-    pub(crate) machine_config: Arc<MachineConfig>,
-    pub(crate) context: M,
-    pub(crate) guest: M,
-    pub(crate) mapping: M,
+/// from the machine configuration and supplies module bindings. The CPU owns
+/// these resources and lends access while the guest is stopped.
+pub(super) struct RuntimeMemory {
+    pub(crate) config: CpuConfig,
+    pub(crate) machine_config: MachineConfig,
+    pub(crate) context: Memory,
+    pub(crate) guest: Memory,
+    pub(crate) mapping: Memory,
+    pub(crate) shared_guest: SharedMemory,
 }
 
-impl<M: Clone + 'static> RuntimeMemory<M> {
-    pub fn new<B: WasmBackend<Memory = M>>(
-        backend: &mut B,
+impl RuntimeMemory {
+    pub fn new(
+        backend: &mut super::Backend,
         machine_config: MachineConfig,
         config: CpuConfig,
     ) -> Result<Self> {
         machine_config.validate_for(config.execution_target().profile)?;
-        let context = backend.create_memory(Memory {
+        let context = backend.create_memory(MemoryDeclaration {
             maximum: Some(1),
             ..abi::EXECUTION_CONTEXT
         })?;
-        backend.write_memory(
-            &context,
+        backend.memory(&context).write(
             0,
             &ExecutionContext {
                 cpu: *config.cpu(),
@@ -41,39 +40,36 @@ impl<M: Clone + 'static> RuntimeMemory<M> {
             .to_bytes(),
         );
         let guest_pages = machine_config.memory_size().div_ceil(65536).max(1) as u32;
-        let guest = backend.create_memory(Memory {
+        let guest = backend.create_memory(MemoryDeclaration {
             minimum: guest_pages,
             ..abi::GUEST
         })?;
         let mapping_bytes = machine_config.memory_map().to_bytes();
         let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
-        let mapping = backend.create_memory(Memory {
+        let mapping = backend.create_memory(MemoryDeclaration {
             minimum: mapping_pages,
             maximum: Some(mapping_pages),
             ..abi::PHYSICAL_MAP
         })?;
-        backend.write_memory(&mapping, 0, &mapping_bytes);
+        backend.memory(&mapping).write(0, &mapping_bytes);
+        let shared_guest = backend
+            .shared_memory(&guest)
+            .expect("guest backing is shared");
         Ok(Self {
-            config: Arc::new(config),
-            machine_config: Arc::new(machine_config),
+            config,
+            machine_config,
             context,
             guest,
             mapping,
+            shared_guest,
         })
     }
 
     pub fn configuration(&self) -> &CpuConfig {
         &self.config
     }
-    pub fn context_memory(&self) -> &M {
-        &self.context
-    }
-    pub fn guest_memory(&self) -> &M {
-        &self.guest
-    }
-
     /// Binds the CPU, guest backing and physical translation memory.
-    pub fn imports<'a, B: WasmBackend<Memory = M> + 'a>(
+    pub fn imports<'a, B: WasmBackend<Memory = Memory> + 'a>(
         &'a self,
         backend: &B,
     ) -> [Import<'a, B>; 3] {
@@ -82,5 +78,16 @@ impl<M: Clone + 'static> RuntimeMemory<M> {
             backend.bind(abi::GUEST, &self.guest),
             backend.bind(abi::PHYSICAL_MAP, &self.mapping),
         ]
+    }
+
+    pub(crate) fn set_instruction_target(
+        &self,
+        access: &mut impl WasmMemoryAccess<Memory = Memory>,
+        target: u64,
+    ) {
+        access.memory(&self.context).store(
+            offset_of!(ExecutionContext, instruction_target) as u32,
+            target,
+        );
     }
 }
