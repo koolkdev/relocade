@@ -44,7 +44,14 @@ impl LineInput {
             Ok(false) => {}
             Err(error) => return return_result(call, Err(error)),
         }
-        let input = match state.files.wait_for_character(self.input_handle) {
+        let input = state
+            .process
+            .as_ref()
+            .expect("active DOS process")
+            .resources()
+            .files
+            .wait_for_character(&state.stdio.input, self.input_handle);
+        let input = match input {
             Ok(input) => input,
             Err(error) => return return_result(call, Err(error)),
         };
@@ -64,18 +71,26 @@ impl LineInput {
         state: &mut DosState,
     ) -> Result<bool, DosError> {
         // NUL returns zero forever, so it cannot complete a line. Wait without spinning.
-        if matches!(
-            state.files.readable_handle_type(self.input_handle)?,
-            HandleType::Device(Device::Null)
-        ) {
+        let process = state.process.as_ref().expect("active DOS process").clone();
+        let kind = process
+            .resources()
+            .files
+            .readable_handle_type(self.input_handle)?;
+        if matches!(kind, HandleType::Device(Device::Null)) {
             return Ok(false);
         }
-        while let Some(byte) = state.files.read_character(self.input_handle)? {
+        loop {
+            let next = process
+                .resources_mut()
+                .files
+                .read_character(&state.stdio.input, self.input_handle)?;
+            let Some(byte) = next else {
+                return Ok(false);
+            };
             if self.accept(call, state, byte) {
                 return Ok(true);
             }
         }
-        Ok(false)
     }
 
     fn accept(

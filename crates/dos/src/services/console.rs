@@ -24,7 +24,13 @@ pub(super) fn flush_input(
     state: &mut DosState,
 ) -> HookResult {
     // DOS proceeds to the requested service even if the flush failed.
-    let _ = state.files.flush_input(0);
+    let _ = state
+        .process
+        .as_ref()
+        .expect("active DOS process")
+        .resources()
+        .files
+        .flush_input(&state.stdio.input, 0);
     let function = call.cpu.al();
     if matches!(
         function,
@@ -50,9 +56,13 @@ pub(super) fn input_status(
 ) -> HookResult {
     // Closed stdin falls back to the console; AH=0Bh has no handle-error return.
     let available = state
+        .process
+        .as_ref()
+        .expect("active DOS process")
+        .resources()
         .files
-        .input_available(0)
-        .unwrap_or_else(|_| state.files.stdio.input.has_input());
+        .input_available(&state.stdio.input, 0)
+        .unwrap_or_else(|_| state.stdio.input.has_input());
     call.cpu.set_al(if available { 0xff } else { 0 });
     return_from_interrupt(call)
 }
@@ -64,7 +74,13 @@ pub(super) fn direct_io(
 ) -> HookResult {
     let byte = call.cpu.dl();
     if byte == 0xff {
-        let result = state.files.read_character(0);
+        let result = state
+            .process
+            .as_ref()
+            .expect("active DOS process")
+            .resources_mut()
+            .files
+            .read_character(&state.stdio.input, 0);
         let character = match result {
             Ok(character) => character,
             Err(error) => return return_result(call, Err(error)),
@@ -85,14 +101,25 @@ pub(super) fn read_character(
     state: &mut DosState,
 ) -> HookResult {
     let echo = call.cpu.ah() == super::READ_CHARACTER_ECHO;
-    match state.files.read_character(0) {
+    let process = state.process.as_ref().expect("active DOS process").clone();
+    let result = process
+        .resources_mut()
+        .files
+        .read_character(&state.stdio.input, 0);
+    match result {
         Ok(Some(byte)) => return_character(call, state, byte, echo),
-        Ok(None) => match state.files.wait_for_character(0) {
-            Ok(input) => interrupt::defer(call, input, move |call, state, byte| {
-                return_character(call, state, byte, echo)
-            }),
-            Err(error) => return_result(call, Err(error)),
-        },
+        Ok(None) => {
+            let input = process
+                .resources()
+                .files
+                .wait_for_character(&state.stdio.input, 0);
+            match input {
+                Ok(input) => interrupt::defer(call, input, move |call, state, byte| {
+                    return_character(call, state, byte, echo)
+                }),
+                Err(error) => return_result(call, Err(error)),
+            }
+        }
         Err(error) => return_result(call, Err(error)),
     }
 }

@@ -26,8 +26,8 @@ fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
 #[test]
 fn video_services_share_pages_cursors_and_cell_attributes() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         video(&mut dos, 0x0100, 0, 0x2007, 0); // Hide cursor.
         video(&mut dos, 0x0200, 0x0300, 0, 0x0204); // Page 3, row 2, column 4.
         video(&mut dos, 0x0958, 0x032e, 3, 0); // Three yellow-on-green X cells.
@@ -96,8 +96,8 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
 #[test]
 fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         video(&mut dos, 0x0200, 0, 0, 0x184f);
         // 4000 visible bytes occupy a 4096-byte page. Fifty cells starting at
         // the last visible cell include the padding and the next page's first cell.
@@ -119,8 +119,8 @@ fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
 #[test]
 fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         for (row, text) in [b"1234", b"5678", b"abcd"].into_iter().enumerate() {
             let bytes: Vec<_> = text.iter().flat_map(|&byte| [byte, 0x17]).collect();
             dos.cpu()
@@ -167,8 +167,8 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
 #[test]
 fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         dos.cpu()
             .context()
             .memory

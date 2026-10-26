@@ -35,8 +35,8 @@ fn invoke(dos: &mut Dos, ip: u32, ax: u16) -> CpuState {
 #[test]
 fn bios_peeks_reads_and_reports_shift_state_without_echo() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         let keyboard = dos.keyboard();
         let cpu = invoke(&mut dos, 0x100, 0x017b);
         assert_eq!(cpu.flags.eflags(), 0x643);
@@ -79,8 +79,8 @@ impl Wake for WakeCount {
 #[test]
 fn bios_wait_uses_the_existing_async_interrupt_return() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         dos.cpu().context().cpu.set_ax(0);
         dos.cpu().context().cpu.set_eflags(0x643);
         let keyboard = dos.keyboard();
@@ -108,7 +108,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             assert_eq!(cpu.sp(), 0xfffe);
             assert_eq!(cpu.eflags(), 0x643);
         }
-        // Cancellation releases the input waker, and a successful load recovers.
+        // Dropping a read releases its waker. A new environment has a separate queue.
         {
             let mut machine = dos.cpu().context();
             machine.cpu.set_eip(0x100);
@@ -123,7 +123,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             scan_code: 0x2d,
         });
         assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        drop(dos);
+        let mut dos = common::dos(PROGRAM).await;
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
     });
 }
@@ -131,8 +132,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
 #[test]
 fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(PROGRAM).await;
+
         let keyboard = dos.keyboard();
         keyboard.push(KeyStroke {
             character: 0,

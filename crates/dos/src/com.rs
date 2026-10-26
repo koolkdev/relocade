@@ -26,13 +26,15 @@ pub(crate) fn load<T>(
     let psp_segment = allocation.segment;
     let psp_address = u32::from(psp_segment) * memory::PARAGRAPH_BYTES;
 
-    // Clear the rest of the first segment, including the zero return word at SS:SP.
-    let mut contents = vec![0; SEGMENT_SIZE as usize - process::PSP_BYTES];
-    contents[..image.len()].copy_from_slice(image);
     machine
         .memory
-        .write(psp_address + process::PSP_BYTES as u32, &contents)
+        .write(psp_address + process::PSP_BYTES as u32, image)
         .expect("fixed COM process allocation");
+    // Earlier programs may have used this stack. RET must reach PSP:0000.
+    machine
+        .memory
+        .write(psp_address + u32::from(STACK_OFFSET), &[0, 0])
+        .expect("COM initial return word");
 
     let mut cpu = process::initial_cpu(psp_segment);
     cpu.registers.esp = u32::from(STACK_OFFSET);

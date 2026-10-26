@@ -12,25 +12,50 @@ const GET_OUTPUT_STATUS: u8 = 0x07;
 pub(super) fn ioctl(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
     let handle = call.cpu.bx();
     let result = match call.cpu.al() {
-        GET_DEVICE_INFORMATION => state.files.device_information(handle).map(|info| {
-            call.cpu.set_dx(info);
-            call.cpu.set_ax(info);
-        }),
+        GET_DEVICE_INFORMATION => state
+            .process
+            .as_ref()
+            .expect("active DOS process")
+            .resources()
+            .files
+            .device_information(handle)
+            .map(|info| {
+                call.cpu.set_dx(info);
+                call.cpu.set_ax(info);
+            }),
         SET_DEVICE_INFORMATION => {
             let info = call.cpu.dx();
             state
+                .process
+                .as_ref()
+                .expect("active DOS process")
+                .resources()
                 .files
                 .set_device_information(handle, info)
                 .map(|previous| {
                     call.cpu.set_al(previous);
                 })
         }
-        GET_INPUT_STATUS => state.files.input_available(handle).map(|available| {
-            call.cpu.set_al(if available { 0xff } else { 0 });
-        }),
-        GET_OUTPUT_STATUS => state.files.output_ready(handle).map(|ready| {
-            call.cpu.set_al(if ready { 0xff } else { 0 });
-        }),
+        GET_INPUT_STATUS => state
+            .process
+            .as_ref()
+            .expect("active DOS process")
+            .resources()
+            .files
+            .input_available(&state.stdio.input, handle)
+            .map(|available| {
+                call.cpu.set_al(if available { 0xff } else { 0 });
+            }),
+        GET_OUTPUT_STATUS => state
+            .process
+            .as_ref()
+            .expect("active DOS process")
+            .resources()
+            .files
+            .output_ready(handle)
+            .map(|ready| {
+                call.cpu.set_al(if ready { 0xff } else { 0 });
+            }),
         _ => Err(DosError::InvalidFunction),
     };
     return_result(call, result)

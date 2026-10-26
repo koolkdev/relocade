@@ -12,8 +12,8 @@ use std::{
 #[test]
 fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         let handle = success(&path_service(&mut dos, b"CON", 0x3d02, 0));
         success(&service(&mut dos, 0x4401, handle, 0, 0xe3));
         let mut input = dos.stdin();
@@ -74,8 +74,8 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
 #[test]
 fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         dos.stdin().write_all(b"abc\r").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         assert_eq!(common::output(dos.stdout()), b"abc\r\n");

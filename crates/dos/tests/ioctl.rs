@@ -3,7 +3,7 @@ mod common;
 mod modes;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
-use relocade_dos::{Dos, FileAccess};
+use relocade_dos::{Dos, FileAccess, ProcessStatus};
 use std::io::Write;
 
 fn information(dos: &mut Dos, handle: u16) -> u16 {
@@ -13,10 +13,10 @@ fn information(dos: &mut Dos, handle: u16) -> u16 {
 }
 
 async fn check_device_information() {
-    let mut dos = common::dos().await;
+    let mut dos = common::dos(SERVICE_PROGRAM).await;
     dos.mount_file("DATA.BIN", b"ab".to_vec(), FileAccess::ReadWrite)
         .unwrap();
-    dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
     dos.cpu().context().cpu.set_eflags(0x0a57);
     // CON includes both the driver and handle device bits, input/output, and no input EOF.
     for handle in 0..=2 {
@@ -29,7 +29,7 @@ async fn check_device_information() {
     error(&service(&mut dos, 0x4400, 5, 0, 0), 6);
     error(&service(&mut dos, 0x4400, u16::MAX, 0, 0), 6);
     error(&service(&mut dos, 0x44ff, 1, 0, 0), 1);
-    assert_eq!(dos.exit_status(), None);
+    assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
 
     assert_eq!(success(&path_service(&mut dos, b"DATA.BIN", 0x3d42, 0)), 5);
     assert_eq!(success(&service(&mut dos, 0x4500, 5, 0, 0)), 6);
@@ -71,8 +71,8 @@ fn ioctl_reports_the_object_and_write_state_behind_each_handle() {
 #[test]
 fn console_status_queries_do_not_consume_input_or_change_buffered_reads() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         for flags in [0x602, 0x643] {
             dos.cpu().context().cpu.set_eflags(flags);
             let cpu = service(&mut dos, 0x0b7b, 0x1234, 0x5678, 0x9abc);
@@ -129,8 +129,8 @@ fn console_status_queries_do_not_consume_input_or_change_buffered_reads() {
 #[test]
 fn stdin_status_falls_back_to_the_console_when_stdin_is_closed() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         success(&service(&mut dos, 0x3e00, 0, 0, 0));
 
@@ -162,10 +162,10 @@ fn stdin_status_falls_back_to_the_console_when_stdin_is_closed() {
 #[test]
 fn file_input_status_follows_redirection_and_the_shared_cursor() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("IN.TXT", b"\0\x1a".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         let file = success(&path_service(&mut dos, b"IN.TXT", 0x3d00, 0));
         success(&service(&mut dos, 0x4600, file, 0, 0));
@@ -192,8 +192,8 @@ fn file_input_status_follows_redirection_and_the_shared_cursor() {
 #[test]
 fn output_status_and_unattached_devices_report_readiness_and_handle_errors() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         for handle in 0..=2 {
             assert_eq!(success(&service(&mut dos, 0x4406, handle, 0, 0)) as u8, 0);
             assert_eq!(

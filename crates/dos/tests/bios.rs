@@ -6,13 +6,13 @@ mod screen;
 #[path = "bios/video.rs"]
 mod video;
 
+use relocade_dos::ProcessStatus;
 use relocade_x86::ExecutionExit;
 
 async fn check_bios_clock() {
-    let mut dos = common::dos().await;
     // INT 1Ah followed by JMP $ exposes the returned registers to the host.
-    dos.load_com(&[0xcd, 0x1a, 0xeb, 0xfe], Default::default())
-        .unwrap();
+    let mut dos = common::dos(&[0xcd, 0x1a, 0xeb, 0xfe]).await;
+
     let mut initial = [0xff; 5];
     dos.cpu()
         .context()
@@ -59,7 +59,7 @@ async fn check_bios_clock() {
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.eax as u16, 0x8642);
     assert_eq!(cpu.flags.eflags(), 0x0a57); // Unsupported calls set only carry.
-    assert_eq!(dos.exit_status(), None);
+    assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
 }
 
 #[test]

@@ -126,11 +126,10 @@ fn return_to_host(
     state: &mut DosState,
     status: Result<u8, ServiceError>,
 ) -> HookResult {
-    if status.is_ok() {
-        // The only process has exited; all of its conventional memory is free.
-        crate::memory::reset(&mut call.memory);
-        state.files.close_all();
-    }
-    state.exit_status = Some(status);
+    state.process.as_ref().expect("active DOS process").finish(
+        &mut call.memory,
+        &mut state.filesystem,
+        status,
+    );
     HookResult::Exit(ExecutionExit::Host(HostExit::Return))
 }

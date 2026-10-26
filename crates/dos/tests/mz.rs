@@ -1,6 +1,6 @@
 mod common;
 
-use relocade_dos::LoadError;
+use relocade_dos::{LoadError, ProcessStatus};
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 
 fn set_word(bytes: &mut [u8], offset: usize, value: u16) {
@@ -45,10 +45,10 @@ fn executable() -> Vec<u8> {
 }
 
 async fn check_mz_execution() {
-    let mut dos = common::dos().await;
     let mut file = executable();
     file.extend_from_slice(b"not part of the load module");
-    dos.load_mz(&file, Default::default()).unwrap();
+    let mut dos = relocade_dos::Dos::new().await.unwrap();
+    dos.launch_mz(&file, Default::default()).unwrap();
     {
         let machine = dos.cpu().context();
         let cpu = machine.cpu.snapshot();
@@ -76,25 +76,30 @@ async fn check_mz_execution() {
         dos.cpu().run(100).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(7)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(7))
+    );
     assert_eq!(common::output(dos.stdout()), b"MZ\r\n");
 
     // A requested maximum below the minimum uses the minimum; FFFF uses the arena.
     for (maximum, expected_end) in [(0x10, 0x1035_u16), (0xffff, 0x9ffe)] {
         let mut file = executable();
         set_word(&mut file, 0x0c, maximum);
-        dos.load_mz(&file, Default::default()).unwrap();
+        let mut dos = relocade_dos::Dos::new().await.unwrap();
+        dos.launch_mz(&file, Default::default()).unwrap();
         let mut end = [0; 2];
         dos.cpu().context().memory.read(0x10002, &mut end).unwrap();
         assert_eq!(u16::from_le_bytes(end), expected_end);
-        assert_eq!(dos.exit_status(), None);
+        assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
     }
 
     // A zero final-page count means a complete 512-byte page.
     let mut file = executable();
     file.resize(512, 0);
     set_word(&mut file, 0x02, 0);
-    dos.load_mz(&file, Default::default()).unwrap();
+    let mut dos = relocade_dos::Dos::new().await.unwrap();
+    dos.launch_mz(&file, Default::default()).unwrap();
     let mut end = [0; 2];
     dos.cpu().context().memory.read(0x10002, &mut end).unwrap();
     assert_eq!(u16::from_le_bytes(end), 0x105e);
@@ -106,7 +111,8 @@ async fn check_mz_execution() {
     set_word(&mut file, 0x0c, 0);
     set_word(&mut file, 0x0e, 0);
     set_word(&mut file, 0x10, 0x12);
-    dos.load_mz(&file, Default::default()).unwrap();
+    let mut dos = relocade_dos::Dos::new().await.unwrap();
+    dos.launch_mz(&file, Default::default()).unwrap();
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffa);
     assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ff9);
@@ -115,37 +121,32 @@ async fn check_mz_execution() {
         dos.cpu().run(100).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(255))); // AH=48h reports no space.
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(255))
+    ); // AH=48h reports no space.
 }
 
 async fn check_invalid_mz() {
-    let mut dos = common::dos().await;
-    // Leave output and an exit status in the current process before failed loads.
-    dos.load_com(
-        &[
-            0xba, 0x0c, 1, 0xb4, 9, 0xcd, 0x21, // Print DS:010C.
-            0xb8, 3, 0x4c, 0xcd, 0x21, // Exit 3.
-            b'X', b'$',
-        ],
-        Default::default(),
-    )
-    .unwrap();
+    let mut dos = common::dos(&[
+        0xba, 0x0c, 1, 0xb4, 9, 0xcd, 0x21, // Print DS:010C.
+        0xb8, 3, 0x4c, 0xcd, 0x21, // Exit 3.
+        b'X', b'$',
+    ])
+    .await;
     assert_eq!(
         dos.cpu().run(100).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    let saved_cpu = dos.cpu().context().cpu.snapshot();
-    let mut saved_memory = vec![0; 0x110]; // First MCB and PSP.
-    dos.cpu()
-        .context()
-        .memory
-        .read(0xfff0, &mut saved_memory)
-        .unwrap();
+    let cpu_before = dos.cpu().context().cpu.snapshot();
+    let memory = dos.memory();
+    let mut before = vec![0; 0x90010];
+    memory.view().read(0xfff0, &mut before).unwrap();
     let file = executable();
     // All short inputs and a truncated load module must be rejected.
     for length in 0..file.len() {
         assert!(
-            dos.load_mz(&file[..length], Default::default()).is_err(),
+            dos.launch_mz(&file[..length], Default::default()).is_err(),
             "length {length}"
         );
     }
@@ -164,20 +165,19 @@ async fn check_invalid_mz() {
         let mut invalid = file.clone();
         set_word(&mut invalid, offset, value);
         assert_eq!(
-            dos.load_mz(&invalid, Default::default()),
-            Err(error),
+            common::load_error(dos.launch_mz(&invalid, Default::default())),
+            error,
             "header offset {offset:x}"
         );
     }
-    let mut memory = vec![0; saved_memory.len()];
-    dos.cpu()
-        .context()
-        .memory
-        .read(0xfff0, &mut memory)
-        .unwrap();
-    assert_eq!(memory, saved_memory);
-    assert_eq!(dos.cpu().context().cpu.snapshot(), saved_cpu);
-    assert_eq!(dos.exit_status(), Some(Ok(3)));
+    let mut after = vec![0; before.len()];
+    memory.view().read(0xfff0, &mut after).unwrap();
+    assert_eq!(after, before);
+    assert_eq!(dos.cpu().context().cpu.snapshot(), cpu_before);
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(3))
+    );
     assert_eq!(common::output(dos.stdout()), b"X");
 }
 
@@ -187,6 +187,6 @@ fn mz_relocates_allocates_prints_and_exits() {
 }
 
 #[test]
-fn invalid_mz_preserves_the_current_program() {
+fn invalid_mz_preserves_the_terminated_program() {
     pollster::block_on(check_invalid_mz());
 }

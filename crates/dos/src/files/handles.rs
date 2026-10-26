@@ -1,9 +1,11 @@
 //! DOS open handles, shared cursors and I/O.
 
 use super::{
-    devices::OpenDevice, AccessMode, Device, Files, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING,
+    devices::OpenDevice, AccessMode, Device, FileSystem, Files, ARCHIVE_ATTRIBUTE,
+    COMPATIBILITY_SHARING,
 };
 use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
+use relocade_bios::Keyboard;
 use relocade_vfs::File;
 use std::{
     cell::{RefCell, RefMut},
@@ -35,6 +37,32 @@ pub(super) struct OpenFile {
     deny_write: bool,
     compatibility: bool,
     written: bool,
+}
+
+fn standard_handles() -> [Option<OpenHandle>; HANDLE_COUNT] {
+    let mut handles: [Option<OpenHandle>; HANDLE_COUNT] = Default::default();
+    for (slot, device) in handles.iter_mut().zip([
+        Device::Console(OutputStream::Stdout),
+        Device::Console(OutputStream::Stdout),
+        Device::Console(OutputStream::Stderr),
+        Device::Auxiliary,
+        Device::Printer,
+    ]) {
+        *slot = Some(OpenHandle::Device(Rc::new(OpenDevice::new(
+            device,
+            AccessMode::ReadWrite,
+        ))));
+    }
+    handles
+}
+
+impl Default for Files {
+    fn default() -> Self {
+        Self {
+            handles: standard_handles(),
+            search_directories: Vec::new(),
+        }
+    }
 }
 
 impl Files {
@@ -204,23 +232,27 @@ impl Files {
         Ok(open.position)
     }
 
-    pub(crate) fn close(&mut self, handle: u16) -> Result<(), DosError> {
+    pub(crate) fn close(
+        &mut self,
+        filesystem: &mut FileSystem,
+        handle: u16,
+    ) -> Result<(), DosError> {
         let open = self
             .handles
             .get_mut(usize::from(handle))
             .and_then(Option::take)
             .ok_or(DosError::InvalidHandle)?;
-        self.commit_handle(open);
+        Self::commit_handle(filesystem, open);
         Ok(())
     }
 
-    pub(crate) fn commit(&mut self, handle: u16) -> Result<(), DosError> {
+    pub(crate) fn commit(&self, filesystem: &mut FileSystem, handle: u16) -> Result<(), DosError> {
         let open = self.handle(handle)?.clone();
-        self.commit_handle(open);
+        Self::commit_handle(filesystem, open);
         Ok(())
     }
 
-    fn commit_handle(&mut self, handle: OpenHandle) {
+    fn commit_handle(filesystem: &mut FileSystem, handle: OpenHandle) {
         let OpenHandle::File(open) = handle else {
             return;
         };
@@ -228,14 +260,14 @@ impl Files {
         let open = open.borrow();
         // The host may have replaced this path while the old file was still open.
         if open.written
-            && self
+            && filesystem
                 .drives
                 .get(open.path.drive)
                 .unwrap()
                 .open(&open.path.relative)
                 .is_ok_and(|file| file.same_file(&open.file))
         {
-            *self.attributes.entry(open.path.clone()).or_default() |= ARCHIVE_ATTRIBUTE as u8;
+            *filesystem.attributes.entry(open.path.clone()).or_default() |= ARCHIVE_ATTRIBUTE as u8;
         }
     }
 
@@ -248,6 +280,7 @@ impl Files {
 
     pub(crate) fn force_duplicate(
         &mut self,
+        filesystem: &mut FileSystem,
         source: u16,
         destination: u16,
     ) -> Result<(), DosError> {
@@ -260,7 +293,7 @@ impl Files {
             .get_mut(usize::from(destination))
             .ok_or(DosError::InvalidHandle)?;
         if let Some(replaced) = slot.replace(open) {
-            self.commit_handle(replaced);
+            Self::commit_handle(filesystem, replaced);
         }
         Ok(())
     }
@@ -278,14 +311,18 @@ impl Files {
     }
 
     /// DOS status queries ask the device, not the buffered handle-read line or EOF bit.
-    pub(crate) fn input_available(&self, handle: u16) -> Result<bool, DosError> {
+    pub(crate) fn input_available(
+        &self,
+        keyboard: &Keyboard,
+        handle: u16,
+    ) -> Result<bool, DosError> {
         Ok(match self.handle(handle)? {
             OpenHandle::File(file) => {
                 let file = file.borrow();
                 u64::from(file.position) < file.file.len()
             }
             OpenHandle::Device(device) => match device.kind {
-                Device::Console(_) => self.stdio.input.has_input(),
+                Device::Console(_) => keyboard.has_input(),
                 Device::Null => true,
                 Device::Auxiliary | Device::Printer => false,
             },
@@ -304,27 +341,9 @@ impl Files {
         })
     }
 
-    pub(crate) fn reset_handles(&mut self) {
-        self.close_all();
-        self.stdio.clear();
-        self.search_directories.clear();
-        for (slot, device) in self.handles.iter_mut().zip([
-            Device::Console(OutputStream::Stdout),
-            Device::Console(OutputStream::Stdout),
-            Device::Console(OutputStream::Stderr),
-            Device::Auxiliary,
-            Device::Printer,
-        ]) {
-            *slot = Some(OpenHandle::Device(Rc::new(OpenDevice::new(
-                device,
-                AccessMode::ReadWrite,
-            ))));
-        }
-    }
-
-    pub(crate) fn close_all(&mut self) {
-        for handle in std::mem::take(&mut self.handles).into_iter().flatten() {
-            self.commit_handle(handle);
+    pub(crate) fn close_all(self, filesystem: &mut FileSystem) {
+        for handle in self.handles.into_iter().flatten() {
+            Self::commit_handle(filesystem, handle);
         }
     }
 

@@ -2,12 +2,12 @@ use crate::common::{self, error, path_service, service, success, SERVICE_PROGRAM
 use relocade_dos::FileAccess;
 
 #[test]
-fn device_modes_are_shared_by_duplicates_and_reset_on_reopen_or_reload() {
+fn device_modes_are_shared_by_duplicates_and_separate_for_new_handles() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         dos.mount_file("DATA.TXT", b"data".to_vec(), FileAccess::ReadOnly)
             .unwrap();
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+
         let duplicate = success(&service(&mut dos, 0x4500, 0, 0, 0));
         // DOS always preserves the device bit, even when the caller omits it.
         let cpu = service(&mut dos, 0x4401, duplicate, 0x1234, 0x63);
@@ -33,7 +33,7 @@ fn device_modes_are_shared_by_duplicates_and_reset_on_reopen_or_reload() {
         success(&service(&mut dos, 0x3e00, reopened, 0, 0));
         error(&service(&mut dos, 0x4401, reopened, 0, 0xe3), 6);
         success(&service(&mut dos, 0x4401, 0, 0, 0xe3));
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
         assert_eq!(success(&service(&mut dos, 0x4400, 0, 0, 0)), 0x80c3);
         error(&service(&mut dos, 0x4400, duplicate, 0, 0), 6);
     });
@@ -42,8 +42,8 @@ fn device_modes_are_shared_by_duplicates_and_reset_on_reopen_or_reload() {
 #[test]
 fn raw_handle_output_preserves_control_bytes_and_cooked_output_still_expands_tabs() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
-        dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let mut dos = common::dos(SERVICE_PROGRAM).await;
+
         dos.cpu()
             .context()
             .memory

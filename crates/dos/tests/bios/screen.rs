@@ -5,7 +5,13 @@ use relocade_x86::ExecutionExit;
 #[test]
 fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
     pollster::block_on(async {
-        let mut dos = common::dos().await;
+        let mut dos = common::dos(&[
+            0xb8, 0x00, 0xb8, // MOV AX,B800.
+            0x8e, 0xc0, // MOV ES,AX.
+            0x26, 0xc7, 0x06, 0, 0, b'A', 0x1e, // MOV word ES:[0],1E41.
+            0xeb, 0xfe,
+        ])
+        .await;
         let memory = dos.cpu().memory();
         let view = memory.view();
         let screen = TextScreen::read(&view);
@@ -34,16 +40,6 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
             .unwrap();
         assert_eq!(geometry, [3, 80, 0, 0, 0x10, 0]);
 
-        dos.load_com(
-            &[
-                0xb8, 0x00, 0xb8, // MOV AX,B800.
-                0x8e, 0xc0, // MOV ES,AX.
-                0x26, 0xc7, 0x06, 0, 0, b'A', 0x1e, // MOV word ES:[0],1E41.
-                0xeb, 0xfe,
-            ],
-            Default::default(),
-        )
-        .unwrap();
         assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
         let screen = TextScreen::read(&view);
         assert_eq!(
