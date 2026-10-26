@@ -1,60 +1,65 @@
 use super::files::read_path;
 use crate::{
-    error::DosError, files::FIND_DATA_BYTES, interrupt::return_result, state::DosState, DosServices,
+    error::DosError,
+    files::FIND_DATA_BYTES,
+    interrupt::{return_result, DosContext},
+    state::DosState,
 };
-use relocade_machine::{real_mode_interrupt::return_from_interrupt, CpuContext, HookResult};
+use relocade_machine::{real_mode_interrupt::return_from_interrupt, HookResult};
 use relocade_x86::{Segment, SegmentRegister};
 
 /// AH=1Ah: select the disk transfer area at DS:DX, preserving flags.
-pub(super) fn set_dta(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
-    let segment = call.cpu.segment(Segment::Ds).selector;
-    let offset = call.cpu.dx();
-    state.dta_segment = segment;
-    state.dta_offset = offset;
-    return_from_interrupt(call)
+pub(super) fn set_dta(call: &mut DosContext<'_, '_>) -> HookResult {
+    let segment = call.execution.cpu.segment(Segment::Ds).selector;
+    let offset = call.execution.cpu.dx();
+    call.dos.dta_segment = segment;
+    call.dos.dta_offset = offset;
+    return_from_interrupt(call.execution)
 }
 
 /// AH=2Fh: return the current DTA in ES:BX, preserving flags.
-pub(super) fn get_dta(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
-    call.cpu.set_segment(
+pub(super) fn get_dta(call: &mut DosContext<'_, '_>) -> HookResult {
+    call.execution.cpu.set_segment(
         Segment::Es,
-        SegmentRegister::real_mode(Segment::Es, state.dta_segment),
+        SegmentRegister::real_mode(Segment::Es, call.dos.dta_segment),
     );
-    call.cpu.set_bx(state.dta_offset);
-    return_from_interrupt(call)
+    call.execution.cpu.set_bx(call.dos.dta_offset);
+    return_from_interrupt(call.execution)
 }
 
 /// AH=4Eh: find DS:DX's 8.3 pattern with CX's attributes; fill the current DTA.
-pub(super) fn find_first(
-    call: &mut CpuContext<'_, DosServices>,
-    state: &mut DosState,
-) -> HookResult {
-    let attributes = call.cpu.cx() as u8;
-    let result = read_path(call)
-        .and_then(|path| state.files.find_first(&state.filesystem, &path, attributes));
-    return_search(call, state, result)
+pub(super) fn find_first(call: &mut DosContext<'_, '_>) -> HookResult {
+    let attributes = call.execution.cpu.cx() as u8;
+    let result = read_path(call).and_then(|path| {
+        call.dos
+            .files
+            .find_first(&call.dos.filesystem, &path, attributes)
+    });
+    return_search(call, result)
 }
 
 /// AH=4Fh: continue the search saved in the current DTA.
-pub(super) fn find_next(
-    call: &mut CpuContext<'_, DosServices>,
-    state: &mut DosState,
-) -> HookResult {
-    let address = dta_address(state);
+pub(super) fn find_next(call: &mut DosContext<'_, '_>) -> HookResult {
+    let address = dta_address(call.dos);
     let mut data = [0; FIND_DATA_BYTES];
-    call.memory.read(address, &mut data).expect("real-mode DTA");
-    let result = state.files.find_next(&state.filesystem, &data);
-    return_search(call, state, result)
+    call.execution
+        .memory
+        .read(address, &mut data)
+        .expect("real-mode DTA");
+    let result = call.dos.files.find_next(&call.dos.filesystem, &data);
+    return_search(call, result)
 }
 
 fn return_search(
-    call: &mut CpuContext<'_, DosServices>,
-    state: &mut DosState,
+    call: &mut DosContext<'_, '_>,
     result: Result<[u8; FIND_DATA_BYTES], DosError>,
 ) -> HookResult {
     let result = result.map(|data| {
-        let address = dta_address(state);
-        call.memory.write(address, &data).expect("real-mode DTA");
+        let address = dta_address(call.dos);
+        call.execution
+            .memory
+            .write(address, &data)
+            .expect("real-mode DTA");
     });
     return_result(call, result)
 }

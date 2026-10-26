@@ -68,7 +68,7 @@
 //! [`Dos::new`] prepares the DOS environment. Load a program with [`Dos::load_com`]
 //! or [`Dos::load_mz`], passing startup inputs in [`LoadOptions`].
 //! The host controls execution through [`Dos::cpu`]. The CPU selects the native
-//! or browser Wasm engine and retains the DOS service state.
+//! or browser Wasm engine; its hooks retain the DOS service state.
 //!
 //! ```no_run
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>>
@@ -108,14 +108,13 @@ pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
 use relocade_machine::{Cpu, Memory};
-pub use state::DosServices;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
 /// A DOS environment that owns its service state for one guest program.
 pub struct Dos {
     state: Rc<RefCell<DosState>>,
-    cpu: Cpu<DosServices>,
+    cpu: Cpu,
 }
 
 impl Dos {
@@ -123,13 +122,17 @@ impl Dos {
     /// Load a program before entering guest execution.
     pub async fn new() -> relocade_machine::Result<Self> {
         let state = Rc::new(RefCell::new(DosState::default()));
-        let services = DosServices::new(Rc::clone(&state));
+        let keyboard = state.borrow().stdio.input.clone();
         let memory = Memory::new(kernel::configuration())?;
-        let mut cpu = Cpu::new(memory, kernel::cpu(), services).await?;
+        let mut cpu = Cpu::new(memory, kernel::cpu(), ()).await?;
         kernel::initialize(&mut cpu.context().memory);
         relocade_bios::initialize(&mut cpu.context().memory);
-        cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
-            .await?;
+        cpu.install_hooks(
+            kernel::hooks(Rc::clone(&state))
+                .into_iter()
+                .chain(relocade_bios::hooks(keyboard)),
+        )
+        .await?;
         Ok(Self { state, cpu })
     }
 
@@ -195,7 +198,7 @@ impl Dos {
         self.state.borrow().filesystem.read_file(path)
     }
 
-    pub fn cpu(&mut self) -> &mut Cpu<DosServices> {
+    pub fn cpu(&mut self) -> &mut Cpu {
         &mut self.cpu
     }
 

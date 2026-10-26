@@ -3,11 +3,9 @@
 use crate::{
     error::DosError,
     files::{Device, HandleType},
-    state::DosState,
+    interrupt::DosContext,
     stdio::OutputStream,
-    DosServices,
 };
-use relocade_machine::CpuContext;
 
 #[derive(Clone, Copy)]
 pub(super) enum CharacterOutput {
@@ -15,25 +13,19 @@ pub(super) enum CharacterOutput {
     Console(OutputStream),
 }
 
-pub(super) fn write_console(
-    call: &mut CpuContext<'_, DosServices>,
-    state: &mut DosState,
-    stream: OutputStream,
-    bytes: &[u8],
-) {
-    state.stdio.output(stream).extend(bytes);
-    relocade_bios::write_text(&mut call.memory, bytes);
+pub(super) fn write_console(call: &mut DosContext<'_, '_>, stream: OutputStream, bytes: &[u8]) {
+    call.dos.stdio.output(stream).extend(bytes);
+    relocade_bios::write_text(&mut call.execution.memory, bytes);
 }
 
 /// DOS cooked output expands tabs, tracks its column and ignores write errors.
 /// Returns the last output byte (a space for a tab).
 pub(super) fn write_cooked_character(
-    call: &mut CpuContext<'_, DosServices>,
-    state: &mut DosState,
+    call: &mut DosContext<'_, '_>,
     output: CharacterOutput,
     byte: u8,
 ) -> u8 {
-    let column = &mut state.stdio.output_column;
+    let column = &mut call.dos.stdio.output_column;
     let (byte, count) = if byte == b'\t' {
         (b' ', 8 - (*column & 7))
     } else {
@@ -49,25 +41,24 @@ pub(super) fn write_cooked_character(
     let bytes = &bytes[..usize::from(count)];
     match output {
         CharacterOutput::Stdout => {
-            let _ = write_characters(call, state, 1, bytes);
+            let _ = write_characters(call, 1, bytes);
         }
-        CharacterOutput::Console(stream) => write_console(call, state, stream, bytes),
+        CharacterOutput::Console(stream) => write_console(call, stream, bytes),
     }
     byte
 }
 
 /// Character output preserves console EOF; only AH=40h handle writes clear it.
 pub(super) fn write_characters(
-    call: &mut CpuContext<'_, DosServices>,
-    state: &mut DosState,
+    call: &mut DosContext<'_, '_>,
     handle: u16,
     bytes: &[u8],
 ) -> Result<(), DosError> {
-    match state.files.writable_handle_type(handle)? {
-        HandleType::Device(Device::Console(stream)) => write_console(call, state, stream, bytes),
+    match call.dos.files.writable_handle_type(handle)? {
+        HandleType::Device(Device::Console(stream)) => write_console(call, stream, bytes),
         HandleType::File => {
             if !bytes.is_empty() {
-                state.files.write(handle, bytes)?;
+                call.dos.files.write(handle, bytes)?;
             }
         }
         HandleType::Device(Device::Null) => {}
@@ -80,19 +71,19 @@ pub(super) fn write_characters(
 
 /// AH=40h console writes share character output but honor raw mode and clear EOF.
 pub(in crate::services) fn write_handle(
-    call: &mut CpuContext<'_, DosServices>,
-    state: &mut DosState,
+    call: &mut DosContext<'_, '_>,
     handle: u16,
     bytes: &[u8],
 ) -> Result<usize, DosError> {
-    let HandleType::Device(Device::Console(stream)) = state.files.writable_handle_type(handle)?
+    let HandleType::Device(Device::Console(stream)) =
+        call.dos.files.writable_handle_type(handle)?
     else {
-        return state.files.write(handle, bytes);
+        return call.dos.files.write(handle, bytes);
     };
     // Even a zero-byte handle write clears EOF on this record and its duplicates.
-    state.files.set_console_eof(handle, false);
-    if state.files.console_raw(handle) {
-        write_console(call, state, stream, bytes);
+    call.dos.files.set_console_eof(handle, false);
+    if call.dos.files.console_raw(handle) {
+        write_console(call, stream, bytes);
         return Ok(bytes.len());
     }
     // Cooked writes stop before Ctrl-Z and count source bytes, including tabs.
@@ -101,7 +92,7 @@ pub(in crate::services) fn write_handle(
         .position(|&byte| byte == 0x1a)
         .unwrap_or(bytes.len());
     for &byte in &bytes[..count] {
-        write_cooked_character(call, state, CharacterOutput::Console(stream), byte);
+        write_cooked_character(call, CharacterOutput::Console(stream), byte);
     }
     Ok(count)
 }
