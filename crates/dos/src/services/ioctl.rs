@@ -25,9 +25,14 @@ pub(super) fn ioctl(call: &mut CpuContext<'_, DosServices>, state: &mut DosState
                     call.cpu.set_al(previous);
                 })
         }
-        GET_INPUT_STATUS => state.files.input_available(handle).map(|available| {
-            call.cpu.set_al(if available { 0xff } else { 0 });
-        }),
+        GET_INPUT_STATUS => {
+            state
+                .files
+                .input_available(&state.stdio.input, handle)
+                .map(|available| {
+                    call.cpu.set_al(if available { 0xff } else { 0 });
+                })
+        }
         GET_OUTPUT_STATUS => state.files.output_ready(handle).map(|ready| {
             call.cpu.set_al(if ready { 0xff } else { 0 });
         }),

@@ -227,7 +227,7 @@ impl Dos {
     /// # }
     /// ```
     pub fn stdin(&self) -> impl std::io::Write + Clone + 'static {
-        self.state.borrow().files.stdio.input.clone()
+        self.state.borrow().stdio.input.clone()
     }
 
     /// Returns the input queue shared by BIOS INT 16h and DOS console reads.
@@ -243,7 +243,7 @@ impl Dos {
     /// # }
     /// ```
     pub fn keyboard(&self) -> relocade_bios::Keyboard {
-        self.state.borrow().files.stdio.input.clone()
+        self.state.borrow().stdio.input.clone()
     }
 
     /// Copies the active 80-by-25 color text page and its cursor for a renderer.
@@ -260,7 +260,6 @@ impl Dos {
     pub fn stdout(&self) -> impl std::io::Read + Clone + 'static {
         self.state
             .borrow()
-            .files
             .stdio
             .output(stdio::OutputStream::Stdout)
             .clone()
@@ -271,7 +270,6 @@ impl Dos {
     pub fn stderr(&self) -> impl std::io::Read + Clone + 'static {
         self.state
             .borrow()
-            .files
             .stdio
             .output(stdio::OutputStream::Stderr)
             .clone()

@@ -3,7 +3,6 @@
 use crate::{
     error::DosError,
     path::{self, ResolvedPath},
-    stdio::Stdio,
 };
 use relocade_vfs::{Drives, MemoryFileSystem, Metadata};
 use std::{collections::BTreeMap, io::ErrorKind};
@@ -67,7 +66,6 @@ pub(crate) struct FileSystem {
 pub(crate) struct Files {
     handles: [Option<OpenHandle>; HANDLE_COUNT],
     search_directories: Vec<Option<search::SearchDirectory>>,
-    pub(crate) stdio: Stdio,
 }
 
 impl Default for FileSystem {

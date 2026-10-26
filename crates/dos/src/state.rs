@@ -2,7 +2,9 @@
 
 use crate::{
     files::{FileSystem, Files},
-    process, ServiceError,
+    process,
+    stdio::Stdio,
+    ServiceError,
 };
 use relocade_bios::Keyboard;
 use std::{
@@ -14,6 +16,7 @@ use std::{
 pub(crate) struct DosState {
     pub(crate) filesystem: FileSystem,
     pub(crate) files: Files,
+    pub(crate) stdio: Stdio,
     pub(crate) dta_segment: u16,
     pub(crate) dta_offset: u16,
     pub(crate) exit_status: Option<Result<u8, ServiceError>>,
@@ -22,6 +25,7 @@ pub(crate) struct DosState {
 impl DosState {
     pub(crate) fn reset_process(&mut self, psp_segment: u16) {
         self.files.reset_handles(&mut self.filesystem);
+        self.stdio.clear();
         self.dta_segment = psp_segment;
         self.dta_offset = process::COMMAND_TAIL_OFFSET;
         self.exit_status = None;
@@ -38,7 +42,7 @@ pub struct DosServices {
 
 impl DosServices {
     pub(crate) fn new(state: Rc<RefCell<DosState>>) -> Self {
-        let keyboard = state.borrow().files.stdio.input.clone();
+        let keyboard = state.borrow().stdio.input.clone();
         Self { state, keyboard }
     }
 

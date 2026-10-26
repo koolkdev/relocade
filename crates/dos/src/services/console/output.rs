@@ -21,7 +21,7 @@ pub(super) fn write_console(
     stream: OutputStream,
     bytes: &[u8],
 ) {
-    state.files.stdio.output(stream).extend(bytes);
+    state.stdio.output(stream).extend(bytes);
     relocade_bios::write_text(&mut call.memory, bytes);
 }
 
@@ -33,7 +33,7 @@ pub(super) fn write_cooked_character(
     output: CharacterOutput,
     byte: u8,
 ) -> u8 {
-    let column = &mut state.files.stdio.output_column;
+    let column = &mut state.stdio.output_column;
     let (byte, count) = if byte == b'\t' {
         (b' ', 8 - (*column & 7))
     } else {
