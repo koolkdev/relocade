@@ -142,6 +142,8 @@ impl Dos {
 
     /// Launches a COM image of 1..=65,278 bytes when no process is active.
     /// Initializes its PSP, environment, standard handles, stack and CPU entry state.
+    /// Preserves RAM outside the PSP, environment, allocation metadata, image and
+    /// initial return word.
     /// Successful launches create a new active process and preserve console I/O.
     /// Rejected launches leave the previous program and session state unchanged.
     pub fn launch_com(
