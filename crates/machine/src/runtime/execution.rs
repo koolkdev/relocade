@@ -60,7 +60,7 @@ impl<T: 'static> Cpu<T> {
 
     fn instruction_target(&mut self, instruction_budget: u64) -> u64 {
         self.context()
-            .cpu()
+            .cpu
             .instruction_count()
             .saturating_add(instruction_budget)
     }

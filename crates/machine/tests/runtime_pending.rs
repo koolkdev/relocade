@@ -93,45 +93,40 @@ async fn check_pending_calls() {
     .unwrap();
     let state = Rc::new(State::default());
     let mut runtime = support::create_cpu(state.clone(), config).await.unwrap();
-    runtime.context().cpu().set_sp(0xff00);
-    runtime.context().cpu().set_eflags(0x202);
+    runtime.context().cpu.set_sp(0xff00);
+    runtime.context().cpu.set_eflags(0x202);
     runtime
         .context()
-        .memory()
+        .memory
         .write(0x100, &[0xcd, 0x21, 0x40, 0xeb, 0xfb]) // INT 21h; INC AX; JMP 0100
         .unwrap();
+    runtime.context().memory.write(0x84, &[0, 2, 0, 0]).unwrap();
     runtime
         .context()
-        .memory()
-        .write(0x84, &[0, 2, 0, 0])
-        .unwrap();
-    runtime
-        .context()
-        .memory()
+        .memory
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     runtime
         .install_hooks([Hook::<Rc<State>>::new(0x200, |call| {
-            call.state().started.set(call.state().started.get() + 1);
-            let operation = Operation(call.state().clone());
+            call.state.started.set(call.state.started.get() + 1);
+            let operation = Operation(call.state.clone());
             call.defer(async move |call| {
-                let sum = {
-                    // The CPU view itself stays borrowed through both awaits.
-                    let mut cpu = call.cpu();
-                    let first = operation.0.read().await;
-                    cpu.set_bx(first);
-                    operation
-                        .0
-                        .first_awaits
-                        .set(operation.0.first_awaits.get() + 1);
-                    let second = operation.0.read().await;
-                    let sum = cpu.bx() + second;
-                    cpu.set_bx(sum);
-                    sum
-                };
+                // Distinct fields stay borrowed together through both awaits.
+                let cpu = &mut call.cpu;
+                let memory = &mut call.memory;
+                let state = &mut *call.state;
+                let first = operation.0.read().await;
+                cpu.set_bx(first);
+                operation
+                    .0
+                    .first_awaits
+                    .set(operation.0.first_awaits.get() + 1);
+                let second = operation.0.read().await;
+                let sum = cpu.bx() + second;
+                cpu.set_bx(sum);
                 drop(operation);
-                call.state().completed.set(call.state().completed.get() + 1);
-                call.memory().write(0x300, &sum.to_le_bytes()).unwrap();
+                state.completed.set(state.completed.get() + 1);
+                memory.write(0x300, &sum.to_le_bytes()).unwrap();
                 real_mode_interrupt::return_from_interrupt(call)
             })
         })])
@@ -144,14 +139,14 @@ async fn check_pending_calls() {
     );
     let shared = runtime.memory();
     let reader = shared.view();
-    let suspended = runtime.context().cpu().snapshot();
+    let suspended = runtime.context().cpu.snapshot();
     assert_eq!(suspended.instruction_count, 1);
     assert_eq!(suspended.registers.esp, 0xfefa);
     assert_eq!(
         runtime.run(100).unwrap(),
         ExecutionExit::Host(HostExit::Deferred)
     );
-    assert_eq!(runtime.context().cpu().snapshot(), suspended);
+    assert_eq!(runtime.context().cpu.snapshot(), suspended);
     assert_eq!(
         runtime.run_async(0).await.unwrap(),
         ExecutionExit::BudgetExhausted
@@ -188,7 +183,7 @@ async fn check_pending_calls() {
     assert_eq!(state.first_awaits.get(), 2);
     assert_eq!(state.completed.get(), 2);
     assert_eq!(state.dropped.get(), 2);
-    let cpu = runtime.context().cpu().snapshot();
+    let cpu = runtime.context().cpu.snapshot();
     assert_eq!(cpu.instruction_count, 6);
     assert_eq!(cpu.eip, 0x102);
     assert_eq!(cpu.registers.eax, 1);
@@ -196,7 +191,7 @@ async fn check_pending_calls() {
     assert_eq!(cpu.registers.esp, 0xff00);
     assert_eq!(cpu.flags.eflags(), 0x202);
     let mut bytes = [0; 2];
-    runtime.context().memory().read(0x300, &mut bytes).unwrap();
+    runtime.context().memory.read(0x300, &mut bytes).unwrap();
     assert_eq!(bytes, [70, 0]);
 
     assert_eq!(
@@ -209,15 +204,15 @@ async fn check_pending_calls() {
 
     // Dropping an active handler releases its borrows and rejects accidental
     // replay. Effects performed before cancellation remain visible.
-    runtime.context().cpu().set_eip(0x100);
-    runtime.context().cpu().set_sp(0xff00);
+    runtime.context().cpu.set_eip(0x100);
+    runtime.context().cpu.set_sp(0xff00);
     {
         let mut run = pin!(runtime.run_async(10));
         assert!(run.as_mut().poll(&mut cx).is_pending());
         state.send(&[55]);
         assert!(run.as_mut().poll(&mut cx).is_pending());
     }
-    assert_eq!(runtime.context().cpu().bx(), 55);
+    assert_eq!(runtime.context().cpu.bx(), 55);
     assert_eq!(state.dropped.get(), 4);
     assert!(matches!(runtime.run(1), Err(Error::CancelledHostCall)));
     assert!(matches!(
@@ -228,31 +223,31 @@ async fn check_pending_calls() {
     assert_eq!(state.completed.get(), 2);
 
     // The embedding can replace the continuation and clear the interrupted call.
-    runtime.context().cpu().set_eip(0x400);
+    runtime.context().cpu.set_eip(0x400);
     runtime.cancel_pending_call();
     runtime
         .context()
-        .memory()
+        .memory
         .write(0x400, &[0xeb, 0xfe])
         .unwrap();
     assert_eq!(runtime.run(1).unwrap(), ExecutionExit::BudgetExhausted);
-    let count = runtime.context().cpu().instruction_count();
+    let count = runtime.context().cpu.instruction_count();
     runtime
         .context()
-        .memory()
+        .memory
         .write(0x500, &[0x0f, 0x0b]) // UD2: completing must not enter the guest.
         .unwrap();
     runtime
         .install_hooks([Hook::new(0x400, |call| {
             // The continuation need not name this hook. Awaiting and completing
             // the service must not enter guest code at this address.
-            call.cpu().set_eip(0x500);
+            call.cpu.set_eip(0x500);
             call.defer(async |call| {
                 let value = std::future::ready(99).await;
-                call.cpu().set_bx(value);
+                call.cpu.set_bx(value);
                 let value = std::future::ready(value + 1).await;
-                assert_eq!(call.cpu().bx(), 99);
-                call.cpu().set_cx(value);
+                assert_eq!(call.cpu.bx(), 99);
+                call.cpu.set_cx(value);
                 HookResult::Exit(ExecutionExit::Host(HostExit::Return))
             })
         })])
@@ -262,9 +257,9 @@ async fn check_pending_calls() {
         runtime.run_async(1).await.unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(runtime.context().cpu().cx(), 100);
-    assert_eq!(runtime.context().cpu().eip(), 0x500);
-    assert_eq!(runtime.context().cpu().instruction_count(), count);
+    assert_eq!(runtime.context().cpu.cx(), 100);
+    assert_eq!(runtime.context().cpu.eip(), 0x500);
+    assert_eq!(runtime.context().cpu.instruction_count(), count);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -59,7 +59,7 @@ const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
 pub(crate) fn int21(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
-    match call.cpu().ah() {
+    match call.cpu.ah() {
         DIRECT_CONSOLE_IO => console::direct_io(call, state),
         READ_CHARACTER_ECHO | READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
             console::read_character(call, state)
@@ -112,7 +112,7 @@ pub(crate) fn int21(call: &mut CpuContext<'_, DosServices>, state: &mut DosState
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
 fn terminate_process(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
-    let code = call.cpu().al();
+    let code = call.cpu.al();
     return_to_host(call, state, Ok(code))
 }
 
@@ -128,7 +128,7 @@ fn return_to_host(
 ) -> HookResult {
     if status.is_ok() {
         // The only process has exited; all of its conventional memory is free.
-        crate::memory::reset(&mut call.memory());
+        crate::memory::reset(&mut call.memory);
         state.files.close_all();
     }
     state.exit_status = Some(status);

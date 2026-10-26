@@ -23,7 +23,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         success(&service(&mut dos, 0x4600, output_file, 1, 0));
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .write(0x10400, b"untouched")
             .unwrap();
         // A zero-length read returns immediately even with no console input.
@@ -31,13 +31,13 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut unchanged = [0; 9];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut unchanged)
             .unwrap();
         assert_eq!(&unchanged, b"untouched");
         {
             let mut machine = dos.cpu().context();
-            let mut cpu = machine.cpu();
+            let cpu = &mut machine.cpu;
             cpu.set_eip(0x100);
             cpu.set_ax(0x3f00);
             cpu.set_bx(console);
@@ -61,10 +61,10 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             ));
         }
         {
-            let mut machine = dos.cpu().context();
-            machine.memory().read(0x10400, &mut unchanged).unwrap();
+            let machine = dos.cpu().context();
+            machine.memory.read(0x10400, &mut unchanged).unwrap();
             assert_eq!(&unchanged, b"aCtouched");
-            let cpu = machine.cpu();
+            let cpu = &machine.cpu;
             assert_eq!(
                 (cpu.ax(), cpu.bx(), cpu.cx(), cpu.dx()),
                 (2, console, 2, 0x400)
@@ -84,11 +84,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, console, 0, 0x400)), 0);
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         let mut byte = [0];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10400, &mut byte)
-            .unwrap();
+        dos.cpu().context().memory.read(0x10400, &mut byte).unwrap();
         assert_eq!(byte, [b'\r']); // The original handle shares the duplicate's line.
 
         // Redirected file reads remain byte reads, independent of CON's pending LF.
@@ -98,17 +94,13 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut file_bytes = [0; 4];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut file_bytes)
             .unwrap();
         assert_eq!(&file_bytes, b"F\x1a\r\n");
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 4, 0x400)), 0);
         assert_eq!(success(&service(&mut dos, 0x3f00, console, 8, 0x400)), 1);
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10400, &mut byte)
-            .unwrap();
+        dos.cpu().context().memory.read(0x10400, &mut byte).unwrap();
         assert_eq!(byte, [b'\n']);
         assert!(common::output(output.clone()).is_empty());
 
@@ -118,7 +110,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             let mut bytes = [0; 5];
             dos.cpu()
                 .context()
-                .memory()
+                .memory
                 .read(0x10400, &mut bytes)
                 .unwrap();
             assert_eq!(&bytes, expected); // One line per read even when CX permits more.
@@ -138,7 +130,7 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
         let mut bytes = [0; 129];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes[..127], &[b'a'; 127]);
@@ -152,7 +144,7 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
         let mut unchanged = [0; 129];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut unchanged)
             .unwrap();
         assert_eq!(unchanged, bytes);
@@ -189,7 +181,7 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             success(&service(&mut dos, 0x4600, console, 1, 0));
             dos.cpu()
                 .context()
-                .memory()
+                .memory
                 .write(0x10420, b"message$")
                 .unwrap();
             service(&mut dos, 0x0900, 0, 0, 0x420);
@@ -197,7 +189,7 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             assert_eq!(common::output(dos.stdout()), b"message!");
             assert_eq!(success(&service(&mut dos, 0x3f00, console, 10, 0x400)), 0);
 
-            dos.cpu().context().memory().write(0x10400, b"!").unwrap();
+            dos.cpu().context().memory.write(0x10400, b"!").unwrap();
             assert_eq!(success(&service(&mut dos, 0x4000, file, 1, 0x400)), 1);
             assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 0);
             // Closing/replacing a handle slot does not reset the shared open record.
@@ -223,7 +215,7 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
             let mut bytes = [0; 6];
             dos.cpu()
                 .context()
-                .memory()
+                .memory
                 .read(0x10400, &mut bytes)
                 .unwrap();
             assert_eq!(&bytes, b"next\r\n"); // Repeated EOF reads left queued input intact.
@@ -252,11 +244,7 @@ fn program_reload_clears_the_console_line_remainder() {
         assert!(dos.load_com(&[], Default::default()).is_err());
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         let mut byte = [0];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10400, &mut byte)
-            .unwrap();
+        dos.cpu().context().memory.read(0x10400, &mut byte).unwrap();
         assert_eq!(byte, [b'l']); // Failed loads preserve the current program.
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
         input.write_all(b"new\r").unwrap();
@@ -264,7 +252,7 @@ fn program_reload_clears_the_console_line_remainder() {
         let mut bytes = [0; 5];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes, b"new\r\n");

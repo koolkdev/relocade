@@ -46,7 +46,7 @@ fn raw_handle_output_preserves_control_bytes_and_cooked_output_still_expands_tab
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .write(0x10400, b"A\t\x1aZ")
             .unwrap();
         success(&service(&mut dos, 0x4401, 1, 0, 0xe3));

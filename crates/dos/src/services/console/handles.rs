@@ -23,15 +23,15 @@ pub(in crate::services) fn read_handle(
     state: &mut DosState,
     stream: OutputStream,
 ) -> HookResult {
-    let handle = call.cpu().bx();
+    let handle = call.cpu.bx();
     if state.files.console_eof(handle) {
-        call.cpu().set_ax(0);
+        call.cpu.set_ax(0);
         return return_result(call, Ok(()));
     }
     if state.files.console_raw(handle) {
         return read_raw(call, state);
     }
-    if call.cpu().cx() == 0 || !state.files.stdio.console_line.is_empty() {
+    if call.cpu.cx() == 0 || !state.files.stdio.console_line.is_empty() {
         return return_handle_buffer(call, state);
     }
     let line = LineInput::new(
@@ -50,7 +50,7 @@ fn return_handle_line(
     mut bytes: Vec<u8>,
     stream: OutputStream,
 ) -> HookResult {
-    let handle = call.cpu().bx();
+    let handle = call.cpu.bx();
     let eof = bytes.first() == Some(&0x1a);
     state.files.set_console_eof(handle, eof);
     write_console(call, state, stream, b"\n");
@@ -66,7 +66,7 @@ fn return_handle_buffer(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let cpu = call.cpu();
+    let cpu = &call.cpu;
     let count = transfer_count(cpu.dx(), cpu.cx());
     let line = &mut state.files.stdio.console_line;
     let count = count.min(line.len());
@@ -75,7 +75,7 @@ fn return_handle_buffer(
 }
 
 fn read_raw(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
-    let cpu = call.cpu();
+    let cpu = &call.cpu;
     let count = transfer_count(cpu.dx(), cpu.cx());
     let input = state.files.stdio.input.clone();
     let mut bytes = Vec::with_capacity(count);
@@ -102,13 +102,13 @@ fn read_raw(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> Hoo
 
 fn return_bytes(call: &mut CpuContext<'_, DosServices>, bytes: &[u8]) -> HookResult {
     if !bytes.is_empty() {
-        let cpu = call.cpu();
+        let cpu = &call.cpu;
         let offset = cpu.dx();
         let segment = cpu.segment(Segment::Ds);
-        call.memory()
+        call.memory
             .write_segment(&segment, u32::from(offset), bytes)
             .expect("real-mode console read buffer");
     }
-    call.cpu().set_ax(bytes.len() as u16);
+    call.cpu.set_ax(bytes.len() as u16);
     return_result(call, Ok(()))
 }

@@ -8,9 +8,9 @@ pub(super) fn select_drive(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let number = call.cpu().dl();
+    let number = call.cpu.dl();
     let count = state.files.select_drive(number);
-    call.cpu().set_al(count);
+    call.cpu.set_al(count);
     return_from_interrupt(call)
 }
 
@@ -20,7 +20,7 @@ pub(super) fn get_drive(
     state: &mut DosState,
 ) -> HookResult {
     let number = state.files.current_drive();
-    call.cpu().set_al(number);
+    call.cpu.set_al(number);
     return_from_interrupt(call)
 }
 
@@ -56,15 +56,15 @@ pub(super) fn get_directory(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let cpu = call.cpu();
+    let cpu = &call.cpu;
     let drive = cpu.dl();
     let segment = cpu.segment(Segment::Ds);
     let offset = cpu.si();
     let result = state.files.current_directory(drive).map(|path| {
         let mut bytes = path.replace('/', "\\").into_bytes();
         bytes.push(0);
-        write_wrapping(&mut call.memory(), &segment, offset, &bytes);
-        call.cpu().set_ax(0x0100);
+        write_wrapping(&mut call.memory, &segment, offset, &bytes);
+        call.cpu.set_ax(0x0100);
     });
     return_result(call, result)
 }

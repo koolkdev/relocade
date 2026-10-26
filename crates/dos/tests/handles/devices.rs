@@ -52,14 +52,14 @@ fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
         let handle = success(&path_service(&mut dos, b"NUL", 0x3d02, 0));
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .write(0x10400, b"A\t\x1aZ")
             .unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 4, 0x400)), 0);
         let mut untouched = [0; 4];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut untouched)
             .unwrap();
         assert_eq!(&untouched, b"A\t\x1aZ");
@@ -106,8 +106,8 @@ fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
         success(&service(&mut dos, 0x4600, 1, 0, 0));
         {
             let mut machine = dos.cpu().context();
-            machine.memory().write(0x10500, &[5, 0]).unwrap();
-            let mut cpu = machine.cpu();
+            machine.memory.write(0x10500, &[5, 0]).unwrap();
+            let cpu = &mut machine.cpu;
             cpu.set_eip(0x100);
             cpu.set_ax(0x0a00);
             cpu.set_dx(0x500);
@@ -139,7 +139,7 @@ fn console_opens_keep_eof_and_access_separate_while_duplicates_share_them() {
         let mut bytes = [0; 4];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes, b"ok\r\n");

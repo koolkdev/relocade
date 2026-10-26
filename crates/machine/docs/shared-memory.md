@@ -21,9 +21,19 @@ screen while a deferred input operation owns the runtime context. The same
 `MemoryView` supports reads through `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
-`CpuContext::memory()` returns `MemoryView` directly in stopped access, hooks and
-deferred handlers.
-Their views borrow the stopped CPU; `cpu.memory()` returns an owned
+`CpuContext` lends separate `cpu`, `memory` and `state` fields in stopped access,
+hooks and deferred handlers. The CPU-register and guest-memory views can be
+borrowed together:
+
+```rust
+let registers = &mut call.cpu;
+let memory = &mut call.memory;
+memory.write_u16(0x200, registers.ax())?;
+registers.set_ax(memory.read_u16(0x202)?);
+```
+
+Those views and the context borrow the stopped CPU. Drop the context before
+resuming execution or installing modules. `cpu.memory()` returns an owned
 handle whose lifetime is independent of execution.
 
 Share the existing backend handle with `worker::Message(memory.backing().clone())`.

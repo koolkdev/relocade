@@ -25,7 +25,7 @@ pub(super) fn flush_input(
 ) -> HookResult {
     // DOS proceeds to the requested service even if the flush failed.
     let _ = state.files.flush_input(0);
-    let function = call.cpu().al();
+    let function = call.cpu.al();
     if matches!(
         function,
         super::READ_CHARACTER_ECHO
@@ -34,11 +34,11 @@ pub(super) fn flush_input(
             | super::READ_CHARACTER_CHECK_BREAK
             | super::READ_BUFFERED
     ) {
-        call.cpu().set_ah(function);
+        call.cpu.set_ah(function);
         // Reuse the current interrupt frame, including when this read defers.
         super::int21(call, state)
     } else {
-        call.cpu().set_al(0);
+        call.cpu.set_al(0);
         return_from_interrupt(call)
     }
 }
@@ -53,7 +53,7 @@ pub(super) fn input_status(
         .files
         .input_available(0)
         .unwrap_or_else(|_| state.files.stdio.input.has_input());
-    call.cpu().set_al(if available { 0xff } else { 0 });
+    call.cpu.set_al(if available { 0xff } else { 0 });
     return_from_interrupt(call)
 }
 
@@ -62,19 +62,19 @@ pub(super) fn direct_io(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let byte = call.cpu().dl();
+    let byte = call.cpu.dl();
     if byte == 0xff {
         let result = state.files.read_character(0);
         let character = match result {
             Ok(character) => character,
             Err(error) => return return_result(call, Err(error)),
         };
-        call.cpu().set_al(character.unwrap_or(0));
+        call.cpu.set_al(character.unwrap_or(0));
         set_zero(call, character.is_none());
     } else {
         // Like AH=09h, character output has no write-error return.
         let _ = write_characters(call, state, 1, &[byte]);
-        call.cpu().set_al(byte);
+        call.cpu.set_al(byte);
     }
     return_from_interrupt(call)
 }
@@ -84,7 +84,7 @@ pub(super) fn read_character(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let echo = call.cpu().ah() == super::READ_CHARACTER_ECHO;
+    let echo = call.cpu.ah() == super::READ_CHARACTER_ECHO;
     match state.files.read_character(0) {
         Ok(Some(byte)) => return_character(call, state, byte, echo),
         Ok(None) => match state.files.wait_for_character(0) {
@@ -106,7 +106,7 @@ fn return_character(
     if echo {
         write_cooked_character(call, state, CharacterOutput::Stdout, byte);
     }
-    call.cpu().set_al(byte);
+    call.cpu.set_al(byte);
     return_from_interrupt(call)
 }
 
@@ -115,9 +115,9 @@ pub(super) fn write_character(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let byte = call.cpu().dl();
+    let byte = call.cpu.dl();
     let last = write_cooked_character(call, state, CharacterOutput::Stdout, byte);
-    call.cpu().set_al(last);
+    call.cpu.set_al(last);
     return_from_interrupt(call)
 }
 
@@ -126,10 +126,10 @@ pub(super) fn read_buffered(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let segment = call.cpu().segment(Segment::Ds);
-    let offset = call.cpu().dx();
+    let segment = call.cpu.segment(Segment::Ds);
+    let offset = call.cpu.dx();
     let mut capacity = [0];
-    call.memory()
+    call.memory
         .read_segment(&segment, u32::from(offset), &mut capacity)
         .expect("real-mode line buffer");
     if capacity[0] == 0 {
@@ -148,9 +148,9 @@ fn return_line(
     bytes: &[u8],
 ) -> HookResult {
     let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
-    let mut memory = call.memory();
-    write_wrapping(&mut memory, segment, offset.wrapping_add(1), &[count]);
-    write_wrapping(&mut memory, segment, offset.wrapping_add(2), bytes);
+    let memory = &mut call.memory;
+    write_wrapping(memory, segment, offset.wrapping_add(1), &[count]);
+    write_wrapping(memory, segment, offset.wrapping_add(2), bytes);
     return_from_interrupt(call)
 }
 
@@ -159,15 +159,15 @@ pub(super) fn write_string(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let segment = call.cpu().segment(Segment::Ds);
-    let start = call.cpu().dx();
+    let segment = call.cpu.segment(Segment::Ds);
+    let start = call.cpu.dx();
     for index in 0..=u16::MAX {
         let mut byte = [0];
-        call.memory()
+        call.memory
             .read_segment(&segment, u32::from(start.wrapping_add(index)), &mut byte)
             .expect("real-mode byte address");
         if byte[0] == b'$' {
-            call.cpu().set_al(b'$');
+            call.cpu.set_al(b'$');
             return return_from_interrupt(call);
         }
         write_cooked_character(call, state, CharacterOutput::Stdout, byte[0]);

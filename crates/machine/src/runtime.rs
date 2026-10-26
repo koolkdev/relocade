@@ -15,9 +15,9 @@
 //!     -> Result<(), Box<dyn std::error::Error>>
 //! {
 //!     let mut runtime = Cpu::new(config, cpu).await?;
-//!     runtime.context().memory().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
+//!     runtime.context().memory.write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //!     let exit = runtime.run(100)?;
-//!     let ax = runtime.context().cpu().ax();
+//!     let ax = runtime.context().cpu.ax();
 //!     # let _ = (exit, ax);
 //!     Ok(())
 //! }

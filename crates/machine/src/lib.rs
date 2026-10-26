@@ -22,11 +22,13 @@
 //! ```
 //! # use relocade_machine::CpuContext;
 //! # fn update(machine: &mut CpuContext<'_>) -> Result<(), Box<dyn std::error::Error>> {
-//! let ax = machine.cpu().ax();
-//! machine.memory().write(0x200, &ax.to_le_bytes())?;
-//! machine.cpu().set_ax(ax.wrapping_add(1));
-//! let saved = machine.cpu().snapshot();
-//! machine.cpu().restore(&saved)?;
+//! let cpu = &mut machine.cpu;
+//! let memory = &mut machine.memory;
+//! let ax = cpu.ax();
+//! memory.write(0x200, &ax.to_le_bytes())?;
+//! cpu.set_ax(ax.wrapping_add(1));
+//! let saved = cpu.snapshot();
+//! cpu.restore(&saved)?;
 //! # Ok(())
 //! # }
 //! ```

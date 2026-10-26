@@ -39,7 +39,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
         {
             let mut machine = dos.cpu().context();
-            let mut cpu = machine.cpu();
+            let cpu = &mut machine.cpu;
             cpu.set_ax(0x077b);
             cpu.set_eflags(0x643);
         }
@@ -48,7 +48,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             ExecutionExit::Host(HostExit::Deferred)
         );
         assert_eq!(dos.exit_status(), None);
-        let suspended = dos.cpu().context().cpu().snapshot();
+        let suspended = dos.cpu().context().cpu.snapshot();
         assert_eq!(suspended.registers.eax as u16, 0x077b);
         assert_eq!(suspended.registers.esp as u16, 0xfff8);
         assert_eq!(suspended.instruction_count, 1); // INT retired once.
@@ -56,7 +56,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         let mut frame = [0; 6];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(frame_address, &mut frame)
             .unwrap();
         assert_eq!(frame, [0x02, 0x01, 0x00, 0x10, 0x43, 0x06]); // IP, CS, FLAGS.
@@ -65,11 +65,11 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             dos.cpu().run(10).unwrap(),
             ExecutionExit::Host(HostExit::Deferred)
         );
-        assert_eq!(dos.cpu().context().cpu().snapshot(), suspended);
+        assert_eq!(dos.cpu().context().cpu.snapshot(), suspended);
         let mut repeated_frame = [0; 6];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(frame_address, &mut repeated_frame)
             .unwrap();
         assert_eq!(repeated_frame, frame);
@@ -80,8 +80,8 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             ExecutionExit::BudgetExhausted
         );
         {
-            let mut machine = dos.cpu().context();
-            let cpu = machine.cpu();
+            let machine = dos.cpu().context();
+            let cpu = &machine.cpu;
             assert_eq!(cpu.ax(), 0x0700);
             assert_eq!(cpu.eip(), 0x102);
             assert_eq!(cpu.segment(Segment::Cs).selector, 0x1000);
@@ -93,7 +93,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         assert_eq!(cpu.flags.eflags(), 0x643);
         assert!(common::output(dos.stdout()).is_empty()); // No echo.
 
-        dos.cpu().context().cpu().set_eip(0x100);
+        dos.cpu().context().cpu.set_eip(0x100);
         assert_eq!(
             dos.cpu().run(10).unwrap(),
             ExecutionExit::Host(HostExit::Deferred)
@@ -113,7 +113,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
             0x074e
         );
-        dos.cpu().context().cpu().set_eip(0x100);
+        dos.cpu().context().cpu.set_eip(0x100);
         assert_eq!(
             dos.cpu().run(10).unwrap(),
             ExecutionExit::Host(HostExit::Deferred)
@@ -202,8 +202,8 @@ fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
         let cpu = service(&mut dos, 0x0700, 0, 0, 0);
         assert_eq!(cpu.registers.eax as u16, 0x0703); // Ctrl-C is raw data.
 
-        let before = dos.cpu().context().cpu().snapshot();
-        dos.cpu().context().cpu().set_eip(0x100);
+        let before = dos.cpu().context().cpu.snapshot();
+        dos.cpu().context().cpu.set_eip(0x100);
         assert_eq!(
             dos.cpu().run(10).unwrap(),
             ExecutionExit::Host(HostExit::Deferred)
@@ -221,7 +221,7 @@ fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
         }
         // Abandon the EOF read and restore the caller before testing console input.
         dos.cpu().cancel_pending_call();
-        dos.cpu().context().cpu().restore(&before).unwrap();
+        dos.cpu().context().cpu.restore(&before).unwrap();
         assert_eq!(success(&service(&mut dos, 0x4201, 6, 0, 0)), 1); // Shared file cursor.
         success(&service(&mut dos, 0x4600, 5, 0, 0));
         assert_eq!(

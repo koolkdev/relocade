@@ -11,7 +11,7 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
             dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
             {
                 let mut machine = dos.cpu().context();
-                let mut cpu = machine.cpu();
+                let cpu = &mut machine.cpu;
                 cpu.set_ax(function << 8);
                 cpu.set_bx(0x1234);
                 cpu.set_eflags(0x643);
@@ -27,8 +27,8 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
                 ExecutionExit::BudgetExhausted
             );
             {
-                let mut machine = dos.cpu().context();
-                let cpu = machine.cpu();
+                let machine = dos.cpu().context();
+                let cpu = &machine.cpu;
                 assert_eq!(cpu.ax(), (function << 8) | u16::from(b'K'));
                 assert_eq!(cpu.bx(), 0x1234);
                 assert_eq!(cpu.eflags(), 0x643);

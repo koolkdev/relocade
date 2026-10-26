@@ -19,14 +19,14 @@ const PROGRAM: &[u8] = &[0xcd, 0x16, 0xeb, 0xfe, 0xcd, 0x21, 0xeb, 0xfe];
 fn invoke(dos: &mut Dos, ip: u32, ax: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
-        let mut cpu = machine.cpu();
+        let cpu = &mut machine.cpu;
         cpu.set_eip(ip);
         cpu.set_ax(ax);
         cpu.set_bx(0xabcd);
         cpu.set_eflags(0x643);
     }
     assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
-    let cpu = dos.cpu().context().cpu().snapshot();
+    let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.ebx as u16, 0xabcd);
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
     cpu
@@ -81,8 +81,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.load_com(PROGRAM, Default::default()).unwrap();
-        dos.cpu().context().cpu().set_ax(0);
-        dos.cpu().context().cpu().set_eflags(0x643);
+        dos.cpu().context().cpu.set_ax(0);
+        dos.cpu().context().cpu.set_eflags(0x643);
         let keyboard = dos.keyboard();
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
@@ -101,8 +101,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             ));
         }
         {
-            let mut machine = dos.cpu().context();
-            let cpu = machine.cpu();
+            let machine = dos.cpu().context();
+            let cpu = &machine.cpu;
             assert_eq!(cpu.ax(), 0x4800);
             assert_eq!(cpu.eip(), 0x102);
             assert_eq!(cpu.sp(), 0xfffe);
@@ -111,8 +111,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         // Cancellation releases the input waker, and a successful load recovers.
         {
             let mut machine = dos.cpu().context();
-            machine.cpu().set_eip(0x100);
-            machine.cpu().set_ax(0);
+            machine.cpu.set_eip(0x100);
+            machine.cpu.set_ax(0);
         }
         {
             let mut run = pin!(dos.cpu().run_async(10));

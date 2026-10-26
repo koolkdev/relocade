@@ -20,7 +20,7 @@ pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
 pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
-        let mut cpu = machine.cpu();
+        let cpu = &mut machine.cpu;
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
         cpu.set_bx(bx);
@@ -28,7 +28,7 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_dx(dx);
     }
     assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
-    dos.cpu().context().cpu().snapshot()
+    dos.cpu().context().cpu.snapshot()
 }
 
 pub fn path_service(dos: &mut Dos, path: &[u8], ax: u16, cx: u16) -> CpuState {
@@ -36,7 +36,7 @@ pub fn path_service(dos: &mut Dos, path: &[u8], ax: u16, cx: u16) -> CpuState {
     terminated.push(0);
     dos.cpu()
         .context()
-        .memory()
+        .memory
         .write(0x10300, &terminated)
         .unwrap();
     service(dos, ax, 0, cx, 0x300)

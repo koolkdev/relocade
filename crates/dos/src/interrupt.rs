@@ -14,7 +14,7 @@ fn invoke(
     call: &mut CpuContext<'_, DosServices>,
     handler: impl FnOnce(&mut CpuContext<'_, DosServices>, &mut DosState) -> HookResult,
 ) -> HookResult {
-    let services = call.state().clone();
+    let services = call.state.clone();
     let mut state = services.borrow_mut();
     handler(call, &mut state)
 }
@@ -38,9 +38,9 @@ pub(crate) fn return_result(
     result: Result<(), DosError>,
 ) -> HookResult {
     if let Err(error) = result {
-        call.cpu().set_ax(error.code());
+        call.cpu.set_ax(error.code());
         if let DosError::InsufficientMemory { available } = error {
-            call.cpu().set_bx(available);
+            call.cpu.set_bx(available);
         }
     }
     real_mode_interrupt::set_carry(call, result.is_err());

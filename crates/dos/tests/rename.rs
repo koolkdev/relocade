@@ -10,14 +10,14 @@ fn rename(dos: &mut Dos, from: &[u8], to: &[u8]) -> CpuState {
     const OFFSET: u16 = 0xfffc;
     {
         let mut machine = dos.cpu().context();
-        machine.cpu().set_segment(
+        machine.cpu.set_segment(
             Segment::Es,
             SegmentRegister::real_mode(Segment::Es, SEGMENT),
         );
-        machine.cpu().set_di(OFFSET);
+        machine.cpu.set_di(OFFSET);
         for (index, byte) in to.iter().copied().chain([0]).enumerate() {
             let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));
-            machine.memory().write(address, &[byte]).unwrap();
+            machine.memory.write(address, &[byte]).unwrap();
         }
     }
     path_service(dos, from, 0x5600, 0)
@@ -34,7 +34,7 @@ fn rename_moves_contents_and_attributes_using_es_di() {
         success(&path_service(&mut dos, b"DATA", 0x3b00, 0));
         success(&path_service(&mut dos, b"OLD.BIN", 0x4301, 0x07));
 
-        dos.cpu().context().cpu().set_eflags(0x0a57);
+        dos.cpu().context().cpu.set_eflags(0x0a57);
         let cpu = rename(&mut dos, b"old.bin", b"c:..\\saves\\new.bin");
         success(&cpu);
         assert_eq!(cpu.flags.eflags(), 0x0a56);
@@ -47,11 +47,7 @@ fn rename_moves_contents_and_attributes_using_es_di() {
         error(&path_service(&mut dos, b"OLD.BIN", 0x4e00, 0x06), 18);
         success(&path_service(&mut dos, b"\\SAVES\\NEW.BIN", 0x4e00, 0x06));
         let mut dta = [0; 43];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0x10080, &mut dta)
-            .unwrap();
+        dos.cpu().context().memory.read(0x10080, &mut dta).unwrap();
         assert_eq!(dta[21], 0x07);
         assert_eq!(&dta[26..30], &5u32.to_le_bytes());
         assert_eq!(&dta[30..38], b"NEW.BIN\0");

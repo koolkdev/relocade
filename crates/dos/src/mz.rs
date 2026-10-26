@@ -91,7 +91,7 @@ pub(crate) fn load<T>(
 
     // All file and allocation checks precede replacing the current process.
     let allocation = process::allocate(
-        &mut machine.memory(),
+        &mut machine.memory,
         base_paragraphs + usize::from(image.min_extra),
         maximum,
         options,
@@ -109,7 +109,7 @@ pub(crate) fn load<T>(
         module[offset..offset + 2].copy_from_slice(&segment.to_le_bytes());
     }
     machine
-        .memory()
+        .memory
         .write(u32::from(load_segment) * memory::PARAGRAPH_BYTES, &module)
         .expect("allocated MZ module");
     let mut cpu = process::initial_cpu(psp_segment);
@@ -120,7 +120,7 @@ pub(crate) fn load<T>(
     cpu.eip = u32::from(image.ip);
     cpu.registers.esp = u32::from(image.sp);
     machine
-        .cpu()
+        .cpu
         .restore(&cpu)
         .expect("MZ entry state satisfies the real-mode execution target");
     Ok(psp_segment)

@@ -29,7 +29,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
         let mut geometry = [0; 6];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x449, &mut geometry)
             .unwrap();
         assert_eq!(geometry, [3, 80, 0, 0, 0x10, 0]);
@@ -65,7 +65,7 @@ fn text_screen_reads_the_same_memory_written_by_guest_instructions() {
         // A different active page and its cursor are read from the BIOS data area.
         {
             let mut machine = dos.cpu().context();
-            let mut memory = machine.memory();
+            let memory = &mut machine.memory;
             memory.write(0x462, &[3]).unwrap();
             memory.write(0x456, &[79, 24]).unwrap();
             memory.write(0xbbf9e, &[b'Z', 0x2f]).unwrap();

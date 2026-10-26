@@ -125,8 +125,8 @@ impl Dos {
         let state = Rc::new(RefCell::new(DosState::default()));
         let services = DosServices::new(Rc::clone(&state));
         let mut cpu = Cpu::with_state(kernel::configuration(), kernel::cpu(), services).await?;
-        kernel::initialize(&mut cpu.context().memory());
-        relocade_bios::initialize(&mut cpu.context().memory());
+        kernel::initialize(&mut cpu.context().memory);
+        relocade_bios::initialize(&mut cpu.context().memory);
         cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))
             .await?;
         Ok(Self { state, cpu })
@@ -246,7 +246,7 @@ impl Dos {
     /// DOS CON output, BIOS video services and direct guest writes all update
     /// this memory. File redirection does not write to the screen.
     pub fn screen(&mut self) -> relocade_bios::TextScreen {
-        relocade_bios::TextScreen::read(&self.cpu.context().memory())
+        relocade_bios::TextScreen::read(&self.cpu.context().memory)
     }
 
     /// Returns an owned reader that drains currently buffered standard output.

@@ -8,7 +8,7 @@ const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
 fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
-        let mut cpu = machine.cpu();
+        let cpu = &mut machine.cpu;
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
         cpu.set_bx(bx);
@@ -17,7 +17,7 @@ fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_eflags(0x643);
     }
     assert_eq!(dos.cpu().run(15).unwrap(), ExecutionExit::BudgetExhausted);
-    let cpu = dos.cpu().context().cpu().snapshot();
+    let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
     assert_eq!(cpu.flags.eflags(), 0x643);
     cpu
@@ -63,7 +63,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         let mut page_offset = [0; 2];
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .read(0x44e, &mut page_offset)
             .unwrap();
         assert_eq!(page_offset, [0, 0x30]);
@@ -104,22 +104,14 @@ fn repeated_writes_cross_page_padding_without_moving_the_cursor() {
         video(&mut dos, 0x0951, 0x001e, 50, 0);
         for address in [0xb8f9e, 0xb8fa0, 0xb8ffe, 0xb9000] {
             let mut cell = [0; 2];
-            dos.cpu()
-                .context()
-                .memory()
-                .read(address, &mut cell)
-                .unwrap();
+            dos.cpu().context().memory.read(address, &mut cell).unwrap();
             assert_eq!(cell, [b'Q', 0x1e]);
         }
         let cursor = video(&mut dos, 0x0300, 0, 0, 0);
         assert_eq!(cursor.registers.edx as u16, 0x184f);
         video(&mut dos, 0x0a4b, 0, 50, 0);
         let mut cell = [0; 2];
-        dos.cpu()
-            .context()
-            .memory()
-            .read(0xb9000, &mut cell)
-            .unwrap();
+        dos.cpu().context().memory.read(0xb9000, &mut cell).unwrap();
         assert_eq!(cell, [b'K', 0x1e]);
     });
 }
@@ -133,7 +125,7 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
             let bytes: Vec<_> = text.iter().flat_map(|&byte| [byte, 0x17]).collect();
             dos.cpu()
                 .context()
-                .memory()
+                .memory
                 .write(0xb8000 + row as u32 * 160, &bytes)
                 .unwrap();
         }
@@ -179,7 +171,7 @@ fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
         dos.load_com(PROGRAM, Default::default()).unwrap();
         dos.cpu()
             .context()
-            .memory()
+            .memory
             .write(0xb8f00, &[b' ', 0x2a])
             .unwrap();
         video(&mut dos, 0x0200, 0, 0, 0x184f); // Last visible cell.
