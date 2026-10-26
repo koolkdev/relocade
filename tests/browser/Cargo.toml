@@ -14,6 +14,7 @@ futures-util = { version = "=0.3.34", default-features = false, features = ["std
 relocade-wasm-runtime = { path = "../../crates/wasm-runtime" }
 relocade-compiler = { path = "../../crates/compiler" }
 relocade-machine = { path = "../../crates/machine", features = ["worker"] }
+relocade-vga = { path = "../../crates/vga" }
 relocade-x86 = { path = "../../crates/x86" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

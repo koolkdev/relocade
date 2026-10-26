@@ -5,7 +5,7 @@ and per-thread TLS. The linker also exports Rust's stack pointer and permits its
 function table to grow, so typed runtime calls can stay entirely inside Wasm.
 Arguments and scalar results pass directly; aggregate results follow Rust's C
 return convention through generated Wasm glue. `npm test` runs the wasm-bindings,
-wasm-runtime, machine and renderer tests with wasm-bindgen-test, then the worker
+wasm-runtime, machine, VGA and renderer tests with wasm-bindgen-test, then the worker
 integration checks. Both stages run
 through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
@@ -16,6 +16,12 @@ later growth and writes after the allocating worker exits, and compiled-module
 handoff between execution owners. The [CPU worker example](src/cpus.rs) retains
 caller access to mapped memory while a worker awaits Rust input, resumes guest
 execution, and imports the retained allocation into a later worker.
+The [VGA worker check](src/vga.rs) connects a device to guest MMIO and CRTC ports
+on a CPU worker. A separate renderer worker snapshots and rasterizes that display
+while the CPU awaits input, then observes resumed writes after CPU teardown.
+The browser main thread never accesses the VGA mutex. The VGA device tests also
+dispatch their fixtures to workers; pure text rasterization tests can run on the
+main thread because they consume owned snapshots.
 
 From this directory:
 

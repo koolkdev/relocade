@@ -1295,6 +1295,7 @@ dependencies = [
  "pollster",
  "relocade-compiler",
  "relocade-machine",
+ "relocade-vga",
  "relocade-wasm-runtime",
  "relocade-x86",
  "wasm-bindgen",

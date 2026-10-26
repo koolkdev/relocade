@@ -33,7 +33,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         video(&mut dos, 0x0100, 0, 0x2007, 0); // Hide cursor.
         video(&mut dos, 0x0200, 0x0700, 0, 0x0204); // Page 7, row 2, column 4.
-        assert_eq!(dos.screen().unwrap().cursor.address, 0); // Inactive-page cursor stays in BIOS data.
+        assert_eq!(dos.screen().cursor.address, 0); // Inactive-page cursor stays in BIOS data.
         video(&mut dos, 0x0958, 0x072e, 3, 0); // Three yellow-on-green X cells.
         let cursor = video(&mut dos, 0x0300, 0x0700, 0, 0);
         assert_eq!(cursor.registers.ecx as u16, 0x2007);
@@ -47,7 +47,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         let mode = video(&mut dos, 0x0f00, 0x00a5, 0, 0);
         assert_eq!(mode.registers.eax as u16, 0x5003);
         assert_eq!(mode.registers.ebx as u16, 0x07a5);
-        let screen = dos.screen().unwrap();
+        let screen = dos.screen();
         assert_eq!(screen.start_address, 0x3800);
         assert_eq!(screen.cursor.start_scan_line, 0x20);
         assert_eq!(
@@ -73,20 +73,20 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         assert_eq!(page_offset, [0, 0x70]);
         // Teletype writes the active page, independently of incoming BH.
         video(&mut dos, 0x0e5a, 0xff00, 0, 0);
-        assert_eq!(dos.screen().unwrap().cells[164].character, b'Z');
-        assert_eq!(dos.screen().unwrap().cursor.address, 0x38a5);
+        assert_eq!(dos.screen().cells[164].character, b'Z');
+        assert_eq!(dos.screen().cursor.address, 0x38a5);
 
         // Mode reset returns AL=30h and clears pages and cursors.
         assert_eq!(
             video(&mut dos, 0x0003, 0, 0, 0).registers.eax as u16,
             0x0030
         );
-        let screen = dos.screen().unwrap();
+        let screen = dos.screen();
         assert_eq!(screen.start_address, 0);
         assert_eq!(screen.cursor.address, 0);
         video(&mut dos, 0x0507, 0, 0, 0);
         assert_eq!(
-            dos.screen().unwrap().cells[164],
+            dos.screen().cells[164],
             TextCell {
                 character: b' ',
                 attribute: 7
@@ -147,7 +147,7 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
                 .unwrap();
         }
         video(&mut dos, 0x0601, 0x4e00, 0x0001, 0x0202);
-        let screen = dos.screen().unwrap();
+        let screen = dos.screen();
         for (row, expected) in [b"1674", b"5bc8", b"a  d"].into_iter().enumerate() {
             for (column, &character) in expected.iter().enumerate() {
                 assert_eq!(screen.cells[row * 80 + column].character, character);
@@ -157,7 +157,7 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
         assert_eq!(screen.cells[160].attribute, 0x17);
 
         video(&mut dos, 0x0701, 0x5f00, 0x0001, 0x0202);
-        let screen = dos.screen().unwrap();
+        let screen = dos.screen();
         for (row, expected) in [b"1  4", b"5678", b"abcd"].into_iter().enumerate() {
             for (column, &character) in expected.iter().enumerate() {
                 assert_eq!(screen.cells[row * 80 + column].character, character);
@@ -165,7 +165,7 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
         }
         assert_eq!(screen.cells[1].attribute, 0x5f);
         video(&mut dos, 0x0600, 0x2a00, 0x0001, 0x0202);
-        let screen = dos.screen().unwrap();
+        let screen = dos.screen();
         for index in [1, 2, 81, 82, 161, 162] {
             assert_eq!(
                 screen.cells[index],
@@ -193,7 +193,7 @@ fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
         video(&mut dos, 0x0200, 0, 0, 0x184f); // Last visible cell.
         video(&mut dos, 0x0920, 0x001f, 1, 0);
         video(&mut dos, 0x0e5a, 0, 0, 0);
-        let screen = dos.screen().unwrap();
+        let screen = dos.screen();
         assert_eq!(
             screen.cells[23 * 80 + 79],
             TextCell {
@@ -214,7 +214,7 @@ fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
         for byte in [b'A', 8, b'B', b'\r', b'\n', b'C', 7] {
             video(&mut dos, 0x0e00 | u16::from(byte), 0, 0, 0);
         }
-        let screen = dos.screen().unwrap();
+        let screen = dos.screen();
         assert_eq!(screen.cells[2 * 80 + 3].character, b'B');
         assert_eq!(screen.cells[3 * 80].character, b'C');
         assert_eq!(screen.cursor.address, 3 * 80 + 1);

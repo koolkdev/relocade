@@ -18,22 +18,28 @@ let vga = dos.vga();
 let mut text = relocade_vga::TextRenderer::new();
 let mut renderer = relocade_renderer::Renderer::new(device, queue, format)?;
 
-// On each redraw, sample before acquiring an output texture:
-if let Some(screen) = vga.screen() {
-    // Acquire the surface texture and create its `view` here.
-    let pixels = text.render(&screen, elapsed);
-    renderer.render(
-        [relocade_vga::TextRenderer::WIDTH, relocade_vga::TextRenderer::HEIGHT],
-        pixels,
-        &view,
-    )?;
-    // Present that texture here; on None, skip acquisition and presentation.
-}
+// On the renderer worker, sample before acquiring an output texture:
+let screen = vga.screen();
+// Acquire the surface texture and create its `view` here.
+let pixels = text.render(&screen, elapsed);
+renderer.render(
+    [relocade_vga::TextRenderer::WIDTH, relocade_vga::TextRenderer::HEIGHT],
+    pixels,
+    &view,
+)?;
+// Present that texture here.
 ```
 
+The VGA lock is released before rasterization or GPU work. Browser device access,
+including `screen()`, must run on a worker; the main thread handles canvas events.
+The renderer worker can own the device, queue, surface and presentation lifecycle.
+The embedding supplies platform surface setup and forwards resize/lifecycle
+messages. See the [VGA threading contract](../vga/README.md).
+
 No emulation state crosses into the GPU renderer. A native window and browser
-canvas use the same path. Aspect ratio belongs to the embedding's output sizing;
-for a DOS display it can choose a 4:3 target even though the source has 640×200 pixels.
+canvas use the same pixel-rendering path. Aspect ratio belongs to the embedding's
+output sizing; for a DOS display it can choose a 4:3 target even though the source
+has 640×200 pixels.
 
 The `pixels` integration test reads back actual GPU output to check orientation,
 nearest-neighbor scaling, color encoding, alpha, updates and resizing. It runs on

@@ -27,21 +27,34 @@ use relocade_vga::TextRenderer;
 
 let vga = dos.vga();
 let mut text = TextRenderer::new();
-// On the display thread, including while the CPU awaits a service:
-if let Some(screen) = vga.screen() {
-    // Acquire the output texture only after obtaining a snapshot.
-    let rgba = text.render(&screen, elapsed);
-    renderer.render([TextRenderer::WIDTH, TextRenderer::HEIGHT], rgba, &output_view)?;
-}
+// On the renderer worker, including while the CPU awaits a service:
+let screen = vga.screen();
+let rgba = text.render(&screen, elapsed);
+renderer.render([TextRenderer::WIDTH, TextRenderer::HEIGHT], rgba, &output_view)?;
 ```
 
-`screen()` samples VRAM and registers together, then releases the lock. It returns
-`None` on contention, allowing a display to keep its previous frame without
-blocking its event loop. Synchronous bus operations use a native mutex wait or
-a Wasm spin loop; guarded work never awaits or calls host code.
-`TextRenderer` rasterizes that owned snapshot into its reusable RGBA8 pixel buffer.
-GPU access, presentation cadence and window lifetime belong to the host. BIOS
-operations spanning several bus transfers may be observed between those transfers.
+`screen()` samples VRAM and registers together, then releases an ordinary
+`std::sync::Mutex` before returning the owned `TextScreen`. Synchronous bus accesses
+use the same mutex. Guarded work never awaits or calls host code, and
+`TextRenderer` rasterizes the snapshot into its reusable RGBA8 pixel buffer after
+the lock has been released. BIOS operations spanning several bus transfers may
+be observed between those transfers.
+
+In browsers, all device access belongs on workers because the main thread cannot
+wait for a contended mutex. This includes CPU execution, host memory-view access
+to the MMIO aperture, BIOS initialization and display snapshots. The CPU worker
+owns execution; a renderer worker retains `Arc<Vga>`, takes snapshots and can own
+the wgpu device, queue, surface and presentation loop. Browser GPU resources must
+be created in that renderer worker, using a transferred `OffscreenCanvas`. The
+main thread handles window/canvas events and sends resize or lifecycle messages.
+Native platforms may require surface creation on the window thread before moving
+the surface to the renderer worker. The host supplies that platform setup and
+presentation scheduling; these crates do not create an application event loop.
+
+The shared [worker integration check](../../tests/browser/src/vga.rs) exercises
+guest MMIO and CRTC writes on a CPU worker, display progress while input is pending,
+and the retained display after CPU teardown. The same check runs on native threads
+and browser workers.
 
 The text geometry, memory aperture and CRTC register definitions follow the
 [IBM VGA/XGA Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf),

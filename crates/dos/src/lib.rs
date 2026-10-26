@@ -125,6 +125,8 @@ pub struct Dos {
 impl Dos {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
     /// Launch a program before executing DOS services.
+    /// In a browser, construct and execute the session on a worker: BIOS setup
+    /// and guest accesses use the VGA device's blocking mutex.
     pub async fn new() -> relocade_machine::Result<Self> {
         let state = Rc::new(DosState::default());
         let keyboard = state.stdio().input.clone();
@@ -299,12 +301,12 @@ impl Dos {
         Arc::clone(&self.vga)
     }
 
-    /// Attempts to copy the VGA text display and its hardware cursor for a renderer.
+    /// Copies the VGA text display and its hardware cursor for a renderer.
     /// DOS CON output, BIOS video services and direct guest writes all update
     /// video memory. The screen remains readable while a host service is pending.
     /// File redirection does not write to the screen.
-    /// Returns `None` when the device is busy; the display can keep its previous frame.
-    pub fn screen(&self) -> Option<relocade_vga::TextScreen> {
+    /// Acquires the device mutex; browser callers must run on a worker.
+    pub fn screen(&self) -> relocade_vga::TextScreen {
         self.vga.screen()
     }
 
