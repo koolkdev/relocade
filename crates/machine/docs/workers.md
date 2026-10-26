@@ -11,11 +11,11 @@ channel endpoints in the closure, then construct the CPU inside the worker:
 ```rust,ignore
 use relocade_machine::{worker::Thread, Cpu, Memory};
 
-let memory = Memory::new(machine_config.clone())?;
+let memory = Memory::new(machine_config.clone(), Default::default())?;
 memory.view().write(0x100, &program)?;
 let worker = Thread::new();
 let task = worker.run_send(memory.backing().clone(), move |backing| async move {
-    let memory = Memory::with_backing(machine_config, backing)?;
+    let memory = Memory::with_backing(machine_config, backing, Default::default())?;
     let mut cpu = Cpu::new(memory, cpu_config, ()).await?;
     Ok::<_, relocade_machine::Error>(cpu.run(budget).await)
 });

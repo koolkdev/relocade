@@ -35,7 +35,8 @@ pub async fn cpu_worker() -> Result<(), String> {
         },
     )
     .unwrap();
-    let memory = Memory::new(config.clone()).map_err(|error| error.to_string())?;
+    let memory =
+        Memory::new(config.clone(), Default::default()).map_err(|error| error.to_string())?;
     let mut view = memory.view();
     // MOV [0204],AX; JMP 0303. Execution resumes here after the input hook.
     view.write(0x300, &[0xa3, 4, 2, 0xeb, 0xfe]).unwrap();
@@ -43,7 +44,7 @@ pub async fn cpu_worker() -> Result<(), String> {
     let (commands, incoming) = mpsc::unbounded();
     let (waiting, started) = oneshot::channel();
     let task = worker.run_send(memory.backing().clone(), move |backing| async move {
-        let memory = Memory::with_backing(config, backing).unwrap();
+        let memory = Memory::with_backing(config, backing, Default::default()).unwrap();
         let input = Input {
             incoming,
             waiting: Some(waiting),
@@ -92,7 +93,7 @@ pub async fn cpu_worker() -> Result<(), String> {
     let config = memory.configuration().clone();
     let worker = Thread::new();
     let task = worker.run_send(memory.backing().clone(), move |backing| async move {
-        let memory = Memory::with_backing(config, backing).unwrap();
+        let memory = Memory::with_backing(config, backing, Default::default()).unwrap();
         let mut cpu = Cpu::new(memory, cpu_config, ()).await.unwrap();
         let context = cpu.context();
         (context.cpu.ax(), context.memory.read_u16(0x204).unwrap())

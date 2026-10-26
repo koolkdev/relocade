@@ -144,6 +144,12 @@ impl PhysicalMemoryMap {
         }
     }
 
+    /// Applies the platform A20 gate to an address on the physical bus.
+    /// MMIO devices receive this address, independently of RAM backing offsets.
+    pub fn bus_address(&self, address: u32) -> u32 {
+        address & self.address_mask()
+    }
+
     /// Applies A20 and resolves one byte, adjusting direct offsets to that byte.
     /// Input addresses outside the table return [`PhysicalMapping::Unmapped`].
     /// This lookup performs no memory transfer or fault check.
@@ -151,7 +157,7 @@ impl PhysicalMemoryMap {
         if address >= Self::PAGE_COUNT as u32 * Self::PAGE_BYTES {
             return PhysicalMapping::Unmapped;
         }
-        let address = address & self.address_mask();
+        let address = self.bus_address(address);
         self.pages
             .get((address >> PAGE_SHIFT) as usize)
             .copied()

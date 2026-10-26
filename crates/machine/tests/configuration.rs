@@ -27,7 +27,12 @@ async fn check_memory_profile() {
     )
     .unwrap();
     assert!(matches!(
-        Cpu::new(Memory::new(config).unwrap(), protected, ()).await,
+        Cpu::new(
+            Memory::new(config, Default::default()).unwrap(),
+            protected,
+            ()
+        )
+        .await,
         Err(relocade_machine::Error::Configuration(
             ConfigurationError::UnsupportedProfile
         ))

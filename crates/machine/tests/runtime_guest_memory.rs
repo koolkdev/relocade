@@ -37,7 +37,7 @@ async fn check_guest_memory() {
         map,
     )
     .unwrap();
-    let shared = Memory::new(config.machine).unwrap();
+    let shared = Memory::new(config.machine, Default::default()).unwrap();
     let reader = shared.view();
     shared.view().write_backing(0x1000, &[0x12, 0x34]).unwrap();
     // MOV word [0FFE],0741; JMP to the next instruction.

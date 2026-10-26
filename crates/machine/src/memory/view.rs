@@ -2,25 +2,30 @@ mod read;
 mod resolve;
 mod write;
 
-use crate::MachineConfig;
+use crate::{IoBus, MachineConfig};
 use relocade_wasm_runtime::MemoryAccess;
 use relocade_x86::SegmentRegister;
 use std::fmt;
 
 /// Guest physical memory through the configured map, including A20 aliases.
-/// RAM/ROM use backing storage. Holes and currently unattached MMIO return FF
+/// RAM/ROM use backing storage. MMIO uses the I/O bus. Holes and unattached MMIO return FF
 /// bytes; writes to ROM, holes and unattached MMIO are ignored.
 /// The view borrows one storage handle; other shared handles remain usable.
 pub struct MemoryView<'a> {
     config: &'a MachineConfig,
     storage: MemoryAccess<'a>,
+    io: &'a IoBus,
 }
 
 impl<'a> MemoryView<'a> {
     /// Borrows backing storage matching the configured map and capacity.
     #[inline]
-    pub fn new(config: &'a MachineConfig, storage: MemoryAccess<'a>) -> Self {
-        Self { config, storage }
+    pub fn new(config: &'a MachineConfig, storage: MemoryAccess<'a>, io: &'a IoBus) -> Self {
+        Self {
+            config,
+            storage,
+            io,
+        }
     }
 
     /// Configured backing capacity, excluding Wasm-page rounding.

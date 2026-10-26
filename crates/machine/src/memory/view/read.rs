@@ -1,15 +1,26 @@
-use super::{range_fits, resolve::Access, segment_address, MemoryError, MemoryView};
+use super::{range_fits, segment_address, MemoryError, MemoryView};
 use relocade_wasm_runtime::MemoryValue;
-use relocade_x86::SegmentRegister;
+use relocade_x86::{PhysicalMapping, SegmentRegister};
 
 impl<'a> MemoryView<'a> {
     /// Reads guest addresses using the configured map and checks the full range.
     pub fn read(&self, address: u32, mut bytes: &mut [u8]) -> Result<(), MemoryError> {
-        for span in self.resolve(address, bytes.len(), Access::Read)? {
+        for span in self.resolve(address, bytes.len())? {
             let (part, rest) = bytes.split_at_mut(span.len);
-            match span.backing_offset {
-                Some(offset) => self.storage.read(offset, part),
-                None => part.fill(0xff),
+            match span.mapping {
+                PhysicalMapping::Ram { backing_offset }
+                | PhysicalMapping::Rom { backing_offset } => {
+                    self.storage.read(backing_offset, part)
+                }
+                PhysicalMapping::Mmio => {
+                    for (index, chunk) in part.chunks_mut(8).enumerate() {
+                        let value = self
+                            .io
+                            .read_mmio(span.address + (index * 8) as u32, chunk.len() as u8);
+                        chunk.copy_from_slice(&value.to_le_bytes()[..chunk.len()]);
+                    }
+                }
+                PhysicalMapping::Unmapped => part.fill(0xff),
             }
             bytes = rest;
         }

@@ -26,6 +26,6 @@ pub async fn create_cpu<T: 'static>(
         machine: config,
     }: Configuration,
 ) -> relocade_machine::Result<relocade_machine::Cpu<T>> {
-    let memory = relocade_machine::Memory::new(config)?;
+    let memory = relocade_machine::Memory::new(config, Default::default())?;
     relocade_machine::Cpu::new(memory, cpu, state).await
 }
