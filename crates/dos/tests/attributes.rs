@@ -1,7 +1,7 @@
 mod common;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
-use relocade_dos::{Dos, FileAccess};
+use relocade_dos::{Dos, FileAccess, ProcessStatus};
 
 fn attributes(dos: &mut Dos, path: &[u8]) -> u16 {
     let cpu = path_service(dos, path, 0x4300, 0xffff);
@@ -95,7 +95,7 @@ async fn check_directory_attributes_and_errors() {
         error(&path_service(&mut dos, b"DATA/*", operation, 0), 3);
     }
     error(&path_service(&mut dos, b"DATA/FILE.BIN", 0x4302, 0), 1);
-    assert_eq!(dos.exit_status(), None);
+    assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
 }
 
 async fn check_archive_on_close() {

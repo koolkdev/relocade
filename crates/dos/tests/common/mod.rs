@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use relocade_dos::Dos;
+use relocade_dos::{Dos, ProcessStatus};
 
 pub async fn dos() -> Dos {
     Dos::new().await.unwrap()
@@ -42,7 +42,10 @@ pub fn terminate(dos: &mut Dos) {
         dos.cpu().run(10).unwrap(),
         ExecutionExit::Host(relocade_x86::HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(0))
+    );
 }
 
 pub fn path_service(dos: &mut Dos, path: &[u8], ax: u16, cx: u16) -> CpuState {

@@ -74,6 +74,7 @@
 //! ```no_run
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>>
 //! # {
+//! use relocade_dos::ProcessStatus;
 //! use std::io::Read;
 //!
 //! let mut dos = relocade_dos::Dos::new().await?;
@@ -81,8 +82,9 @@
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
 //! dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
+//! let process = dos.process().unwrap();
 //! assert_eq!(dos.cpu().run(u64::MAX)?, relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return));
-//! assert_eq!(dos.exit_status(), Some(Ok(7)));
+//! assert_eq!(process.status(), ProcessStatus::Exited(Ok(7)));
 //! let mut output = Vec::new();
 //! dos.stdout().read_to_end(&mut output)?;
 //! # let _ = output;
@@ -108,7 +110,7 @@ mod stdio;
 pub use error::{LaunchError, LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
-use process::{Process, ProcessStatus};
+pub use process::{Process, ProcessStatus};
 use relocade_machine::{Cpu, CpuContext, Memory};
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
@@ -140,7 +142,7 @@ impl Dos {
 
     /// Launches a COM image of 1..=65,278 bytes when no process is active.
     /// Initializes its PSP, environment, standard handles, stack and CPU entry state.
-    /// Successful launches clear buffered console I/O and the previous exit status.
+    /// Successful launches clear buffered console I/O and create a new active process.
     /// Rejected launches leave the previous program and session state unchanged.
     pub fn launch_com(
         &mut self,
@@ -229,16 +231,12 @@ impl Dos {
         &mut self.cpu
     }
 
-    /// None until a DOS service terminates the process or reports a service error.
-    pub fn exit_status(&self) -> Option<Result<u8, ServiceError>> {
-        self.state
-            .borrow()
-            .process
-            .as_ref()
-            .and_then(|process| match process.status() {
-                ProcessStatus::Active => None,
-                ProcessStatus::Exited(status) => Some(status),
-            })
+    /// Returns the current process, or None before the first successful launch.
+    /// The process remains current after termination until another launch succeeds.
+    /// Retained handles keep their identity and status while the CPU runs and after
+    /// a later process starts. A failed launch leaves this handle unchanged.
+    pub fn process(&self) -> Option<Rc<Process>> {
+        self.state.borrow().process.clone()
     }
 
     /// Returns an owned console input writer. Bytes use the guest's encoding.
@@ -250,16 +248,18 @@ impl Dos {
     /// ```no_run
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>>
     /// # {
+    /// use relocade_dos::ProcessStatus;
     /// use std::io::Write;
     ///
     /// let mut dos = relocade_dos::Dos::new().await?;
     /// dos.launch_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
+    /// let process = dos.process().unwrap();
     /// let mut input = dos.stdin();
     /// // An event handler can retain this writer while the cpu waits.
     /// let run = dos.cpu().run_async(100);
     /// input.write_all(b"y")?;
     /// run.await?;
-    /// assert_eq!(dos.exit_status(), Some(Ok(b'y')));
+    /// assert_eq!(process.status(), ProcessStatus::Exited(Ok(b'y')));
     /// # Ok(())
     /// # }
     /// ```

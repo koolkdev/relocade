@@ -15,15 +15,17 @@ use std::{
 
 /// The lifecycle of one successfully launched DOS process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ProcessStatus {
+pub enum ProcessStatus {
     /// Execution may continue, including after a budget stop or while awaiting input.
     Active,
     /// DOS terminated the process with an exit code or a service error.
     Exited(Result<u8, ServiceError>),
 }
 
-/// One DOS program's PSP identity, lifecycle and active resources.
-pub(crate) struct Process {
+/// One DOS program's PSP identity and lifecycle.
+/// Retaining this process preserves its status after another program starts.
+/// Termination releases its active resources regardless of retained references.
+pub struct Process {
     psp_segment: u16,
     state: RefCell<State>,
 }
@@ -70,12 +72,12 @@ impl Process {
     }
 
     /// The PSP segment assigned at launch. Its memory may be reused after exit.
-    pub(crate) fn psp_segment(&self) -> u16 {
+    pub fn psp_segment(&self) -> u16 {
         self.psp_segment
     }
 
     /// Reads this process's current status without retaining an execution borrow.
-    pub(crate) fn status(&self) -> ProcessStatus {
+    pub fn status(&self) -> ProcessStatus {
         match &*self.state.borrow() {
             State::Active(_) => ProcessStatus::Active,
             State::Exited(status) => ProcessStatus::Exited(*status),

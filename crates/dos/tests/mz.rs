@@ -1,6 +1,6 @@
 mod common;
 
-use relocade_dos::LoadError;
+use relocade_dos::{LoadError, ProcessStatus};
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 
 fn set_word(bytes: &mut [u8], offset: usize, value: u16) {
@@ -76,7 +76,10 @@ async fn check_mz_execution() {
         dos.cpu().run(100).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(7)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(7))
+    );
     assert_eq!(common::output(dos.stdout()), b"MZ\r\n");
 
     // A requested maximum below the minimum uses the minimum; FFFF uses the arena.
@@ -87,7 +90,7 @@ async fn check_mz_execution() {
         let mut end = [0; 2];
         dos.cpu().context().memory.read(0x10002, &mut end).unwrap();
         assert_eq!(u16::from_le_bytes(end), expected_end);
-        assert_eq!(dos.exit_status(), None);
+        assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
         assert_eq!(
             dos.cpu().run(100).unwrap(),
             ExecutionExit::Host(HostExit::Return)
@@ -123,7 +126,10 @@ async fn check_mz_execution() {
         dos.cpu().run(100).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(255))); // AH=48h reports no space.
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(255))
+    ); // AH=48h reports no space.
 }
 
 async fn check_invalid_mz() {
@@ -185,7 +191,10 @@ async fn check_invalid_mz() {
         .unwrap();
     assert_eq!(memory, saved_memory);
     assert_eq!(dos.cpu().context().cpu.snapshot(), saved_cpu);
-    assert_eq!(dos.exit_status(), Some(Ok(3)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(3))
+    );
     assert_eq!(common::output(dos.stdout()), b"X");
 }
 

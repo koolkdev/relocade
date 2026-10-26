@@ -1,7 +1,7 @@
 mod common;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
-use relocade_dos::{Dos, FileAccess};
+use relocade_dos::{Dos, FileAccess, ProcessStatus};
 use relocade_x86::{ExecutionExit, HostExit, Segment, SegmentRegister};
 
 fn dta(dos: &mut Dos, address: u32) -> [u8; 43] {
@@ -231,7 +231,10 @@ async fn check_discovery_program() {
         dos.cpu().run(500).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(0))
+    );
     assert_eq!(common::output(dos.stdout()), b"first\nsecond\n");
 }
 

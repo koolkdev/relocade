@@ -1,6 +1,7 @@
 mod common;
 
 use common::{error, service, SERVICE_PROGRAM};
+use relocade_dos::ProcessStatus;
 use relocade_x86::{ExecutionExit, HostExit, Segment, SegmentRegister};
 
 async fn check_system_services() {
@@ -43,7 +44,8 @@ async fn check_system_services() {
     let cpu = service(&mut dos, 0x4000, 1, 0, 0);
     assert_eq!(cpu.registers.eax as u16, 0);
     assert_eq!(cpu.flags.eflags(), 0x0a56);
-    assert_eq!(dos.exit_status(), None); // Unsupported LFN calls return to the guest.
+    // Unsupported LFN calls return to the guest.
+    assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
 }
 
 async fn check_guest_interrupt_vector() {
@@ -64,7 +66,10 @@ async fn check_guest_interrupt_vector() {
         dos.cpu().run(100).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(0))
+    );
     let mut result = [0; 2];
     dos.cpu()
         .context()

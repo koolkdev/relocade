@@ -3,7 +3,7 @@ mod common;
 mod modes;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
-use relocade_dos::{Dos, FileAccess};
+use relocade_dos::{Dos, FileAccess, ProcessStatus};
 use std::io::Write;
 
 fn information(dos: &mut Dos, handle: u16) -> u16 {
@@ -29,7 +29,7 @@ async fn check_device_information() {
     error(&service(&mut dos, 0x4400, 5, 0, 0), 6);
     error(&service(&mut dos, 0x4400, u16::MAX, 0, 0), 6);
     error(&service(&mut dos, 0x44ff, 1, 0, 0), 1);
-    assert_eq!(dos.exit_status(), None);
+    assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
 
     assert_eq!(success(&path_service(&mut dos, b"DATA.BIN", 0x3d42, 0)), 5);
     assert_eq!(success(&service(&mut dos, 0x4500, 5, 0, 0)), 6);

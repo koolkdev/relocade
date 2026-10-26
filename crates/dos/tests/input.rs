@@ -11,7 +11,7 @@ mod handles;
 mod raw;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
-use relocade_dos::LaunchError;
+use relocade_dos::{LaunchError, ProcessStatus};
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 use std::{
     future::Future,
@@ -48,7 +48,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             dos.cpu().run(10).unwrap(),
             ExecutionExit::Host(HostExit::Deferred)
         );
-        assert_eq!(dos.exit_status(), None);
+        assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
         let suspended = dos.cpu().context().cpu.snapshot();
         assert_eq!(suspended.registers.eax as u16, 0x077b);
         assert_eq!(suspended.registers.esp as u16, 0xfff8);
@@ -164,7 +164,10 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             dos.cpu().run_async(10).await.unwrap(),
             ExecutionExit::Host(HostExit::Return)
         );
-        assert_eq!(dos.exit_status(), Some(Ok(0)));
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(0))
+        );
     });
 }
 
@@ -202,7 +205,10 @@ fn interactive_program_prints_prompt_waits_and_exits_after_input() {
                 Poll::Ready(Ok(ExecutionExit::Host(HostExit::Return)))
             ));
         }
-        assert_eq!(dos.exit_status(), Some(Ok(b'y')));
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(b'y'))
+        );
         assert_eq!(common::output(output.clone()), b"y");
         assert!(common::output(error_output.clone()).is_empty());
         // Readers also retain their identity across replacement and later output.
