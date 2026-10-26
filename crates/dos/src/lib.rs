@@ -125,7 +125,7 @@ impl Dos {
     pub async fn new() -> relocade_machine::Result<Self> {
         let state = Rc::new(DosState::default());
         let keyboard = state.stdio().input.clone();
-        let memory = Memory::new(kernel::configuration())?;
+        let memory = Memory::new(kernel::configuration(), Default::default())?;
         let mut cpu = Cpu::new(memory, kernel::cpu(), ()).await?;
         kernel::initialize(&mut cpu.context().memory);
         relocade_bios::initialize(&mut cpu.context().memory);

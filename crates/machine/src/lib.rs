@@ -37,11 +37,13 @@
 
 mod config;
 mod cpu;
+mod io;
 mod memory;
 pub mod runtime;
 
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::CpuView;
+pub use io::{Device, DeviceConnection, IoBus};
 pub use memory::{Memory, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::MemoryAccess;
 

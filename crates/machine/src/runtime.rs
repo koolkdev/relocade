@@ -24,7 +24,7 @@
 //! async fn example(config: MachineConfig, cpu_config: CpuConfig)
 //!     -> Result<(), Box<dyn std::error::Error>>
 //! {
-//!     let memory = Memory::new(config)?;
+//!     let memory = Memory::new(config, Default::default())?;
 //!     memory.view().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //!     let mut cpu = Cpu::new(memory, cpu_config, ()).await?;
 //!     let exit = cpu.run(100).await;
@@ -70,11 +70,11 @@ impl<T: 'static> Cpu<T> {
     /// Creates private CPU state and dispatch over existing guest memory.
     /// Guest bytes are preserved. Use `()` when no environment state is needed.
     /// The environment state stays with this CPU, including during host calls.
-    /// Port and MMIO reads currently return all ones; their writes are ignored.
+    /// Port and MMIO accesses use the I/O bus retained by the supplied memory.
     pub async fn new(memory: Memory, cpu: CpuConfig, state: T) -> Result<Self> {
         let mut backend = Backend::new()?;
         let bindings = RuntimeMemory::new(&mut backend, memory.clone(), cpu)?;
-        let host_imports = io::unconnected_imports(&mut backend);
+        let host_imports = io::imports(&mut backend, memory.io());
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         let machine = Machine {
             backend,

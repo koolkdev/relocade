@@ -3,7 +3,7 @@ use crate::{MachineConfig, Memory};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, Segment, SegmentRegister};
 
 fn allocate(map: PhysicalMemoryMap) -> Memory {
-    Memory::new(MachineConfig::new(0x3000, map).unwrap()).unwrap()
+    Memory::new(MachineConfig::new(0x3000, map).unwrap(), Default::default()).unwrap()
 }
 
 #[test]

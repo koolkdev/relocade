@@ -2,12 +2,12 @@
 
 Guest backing is a shared Wasm memory on both backends. The CPU execution context,
 Wasm physical-map table and dispatch bookkeeping stay private to the runtime. Compiled
-instructions still use ordinary Wasm loads and stores.
+RAM instructions still use ordinary Wasm loads and stores. MMIO uses device callbacks.
 
 Allocate and initialize guest memory before constructing a CPU:
 
 ```rust
-let memory = Memory::new(machine_config)?;
+let memory = Memory::new(machine_config, Default::default())?;
 memory.view().write(0x100, &program)?;
 let mut runtime = Cpu::new(memory.clone(), cpu_config, state).await?;
 ```
@@ -33,7 +33,7 @@ screen while a service awaiting input owns the runtime context. The same
 `MemoryView` supports reads through `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
-`CpuContext` lends separate `cpu`, `memory` and `state` fields during stopped
+`CpuContext` lends separate `cpu`, `memory`, `io` and `state` fields during stopped
 access and host services. The CPU-register and guest-memory views can be borrowed
 together:
 
@@ -68,3 +68,30 @@ Reads sample live bytes; they do not freeze the guest or provide an atomic frame
 Wasmtime host accesses use byte atomics so concurrent Rust access is safe. A
 renderer may see part of an update and sample the remainder next frame. Presentation
 cadence and worker lifetime belong to the application.
+
+## Devices
+
+`Device` owns synchronous MMIO and port behavior. `IoBus` holds immutable connections,
+each containing one shared device and the memory and port ranges it decodes:
+
+```rust
+let io = IoBus::new([DeviceConnection {
+    device,
+    mmio: vec![0xb8000..=0xbffff],
+    ports: vec![0x3d4..=0x3d5],
+}]);
+let memory = Memory::new(machine_config, io)?;
+let mut cpu = Cpu::new(memory, cpu_config, ()).await?;
+```
+
+The board's physical map must mark that memory range `PhysicalMapping::Mmio`.
+The device owns its storage; it does not use guest RAM backing. `MemoryView`
+transfers and guest instructions route to the same device, after A20 translation.
+BIOS services use `CpuContext.io` for port operations. Unconnected ranges retain
+the open-bus behavior: FF reads and ignored writes.
+
+MMIO callbacks receive one through eight little-endian bytes, including partial
+widths at boundaries. Port callbacks retain a complete one-, two- or four-byte
+operation; the device interprets it. Devices synchronize their own state with
+host readers. Shared RAM alone does not transfer device connections to a worker;
+retain a clone of its `IoBus` when constructing another `Memory` handle.

@@ -22,6 +22,7 @@ impl<T> Machine<T> {
                 self.backend.memory(&self.bindings.context),
             ),
             memory: self.bindings.guest.view(),
+            io: self.bindings.guest.io(),
             state: &mut self.state,
         }
     }
