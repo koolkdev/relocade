@@ -230,12 +230,12 @@ fn console_eof_is_shared_by_duplicates_and_cleared_by_handle_writes() {
         assert_eq!(success(&service(&mut dos, 0x4400, 0, 0, 0)), 0x80c3);
         dos.stdin().write_all(b"new\r").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 5);
-        assert_eq!(common::output(dos.stdout()), b"new\r\n");
+        assert_eq!(common::output(dos.stdout()), b"^Z\r\nnew\r\n");
     });
 }
 
 #[test]
-fn program_reload_clears_the_console_line_remainder() {
+fn program_launch_preserves_the_console_line_remainder() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
@@ -246,10 +246,18 @@ fn program_reload_clears_the_console_line_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         let mut byte = [0];
         dos.cpu().context().memory.read(0x10400, &mut byte).unwrap();
-        assert_eq!(byte, [b'l']); // Failed loads preserve the current program.
+        assert_eq!(byte, [b'l']); // Rejected launches preserve the buffered line.
         common::terminate(&mut dos);
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         input.write_all(b"new\r").unwrap();
+        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 20, 0x400)), 3);
+        let mut remainder = [0; 3];
+        dos.cpu()
+            .context()
+            .memory
+            .read(0x10400, &mut remainder)
+            .unwrap();
+        assert_eq!(&remainder, b"d\r\n");
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 20, 0x400)), 5);
         let mut bytes = [0; 5];
         dos.cpu()
@@ -258,6 +266,6 @@ fn program_reload_clears_the_console_line_remainder() {
             .read(0x10400, &mut bytes)
             .unwrap();
         assert_eq!(&bytes, b"new\r\n");
-        assert_eq!(common::output(dos.stdout()), b"new\r\n");
+        assert_eq!(common::output(dos.stdout()), b"old\r\nnew\r\n");
     });
 }

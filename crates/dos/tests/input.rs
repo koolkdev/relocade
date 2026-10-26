@@ -120,11 +120,12 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             ExecutionExit::BudgetExhausted
         );
         assert_eq!(dos.cpu().context().cpu.ax(), 0x0752);
-        input.write_all(b"discarded on load").unwrap();
+        input.write_all(b"Q").unwrap();
         common::terminate(&mut dos);
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let cpu = service(&mut dos, 0x0600, 0, 0, 0xff);
-        assert_ne!(cpu.flags.eflags() & 0x40, 0);
+        assert_eq!(cpu.registers.eax as u16, 0x0651);
+        assert_eq!(cpu.flags.eflags() & 0x40, 0);
         input.write_all(b"N").unwrap(); // Writers survive successive processes.
         assert_eq!(
             service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,

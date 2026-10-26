@@ -32,14 +32,6 @@ impl Stdio {
             OutputStream::Stderr => &self.stderr,
         }
     }
-
-    pub(crate) fn clear(&mut self) {
-        self.input.discard_queued();
-        self.console_line.clear();
-        self.output_column = 0;
-        self.stdout.0.borrow_mut().clear();
-        self.stderr.0.borrow_mut().clear();
-    }
 }
 
 #[derive(Clone, Default)]

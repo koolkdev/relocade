@@ -142,7 +142,7 @@ impl Dos {
 
     /// Launches a COM image of 1..=65,278 bytes when no process is active.
     /// Initializes its PSP, environment, standard handles, stack and CPU entry state.
-    /// Successful launches clear buffered console I/O and create a new active process.
+    /// Successful launches create a new active process and preserve console I/O.
     /// Rejected launches leave the previous program and session state unchanged.
     pub fn launch_com(
         &mut self,
@@ -174,7 +174,6 @@ impl Dos {
         }
         let psp_segment = load(&mut self.cpu.context())?;
         self.cpu.cancel_pending_call();
-        state.stdio.clear();
         state.process = Some(Rc::new(Process::new(psp_segment)));
         Ok(())
     }
@@ -242,8 +241,8 @@ impl Dos {
     /// Returns an owned console input writer. Bytes use the guest's encoding.
     /// Writes enqueue bytes immediately and wake a pending console read; flush
     /// is a no-op. The writer can be cloned and used while `run_async` is pending.
-    /// Redirected stdin reads its file instead. Loading a program clears buffered
-    /// input and output; existing stream handles remain connected to the console.
+    /// Redirected stdin reads its file instead. Buffered input and output persist
+    /// across launches; existing stream handles remain connected to the console.
     ///
     /// ```no_run
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>>

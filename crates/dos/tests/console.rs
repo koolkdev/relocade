@@ -4,8 +4,40 @@ mod screen;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::{FileAccess, ProcessStatus};
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 use std::io::{Read, Write};
+
+#[test]
+fn console_queues_survive_com_and_mz_launches() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        let mut input = dos.stdin();
+        let output = dos.stdout();
+        input.write_all(b"AB").unwrap();
+        // Read and echo one character, then exit with that character's value.
+        let program = &[0xb4, 1, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21];
+        dos.launch_com(program, Default::default()).unwrap();
+        assert_eq!(
+            dos.cpu().run(20).unwrap(),
+            ExecutionExit::Host(HostExit::Return)
+        );
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(b'A'))
+        );
+        dos.launch_mz(&common::mz_image(program), Default::default())
+            .unwrap();
+        assert_eq!(
+            dos.cpu().run(20).unwrap(),
+            ExecutionExit::Host(HostExit::Return)
+        );
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(b'B'))
+        );
+        assert_eq!(common::output(output), b"AB");
+    });
+}
 
 #[test]
 fn cooked_character_output_shares_tab_stops_with_strings_and_line_echo() {
@@ -15,13 +47,15 @@ fn cooked_character_output_shares_tab_stops_with_strings_and_line_echo() {
         dos.cpu().context().memory.write(0x10300, b"abc$").unwrap();
         service(&mut dos, 0x0900, 0, 0, 0x300);
         assert_eq!(common::output(dos.stdout()), b"abc");
+        common::terminate(&mut dos);
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu().context().cpu.set_eflags(0x643);
         let cpu = service(&mut dos, 0x027b, 0x1234, 0x5678, u16::from(b'\t'));
         assert_eq!(cpu.registers.eax as u16, 0x0220);
         assert_eq!(cpu.flags.eflags(), 0x643);
         assert_eq!(cpu.registers.ebx as u16, 0x1234);
         assert_eq!(cpu.registers.ecx as u16, 0x5678);
-        assert_eq!(common::output(dos.stdout()), b"     "); // Draining preserved the column.
+        assert_eq!(common::output(dos.stdout()), b"     "); // Draining and launch preserve the column.
 
         service(&mut dos, 0x0200, 0, 0, u16::from(b'\x08'));
         service(&mut dos, 0x0200, 0, 0, u16::from(b'\t'));
@@ -147,7 +181,7 @@ async fn check_redirected_string() {
     service(&mut dos, 0x0900, 0, 0, 0x200);
     common::terminate(&mut dos);
     dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    assert!(common::output(dos.stdout()).is_empty());
+    assert_eq!(common::output(dos.stdout()), b"out");
 }
 
 async fn check_direct_console_io() {
@@ -181,17 +215,17 @@ async fn check_direct_console_io() {
     assert_eq!(common::output(dos.stdout()), b"!");
     assert!(common::output(dos.stderr()).is_empty());
 
-    dos.stdin().write_all(b"old input").unwrap();
+    dos.stdin().write_all(b"Q").unwrap();
     service(&mut dos, 0x0600, 0, 0, u16::from(b'X'));
     success(&service(&mut dos, 0x4600, 2, 1, 0));
     service(&mut dos, 0x0600, 0, 0, u16::from(b'Y'));
     common::terminate(&mut dos);
     dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    assert!(common::output(dos.stdout()).is_empty());
-    assert!(common::output(dos.stderr()).is_empty());
+    assert_eq!(common::output(dos.stdout()), b"X");
+    assert_eq!(common::output(dos.stderr()), b"Y");
     let cpu = service(&mut dos, 0x06aa, 0, 0, 0xff);
-    assert_eq!(cpu.registers.eax as u16, 0x0600);
-    assert_ne!(cpu.flags.eflags() & 0x40, 0); // New program gets empty stdin.
+    assert_eq!(cpu.registers.eax as u16, 0x0651);
+    assert_eq!(cpu.flags.eflags() & 0x40, 0); // Queued input survives the previous process.
 }
 
 async fn check_redirected_character_io() {
