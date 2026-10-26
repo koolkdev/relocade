@@ -1,6 +1,6 @@
 //! DOS character devices and the state shared by duplicated device handles.
 
-use super::{handles::OpenHandle, AccessMode, FileSystem, Files};
+use super::{handles::Handle, AccessMode, FileSystem, Files};
 use crate::{error::DosError, path, stdio::OutputStream};
 use std::{cell::Cell, rc::Rc};
 
@@ -16,13 +16,13 @@ pub(crate) enum Device {
     Printer,
 }
 
-pub(super) struct OpenDevice {
+pub(super) struct DeviceHandle {
     pub kind: Device,
     pub access: AccessMode,
     flags: Cell<u8>,
 }
 
-impl OpenDevice {
+impl DeviceHandle {
     pub fn new(kind: Device, access: AccessMode) -> Self {
         let attributes = match kind {
             Device::Console(_) => 0x03, // Standard input and output.
@@ -61,7 +61,7 @@ impl OpenDevice {
 
 impl Files {
     pub(crate) fn set_device_information(&self, handle: u16, info: u16) -> Result<u8, DosError> {
-        let OpenHandle::Device(device) = self.handle(handle)? else {
+        let Handle::Device(device) = self.handle(handle)? else {
             return Err(DosError::InvalidFunction);
         };
         if info & 0xff00 != 0 {
@@ -106,7 +106,7 @@ impl Files {
             return Err(DosError::PathNotFound);
         }
         let handle = self.vacant_handle()?;
-        self.handles[handle] = Some(OpenHandle::Device(Rc::new(OpenDevice::new(kind, access))));
+        self.handles[handle] = Some(Handle::Device(Rc::new(DeviceHandle::new(kind, access))));
         Ok(Some(handle as u16))
     }
 
@@ -122,9 +122,9 @@ impl Files {
         self.console(handle).raw()
     }
 
-    fn console(&self, handle: u16) -> &OpenDevice {
+    fn console(&self, handle: u16) -> &DeviceHandle {
         match self.handle(handle).expect("validated console handle") {
-            OpenHandle::Device(device) if matches!(device.kind, Device::Console(_)) => device,
+            Handle::Device(device) if matches!(device.kind, Device::Console(_)) => device,
             _ => unreachable!("console handle"),
         }
     }
