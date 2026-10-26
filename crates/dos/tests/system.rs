@@ -1,7 +1,7 @@
 mod common;
 
 use common::{error, service, SERVICE_PROGRAM};
-use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
+use relocade_x86::{ExecutionExit, HostExit, Segment, SegmentRegister};
 
 async fn check_system_services() {
     let mut dos = common::dos().await;
@@ -64,7 +64,10 @@ async fn check_guest_interrupt_vector() {
     program.resize(0x20, 0);
     program.extend_from_slice(&[0xb8, 0x34, 0x12, 0xcf]); // MOV AX,1234; IRET
     dos.load_com(&program, Default::default()).unwrap();
-    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(100).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
     let mut result = [0; 2];
     dos.cpu()

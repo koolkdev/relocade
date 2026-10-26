@@ -1,4 +1,7 @@
-use super::{budget_exhausted, exception, unsupported, ExecutionExit};
+use super::{
+    budget_exhausted, exception, unsupported, ExecutionExit, ExecutionExitValues, HostExit,
+    HostExitValues,
+};
 use crate::test_step::{returned, Argument, Event, Input, Observation, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Exception, ExceptionValues};
 use relocade_compiler::{abi::Function, Program, I8};
@@ -17,6 +20,8 @@ fn exit_module() -> Vec<u8> {
         "simd_floating_point",
         "unsupported",
         "budget_exhausted",
+        "host_return",
+        "host_call",
     ] {
         Function::<fn(u32, u32) -> ExecutionExit>::new("test", name)
             .define(&mut program, move |body, (detail, address)| {
@@ -30,6 +35,13 @@ fn exit_module() -> Vec<u8> {
                     "stack_fault" => ExceptionValues::stack_fault(detail),
                     "general_protection" => ExceptionValues::general_protection(detail),
                     "page_fault" => ExceptionValues::page_fault(address, detail),
+                    "host_return" => {
+                        return body.return_(ExecutionExitValues::host(HostExit::Return))
+                    }
+                    "host_call" => {
+                        return body
+                            .return_(ExecutionExitValues::host(HostExitValues::call(address)))
+                    }
                     "budget_exhausted" => return budget_exhausted(body),
                     "unsupported" => return unsupported(body, &address, detail.truncate::<I8>()),
                     _ => unreachable!(),
@@ -42,7 +54,7 @@ fn exit_module() -> Vec<u8> {
 }
 
 #[test]
-fn generated_exits_preserve_architectural_payloads() {
+fn generated_exits_preserve_payloads() {
     let bytes = exit_module();
     let cpu = CpuState::filled(0xa5).to_bytes();
     let detail = 0xf123_abcd_u32;
@@ -82,6 +94,8 @@ fn generated_exits_preserve_architectural_payloads() {
             },
         ),
         ("budget_exhausted", ExecutionExit::BudgetExhausted),
+        ("host_return", ExecutionExit::Host(HostExit::Return)),
+        ("host_call", ExecutionExit::Host(HostExit::Call { address })),
     ]);
     for (name, expected) in cases {
         let module = TestModule::new(&CompiledModule {
@@ -108,5 +122,39 @@ fn generated_exits_preserve_architectural_payloads() {
             },
             "{name}"
         );
+    }
+}
+
+#[test]
+fn execution_exits_share_four_wasm_values() {
+    use relocade_wasm_bindings::{lift_flat, lower_flat};
+
+    let address = 0x89ab_cdef;
+    let error_code = 0xf123_abcd;
+    let cases = [
+        (ExecutionExit::Host(HostExit::Return), (0, 0, 0, 0)),
+        (
+            ExecutionExit::Host(HostExit::Call { address }),
+            (0, 1, address as i32, 0),
+        ),
+        (ExecutionExit::BudgetExhausted, (1, 0, 0, 0)),
+        (
+            ExecutionExit::Exception(Exception::PageFault {
+                linear_address: address,
+                error_code,
+            }),
+            (2, 6, address as i32, error_code as i32),
+        ),
+        (
+            ExecutionExit::UnsupportedInstruction {
+                eip: address,
+                opcode: 0xff,
+            },
+            (3, address as i32, 255, 0),
+        ),
+    ];
+    for (exit, flat) in cases {
+        assert_eq!(lower_flat::<ExecutionExit>(exit), flat);
+        assert_eq!(lift_flat::<ExecutionExit>(flat), Some(exit));
     }
 }

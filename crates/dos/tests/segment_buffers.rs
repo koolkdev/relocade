@@ -2,7 +2,7 @@ mod common;
 
 use common::{path_service, service, success, Backend, SERVICE_PROGRAM};
 use relocade_dos::{Dos, DosServices, FileAccess};
-use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
+use relocade_x86::{ExecutionExit, HostExit, Segment, SegmentRegister};
 use std::io::Write;
 
 const BASE: u32 = 0x30000;
@@ -78,7 +78,10 @@ fn deferred_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
             cpu.set_cx(3);
             cpu.set_dx(0xffff);
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         dos.stdin().write_all(b"abc\r").unwrap();
         assert_eq!(
             dos.cpu().run_async(10).await.unwrap(),

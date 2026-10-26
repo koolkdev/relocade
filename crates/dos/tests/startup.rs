@@ -1,7 +1,7 @@
 mod common;
 
 use relocade_dos::{LoadError, LoadOptions};
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 
 // DS points to the PSP at both COM and MZ entry.
 const PRINT_TAIL: &[u8] = &[
@@ -41,7 +41,10 @@ async fn check_command_tails() {
             assert_eq!(bytes[0] as usize, tail.len());
             assert_eq!(&bytes[1..1 + tail.len()], tail);
             assert_eq!(bytes[1 + tail.len()], 13);
-            assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+            assert_eq!(
+                dos.cpu().run(100).unwrap(),
+                ExecutionExit::Host(HostExit::Return)
+            );
             assert_eq!(dos.exit_status(), Some(Ok(0)));
             assert_eq!(common::output(dos.stdout()), tail);
         }

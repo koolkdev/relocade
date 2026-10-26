@@ -46,7 +46,7 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
             execution.write_xmm(RegisterCode::from_code(0), 0_u128.into())?;
             execution.complete(|body, _| {
                 body.return_(crate::ExecutionExitValues::from(
-                    crate::ExecutionExit::HostReturn,
+                    crate::ExecutionExit::Host(crate::HostExit::Return),
                 ))
             })
         },
@@ -118,7 +118,7 @@ fn exceptions(fallback_enabled: bool) {
                     outcome: returned(if fault {
                         crate::ExecutionExit::Exception(crate::Exception::SimdFloatingPoint)
                     } else {
-                        crate::ExecutionExit::HostReturn
+                        crate::ExecutionExit::Host(crate::HostExit::Return)
                     }),
                     snapshot: Snapshot {
                         cpu: expected.to_bytes().to_vec(),

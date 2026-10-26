@@ -3,7 +3,7 @@ use crate::{
         execution::{test_frontends, Frontend},
         step::{decode, CallPatches, Event, Input, Outcome, Snapshot, TestModule},
     },
-    Compiler, CpuState, ExecutionContext, ExecutionExit, SegmentProfile,
+    Compiler, CpuState, ExecutionContext, ExecutionExit, HostExit, SegmentProfile,
 };
 
 fn interpreter() -> &'static TestModule {
@@ -30,7 +30,7 @@ fn execute(
         target.to_le_bytes().to_vec(),
     )]));
     input.observe_guest = true;
-    input.dispatch_return = ExecutionExit::HostReturn;
+    input.dispatch_return = ExecutionExit::Host(HostExit::Return);
     let block;
     let module = match frontend {
         Frontend::Block => {
@@ -84,7 +84,7 @@ fn conditional_boundary(frontend: Frontend) {
                 if target <= 43 {
                     ExecutionExit::BudgetExhausted
                 } else {
-                    ExecutionExit::HostReturn
+                    ExecutionExit::Host(HostExit::Return)
                 }
             );
         }
@@ -142,7 +142,7 @@ fn unsigned_target(frontend: Frontend) {
             if exhausted {
                 ExecutionExit::BudgetExhausted
             } else {
-                ExecutionExit::HostReturn
+                ExecutionExit::Host(HostExit::Return)
             }
         );
     }
@@ -183,7 +183,7 @@ fn step_checks_budget_after_one_instruction_before_dispatch() {
                 std::mem::offset_of!(ExecutionContext, instruction_target) as u32,
                 target.to_le_bytes().to_vec(),
             )]));
-            input.dispatch_return = ExecutionExit::HostReturn;
+            input.dispatch_return = ExecutionExit::Host(HostExit::Return);
             let observation = TestModule::interpreter().observe(&input, 1);
             let Some(Event::Return {
                 outcome: Outcome::Returned(values),
@@ -202,7 +202,7 @@ fn step_checks_budget_after_one_instruction_before_dispatch() {
                 if target == 41 {
                     ExecutionExit::BudgetExhausted
                 } else {
-                    ExecutionExit::HostReturn
+                    ExecutionExit::Host(HostExit::Return)
                 }
             );
             assert_eq!(observation.events.len(), if target == 41 { 1 } else { 2 });

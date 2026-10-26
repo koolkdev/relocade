@@ -50,9 +50,19 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExi
         });
         expected.push(result);
     };
-    push(cpu, &table, "dispatch", crate::ExecutionExit::HostReturn);
+    push(
+        cpu,
+        &table,
+        "dispatch",
+        crate::ExecutionExit::Host(crate::HostExit::Return),
+    );
     table.insert(base, 2);
-    push(cpu, &table, "dispatch", crate::ExecutionExit::Deferred);
+    push(
+        cpu,
+        &table,
+        "dispatch",
+        crate::ExecutionExit::Host(crate::HostExit::Deferred),
+    );
     table.insert(base, 3);
     push(
         cpu,
@@ -109,9 +119,19 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExi
             },
         );
     }
-    push(cpu, &table, "interpret", crate::ExecutionExit::HostReturn);
+    push(
+        cpu,
+        &table,
+        "interpret",
+        crate::ExecutionExit::Host(crate::HostExit::Return),
+    );
     table.remove(base);
-    push(cpu, &table, "dispatch", crate::ExecutionExit::HostReturn);
+    push(
+        cpu,
+        &table,
+        "dispatch",
+        crate::ExecutionExit::Host(crate::HostExit::Return),
+    );
     // Dense aliases exercise collisions and grow the metadata beyond one Wasm page.
     for offset in 0..8192 {
         table.insert(base.wrapping_add(offset), 2 + offset % 2);
@@ -123,8 +143,8 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExi
             &table,
             "dispatch",
             match offset {
-                0 => crate::ExecutionExit::Deferred,
-                8192 => crate::ExecutionExit::HostReturn,
+                0 => crate::ExecutionExit::Host(crate::HostExit::Deferred),
+                8192 => crate::ExecutionExit::Host(crate::HostExit::Return),
                 _ => crate::ExecutionExit::UnsupportedInstruction {
                     eip: u32::MAX,
                     opcode: 0xf3,
@@ -229,8 +249,8 @@ fn callable_dispatch_resolves_functions_and_fallback() {
     ] {
         let dispatcher = Module::new(&Compiler::new(profile).compile_dispatcher().unwrap().bytes);
         let targets = [
-            constant(crate::ExecutionExit::HostReturn),
-            constant(crate::ExecutionExit::Deferred),
+            constant(crate::ExecutionExit::Host(crate::HostExit::Return)),
+            constant(crate::ExecutionExit::Host(crate::HostExit::Deferred)),
             constant(crate::ExecutionExit::UnsupportedInstruction {
                 eip: u32::MAX,
                 opcode: 0xf3,
@@ -249,7 +269,9 @@ fn callable_dispatch_resolves_functions_and_fallback() {
 fn compiled_blocks_chain_until_budget_or_missing_entry() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let dispatcher = Module::new(&compiler.compile_dispatcher().unwrap().bytes);
-    let mut targets = vec![constant(crate::ExecutionExit::HostReturn)];
+    let mut targets = vec![constant(crate::ExecutionExit::Host(
+        crate::HostExit::Return,
+    ))];
     let mut table = EntryTable::default();
     // INC EAX; JMP 0x2000, followed by INC EBX; JMP 0x1000.
     for (address, code) in [
@@ -278,7 +300,7 @@ fn compiled_blocks_chain_until_budget_or_missing_entry() {
     let outputs = execute(&dispatcher, &targets, &cases);
     for (output, (exit, count, eax, ebx)) in outputs.iter().zip([
         (crate::ExecutionExit::BudgetExhausted, 6, 2, 1),
-        (crate::ExecutionExit::HostReturn, 2, 1, 0),
+        (crate::ExecutionExit::Host(crate::HostExit::Return), 2, 1, 0),
     ]) {
         assert_eq!(output.exit, exit);
         let cpu = CpuState::from_bytes(output.cpu[..CpuState::BYTE_LEN].try_into().unwrap());

@@ -1,7 +1,7 @@
 use crate::{runtime::access::CpuAccess, HookResult, RuntimeMemory, RuntimeState};
 use crate::{CpuConfig, CpuStorage, CpuView, MachineConfig, MemoryView};
 use relocade_wasm_runtime::WasmContext;
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 use std::{future::Future, pin::Pin};
 
 #[cfg(test)]
@@ -47,10 +47,10 @@ impl<'a, T> HostCall<'a, T> {
         &mut self.access.state_mut().data
     }
 
-    /// Defers an async handler until the generated guest call has returned.
+    /// Queues an async handler for `Cpu::run_async`.
     ///
-    /// Return this method's `HookResult::Exit(ExecutionExit::Deferred)` from the hook to
-    /// suspend guest execution.
+    /// Return this method's result from the hook to suspend guest execution.
+    /// It carries `ExecutionExit::Host(HostExit::Deferred)`.
     /// The handler must own its captures; it cannot capture this call's borrows.
     /// `Cpu::run_async` gives it fresh access to the stopped CPU, memory and
     /// state. That access may be held across awaits. The handler owns the ABI
@@ -68,7 +68,7 @@ impl<'a, T> HostCall<'a, T> {
             "host call already deferred"
         );
         self.access.state_mut().pending = Some(Box::new(handler));
-        HookResult::Exit(ExecutionExit::Deferred)
+        HookResult::Exit(ExecutionExit::Host(HostExit::Deferred))
     }
 }
 

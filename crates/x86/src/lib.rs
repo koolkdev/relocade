@@ -76,8 +76,9 @@ pub use segment::{
 };
 pub use state::{
     CpuState, DescriptorTableRegister, ExecutionContext, ExecutionExit, ExecutionExitCase,
-    ExecutionExitValues, FlagBytes, FlagsState, Registers, SegmentRegister, Segments, SimdState,
-    StatusSourceState, SystemSegmentRegister, X87Control, X87Register, X87State, X87Status,
+    ExecutionExitValues, FlagBytes, FlagsState, HostExit, HostExitCase, HostExitValues, Registers,
+    SegmentRegister, Segments, SimdState, StatusSourceState, SystemSegmentRegister, X87Control,
+    X87Register, X87State, X87Status,
 };
 
 /// A WebAssembly module and the exported function that enters it.

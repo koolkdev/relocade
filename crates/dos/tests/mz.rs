@@ -1,7 +1,7 @@
 mod common;
 
 use relocade_dos::LoadError;
-use relocade_x86::{ExecutionExit, Segment};
+use relocade_x86::{ExecutionExit, HostExit, Segment};
 
 fn set_word(bytes: &mut [u8], offset: usize, value: u16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
@@ -72,7 +72,10 @@ async fn check_mz_execution() {
         machine.memory().read(0x10144, &mut after_image).unwrap();
         assert_eq!(after_image, [0; 4]); // Ignore bytes beyond the declared file size.
     }
-    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(100).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(dos.exit_status(), Some(Ok(7)));
     assert_eq!(common::output(dos.stdout()), b"MZ\r\n");
 
@@ -116,7 +119,10 @@ async fn check_mz_execution() {
     assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffa);
     assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ff9);
     assert_eq!(cpu.segments[Segment::Ds].selector, 0x1000);
-    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(100).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     assert_eq!(dos.exit_status(), Some(Ok(255))); // AH=48h reports no space.
 }
 
@@ -132,7 +138,10 @@ async fn check_invalid_mz() {
         Default::default(),
     )
     .unwrap();
-    assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+    assert_eq!(
+        dos.cpu().run(100).unwrap(),
+        ExecutionExit::Host(HostExit::Return)
+    );
     let saved_cpu = dos.cpu().context().cpu().snapshot();
     let mut saved_memory = vec![0; 0x110]; // First MCB and PSP.
     dos.cpu()

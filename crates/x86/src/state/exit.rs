@@ -3,7 +3,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 
 /// A return from a generated execution entry.
 ///
-/// Every generated execution entry and runtime callback shares this Rust ABI.
+/// Every generated execution entry shares this Rust ABI.
 #[derive(
     relocade_wasm_bindings::WasmAbi,
     relocade_compiler::abi::CompilerValue,
@@ -14,13 +14,8 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
     PartialEq,
 )]
 pub enum ExecutionExit {
-    /// A host-call function requested a return to the embedding.
-    /// The embedding owns the reason, such as process termination or a service error.
-    HostReturn,
-    /// A host-call function queued work to be awaited outside guest execution.
-    /// Runtime hooks produce this exit through `HostCall::defer`; returning it
-    /// without a queued handler is a programming error.
-    Deferred,
+    /// A host entry or handler requested control outside guest execution.
+    Host(HostExit),
     /// The instruction budget was consumed at a completed block boundary.
     BudgetExhausted,
     Exception(Exception),
@@ -29,6 +24,30 @@ pub enum ExecutionExit {
         eip: u32,
         opcode: u8,
     },
+}
+
+/// Host control flow carried by [`ExecutionExit::Host`].
+#[derive(
+    relocade_wasm_bindings::WasmAbi,
+    relocade_compiler::abi::CompilerValue,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    PartialEq,
+)]
+pub enum HostExit {
+    /// A host-call function requested a return to the embedding.
+    /// The embedding owns the reason, such as process termination or a service error.
+    Return,
+    /// A generated entry requests the handler at this guest linear address.
+    /// CPU state is published; the runtime consumes this exit before resuming.
+    /// Reserved for execution entries, not handler results.
+    Call { address: u32 },
+    /// A host-call function queued work to be awaited outside guest execution.
+    /// Runtime hooks produce this exit through `HostCall::defer`; returning it
+    /// without a queued handler is a programming error.
+    Deferred,
 }
 
 /// CPU state must already describe the completed block.

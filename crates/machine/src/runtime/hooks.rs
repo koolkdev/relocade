@@ -1,71 +1,64 @@
-use relocade_compiler::{abi::Function, Program};
+use relocade_compiler::Program;
 use relocade_wasm_runtime::WasmCompiler;
-use relocade_x86::{abi, ExecutionExit};
+use relocade_x86::{abi, ExecutionExit, ExecutionExitValues, HostExitValues};
 
 use super::{Cpu, DispatchEntry, HostCall, Result, RuntimeBackend, RuntimeState};
+use std::rc::Rc;
 
 /// Result of a synchronous or deferred host hook.
-/// The same type crosses generated hook entries through the shared Wasm ABI.
-#[derive(
-    relocade_wasm_bindings::WasmAbi,
-    relocade_compiler::abi::CompilerValue,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    PartialEq,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HookResult {
     /// Resume guest dispatch at the continuation set by the handler.
     Continue,
-    /// Return to Rust with an execution exit.
+    /// Return an execution exit to the run loop. `HostExit::Call` is
+    /// reserved for generated entries and must not be returned by a handler.
     Exit(ExecutionExit),
 }
 
-type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> HookResult + Send + Sync;
+pub(super) type Handler<T> = dyn Fn(&mut HostCall<'_, T>) -> HookResult;
 
 /// A host function reached at a guest linear address through ordinary dispatch.
 /// `T` is the backend's environment state, borrowed through the caller.
 ///
 /// ```
 /// use relocade_machine::{Hook, HookResult, HostCall};
-/// use relocade_x86::ExecutionExit;
+/// use relocade_x86::{ExecutionExit, HostExit};
 ///
 /// fn terminate(call: &mut HostCall<'_, Option<u8>>) -> HookResult {
 ///     let code = call.cpu().al();
 ///     *call.state_mut() = Some(code);
-///     HookResult::Exit(ExecutionExit::HostReturn)
+///     HookResult::Exit(ExecutionExit::Host(HostExit::Return))
 /// }
 /// let hook = Hook::new(0xf0100, terminate);
 /// ```
 pub struct Hook<T = ()> {
     address: u32,
-    handler: Box<Handler<T>>,
+    handler: Rc<Handler<T>>,
 }
 
 impl<T> Hook<T> {
     /// On Continue, the handler must set the guest continuation in CPU state.
     /// Exit returns its execution exit without changing that state.
     /// To defer work, return the result of [`HostCall::defer`], which queues the
-    /// required handler. Returning `ExecutionExit::Deferred` without a queued
-    /// handler is a programming error.
+    /// required handler. Returning `ExecutionExit::Host(HostExit::Deferred)`
+    /// without a queued handler is a programming error.
     /// Interrupt/ABI return conventions belong to the handler's environment.
-    /// Captures must be Send + Sync. Mutable environment data belongs in the
-    /// caller's state, which does not need to be Send or Sync.
+    /// Handlers run in Rust after guest Wasm returns. Captures and environment
+    /// data stay on the CPU's thread and do not need Send or Sync.
     pub fn new(
         address: u32,
-        handler: impl Fn(&mut HostCall<'_, T>) -> HookResult + Send + Sync + 'static,
+        handler: impl Fn(&mut HostCall<'_, T>) -> HookResult + 'static,
     ) -> Self {
         Self {
             address,
-            handler: Box::new(handler),
+            handler: Rc::new(handler),
         }
     }
 }
 
 impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
-    /// Generates and installs ordinary callable entries, each with its own direct
-    /// host import. Dispatch neither classifies hooks nor calls a hook registry.
+    /// Installs callable entries that return their address to the Rust run loop.
+    /// The CPU owns the handlers and invokes them after the guest call returns.
     ///
     /// Entries begin with CPU state already published by the predecessor. They
     /// cache no CPU values across the host call. Hooks do not retire guest
@@ -78,38 +71,28 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
             .map(|index| format!("hook_{index}"))
             .collect();
         let mut program = Program::new();
-        let dispatch = abi::DISPATCH.import(&mut program);
-        let mut imports = Vec::new();
+        let mut handlers = Vec::new();
         let mut entries = Vec::new();
         for (hook, name) in hooks.into_iter().zip(&names) {
-            let declaration: Function<fn() -> HookResult> = Function::new("hooks", name);
-            let import = declaration.import(&mut program);
-            let function = program.function::<abi::ExecutionSignature>(move |mut body, ()| {
-                import
-                    .call(&mut body, ())?
-                    .match_(&mut body, |body, result| match result {
-                        HookResultCase::Continue => dispatch.tail_call(body, ()),
-                        HookResultCase::Exit(exit) => body.return_(exit),
-                    })?;
-                body.trap()
+            let address = hook.address;
+            let function = program.function::<abi::ExecutionSignature>(move |body, ()| {
+                body.return_(ExecutionExitValues::host(HostExitValues::call(address)))
             });
             program.export(name, function)?;
-            let bindings = self.access.bindings.clone();
-            imports.push(self.access.backend.bind_host(
-                declaration,
-                Box::new(move |mut caller| {
-                    bindings.with_host_call(&mut caller, |call| (hook.handler)(call))
-                }),
-            ));
+            handlers.push((address, hook.handler));
             entries.push(DispatchEntry {
-                address: hook.address,
+                address,
                 export: name,
             });
         }
         let bytes = program.compile()?;
         let module = self.access.backend.compiler().compile(&bytes).await?;
         self.dispatch
-            .install(&mut self.access, &module, &imports, &entries)
-            .await
+            .install(&mut self.access, &module, &entries)
+            .await?;
+        // Entry addresses also identify their handlers, including replacements.
+        // Publish only after the module and its callable entries are installed.
+        self.access.backend.state_mut().hooks.extend(handlers);
+        Ok(())
     }
 }

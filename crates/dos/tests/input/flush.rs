@@ -1,6 +1,6 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 use std::io::Write;
 
 #[test]
@@ -19,11 +19,17 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 cpu.set_dx(0x400);
                 cpu.set_eflags(0x643);
             }
-            assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+            assert_eq!(
+                dos.cpu().run(10).unwrap(),
+                ExecutionExit::Host(HostExit::Deferred)
+            );
             assert!(common::output(dos.stdout()).is_empty());
             assert_eq!(dos.cpu().context().cpu().sp(), 0xfff8);
             // Calling run again cannot flush input or push another interrupt frame.
-            assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+            assert_eq!(
+                dos.cpu().run(10).unwrap(),
+                ExecutionExit::Host(HostExit::Deferred)
+            );
             dos.stdin()
                 .write_all(if function == 0x0a { b"K\r" } else { b"K" })
                 .unwrap();

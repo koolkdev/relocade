@@ -1,6 +1,6 @@
 use super::WakeCount;
 use crate::common::{self, path_service, service, success, SERVICE_PROGRAM};
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 use std::{
     future::Future,
     io::Write,
@@ -28,7 +28,10 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
             cpu.set_cx(5);
             cpu.set_dx(0x400);
         }
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);

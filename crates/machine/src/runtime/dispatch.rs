@@ -35,9 +35,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
         // Link the dispatcher first; the interpreter imports its entry points.
         let dispatch = Self::link_dispatcher(backend, bindings, &module, host_imports).await?;
         let module = code::interpreter(backend, target).await?;
-        let instance = dispatch
-            .instantiate(backend, bindings, &module, &[])
-            .await?;
+        let instance = dispatch.instantiate(backend, bindings, &module).await?;
         dispatch.table.install_interpreter(backend, &instance)?;
         Ok(dispatch)
     }
@@ -60,8 +58,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
         })
     }
 
-    pub(crate) fn run(&mut self, access: &mut CpuAccess<B>, target: u64) -> ExecutionExit {
-        access.set_instruction_target(target);
+    pub(crate) fn run(&mut self, access: &mut CpuAccess<B>) -> ExecutionExit {
         access.backend.call(&self.dispatch, ())
     }
 
@@ -69,11 +66,10 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
         &mut self,
         access: &mut CpuAccess<B>,
         module: &B::Module,
-        additional: &[Import<'_, B>],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let instance = self
-            .instantiate(&mut access.backend, &access.bindings, module, additional)
+            .instantiate(&mut access.backend, &access.bindings, module)
             .await?;
         self.table.install(&mut access.backend, &instance, entries)
     }
@@ -83,7 +79,6 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
         backend: &mut B,
         bindings: &RuntimeMemory<B::Memory>,
         module: &B::Module,
-        additional: &[Import<'_, B>],
     ) -> Result<B::Instance> {
         let mut imports = bindings.imports(backend).to_vec();
         imports.extend(self.table.imports(backend));
@@ -92,7 +87,6 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Dispatch<B> {
             backend.bind(abi::INTERPRET, &self.interpret),
         ]);
         imports.extend(self.host_imports.iter().cloned());
-        imports.extend(additional.iter().cloned());
         backend
             .instantiate(module, &imports)
             .await

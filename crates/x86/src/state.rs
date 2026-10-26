@@ -12,7 +12,9 @@ pub(crate) mod x87;
 
 pub use context::ExecutionContext;
 pub(super) use cpu::Cpu;
-pub use exit::{ExecutionExit, ExecutionExitCase, ExecutionExitValues};
+pub use exit::{
+    ExecutionExit, ExecutionExitCase, ExecutionExitValues, HostExit, HostExitCase, HostExitValues,
+};
 pub use layout::{
     CpuState, DescriptorTableRegister, FlagBytes, FlagsState, Registers, SegmentRegister, Segments,
     SimdState, StatusSourceState, SystemSegmentRegister, X87Control, X87Register, X87State,

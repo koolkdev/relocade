@@ -11,7 +11,7 @@ mod system;
 
 use crate::{files::CreateMode, state::DosState, DosServices, ServiceError};
 use relocade_machine::{HookResult, HostCall};
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 
 const READ_CHARACTER_ECHO: u8 = 0x01;
 const WRITE_CHARACTER: u8 = 0x02;
@@ -132,5 +132,5 @@ fn return_to_host(
         state.files.close_all();
     }
     state.exit_status = Some(status);
-    HookResult::Exit(ExecutionExit::HostReturn)
+    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
 }

@@ -48,7 +48,7 @@ pub use callback::HostCall;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-pub use hooks::{Hook, HookResult, HookResultCase, HookResultValues};
+pub use hooks::{Hook, HookResult};
 pub use memory::RuntimeMemory;
 use relocade_wasm_runtime::WasmCompiler;
 pub use state::RuntimeState;
@@ -96,8 +96,12 @@ impl<T: 'static, B: RuntimeBackend<State = RuntimeState<T>>> Cpu<B> {
     ) -> Result<()> {
         let module = self.access.backend.compiler().compile(bytes).await?;
         self.dispatch
-            .install(&mut self.access, &module, &[], entries)
-            .await
+            .install(&mut self.access, &module, entries)
+            .await?;
+        for entry in entries {
+            self.access.backend.state_mut().hooks.remove(&entry.address);
+        }
+        Ok(())
     }
 
     /// Borrows the stopped CPU and guest memory. Writes take effect immediately.

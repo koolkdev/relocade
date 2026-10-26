@@ -295,7 +295,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             2,
             0,
             2,
-            relocade_x86::ExecutionExit::HostReturn,
+            relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return),
         ),
         (
             IMMEDIATE,
@@ -307,7 +307,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x8000_0002,
             0,
             -2147483646,
-            relocade_x86::ExecutionExit::HostReturn,
+            relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return),
         ),
         (
             IMMEDIATE,
@@ -319,7 +319,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             0x1005,
             18,
             4101,
-            relocade_x86::ExecutionExit::Deferred,
+            relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Deferred),
         ),
     ] {
         let block = compile_block_from_bytes(start, bytes, limit).unwrap();

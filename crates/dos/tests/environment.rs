@@ -1,7 +1,7 @@
 mod common;
 
 use relocade_dos::{LoadError, LoadOptions};
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 
 async fn check_environments() {
     let mut dos = common::dos().await;
@@ -49,7 +49,10 @@ async fn check_environments() {
             .unwrap();
         assert_eq!(&mcb[1..3], &[0, 0x10]); // The root PSP owns the environment.
         assert_eq!(&mcb[3..5], &[3, 0]); // 48 bytes occupy three paragraphs.
-        assert_eq!(dos.cpu().run(100).unwrap(), ExecutionExit::HostReturn);
+        assert_eq!(
+            dos.cpu().run(100).unwrap(),
+            ExecutionExit::Host(HostExit::Return)
+        );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
         assert_eq!(common::output(dos.stdout()), expected);
     }

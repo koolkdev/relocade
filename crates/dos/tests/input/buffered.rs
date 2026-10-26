@@ -1,5 +1,5 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
-use relocade_x86::ExecutionExit;
+use relocade_x86::{ExecutionExit, HostExit};
 use std::{
     future::Future,
     io::Write,
@@ -29,7 +29,10 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         input.write_all(b"ab").unwrap();
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         assert_eq!(common::output(output.clone()), b"ab");
         let mut buffer = [0; 8];
         dos.cpu()
@@ -39,7 +42,10 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             .unwrap();
         assert_eq!(buffer, [5, 0, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb]);
         assert_eq!(dos.cpu().context().cpu().sp(), 0xfff8);
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred);
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        );
         assert!(common::output(output.clone()).is_empty()); // No replayed echo.
         {
             let mut run = pin!(dos.cpu().run_async(10));
@@ -164,7 +170,10 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
         dos.cpu().context().cpu().set_ax(0x0a00);
         dos.cpu().context().cpu().set_dx(0x400);
         dos.cpu().context().cpu().set_eip(0x100);
-        assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::Deferred); // EOF doesn't read K.
+        assert_eq!(
+            dos.cpu().run(10).unwrap(),
+            ExecutionExit::Host(HostExit::Deferred)
+        ); // EOF doesn't read K.
         dos.load_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu()
             .context()
