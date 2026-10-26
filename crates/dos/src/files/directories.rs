@@ -1,10 +1,10 @@
 //! Directory operations and per-drive current directories.
 
-use super::Files;
+use super::FileSystem;
 use crate::error::DosError;
 use std::io::ErrorKind;
 
-impl Files {
+impl FileSystem {
     pub(crate) fn create_directory(&mut self, path: &[u8]) -> Result<(), DosError> {
         let directory = self.resolve(path)?;
         self.drives

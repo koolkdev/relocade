@@ -9,7 +9,7 @@ pub(super) fn select_drive(
     state: &mut DosState,
 ) -> HookResult {
     let number = call.cpu.dl();
-    let count = state.files.select_drive(number);
+    let count = state.filesystem.select_drive(number);
     call.cpu.set_al(count);
     return_from_interrupt(call)
 }
@@ -19,7 +19,7 @@ pub(super) fn get_drive(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let number = state.files.current_drive();
+    let number = state.filesystem.current_drive();
     call.cpu.set_al(number);
     return_from_interrupt(call)
 }
@@ -29,7 +29,7 @@ pub(super) fn create_directory(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let result = read_path(call).and_then(|path| state.files.create_directory(&path));
+    let result = read_path(call).and_then(|path| state.filesystem.create_directory(&path));
     return_result(call, result)
 }
 
@@ -38,7 +38,7 @@ pub(super) fn remove_directory(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let result = read_path(call).and_then(|path| state.files.remove_directory(&path));
+    let result = read_path(call).and_then(|path| state.filesystem.remove_directory(&path));
     return_result(call, result)
 }
 
@@ -47,7 +47,7 @@ pub(super) fn change_directory(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
 ) -> HookResult {
-    let result = read_path(call).and_then(|path| state.files.change_directory(&path));
+    let result = read_path(call).and_then(|path| state.filesystem.change_directory(&path));
     return_result(call, result)
 }
 
@@ -60,7 +60,7 @@ pub(super) fn get_directory(
     let drive = cpu.dl();
     let segment = cpu.segment(Segment::Ds);
     let offset = cpu.si();
-    let result = state.files.current_directory(drive).map(|path| {
+    let result = state.filesystem.current_directory(drive).map(|path| {
         let mut bytes = path.replace('/', "\\").into_bytes();
         bytes.push(0);
         write_wrapping(&mut call.memory, &segment, offset, &bytes);

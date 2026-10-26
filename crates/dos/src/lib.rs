@@ -164,7 +164,10 @@ impl Dos {
         letter: char,
         filesystem: relocade_vfs::MemoryFileSystem,
     ) -> std::io::Result<()> {
-        self.state.borrow_mut().files.mount(letter, filesystem)
+        let state = &mut *self.state.borrow_mut();
+        state.filesystem.mount(letter, filesystem)?;
+        state.files.invalidate_searches(letter.to_ascii_uppercase());
+        Ok(())
     }
 
     /// Supplies bytes at an ASCII path on a mounted drive with an initial read-only attribute.
@@ -181,7 +184,7 @@ impl Dos {
     ) -> Result<(), MountError> {
         self.state
             .borrow_mut()
-            .files
+            .filesystem
             .mount_file(path, contents, access)
     }
 
@@ -189,7 +192,7 @@ impl Dos {
     /// Like mount_file, relative paths start at the root and default to C:.
     /// Returns None for invalid paths or files that do not exist.
     pub fn read_file(&self, path: &str) -> Option<Vec<u8>> {
-        self.state.borrow().files.read_file(path)
+        self.state.borrow().filesystem.read_file(path)
     }
 
     pub fn cpu(&mut self) -> &mut Cpu<DosServices> {

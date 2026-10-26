@@ -1,7 +1,8 @@
 //! DOS open handles, shared cursors and I/O.
 
 use super::{
-    devices::OpenDevice, AccessMode, Device, Files, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING,
+    devices::OpenDevice, AccessMode, Device, FileSystem, Files, ARCHIVE_ATTRIBUTE,
+    COMPATIBILITY_SHARING,
 };
 use crate::{error::DosError, path::ResolvedPath, stdio::OutputStream};
 use relocade_vfs::File;
@@ -204,23 +205,27 @@ impl Files {
         Ok(open.position)
     }
 
-    pub(crate) fn close(&mut self, handle: u16) -> Result<(), DosError> {
+    pub(crate) fn close(
+        &mut self,
+        filesystem: &mut FileSystem,
+        handle: u16,
+    ) -> Result<(), DosError> {
         let open = self
             .handles
             .get_mut(usize::from(handle))
             .and_then(Option::take)
             .ok_or(DosError::InvalidHandle)?;
-        self.commit_handle(open);
+        Self::commit_handle(filesystem, open);
         Ok(())
     }
 
-    pub(crate) fn commit(&mut self, handle: u16) -> Result<(), DosError> {
+    pub(crate) fn commit(&self, filesystem: &mut FileSystem, handle: u16) -> Result<(), DosError> {
         let open = self.handle(handle)?.clone();
-        self.commit_handle(open);
+        Self::commit_handle(filesystem, open);
         Ok(())
     }
 
-    fn commit_handle(&mut self, handle: OpenHandle) {
+    fn commit_handle(filesystem: &mut FileSystem, handle: OpenHandle) {
         let OpenHandle::File(open) = handle else {
             return;
         };
@@ -228,14 +233,14 @@ impl Files {
         let open = open.borrow();
         // The host may have replaced this path while the old file was still open.
         if open.written
-            && self
+            && filesystem
                 .drives
                 .get(open.path.drive)
                 .unwrap()
                 .open(&open.path.relative)
                 .is_ok_and(|file| file.same_file(&open.file))
         {
-            *self.attributes.entry(open.path.clone()).or_default() |= ARCHIVE_ATTRIBUTE as u8;
+            *filesystem.attributes.entry(open.path.clone()).or_default() |= ARCHIVE_ATTRIBUTE as u8;
         }
     }
 
@@ -248,6 +253,7 @@ impl Files {
 
     pub(crate) fn force_duplicate(
         &mut self,
+        filesystem: &mut FileSystem,
         source: u16,
         destination: u16,
     ) -> Result<(), DosError> {
@@ -260,7 +266,7 @@ impl Files {
             .get_mut(usize::from(destination))
             .ok_or(DosError::InvalidHandle)?;
         if let Some(replaced) = slot.replace(open) {
-            self.commit_handle(replaced);
+            Self::commit_handle(filesystem, replaced);
         }
         Ok(())
     }
@@ -304,8 +310,8 @@ impl Files {
         })
     }
 
-    pub(crate) fn reset_handles(&mut self) {
-        self.close_all();
+    pub(crate) fn reset_handles(&mut self, filesystem: &mut FileSystem) {
+        self.close_all(filesystem);
         self.stdio.clear();
         self.search_directories.clear();
         for (slot, device) in self.handles.iter_mut().zip([
@@ -322,9 +328,9 @@ impl Files {
         }
     }
 
-    pub(crate) fn close_all(&mut self) {
+    pub(crate) fn close_all(&mut self, filesystem: &mut FileSystem) {
         for handle in std::mem::take(&mut self.handles).into_iter().flatten() {
-            self.commit_handle(handle);
+            Self::commit_handle(filesystem, handle);
         }
     }
 

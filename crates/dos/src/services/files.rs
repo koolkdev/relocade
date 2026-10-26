@@ -26,17 +26,17 @@ pub(super) fn attributes(
     }
     let attributes = call.cpu.cx();
     let result = read_path(call).and_then(|path| match operation {
-        0 => state.files.attributes(&path).map(|attributes| {
+        0 => state.filesystem.attributes(&path).map(|attributes| {
             call.cpu.set_cx(attributes);
         }),
-        _ => state.files.set_attributes(&path, attributes),
+        _ => state.filesystem.set_attributes(&path, attributes),
     });
     return_result(call, result)
 }
 
 /// AH=41h: delete the file at DS:DX, subject to DOS attributes and sharing.
 pub(super) fn delete(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
-    let result = read_path(call).and_then(|path| state.files.delete(&path));
+    let result = read_path(call).and_then(|path| state.files.delete(&mut state.filesystem, &path));
     return_result(call, result)
 }
 
@@ -45,7 +45,7 @@ pub(super) fn rename(call: &mut CpuContext<'_, DosServices>, state: &mut DosStat
     let offset = call.cpu.di();
     let result = read_path(call).and_then(|from| {
         let to = read_path_at(call, Segment::Es, offset)?;
-        state.files.rename(&from, &to)
+        state.files.rename(&mut state.filesystem, &from, &to)
     });
     return_result(call, result)
 }
@@ -57,7 +57,11 @@ pub(super) fn create(
     mode: CreateMode,
 ) -> HookResult {
     let attributes = call.cpu.cx();
-    let result = read_path(call).and_then(|path| state.files.create(&path, attributes, mode));
+    let result = read_path(call).and_then(|path| {
+        state
+            .files
+            .create(&mut state.filesystem, &path, attributes, mode)
+    });
     let result = result.map(|handle| call.cpu.set_ax(handle));
     return_result(call, result)
 }
@@ -69,7 +73,9 @@ pub(super) fn create_temporary(
 ) -> HookResult {
     let attributes = call.cpu.cx();
     let result = read_path(call).and_then(|mut path| {
-        let handle = state.files.create_temporary(&mut path, attributes)?;
+        let handle = state
+            .files
+            .create_temporary(&mut state.filesystem, &mut path, attributes)?;
         let cpu = &call.cpu;
         let segment = cpu.segment(Segment::Ds);
         let offset = cpu.dx();
@@ -84,7 +90,7 @@ pub(super) fn create_temporary(
 /// AH=3Dh: open the NUL-terminated path at DS:DX using AL's access mode.
 pub(super) fn open(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
     let mode = call.cpu.al();
-    let result = read_path(call).and_then(|path| state.files.open(&path, mode));
+    let result = read_path(call).and_then(|path| state.files.open(&state.filesystem, &path, mode));
     let result = result.map(|handle| call.cpu.set_ax(handle));
     return_result(call, result)
 }
@@ -92,7 +98,7 @@ pub(super) fn open(call: &mut CpuContext<'_, DosServices>, state: &mut DosState)
 /// AH=3Eh: close BX's file handle.
 pub(super) fn close(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
     let handle = call.cpu.bx();
-    return_result(call, state.files.close(handle))
+    return_result(call, state.files.close(&mut state.filesystem, handle))
 }
 
 /// AH=68h/6Ah: commit BX's handle without closing it or moving its cursor.
@@ -100,7 +106,7 @@ pub(super) fn commit(call: &mut CpuContext<'_, DosServices>, state: &mut DosStat
     let handle = call.cpu.bx();
     let result = state
         .files
-        .commit(handle)
+        .commit(&mut state.filesystem, handle)
         .map(|()| call.cpu.set_ah(super::COMMIT_HANDLE));
     return_result(call, result)
 }
@@ -125,7 +131,12 @@ pub(super) fn force_duplicate(
 ) -> HookResult {
     let source = call.cpu.bx();
     let destination = call.cpu.cx();
-    return_result(call, state.files.force_duplicate(source, destination))
+    return_result(
+        call,
+        state
+            .files
+            .force_duplicate(&mut state.filesystem, source, destination),
+    )
 }
 
 /// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
