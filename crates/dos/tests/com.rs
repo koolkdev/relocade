@@ -82,11 +82,24 @@ async fn check_com_bounds_and_return() {
         ProcessStatus::Exited(Ok(0))
     );
 
-    // Another program reuses the prepared environment and replaces its allocation.
+    // A new image and return word replace only their bytes, even in previously used RAM.
+    let previous = vec![0xa5; 0xff00];
+    dos.cpu()
+        .context()
+        .memory
+        .write(0x10100, &previous)
+        .unwrap();
     dos.launch_com(&[0xc3], Default::default()).unwrap();
     assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
-    dos.cpu().context().memory.read(0x1fffd, &mut end).unwrap();
-    assert_eq!(end, [0, 0, 0]);
+    let mut loaded = vec![0; previous.len()];
+    dos.cpu()
+        .context()
+        .memory
+        .read(0x10100, &mut loaded)
+        .unwrap();
+    assert_eq!(loaded[0], 0xc3);
+    assert_eq!(&loaded[1..0xfefe], &previous[1..0xfefe]);
+    assert_eq!(&loaded[0xfefe..], &[0, 0]);
     assert_eq!(
         dos.cpu().run(10).unwrap(),
         ExecutionExit::Host(HostExit::Return)
@@ -117,7 +130,7 @@ fn com_prints_and_exits() {
 }
 
 #[test]
-fn com_reserves_stack_and_returns_through_psp() {
+fn com_preserves_unused_memory_and_returns_through_psp() {
     pollster::block_on(check_com_bounds_and_return());
 }
 
