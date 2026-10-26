@@ -64,6 +64,48 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
 }
 
 #[test]
+fn bulk_transfers_walk_partial_and_complete_mapping_spans() {
+    let map = PhysicalMemoryMap::new([
+        (
+            0..=0xfff,
+            PhysicalMapping::Ram {
+                backing_offset: 0x2000,
+            },
+        ),
+        (0x1000..=0x1fff, PhysicalMapping::Rom { backing_offset: 0 }),
+        (
+            0x4000..=0x4fff,
+            PhysicalMapping::Ram {
+                backing_offset: 0x1000,
+            },
+        ),
+        (0x3000..=0x3fff, PhysicalMapping::Mmio),
+    ])
+    .unwrap();
+    let backing = allocate(map);
+    let mut memory = backing.view();
+    memory.write_backing(0, &[0x22; 0x1000]).unwrap();
+    let mut input = vec![0x44; 0x3004];
+    input[..2].copy_from_slice(&[0x11, 0x33]);
+    input[0x3002..].copy_from_slice(&[0x55, 0x66]);
+    memory.write(0xffe, &input).unwrap();
+
+    let mut bytes = vec![0; 0x3004];
+    memory.read(0xffe, &mut bytes).unwrap();
+    let mut expected = vec![0xff; 0x3004];
+    expected[..2].copy_from_slice(&[0x11, 0x33]);
+    expected[2..0x1002].fill(0x22);
+    expected[0x3002..].copy_from_slice(&[0x55, 0x66]);
+    assert_eq!(bytes, expected);
+
+    let mut boundary = [0; 3];
+    memory.read_backing(0x2ffd, &mut boundary).unwrap();
+    assert_eq!(boundary, [0, 0x11, 0x33]);
+    memory.read_backing(0x1000, &mut boundary).unwrap();
+    assert_eq!(boundary, [0x55, 0x66, 0]);
+}
+
+#[test]
 fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
     for enabled in [false, true] {
         let mut map = PhysicalMemoryMap::new([
