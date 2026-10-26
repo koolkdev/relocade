@@ -49,6 +49,9 @@ impl<T> Store<T> {
 #[serde(transparent)]
 pub struct Module(#[serde(with = "serde_wasm_bindgen::preserve")] WebAssembly::Module);
 
+#[cfg(feature = "worker")]
+impl web_thread::Post for Module {}
+
 /// A stateless compiler that uses the calling JavaScript thread's WebAssembly API.
 #[derive(Clone)]
 pub struct Compiler;

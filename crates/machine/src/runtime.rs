@@ -36,8 +36,6 @@ mod io;
 mod machine;
 mod memory;
 pub mod real_mode_interrupt;
-#[cfg(feature = "worker")]
-pub mod worker;
 
 use crate::{CpuConfig, Memory};
 pub use context::CpuContext;

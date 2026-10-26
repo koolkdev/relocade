@@ -6,12 +6,10 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-worker = ["dep:web-thread", "dep:serde"]
+worker = ["relocade-wasm-runtime/worker"]
 
 [dependencies]
 relocade-wasm-runtime = { path = "../wasm-runtime" }
-web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"], optional = true }
-serde = { version = "=1.0.229", features = ["derive"], optional = true }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-interpreter = { path = "../interpreter" }
 relocade-x86 = { path = "../x86" }

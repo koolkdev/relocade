@@ -14,7 +14,7 @@ thread_local! {
     static CALLER: Cell<bool> = const { Cell::new(false) };
 }
 
-// Ordinary Rust commands use shared host memory, without Serde or Message.
+// Ordinary Rust commands and channels use shared host memory.
 struct Command {
     bytes: Vec<u8>,
     counter: Arc<AtomicU32>,
