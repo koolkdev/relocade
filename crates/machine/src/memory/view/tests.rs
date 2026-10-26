@@ -1,19 +1,9 @@
 use super::MemoryError;
 use crate::{MachineConfig, Memory};
-use relocade_wasm_runtime::{Backend, SharedMemory, WasmBackend};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, Segment, SegmentRegister};
 
-fn allocate(map: PhysicalMemoryMap) -> Memory<SharedMemory> {
-    let config = MachineConfig::new(0x3000, map).unwrap();
-    let mut backend = Backend::new().unwrap();
-    let memory = backend
-        .create_memory(relocade_compiler::abi::Memory {
-            minimum: 1,
-            maximum: Some(1),
-            ..relocade_x86::abi::GUEST
-        })
-        .unwrap();
-    Memory::with_backing(config, backend.shared_memory(&memory).unwrap()).unwrap()
+fn allocate(map: PhysicalMemoryMap) -> Memory {
+    Memory::new(MachineConfig::new(0x3000, map).unwrap()).unwrap()
 }
 
 #[test]

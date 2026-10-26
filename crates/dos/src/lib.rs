@@ -107,7 +107,7 @@ mod stdio;
 pub use error::{LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
-use relocade_machine::Cpu;
+use relocade_machine::{Cpu, Memory};
 pub use state::DosServices;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
@@ -124,7 +124,8 @@ impl Dos {
     pub async fn new() -> relocade_machine::Result<Self> {
         let state = Rc::new(RefCell::new(DosState::default()));
         let services = DosServices::new(Rc::clone(&state));
-        let mut cpu = Cpu::with_state(kernel::configuration(), kernel::cpu(), services).await?;
+        let memory = Memory::new(kernel::configuration())?;
+        let mut cpu = Cpu::new(memory, kernel::cpu(), services).await?;
         kernel::initialize(&mut cpu.context().memory);
         relocade_bios::initialize(&mut cpu.context().memory);
         cpu.install_hooks(kernel::hooks().into_iter().chain(relocade_bios::hooks()))

@@ -4,10 +4,22 @@ Guest backing is a shared Wasm memory on both backends. The CPU execution contex
 Wasm physical-map table and dispatch bookkeeping stay private to the runtime. Compiled
 instructions still use ordinary Wasm loads and stores.
 
-Borrow memory before starting execution:
+Allocate and initialize guest memory before constructing a CPU:
 
 ```rust
-let mut memory = runtime.memory();
+let memory = Memory::new(machine_config)?;
+memory.view().write(0x100, &program)?;
+let mut runtime = Cpu::new(memory.clone(), cpu_config, state).await?;
+```
+
+Each CPU imports the supplied allocation and creates private registers, mapping
+storage and dispatch. CPU construction preserves the existing guest bytes.
+Use `()` when no environment state is needed.
+
+Retain memory access while the CPU executes:
+
+```rust
+let memory = runtime.memory();
 let view = memory.view();
 let run = runtime.run_async(budget);
 // A separate display task can read without borrowing runtime or run.

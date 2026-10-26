@@ -1,7 +1,7 @@
 //! Execution of one guest, independent of the host Wasm engine.
 //!
-//! [`Cpu::new`] prepares an interpreter and dispatcher and initializes
-//! backend storage from [`MachineConfig`]. [`Cpu::context`] lends access to
+//! [`Cpu::new`] prepares an interpreter and dispatcher over supplied [`Memory`]
+//! and initializes private CPU storage. [`Cpu::context`] lends access to
 //! the stopped CPU and mapped memory, both backed directly by Wasm storage.
 //! CPU edits take effect immediately. Preparation is asynchronous
 //! for native and web engines. [`Cpu::run_async`] can await host operations
@@ -9,13 +9,14 @@
 //! independently of the backend callback state.
 //!
 //! ```
-//! use relocade_machine::{Cpu, CpuConfig, MachineConfig};
+//! use relocade_machine::{Cpu, CpuConfig, MachineConfig, Memory};
 //!
 //! async fn example(config: MachineConfig, cpu: CpuConfig)
 //!     -> Result<(), Box<dyn std::error::Error>>
 //! {
-//!     let mut runtime = Cpu::new(config, cpu).await?;
-//!     runtime.context().memory.write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
+//!     let memory = Memory::new(config)?;
+//!     memory.view().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
+//!     let mut runtime = Cpu::new(memory, cpu, ()).await?;
 //!     let exit = runtime.run(100)?;
 //!     let ax = runtime.context().cpu.ax();
 //!     # let _ = (exit, ax);
@@ -38,7 +39,7 @@ pub mod real_mode_interrupt;
 #[cfg(feature = "worker")]
 pub mod worker;
 
-use crate::{CpuConfig, MachineConfig, Memory};
+use crate::{CpuConfig, Memory};
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
@@ -46,7 +47,7 @@ pub use error::{Error, Result};
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
-use relocade_wasm_runtime::{SharedMemory, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use std::collections::HashMap;
 
 type Backend = relocade_wasm_runtime::Backend;
@@ -54,31 +55,20 @@ type Backend = relocade_wasm_runtime::Backend;
 /// One guest CPU and its engine resources, executable dispatch and pending calls.
 pub struct Cpu<T: 'static = ()> {
     machine: Machine<T>,
-    memory: Memory<SharedMemory>,
+    memory: Memory,
     host_call_incomplete: bool,
 }
 
-impl Cpu {
-    /// Allocates a CPU with no environment state.
-    pub async fn new(config: MachineConfig, cpu: CpuConfig) -> Result<Self> {
-        Self::with_state(config, cpu, ()).await
-    }
-}
-
 impl<T: 'static> Cpu<T> {
-    /// Allocates the configured CPU and memory and links its executable dispatch.
+    /// Creates private CPU state and dispatch over existing guest memory.
+    /// Guest bytes are preserved. Use `()` when no environment state is needed.
     /// The environment state stays with this CPU, including during host calls.
     /// Port and MMIO reads currently return all ones; their writes are ignored.
-    pub async fn with_state(config: MachineConfig, cpu: CpuConfig, state: T) -> Result<Self> {
+    pub async fn new(memory: Memory, cpu: CpuConfig, state: T) -> Result<Self> {
         let mut backend = Backend::new()?;
-        let bindings = RuntimeMemory::new(&mut backend, config, cpu)?;
+        let bindings = RuntimeMemory::new(&mut backend, memory.clone(), cpu)?;
         let host_imports = io::unconnected_imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
-        let memory = Memory::with_backing(
-            bindings.machine_config.clone(),
-            bindings.shared_guest.clone(),
-        )
-        .expect("guest backing matches the configured capacity");
         Ok(Self {
             machine: Machine {
                 backend,
@@ -126,10 +116,9 @@ impl<T: 'static> Cpu<T> {
         self.machine.context()
     }
 
-    /// Shares guest memory through a handle that can outlive this runtime.
-    /// Native handles can move to another thread; browser handles preserve their
-    /// shared allocation during worker transport. CPU and dispatch storage remain private.
-    pub fn memory(&self) -> Memory<SharedMemory> {
+    /// Retains guest memory independently of this CPU and its execution borrow.
+    /// Clones share guest bytes; CPU and dispatch storage remain private.
+    pub fn memory(&self) -> Memory {
         self.memory.clone()
     }
 

@@ -1,8 +1,8 @@
 //! The resources borrowed by guest execution and its host services.
 
 use super::{callback::DeferredCall, hooks::Handler, Backend, CpuContext, Dispatch, RuntimeMemory};
-use crate::{CpuView, MemoryView};
-use relocade_wasm_runtime::{WasmMemoryAccess, WasmSharedMemory};
+use crate::CpuView;
+use relocade_wasm_runtime::WasmMemoryAccess;
 use std::{collections::HashMap, rc::Rc};
 
 pub(super) struct Machine<T> {
@@ -21,10 +21,7 @@ impl<T> Machine<T> {
                 &self.bindings.config,
                 self.backend.memory(&self.bindings.context),
             ),
-            memory: MemoryView::new(
-                &self.bindings.machine_config,
-                self.bindings.shared_guest.view(),
-            ),
+            memory: self.bindings.guest.view(),
             state: &mut self.state,
             pending: &mut self.pending,
         }
