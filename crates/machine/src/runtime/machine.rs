@@ -1,17 +1,17 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{callback::DeferredCall, hooks::Handler, Backend, CpuContext, Dispatch, RuntimeMemory};
+use super::{hooks::Handler, Backend, CpuContext, Dispatch, HookResult, RuntimeMemory};
 use crate::CpuView;
 use relocade_wasm_runtime::WasmMemoryAccess;
-use std::{collections::HashMap, rc::Rc};
+use relocade_x86::{ExecutionExit, HostExit};
+use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 pub(super) struct Machine<T> {
     pub backend: Backend,
     pub bindings: RuntimeMemory,
     pub state: T,
     pub dispatch: Dispatch,
-    pub hooks: HashMap<u32, Rc<Handler<T>>>,
-    pub pending: Option<Box<dyn DeferredCall<T>>>,
+    pub hooks: HashMap<u32, Rc<dyn Handler<T>>>,
 }
 
 impl<T> Machine<T> {
@@ -23,7 +23,40 @@ impl<T> Machine<T> {
             ),
             memory: self.bindings.guest.view(),
             state: &mut self.state,
-            pending: &mut self.pending,
+        }
+    }
+
+    pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
+        if let Some(budget) = budget {
+            let target = self
+                .context()
+                .cpu
+                .instruction_count()
+                .saturating_add(budget);
+            self.bindings
+                .set_instruction_target(&mut self.backend, target);
+        }
+        self.dispatch.run(&mut self.backend)
+    }
+
+    pub async fn resume_host_call(
+        &mut self,
+        mut address: u32,
+        budget: &Cell<Option<u64>>,
+    ) -> ExecutionExit {
+        loop {
+            // The registration stays alive while its future borrows the machine.
+            let handler = Rc::clone(self.hooks.get(&address).expect("registered host entry"));
+            match handler.call(&mut self.context()).await {
+                HookResult::Continue => {}
+                HookResult::Exit(exit) => return exit,
+            }
+            // A new waiter supplies one budget. Suspension does not replenish it.
+            // A replacement budget takes effect when the pending service returns.
+            match self.dispatch(budget.take()) {
+                ExecutionExit::Host(HostExit::Call { address: next }) => address = next,
+                exit => return exit,
+            }
         }
     }
 }

@@ -15,6 +15,20 @@ pub(super) enum CharacterOutput {
     Console(OutputStream),
 }
 
+impl CharacterOutput {
+    pub(super) fn write_cooked(
+        self,
+        call: &mut CpuContext<'_, DosServices>,
+        services: &DosServices,
+        bytes: &[u8],
+    ) {
+        let state = &mut *services.borrow_mut();
+        for &byte in bytes {
+            write_cooked_character(call, state, self, byte);
+        }
+    }
+}
+
 pub(super) fn write_console(
     call: &mut CpuContext<'_, DosServices>,
     state: &mut DosState,
@@ -90,8 +104,9 @@ pub(in crate::services) fn write_handle(
         return state.files.write(handle, bytes);
     };
     // Even a zero-byte handle write clears EOF on this record and its duplicates.
-    state.files.set_console_eof(handle, false);
-    if state.files.console_raw(handle) {
+    let device = state.files.console(handle)?;
+    device.set_eof(false);
+    if device.raw() {
         write_console(call, state, stream, bytes);
         return Ok(bytes.len());
     }

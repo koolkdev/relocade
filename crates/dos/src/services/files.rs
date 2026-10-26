@@ -129,11 +129,15 @@ pub(super) fn force_duplicate(
 }
 
 /// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
-pub(super) fn read(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
+pub(super) async fn read(
+    call: &mut CpuContext<'_, DosServices>,
+    services: &DosServices,
+) -> HookResult {
     let handle = call.cpu.bx();
-    match state.files.readable_handle_type(handle) {
+    let kind = services.borrow_mut().files.readable_handle_type(handle);
+    match kind {
         Ok(HandleType::Device(Device::Console(stream))) => {
-            return super::console::read_handle(call, state, stream);
+            return super::console::read_handle(call, services, stream).await;
         }
         Ok(HandleType::File | HandleType::Device(Device::Null)) => {}
         Ok(HandleType::Device(Device::Auxiliary | Device::Printer)) => {
@@ -146,12 +150,16 @@ pub(super) fn read(call: &mut CpuContext<'_, DosServices>, state: &mut DosState)
     let count = transfer_count(offset, cpu.cx());
     let segment = cpu.segment(Segment::Ds);
     let mut bytes = vec![0; count];
-    let result = state.files.read(handle, &mut bytes).map(|count| {
-        call.memory
-            .write_segment(&segment, u32::from(offset), &bytes[..count])
-            .expect("real-mode buffer");
-        call.cpu.set_ax(count as u16);
-    });
+    let result = services
+        .borrow_mut()
+        .files
+        .read(handle, &mut bytes)
+        .map(|count| {
+            call.memory
+                .write_segment(&segment, u32::from(offset), &bytes[..count])
+                .expect("real-mode buffer");
+            call.cpu.set_ax(count as u16);
+        });
     return_result(call, result)
 }
 

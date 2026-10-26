@@ -15,7 +15,10 @@ fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuSta
             SegmentRegister::real_mode(Segment::Es, segment),
         );
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::BudgetExhausted
+    );
     dos.cpu().context().cpu.snapshot()
 }
 
@@ -79,7 +82,7 @@ async fn check_memory_services() {
     assert_error(&service(&mut dos, 0x48, 1, 0), 7);
     let mut dos = common::dos(&[0xc3]).await; // RET terminates through INT 20h.
     assert_eq!(
-        dos.cpu().run(10).unwrap(),
+        pollster::block_on(dos.cpu().run(10)),
         ExecutionExit::Host(HostExit::Return)
     );
     dos.cpu().context().memory.read(0xfff0, &mut mcb).unwrap();

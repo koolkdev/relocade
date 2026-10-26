@@ -50,36 +50,31 @@ pub async fn cpu_worker() -> Result<(), String> {
             completed: Rc::new(Cell::new(0)),
         };
         let mut cpu = Cpu::new(memory, cpu_config, input).await.unwrap();
-        cpu.install_hooks([Hook::<Input>::new(0x100, |call| {
-            call.defer(async |call| {
-                let cpu = &mut call.cpu;
-                let memory = &mut call.memory;
-                let input = &mut *call.state;
-                memory.write_u8(0x200, 0x11).unwrap();
-                let value = poll_fn(|context| {
-                    let poll = input.incoming.poll_next_unpin(context);
-                    if poll.is_pending() {
-                        // The caller sends only after this task registers its waker.
-                        if let Some(waiting) = input.waiting.take() {
-                            waiting.send(()).unwrap();
-                        }
+        cpu.install_hooks([Hook::<Input>::new(0x100, async |call| {
+            let cpu = &mut call.cpu;
+            let memory = &mut call.memory;
+            let input = &mut *call.state;
+            memory.write_u8(0x200, 0x11).unwrap();
+            let value = poll_fn(|context| {
+                let poll = input.incoming.poll_next_unpin(context);
+                if poll.is_pending() {
+                    // The caller sends only after this task registers its waker.
+                    if let Some(waiting) = input.waiting.take() {
+                        waiting.send(()).unwrap();
                     }
-                    poll
-                })
-                .await
-                .unwrap();
-                cpu.set_ax(value + memory.read_u16(0x202).unwrap());
-                cpu.set_eip(0x300);
-                input.completed.set(input.completed.get() + 1);
-                HookResult::Continue
+                }
+                poll
             })
+            .await
+            .unwrap();
+            cpu.set_ax(value + memory.read_u16(0x202).unwrap());
+            cpu.set_eip(0x300);
+            input.completed.set(input.completed.get() + 1);
+            HookResult::Continue
         })])
         .await
         .unwrap();
-        assert_eq!(
-            cpu.run_async(1).await.unwrap(),
-            ExecutionExit::BudgetExhausted
-        );
+        assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
         let ax = cpu.context().cpu.ax();
         (ax, cpu.state().completed.get())
     });

@@ -62,17 +62,26 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
-pub(crate) fn int21(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
-    match call.cpu.ah() {
-        DIRECT_CONSOLE_IO => console::direct_io(call, state),
+pub(crate) async fn int21(call: &mut CpuContext<'_, DosServices>) -> HookResult {
+    let services = call.state.clone();
+    if call.cpu.ah() == FLUSH_INPUT && !console::flush_input(call, &mut services.borrow_mut()) {
+        return relocade_machine::real_mode_interrupt::return_from_interrupt(call);
+    }
+    let function = call.cpu.ah();
+    match function {
         READ_CHARACTER_ECHO | READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
-            console::read_character(call, state)
+            return console::read_character(call, &services).await;
         }
+        READ_BUFFERED => return console::read_buffered(call, &services).await,
+        READ_HANDLE => return files::read(call, &services).await,
+        _ => {}
+    }
+    let state = &mut *services.borrow_mut();
+    match function {
+        DIRECT_CONSOLE_IO => console::direct_io(call, state),
         WRITE_CHARACTER => console::write_character(call, state),
         WRITE_STRING => console::write_string(call, state),
-        READ_BUFFERED => console::read_buffered(call, state),
         INPUT_STATUS => console::input_status(call, state),
-        FLUSH_INPUT => console::flush_input(call, state),
         SELECT_DRIVE => directories::select_drive(call, state),
         GET_DRIVE => directories::get_drive(call, state),
         SET_VECTOR => system::set_vector(call),
@@ -93,7 +102,6 @@ pub(crate) fn int21(call: &mut CpuContext<'_, DosServices>, state: &mut DosState
         OPEN_HANDLE => files::open(call, state),
         CLOSE_HANDLE => files::close(call, state),
         COMMIT_HANDLE | COMMIT_HANDLE_ALIAS => files::commit(call, state),
-        READ_HANDLE => files::read(call, state),
         WRITE_HANDLE => files::write(call, state),
         DELETE_FILE => files::delete(call, state),
         SEEK_HANDLE => files::seek(call, state),
@@ -121,7 +129,9 @@ fn terminate_process(call: &mut CpuContext<'_, DosServices>, state: &mut DosStat
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) fn int20(call: &mut CpuContext<'_, DosServices>, state: &mut DosState) -> HookResult {
+pub(crate) async fn int20(call: &mut CpuContext<'_, DosServices>) -> HookResult {
+    let services = call.state.clone();
+    let state = &mut *services.borrow_mut();
     return_to_host(call, state, Ok(0))
 }
 

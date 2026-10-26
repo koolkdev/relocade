@@ -16,14 +16,14 @@ pub(crate) enum Device {
     Printer,
 }
 
-pub(super) struct OpenDevice {
-    pub kind: Device,
-    pub access: AccessMode,
+pub(crate) struct OpenDevice {
+    pub(super) kind: Device,
+    pub(super) access: AccessMode,
     flags: Cell<u8>,
 }
 
 impl OpenDevice {
-    pub fn new(kind: Device, access: AccessMode) -> Self {
+    pub(super) fn new(kind: Device, access: AccessMode) -> Self {
         let attributes = match kind {
             Device::Console(_) => 0x03, // Standard input and output.
             Device::Null => 0x04,
@@ -36,20 +36,20 @@ impl OpenDevice {
         }
     }
 
-    pub fn information(&self) -> u16 {
+    pub(super) fn information(&self) -> u16 {
         // DH reports the character-driver attribute; DL belongs to this open record.
         0x8000 | u16::from(self.flags.get())
     }
 
-    pub fn eof(&self) -> bool {
+    pub(crate) fn eof(&self) -> bool {
         self.flags.get() & INPUT_NOT_EOF == 0
     }
 
-    pub fn raw(&self) -> bool {
+    pub(crate) fn raw(&self) -> bool {
         self.flags.get() & RAW_MODE != 0
     }
 
-    pub fn set_eof(&self, eof: bool) {
+    pub(crate) fn set_eof(&self, eof: bool) {
         let flags = self.flags.get();
         self.flags.set(if eof {
             flags & !INPUT_NOT_EOF
@@ -109,22 +109,10 @@ impl Files {
         Ok(Some(handle as u16))
     }
 
-    pub(crate) fn console_eof(&self, handle: u16) -> bool {
-        self.console(handle).eof()
-    }
-
-    pub(crate) fn set_console_eof(&self, handle: u16, eof: bool) {
-        self.console(handle).set_eof(eof);
-    }
-
-    pub(crate) fn console_raw(&self, handle: u16) -> bool {
-        self.console(handle).raw()
-    }
-
-    fn console(&self, handle: u16) -> &OpenDevice {
-        match self.handle(handle).expect("validated console handle") {
-            OpenHandle::Device(device) if matches!(device.kind, Device::Console(_)) => device,
-            _ => unreachable!("console handle"),
+    pub(crate) fn console(&self, handle: u16) -> Result<&OpenDevice, DosError> {
+        match self.handle(handle)? {
+            OpenHandle::Device(device) if matches!(device.kind, Device::Console(_)) => Ok(device),
+            _ => Err(DosError::AccessDenied),
         }
     }
 }

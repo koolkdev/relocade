@@ -18,7 +18,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
 
         dos.cpu().context().memory.write(0x10300, b"DOS$").unwrap();
         assert_eq!(
-            dos.cpu().run(100).unwrap(),
+            pollster::block_on(dos.cpu().run(100)),
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
@@ -71,7 +71,7 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             .unwrap();
         let memory = dos.cpu().memory();
         let mut input = dos.stdin();
-        let mut run = pin!(dos.cpu().run_async(100));
+        let mut run = pin!(dos.cpu().run(100));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(run.as_mut().poll(&mut cx).is_pending());
         let thread_memory = memory.clone();
@@ -90,7 +90,7 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
         input.write_all(b"X").unwrap();
         assert!(matches!(
             run.as_mut().poll(&mut cx),
-            Poll::Ready(Ok(ExecutionExit::Host(HostExit::Return)))
+            Poll::Ready(ExecutionExit::Host(HostExit::Return))
         ));
         let screen = TextScreen::read(&memory.view());
         assert_eq!(screen.cells[5].character, b'X');

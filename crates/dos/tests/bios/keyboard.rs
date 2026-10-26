@@ -25,7 +25,10 @@ fn invoke(dos: &mut Dos, ip: u32, ax: u16) -> CpuState {
         cpu.set_bx(0xabcd);
         cpu.set_eflags(0x643);
     }
-    assert_eq!(dos.cpu().run(10).unwrap(), ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        pollster::block_on(dos.cpu().run(10)),
+        ExecutionExit::BudgetExhausted
+    );
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.ebx as u16, 0xabcd);
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
@@ -88,7 +91,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().run_async(10));
+            let mut run = pin!(dos.cpu().run(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());
             keyboard.push(KeyStroke {
                 character: 0,
@@ -97,7 +100,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(Ok(ExecutionExit::BudgetExhausted))
+                Poll::Ready(ExecutionExit::BudgetExhausted)
             ));
         }
         {
@@ -108,22 +111,36 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             assert_eq!(cpu.sp(), 0xfffe);
             assert_eq!(cpu.eflags(), 0x643);
         }
-        // Dropping a read releases its waker. A new environment has a separate queue.
+        // Dropping a waiter preserves the input registration and the BIOS read.
         {
             let mut machine = dos.cpu().context();
             machine.cpu.set_eip(0x100);
             machine.cpu.set_ax(0);
         }
         {
-            let mut run = pin!(dos.cpu().run_async(10));
+            let mut run = pin!(dos.cpu().run(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());
         }
         keyboard.push(KeyStroke {
             character: b'X',
             scan_code: 0x2d,
         });
-        assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
+        assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
+        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(dos.cpu().context().cpu.ax(), 0x2d58);
+        dos.cpu().context().cpu.set_eip(0x100);
+        dos.cpu().context().cpu.set_ax(0);
+        {
+            let mut run = pin!(dos.cpu().run(10));
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+        }
+        // Dropping the environment releases the pending read's input registration.
         drop(dos);
+        keyboard.push(KeyStroke {
+            character: b'Y',
+            scan_code: 0x15,
+        });
+        assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
         let mut dos = common::dos(PROGRAM).await;
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
     });

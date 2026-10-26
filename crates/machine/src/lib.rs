@@ -1,8 +1,9 @@
-//! Initial machine configuration and scoped access to live guest state.
+//! Machine configuration, live state access and asynchronous guest execution.
 //!
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
-//! size and the fixed physical map. Execution backends provide storage; [`CpuContext`] borrows that storage to
-//! expose the current CPU and [`MemoryView`] with the machine's access policy.
+//! size and the fixed physical map. [`CpuContext`] borrows the machine and exposes
+//! live CPU state and [`MemoryView`] with the machine's access policy. Views can
+//! cross ordinary awaits while keeping the machine borrowed.
 //!
 //! ```
 //! use relocade_machine::{CpuConfig, MachineConfig};

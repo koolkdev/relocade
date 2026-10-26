@@ -73,7 +73,7 @@ async fn check_mz_execution() {
         assert_eq!(after_image, [0; 4]); // Ignore bytes beyond the declared file size.
     }
     assert_eq!(
-        dos.cpu().run(100).unwrap(),
+        dos.cpu().run(100).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(dos.exit_status(), Some(Ok(7)));
@@ -115,7 +115,7 @@ async fn check_mz_execution() {
     assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ff9);
     assert_eq!(cpu.segments[Segment::Ds].selector, 0x1000);
     assert_eq!(
-        dos.cpu().run(100).unwrap(),
+        dos.cpu().run(100).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(dos.exit_status(), Some(Ok(255))); // AH=48h reports no space.
@@ -129,7 +129,7 @@ async fn check_invalid_mz() {
     ])
     .await;
     assert_eq!(
-        dos.cpu().run(100).unwrap(),
+        dos.cpu().run(100).await,
         ExecutionExit::Host(HostExit::Return)
     );
     let cpu_before = dos.cpu().context().cpu.snapshot();

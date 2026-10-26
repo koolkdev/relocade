@@ -33,7 +33,7 @@ async fn check_file_program() {
     )
     .unwrap();
     assert_eq!(
-        dos.cpu().run(100).unwrap(),
+        dos.cpu().run(100).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(dos.exit_status(), Some(Ok(0)));
@@ -327,7 +327,7 @@ async fn check_save_program() {
     let mut dos = common::dos(&program).await;
 
     assert_eq!(
-        dos.cpu().run(100).unwrap(),
+        dos.cpu().run(100).await,
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(dos.exit_status(), Some(Ok(0)));

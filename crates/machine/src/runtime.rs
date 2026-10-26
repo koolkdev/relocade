@@ -4,28 +4,37 @@
 //! and initializes private CPU storage. [`Cpu::context`] lends access to
 //! the stopped CPU and mapped memory, both backed directly by Wasm storage.
 //! CPU edits take effect immediately. Preparation is asynchronous
-//! for native and web engines. [`Cpu::run_async`] can await host operations
-//! between synchronous Wasm calls. Environment state is owned by the machine,
-//! independently of the backend callback state.
+//! for native and web engines. [`Cpu::run`] awaits host operations
+//! between synchronous Wasm calls.
+//!
+//! A retained execution task owns the machine from its first host service until
+//! execution stops. Services borrow it through ordinary async calls and keep local
+//! values across waits. CPU views borrow the backend directly; their accesses need
+//! no handle lookup or invocation check. Environment state is independent of the
+//! backend's callback state.
+//!
+//! A pending service survives dropping its run waiter. Dropping the CPU ends
+//! the call chain and destroys the machine without undoing completed effects.
+//! A suspended service excludes embedding access to CPU and environment state;
+//! independent input handles and shared guest memory remain accessible.
 //!
 //! ```
 //! use relocade_machine::{Cpu, CpuConfig, MachineConfig, Memory};
 //!
-//! async fn example(config: MachineConfig, cpu: CpuConfig)
+//! async fn example(config: MachineConfig, cpu_config: CpuConfig)
 //!     -> Result<(), Box<dyn std::error::Error>>
 //! {
 //!     let memory = Memory::new(config)?;
 //!     memory.view().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
-//!     let mut runtime = Cpu::new(memory, cpu, ()).await?;
-//!     let exit = runtime.run(100)?;
-//!     let ax = runtime.context().cpu.ax();
+//!     let mut cpu = Cpu::new(memory, cpu_config, ()).await?;
+//!     let exit = cpu.run(100).await;
+//!     let ax = cpu.context().cpu.ax();
 //!     # let _ = (exit, ax);
 //!     Ok(())
 //! }
 //! ```
 #![forbid(unsafe_code)]
 
-mod callback;
 mod code;
 mod context;
 mod dispatch;
@@ -42,6 +51,7 @@ pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
+use execution::Execution;
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
@@ -50,11 +60,10 @@ use std::collections::HashMap;
 
 type Backend = relocade_wasm_runtime::Backend;
 
-/// One guest CPU and its engine resources, executable dispatch and pending calls.
+/// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu<T: 'static = ()> {
-    machine: Machine<T>,
+    execution: Execution<T>,
     memory: Memory,
-    host_call_incomplete: bool,
 }
 
 impl<T: 'static> Cpu<T> {
@@ -67,17 +76,16 @@ impl<T: 'static> Cpu<T> {
         let bindings = RuntimeMemory::new(&mut backend, memory.clone(), cpu)?;
         let host_imports = io::unconnected_imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
+        let machine = Machine {
+            backend,
+            bindings,
+            state,
+            dispatch,
+            hooks: HashMap::new(),
+        };
         Ok(Self {
-            machine: Machine {
-                backend,
-                bindings,
-                state,
-                dispatch,
-                hooks: HashMap::new(),
-                pending: None,
-            },
+            execution: Execution::new(machine),
             memory,
-            host_call_incomplete: false,
         })
     }
 
@@ -89,13 +97,16 @@ impl<T: 'static> Cpu<T> {
     /// The caller must maintain the module's execution assumptions and invalidate
     /// or replace captured code when guest bytes or mappings change.
     /// Module start functions must not enter guest dispatch or host hooks;
-    /// execution belongs to `run` and `run_async`.
+    /// execution belongs to `run`.
+    ///
+    /// # Panics
+    /// Panics if a service is suspended. Complete it before installing.
     pub async fn install_module(
         &mut self,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let machine = &mut self.machine;
+        let machine = self.execution.machine_mut();
         let compiler = machine.backend.compiler();
         let module = compiler.compile(bytes).await?;
         machine
@@ -108,10 +119,13 @@ impl<T: 'static> Cpu<T> {
         Ok(())
     }
 
-    /// Borrows the stopped CPU, guest memory and environment state. Writes take
-    /// effect immediately. Drop this context before running the CPU.
+    /// Borrows the stopped machine. The context and its views must end before
+    /// running or installing modules.
+    ///
+    /// # Panics
+    /// Panics if a service is suspended. Complete it to regain access.
     pub fn context(&mut self) -> CpuContext<'_, T> {
-        self.machine.context()
+        self.execution.machine_mut().context()
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.
@@ -121,11 +135,18 @@ impl<T: 'static> Cpu<T> {
     }
 
     /// Borrows the environment state between guest calls. Drop the borrow before running.
+    ///
+    /// # Panics
+    /// Panics if a service is suspended. Complete it to regain access.
     pub fn state(&self) -> &T {
-        &self.machine.state
+        &self.execution.machine().state
     }
 
+    /// Borrows mutable environment state between guest calls.
+    ///
+    /// # Panics
+    /// Panics if a service is suspended. Complete it to regain access.
     pub fn state_mut(&mut self) -> &mut T {
-        &mut self.machine.state
+        &mut self.execution.machine_mut().state
     }
 }

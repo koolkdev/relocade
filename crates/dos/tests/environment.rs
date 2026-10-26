@@ -46,7 +46,7 @@ async fn check_environments() {
         assert_eq!(&mcb[1..3], &[0, 0x10]); // The root PSP owns the environment.
         assert_eq!(&mcb[3..5], &[3, 0]); // 48 bytes occupy three paragraphs.
         assert_eq!(
-            dos.cpu().run(100).unwrap(),
+            dos.cpu().run(100).await,
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
@@ -73,7 +73,7 @@ async fn check_environments() {
 async fn check_environment_validation() {
     let mut dos = common::dos(&[0xc3]).await;
     assert_eq!(
-        dos.cpu().run(10).unwrap(),
+        dos.cpu().run(10).await,
         ExecutionExit::Host(HostExit::Return)
     );
     let cpu_before = dos.cpu().context().cpu.snapshot();

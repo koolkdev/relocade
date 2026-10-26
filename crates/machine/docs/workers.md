@@ -17,7 +17,7 @@ let worker = Thread::new();
 let task = worker.run_send(memory.backing().clone(), move |backing| async move {
     let memory = Memory::with_backing(machine_config, backing)?;
     let mut cpu = Cpu::new(memory, cpu_config, ()).await?;
-    cpu.run_async(budget).await
+    Ok::<_, relocade_machine::Error>(cpu.run(budget).await)
 });
 
 // The caller can retain mapped memory access while the worker executes.
@@ -38,8 +38,9 @@ such as `Rc`, the CPU and browser engine objects. Construct those values inside
 the task. `Thread::run_send` returns Send results through Rust memory;
 `Thread::run` posts its result and can return a shared allocation or module.
 
-Host services can await Rust channel input through `CpuContext::defer`. Keep the
-same `Cpu::run_async` future alive throughout that wait. The
+Host services are ordinary async functions that borrow `CpuContext` and can await
+Rust channel input. `Cpu::run` drives execution; dropping a run waiter preserves
+the pending service for a later run. The
 [CPU worker example](../../../tests/browser/src/cpus.rs) exercises this complete
 flow on native and browser workers: it captures configuration and channels,
 constructs local state, waits for input while the caller accesses mapped memory,

@@ -154,20 +154,7 @@ impl Files {
             }
             return Ok(0);
         }
-        let mut open = self.file_mut(handle)?;
-        if !open.access.can_read() {
-            return Err(DosError::AccessDenied);
-        }
-        let count = open
-            .file
-            .read_at(buffer, u64::from(open.position))
-            .map_err(|_| DosError::AccessDenied)?;
-        // A host File handle can grow a mounted file beyond DOS's 32-bit offsets.
-        open.position = open
-            .position
-            .checked_add(count as u32)
-            .ok_or(DosError::AccessDenied)?;
-        Ok(count)
+        self.file_mut(handle)?.read(buffer)
     }
 
     pub(crate) fn write(&mut self, handle: u16, bytes: &[u8]) -> Result<usize, DosError> {
@@ -344,5 +331,23 @@ impl Files {
             OpenHandle::File(file) => Ok(file.borrow_mut()),
             _ => Err(DosError::AccessDenied),
         }
+    }
+}
+
+impl OpenFile {
+    pub(super) fn read(&mut self, buffer: &mut [u8]) -> Result<usize, DosError> {
+        if !self.access.can_read() {
+            return Err(DosError::AccessDenied);
+        }
+        let count = self
+            .file
+            .read_at(buffer, u64::from(self.position))
+            .map_err(|_| DosError::AccessDenied)?;
+        // A host file can grow beyond DOS's 32-bit offsets.
+        self.position = self
+            .position
+            .checked_add(count as u32)
+            .ok_or(DosError::AccessDenied)?;
+        Ok(count)
     }
 }

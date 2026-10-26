@@ -4,7 +4,14 @@ use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::{FileAccess, LaunchError, LoadError, ServiceError};
 use relocade_machine::{real_mode_interrupt, Hook};
 use relocade_x86::{ExecutionExit, HostExit, Segment};
-use std::{cell::Cell, io::Write, rc::Rc};
+use std::{
+    cell::Cell,
+    future::Future,
+    io::Write,
+    pin::pin,
+    rc::Rc,
+    task::{Context, Waker},
+};
 
 #[test]
 fn session_memory_cpu_and_console_survive_program_termination() {
@@ -27,7 +34,7 @@ fn session_memory_cpu_and_console_survive_program_termination() {
             .unwrap();
         let hook_calls = Rc::clone(&calls);
         dos.cpu()
-            .install_hooks([Hook::new(0x800, move |call| {
+            .install_hooks([Hook::new(0x800, async move |call| {
                 hook_calls.set(hook_calls.get() + 1);
                 real_mode_interrupt::return_from_interrupt(call)
             })])
@@ -58,7 +65,7 @@ fn session_memory_cpu_and_console_survive_program_termination() {
             assert_eq!(dos.exit_status(), None);
             assert_eq!(dos.read_file("READY.TXT").unwrap(), b"before launch");
             assert_eq!(
-                dos.cpu().run(100).unwrap(),
+                dos.cpu().run(100).await,
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(dos.exit_status(), Some(Ok(7)));
@@ -89,7 +96,7 @@ fn session_memory_cpu_and_console_survive_program_termination() {
         assert_eq!(&retained, b"retained");
         assert_eq!(memory.view().read_u16(0x1fffe).unwrap(), 0);
         assert_eq!(
-            dos.cpu().run(10).unwrap(),
+            dos.cpu().run(10).await,
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(dos.exit_status(), Some(Ok(0)));
@@ -131,7 +138,7 @@ fn termination_and_service_errors_release_process_files_and_searches() {
                     context.cpu.set_ax(0xfe00);
                 }
                 assert_eq!(
-                    dos.cpu().run(10).unwrap(),
+                    dos.cpu().run(10).await,
                     ExecutionExit::Host(HostExit::Return)
                 );
                 assert_eq!(
@@ -188,15 +195,19 @@ fn launch_requires_the_active_program_to_terminate() {
             dos.launch_mz(&common::mz_image(&[0xc3]), Default::default()),
             Err(LaunchError::ProcessActive)
         ));
-        assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
+        assert_eq!(dos.cpu().run(1).await, ExecutionExit::BudgetExhausted);
         assert!(matches!(
             dos.launch_com(&[], Default::default()),
             Err(LaunchError::ProcessActive)
         ));
-        assert_eq!(
-            dos.cpu().run(100).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
+        {
+            let mut run = pin!(dos.cpu().run(100));
+            assert!(run
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending());
+        }
+        assert!(dos.cpu().has_pending_call());
         assert!(dos.has_active_process());
         assert!(matches!(
             dos.launch_com(&[0xc3], Default::default()),
@@ -204,7 +215,7 @@ fn launch_requires_the_active_program_to_terminate() {
         ));
         input.write_all(b"X").unwrap();
         assert_eq!(
-            dos.cpu().run_async(100).await.unwrap(),
+            dos.cpu().run(100).await,
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(dos.exit_status(), Some(Ok(b'X')));
@@ -216,7 +227,7 @@ fn launch_requires_the_active_program_to_terminate() {
         .unwrap();
         assert_eq!(dos.exit_status(), None);
         assert_eq!(
-            dos.cpu().run(100).unwrap(),
+            dos.cpu().run(100).await,
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(dos.exit_status(), Some(Ok(9)));

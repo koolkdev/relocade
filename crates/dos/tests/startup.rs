@@ -42,7 +42,7 @@ async fn check_command_tails() {
             assert_eq!(&bytes[1..1 + tail.len()], tail);
             assert_eq!(bytes[1 + tail.len()], 13);
             assert_eq!(
-                dos.cpu().run(100).unwrap(),
+                dos.cpu().run(100).await,
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(dos.exit_status(), Some(Ok(0)));

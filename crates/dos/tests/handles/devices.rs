@@ -1,6 +1,5 @@
 use crate::common::{self, error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::FileAccess;
-use relocade_x86::{ExecutionExit, HostExit};
 use std::io::Write;
 
 #[test]
@@ -112,10 +111,7 @@ fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
             cpu.set_ax(0x0a00);
             cpu.set_dx(0x500);
         }
-        assert_eq!(
-            dos.cpu().run(10).unwrap(),
-            ExecutionExit::Host(HostExit::Deferred)
-        );
+        crate::common::assert_pending(dos.cpu().run(10));
     });
 }
 
