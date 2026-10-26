@@ -28,7 +28,7 @@ pub(in crate::services) fn read_handle(
     if call.process.files().console_raw(handle) {
         return read_raw(call);
     }
-    if call.execution.cpu.cx() == 0 || !call.dos.stdio.console_line.is_empty() {
+    if call.execution.cpu.cx() == 0 || call.dos.stdio().has_buffered_line() {
         return return_handle_buffer(call);
     }
     let line = LineInput::new(
@@ -53,7 +53,7 @@ fn return_handle_line(
     // Ctrl-Z at the start of a console line reports EOF.
     if !eof {
         bytes.push(b'\n');
-        call.dos.stdio.console_line.extend(bytes);
+        call.dos.stdio().buffer_line(bytes);
     }
     return_handle_buffer(call)
 }
@@ -61,16 +61,14 @@ fn return_handle_line(
 fn return_handle_buffer(call: &mut DosContext<'_, '_>) -> HookResult {
     let cpu = &call.execution.cpu;
     let count = transfer_count(cpu.dx(), cpu.cx());
-    let line = &mut call.dos.stdio.console_line;
-    let count = count.min(line.len());
-    let bytes: Vec<_> = line.drain(..count).collect();
+    let bytes = call.dos.stdio().take_line_bytes(count);
     return_bytes(call, &bytes)
 }
 
 fn read_raw(call: &mut DosContext<'_, '_>) -> HookResult {
     let cpu = &call.execution.cpu;
     let count = transfer_count(cpu.dx(), cpu.cx());
-    let input = call.dos.stdio.input.clone();
+    let input = call.dos.stdio().input.clone();
     let mut bytes = Vec::with_capacity(count);
     while bytes.len() < count {
         match input.try_read_character() {

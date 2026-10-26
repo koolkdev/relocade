@@ -43,7 +43,7 @@ impl LineInput {
         let input = match call
             .process
             .files()
-            .wait_for_character(&call.dos.stdio.input, self.input_handle)
+            .wait_for_character(&call.dos.stdio().input, self.input_handle)
         {
             Ok(input) => input,
             Err(error) => return return_result(call, Err(error)),
@@ -68,16 +68,18 @@ impl LineInput {
         ) {
             return Ok(false);
         }
-        while let Some(byte) = call
-            .process
-            .files()
-            .read_character(&call.dos.stdio.input, self.input_handle)?
-        {
+        loop {
+            let byte = call
+                .process
+                .files()
+                .read_character(&call.dos.stdio().input, self.input_handle)?;
+            let Some(byte) = byte else {
+                return Ok(false);
+            };
             if self.accept(call, byte) {
                 return Ok(true);
             }
         }
-        Ok(false)
     }
 
     fn accept(&mut self, call: &mut DosContext<'_, '_>, byte: u8) -> bool {

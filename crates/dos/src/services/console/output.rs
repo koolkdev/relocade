@@ -14,7 +14,7 @@ pub(super) enum CharacterOutput {
 }
 
 pub(super) fn write_console(call: &mut DosContext<'_, '_>, stream: OutputStream, bytes: &[u8]) {
-    call.dos.stdio.output(stream).extend(bytes);
+    call.dos.stdio().output(stream).extend(bytes);
     relocade_bios::write_text(&mut call.execution.memory, bytes);
 }
 
@@ -25,18 +25,7 @@ pub(super) fn write_cooked_character(
     output: CharacterOutput,
     byte: u8,
 ) -> u8 {
-    let column = &mut call.dos.stdio.output_column;
-    let (byte, count) = if byte == b'\t' {
-        (b' ', 8 - (*column & 7))
-    } else {
-        (byte, 1)
-    };
-    match byte {
-        b'\r' => *column = 0,
-        b'\x08' => *column = column.wrapping_sub(1),
-        b' '..=b'~' | 0x80..=0xff => *column = column.wrapping_add(count),
-        _ => {}
-    }
+    let (byte, count) = call.dos.stdio().cook_character(byte);
     let bytes = [byte; 8];
     let bytes = &bytes[..usize::from(count)];
     match output {
@@ -54,7 +43,8 @@ pub(super) fn write_characters(
     handle: u16,
     bytes: &[u8],
 ) -> Result<(), DosError> {
-    match call.process.files().writable_handle_type(handle)? {
+    let kind = call.process.files().writable_handle_type(handle)?;
+    match kind {
         HandleType::Device(Device::Console(stream)) => write_console(call, stream, bytes),
         HandleType::File => {
             if !bytes.is_empty() {
@@ -75,9 +65,8 @@ pub(in crate::services) fn write_handle(
     handle: u16,
     bytes: &[u8],
 ) -> Result<usize, DosError> {
-    let HandleType::Device(Device::Console(stream)) =
-        call.process.files().writable_handle_type(handle)?
-    else {
+    let kind = call.process.files().writable_handle_type(handle)?;
+    let HandleType::Device(Device::Console(stream)) = kind else {
         return call.process.files().write(handle, bytes);
     };
     // Even a zero-byte handle write clears EOF on this record and its duplicates.

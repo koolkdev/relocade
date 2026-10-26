@@ -113,11 +113,11 @@ pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{Cpu, CpuContext, Memory};
 use state::DosState;
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 /// A DOS session with persistent CPU, memory, filesystems and console resources.
 pub struct Dos {
-    state: Rc<RefCell<DosState>>,
+    state: Rc<DosState>,
     cpu: Cpu,
 }
 
@@ -125,8 +125,8 @@ impl Dos {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
     /// Load a program before entering guest execution.
     pub async fn new() -> relocade_machine::Result<Self> {
-        let state = Rc::new(RefCell::new(DosState::default()));
-        let keyboard = state.borrow().stdio.input.clone();
+        let state = Rc::new(DosState::default());
+        let keyboard = state.stdio().input.clone();
         let memory = Memory::new(kernel::configuration())?;
         let mut cpu = Cpu::new(memory, kernel::cpu(), ()).await?;
         kernel::initialize(&mut cpu.context().memory);
@@ -165,10 +165,10 @@ impl Dos {
         &mut self,
         load: impl FnOnce(&mut CpuContext<'_>) -> Result<u16, LoadError>,
     ) -> Result<(), LaunchError> {
-        let mut state = self.state.borrow_mut();
         // Reject before touching CPU state, including a pending input call.
-        if state
-            .process
+        if self
+            .state
+            .process()
             .as_ref()
             .is_some_and(|process| process.status() == ProcessStatus::Active)
         {
@@ -176,7 +176,7 @@ impl Dos {
         }
         let psp_segment = load(&mut self.cpu.context())?;
         self.cpu.cancel_pending_call();
-        state.process = Some(Rc::new(Process::new(psp_segment)));
+        self.state.start_process(psp_segment);
         Ok(())
     }
 
@@ -190,12 +190,10 @@ impl Dos {
         letter: char,
         filesystem: relocade_vfs::MemoryFileSystem,
     ) -> std::io::Result<()> {
-        let state = &mut *self.state.borrow_mut();
-        state.filesystem.mount(letter, filesystem)?;
-        if let Some(process) = &state.process {
+        self.state.filesystem().mount(letter, filesystem)?;
+        if let Some(process) = self.state.process() {
             if process.status() == ProcessStatus::Active {
                 process
-                    .context()
                     .files()
                     .invalidate_searches(letter.to_ascii_uppercase());
             }
@@ -215,17 +213,14 @@ impl Dos {
         contents: Vec<u8>,
         access: FileAccess,
     ) -> Result<(), MountError> {
-        self.state
-            .borrow_mut()
-            .filesystem
-            .mount_file(path, contents, access)
+        self.state.filesystem().mount_file(path, contents, access)
     }
 
     /// Copies a file's current contents for the host to save or export.
     /// Like mount_file, relative paths start at the root and default to C:.
     /// Returns None for invalid paths or files that do not exist.
     pub fn read_file(&self, path: &str) -> Option<Vec<u8>> {
-        self.state.borrow().filesystem.read_file(path)
+        self.state.filesystem().read_file(path)
     }
 
     pub fn cpu(&mut self) -> &mut Cpu {
@@ -237,7 +232,7 @@ impl Dos {
     /// Retained handles keep their identity and status while the CPU runs and after
     /// a later process starts. A failed launch leaves this handle unchanged.
     pub fn process(&self) -> Option<Rc<Process>> {
-        self.state.borrow().process.clone()
+        self.state.process()
     }
 
     /// Returns an owned console input writer. Bytes use the guest's encoding.
@@ -265,7 +260,7 @@ impl Dos {
     /// # }
     /// ```
     pub fn stdin(&self) -> impl std::io::Write + Clone + 'static {
-        self.state.borrow().stdio.input.clone()
+        self.state.stdio().input.clone()
     }
 
     /// Returns the input queue shared by BIOS INT 16h and DOS console reads.
@@ -281,7 +276,7 @@ impl Dos {
     /// # }
     /// ```
     pub fn keyboard(&self) -> relocade_bios::Keyboard {
-        self.state.borrow().stdio.input.clone()
+        self.state.stdio().input.clone()
     }
 
     /// Copies the active 80-by-25 color text page and its cursor for a renderer.
@@ -297,8 +292,7 @@ impl Dos {
     /// destination, so bytes redirected to a file do not appear here.
     pub fn stdout(&self) -> impl std::io::Read + Clone + 'static {
         self.state
-            .borrow()
-            .stdio
+            .stdio()
             .output(stdio::OutputStream::Stdout)
             .clone()
     }
@@ -307,8 +301,7 @@ impl Dos {
     /// Like stdout, an empty buffer returns zero and reads do not block.
     pub fn stderr(&self) -> impl std::io::Read + Clone + 'static {
         self.state
-            .borrow()
-            .stdio
+            .stdio()
             .output(stdio::OutputStream::Stderr)
             .clone()
     }

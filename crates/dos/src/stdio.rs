@@ -1,8 +1,8 @@
-//! Owned host streams sharing the DOS console's byte queues.
+//! Persistent console streams, cooked input buffering and output position.
 
 use relocade_bios::Keyboard;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::VecDeque,
     io::{self, Read},
     rc::Rc,
@@ -18,14 +18,47 @@ pub(crate) enum OutputStream {
 pub(crate) struct Stdio {
     pub(crate) input: Keyboard,
     // Unread bytes of a completed AH=3Fh line, shared by all console input handles.
-    pub(crate) console_line: VecDeque<u8>,
+    console_line: RefCell<VecDeque<u8>>,
     // DOS's cooked-output column, independent of how the host drains its queues.
-    pub(crate) output_column: u8,
+    output_column: Cell<u8>,
     stdout: Output,
     stderr: Output,
 }
 
 impl Stdio {
+    pub(crate) fn has_buffered_line(&self) -> bool {
+        !self.console_line.borrow().is_empty()
+    }
+
+    pub(crate) fn buffer_line(&self, bytes: Vec<u8>) {
+        self.console_line.borrow_mut().extend(bytes);
+    }
+
+    /// Takes up to count bytes from a completed console line.
+    pub(crate) fn take_line_bytes(&self, count: usize) -> Vec<u8> {
+        let mut line = self.console_line.borrow_mut();
+        let count = count.min(line.len());
+        line.drain(..count).collect()
+    }
+
+    /// Expands tabs and tracks the DOS cooked-output column.
+    /// Returns the output byte and how many times it should be written.
+    pub(crate) fn cook_character(&self, byte: u8) -> (u8, u8) {
+        let column = self.output_column.get();
+        let (byte, count) = if byte == b'\t' {
+            (b' ', 8 - (column & 7))
+        } else {
+            (byte, 1)
+        };
+        self.output_column.set(match byte {
+            b'\r' => 0,
+            b'\x08' => column.wrapping_sub(1),
+            b' '..=b'~' | 0x80..=0xff => column.wrapping_add(count),
+            _ => column,
+        });
+        (byte, count)
+    }
+
     pub(crate) fn output(&self, stream: OutputStream) -> &Output {
         match stream {
             OutputStream::Stdout => &self.stdout,

@@ -20,7 +20,7 @@ use output::{write_characters, write_cooked_character, CharacterOutput};
 /// AH=0Ch: flush stdin, then invoke the input service selected by AL.
 pub(super) fn flush_input(call: &mut DosContext<'_, '_>) -> HookResult {
     // DOS proceeds to the requested service even if the flush failed.
-    let _ = call.process.files().flush_input(&call.dos.stdio.input, 0);
+    let _ = call.process.files().flush_input(&call.dos.stdio().input, 0);
     let function = call.execution.cpu.al();
     if matches!(
         function,
@@ -45,8 +45,8 @@ pub(super) fn input_status(call: &mut DosContext<'_, '_>) -> HookResult {
     let available = call
         .process
         .files()
-        .input_available(&call.dos.stdio.input, 0)
-        .unwrap_or_else(|_| call.dos.stdio.input.has_input());
+        .input_available(&call.dos.stdio().input, 0);
+    let available = available.unwrap_or_else(|_| call.dos.stdio().input.has_input());
     call.execution.cpu.set_al(if available { 0xff } else { 0 });
     return_from_interrupt(call.execution)
 }
@@ -58,7 +58,7 @@ pub(super) fn direct_io(call: &mut DosContext<'_, '_>) -> HookResult {
         let result = call
             .process
             .files()
-            .read_character(&call.dos.stdio.input, 0);
+            .read_character(&call.dos.stdio().input, 0);
         let character = match result {
             Ok(character) => character,
             Err(error) => return return_result(call, Err(error)),
@@ -76,16 +76,16 @@ pub(super) fn direct_io(call: &mut DosContext<'_, '_>) -> HookResult {
 /// AH=01h/07h/08h: wait for one character, echoing through stdout for AH=01h.
 pub(super) fn read_character(call: &mut DosContext<'_, '_>) -> HookResult {
     let echo = call.execution.cpu.ah() == super::READ_CHARACTER_ECHO;
-    match call
+    let result = call
         .process
         .files()
-        .read_character(&call.dos.stdio.input, 0)
-    {
+        .read_character(&call.dos.stdio().input, 0);
+    match result {
         Ok(Some(byte)) => return_character(call, byte, echo),
         Ok(None) => match call
             .process
             .files()
-            .wait_for_character(&call.dos.stdio.input, 0)
+            .wait_for_character(&call.dos.stdio().input, 0)
         {
             Ok(input) => call.defer(input, move |call, byte| return_character(call, byte, echo)),
             Err(error) => return_result(call, Err(error)),

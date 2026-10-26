@@ -8,15 +8,12 @@ use crate::{
     memory, ServiceError,
 };
 use relocade_machine::MemoryView;
-use std::{
-    cell::{RefCell, RefMut},
-    rc::Rc,
-};
+use std::cell::{RefCell, RefMut};
 
 /// The lifecycle of one successfully launched DOS process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProcessStatus {
-    /// Execution may continue, including after a budget stop or while awaiting input.
+    /// DOS has not reported termination, including while awaiting input.
     Active,
     /// DOS terminated the process with an exit code or a service error.
     Exited(Result<u8, ServiceError>),
@@ -25,6 +22,8 @@ pub enum ProcessStatus {
 /// One DOS program's PSP identity and lifecycle.
 /// Retaining this process preserves its status after another program starts.
 /// Termination releases its active resources regardless of retained references.
+/// Dropping the DOS session does not report a process exit; retained handles can
+/// keep the last active state and its resources alive.
 pub struct Process {
     psp_segment: u16,
     state: RefCell<State>,
@@ -38,12 +37,6 @@ enum State {
 struct Resources {
     files: Files,
     dta: DiskTransferAddress,
-}
-
-/// An active process borrowed for one DOS call.
-pub(crate) struct ProcessContext<'call> {
-    owner: &'call Rc<Process>,
-    state: RefMut<'call, State>,
 }
 
 pub(crate) struct DiskTransferAddress {
@@ -84,46 +77,29 @@ impl Process {
         }
     }
 
-    pub(crate) fn context(self: &Rc<Self>) -> ProcessContext<'_> {
-        ProcessContext {
-            owner: self,
-            state: self.state.borrow_mut(),
-        }
-    }
-}
-
-impl ProcessContext<'_> {
-    pub(crate) fn psp_segment(&self) -> u16 {
-        self.owner.psp_segment()
-    }
-
-    pub(crate) fn retain(&self) -> Rc<Process> {
-        Rc::clone(self.owner)
-    }
-
-    fn resources(&mut self) -> &mut Resources {
-        match &mut *self.state {
+    fn resources(&self) -> RefMut<'_, Resources> {
+        RefMut::map(self.state.borrow_mut(), |state| match state {
             State::Active(resources) => resources,
             State::Exited(_) => unreachable!("DOS service requires an active process"),
-        }
+        })
     }
 
-    pub(crate) fn files(&mut self) -> &mut Files {
-        &mut self.resources().files
+    pub(crate) fn files(&self) -> RefMut<'_, Files> {
+        RefMut::map(self.resources(), |resources| &mut resources.files)
     }
 
-    pub(crate) fn dta(&mut self) -> &mut DiskTransferAddress {
-        &mut self.resources().dta
+    pub(crate) fn dta(&self) -> RefMut<'_, DiskTransferAddress> {
+        RefMut::map(self.resources(), |resources| &mut resources.dta)
     }
 
-    /// Records termination and releases resources through the existing state borrow.
+    /// Records termination and releases the active resources immediately.
     pub(crate) fn terminate(
-        &mut self,
+        &self,
         status: Result<u8, ServiceError>,
         memory: &mut MemoryView<'_>,
         filesystem: &mut FileSystem,
     ) {
-        let previous = std::mem::replace(&mut *self.state, State::Exited(status));
+        let previous = self.state.replace(State::Exited(status));
         let State::Active(resources) = previous else {
             unreachable!("DOS service requires an active process");
         };
