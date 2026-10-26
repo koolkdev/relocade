@@ -30,8 +30,13 @@ input order. Starting EIPs are CS-relative and advance with 32-bit wrapping.
 Repeated starts are rejected; an empty batch produces a module without exports.
 Supplied starts end other blocks only when reached between instructions. The caller
 must limit snapshots at registered execution boundaries absent from the batch.
-Every entry still publishes state and dispatches at its boundary, even when the
-successor is another entry in the same module.
+At each boundary, the entry publishes state and checks its budget before continuing.
+Known fallthrough, near-jump and near-call destinations in the batch tail-call their
+local entries. Conditional branches keep their original condition and link each arm
+independently. Returns and unresolved destinations use shared dispatch, as do segment
+loads, port I/O and serializing instructions. `compile_block` always uses shared dispatch.
+Changing dispatch-table registrations does not retarget local calls: the host must keep
+every reachable entry valid, including its code bytes, mappings and execution target.
 
 Every `CpuFeature` is implemented and enabled by default. For example,
 `CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables integer and
@@ -51,7 +56,7 @@ selection. The model is host configuration, not mutable `CpuState`; keep it fixe
 for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
-count, checks its instruction target, then tail-calls
+count, checks its instruction target, then tail-calls a local successor or
 `relocade.dispatch() -> ExecutionExit`. Dispatch reads the published EIP from CPU state,
 and its result is returned unchanged. EIP is an offset relative to CS and wraps
 at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
