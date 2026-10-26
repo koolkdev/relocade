@@ -1,6 +1,6 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
-use relocade_bios::{TextCell, TextScreen};
 use relocade_dos::ProcessStatus;
+use relocade_vga::TextCell;
 use relocade_x86::{ExecutionExit, HostExit};
 
 #[test]
@@ -29,8 +29,8 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             dos.process().unwrap().status(),
             ProcessStatus::Exited(Ok(0))
         );
-        let screen = dos.screen();
-        assert_eq!(screen.page, 1);
+        let screen = dos.screen().unwrap();
+        assert_eq!(screen.start_address, 0x800);
         assert_eq!(
             screen.cells[82],
             TextCell {
@@ -42,7 +42,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             [83, 84, 85].map(|index| screen.cells[index].character),
             *b"OS!"
         );
-        assert_eq!((screen.cursor.row, screen.cursor.column), (1, 6));
+        assert_eq!(screen.cursor.address, 0x800 + 80 + 6);
         assert_eq!(common::output(dos.stdout()), b"DOS"); // BIOS output is screen-only.
         let mut page_zero = [0; 2];
         dos.cpu()
@@ -74,14 +74,14 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             .memory
             .write(0x10300, b"Ready$")
             .unwrap();
-        let memory = dos.cpu().memory();
+        let vga = dos.vga();
         let mut input = dos.stdin();
         common::assert_pending(dos.cpu().run(100));
-        let thread_memory = memory.clone();
-        let screen = std::thread::spawn(move || TextScreen::read(&thread_memory.view()))
+        let thread_vga = vga.clone();
+        let screen = std::thread::spawn(move || thread_vga.screen().unwrap())
             .join()
             .unwrap();
-        assert_eq!(dos.screen(), screen);
+        assert_eq!(dos.screen().unwrap(), screen);
         assert_eq!(
             screen.cells[..5]
                 .iter()
@@ -89,16 +89,16 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
                 .collect::<Vec<_>>(),
             b"Ready"
         );
-        assert_eq!(screen.cursor.column, 5);
+        assert_eq!(screen.cursor.address, 5);
 
         input.write_all(b"X").unwrap();
         assert_eq!(
             dos.cpu().run(100).await,
             ExecutionExit::Host(HostExit::Return)
         );
-        let screen = TextScreen::read(&memory.view());
+        let screen = vga.screen().unwrap();
         assert_eq!(screen.cells[5].character, b'X');
-        assert_eq!(screen.cursor.column, 6);
+        assert_eq!(screen.cursor.address, 6);
     });
 }
 
@@ -109,12 +109,12 @@ fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let file = success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0));
         success(&service(&mut dos, 0x4600, file, 1, 0));
-        let blank = dos.screen();
+        let blank = dos.screen().unwrap();
         dos.cpu().context().memory.write(0x10300, b"File$").unwrap();
         service(&mut dos, 0x0900, 0, 0, 0x300);
         success(&service(&mut dos, 0x4000, 1, 4, 0x300));
         assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"FileFile");
-        assert_eq!(dos.screen(), blank);
+        assert_eq!(dos.screen().unwrap(), blank);
         assert!(common::output(dos.stdout()).is_empty());
 
         let console = success(&path_service(&mut dos, b"CON", 0x3d02, 0));
@@ -135,13 +135,13 @@ fn file_redirection_skips_the_screen_but_stderr_and_opened_con_still_render() {
         success(&service(&mut dos, 0x4401, console, 0, 0x23));
         dos.cpu().context().memory.write(0x10300, b"\x1aR").unwrap();
         assert_eq!(success(&service(&mut dos, 0x4000, console, 2, 0x300)), 2);
-        let screen = dos.screen();
+        let screen = dos.screen().unwrap();
         assert_eq!(screen.cells[0].character, b'E');
         assert_eq!(
             [80, 81, 82, 83].map(|index| screen.cells[index].character),
             *b"CD\x1aR"
         );
-        assert_eq!((screen.cursor.row, screen.cursor.column), (1, 4));
+        assert_eq!(screen.cursor.address, 80 + 4);
         assert_eq!(common::output(dos.stdout()), b"D\x1aR");
     });
 }

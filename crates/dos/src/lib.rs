@@ -10,7 +10,7 @@
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. CON output is buffered as guest
-//! bytes and also updates the BIOS text screen, including input echo.
+//! bytes and also updates the VGA text display through BIOS services, including input echo.
 //! AH=06h polls stdin without echo or writes one byte to stdout.
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
@@ -109,14 +109,17 @@ pub use error::{LaunchError, LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
-use relocade_machine::{Cpu, CpuContext, Memory};
+use relocade_machine::{Cpu, CpuContext, DeviceConnection, IoBus, Memory};
+use relocade_vga::Vga;
 use state::DosState;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// A DOS session with persistent CPU, memory, filesystems and console resources.
 pub struct Dos {
     state: Rc<DosState>,
     cpu: Cpu,
+    vga: Arc<Vga>,
 }
 
 impl Dos {
@@ -125,17 +128,26 @@ impl Dos {
     pub async fn new() -> relocade_machine::Result<Self> {
         let state = Rc::new(DosState::default());
         let keyboard = state.stdio().input.clone();
-        let memory = Memory::new(kernel::configuration(), Default::default())?;
+        let vga = Arc::new(Vga::new());
+        let io = IoBus::new([DeviceConnection {
+            device: vga.clone(),
+            mmio: vec![relocade_vga::TEXT_MEMORY_RANGE],
+            ports: vec![relocade_vga::CRTC_PORT_RANGE],
+        }]);
+        let memory = Memory::new(kernel::configuration(), io)?;
         let mut cpu = Cpu::new(memory, kernel::cpu(), ()).await?;
         kernel::initialize(&mut cpu.context().memory);
-        relocade_bios::initialize(&mut cpu.context().memory);
+        {
+            let mut context = cpu.context();
+            relocade_bios::initialize(&mut context.memory, context.io);
+        }
         cpu.install_hooks(
             kernel::hooks(Rc::clone(&state))
                 .into_iter()
                 .chain(relocade_bios::hooks(keyboard)),
         )
         .await?;
-        Ok(Self { state, cpu })
+        Ok(Self { state, cpu, vga })
     }
 
     /// Launches a COM image of 1..=65,278 bytes when no process is active.
@@ -280,12 +292,20 @@ impl Dos {
         self.state.stdio().input.clone()
     }
 
-    /// Copies the active 80-by-25 color text page and its cursor for a renderer.
+    /// Retains the VGA device independently of the CPU and DOS session.
+    /// A display can sample its memory and registers while guest execution runs
+    /// on another thread or awaits input.
+    pub fn vga(&self) -> Arc<Vga> {
+        Arc::clone(&self.vga)
+    }
+
+    /// Attempts to copy the VGA text display and its hardware cursor for a renderer.
     /// DOS CON output, BIOS video services and direct guest writes all update
-    /// this memory. The screen remains readable while a host service is pending.
+    /// video memory. The screen remains readable while a host service is pending.
     /// File redirection does not write to the screen.
-    pub fn screen(&self) -> relocade_bios::TextScreen {
-        relocade_bios::TextScreen::read(&self.cpu.memory().view())
+    /// Returns `None` when the device is busy; the display can keep its previous frame.
+    pub fn screen(&self) -> Option<relocade_vga::TextScreen> {
+        self.vga.screen()
     }
 
     /// Returns an owned reader that drains currently buffered standard output.

@@ -19,7 +19,7 @@ pub(in crate::services) fn write_console(
     bytes: &[u8],
 ) {
     call.dos.stdio().output(stream).extend(bytes);
-    relocade_bios::write_text(&mut call.execution.memory, bytes);
+    relocade_bios::write_text(&mut call.execution.memory, call.execution.io, bytes);
 }
 
 /// DOS cooked output expands tabs, tracks its column and ignores write errors.

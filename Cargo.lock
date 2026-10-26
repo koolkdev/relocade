@@ -1283,6 +1283,7 @@ name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
  "relocade-machine",
+ "relocade-vga",
 ]
 
 [[package]]
@@ -1331,6 +1332,7 @@ dependencies = [
  "relocade-bios",
  "relocade-machine",
  "relocade-vfs",
+ "relocade-vga",
  "relocade-x86",
 ]
 
@@ -1360,7 +1362,7 @@ version = "0.0.0"
 dependencies = [
  "futures-channel",
  "pollster",
- "relocade-bios",
+ "relocade-vga",
  "wasm-bindgen-test",
  "wgpu",
 ]
@@ -1376,6 +1378,14 @@ dependencies = [
 [[package]]
 name = "relocade-vfs"
 version = "0.0.0"
+
+[[package]]
+name = "relocade-vga"
+version = "0.0.0"
+dependencies = [
+ "relocade-machine",
+ "wasm-bindgen-test",
+]
 
 [[package]]
 name = "relocade-wasm-bindings"

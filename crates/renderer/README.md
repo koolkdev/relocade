@@ -14,17 +14,21 @@ the same. Skip surface acquisition while the window/canvas has zero size.
 For the current text screen, the two crates connect directly:
 
 ```rust,ignore
-let mut text = relocade_bios::TextRenderer::new();
+let vga = dos.vga();
+let mut text = relocade_vga::TextRenderer::new();
 let mut renderer = relocade_renderer::Renderer::new(device, queue, format)?;
 
-// On each redraw, after acquiring an output texture view:
-let screen = relocade_bios::TextScreen::read(&memory);
-let pixels = text.render(&screen, elapsed);
-renderer.render(
-    [relocade_bios::TextRenderer::WIDTH, relocade_bios::TextRenderer::HEIGHT],
-    pixels,
-    &view,
-)?;
+// On each redraw, sample before acquiring an output texture:
+if let Some(screen) = vga.screen() {
+    // Acquire the surface texture and create its `view` here.
+    let pixels = text.render(&screen, elapsed);
+    renderer.render(
+        [relocade_vga::TextRenderer::WIDTH, relocade_vga::TextRenderer::HEIGHT],
+        pixels,
+        &view,
+    )?;
+    // Present that texture here; on None, skip acquisition and presentation.
+}
 ```
 
 No emulation state crosses into the GPU renderer. A native window and browser
@@ -33,4 +37,5 @@ for a DOS display it can choose a 4:3 target even though the source has 640×200
 
 The `pixels` integration test reads back actual GPU output to check orientation,
 nearest-neighbor scaling, color encoding, alpha, updates and resizing. It runs on
-native wgpu and browser WebGPU. The native variant also checks BIOS text output.
+native wgpu and browser WebGPU. The native variant also checks a rasterized VGA
+text frame.

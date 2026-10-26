@@ -1,5 +1,8 @@
-use relocade_bios::{TextCell, TextCursor, TextRenderer, TextScreen};
+use relocade_vga::{TextCell, TextCursor, TextRenderer, TextScreen};
 use std::time::Duration;
+
+#[cfg(target_arch = "wasm32")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn blank_screen() -> TextScreen {
     TextScreen {
@@ -8,12 +11,11 @@ fn blank_screen() -> TextScreen {
             attribute: 7,
         }; TextScreen::COLUMNS * TextScreen::ROWS],
         cursor: TextCursor {
-            row: 0,
-            column: 0,
+            address: 0,
             start_scan_line: 0x20,
             end_scan_line: 7,
         },
-        page: 0,
+        start_address: 0,
     }
 }
 
@@ -22,7 +24,8 @@ fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
     &pixels[start..start + 4]
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn glyph_orientation_colors_and_last_cell() {
     let mut screen = blank_screen();
     screen.cells[0] = TextCell {
@@ -53,7 +56,8 @@ fn glyph_orientation_colors_and_last_cell() {
     assert_eq!(pixel(pixels, 639, 199), [85, 85, 255, 255]);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cp437_controls_and_box_drawing_are_glyphs() {
     let mut screen = blank_screen();
     for (cell, character) in screen.cells.iter_mut().zip([1, 0xc4, 0xb3]) {
@@ -70,7 +74,8 @@ fn cp437_controls_and_box_drawing_are_glyphs() {
     }
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn blinking_uses_presentation_time_and_reuses_pixels() {
     let mut screen = blank_screen();
     screen.cells[0] = TextCell {
@@ -96,12 +101,12 @@ fn blinking_uses_presentation_time_and_reuses_pixels() {
     }
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cursor_shape_visibility_and_blink() {
     let mut screen = blank_screen();
     screen.cursor = TextCursor {
-        row: 1,
-        column: 2,
+        address: 82,
         start_scan_line: 6,
         end_scan_line: 7,
     };
@@ -114,19 +119,48 @@ fn cursor_shape_visibility_and_blink() {
         pixel(renderer.render(&screen, Duration::from_millis(500)), 16, 14),
         [0, 0, 0, 255]
     );
-    for (row, column, start, end) in [
-        (1, 2, 0x26, 7), // Disabled.
-        (1, 2, 7, 6),    // Reversed.
-        (1, 2, 8, 31),   // Below the character.
-        (25, 2, 6, 7),   // Below the screen.
-        (1, 80, 6, 7),   // Outside the row; must not wrap.
+    for (address, start, end) in [
+        (82, 0x26, 7), // Disabled.
+        (82, 7, 6),    // Reversed.
+        (82, 8, 31),   // Below the character.
+        (2002, 6, 7),  // Below the screen.
     ] {
         screen.cursor = TextCursor {
-            row,
-            column,
+            address,
             start_scan_line: start,
             end_scan_line: end,
         };
+        let pixels = renderer.render(&screen, Duration::ZERO);
+        assert!(pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| *p == [0, 0, 0, 255]));
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn cursor_follows_display_start_address_wrap_and_skew() {
+    let mut screen = blank_screen();
+    screen.start_address = 0xffff;
+    screen.cursor = TextCursor {
+        address: 0,
+        start_scan_line: 6,
+        end_scan_line: 7,
+    };
+    let mut renderer = TextRenderer::new();
+    let pixels = renderer.render(&screen, Duration::ZERO);
+    assert_eq!(pixel(pixels, 0, 6), [0, 0, 0, 255]);
+    assert_eq!(pixel(pixels, 8, 6), [170, 170, 170, 255]);
+    screen.cursor.end_scan_line = 0x27; // Delay the cursor by one cell.
+    let pixels = renderer.render(&screen, Duration::ZERO);
+    assert_eq!(pixel(pixels, 8, 6), [0, 0, 0, 255]);
+    assert_eq!(pixel(pixels, 16, 6), [170, 170, 170, 255]);
+    // A skew into horizontal blanking does not reappear on the next row.
+    screen.start_address = 0;
+    for address in [79, 0xffff] {
+        screen.cursor.address = address;
         let pixels = renderer.render(&screen, Duration::ZERO);
         assert!(pixels
             .as_chunks::<4>()

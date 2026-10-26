@@ -8,16 +8,12 @@
 
 mod keyboard;
 mod screen;
-mod text_renderer;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::MemoryView;
 use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HookResult};
-pub use screen::{
-    write_text, TextCell, TextCursor, TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
-};
-pub use text_renderer::TextRenderer;
+use relocade_machine::{IoBus, MemoryView};
+pub use screen::write_text;
 
 const BIOS_SEGMENT: u16 = 0xf000;
 const CLOCK_ENTRY: u16 = 0xff00;
@@ -31,9 +27,10 @@ const MIDNIGHT_ROLLOVER: u32 = 0x470;
 
 /// Initializes the clock data, BIOS vectors and their ROM return instructions.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
-/// Color text memory at [`TEXT_MEMORY_START`] must also have RAM backing.
-pub fn initialize(memory: &mut MemoryView<'_>) {
-    screen::initialize(memory);
+/// VGA text memory must be mapped as MMIO, with the VGA device connected to
+/// the supplied bus at its color text aperture and CRTC ports.
+pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
+    screen::initialize(memory, io);
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
     for (vector, offset) in [
