@@ -3,7 +3,7 @@ mod common;
 mod screen;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
-use relocade_dos::FileAccess;
+use relocade_dos::{FileAccess, ProcessStatus};
 use relocade_x86::ExecutionExit;
 use std::io::{Read, Write};
 
@@ -96,7 +96,7 @@ async fn check_handle_output() {
             assert_eq!(common::output(dos.stdout()), output);
             assert!(common::output(dos.stderr()).is_empty());
         }
-        assert_eq!(dos.exit_status(), None);
+        assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
     }
 
     // The destination belongs to the open device, not to its handle number.

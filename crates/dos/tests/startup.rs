@@ -1,6 +1,6 @@
 mod common;
 
-use relocade_dos::{LoadError, LoadOptions};
+use relocade_dos::{LoadError, LoadOptions, ProcessStatus};
 use relocade_x86::{ExecutionExit, HostExit};
 
 // DS points to the PSP at both COM and MZ entry.
@@ -45,7 +45,10 @@ async fn check_command_tails() {
                 dos.cpu().run(100).unwrap(),
                 ExecutionExit::Host(HostExit::Return)
             );
-            assert_eq!(dos.exit_status(), Some(Ok(0)));
+            assert_eq!(
+                dos.process().unwrap().status(),
+                ProcessStatus::Exited(Ok(0))
+            );
             assert_eq!(common::output(dos.stdout()), tail);
         }
 
@@ -74,7 +77,10 @@ async fn check_command_tails() {
             .read(0x10000, &mut after)
             .unwrap();
         assert_eq!(after, before);
-        assert_eq!(dos.exit_status(), Some(Ok(0)));
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(0))
+        );
     }
 }
 

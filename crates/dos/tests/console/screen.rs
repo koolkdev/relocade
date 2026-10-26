@@ -1,5 +1,6 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
 use relocade_bios::{TextCell, TextScreen};
+use relocade_dos::ProcessStatus;
 use relocade_x86::{ExecutionExit, HostExit};
 
 #[test]
@@ -24,7 +25,10 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             dos.cpu().run(100).unwrap(),
             ExecutionExit::Host(HostExit::Return)
         );
-        assert_eq!(dos.exit_status(), Some(Ok(0)));
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(0))
+        );
         let screen = dos.screen();
         assert_eq!(screen.page, 1);
         assert_eq!(

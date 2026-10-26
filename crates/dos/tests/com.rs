@@ -1,4 +1,4 @@
-use relocade_dos::{LoadError, ServiceError};
+use relocade_dos::{LoadError, ProcessStatus, ServiceError};
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 
 mod common;
@@ -31,7 +31,7 @@ async fn check_hello() {
         machine.memory.read(0x1fffe, &mut word).unwrap();
         assert_eq!(word, [0, 0]);
     }
-    assert_eq!(dos.exit_status(), None);
+    assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
     assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
     assert!(common::output(dos.stdout()).is_empty()); // INT completed, before entering the hook.
     assert_eq!(dos.cpu().run(1).unwrap(), ExecutionExit::BudgetExhausted);
@@ -43,7 +43,10 @@ async fn check_hello() {
         dos.cpu().run(u64::MAX).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(7)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(7))
+    );
     assert!(common::output(dos.stdout()).is_empty());
 }
 
@@ -60,7 +63,10 @@ async fn check_com_bounds_and_return() {
         dos.cpu().run(10).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(0))
+    );
     assert_eq!(dos.cpu().context().cpu.instruction_count(), 2);
     assert_eq!(
         dos.launch_com(&[], Default::default()),
@@ -71,18 +77,24 @@ async fn check_com_bounds_and_return() {
         dos.launch_com(&image, Default::default()),
         Err(LoadError::ImageTooLarge.into())
     );
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(0))
+    );
 
     // Another program reuses the prepared environment and replaces its allocation.
     dos.launch_com(&[0xc3], Default::default()).unwrap();
-    assert_eq!(dos.exit_status(), None);
+    assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
     dos.cpu().context().memory.read(0x1fffd, &mut end).unwrap();
     assert_eq!(end, [0, 0, 0]);
     assert_eq!(
         dos.cpu().run(10).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(0))
+    );
 }
 
 async fn check_unsupported_service() {
@@ -94,8 +106,8 @@ async fn check_unsupported_service() {
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(
-        dos.exit_status(),
-        Some(Err(ServiceError::UnsupportedFunction(0xfe)))
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Err(ServiceError::UnsupportedFunction(0xfe)))
     );
 }
 
@@ -130,8 +142,8 @@ async fn check_unterminated_string() {
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(
-        dos.exit_status(),
-        Some(Err(ServiceError::UnterminatedString))
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Err(ServiceError::UnterminatedString))
     );
     let output = common::output(dos.stdout());
     assert_eq!(output.len(), 65536);

@@ -1,6 +1,6 @@
 mod common;
 
-use relocade_dos::{LoadError, LoadOptions};
+use relocade_dos::{LoadError, LoadOptions, ProcessStatus};
 use relocade_x86::{ExecutionExit, HostExit};
 
 async fn check_environments() {
@@ -49,7 +49,10 @@ async fn check_environments() {
             dos.cpu().run(100).unwrap(),
             ExecutionExit::Host(HostExit::Return)
         );
-        assert_eq!(dos.exit_status(), Some(Ok(0)));
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(0))
+        );
         assert_eq!(common::output(dos.stdout()), expected);
     }
 

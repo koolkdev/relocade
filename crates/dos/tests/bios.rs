@@ -6,6 +6,7 @@ mod screen;
 #[path = "bios/video.rs"]
 mod video;
 
+use relocade_dos::ProcessStatus;
 use relocade_x86::ExecutionExit;
 
 async fn check_bios_clock() {
@@ -59,7 +60,7 @@ async fn check_bios_clock() {
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.eax as u16, 0x8642);
     assert_eq!(cpu.flags.eflags(), 0x0a57); // Unsupported calls set only carry.
-    assert_eq!(dos.exit_status(), None);
+    assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
 }
 
 #[test]

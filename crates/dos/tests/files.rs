@@ -1,7 +1,7 @@
 mod common;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
-use relocade_dos::{Dos, FileAccess, MountError};
+use relocade_dos::{Dos, FileAccess, MountError, ProcessStatus};
 use relocade_x86::{CpuState, ExecutionExit, HostExit};
 
 async fn check_file_program() {
@@ -39,7 +39,10 @@ async fn check_file_program() {
             dos.cpu().run(100).unwrap(),
             ExecutionExit::Host(HostExit::Return)
         );
-        assert_eq!(dos.exit_status(), Some(Ok(0)));
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(0))
+        );
         assert_eq!(common::output(dos.stdout()), b"file\r\n");
     }
 }
@@ -346,7 +349,10 @@ async fn check_save_program() {
         dos.cpu().run(100).unwrap(),
         ExecutionExit::Host(HostExit::Return)
     );
-    assert_eq!(dos.exit_status(), Some(Ok(0)));
+    assert_eq!(
+        dos.process().unwrap().status(),
+        ProcessStatus::Exited(Ok(0))
+    );
     assert_eq!(dos.read_file(r"C:\save.dat").unwrap(), b"saved");
 }
 
