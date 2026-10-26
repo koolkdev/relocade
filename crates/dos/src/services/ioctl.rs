@@ -31,7 +31,7 @@ pub(super) fn ioctl(call: &mut DosContext<'_, '_>) -> HookResult {
         GET_INPUT_STATUS => call
             .process
             .files()
-            .input_available(&call.dos.stdio.input, handle)
+            .input_available(&call.dos.stdio().input, handle)
             .map(|available| {
                 call.execution.cpu.set_al(if available { 0xff } else { 0 });
             }),

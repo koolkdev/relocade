@@ -4,7 +4,7 @@ use relocade_machine::{CpuConfig, MachineConfig, MemoryView};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 const KERNEL_SEGMENT: u16 = 0xf000;
 const INT20_ENTRY: u16 = 0x100;
@@ -62,7 +62,7 @@ pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
     }
 }
 
-pub(crate) fn hooks(state: Rc<RefCell<DosState>>) -> [Hook; 2] {
+pub(crate) fn hooks(state: Rc<DosState>) -> [Hook; 2] {
     [
         interrupt::hook(address(INT20_ENTRY), Rc::clone(&state), services::int20),
         interrupt::hook(address(INT21_ENTRY), state, services::int21),

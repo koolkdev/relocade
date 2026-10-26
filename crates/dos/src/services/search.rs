@@ -11,7 +11,7 @@ use relocade_x86::{Segment, SegmentRegister};
 pub(super) fn set_dta(call: &mut DosContext<'_, '_>) -> HookResult {
     let segment = call.execution.cpu.segment(Segment::Ds).selector;
     let offset = call.execution.cpu.dx();
-    let dta = call.process.dta();
+    let mut dta = call.process.dta();
     dta.segment = segment;
     dta.offset = offset;
     return_from_interrupt(call.execution)
@@ -34,7 +34,7 @@ pub(super) fn find_first(call: &mut DosContext<'_, '_>) -> HookResult {
     let result = read_path(call).and_then(|path| {
         call.process
             .files()
-            .find_first(&call.dos.filesystem, &path, attributes)
+            .find_first(&call.dos.filesystem(), &path, attributes)
     });
     return_search(call, result)
 }
@@ -47,7 +47,10 @@ pub(super) fn find_next(call: &mut DosContext<'_, '_>) -> HookResult {
         .memory
         .read(address, &mut data)
         .expect("real-mode DTA");
-    let result = call.process.files().find_next(&call.dos.filesystem, &data);
+    let result = call
+        .process
+        .files()
+        .find_next(&call.dos.filesystem(), &data);
     return_search(call, result)
 }
 

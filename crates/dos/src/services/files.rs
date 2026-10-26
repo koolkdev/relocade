@@ -21,18 +21,21 @@ pub(super) fn attributes(call: &mut DosContext<'_, '_>) -> HookResult {
     }
     let attributes = call.execution.cpu.cx();
     let result = read_path(call).and_then(|path| match operation {
-        0 => call.dos.filesystem.attributes(&path).map(|attributes| {
+        0 => call.dos.filesystem().attributes(&path).map(|attributes| {
             call.execution.cpu.set_cx(attributes);
         }),
-        _ => call.dos.filesystem.set_attributes(&path, attributes),
+        _ => call.dos.filesystem().set_attributes(&path, attributes),
     });
     return_result(call, result)
 }
 
 /// AH=41h: delete the file at DS:DX, subject to DOS attributes and sharing.
 pub(super) fn delete(call: &mut DosContext<'_, '_>) -> HookResult {
-    let result = read_path(call)
-        .and_then(|path| call.process.files().delete(&mut call.dos.filesystem, &path));
+    let result = read_path(call).and_then(|path| {
+        call.process
+            .files()
+            .delete(&mut call.dos.filesystem(), &path)
+    });
     return_result(call, result)
 }
 
@@ -43,7 +46,7 @@ pub(super) fn rename(call: &mut DosContext<'_, '_>) -> HookResult {
         let to = read_path_at(call, Segment::Es, offset)?;
         call.process
             .files()
-            .rename(&mut call.dos.filesystem, &from, &to)
+            .rename(&mut call.dos.filesystem(), &from, &to)
     });
     return_result(call, result)
 }
@@ -54,7 +57,7 @@ pub(super) fn create(call: &mut DosContext<'_, '_>, mode: CreateMode) -> HookRes
     let result = read_path(call).and_then(|path| {
         call.process
             .files()
-            .create(&mut call.dos.filesystem, &path, attributes, mode)
+            .create(&mut call.dos.filesystem(), &path, attributes, mode)
     });
     let result = result.map(|handle| call.execution.cpu.set_ax(handle));
     return_result(call, result)
@@ -65,7 +68,7 @@ pub(super) fn create_temporary(call: &mut DosContext<'_, '_>) -> HookResult {
     let attributes = call.execution.cpu.cx();
     let result = read_path(call).and_then(|mut path| {
         let handle = call.process.files().create_temporary(
-            &mut call.dos.filesystem,
+            &mut call.dos.filesystem(),
             &mut path,
             attributes,
         )?;
@@ -83,8 +86,11 @@ pub(super) fn create_temporary(call: &mut DosContext<'_, '_>) -> HookResult {
 /// AH=3Dh: open the NUL-terminated path at DS:DX using AL's access mode.
 pub(super) fn open(call: &mut DosContext<'_, '_>) -> HookResult {
     let mode = call.execution.cpu.al();
-    let result = read_path(call)
-        .and_then(|path| call.process.files().open(&call.dos.filesystem, &path, mode));
+    let result = read_path(call).and_then(|path| {
+        call.process
+            .files()
+            .open(&call.dos.filesystem(), &path, mode)
+    });
     let result = result.map(|handle| call.execution.cpu.set_ax(handle));
     return_result(call, result)
 }
@@ -92,7 +98,10 @@ pub(super) fn open(call: &mut DosContext<'_, '_>) -> HookResult {
 /// AH=3Eh: close BX's file handle.
 pub(super) fn close(call: &mut DosContext<'_, '_>) -> HookResult {
     let handle = call.execution.cpu.bx();
-    let result = call.process.files().close(&mut call.dos.filesystem, handle);
+    let result = call
+        .process
+        .files()
+        .close(&mut call.dos.filesystem(), handle);
     return_result(call, result)
 }
 
@@ -102,7 +111,7 @@ pub(super) fn commit(call: &mut DosContext<'_, '_>) -> HookResult {
     let result = call
         .process
         .files()
-        .commit(&mut call.dos.filesystem, handle)
+        .commit(&mut call.dos.filesystem(), handle)
         .map(|()| call.execution.cpu.set_ah(super::COMMIT_HANDLE));
     return_result(call, result)
 }
@@ -125,14 +134,15 @@ pub(super) fn force_duplicate(call: &mut DosContext<'_, '_>) -> HookResult {
     let result =
         call.process
             .files()
-            .force_duplicate(&mut call.dos.filesystem, source, destination);
+            .force_duplicate(&mut call.dos.filesystem(), source, destination);
     return_result(call, result)
 }
 
 /// AH=3Fh: read up to CX bytes from BX into DS:DX; return the count in AX.
 pub(super) fn read(call: &mut DosContext<'_, '_>) -> HookResult {
     let handle = call.execution.cpu.bx();
-    match call.process.files().readable_handle_type(handle) {
+    let kind = call.process.files().readable_handle_type(handle);
+    match kind {
         Ok(HandleType::Device(Device::Console(stream))) => {
             return super::console::read_handle(call, stream);
         }
