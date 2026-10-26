@@ -12,14 +12,17 @@ mod character;
 mod create;
 mod devices;
 mod directories;
+mod file_handle;
 mod handles;
 mod mounts;
 mod search;
 mod short_name;
+#[cfg(test)]
+mod tests;
 pub(crate) use create::CreateMode;
 pub(crate) use devices::Device;
 pub(crate) use handles::HandleType;
-use handles::{OpenHandle, HANDLE_COUNT};
+use handles::{Handle, HANDLE_COUNT};
 pub(crate) use search::FIND_DATA_BYTES;
 
 const READ_ONLY_ATTRIBUTE: u16 = 0x01;
@@ -63,7 +66,7 @@ pub(crate) struct FileSystem {
 }
 
 pub(crate) struct Files {
-    handles: [Option<OpenHandle>; HANDLE_COUNT],
+    handles: [Option<Handle>; HANDLE_COUNT],
     search_directories: Vec<Option<search::SearchDirectory>>,
 }
 
