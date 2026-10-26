@@ -4,9 +4,23 @@ use std::sync::Arc;
 
 /// Initial backing capacity and mappings, independent of a CPU's state.
 #[derive(Clone)]
+#[cfg_attr(target_arch = "wasm32", derive(serde::Serialize))]
 pub struct MachineConfig {
     memory_size: u64,
     map: Arc<PhysicalMemoryMap>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<'de> serde::Deserialize<'de> for MachineConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        struct Contents {
+            memory_size: u64,
+            map: PhysicalMemoryMap,
+        }
+        let Contents { memory_size, map } = Contents::deserialize(deserializer)?;
+        Self::new(memory_size, map).map_err(serde::de::Error::custom)
+    }
 }
 
 impl MachineConfig {

@@ -1,21 +1,13 @@
 use super::CpuView;
 use crate::{ConfigurationError, CpuConfig};
-use relocade_wasm_runtime::{Backend, SharedMemory, WasmBackend, WasmSharedMemory};
+use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, Segment, SegmentRegister, Segments,
     StatusSourceState,
 };
 
 fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
-    let mut backend = Backend::new().unwrap();
-    let memory = backend
-        .create_memory(relocade_compiler::abi::Memory {
-            shared: true,
-            maximum: Some(1),
-            ..relocade_x86::abi::EXECUTION_CONTEXT
-        })
-        .unwrap();
-    let memory = backend.shared_memory(&memory).unwrap();
+    let memory = SharedMemory::new(1, 1).unwrap();
     memory.view().write(
         0,
         &ExecutionContext {
@@ -49,7 +41,8 @@ fn configuration() -> CpuConfig {
     .unwrap()
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn register_access_is_live_and_preserves_aliases() {
     let config = configuration();
     let storage = cpu_memory(&config);
@@ -74,7 +67,8 @@ fn register_access_is_live_and_preserves_aliases() {
     assert_eq!(config.cpu().eip, 0);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     let config = configuration();
     let storage = cpu_memory(&config);
@@ -93,7 +87,8 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     assert_eq!(read::<8>(&context, 544), [0xfd, 1, 0, 0, 0, 0, 0, 0]);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn restore_rejects_incompatible_segments_without_writing() {
     let config = configuration();
     let storage = cpu_memory(&config);
@@ -109,7 +104,8 @@ fn restore_rejects_incompatible_segments_without_writing() {
     assert_eq!(cpu.snapshot(), before);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn segment_edits_preserve_the_execution_profile() {
     let config = configuration();
     let storage = cpu_memory(&config);
@@ -119,7 +115,8 @@ fn segment_edits_preserve_the_execution_profile() {
     assert_eq!(cpu.segment(Segment::Ds), ds);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[should_panic(expected = "segment Ds violates execution profile Real16")]
 fn incompatible_segment_edits_panic() {
     let config = configuration();
@@ -130,7 +127,8 @@ fn incompatible_segment_edits_panic() {
     cpu.set_segment(Segment::Ds, ds);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
     let config = configuration();
     let storage = cpu_memory(&config);
@@ -157,7 +155,8 @@ fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
     assert_eq!(edited, snapshot);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
     let config = configuration();
     let storage = cpu_memory(&config);
@@ -171,7 +170,8 @@ fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
     assert_eq!(cpu.snapshot(), before);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn restore_rejects_incompatible_idtr_without_writing() {
     let config = configuration();
     let storage = cpu_memory(&config);

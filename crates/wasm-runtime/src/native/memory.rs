@@ -10,7 +10,7 @@ pub enum Memory {
     Shared(SharedMemory),
 }
 
-/// Shared linear memory that can be read without borrowing the Wasmtime store.
+/// Shared linear memory with portable ownership and direct host access.
 #[derive(Clone)]
 pub struct SharedMemory(wasmtime::SharedMemory);
 
@@ -45,23 +45,17 @@ impl MemoryRegion<'_> {
 impl Memory {
     pub(super) fn new(mut store: impl AsContextMut, declaration: abi::Memory) -> Result<Self> {
         if declaration.shared {
-            let maximum = declaration.maximum.ok_or_else(|| {
-                Error::new("create Wasm memory", "shared memory requires a maximum")
-            })?;
-            wasmtime::SharedMemory::new(
-                store.as_context().engine(),
-                MemoryType::shared(declaration.minimum, maximum),
-            )
-            .map(|memory| Self::Shared(SharedMemory(memory)))
-            .map_err(|error| Error::new("create Wasm memory", error))
-        } else {
-            wasmtime::Memory::new(
-                &mut store,
-                MemoryType::new(declaration.minimum, declaration.maximum),
-            )
-            .map(Self::Private)
-            .map_err(|error| Error::new("create Wasm memory", error))
+            return Err(Error::new(
+                "create private memory",
+                "allocate shared memory with SharedMemory::new",
+            ));
         }
+        wasmtime::Memory::new(
+            &mut store,
+            MemoryType::new(declaration.minimum, declaration.maximum),
+        )
+        .map(Self::Private)
+        .map_err(|error| Error::new("create Wasm memory", error))
     }
 
     pub(super) fn access<'a, T>(
@@ -132,6 +126,19 @@ impl WasmSharedMemory for SharedMemory {
 }
 
 impl SharedMemory {
+    /// Allocates zeroed shared memory, in 64-KiB pages.
+    pub fn new(minimum: u32, maximum: u32) -> Result<Self> {
+        let memory_type = wasmtime::MemoryType::builder()
+            .shared(true)
+            .min(u64::from(minimum))
+            .max(Some(u64::from(maximum)))
+            .build()
+            .map_err(|error| Error::new("create shared memory", error))?;
+        wasmtime::SharedMemory::new(super::compilation::shared()?.engine(), memory_type)
+            .map(Self)
+            .map_err(|error| Error::new("create shared memory", error))
+    }
+
     #[allow(unsafe_code)]
     fn range(&self, offset: u32, len: usize) -> &[AtomicU8] {
         let data = self.0.data();
@@ -139,7 +146,7 @@ impl SharedMemory {
         let end = start.checked_add(len).expect("Wasm memory range overflow");
         let cells = &data[start..end];
         // SAFETY: Wasmtime owns this allocation and keeps it stable, including
-        // across growth, while this SharedMemory exists. AtomicU8 has byte size
+        // across growth, while this handle exists. AtomicU8 has byte size
         // and alignment. The checked range is initialized and remains allocated.
         // All Rust accesses to shared contents use byte atomics; guest Wasm
         // accesses obey Wasmtime's shared-memory contract.

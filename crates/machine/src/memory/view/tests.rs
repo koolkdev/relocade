@@ -1,22 +1,13 @@
 use super::MemoryError;
 use crate::{MachineConfig, Memory};
-use relocade_wasm_runtime::{Backend, SharedMemory, WasmBackend};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, Segment, SegmentRegister};
 
-fn allocate(map: PhysicalMemoryMap) -> Memory<SharedMemory> {
-    let config = MachineConfig::new(0x3000, map).unwrap();
-    let mut backend = Backend::new().unwrap();
-    let memory = backend
-        .create_memory(relocade_compiler::abi::Memory {
-            minimum: 1,
-            maximum: Some(1),
-            ..relocade_x86::abi::GUEST
-        })
-        .unwrap();
-    Memory::with_backing(config, backend.shared_memory(&memory).unwrap()).unwrap()
+fn allocate(map: PhysicalMemoryMap) -> Memory {
+    Memory::new(MachineConfig::new(0x3000, map).unwrap()).unwrap()
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn transfers_cross_pages_with_their_guest_access_policy() {
     let map = PhysicalMemoryMap::new([
         (
@@ -73,7 +64,8 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     assert_eq!(memory.read_u64(0x2001).unwrap(), u64::MAX);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
     for enabled in [false, true] {
         let mut map = PhysicalMemoryMap::new([
@@ -105,7 +97,8 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
     }
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn segment_transfers_check_the_whole_span_before_copying() {
     let map = PhysicalMemoryMap::new([
         (0xf000..=0xffff, PhysicalMapping::Ram { backing_offset: 0 }),
@@ -145,7 +138,8 @@ fn segment_transfers_check_the_whole_span_before_copying() {
     memory.write_segment(&ds, 0xffff, &[]).unwrap();
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn real_mode_segment_transfers_allow_cs_writes_and_preserve_rom_policy() {
     let map = PhysicalMemoryMap::new([
         (
@@ -170,7 +164,8 @@ fn real_mode_segment_transfers_allow_cs_writes_and_preserve_rom_policy() {
     assert_eq!(&bytes, b"ABCD"); // CS:0CBE translates to 12FFE, crossing into ROM.
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn invalid_spans_fail_before_any_transfer() {
     let backing = allocate(PhysicalMemoryMap::new([]).unwrap());
     let mut memory = backing.view();
@@ -202,7 +197,8 @@ fn invalid_spans_fail_before_any_transfer() {
     assert_eq!(byte, [0xff]);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn overflowing_scalars_do_not_wrap_into_low_ram() {
     let map =
         PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();

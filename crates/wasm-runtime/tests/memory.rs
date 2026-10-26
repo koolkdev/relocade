@@ -6,7 +6,7 @@ use relocade_wasm_runtime::{
     MemoryAccess, WasmBackend, WasmCompiler, WasmMemoryAccess, WasmSharedMemory,
 };
 
-use relocade_wasm_runtime::Backend;
+use relocade_wasm_runtime::{Backend, SharedMemory};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -27,8 +27,10 @@ async fn check_shared_memory() {
         })
         .unwrap();
     assert!(backend.shared_memory(&private).is_none());
-    let memory = backend.create_memory(SHARED).unwrap();
-    let reader = backend.shared_memory(&memory).unwrap();
+    let owner = SharedMemory::new(SHARED.minimum, SHARED.maximum.unwrap()).unwrap();
+    let memory = backend.import_shared_memory(&owner);
+    let owner = backend.shared_memory(&memory).unwrap();
+    let reader = owner.clone();
 
     let mut program = Program::new();
     let guest = program.import_memory(SHARED);
@@ -107,16 +109,11 @@ async fn shared_memory_outlives_the_backend_and_tracks_growth() {
     check_shared_memory().await;
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-fn deserialization_rejects_private_memory() {
-    let descriptor = js_sys::Object::new();
-    js_sys::Reflect::set(&descriptor, &"initial".into(), &1.into()).unwrap();
-    let private = js_sys::WebAssembly::Memory::new(&descriptor).unwrap();
-    assert!(
-        serde_wasm_bindgen::from_value::<relocade_wasm_runtime::SharedMemory>(private.into())
-            .is_err()
-    );
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn private_memory_creation_rejects_shared_declarations() {
+    let mut backend = Backend::new().unwrap();
+    assert!(backend.create_memory(SHARED).is_err());
 }
 
 fn check_scalars(access: &mut MemoryAccess<'_>, offset: u32) {
@@ -153,7 +150,12 @@ fn check_scalars(access: &mut MemoryAccess<'_>, offset: u32) {
 fn scalar_and_bulk_transfers_follow_memory_growth() {
     for shared in [false, true] {
         let mut backend = Backend::new().unwrap();
-        let memory = backend.create_memory(Memory { shared, ..SHARED }).unwrap();
+        let memory = if shared {
+            let owner = SharedMemory::new(SHARED.minimum, SHARED.maximum.unwrap()).unwrap();
+            backend.import_shared_memory(&owner)
+        } else {
+            backend.create_memory(Memory { shared, ..SHARED }).unwrap()
+        };
         check_scalars(&mut backend.memory(&memory), 0);
         backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
         let mut access = backend.memory(&memory);
@@ -186,4 +188,13 @@ fn transfers_follow_rust_memory_growth() {
         .unchecked_into::<js_sys::WebAssembly::Memory>()
         .grow(1);
     check_scalars(&mut access, 1);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn deserialization_rejects_private_memory() {
+    let descriptor = js_sys::Object::new();
+    js_sys::Reflect::set(&descriptor, &"initial".into(), &1.into()).unwrap();
+    let private = js_sys::WebAssembly::Memory::new(&descriptor).unwrap();
+    assert!(serde_wasm_bindgen::from_value::<SharedMemory>(private.into()).is_err());
 }

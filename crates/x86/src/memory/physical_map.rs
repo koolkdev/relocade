@@ -12,6 +12,7 @@ pub(super) const MMIO: u32 = 3;
 /// Where a physical address is routed. Backing offsets address bytes in the
 /// host's Wasm backing memory; they are not guest physical addresses.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PhysicalMapping {
     /// Reads return FF bytes and writes are ignored. This is the physical
     /// backend's hole policy, not an architectural access fault.
@@ -208,3 +209,6 @@ impl std::error::Error for PhysicalMapError {}
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "serde")]
+mod serialization;

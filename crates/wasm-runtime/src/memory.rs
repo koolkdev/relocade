@@ -36,12 +36,11 @@ impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
     }
 }
 
-/// An independently owned handle for shared linear memory. Reads may overlap
-/// guest or host writes and do not provide a consistent snapshot of a range.
-/// The range must be allocated and in bounds, as with [`WasmMemoryAccess`].
-///
-/// Native backend handles can cross threads. Browser handles stay on their JavaScript
-/// thread; the underlying shared WebAssembly.Memory can be sent to a worker.
+/// Shared memory with direct access on the calling thread.
+/// Clones retain the allocation independently of other handles and CPUs.
+/// Browser handles cross workers through the worker transport, not Rust `Send`.
+/// Reads may overlap guest or host writes and need not form a consistent snapshot.
+/// Transfers require allocated, in-bounds ranges, as with WasmMemoryAccess.
 pub trait WasmSharedMemory: Clone + 'static {
     /// Borrows live read/write access without excluding other owners or growth.
     fn view(&self) -> MemoryAccess<'_>;
@@ -50,7 +49,7 @@ pub trait WasmSharedMemory: Clone + 'static {
     fn byte_len(&self) -> u64;
 }
 
-/// Live access to an already bound allocation. Reborrowing does not clone its
+/// Live access to an allocation. Reborrowing does not clone its
 /// resource handle or borrow the backend again. Private access excludes guest
 /// execution through its backend borrow; shared access can overlap other readers,
 /// writers and growth. Transfers must be allocated and in bounds.

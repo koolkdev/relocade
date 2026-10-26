@@ -9,8 +9,10 @@ autotests = false
 [dependencies]
 relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
 
 [dev-dependencies]
+serde_json = "=1.0.148"
 relocade-interpreter = { path = "../interpreter" }
 relocade-test-support.workspace = true
 wasmparser = { version = "=0.224.1", default-features = false, features = ["simd", "std", "validate"] }

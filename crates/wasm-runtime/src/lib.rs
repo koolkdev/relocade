@@ -25,6 +25,9 @@
 //! ```
 #![deny(unsafe_code)]
 
+#[cfg(all(test, target_arch = "wasm32"))]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
 use relocade_compiler::abi::{Function as FunctionDeclaration, Memory as MemoryDeclaration, Value};
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
@@ -46,6 +49,9 @@ pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
 pub use memory::{Load, MemoryAccess, MemoryValue, Store, WasmMemoryAccess, WasmSharedMemory};
 pub use module_cache::ModuleCache;
+
+#[cfg(feature = "worker")]
+pub mod worker;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
 /// The handle can move to another thread; create and await its futures there.
@@ -110,8 +116,9 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
         None
     }
 
-    /// Allocates zeroed memory with the declaration's limits and sharing mode.
-    /// Shared memory requires a maximum. Import names are used only when linking.
+    /// Allocates zeroed private memory with the declaration's limits.
+    /// Allocate shared memory with [`SharedMemory::new`] and import it.
+    /// Import names are used only when linking.
     fn create_memory(&mut self, declaration: MemoryDeclaration) -> Result<Self::Memory>;
 
     /// Obtains an independently owned handle for shared memory.

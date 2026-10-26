@@ -1,5 +1,7 @@
 use relocade_compiler::{abi, Program};
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess};
+use relocade_wasm_runtime::{
+    Backend, SharedMemory, WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess,
+};
 use std::{cell::Cell, rc::Rc};
 
 #[cfg(target_arch = "wasm32")]
@@ -11,13 +13,17 @@ async fn check_callback_access() {
     for shared in [false, true] {
         let calls = Rc::new(Cell::new(0_u32));
         let mut backend = Backend::with_state(Rc::clone(&calls)).unwrap();
-        let memory = backend
-            .create_memory(abi::Memory {
-                shared,
-                maximum: Some(1),
-                ..abi::Memory::new("context", "memory", 1)
-            })
-            .unwrap();
+        let memory = if shared {
+            let owner = SharedMemory::new(1, 1).unwrap();
+            backend.import_shared_memory(&owner)
+        } else {
+            backend
+                .create_memory(abi::Memory {
+                    maximum: Some(1),
+                    ..abi::Memory::new("context", "memory", 1)
+                })
+                .unwrap()
+        };
         let mut program = Program::new();
         let host = HOST.import(&mut program);
         RUN.define(&mut program, move |body, (value,)| {

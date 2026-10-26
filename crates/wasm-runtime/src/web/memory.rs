@@ -4,7 +4,7 @@ pub(crate) use access::MemoryRegion;
 use transfers::Transfers;
 
 use crate::{Error, MemoryAccess, Result, WasmSharedMemory};
-use js_sys::{Reflect, SharedArrayBuffer, WebAssembly};
+use js_sys::{Object, Reflect, SharedArrayBuffer, WebAssembly};
 use std::{fmt, rc::Rc};
 use wasm_bindgen::JsCast;
 
@@ -15,6 +15,7 @@ pub struct Memory(pub(super) usize);
 pub(crate) struct Allocation {
     pub(super) memory: WebAssembly::Memory,
     pub(super) transfers: Transfers,
+    pub(super) shared: bool,
 }
 
 impl fmt::Debug for Allocation {
@@ -26,9 +27,13 @@ impl fmt::Debug for Allocation {
 }
 
 impl Allocation {
-    pub(super) fn new(memory: WebAssembly::Memory, shared: bool) -> Result<Self> {
+    pub(super) fn new(memory: WebAssembly::Memory, shared: bool) -> Result<Rc<Self>> {
         let transfers = Transfers::new(&memory, shared)?;
-        Ok(Self { memory, transfers })
+        Ok(Rc::new(Self {
+            memory,
+            transfers,
+            shared,
+        }))
     }
 
     #[inline]
@@ -37,10 +42,36 @@ impl Allocation {
     }
 }
 
-/// A shared allocation retained independently of its backend.
+/// Direct access to shared linear memory on this JavaScript thread.
+/// Posting a clone to another worker shares its bytes and creates local access there.
 #[derive(Clone)]
 pub struct SharedMemory {
     pub(super) allocation: Rc<Allocation>,
+}
+
+impl SharedMemory {
+    /// Allocates zeroed shared memory, in 64-KiB pages.
+    pub fn new(minimum: u32, maximum: u32) -> Result<Self> {
+        Self::from_memory(allocate(minimum, Some(maximum), true)?)
+    }
+
+    /// Accepts a shared JavaScript memory and prepares local access to its bytes.
+    pub fn from_memory(memory: WebAssembly::Memory) -> Result<Self> {
+        if !memory.buffer().is_instance_of::<SharedArrayBuffer>() {
+            return Err(Error::new(
+                "import shared memory",
+                "expected shared WebAssembly.Memory",
+            ));
+        }
+        Ok(Self {
+            allocation: Allocation::new(memory, true)?,
+        })
+    }
+
+    /// The local JavaScript memory, sharing the same bytes as every posted clone.
+    pub fn memory(&self) -> &WebAssembly::Memory {
+        &self.allocation.memory
+    }
 }
 
 impl serde::Serialize for SharedMemory {
@@ -61,29 +92,8 @@ impl<'de> serde::Deserialize<'de> for SharedMemory {
     }
 }
 
-impl SharedMemory {
-    /// Accepts a shared memory, including one received through worker postMessage.
-    /// Private memories cannot be read independently of their backend.
-    pub fn from_memory(memory: WebAssembly::Memory) -> Result<Self> {
-        if !memory.buffer().is_instance_of::<SharedArrayBuffer>() {
-            return Err(Error::new(
-                "import shared memory",
-                "expected shared WebAssembly.Memory",
-            ));
-        }
-        // Bind against this worker's Rust memory; only the engine memory resource
-        // crosses the worker boundary.
-        Ok(Self {
-            allocation: Rc::new(Allocation::new(memory, true)?),
-        })
-    }
-
-    /// The JavaScript resource to share with another worker using postMessage.
-    /// This requires a cross-origin-isolated page.
-    pub fn memory(&self) -> &WebAssembly::Memory {
-        &self.allocation.memory
-    }
-}
+#[cfg(feature = "worker")]
+impl web_thread::Post for SharedMemory {}
 
 impl WasmSharedMemory for SharedMemory {
     fn view(&self) -> MemoryAccess<'_> {
@@ -109,4 +119,20 @@ pub(super) fn size(memory: &WebAssembly::Memory) -> Result<u64> {
         .as_f64()
         .expect("ArrayBuffer byteLength is a number") as u64;
     Ok(byte_length / 65536)
+}
+
+/// Creates a JavaScript allocation on its owning thread.
+pub(super) fn allocate(
+    minimum: u32,
+    maximum: Option<u32>,
+    shared: bool,
+) -> Result<WebAssembly::Memory> {
+    let descriptor = Object::new();
+    super::set(&descriptor, "initial", &minimum.into())?;
+    super::set(&descriptor, "shared", &shared.into())?;
+    if let Some(maximum) = maximum {
+        super::set(&descriptor, "maximum", &maximum.into())?;
+    }
+    WebAssembly::Memory::new(&descriptor)
+        .map_err(|error| super::js_error("create Wasm memory", error))
 }

@@ -118,28 +118,23 @@ impl<T: 'static> WasmBackend for Backend<T> {
     }
 
     fn create_memory(&mut self, declaration: abi::Memory) -> Result<Self::Memory> {
-        let descriptor = Object::new();
-        set(&descriptor, "initial", &declaration.minimum.into())?;
-        set(&descriptor, "shared", &declaration.shared.into())?;
-        if let Some(maximum) = declaration.maximum {
-            set(&descriptor, "maximum", &maximum.into())?;
+        if declaration.shared {
+            return Err(Error::new(
+                "create private memory",
+                "allocate shared memory with SharedMemory::new",
+            ));
         }
-        let memory = WebAssembly::Memory::new(&descriptor)
-            .map_err(|error| js_error("create Wasm memory", error))?;
-        let allocation = Rc::new(memory::Allocation::new(memory, declaration.shared)?);
+        let memory = memory::allocate(declaration.minimum, declaration.maximum, false)?;
+        let allocation = memory::Allocation::new(memory, false)?;
         Ok(self.store.borrow_mut().insert_memory(allocation))
     }
 
     fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
         let store = self.store.borrow();
         let allocation = store.memory(memory);
-        allocation
-            .memory
-            .buffer()
-            .is_instance_of::<js_sys::SharedArrayBuffer>()
-            .then(|| SharedMemory {
-                allocation: Rc::clone(allocation),
-            })
+        allocation.shared.then(|| SharedMemory {
+            allocation: Rc::clone(allocation),
+        })
     }
 
     fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
@@ -245,7 +240,7 @@ fn set(object: &Object, name: &str, value: &JsValue) -> Result<()> {
         .map_err(|error| js_error("bind Wasm import", error))
 }
 
-fn js_error(operation: &'static str, error: JsValue) -> Error {
+pub(crate) fn js_error(operation: &'static str, error: JsValue) -> Error {
     Error::new(
         operation,
         error.as_string().unwrap_or_else(|| format!("{error:?}")),

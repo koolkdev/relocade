@@ -11,8 +11,11 @@ through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
 
 The worker checks cover Rust channel wakeups after a task returns Pending,
-independent TLS and worker-local Rc state, shared-memory messages that preserve
-later growth and writes, and compiled-module handoff between execution owners.
+independent TLS and worker-local Rc state, typed channels carrying endpoints
+and shared memory, ordered messages and receive cancellation, later growth and
+writes through retained memory views, CPU execution over the same allocation on
+different workers, mapped memory retained after creating and nested workers exit,
+and compiled-module handoff between execution owners.
 
 From this directory:
 

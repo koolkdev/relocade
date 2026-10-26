@@ -17,7 +17,7 @@ pub use context::Context;
 pub(crate) use memory::MemoryRegion;
 pub use memory::{Memory, SharedMemory};
 
-/// One store for guest instances and their imports. Runtime owns execution policy.
+/// One store for guest instances, imported resources and host state.
 pub struct Backend<T: 'static = ()> {
     store: Store<T>,
     compilation: &'static compilation::Compilation,
