@@ -2046,6 +2046,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-dos-app"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "pollster",
+ "relocade-app",
+ "relocade-dos",
+ "relocade-vga",
+ "relocade-x86",
+ "wasm-bindgen",
+ "web-time",
+ "x11rb",
+]
+
+[[package]]
 name = "relocade-interpreter"
 version = "0.0.0"
 dependencies = [

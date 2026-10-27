@@ -1,0 +1,11 @@
+{
+  "name": "relocade-dos-app-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node build.mjs && vite",
+    "build": "node build.mjs --release && vite build",
+    "preview": "vite preview",
+    "test": "node build.mjs && vite build --config ../tests/browser/vite.config.mjs && node ../tests/browser/browser-test.mjs"
+  }
+}

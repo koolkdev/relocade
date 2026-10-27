@@ -2,7 +2,7 @@
   "name": "relocade",
   "private": true,
   "type": "module",
-  "workspaces": ["tests/browser"],
+  "workspaces": ["tests/browser", "apps/*/web"],
   "devDependencies": {
     "playwright": "1.64.1",
     "vite": "8.3.5"

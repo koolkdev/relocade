@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>DOS visualization test</title>
+    <style>body { margin: 0; } canvas { display: block; }</style>
+</head>
+<body>
+    <script type="module">
+        import init, { open } from "relocade:wasm-bindings";
+        await init();
+        window.openApplication = open;
+    </script>
+</body>
+</html>

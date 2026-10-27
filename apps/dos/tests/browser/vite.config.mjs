@@ -1,0 +1,8 @@
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vite";
+import { webConfig } from "../../../../tools/web/vite.mjs";
+
+export default defineConfig(webConfig(
+    fileURLToPath(new URL(".", import.meta.url)),
+    fileURLToPath(new URL("../../web/pkg/relocade_dos_app.js", import.meta.url)),
+));

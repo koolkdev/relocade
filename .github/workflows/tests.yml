@@ -51,10 +51,10 @@ jobs:
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
           cargo test --workspace --features relocade-vga/renderer --locked
 
-      - name: Check application host window
+      - name: Check application windows
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          WINIT_UNIX_BACKEND=x11 xvfb-run -a -s "-screen 0 1280x1024x24" cargo test -p relocade-app --test window --locked -- --ignored
+          WINIT_UNIX_BACKEND=x11 xvfb-run -a -s "-screen 0 1280x1024x24" cargo test -p relocade-app -p relocade-dos-app --test window --locked -- --ignored
 
   web:
     name: Browser tests
@@ -98,3 +98,8 @@ jobs:
         run: |
           npm ci
           npm test --workspace=relocade-browser-tests
+
+      - name: Check DOS visualization in the browser
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: npm test --workspace=relocade-dos-app-web
