@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+relocade-renderer = { path = "../renderer" }
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

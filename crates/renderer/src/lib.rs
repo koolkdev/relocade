@@ -1,10 +1,17 @@
-//! Present RGBA pixel frames through wgpu on native and browser hosts.
+//! GPU textures and window presentation through wgpu on native and browser hosts.
 //!
-//! [`Renderer`] owns the frame texture and draw pipeline. The embedding supplies
-//! a device, queue and output texture view, and owns surface configuration,
-//! presentation and frame scheduling. There is no dependency on DOS or BIOS.
+//! [`Renderer`] owns graphics work and exposes its current texture.
+//! [`Texture`] owns a GPU texture independently of a host surface. [`Viewer`]
+//! scales a texture into a host attachment. The embedding owns device creation,
+//! surface configuration, presentation and the scheduling of both stages.
 #![forbid(unsafe_code)]
 
-mod frame;
+mod error;
+mod renderer;
+mod texture;
+mod viewer;
 
-pub use frame::{FrameError, Renderer};
+pub use error::Error;
+pub use renderer::{Graphics, Renderer};
+pub use texture::Texture;
+pub use viewer::Viewer;

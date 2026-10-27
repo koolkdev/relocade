@@ -49,7 +49,7 @@ jobs:
       - name: Run workspace tests
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          cargo test --workspace --locked
+          cargo test --workspace --features relocade-vga/renderer --locked
 
   web:
     name: Browser tests

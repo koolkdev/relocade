@@ -10,6 +10,8 @@
 mod crtc;
 mod display;
 mod memory;
+#[cfg(feature = "renderer")]
+mod renderer;
 mod screen;
 mod text_renderer;
 
@@ -17,6 +19,8 @@ use crtc::Crtc;
 pub use display::Display;
 use memory::VideoMemory;
 use relocade_machine::Device;
+#[cfg(feature = "renderer")]
+pub use renderer::VgaRenderer;
 pub use screen::{TextCell, TextCursor, TextScreen};
 use std::ops::RangeInclusive;
 pub use text_renderer::TextRenderer;
