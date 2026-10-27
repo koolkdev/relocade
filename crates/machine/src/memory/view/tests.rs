@@ -1,9 +1,9 @@
 use super::MemoryError;
-use crate::{MachineConfig, Memory};
+use crate::{IoBus, MachineConfig, Memory};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, Segment, SegmentRegister};
 
 fn allocate(map: PhysicalMemoryMap) -> Memory {
-    Memory::new(MachineConfig::new(0x3000, map).unwrap(), Default::default()).unwrap()
+    Memory::new(MachineConfig::new(0x3000, map).unwrap()).unwrap()
 }
 
 #[test]
@@ -20,7 +20,8 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     ])
     .unwrap();
     let backing = allocate(map);
-    let mut memory = backing.view();
+    let io = IoBus::default();
+    let mut memory = backing.view().with_io(&io);
     memory.write_backing(0, &[0xaa, 0xbb]).unwrap();
     memory.write(0xffe, &[1, 2, 3, 4]).unwrap();
     let mut bytes = [0; 4];
@@ -83,7 +84,8 @@ fn bulk_transfers_walk_partial_and_complete_mapping_spans() {
     ])
     .unwrap();
     let backing = allocate(map);
-    let mut memory = backing.view();
+    let io = IoBus::default();
+    let mut memory = backing.view().with_io(&io);
     memory.write_backing(0, &[0x22; 0x1000]).unwrap();
     let mut input = vec![0x44; 0x3004];
     input[..2].copy_from_slice(&[0x11, 0x33]);
@@ -103,6 +105,36 @@ fn bulk_transfers_walk_partial_and_complete_mapping_spans() {
     assert_eq!(boundary, [0, 0x11, 0x33]);
     memory.read_backing(0x1000, &mut boundary).unwrap();
     assert_eq!(boundary, [0x55, 0x66, 0]);
+}
+
+#[test]
+fn shared_views_reject_mmio_before_any_partial_transfer() {
+    let backing = allocate(
+        PhysicalMemoryMap::new([
+            (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
+            (0x1000..=0x1fff, PhysicalMapping::Mmio),
+        ])
+        .unwrap(),
+    );
+    let mut memory = backing.view();
+    memory.write_u8(0xfff, 0x42).unwrap();
+    assert_eq!(
+        memory.write_u16(0xfff, 0x1234),
+        Err(MemoryError::DeviceAccess)
+    );
+    assert_eq!(memory.read_u8(0xfff).unwrap(), 0x42);
+    let mut bytes = [0x55; 2];
+    assert_eq!(
+        memory.read(0xfff, &mut bytes),
+        Err(MemoryError::DeviceAccess)
+    );
+    assert_eq!(bytes, [0x55; 2]);
+    // An explicitly attached empty bus still provides normal open-bus behavior.
+    let io = IoBus::default();
+    let mut mapped = memory.with_io(&io);
+    assert_eq!(mapped.read_u16(0xfff).unwrap(), 0xff42);
+    mapped.write_u16(0xfff, 0x1234).unwrap();
+    assert_eq!(mapped.read_u16(0xfff).unwrap(), 0xff34);
 }
 
 #[test]

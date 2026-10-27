@@ -9,23 +9,19 @@ use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segments,
 };
-use std::{sync::Arc, time::Duration};
-
-struct Input {
-    incoming: oneshot::Receiver<u8>,
-    waiting: Option<oneshot::Sender<()>>,
-}
+use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn vga_workers() -> Result<(), String> {
-    let vga = Arc::new(Vga::new());
-    let cpu_vga = vga.clone();
+    let (source, display_source) = oneshot::channel();
     let (input, incoming) = oneshot::channel();
     let (waiting, started) = oneshot::channel();
     let (finished, exited) = oneshot::channel();
     let execution = Thread::new();
     let display = Thread::new();
     let cpu_task = execution.run_send((), move |()| async move {
+        let vga = Rc::new(RefCell::new(Vga::new()));
+        assert!(source.send(vga.borrow().display()).is_ok());
         let config = MachineConfig::new(
             0x1000,
             PhysicalMemoryMap::new([
@@ -36,11 +32,11 @@ pub async fn vga_workers() -> Result<(), String> {
         )
         .unwrap();
         let io = IoBus::new([DeviceConnection {
-            device: cpu_vga,
+            device: vga.clone(),
             mmio: vec![TEXT_MEMORY_RANGE],
             ports: vec![CRTC_PORT_RANGE],
         }]);
-        let memory = Memory::new(config, io).unwrap();
+        let memory = Memory::new(config).unwrap();
         memory
             .view()
             .write(
@@ -76,51 +72,58 @@ pub async fn vga_workers() -> Result<(), String> {
             },
         )
         .unwrap();
-        let mut cpu = Cpu::new(
-            memory,
-            cpu_config,
-            Input {
-                incoming,
-                waiting: Some(waiting),
-            },
-        )
-        .await
-        .unwrap();
+        let mut cpu = Cpu::new(memory, cpu_config, io, incoming).await.unwrap();
         cpu.install_hooks([
-            Hook::<Input>::new(0x200, async |call| {
+            Hook::<oneshot::Receiver<u8>>::new(0x200, async |call| {
+                // The local bus and mapped view remain usable across a service await.
+                let io = call.io;
+                let memory = &mut call.memory;
+                io.write_port(0x3d4, 2, 0x060b);
+                assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
                 let input = &mut *call.state;
-                let value = poll_fn(|context| {
-                    let poll = input.incoming.poll_unpin(context);
-                    if poll.is_pending() {
-                        if let Some(waiting) = input.waiting.take() {
-                            waiting.send(()).unwrap();
-                        }
-                    }
-                    poll
-                })
-                .await
-                .unwrap();
+                let value = poll_fn(|context| input.poll_unpin(context)).await.unwrap();
+                assert_eq!(io.read_port(0x3d4, 2), 0x060b);
+                memory.write_u8(0xb8022, b'C').unwrap();
                 call.cpu.set_al(value);
                 call.cpu.set_eip(0x300);
                 HookResult::Continue
             }),
-            Hook::<Input>::new(0x400, async |_call| {
+            Hook::<oneshot::Receiver<u8>>::new(0x400, async |_call| {
                 HookResult::Exit(ExecutionExit::Host(HostExit::Return))
             }),
         ])
         .await
         .unwrap();
-        assert_eq!(cpu.run(100).await, ExecutionExit::Host(HostExit::Return));
+        let mut waiting = Some(waiting);
+        let exit = {
+            let run = cpu.run(100);
+            futures_util::pin_mut!(run);
+            poll_fn(|context| {
+                let result = run.as_mut().poll(context);
+                vga.borrow_mut().publish();
+                if result.is_pending() {
+                    if let Some(waiting) = waiting.take() {
+                        waiting.send(()).unwrap();
+                    }
+                }
+                result
+            })
+            .await
+        };
+        assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
         drop(cpu);
+        drop(vga);
         finished.send(()).unwrap();
     });
     let display_task = display.run_send((), move |()| async move {
+        let display = display_source.await.unwrap();
         // No input is sent until a snapshot and a frame complete on this worker.
         started.await.unwrap();
-        let before = vga.screen();
+        let before = display.screen();
         assert_eq!(before.start_address, 0x10);
         assert_eq!(before.cursor.address, 0x11);
         assert_eq!(before.cursor.start_scan_line, 0x20);
+        assert_eq!(before.cursor.end_scan_line, 6);
         assert_eq!(
             before.cells[..2],
             [
@@ -139,7 +142,7 @@ pub async fn vga_workers() -> Result<(), String> {
         assert_eq!(pixels.len(), 640 * 200 * 4);
         input.send(b'Z').unwrap();
         exited.await.unwrap();
-        let after = vga.screen();
+        let after = display.screen();
         assert_eq!(
             after.cells[0],
             TextCell {
@@ -147,7 +150,14 @@ pub async fn vga_workers() -> Result<(), String> {
                 attribute: 0x1e
             }
         );
-        assert_eq!(after.cells[1], before.cells[1]);
+        assert_eq!(
+            after.cells[1],
+            TextCell {
+                character: b'C',
+                attribute: 0x2f
+            }
+        );
+        assert_eq!(before.cells[1].character, b'B');
         assert_eq!(before.cells[0].character, b'A');
     });
     cpu_task.await.map_err(|error| error.to_string())?;

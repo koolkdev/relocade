@@ -8,15 +8,17 @@
 #![forbid(unsafe_code)]
 
 mod crtc;
+mod display;
 mod memory;
 mod screen;
 mod text_renderer;
 
 use crtc::Crtc;
+pub use display::Display;
 use memory::VideoMemory;
 use relocade_machine::Device;
 pub use screen::{TextCell, TextCursor, TextScreen};
-use std::{ops::RangeInclusive, sync::Mutex};
+use std::ops::RangeInclusive;
 pub use text_renderer::TextRenderer;
 
 /// The color text aperture in the supported fixed mode.
@@ -28,22 +30,16 @@ pub const CRTC_INDEX_PORT: u16 = 0x3d4;
 pub const CRTC_DATA_PORT: u16 = 0x3d5;
 pub const CRTC_PORT_RANGE: RangeInclusive<u16> = CRTC_INDEX_PORT..=CRTC_DATA_PORT;
 
-#[derive(Default)]
-struct State {
-    memory: VideoMemory,
-    crtc: Crtc,
-}
-
-/// An emulated VGA device, shared with a display through `Arc<Vga>`.
-/// Bus callbacks and snapshots take a short lock; rasterization runs afterward.
+/// An emulated VGA device owned by the execution worker.
+/// Registers and video memory are ordinary mutable state. Other workers receive
+/// completed screens through [`Display`], without accessing the live device.
 /// New video memory is zeroed. The BIOS initializes its text pages and registers.
-///
-/// Access can block. In a browser, execute device accesses and display snapshots
-/// on workers, because the main thread cannot wait for a contended mutex. This
-/// includes MMIO reached through a host memory view or BIOS initialization.
 #[derive(Default)]
 pub struct Vga {
-    state: Mutex<State>,
+    memory: VideoMemory,
+    crtc: Crtc,
+    display: Display,
+    dirty: bool,
 }
 
 impl Vga {
@@ -51,62 +47,75 @@ impl Vga {
         Self::default()
     }
 
-    /// Copies display memory and hardware registers together, releasing the lock
-    /// before returning. The snapshot stays owned and stable while guest writes
-    /// continue or the CPU awaits a service. Browser callers must use a worker.
-    /// A multi-operation BIOS update can still be observed between bus transfers.
+    /// Retains the latest published screen independently of device ownership.
+    pub fn display(&self) -> Display {
+        self.display.clone()
+    }
+
+    /// Publishes changes as one immutable screen. Call at the display cadence,
+    /// before awaiting input and before reporting completion. This is an explicit
+    /// text-display boundary, not an emulation of VGA scanout or retrace timing.
+    pub fn publish(&mut self) {
+        if self.dirty {
+            self.display.publish(self.screen());
+            self.dirty = false;
+        }
+    }
+
+    /// Copies the current device state on its owning worker. The returned screen
+    /// stays stable across later device writes; it does not publish to displays.
     pub fn screen(&self) -> TextScreen {
-        let state = self.state.lock().expect("VGA state");
         TextScreen {
             cells: std::array::from_fn(|index| {
-                state
-                    .memory
-                    .cell(state.crtc.start_address.wrapping_add(index as u16))
+                self.memory
+                    .cell(self.crtc.start_address.wrapping_add(index as u16))
             }),
             cursor: TextCursor {
-                address: state.crtc.cursor_address,
-                start_scan_line: state.crtc.cursor_start,
-                end_scan_line: state.crtc.cursor_end,
+                address: self.crtc.cursor_address,
+                start_scan_line: self.crtc.cursor_start,
+                end_scan_line: self.crtc.cursor_end,
             },
-            start_address: state.crtc.start_address,
+            start_address: self.crtc.start_address,
         }
     }
 }
 
 impl Device for Vga {
-    fn read_mmio(&self, address: u32, bytes: u8) -> u64 {
-        let state = self.state.lock().expect("VGA state");
+    fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {
         let mut value = [0; 8];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            *byte = state
-                .memory
-                .read(address - TEXT_MEMORY_START + index as u32);
+            *byte = self.memory.read(address - TEXT_MEMORY_START + index as u32);
         }
         u64::from_le_bytes(value)
     }
 
-    fn write_mmio(&self, address: u32, bytes: u8, value: u64) {
-        let mut state = self.state.lock().expect("VGA state");
+    fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
+        self.dirty = true;
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-            state
-                .memory
+            self.memory
                 .write(address - TEXT_MEMORY_START + index as u32, *byte);
         }
     }
 
-    fn read_port(&self, port: u16, bytes: u8) -> u32 {
-        let state = self.state.lock().expect("VGA state");
+    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
         let mut value = [0; 4];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            *byte = state.crtc.read(port.wrapping_add(index as u16));
+            *byte = self.crtc.read(port.wrapping_add(index as u16));
         }
         u32::from_le_bytes(value)
     }
 
-    fn write_port(&self, port: u16, bytes: u8, value: u32) {
-        let mut state = self.state.lock().expect("VGA state");
+    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
+        self.dirty = true;
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-            state.crtc.write(port.wrapping_add(index as u16), *byte);
+            self.crtc.write(port.wrapping_add(index as u16), *byte);
         }
+    }
+}
+
+impl Drop for Vga {
+    fn drop(&mut self) {
+        // Cancellation may drop the owner without reaching its next publication.
+        self.publish();
     }
 }

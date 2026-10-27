@@ -28,8 +28,9 @@ async fn check_memory_profile() {
     .unwrap();
     assert!(matches!(
         Cpu::new(
-            Memory::new(config, Default::default()).unwrap(),
+            Memory::new(config).unwrap(),
             protected,
+            Default::default(),
             ()
         )
         .await,

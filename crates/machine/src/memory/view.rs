@@ -8,24 +8,31 @@ use relocade_x86::SegmentRegister;
 use std::fmt;
 
 /// Guest physical memory through the configured map, including A20 aliases.
-/// RAM/ROM use backing storage. MMIO uses the I/O bus. Holes and unattached MMIO return FF
-/// bytes; writes to ROM, holes and unattached MMIO are ignored.
+/// RAM/ROM use backing storage. MMIO requires a local I/O bus. Holes and
+/// unconnected device ranges return FF; writes to them and ROM are ignored.
 /// The view borrows one storage handle; other shared handles remain usable.
 pub struct MemoryView<'a> {
     config: &'a MachineConfig,
     storage: MemoryAccess<'a>,
-    io: &'a IoBus,
+    io: Option<&'a IoBus>,
 }
 
 impl<'a> MemoryView<'a> {
     /// Borrows backing storage matching the configured map and capacity.
     #[inline]
-    pub fn new(config: &'a MachineConfig, storage: MemoryAccess<'a>, io: &'a IoBus) -> Self {
+    pub fn new(config: &'a MachineConfig, storage: MemoryAccess<'a>) -> Self {
         Self {
             config,
             storage,
-            io,
+            io: None,
         }
+    }
+
+    /// Enables device accesses through the execution worker's bus. CPU contexts
+    /// already supply it; independent RAM views need not retain any devices.
+    pub fn with_io(mut self, io: &'a IoBus) -> Self {
+        self.io = Some(io);
+        self
     }
 
     /// Configured backing capacity, excluding Wasm-page rounding.
@@ -55,6 +62,7 @@ pub enum MemoryError {
     AddressRange,
     BackingRange,
     SegmentRange,
+    DeviceAccess,
 }
 
 impl fmt::Display for MemoryError {
@@ -63,6 +71,7 @@ impl fmt::Display for MemoryError {
             Self::AddressRange => "memory access exceeds the 32-bit guest address space",
             Self::BackingRange => "backing access exceeds memory_size",
             Self::SegmentRange => "memory access exceeds the segment limit",
+            Self::DeviceAccess => "MMIO access requires the execution worker's device bus",
         })
     }
 }

@@ -16,6 +16,7 @@ impl<'a> MemoryView<'a> {
                     for (index, chunk) in part.chunks_mut(8).enumerate() {
                         let value = self
                             .io
+                            .expect("resolved MMIO bus")
                             .read_mmio(span.address + (index * 8) as u32, chunk.len() as u8);
                         chunk.copy_from_slice(&value.to_le_bytes()[..chunk.len()]);
                     }
