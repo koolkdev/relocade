@@ -9,11 +9,11 @@ publish.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
-futures-channel = "0.3"
+futures-channel = "=0.3.34"
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"
-relocade-vga = { path = "../vga" }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "=0.3.79"

@@ -1,4 +1,4 @@
-use relocade_renderer::{FrameError, Renderer};
+use relocade_renderer::{Error, Texture, Viewer};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -93,7 +93,7 @@ async fn check_pixels() {
         wgpu::TextureFormat::Bgra8Unorm,
         wgpu::TextureFormat::Bgra8UnormSrgb,
     ] {
-        let mut renderer = Renderer::new(device.clone(), queue.clone(), format).unwrap();
+        let mut viewer = Viewer::new(device.clone(), queue.clone(), format).unwrap();
         let output = target(&device, [4, 4], format);
         let view = output.create_view(&Default::default());
         let colors: [[u8; 4]; 4] = [
@@ -102,9 +102,9 @@ async fn check_pixels() {
             [0, 170, 85, 255],
             [85, 0, 170, 255],
         ];
-        renderer
-            .render([2, 2], colors.as_flattened(), &view)
-            .unwrap();
+        let texture = Texture::new(&device, [2, 2]).unwrap();
+        texture.write(&queue, colors.as_flattened()).unwrap();
+        viewer.draw(&texture, &view);
         let pixels = read_pixels(&device, &queue, &output).await;
         for y in 0..4 {
             for x in 0..4 {
@@ -113,36 +113,58 @@ async fn check_pixels() {
         }
         // The next frame updates the existing texture, including alpha.
         let changed: [[u8; 4]; 4] = [[32, 64, 96, 17]; 4];
-        renderer
-            .render([2, 2], changed.as_flattened(), &view)
-            .unwrap();
+        texture.write(&queue, changed.as_flattened()).unwrap();
+        viewer.draw(&texture, &view);
         for pixel in read_pixels(&device, &queue, &output).await {
             assert_color(pixel, changed[0]);
         }
+        // GPU rendering uses the same texture without a pixel upload. Its sRGB
+        // attachment stores encoded colors, regardless of the host's format.
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: texture.view(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.25,
+                            g: 0.0,
+                            b: 1.0,
+                            a: 0.5,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+        }
+        queue.submit([encoder.finish()]);
+        viewer.draw(&texture, &view);
+        for pixel in read_pixels(&device, &queue, &output).await {
+            assert_color(pixel, [137, 0, 255, 128]);
+        }
+        assert!(matches!(
+            Texture::new(&device, [0, 2]),
+            Err(Error::InvalidSize)
+        ));
+        assert!(matches!(
+            Texture::new(&device, [u32::MAX, 1]),
+            Err(Error::InvalidSize)
+        ));
         assert_eq!(
-            renderer.render([0, 2], &[], &view),
-            Err(FrameError::InvalidSize)
-        );
-        assert_eq!(
-            renderer.render([u32::MAX, 1], &[], &view),
-            Err(FrameError::InvalidSize)
-        );
-        assert_eq!(
-            renderer.render([2, 2], &[0; 15], &view),
-            Err(FrameError::InvalidLength {
+            texture.write(&queue, &[0; 15]),
+            Err(Error::InvalidLength {
                 expected: 16,
                 actual: 15
             })
         );
         // Resize both source and output, with an unpadded 12-byte upload row.
         let output = target(&device, [6, 2], format);
-        renderer
-            .render(
-                [3, 1],
-                colors[..3].as_flattened(),
-                &output.create_view(&Default::default()),
-            )
-            .unwrap();
+        let texture = Texture::new(&device, [3, 1]).unwrap();
+        texture.write(&queue, colors[..3].as_flattened()).unwrap();
+        viewer.draw(&texture, &output.create_view(&Default::default()));
         for (index, pixel) in read_pixels(&device, &queue, &output)
             .await
             .into_iter()
@@ -152,51 +174,13 @@ async fn check_pixels() {
         }
     }
     assert!(matches!(
-        Renderer::new(
+        Viewer::new(
             device.clone(),
             queue.clone(),
             wgpu::TextureFormat::Rgba16Float
         ),
-        Err(FrameError::UnsupportedFormat(
-            wgpu::TextureFormat::Rgba16Float
-        ))
+        Err(Error::UnsupportedFormat(wgpu::TextureFormat::Rgba16Float))
     ));
-    #[cfg(not(target_arch = "wasm32"))]
-    check_text_screen(&device, &queue).await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
-    use relocade_vga::{TextCell, TextCursor, TextRenderer, TextScreen};
-    let mut screen = TextScreen {
-        cells: [TextCell {
-            character: b' ',
-            attribute: 7,
-        }; 80 * 25],
-        cursor: TextCursor {
-            address: 1999,
-            start_scan_line: 6,
-            end_scan_line: 7,
-        },
-        start_address: 0,
-    };
-    screen.cells[0] = TextCell {
-        character: 0xdb,
-        attribute: 0x1e,
-    };
-    let mut text = TextRenderer::new();
-    let rgba = text.render(&screen, std::time::Duration::ZERO);
-    let size = [TextRenderer::WIDTH, TextRenderer::HEIGHT];
-    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-    let output = target(device, size, format);
-    let mut renderer = Renderer::new(device.clone(), queue.clone(), format).unwrap();
-    renderer
-        .render(size, rgba, &output.create_view(&Default::default()))
-        .unwrap();
-    let pixels = read_pixels(device, queue, &output).await;
-    assert_color(pixels[0], [255, 255, 85, 255]);
-    assert_color(pixels[8], [0, 0, 0, 255]);
-    assert_color(pixels[640 * 200 - 1], [170, 170, 170, 255]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

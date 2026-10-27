@@ -1,7 +1,7 @@
-# Application tasks
+# Application tasks and rendering
 
-`relocade-app` defines worker-based applications independently of windows,
-graphics, DOS, BIOS, VGA and the x86 machine. Applications supply sendable launch
+`relocade-app` defines worker-based applications and rendering independently
+of windows, DOS, BIOS, VGA and the x86 machine. Applications supply sendable launch
 configuration and define their own update and result types.
 
 `Application::run(self, Context)` creates execution state on its worker. The
@@ -28,3 +28,11 @@ Browser consumers need the threaded build and worker bootstrap described in the
 [browser guide](../../tests/browser/README.md). The crate rejects non-atomic
 Wasm builds. Native tests cover worker-local Rc state across awaits, custom
 updates, typed output and cancellation of pending and cooperating ready work.
+
+## Rendering
+
+The [renderer crate](../renderer/README.md) defines the stateful `Renderer`
+contract, shared `Graphics` resources and `Texture`/`Viewer` operations.
+`Renderer`, `Graphics` and `Texture` are reexported here for application consumers. Renderers own their state
+and can progress without a window; the embedding drives their futures and
+samples their current textures independently.
