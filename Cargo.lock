@@ -1288,6 +1288,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-app"
+version = "0.0.0"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "pollster",
+ "web-thread-select",
+]
+
+[[package]]
 name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
