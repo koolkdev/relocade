@@ -1,0 +1,10 @@
+{
+  "name": "relocade",
+  "private": true,
+  "type": "module",
+  "workspaces": ["tests/browser"],
+  "devDependencies": {
+    "playwright": "1.64.1",
+    "vite": "8.3.5"
+  }
+}

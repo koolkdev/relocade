@@ -24,10 +24,11 @@ pending work and drops the future on its worker. Always-ready execution must
 check the context's shared cancellation flag between slices; there is no
 wall-clock preemption inside a synchronous poll.
 
-Browser consumers need the threaded build and worker bootstrap described in the
-[browser guide](../../tests/browser/README.md). The crate rejects non-atomic
-Wasm builds. Native tests cover worker-local Rc state across awaits, custom
-updates, typed output and cancellation of pending and cooperating ready work.
+Browser consumers use the threaded build and worker bootstrap in the shared
+[web tooling](../../tools/web/README.md). Importing bindings on a worker must not
+launch the application. The crate rejects non-atomic Wasm builds. Native tests
+cover worker-local Rc state across awaits, custom updates, typed output and
+cancellation of pending and cooperating ready work.
 
 ## Rendering
 

@@ -55,8 +55,8 @@ guest memory. Pages must be cross-origin isolated with COOP/COEP headers.
 
 The application resolves `web-thread:wasm-shim` to worker-safe bindings. A small
 adapter passes the library's `module` argument as wasm-bindgen's `module_or_path`.
-The shared build setup and browser checks live in
-[tests/browser](../../../tests/browser/README.md). Backend tests exercise engine
+The shared build and bootstrap setup lives in [tools/web](../../../tools/web/README.md);
+the browser checks live in [tests/browser](../../../tests/browser/README.md). Backend tests exercise engine
 operations; worker integration checks exercise channel wakeups, shared-memory
 lifetimes, compiled-module handoff and CPU execution.
 
