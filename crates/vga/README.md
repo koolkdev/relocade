@@ -1,8 +1,9 @@
 # VGA text display
 
-`Vga` is the emulated device. It owns video memory and hardware registers behind
-a short lock and implements `relocade_machine::Device`. System RAM contains BIOS
-bookkeeping, not the framebuffer. The board maps `B8000..BFFFF` as MMIO and connects
+`Vga` is the emulated device. The execution worker owns its ordinary mutable
+video memory and hardware registers. It implements `relocade_machine::Device`.
+System RAM contains BIOS bookkeeping, not the framebuffer. The board maps
+`B8000..BFFFF` as MMIO and connects
 the same device to that aperture and CRTC ports `3D4/3D5`.
 
 The initial supported mode is 80 by 25 characters with fixed 8-by-8 CP437 glyphs,
@@ -20,41 +21,55 @@ BIOS services maintain their BDA mode, page and per-page cursor data and program
 these registers. Direct guest port writes affect the device without updating the
 BDA. Direct guest writes, BIOS output and DOS output all reach the same VRAM.
 
-Retain an `Arc<Vga>` for a display, independently of CPU execution:
+Retain the device locally and send its read-only `Display` to the renderer:
 
 ```rust,ignore
-use relocade_vga::TextRenderer;
+let vga = dos.vga(); // Rc<RefCell<Vga>>, on the execution worker.
+let display = vga.borrow().display(); // Send this handle to the renderer once.
 
-let vga = dos.vga();
-let mut text = TextRenderer::new();
-// On the renderer worker, including while the CPU awaits a service:
-let screen = vga.screen();
+// Between execution polls, at the application's chosen display cadence:
+vga.borrow_mut().publish();
+// Also publish before a pending wait or completion becomes externally visible.
+
+// On the renderer worker:
+let screen = display.screen(); // Arc<TextScreen>, coherent and immutable.
 let rgba = text.render(&screen, elapsed);
 renderer.render([TextRenderer::WIDTH, TextRenderer::HEIGHT], rgba, &output_view)?;
 ```
 
-`screen()` samples VRAM and registers together, then releases an ordinary
-`std::sync::Mutex` before returning the owned `TextScreen`. Synchronous bus accesses
-use the same mutex. Guarded work never awaits or calls host code, and
-`TextRenderer` rasterizes the snapshot into its reusable RGBA8 pixel buffer after
-the lock has been released. BIOS operations spanning several bus transfers may
-be observed between those transfers.
+`Vga::screen()` copies the current device state on its owning worker.
+`Vga::publish()` copies changed state and replaces the display's latest screen
+through `arc-swap`. There is no frame queue. A retained screen remains unchanged
+while execution continues, and an idle renderer can skip intermediate publications.
+The device has no per-byte atomics, packed register word or mutex. Synchronization
+belongs to publishing and retaining the completed screen.
 
-In browsers, all device access belongs on workers because the main thread cannot
-wait for a contended mutex. This includes CPU execution, host memory-view access
-to the MMIO aperture, BIOS initialization and display snapshots. The CPU worker
-owns execution; a renderer worker retains `Arc<Vga>`, takes snapshots and can own
-the wgpu device, queue, surface and presentation loop. Browser GPU resources must
-be created in that renderer worker, using a transferred `OffscreenCanvas`. The
-main thread handles window/canvas events and sends resize or lifecycle messages.
-Native platforms may require surface creation on the window thread before moving
-the surface to the renderer worker. The host supplies that platform setup and
-presentation scheduling; these crates do not create an application event loop.
+Publication is explicit: writes update the device immediately, while a display
+sees them only after publication. With no intervening device writes, publication
+reuses the current screen.
+DOS publishes its initialized screen and flushes changes when its session drops;
+the VGA device also flushes on destruction. A running application supplies cadence
+and publishes after every pending execution poll, including input echo on later
+wakes. Device borrows must end before entering guest execution or dropping DOS.
+
+This is still the fixed text-mode implementation. Publication does not implement
+VGA retrace, latch display-start registers or capture effects within a scanline.
+Future VGA timing and scanout belong to the device; the renderer consumes their
+completed output. Full VGA can change its display data without changing the GPU
+presentation interface. Win32 drawing and desktop composition can use that same
+presentation interface with their own ordered surface updates.
+
+The read-only display can be used on a browser main thread or renderer worker.
+`TextRenderer` rasterizes a retained screen into its own reusable RGBA8 buffer;
+blinking can continue while execution waits for input. A renderer worker can own
+the wgpu device, queue, surface and presentation loop. Browser hosts transfer an
+`OffscreenCanvas` and forward canvas events; native platforms may require surface
+creation on the window thread before moving it to the renderer. The host supplies
+platform setup and scheduling.
 
 The shared [worker integration check](../../tests/browser/src/vga.rs) exercises
-guest MMIO and CRTC writes on a CPU worker, display progress while input is pending,
-and the retained display after CPU teardown. The same check runs on native threads
-and browser workers.
+local guest MMIO and port state, publication while a borrowed service awaits input,
+and the retained display after CPU and device teardown on native and browser workers.
 
 The text geometry, memory aperture and CRTC register definitions follow the
 [IBM VGA/XGA Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf),

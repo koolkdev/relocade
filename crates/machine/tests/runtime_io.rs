@@ -5,7 +5,7 @@ use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister, Segments,
 };
-use std::sync::{Arc, Mutex};
+use std::{cell::RefCell, rc::Rc};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -20,64 +20,56 @@ enum Transfer {
 
 struct RecordingDevice {
     base: u32,
-    memory: Mutex<Vec<u8>>,
-    port: Mutex<u32>,
-    transfers: Mutex<Vec<Transfer>>,
+    memory: Vec<u8>,
+    port: u32,
+    transfers: Vec<Transfer>,
 }
 
 impl RecordingDevice {
-    fn new(base: u32) -> Arc<Self> {
-        Arc::new(Self {
+    fn new(base: u32) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self {
             base,
-            memory: Mutex::new(vec![0; 0x2000]),
-            port: Mutex::new(0),
-            transfers: Mutex::new(Vec::new()),
-        })
+            memory: vec![0; 0x2000],
+            port: 0,
+            transfers: Vec::new(),
+        }))
     }
 
-    fn take_transfers(&self) -> Vec<Transfer> {
-        std::mem::take(&mut *self.transfers.lock().unwrap())
+    fn take_transfers(&mut self) -> Vec<Transfer> {
+        std::mem::take(&mut self.transfers)
     }
 }
 
 impl Device for RecordingDevice {
-    fn read_mmio(&self, address: u32, bytes: u8) -> u64 {
-        self.transfers
-            .lock()
-            .unwrap()
-            .push(Transfer::MemoryRead { address, bytes });
+    fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {
+        self.transfers.push(Transfer::MemoryRead { address, bytes });
         let offset = (address - self.base) as usize;
         let mut result = [0; 8];
         result[..usize::from(bytes)]
-            .copy_from_slice(&self.memory.lock().unwrap()[offset..offset + usize::from(bytes)]);
+            .copy_from_slice(&self.memory[offset..offset + usize::from(bytes)]);
         u64::from_le_bytes(result)
     }
 
-    fn write_mmio(&self, address: u32, bytes: u8, value: u64) {
-        self.transfers.lock().unwrap().push(Transfer::MemoryWrite {
+    fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
+        self.transfers.push(Transfer::MemoryWrite {
             address,
             bytes,
             value,
         });
         let offset = (address - self.base) as usize;
-        self.memory.lock().unwrap()[offset..offset + usize::from(bytes)]
+        self.memory[offset..offset + usize::from(bytes)]
             .copy_from_slice(&value.to_le_bytes()[..usize::from(bytes)]);
     }
 
-    fn read_port(&self, port: u16, bytes: u8) -> u32 {
-        self.transfers
-            .lock()
-            .unwrap()
-            .push(Transfer::PortRead { port, bytes });
-        *self.port.lock().unwrap()
+    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
+        self.transfers.push(Transfer::PortRead { port, bytes });
+        self.port
     }
 
-    fn write_port(&self, port: u16, bytes: u8, value: u32) {
+    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
         self.transfers
-            .lock()
-            .unwrap()
             .push(Transfer::PortWrite { port, bytes, value });
-        *self.port.lock().unwrap() = value;
+        self.port = value;
     }
 }
 
@@ -112,14 +104,14 @@ async fn check_device_access() {
             map(),
         )
         .unwrap();
-        let memory = Memory::new(config.machine, io).unwrap();
-        let mut view = memory.view();
+        let memory = Memory::new(config.machine).unwrap();
+        let mut view = memory.view().with_io(&io);
         view.write_backing(0x3ffe, &[0xaa; 4]).unwrap();
         // Adjacent MMIO pages preserve the transfer width after A20 translation.
         view.write(0x103ffe, &[1, 2, 3]).unwrap();
         assert_eq!(view.read_u32(0x3ffe).unwrap(), 0x0003_0201);
         assert_eq!(
-            device.take_transfers(),
+            device.borrow_mut().take_transfers(),
             [
                 Transfer::MemoryWrite {
                     address: 0x3ffe,
@@ -144,7 +136,9 @@ async fn check_device_access() {
             0xeb, 0, // JMP to the next entry boundary.
         ];
         view.write(0x100, &code).unwrap();
-        let mut cpu = Cpu::new(memory.clone(), config.cpu, ()).await.unwrap();
+        let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone(), ())
+            .await
+            .unwrap();
         if compiled {
             // OUT and IN each end a block; install all three captured entries.
             let snapshots = [0, 19, 21].map(|offset| BlockSnapshot {
@@ -166,7 +160,7 @@ async fn check_device_access() {
         assert_eq!(cpu.run(7).await, ExecutionExit::BudgetExhausted);
         assert_eq!(cpu.context().cpu.eax(), 0x1234_5678);
         assert_eq!(
-            device.take_transfers(),
+            device.borrow_mut().take_transfers(),
             [
                 Transfer::MemoryWrite {
                     address: 0x3ffe,
@@ -196,7 +190,7 @@ async fn check_device_access() {
         cpu.context().io.write_port(0x3d4, 2, 0x9876);
         assert_eq!(cpu.context().io.read_port(0x3d4, 2), 0x9876);
         assert_eq!(cpu.context().io.read_port(0x3d5, 1), 0xff);
-        // An owned memory reader retains the device after the CPU is gone.
+        // The local bus, rather than shared RAM, retains the device after CPU teardown.
         drop(cpu);
         assert_eq!(view.read_u32(0x3ffe).unwrap(), 0x1234_5678);
     }
@@ -231,16 +225,12 @@ fn mmio_crosses_device_boundaries_and_open_bus() {
             ports: vec![],
         },
     ]);
-    let memory = Memory::new(
-        relocade_machine::MachineConfig::new(0x2000, map()).unwrap(),
-        io,
-    )
-    .unwrap();
-    let mut view = memory.view();
+    let memory = Memory::new(relocade_machine::MachineConfig::new(0x2000, map()).unwrap()).unwrap();
+    let mut view = memory.view().with_io(&io);
     view.write_u64(0x3000, 0x0807_0605_0403_0201).unwrap();
     assert_eq!(view.read_u64(0x3000).unwrap(), 0x0807_0605_ff03_0201);
     assert_eq!(
-        first.take_transfers(),
+        first.borrow_mut().take_transfers(),
         [
             Transfer::MemoryWrite {
                 address: 0x3000,
@@ -254,7 +244,7 @@ fn mmio_crosses_device_boundaries_and_open_bus() {
         ]
     );
     assert_eq!(
-        second.take_transfers(),
+        second.borrow_mut().take_transfers(),
         [
             Transfer::MemoryWrite {
                 address: 0x3004,
@@ -291,12 +281,12 @@ fn a20_wrap_splits_mmio_at_the_bus_address_discontinuity() {
         (0xff000..=0xfffff, PhysicalMapping::Mmio),
     ])
     .unwrap();
-    let memory = Memory::new(relocade_machine::MachineConfig::new(0, map).unwrap(), io).unwrap();
-    let mut view = memory.view();
+    let memory = Memory::new(relocade_machine::MachineConfig::new(0, map).unwrap()).unwrap();
+    let mut view = memory.view().with_io(&io);
     view.write_u32(0xffffe, 0x4433_2211).unwrap();
     assert_eq!(view.read_u32(0xffffe).unwrap(), 0x4433_2211);
     assert_eq!(
-        high.take_transfers(),
+        high.borrow_mut().take_transfers(),
         [
             Transfer::MemoryWrite {
                 address: 0xffffe,
@@ -310,7 +300,7 @@ fn a20_wrap_splits_mmio_at_the_bus_address_discontinuity() {
         ]
     );
     assert_eq!(
-        low.take_transfers(),
+        low.borrow_mut().take_transfers(),
         [
             Transfer::MemoryWrite {
                 address: 0,

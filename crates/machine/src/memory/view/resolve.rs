@@ -8,6 +8,7 @@ pub(super) struct Span {
 }
 
 /// Walks a checked guest range without borrowing its backing storage.
+#[derive(Clone)]
 pub(super) struct Spans<'a> {
     map: &'a PhysicalMemoryMap,
     address: u32,
@@ -20,11 +21,19 @@ impl<'a> MemoryView<'a> {
         if !range_fits(address, len, 1 << 32) {
             return Err(MemoryError::AddressRange);
         }
-        Ok(Spans {
+        let spans = Spans {
             map: self.config.memory_map(),
             address,
             remaining: len,
-        })
+        };
+        if self.io.is_none()
+            && spans
+                .clone()
+                .any(|span| span.mapping == PhysicalMapping::Mmio)
+        {
+            return Err(MemoryError::DeviceAccess);
+        }
+        Ok(spans)
     }
 }
 

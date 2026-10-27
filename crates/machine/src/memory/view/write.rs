@@ -13,7 +13,7 @@ impl<'a> MemoryView<'a> {
                     for (index, chunk) in part.chunks(8).enumerate() {
                         let mut value = [0; 8];
                         value[..chunk.len()].copy_from_slice(chunk);
-                        self.io.write_mmio(
+                        self.io.expect("resolved MMIO bus").write_mmio(
                             span.address + (index * 8) as u32,
                             chunk.len() as u8,
                             u64::from_le_bytes(value),

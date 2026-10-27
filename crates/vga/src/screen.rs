@@ -1,12 +1,12 @@
 /// One text-memory cell. Attribute bits encode foreground, background and blink.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TextCell {
     pub character: u8,
     pub attribute: u8,
 }
 
 /// Hardware cursor registers. The address names a cell in video memory.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TextCursor {
     pub address: u16,
     /// Low five bits select the first scan line; bit 5 disables the cursor.
@@ -27,4 +27,14 @@ pub struct TextScreen {
 impl TextScreen {
     pub const COLUMNS: usize = 80;
     pub const ROWS: usize = 25;
+}
+
+impl Default for TextScreen {
+    fn default() -> Self {
+        Self {
+            cells: [TextCell::default(); Self::COLUMNS * Self::ROWS],
+            cursor: TextCursor::default(),
+            start_address: 0,
+        }
+    }
 }

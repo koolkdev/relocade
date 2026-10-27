@@ -37,7 +37,7 @@ async fn check_guest_memory() {
         map,
     )
     .unwrap();
-    let shared = Memory::new(config.machine, Default::default()).unwrap();
+    let shared = Memory::new(config.machine).unwrap();
     let reader = shared.view();
     shared.view().write_backing(0x1000, &[0x12, 0x34]).unwrap();
     // MOV word [0FFE],0741; JMP to the next instruction.
@@ -45,8 +45,12 @@ async fn check_guest_memory() {
         .view()
         .write(0x100, &[0xc7, 0x06, 0xfe, 0x0f, 0x41, 0x07, 0xeb, 0])
         .unwrap();
-    let mut runtime = Cpu::new(shared.clone(), config.cpu, ()).await.unwrap();
-    let mut other = Cpu::new(shared.clone(), config.cpu, ()).await.unwrap();
+    let mut runtime = Cpu::new(shared.clone(), config.cpu, Default::default(), ())
+        .await
+        .unwrap();
+    let mut other = Cpu::new(shared.clone(), config.cpu, Default::default(), ())
+        .await
+        .unwrap();
     runtime.context().cpu.set_ax(0x1234);
     assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runtime.context().cpu.eip(), 0x108);
@@ -59,10 +63,16 @@ async fn check_guest_memory() {
     assert_eq!(bytes, [0x41, 7, 0x12, 0x34]);
     reader.read(0x100ffe, &mut bytes).unwrap(); // A20 alias.
     assert_eq!(bytes, [0x41, 7, 0x12, 0x34]);
-    for hole in [0x2000, 0x3000, 0x80000000] {
+    for hole in [0x2000, 0x80000000] {
         reader.read(hole, &mut bytes).unwrap();
         assert_eq!(bytes, [0xff; 4]);
     }
+    assert_eq!(
+        reader.read(0x3000, &mut bytes),
+        Err(MemoryError::DeviceAccess)
+    );
+    runtime.context().memory.read(0x3000, &mut bytes).unwrap();
+    assert_eq!(bytes, [0xff; 4]);
     assert_eq!(
         reader.read(u32::MAX, &mut bytes),
         Err(MemoryError::AddressRange)

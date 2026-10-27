@@ -55,7 +55,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
 }
 
 #[test]
-fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
+fn published_screens_survive_repeated_input_waits_and_session_exit() {
     use std::io::Write;
 
     pollster::block_on(async {
@@ -64,6 +64,7 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             &[
                 0xb4, 9, 0xba, 0x00, 3, 0xcd, 0x21, // Print DS:0300.
                 0xb4, 1, 0xcd, 0x21, // Read and echo a character.
+                0xb4, 1, 0xcd, 0x21, // Await and echo a second character.
                 0xb8, 0, 0x4c, 0xcd, 0x21,
             ],
             Default::default(),
@@ -75,13 +76,15 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
             .write(0x10300, b"Ready$")
             .unwrap();
         let vga = dos.vga();
+        let display = vga.borrow().display();
         let mut input = dos.stdin();
         common::assert_pending(dos.cpu().run(100));
-        let thread_vga = vga.clone();
-        let screen = std::thread::spawn(move || thread_vga.screen())
+        vga.borrow_mut().publish();
+        let thread_display = display.clone();
+        let screen = std::thread::spawn(move || thread_display.screen())
             .join()
             .unwrap();
-        assert_eq!(dos.screen(), screen);
+        assert_eq!(dos.screen(), *screen);
         assert_eq!(
             screen.cells[..5]
                 .iter()
@@ -92,13 +95,25 @@ fn screen_can_be_sampled_on_another_thread_while_dos_awaits_input() {
         assert_eq!(screen.cursor.address, 5);
 
         input.write_all(b"X").unwrap();
+        common::assert_pending(dos.cpu().run(100));
+        vga.borrow_mut().publish();
+        let echoed = display.screen();
+        assert_eq!(echoed.cells[5].character, b'X');
+        assert_eq!(echoed.cursor.address, 6);
+        input.write_all(b"Y").unwrap();
         assert_eq!(
             dos.cpu().run(100).await,
             ExecutionExit::Host(HostExit::Return)
         );
-        let screen = vga.screen();
-        assert_eq!(screen.cells[5].character, b'X');
-        assert_eq!(screen.cursor.address, 6);
+        // Session teardown publishes final changes even when a local handle remains.
+        drop(dos);
+        let final_screen = display.screen();
+        assert_eq!(final_screen.cells[5].character, b'X');
+        assert_eq!(final_screen.cells[6].character, b'Y');
+        assert_eq!(final_screen.cursor.address, 7);
+        assert_eq!(vga.borrow().screen(), *final_screen);
+        assert_eq!(screen.cells[5].character, b' ');
+        assert_eq!(echoed.cells[6].character, b' ');
     });
 }
 

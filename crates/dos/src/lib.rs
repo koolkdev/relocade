@@ -112,37 +112,42 @@ pub use process::{Process, ProcessStatus};
 use relocade_machine::{Cpu, CpuContext, DeviceConnection, IoBus, Memory};
 use relocade_vga::Vga;
 use state::DosState;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{cell::RefCell, rc::Rc};
 
 /// A DOS session with persistent CPU, memory, filesystems and console resources.
 pub struct Dos {
     state: Rc<DosState>,
     cpu: Cpu,
-    vga: Arc<Vga>,
+    vga: Rc<RefCell<Vga>>,
+}
+
+impl Drop for Dos {
+    fn drop(&mut self) {
+        // A retained local device handle must not delay the session's final screen.
+        self.vga.borrow_mut().publish();
+    }
 }
 
 impl Dos {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
     /// Launch a program before executing DOS services.
-    /// In a browser, construct and execute the session on a worker: BIOS setup
-    /// and guest accesses use the VGA device's blocking mutex.
     pub async fn new() -> relocade_machine::Result<Self> {
         let state = Rc::new(DosState::default());
         let keyboard = state.stdio().input.clone();
-        let vga = Arc::new(Vga::new());
+        let vga = Rc::new(RefCell::new(Vga::new()));
         let io = IoBus::new([DeviceConnection {
             device: vga.clone(),
             mmio: vec![relocade_vga::TEXT_MEMORY_RANGE],
             ports: vec![relocade_vga::CRTC_PORT_RANGE],
         }]);
-        let memory = Memory::new(kernel::configuration(), io)?;
-        let mut cpu = Cpu::new(memory, kernel::cpu(), ()).await?;
+        let memory = Memory::new(kernel::configuration())?;
+        let mut cpu = Cpu::new(memory, kernel::cpu(), io, ()).await?;
         kernel::initialize(&mut cpu.context().memory);
         {
             let mut context = cpu.context();
             relocade_bios::initialize(&mut context.memory, context.io);
         }
+        vga.borrow_mut().publish();
         cpu.install_hooks(
             kernel::hooks(Rc::clone(&state))
                 .into_iter()
@@ -294,20 +299,20 @@ impl Dos {
         self.state.stdio().input.clone()
     }
 
-    /// Retains the VGA device independently of the CPU and DOS session.
-    /// A display can sample its memory and registers while guest execution runs
-    /// on another thread or awaits input.
-    pub fn vga(&self) -> Arc<Vga> {
-        Arc::clone(&self.vga)
+    /// Retains the execution-local device, including while the CPU awaits input.
+    /// Publish its screen between execution polls and give the renderer a
+    /// [`relocade_vga::Display`] obtained from [`Vga::display`].
+    /// End device borrows before polling execution or dropping the session.
+    pub fn vga(&self) -> Rc<RefCell<Vga>> {
+        Rc::clone(&self.vga)
     }
 
     /// Copies the VGA text display and its hardware cursor for a renderer.
     /// DOS CON output, BIOS video services and direct guest writes all update
     /// video memory. The screen remains readable while a host service is pending.
     /// File redirection does not write to the screen.
-    /// Acquires the device mutex; browser callers must run on a worker.
     pub fn screen(&self) -> relocade_vga::TextScreen {
-        self.vga.screen()
+        self.vga.borrow().screen()
     }
 
     /// Returns an owned reader that drains currently buffered standard output.

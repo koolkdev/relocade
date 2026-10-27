@@ -4,7 +4,7 @@ use relocade_vga::{TextCell, Vga, CRTC_DATA_PORT, CRTC_INDEX_PORT, TEXT_MEMORY_S
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn register(vga: &Vga, index: u8, value: u8) {
+fn register(vga: &mut Vga, index: u8, value: u8) {
     vga.write_port(
         CRTC_INDEX_PORT,
         2,
@@ -13,8 +13,9 @@ fn register(vga: &Vga, index: u8, value: u8) {
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
-    let vga = Vga::new();
+    let mut vga = Vga::new();
     vga.write_mmio(TEXT_MEMORY_START, 4, 0x2f42_1e41);
     vga.write_mmio(TEXT_MEMORY_START + 1, 1, 0x17);
     assert_eq!(vga.read_mmio(TEXT_MEMORY_START, 4), 0x2f42_1741);
@@ -36,8 +37,8 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
 
     // The final CPU-accessible cell precedes video memory outside that aperture.
     vga.write_mmio(TEXT_MEMORY_START + 0x7ffe, 2, 0x3e5a);
-    register(&vga, 0x0c, 0x3f);
-    register(&vga, 0x0d, 0xff);
+    register(&mut vga, 0x0c, 0x3f);
+    register(&mut vga, 0x0d, 0xff);
     let last = vga.screen();
     assert_eq!(last.start_address, 0x3fff);
     assert_eq!(
@@ -56,8 +57,8 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
     );
 
     // Scanout wraps at the 16-bit CRTC cell address, not the CPU aperture edge.
-    register(&vga, 0x0c, 0xff);
-    register(&vga, 0x0d, 0xff);
+    register(&mut vga, 0x0c, 0xff);
+    register(&mut vga, 0x0d, 0xff);
     let wrapped = vga.screen();
     assert_eq!(
         wrapped.cells[0],
@@ -73,15 +74,16 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn crtc_byte_and_paired_writes_share_register_state() {
-    let vga = Vga::new();
-    register(&vga, 0x0c, 0x12);
+    let mut vga = Vga::new();
+    register(&mut vga, 0x0c, 0x12);
     vga.write_port(CRTC_INDEX_PORT, 1, 0x0d);
     vga.write_port(CRTC_DATA_PORT, 1, 0x34);
-    register(&vga, 0x0e, 0xab);
-    register(&vga, 0x0f, 0xcd);
-    register(&vga, 0x0a, 0xe6);
-    register(&vga, 0x0b, 0xe7);
+    register(&mut vga, 0x0e, 0xab);
+    register(&mut vga, 0x0f, 0xcd);
+    register(&mut vga, 0x0a, 0xe6);
+    register(&mut vga, 0x0b, 0xe7);
     let screen = vga.screen();
     assert_eq!(screen.start_address, 0x1234);
     assert_eq!(screen.cursor.address, 0xabcd);
@@ -96,27 +98,51 @@ fn crtc_byte_and_paired_writes_share_register_state() {
     assert_eq!(vga.screen(), screen);
 }
 
-#[cfg(target_arch = "wasm32")]
-mod browser {
-    use relocade_machine::worker::Thread;
-    use wasm_bindgen_test::wasm_bindgen_test;
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn display_retains_complete_publications_and_the_final_device_screen() {
+    let mut vga = Vga::new();
+    let display = vga.display();
+    let initial = display.screen();
+    vga.write_mmio(TEXT_MEMORY_START, 4, 0x2f42_1e41);
+    register(&mut vga, 0x0f, 1);
+    assert_eq!(*display.screen(), *initial);
+    vga.publish();
+    let first = display.screen();
+    assert_eq!(
+        first.cells[0],
+        TextCell {
+            character: b'A',
+            attribute: 0x1e
+        }
+    );
+    assert_eq!(
+        first.cells[1],
+        TextCell {
+            character: b'B',
+            attribute: 0x2f
+        }
+    );
+    assert_eq!(first.cursor.address, 1);
+    vga.publish();
+    assert!(std::sync::Arc::ptr_eq(&first, &display.screen()));
 
-    async fn run_on_worker(check: fn()) {
-        let worker = Thread::new();
-        worker
-            .run_send((), move |()| async move { check() })
-            .await
-            .unwrap();
-    }
-
-    #[wasm_bindgen_test]
-    async fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
-        run_on_worker(super::text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses)
-            .await;
-    }
-
-    #[wasm_bindgen_test]
-    async fn crtc_byte_and_paired_writes_share_register_state() {
-        run_on_worker(super::crtc_byte_and_paired_writes_share_register_state).await;
-    }
+    // Readers keep their prior screen while unpublished changes accumulate.
+    vga.write_mmio(TEXT_MEMORY_START, 2, 0x375a);
+    register(&mut vga, 0x0d, 1);
+    assert!(std::sync::Arc::ptr_eq(&first, &display.screen()));
+    drop(vga);
+    let final_screen = display.screen();
+    assert_eq!(final_screen.start_address, 1);
+    assert_eq!(
+        final_screen.cells[0],
+        TextCell {
+            character: b'B',
+            attribute: 0x2f
+        }
+    );
+    assert_eq!(final_screen.cursor.address, 1);
+    assert_eq!(first.start_address, 0);
+    assert_eq!(first.cells[0].character, b'A');
+    assert_eq!(initial.cells[0].character, 0);
 }
