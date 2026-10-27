@@ -1,0 +1,30 @@
+[package]
+name = "relocade-dos-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[test]]
+name = "window"
+harness = false
+
+[dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+relocade-app = { path = "../../crates/app" }
+relocade-dos = { path = "../../crates/dos" }
+relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
+relocade-x86 = { path = "../../crates/x86" }
+web-time = "=1.1.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.129"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "=1.0.1"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = "=0.13.2"

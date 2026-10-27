@@ -28,6 +28,9 @@ that subset. The project is under development; the crates are not published.
 | [relocade-app](crates/app/README.md) | Application execution, host windows and lifecycle control. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
+The [DOS application](apps/dos/README.md) connects these components to a native
+window or browser canvas using a built-in VGA demonstration.
+
 ## Generate a block
 
 ```rust
@@ -48,7 +51,7 @@ dispatch and fault exits, segment resolution, and entry validity. Real16 uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
 
-The [future worker design](crates/machine/docs/worker-execution.md) describes
+The [worker execution guide](crates/machine/docs/worker-execution.md) describes
 execution-task ownership, UI messaging and scheduling for an interactive embedding.
 
 ## Build and test
