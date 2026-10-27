@@ -5,11 +5,27 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[[test]]
+name = "window"
+harness = false
+
 [dependencies]
+futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-renderer = { path = "../renderer" }
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
+web-time = "=1.1.0"
+wgpu.workspace = true
+winit = "=0.30.13"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "=0.3.106"
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "=0.4.79"
+web-sys = { version = "=0.3.106", features = ["Element", "HtmlCanvasElement", "OffscreenCanvas"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-futures-channel = "=0.3.34"
 pollster = "=1.0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"

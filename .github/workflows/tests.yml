@@ -30,10 +30,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install software graphics driver
+      - name: Install software graphics driver and window test server
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers libxkbcommon0 libxkbcommon-x11-0 xvfb xauth
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -50,6 +50,11 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
           cargo test --workspace --features relocade-vga/renderer --locked
+
+      - name: Check application host window
+        run: |
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP"
+          WINIT_UNIX_BACKEND=x11 xvfb-run -a -s "-screen 0 1280x1024x24" cargo test -p relocade-app --test window --locked -- --ignored
 
   web:
     name: Browser tests
