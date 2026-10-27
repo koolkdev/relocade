@@ -25,7 +25,7 @@ that subset. The project is under development; the crates are not published.
 | [relocade-machine](crates/machine/src/lib.rs) | CPU views, execution, dispatch, hooks and worker tasks. |
 | [relocade-vga](crates/vga/README.md) | VGA state, text rasterization and optional GPU rendering. |
 | [relocade-renderer](crates/renderer/README.md) | Stateful rendering, GPU textures and window presentation. |
-| [relocade-app](crates/app/README.md) | Application execution tasks and typed updates. |
+| [relocade-app](crates/app/README.md) | Application execution, host windows and lifecycle control. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
