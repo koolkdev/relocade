@@ -78,7 +78,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: tests/browser/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install Chrome
         id: chrome
@@ -96,5 +96,5 @@ jobs:
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
-          npm --prefix tests/browser ci
-          npm --prefix tests/browser test
+          npm ci
+          npm test --workspace=relocade-browser-tests

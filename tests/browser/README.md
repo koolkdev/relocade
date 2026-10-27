@@ -7,7 +7,7 @@ Arguments and scalar results pass directly; aggregate results follow Rust's C
 return convention through generated Wasm glue. `npm test` runs the wasm-bindings,
 wasm-runtime, machine, VGA and renderer tests with wasm-bindgen-test, then the worker
 integration checks. Both stages run
-through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
+through Vite and Chrome, sharing the [web tooling](../../tools/web/README.md)
 and worker bootstrap used by browser applications.
 
 The worker checks cover Rust channel wakeups after a task returns Pending,
@@ -23,30 +23,31 @@ teardown. The suspended service uses its local bus and mapped memory across the
 await. VGA device and rasterization fixtures also run directly on the main thread;
 no live device crosses workers.
 
-From this directory:
+From the repository root:
 
 ```sh
 rustup toolchain install nightly-2026-10-20 --profile minimal --component rust-src
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 npm ci
-CHROME_BINARY=/path/to/chrome npm test
+CHROME_BINARY=/path/to/chrome npm test --workspace=relocade-browser-tests
 ```
 
 The shared runner selects `CHROME_BINARY` and configures software WebGPU for
 the renderer tests. ChromeDriver is not required.
 CI uses the same entrypoint in [the browser job](../../.github/workflows/tests.yml).
 
-For focused backend tests without the worker checks, use `npm run test:backends`.
+For focused backend tests without the worker checks, use the `test:backends` script.
 It accepts Cargo test filters, for example:
 
 ```sh
-npm run test:backends -- --test memory
+npm run test:backends --workspace=relocade-browser-tests -- --test memory
 ```
 
-Cargo test filters can also be passed to `npm test`, for example
-`npm test -- --test memory`; the worker checks still run afterward.
-For only the worker checks, run `npm run build && npm run test:workers`.
-`npm run dev` opens those checks for manual inspection after building them.
+Cargo test filters can also be passed to the workspace's `npm test`, for example
+`npm test --workspace=relocade-browser-tests -- --test memory`; the worker checks still run afterward.
+For only the worker checks, run `npm run build --workspace=relocade-browser-tests`
+followed by `npm run test:workers --workspace=relocade-browser-tests`.
+`npm run dev --workspace=relocade-browser-tests` opens those checks for manual inspection after building them.
 The build script defaults to `target/browser` and honors `CARGO_TARGET_DIR`.
 Vite supplies the required isolation headers and worker binding alias.
 
