@@ -24,6 +24,7 @@ that subset. The project is under development; the crates are not published.
 | [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
 | [relocade-machine](crates/machine/src/lib.rs) | CPU views, execution, dispatch, hooks and worker tasks. |
 | [relocade-vga](crates/vga/README.md) | Video memory, VGA text registers and text-frame rasterization. |
+| [relocade-app](crates/app/README.md) | Application tasks with typed updates and completion. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block
