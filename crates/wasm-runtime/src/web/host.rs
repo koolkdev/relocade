@@ -11,8 +11,10 @@ where
     Flat<S::Return>: WasmTuple,
 {
     fn host_function(&mut self, callback: S::Callback) -> JsFunction {
-        let store = Rc::clone(&self.store);
+        // Engine functions can outlive the backend without retaining its state.
+        let store = Rc::downgrade(&self.store);
         relocade_wasm_bindings::callback::<S::Parameters, S::Return>(move |arguments| {
+            let store = store.upgrade().expect("callback requires its live backend");
             S::invoke(&callback, Context(store.borrow_mut()), arguments)
         })
         .expect("create Rust callback adapter")

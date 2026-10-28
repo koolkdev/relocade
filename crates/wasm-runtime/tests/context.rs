@@ -49,17 +49,22 @@ async fn check_callback_access() {
         assert_eq!(backend.memory(&memory).load::<u32>(0), 15);
         assert_eq!(backend.state().get(), 22);
         assert_eq!(calls.get(), 22);
+
+        // Engine handles can survive teardown without retaining backend state.
+        drop(backend);
+        assert_eq!(Rc::strong_count(&calls), 1);
+        drop((imports, instance, run));
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn callbacks_borrow_live_memory_and_non_send_state() {
+fn callbacks_borrow_memory_and_state_for_the_backend_lifetime() {
     pollster::block_on(check_callback_access());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn callbacks_borrow_live_memory_and_non_send_state() {
+async fn callbacks_borrow_memory_and_state_for_the_backend_lifetime() {
     check_callback_access().await;
 }
