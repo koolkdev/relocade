@@ -1370,6 +1370,7 @@ dependencies = [
 name = "relocade-machine"
 version = "0.0.0"
 dependencies = [
+ "futures-channel",
  "futures-timer",
  "futures-util",
  "pollster",

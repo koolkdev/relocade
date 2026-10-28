@@ -1,5 +1,10 @@
 //! Cooperative CPU execution on one emulation owner.
 
+#[cfg(feature = "worker")]
+mod worker;
+#[cfg(feature = "worker")]
+pub use worker::ExecutionWorker;
+
 use crate::{Clock, Cpu, MonotonicClock};
 use relocade_x86::ExecutionExit;
 use std::num::NonZeroU64;

@@ -4,12 +4,14 @@ mod channels;
 mod cpus;
 mod memory;
 mod modules;
+mod runner;
 mod vga;
 
 pub use channels::rust_channels;
 pub use cpus::cpu_worker;
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
+pub use runner::runner_workers;
 pub use vga::vga_workers;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -32,6 +34,11 @@ mod tests {
     #[test]
     fn cpu_workers_await_rust_input_and_share_guest_memory() {
         pollster::block_on(super::cpus::cpu_worker()).unwrap();
+    }
+
+    #[test]
+    fn runner_yields_to_timers_and_stops_busy_or_waiting_cpus() {
+        pollster::block_on(super::runner::runner_workers()).unwrap();
     }
 
     #[test]

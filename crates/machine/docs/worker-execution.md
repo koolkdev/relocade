@@ -1,15 +1,21 @@
 # Worker execution
 
-`Runner` executes finite CPU quanta and yields to the host between them. It
-returns the first non-budget exit and retains the CPU future while services await
-input. The embedding owns its session task and composes independent device work
-with ordinary async futures.
+`Runner` executes finite CPU quanta and yields to the host between them.
+`ExecutionWorker` (the `worker` feature) constructs it inside the existing
+`Thread::run_send` transport and owns session stop and completion.
 
 ```rust,ignore
-let runner = relocade_machine::Runner::default();
-let exit = runner.run(&mut cpu).await;
-handle_execution_exit(exit);
+let worker = relocade_machine::ExecutionWorker::spawn(move |runner| async move {
+    let mut cpu = create_cpu().await?;
+    let exit = runner.run(&mut cpu).await;
+    handle_execution_exit(exit);
+    Ok::<(), Error>(())
+});
+// Explicit shutdown also cancels a session suspended in a host service.
+worker.stop().await?;
 ```
+
+The embedding composes independent device work with ordinary async futures.
 
 `Clock::now()` supplies shared elapsed session time; `wait_until(deadline)` waits
 for a deadline while giving the host an opportunity to process work. The default
@@ -50,9 +56,12 @@ synchronous; the execution task awaits services after those calls return.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
-An explicit stop command needs a control path that can wake the task while a
-service is pending; merely checking commands after a read completes is insufficient.
-The owning task stops by dropping the CPU and its pending service. Completed
+`ExecutionWorker::stop().await` wakes the task while a service is pending and
+cancels its session future. That drops the CPU and pending service on their owner
+before completion is reported. `join().await` waits for ordinary session completion
+and returns its result. Both methods retain the thread until the task ends. As with
+the underlying `Thread`, dropping a worker or completion future early can terminate
+a browser worker without Rust teardown; await explicit shutdown. Completed
 side effects, including writes visible through shared memory or file handles, remain.
 
 The CPU holds its machine directly between runs. Reaching a host service creates

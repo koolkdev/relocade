@@ -2,8 +2,9 @@
 
 Enable the machine's `worker` feature for `worker::Thread`. This is a direct
 reexport of `web-thread-select`; the Wasm runtime exposes the same worker API
-through its own `worker` feature. The application creates workers and keeps them
-alive until their tasks finish.
+through its own `worker` feature. Use `ExecutionWorker` for an emulation session
+with cooperative CPU quanta and explicit stop; see [execution scheduling](worker-execution.md).
+Use `Thread` directly for other tasks, keeping it alive until accepted work finishes.
 
 Pass the shared allocation as the task context. Capture configuration and Rust
 channel endpoints in the closure, then construct the CPU inside the worker:

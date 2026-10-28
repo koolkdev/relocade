@@ -21,6 +21,10 @@ MMIO and CRTC ports. The execution worker sends owned snapshots to a separate
 renderer while the CPU awaits input and after execution ends. Device tests and
 text rasterization use local state and need no blocking locks.
 
+The [runner worker check](src/runner.rs) exercises cooperative CPU execution,
+independent timer progress, stopping busy and suspended sessions, and destruction
+on the execution owner before shutdown completes.
+
 From this directory:
 
 ```sh
