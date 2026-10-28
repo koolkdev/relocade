@@ -35,17 +35,21 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod clock;
 mod config;
 mod cpu;
 mod io;
 mod memory;
+mod runner;
 pub mod runtime;
 
+pub use clock::{Clock, MonotonicClock};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::CpuView;
 pub use io::{Device, DeviceConnection, IoBus};
 pub use memory::{Memory, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::MemoryAccess;
+pub use runner::Runner;
 
 #[cfg(feature = "worker")]
 pub use relocade_wasm_runtime::worker;

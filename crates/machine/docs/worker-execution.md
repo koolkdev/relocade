@@ -1,9 +1,21 @@
 # Worker execution
 
-An interactive embedding can use one persistent async task owning the guest
-environment and runtime for the session's lifetime. In a browser, this task lives
-in a worker alongside message handlers. The [worker transport](workers.md) supplies
-threads and messages; the application supplies its execution loop and controls.
+`Runner` executes finite CPU quanta and yields to the host between them. It
+returns the first non-budget exit and retains the CPU future while services await
+input. The embedding owns its session task and composes independent device work
+with ordinary async futures.
+
+```rust,ignore
+let runner = relocade_machine::Runner::default();
+let exit = runner.run(&mut cpu).await;
+handle_execution_exit(exit);
+```
+
+`Clock::now()` supplies shared elapsed session time; `wait_until(deadline)` waits
+for a deadline while giving the host an opportunity to process work. The default
+`MonotonicClock` uses `web_time::Instant` and `futures_timer::Delay`. Its clones
+preserve the time origin. Tests can supply a manually advanced clock through
+`Runner::with_clock`.
 
 The task owns one `Cpu<T>` for its lifetime. `T` is its guest environment state;
 BIOS/DOS service futures execute on the same worker. The CPU selects the native
@@ -69,8 +81,9 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-CPU-bound execution also needs finite instruction budgets and an actual yield
-to the worker event loop between runs. Awaiting an already-ready future does not
-yield, and repeatedly scheduling microtasks can starve message delivery. Budget
+`Runner::run` requests a nonzero instruction quantum (10,000 by default) and
+awaits a host timer between exhausted quanta. On the browser this is a
+`setTimeout` event-loop task, so posted messages and timers can progress. Awaiting
+an already-ready future does not yield, and repeatedly scheduling microtasks can starve message delivery. Budget
 checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).

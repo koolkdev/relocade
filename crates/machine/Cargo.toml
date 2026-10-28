@@ -9,6 +9,8 @@ publish.workspace = true
 worker = ["relocade-wasm-runtime/worker"]
 
 [dependencies]
+web-time = "=1.1.0"
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 relocade-wasm-runtime = { path = "../wasm-runtime" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-interpreter = { path = "../interpreter" }
