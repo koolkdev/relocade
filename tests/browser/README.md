@@ -11,6 +11,7 @@ through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
 
 The worker checks cover Rust channel wakeups after a task returns Pending,
+host timer delivery while an execution worker stays continuously runnable,
 independent TLS and worker-local Rc state, shared-memory messages that preserve
 later growth and writes after the allocating worker exits, and compiled-module
 handoff between execution owners. The [CPU worker example](src/cpus.rs) retains
