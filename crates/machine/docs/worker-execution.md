@@ -79,7 +79,7 @@ CPU/environment state or installing modules and hooks. Use owned input/output
 handles and `cpu.memory()` for interactive I/O and display. Dropping the CPU
 releases the suspended call chain and its machine together.
 
-Create a persistent DOS session and its CPU with `Dos::new().await`, then
+Create a persistent DOS session and its CPU with `Dos::new(runner.clock().clone()).await`, then
 mount filesystems and retain console handles before `launch_com(...)` or
 `launch_mz(...)`. These synchronous launches reuse the CPU and guest memory.
 Use `dos.process()` to retain the current program and inspect its `ProcessStatus`.

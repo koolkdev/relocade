@@ -50,4 +50,26 @@ impl Sequencer {
             _ => {}
         }
     }
+
+    pub fn reset_active(&self) -> bool {
+        self.reset != RESET_RELEASED
+    }
+
+    pub fn dots_per_character(&self) -> u64 {
+        // SR01 bit 0 selects eight dots when set, nine when clear.
+        if self.clocking_mode & 1 == 0 {
+            9
+        } else {
+            8
+        }
+    }
+
+    pub fn dot_clock_divisor(&self) -> u64 {
+        // SR01 bit 3 divides the oscillator by two before generating dot clocks.
+        if self.clocking_mode & (1 << 3) == 0 {
+            1
+        } else {
+            2
+        }
+    }
 }

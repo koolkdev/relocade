@@ -112,4 +112,64 @@ impl Crtc {
     pub fn cursor_end(&self) -> u8 {
         self.register(CURSOR_END)
     }
+
+    /// CRTC 00 stores the total character clocks per scanline minus five.
+    pub fn horizontal_total(&self) -> u64 {
+        u64::from(self.register(HORIZONTAL_TOTAL)) + 5
+    }
+
+    /// CRTC 01 stores the last displayed character clock, inclusive.
+    pub fn horizontal_display(&self) -> u64 {
+        u64::from(self.register(HORIZONTAL_DISPLAY_END)) + 1
+    }
+
+    pub fn horizontal_display_skew(&self) -> u64 {
+        // CRTC 03 bits 6:5 delay display enable by zero to three character clocks.
+        u64::from((self.register(HORIZONTAL_BLANK_END) >> 5) & 3)
+    }
+
+    /// CRTC 06 plus Overflow bits 0/5 form a ten-bit total-minus-two counter.
+    pub fn vertical_total(&self) -> u64 {
+        let overflow = self.register(OVERFLOW);
+        u64::from(self.register(VERTICAL_TOTAL))
+            + (u64::from(overflow & 0x01) << 8)
+            + (u64::from(overflow & 0x20) << 4)
+            + 2
+    }
+
+    /// CRTC 12 plus Overflow bits 1/6 name the last visible vertical count.
+    pub fn vertical_display(&self) -> u64 {
+        let overflow = self.register(OVERFLOW);
+        u64::from(self.register(VERTICAL_DISPLAY_END))
+            + (u64::from(overflow & 0x02) << 7)
+            + (u64::from(overflow & 0x40) << 3)
+            + 1
+    }
+
+    /// CRTC 10 plus Overflow bits 2/7 form the ten-bit retrace start count.
+    pub fn vertical_retrace_start(&self) -> u64 {
+        let overflow = self.register(OVERFLOW);
+        u64::from(self.register(VERTICAL_RETRACE_START))
+            | (u64::from(overflow & 0x04) << 6)
+            | (u64::from(overflow & 0x80) << 2)
+    }
+
+    /// Retrace ends when the vertical counter's low four bits match CRTC 11.
+    pub fn vertical_retrace_end_low_bits(&self) -> u64 {
+        u64::from(self.register(VERTICAL_RETRACE_END) & 0x0f)
+    }
+
+    pub fn scanlines_per_vertical_count(&self) -> u64 {
+        // CRTC 17 bit 2 divides the vertical-counter clock by two. Character
+        // height and double scanning do not multiply these physical totals.
+        if self.register(MODE_CONTROL) & (1 << 2) == 0 {
+            1
+        } else {
+            2
+        }
+    }
+
+    pub fn sync_enabled(&self) -> bool {
+        self.register(MODE_CONTROL) & (1 << 7) != 0
+    }
 }

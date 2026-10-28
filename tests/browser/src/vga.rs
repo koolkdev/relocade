@@ -1,10 +1,13 @@
 use futures_channel::oneshot;
-use futures_util::{future::poll_fn, FutureExt};
-use relocade_machine::{
-    worker::Thread, Cpu, CpuConfig, DeviceConnection, Hook, HookResult, IoBus, MachineConfig,
-    Memory,
+use futures_util::{
+    future::{join, poll_fn},
+    FutureExt,
 };
-use relocade_vga::{TextCell, TextRenderer, TextScreen, Vga, CRTC_PORT_RANGE, TEXT_MEMORY_RANGE};
+use relocade_machine::{
+    timer_service, worker::Thread, Cpu, CpuConfig, DeviceConnection, ExecutionWorker, Hook,
+    HookResult, IoBus, MachineConfig, Memory,
+};
+use relocade_vga::{TextCell, TextRenderer, TextScreen, Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -22,10 +25,12 @@ pub async fn vga_workers() -> Result<(), String> {
     let (input, incoming) = oneshot::channel();
     let (waiting, started) = oneshot::channel();
     let (finished, exited) = oneshot::channel();
-    let execution = Thread::new();
+    let (clock, timers) = timer_service();
     let display = Thread::new();
-    let cpu_task = execution.run_send((), move |()| async move {
-        let vga = Rc::new(RefCell::new(Vga::new()));
+    let cpu_task = ExecutionWorker::spawn(clock, async move |runner| {
+        let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
+            runner.clock().clone(),
+        ))));
         let config = MachineConfig::new(
             0x1000,
             PhysicalMemoryMap::new([
@@ -38,7 +43,7 @@ pub async fn vga_workers() -> Result<(), String> {
         let io = IoBus::new([DeviceConnection {
             device: vga.clone(),
             mmio: vec![TEXT_MEMORY_RANGE],
-            ports: vec![CRTC_PORT_RANGE],
+            ports: PORT_RANGES.to_vec(),
         }]);
         let memory = Memory::new(config).unwrap();
         memory
@@ -53,6 +58,9 @@ pub async fn vga_workers() -> Result<(), String> {
                     0xb8, 0x0d, 0x10, 0xef, // Display starts at cell 0010.
                     0xb8, 0x0f, 0x11, 0xef, // Cursor at cell 0011.
                     0xb8, 0x0a, 0x20, 0xef, // Hide cursor.
+                    0xba, 0xda, 0x03, // DX = Input Status 1.
+                    0xec, 0xa8, 8, 0x75, 0xfb, // Wait until retrace clears.
+                    0xec, 0xa8, 8, 0x74, 0xfb, // Wait for its next rising edge.
                     0xea, 0x00, 0x02, 0, 0, // JMP 0000:0200, the input hook.
                 ],
             )
@@ -112,7 +120,10 @@ pub async fn vga_workers() -> Result<(), String> {
         ])
         .await
         .unwrap();
-        assert_eq!(cpu.run(100).await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(
+            runner.run_cpu(&mut cpu).await,
+            ExecutionExit::Host(HostExit::Return)
+        );
         drop(cpu);
         finished.send(vga.borrow().screen()).unwrap();
     });
@@ -150,7 +161,8 @@ pub async fn vga_workers() -> Result<(), String> {
         assert_eq!(after.cells[1], before.cells[1]);
         assert_eq!(before.cells[0].character, b'A');
     });
-    cpu_task.await.map_err(|error| error.to_string())?;
+    let ((), result) = join(timers.run(), cpu_task.join()).await;
+    assert_eq!(result.map_err(|error| error.to_string())?, Some(()));
     display_task.await.map_err(|error| error.to_string())?;
     Ok(())
 }

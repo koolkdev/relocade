@@ -2,7 +2,9 @@
 
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
-    registers::{crtc, text_mode, CRTC_INDEX_PORT},
+    registers::{
+        crtc, sequencer, text_mode, CRTC_INDEX_PORT, MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
+    },
     TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 
@@ -246,6 +248,31 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
 }
 
 pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
+    // Stop the sequencer while restoring the supported 8-dot text mode. Mode
+    // setting must restore timing even after software selects monochrome ports
+    // or reprograms the oscillator, totals, and retrace registers directly.
+    write_indexed(
+        io,
+        SEQUENCER_INDEX_PORT,
+        sequencer::RESET,
+        sequencer::SYNCHRONOUS_RESET,
+    );
+    io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(text_mode::MISC_OUTPUT));
+    write_indexed(
+        io,
+        SEQUENCER_INDEX_PORT,
+        sequencer::CLOCKING_MODE,
+        text_mode::CLOCKING_MODE,
+    );
+    write_indexed(
+        io,
+        CRTC_INDEX_PORT,
+        crtc::VERTICAL_RETRACE_END,
+        text_mode::VERTICAL_RETRACE_END & !crtc::PROTECT_TIMING_REGISTERS,
+    );
+    for &(register, value) in text_mode::CRTC_REGISTERS {
+        write_indexed(io, CRTC_INDEX_PORT, register, value);
+    }
     memory.write_u8(MODE, 3).expect("video mode");
     memory
         .write_u16(COLUMNS, TextScreen::COLUMNS as u16)
@@ -274,4 +301,10 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
             .write(TEXT_MEMORY_START + page * PAGE_BYTES, &blank_page)
             .expect("text page");
     }
+    write_indexed(
+        io,
+        SEQUENCER_INDEX_PORT,
+        sequencer::RESET,
+        sequencer::RESET_RELEASED,
+    );
 }

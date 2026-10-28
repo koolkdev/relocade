@@ -49,6 +49,25 @@ impl Default for Registers {
 }
 
 impl Registers {
+    pub fn status_port(&self) -> u16 {
+        if self.miscellaneous & 1 == 0 {
+            MONO_INPUT_STATUS_1_PORT
+        } else {
+            COLOR_INPUT_STATUS_1_PORT
+        }
+    }
+
+    pub fn oscillator_hz(&self) -> u64 {
+        // Miscellaneous Output bits 3:2 select the board's oscillator input
+        // (IBM VGA Function p2-43), before the sequencer's dot-clock division.
+        match (self.miscellaneous >> 2) & 3 {
+            0 => 25_175_000,
+            1 => 28_322_000,
+            // No external oscillator is connected; selector 3 is reserved.
+            _ => 0,
+        }
+    }
+
     fn crtc_ports(&self) -> (u16, u16) {
         if self.miscellaneous & 1 == 0 {
             (MONO_CRTC_INDEX_PORT, MONO_CRTC_DATA_PORT)
