@@ -1,6 +1,11 @@
 //! Device connections local to guest execution and its host services.
 
-use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
+use std::{
+    cell::RefCell,
+    future::{ready, Future},
+    ops::RangeInclusive,
+    rc::Rc,
+};
 
 /// A synchronous device on the machine's memory and port buses.
 /// Addresses are physical bus addresses, after A20 translation for MMIO.
@@ -12,6 +17,16 @@ use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 /// or access the same device recursively. Publish owned observations separately
 /// when another worker needs to display or inspect device output.
 pub trait Device {
+    /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].
+    /// Release device borrows before awaiting. Continuously ready activities must
+    /// cooperate with other work, for example through [`crate::yield_now`].
+    fn run(_device: Rc<RefCell<Self>>) -> impl Future<Output = ()>
+    where
+        Self: Sized,
+    {
+        ready(())
+    }
+
     fn read_mmio(&mut self, _address: u32, _bytes: u8) -> u64 {
         u64::MAX
     }

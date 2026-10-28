@@ -48,8 +48,8 @@ Both contracts are included in the x86 crate's generated API documentation.
 
 The [shared clock guide](crates/machine/docs/clock.md) describes elapsed time,
 deadline waits and timer delivery through Rust channels.
-The [future worker design](crates/machine/docs/worker-execution.md) describes
-execution-task ownership, UI messaging and scheduling for an interactive embedding.
+The [execution guide](crates/machine/docs/worker-execution.md) describes the common
+CPU/device runner, execution ownership and input delivery for an interactive embedding.
 
 ## Build and test
 
