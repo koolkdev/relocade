@@ -5,6 +5,7 @@ mod clock;
 mod cpus;
 mod memory;
 mod modules;
+mod runner;
 mod vga;
 
 pub use channels::rust_channels;
@@ -12,10 +13,16 @@ pub use clock::timer_workers;
 pub use cpus::cpu_worker;
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
+pub use runner::runner_workers;
 pub use vga::vga_workers;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    #[test]
+    fn runner_stops_busy_or_waiting_cpus_after_host_timer_delivery() {
+        pollster::block_on(super::runner::runner_workers()).unwrap();
+    }
+
     #[test]
     fn host_timers_wake_a_continuously_runnable_worker() {
         pollster::block_on(super::clock::timer_workers()).unwrap();

@@ -49,6 +49,8 @@ pub use cpu::CpuView;
 pub use io::{Device, DeviceConnection, IoBus};
 pub use memory::{Memory, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::MemoryAccess;
+#[cfg(feature = "worker")]
+pub use runner::ExecutionWorker;
 pub use runner::{yield_now, Runner};
 
 #[cfg(feature = "worker")]

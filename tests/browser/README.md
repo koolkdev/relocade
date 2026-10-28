@@ -22,6 +22,10 @@ MMIO and CRTC ports. The execution worker sends owned snapshots to a separate
 renderer while the CPU awaits input and after execution ends. Device tests and
 text rasterization use local state and need no blocking locks.
 
+The [execution-worker fixture](src/runner.rs) receives host timer notifications
+during busy CPU execution and suspended services, stops either case, and checks
+that local CPU state is destroyed before shutdown completes.
+
 From this directory:
 
 ```sh

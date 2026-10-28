@@ -1,28 +1,26 @@
 # Worker execution
 
-`Runner` owns one main execution activity and registered device activities on the
-execution thread. `run` drives them together until the main activity finishes or
-is cancelled. `run_cpu` executes finite instruction quanta and retains a pending
+Each execution worker runs one CPU session and its registered device activities.
+`Runner::run` drives them together until the main session finishes or is cancelled.
+`run_cpu` executes finite instruction quanta and retains a pending
 CPU service across device wakeups. Devices keep running while the main activity
 awaits input or the next program.
 
 Create the [shared timer service](clock.md) on the host, and pass its clock into
-the execution worker. The existing [worker transport](workers.md) supplies threads
-and initial resource transfers:
+the execution worker. `ExecutionWorker` uses the existing
+[worker transport](workers.md) and owns runner completion and cancellation:
 
 ```rust,ignore
 let (clock, timers) = relocade_machine::timer_service();
-let execution = thread.run_send((), move |()| async move {
-    Runner::with_clock(clock).run(async |runner| {
-        let device = create_device(runner.clock().clone());
-        let io = IoBus::new([runner.connect(device, memory_ranges, ports)]);
-        let mut cpu = create_cpu(io).await?;
-        runner.run_cpu(&mut cpu).await;
-        wait_for_next_program().await;
-        Ok::<(), Error>(())
-    }).await
+let execution = ExecutionWorker::spawn(clock, async move |runner| {
+    let device = create_device(runner.clock().clone());
+    let io = IoBus::new([runner.connect(device, memory_ranges, ports)]);
+    let mut cpu = create_cpu(io).await?;
+    runner.run_cpu(&mut cpu).await;
+    wait_for_next_program().await;
+    Ok::<(), Error>(())
 });
-futures_util::future::join(timers.run(), execution).await;
+futures_util::future::join(timers.run(), execution.join()).await;
 ```
 
 `connect` registers the device's ordinary async `Device::run` future and returns
@@ -50,8 +48,8 @@ CPU context. Browser input and I/O callbacks stay on a responsive host and send
 results through shared Rust channels. Local JavaScript message handlers are not
 a control path for a continuously running CPU.
 
-Worker creation, UI messaging and task lifetime belong to the embedding
-application. The runtime owns execution and service completion; the web and
+The embedding supplies host input and controls when execution stops.
+The runtime owns execution and service completion; the web and
 Wasmtime backends supply Wasm engine access. Generated guest calls remain
 synchronous; the execution task awaits services after those calls return.
 
@@ -59,10 +57,13 @@ synchronous; the execution task awaits services after those calls return.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
-An explicit stop command needs a control path that can wake the task while a
-service is pending; merely checking commands after a read completes is insufficient.
-The owning task stops by dropping the CPU and its pending service. Completed
-side effects, including writes visible through shared memory or file handles, remain.
+`ExecutionWorker` wraps the runner in `Abortable`; the runner owns CPU/device
+coordination. `stop().await` sets the cancellation flag and wakes the task even
+while a CPU service is pending. It drops owned CPU and device activities on their
+execution thread, and waits for completion before releasing the thread.
+`join().await` waits for ordinary main-activity completion. As with `Thread`, await
+these operations before dropping the handle; early browser-worker termination
+does not run Rust destructors. Completed guest side effects remain visible.
 
 The CPU holds its machine directly between runs. Reaching a host service creates
 an execution future that owns the machine and call chain until execution stops.

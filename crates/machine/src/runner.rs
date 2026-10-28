@@ -1,5 +1,10 @@
 //! CPU execution and registered device activities on one owner.
 
+#[cfg(feature = "worker")]
+mod worker;
+#[cfg(feature = "worker")]
+pub use worker::ExecutionWorker;
+
 use crate::{Clock, Cpu, Device, DeviceConnection, TimerHandle};
 use futures_channel::mpsc;
 /// Gives other ready Rust activities a polling opportunity without a host timer.
