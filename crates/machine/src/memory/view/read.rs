@@ -4,6 +4,9 @@ use relocade_x86::{PhysicalMapping, SegmentRegister};
 
 impl<'a> MemoryView<'a> {
     /// Reads guest addresses using the configured map and checks the full range.
+    ///
+    /// # Panics
+    /// Panics if the access reaches MMIO without an attached local I/O bus.
     pub fn read(&self, address: u32, mut bytes: &mut [u8]) -> Result<(), MemoryError> {
         for span in self.resolve(address, bytes.len())? {
             let (part, rest) = bytes.split_at_mut(span.len);
@@ -13,10 +16,10 @@ impl<'a> MemoryView<'a> {
                     self.storage.read(backing_offset, part)
                 }
                 PhysicalMapping::Mmio => {
+                    let io = self.io.expect("MMIO access requires a local I/O bus");
                     for (index, chunk) in part.chunks_mut(8).enumerate() {
-                        let value = self
-                            .io
-                            .read_mmio(span.address + (index * 8) as u32, chunk.len() as u8);
+                        let value =
+                            io.read_mmio(span.address + (index * 8) as u32, chunk.len() as u8);
                         chunk.copy_from_slice(&value.to_le_bytes()[..chunk.len()]);
                     }
                 }

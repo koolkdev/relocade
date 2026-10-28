@@ -15,7 +15,7 @@ pub(super) struct Spans<'a> {
 }
 
 impl<'a> MemoryView<'a> {
-    /// Check the whole range before any transfer can take effect.
+    /// Checks the guest address range before walking its mappings.
     pub(super) fn resolve(&self, address: u32, len: usize) -> Result<Spans<'a>, MemoryError> {
         if !range_fits(address, len, 1 << 32) {
             return Err(MemoryError::AddressRange);

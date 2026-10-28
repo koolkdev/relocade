@@ -14,12 +14,12 @@ the same. Skip surface acquisition while the window/canvas has zero size.
 For the current text screen, the two crates connect directly:
 
 ```rust,ignore
-let vga = dos.vga();
+// Copy on the execution worker and transfer this owned snapshot to rendering:
+let screen = dos.screen();
 let mut text = relocade_vga::TextRenderer::new();
 let mut renderer = relocade_renderer::Renderer::new(device, queue, format)?;
 
-// On the renderer worker, sample before acquiring an output texture:
-let screen = vga.screen();
+// On the renderer worker, acquire an output texture:
 // Acquire the surface texture and create its `view` here.
 let pixels = text.render(&screen, elapsed);
 renderer.render(
@@ -30,11 +30,11 @@ renderer.render(
 // Present that texture here.
 ```
 
-The VGA lock is released before rasterization or GPU work. Browser device access,
-including `screen()`, must run on a worker; the main thread handles canvas events.
-The renderer worker can own the device, queue, surface and presentation lifecycle.
-The embedding supplies platform surface setup and forwards resize/lifecycle
-messages. See the [VGA threading contract](../vga/README.md).
+The live VGA device stays on the execution worker. The renderer receives an owned
+`TextScreen`; rasterization and GPU work do not borrow the device. The renderer
+worker can own the device, queue, surface and presentation lifecycle. The embedding
+supplies platform surface setup and forwards resize/lifecycle messages. See the
+[VGA ownership contract](../vga/README.md).
 
 No emulation state crosses into the GPU renderer. A native window and browser
 canvas use the same pixel-rendering path. Aspect ratio belongs to the embedding's
