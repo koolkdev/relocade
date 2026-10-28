@@ -16,12 +16,10 @@ later growth and writes after the allocating worker exits, and compiled-module
 handoff between execution owners. The [CPU worker example](src/cpus.rs) retains
 caller access to mapped memory while a worker awaits Rust input, resumes guest
 execution, and imports the retained allocation into a later worker.
-The [VGA worker check](src/vga.rs) connects a device to guest MMIO and CRTC ports
-on a CPU worker. A separate renderer worker snapshots and rasterizes that display
-while the CPU awaits input, then observes resumed writes after CPU teardown.
-The browser main thread never accesses the VGA mutex. The VGA device tests also
-dispatch their fixtures to workers; pure text rasterization tests can run on the
-main thread because they consume owned snapshots.
+The [VGA worker check](src/vga.rs) connects an execution-local device to guest
+MMIO and CRTC ports. The execution worker sends owned snapshots to a separate
+renderer while the CPU awaits input and after execution ends. Device tests and
+text rasterization use local state and need no blocking locks.
 
 From this directory:
 

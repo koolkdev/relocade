@@ -7,9 +7,9 @@ RAM instructions still use ordinary Wasm loads and stores. MMIO uses device call
 Allocate and initialize guest memory before constructing a CPU:
 
 ```rust
-let memory = Memory::new(machine_config, Default::default())?;
+let memory = Memory::new(machine_config)?;
 memory.view().write(0x100, &program)?;
-let mut runtime = Cpu::new(memory.clone(), cpu_config, state).await?;
+let mut runtime = Cpu::new(memory.clone(), cpu_config, Default::default(), state).await?;
 ```
 
 Each CPU imports the supplied allocation and creates private registers, mapping
@@ -28,7 +28,9 @@ let value = view.read_u8(0x200)?;
 
 `Memory` owns the backing handle and an immutable copy of the configured
 physical map. Its memory views use the same RAM, ROM, A20 and hole rules as the stopped
-machine, including connected MMIO devices. `MemoryView` supports reads through
+machine. Devices stay on the execution worker: mapped MMIO accesses require its
+local bus. Accessing MMIO without one is a programming error and panics.
+`MemoryView` supports reads through
 `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
@@ -71,8 +73,9 @@ Worker lifetime belongs to the application.
 
 ## Devices
 
-`Device` owns synchronous MMIO and port behavior. `IoBus` holds immutable connections,
-each containing one shared device and the memory and port ranges it decodes:
+`Device` owns synchronous MMIO and port behavior. Its methods take `&mut self`,
+including reads that can change hardware state. `IoBus` holds immutable local
+connections, each containing an `Rc<RefCell<dyn Device>>` and the ranges it decodes:
 
 ```rust
 let io = IoBus::new([DeviceConnection {
@@ -80,18 +83,27 @@ let io = IoBus::new([DeviceConnection {
     mmio: vec![0xb8000..=0xbffff],
     ports: vec![0x3d4..=0x3d5],
 }]);
-let memory = Memory::new(machine_config, io)?;
-let mut cpu = Cpu::new(memory, cpu_config, ()).await?;
+let memory = Memory::new(machine_config)?;
+let mut cpu = Cpu::new(memory, cpu_config, io, ()).await?;
 ```
 
 The board's physical map must mark that memory range `PhysicalMapping::Mmio`.
-The device owns its storage; it does not use guest RAM backing. `MemoryView`
+The device owns its storage; it does not use guest RAM backing. CPU-context memory
 transfers and guest instructions route to the same device, after A20 translation.
 BIOS services use `CpuContext.io` for port operations. Unconnected ranges retain
-the open-bus behavior: FF reads and ignored writes.
+the open-bus behavior: FF reads and ignored writes. A host operation on the same
+worker can attach its retained bus explicitly with `memory.view().with_io(&io)`.
+This also distinguishes an attached empty bus from a view without device access.
 
 MMIO callbacks receive one through eight little-endian bytes, including partial
 widths at boundaries. Port callbacks retain a complete one-, two- or four-byte
-operation; the device interprets it. Devices synchronize their own state with
-host readers. Shared RAM alone does not transfer device connections to a worker;
-retain a clone of its `IoBus` when constructing another `Memory` handle.
+operation; the device interprets it. Each transfer borrows its device only for the
+synchronous call. The bus can be cloned within a worker, but cannot cross threads.
+The machine and its backend share the local bus. Wasm callbacks access it through
+their backend context. Asynchronous host services use the machine's bus without
+holding a device borrow. Dropping the machine releases both bus handles.
+
+Create devices on the execution worker. Publish owned observations to other
+workers instead of sending the live bus or device. A VGA `TextScreen` can be copied
+on its owner and sent to a renderer. Shared RAM remains available independently
+of device ownership.

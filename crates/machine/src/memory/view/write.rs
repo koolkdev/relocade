@@ -4,16 +4,20 @@ use relocade_x86::{PhysicalMapping, SegmentRegister};
 
 impl<'a> MemoryView<'a> {
     /// Writes guest addresses with the same mapping and ROM policy as execution.
+    ///
+    /// # Panics
+    /// Panics if the access reaches MMIO without an attached local I/O bus.
     pub fn write(&mut self, address: u32, mut bytes: &[u8]) -> Result<(), MemoryError> {
         for span in self.resolve(address, bytes.len())? {
             let (part, rest) = bytes.split_at(span.len);
             match span.mapping {
                 PhysicalMapping::Ram { backing_offset } => self.storage.write(backing_offset, part),
                 PhysicalMapping::Mmio => {
+                    let io = self.io.expect("MMIO access requires a local I/O bus");
                     for (index, chunk) in part.chunks(8).enumerate() {
                         let mut value = [0; 8];
                         value[..chunk.len()].copy_from_slice(chunk);
-                        self.io.write_mmio(
+                        io.write_mmio(
                             span.address + (index * 8) as u32,
                             chunk.len() as u8,
                             u64::from_le_bytes(value),
