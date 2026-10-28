@@ -1,90 +1,164 @@
 # relocade
 
-Rust components for executing x86 code in WebAssembly.
+Rust components for running 16- and 32-bit x86 programs through WebAssembly,
+on native hosts and in browsers. The workspace includes an x86 compiler and
+interpreter, an asynchronous machine runtime, a DOS environment, and VGA text
+output with GPU rendering.
 
-`relocade-x86` generates snapshot blocks and an interpreter that share instruction
-semantics. Blocks decode supplied bytes at compilation time; the generated
-interpreter decodes guest memory at runtime. The embedding host supplies memory,
-dispatch and segment descriptor resolution.
+Relocade is a set of embedding libraries. Applications supply their own UI,
+event loop, file persistence and display surface. The project is under active
+development, and the crates are not yet published.
 
-The project aims for Pentium 4 (P4) user-mode instruction-set parity.
-Development prioritizes missing P4 instructions and architectural behavior.
+## What works today
 
-The implementation currently covers part of the 16/32-bit protected-mode user
-instruction set and ordinary real-mode execution. Real mode supports segment
-loads, FLAGS stack transfers, near/far transfers and software interrupts with
-interrupt returns. External interrupt delivery and mode transitions remain outside
-that subset. The project is under development; the crates are not published.
+- **x86 execution:** snapshot block compilation and a generated interpreter share
+  instruction semantics. The supported instruction subset includes 16/32-bit
+  integer operations, x87 floating point, MMX, SSE and SSE2, with real-mode and
+  protected-mode execution profiles.
+- **DOS programs:** load a real-mode COM or MZ executable with command-line and
+  environment data. A persistent session provides console I/O, conventional-memory
+  allocation, mounted in-memory filesystems, directories and file handles.
+- **BIOS and text display:** keyboard input, basic BIOS video services and clock
+  reads, plus an 80×25 VGA text display with CP437 glyphs, colors, blinking, pages
+  and a hardware cursor. Guest memory and port accesses reach the same VGA device
+  used by BIOS and DOS output.
+- **Native and browser integration:** Wasmtime on native targets and browser
+  WebAssembly on the web, asynchronous host services, worker tasks and shared
+  memory. Text frames can be presented through `wgpu` on native surfaces or
+  browser WebGPU.
+
+The CPU compatibility target is **Pentium 4 user-mode instruction-set parity**;
+this is a goal, not a claim of complete coverage. Privilege and mode transitions
+and external interrupt delivery remain outside the current execution subset.
+DOS and BIOS services are also partial: the current display is text-only, and
+the embedding must advance the BIOS clock. See the
+[instruction definitions](crates/x86/src/instruction/definitions),
+[DOS API documentation](crates/dos/src/lib.rs), and
+[VGA guide](crates/vga/README.md) for the implemented scope.
+
+## Try it
+
+Use a current stable Rust toolchain for native builds; CI tracks stable. From a
+checkout, run the bundled [Hello, DOS example](crates/dos/examples/hello.rs):
+
+```sh
+git clone https://github.com/koolkdev/relocade.git
+cd relocade
+cargo run -p relocade-dos --example hello --locked
+```
+
+It runs a small COM program that prints `Hello, DOS!` through INT 21h, exits with
+status 0, and copies the captured guest output to the host terminal. No DOS
+installation, assembler or GPU is needed for this example.
+
+The first build generates four interpreter Wasm modules, one per execution
+profile, and can take a while. Later builds reuse them when their inputs are
+unchanged. The runtime loads these assets when creating a CPU; it does not
+regenerate the interpreter for each guest.
+
+The example uses the same session API as a larger embedding:
+
+```rust,ignore
+let mut dos = relocade_dos::Dos::new().await?;
+dos.launch_com(&program, Default::default())?;
+let exit = dos.cpu().run(100).await;
+let status = dos.process().unwrap().status();
+```
+
+Use `launch_mz` for MZ executables and `LoadOptions` for command-line and
+environment data. `Dos::mount` supplies a filesystem at a drive letter;
+`stdin`, `stdout`, `stderr` and `keyboard` provide host I/O. A session retains its
+mounts and console across program launches. The
+[DOS crate](crates/dos/src/lib.rs) documents these interfaces and supported services.
+
+`Cpu::run` awaits pending host services such as console input. Interactive hosts
+need finite instruction budgets and explicit event-loop yields between runs;
+budgets are checked at block boundaries and do not guarantee an exact stop or
+elapsed time. See [execution and scheduling](crates/machine/docs/worker-execution.md).
+
+## How the pieces fit
+
+Choose the layer your application needs. `relocade-dos` assembles a DOS session
+from the machine, BIOS, filesystem and VGA components. `relocade-machine` also
+supports custom environments with their own memory maps, devices and host hooks.
+The compiler, Wasm runtime and bindings can be used independently of DOS.
 
 | Crate | Responsibility |
 | --- | --- |
-| [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
-| [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
+| [relocade-dos](crates/dos/src/lib.rs) | COM/MZ loading, process lifetime, DOS services and console/file I/O. |
+| [relocade-bios](crates/bios/src/lib.rs) | Real-mode keyboard, text-video and clock services. |
+| [relocade-vfs](crates/vfs/src/lib.rs) | In-memory files, directories, handles and drive mounts. |
+| [relocade-vga](crates/vga/README.md) | VGA text memory and registers, display snapshots and RGBA rasterization. |
+| [relocade-renderer](crates/renderer/README.md) | Present RGBA frames through `wgpu` on native and browser hosts. |
+| [relocade-machine](crates/machine/src/lib.rs) | CPU and memory access, device buses, dispatch, async host hooks and worker integration. |
+| [relocade-x86](crates/x86/src/lib.rs) | Instruction decoding, shared semantics, CPU state and x86-to-Wasm compilation. |
+| [relocade-interpreter](crates/interpreter/src/lib.rs) | Interpreter Wasm generated during the Cargo build and embedded for both runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
-| [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
-| [relocade-machine](crates/machine/src/lib.rs) | CPU views, execution, dispatch, hooks and worker tasks. |
-| [relocade-vga](crates/vga/README.md) | Video memory, VGA text registers and text-frame rasterization. |
-| [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
+| [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native/browser Wasm compilation, linking, memory and host bindings. |
+| [relocade-wasm-bindings](crates/wasm-bindings/README.md) | Portable Rust/Wasm value layouts and direct browser calls and callbacks. |
 
-## Generate a block
+[relocade-derive](crates/derive/src/lib.rs) supplies the ABI and compiler-value
+derive macros; [relocade-test-support](crates/test-support/src/lib.rs) supplies
+internal Wasmtime test helpers.
 
-```rust
-use relocade_x86::compile_block_from_bytes;
+### CPU execution
 
-fn main() -> Result<(), relocade_x86::BlockError> {
-    // MOV EAX, 42 under flat 32-bit assumptions.
-    let module = compile_block_from_bytes(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
-    assert_eq!(module.entry, "block_1000");
-    // Instantiate module.bytes with the host imports described below.
-    Ok(())
-}
-```
+`relocade-x86` generates both snapshot blocks, which decode supplied bytes at
+compilation time, and an interpreter, which decodes guest memory at runtime.
+Both frontends use the same instruction definitions and semantics.
+`Cpu` starts with the interpreter and can dispatch to modules installed by the
+embedding. The embedding owns snapshot validity and invalidation.
 
-For an executable embedding, follow the
-[host integration contract](crates/x86/docs/host-integration.md): imported memories,
-dispatch and fault exits, segment resolution, and entry validity. Real16 uses
-the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
-Both contracts are included in the x86 crate's generated API documentation.
+For custom CPU embeddings, start with the
+[machine API](crates/machine/src/lib.rs). Lower-level generated Wasm uses the
+[host integration contract](crates/x86/docs/host-integration.md), including imported
+memory, dispatch, fault exits and segment resolution. The
+[physical-memory contract](crates/x86/docs/physical-memory.md) describes Real16
+memory maps and host transfers. Both contracts are included in x86 rustdoc.
 
-The [future worker design](crates/machine/docs/worker-execution.md) describes
-execution-task ownership, UI messaging and scheduling for an interactive embedding.
+### Workers and display
 
-## Build and test
+Worker support is implemented behind the machine/runtime `worker` feature. The
+[worker guide](crates/machine/docs/workers.md) covers task creation and resource
+handoff; the [shared-memory guide](crates/machine/docs/shared-memory.md) covers
+retained memory access.
 
-Cargo generates four interpreter modules on the build host, one for each execution
-profile. Each exports `step` and `run`. `relocade-interpreter::module(profile)`
-returns their embedded Wasm bytes, and `Cpu::new` uses them in both native and
-web builds. Starting a guest does not regenerate the interpreter. The backend
-still compiles the portable Wasm to native code when loading it.
+In a browser, construct and run DOS sessions on a worker. VGA device access also
+belongs on workers; a renderer worker can retain `dos.vga()` and sample the
+display while the CPU awaits input. `TextRenderer` converts snapshots to RGBA,
+and `relocade-renderer` draws those pixels to an output texture. The host owns
+canvas/window setup, surface presentation and frame scheduling. See the
+[VGA threading contract](crates/vga/README.md) and
+[renderer guide](crates/renderer/README.md).
 
-`backend.compiler()` returns an independent `WasmCompiler` handle. Its
-`compile(bytes)` method compiles any module without borrowing the backend's live
-instances or host state. Cpu startup retains only the four interpreter assets
-in a shared `ModuleCache`, using that same compilation method on a cache miss.
-Dispatcher and guest modules go directly to `compile`.
-Backends provide optional cache storage through `module_cache()` and share it only
-with compatible engines. Native backends share a Wasmtime engine and cache within
-the process; browser backends share a cache within the same worker. The common
-cache coordinates concurrent requests and retries failures. Each runtime keeps
-its own instances, memory and host state.
+Browser builds need the threaded Rust configuration, worker bindings and
+cross-origin isolation described in the [browser setup guide](tests/browser/README.md).
+That guide contains the pinned nightly and Wasm tooling versions, npm commands
+and Chrome configuration used by the browser integration suite.
 
-Wasmtime's default disk cache also reuses compiled code across processes; its
-standard cache configuration controls the location and eviction. If cache
-configuration cannot be loaded, the backend reports the problem and continues
-without disk caching.
+## Development
 
-Compiler and x86 correctness tests execute Wasm in Wasmtime. Browser integration
-tests exercise the web runtime in Chrome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Build API documentation from the repository root:
 
 ```sh
-cargo test --workspace --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo fmt --all -- --check
 cargo doc --workspace --no-deps --locked
 ```
 
-Open `target/doc/relocade_x86/index.html` or
-`target/doc/relocade_compiler/index.html` for API contracts and examples.
-[CONTRIBUTING.md](CONTRIBUTING.md) covers adding instructions, writing tests and
-running the browser integration suite. Exact supported encodings live with
-[their instruction definitions](crates/x86/src/instruction/definitions).
+Open `target/doc/relocade_dos/index.html` for the DOS API or
+`target/doc/relocade_machine/index.html` for custom machine integration.
+
+For a focused native check of COM loading, output and termination:
+
+```sh
+cargo test -p relocade-dos --test com --locked
+cargo fmt --all -- --check
+```
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers instruction development, test ownership,
+Clippy and full workspace checks. CI runs the full native suite and browser
+integration tests; DOS and VFS behavior tests stay native. The
+[browser suite](tests/browser/README.md) documents full and focused web runs.
+
+## License
+
+[MIT](LICENSE).
