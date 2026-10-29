@@ -3,10 +3,13 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#222} canvas{display:block;width:640px;height:480px;outline:none}</style>
 </head><body>
 <script type="module">
-import init, { start_image, image_dropped, image_draws, image_worker_tasks } from './pkg/relocade_app_tests.js';
+import init, { start_image, start_dos, image_dropped, image_draws, image_worker_tasks } from './pkg/relocade_app_tests.js';
 await init();
-window.control = start_image();
-window.finished = window.control.finished;
+window.start_dos = start_dos;
+if (!new URLSearchParams(location.search).has('dos')) {
+    window.control = start_image();
+    window.finished = window.control.finished;
+}
 window.image_dropped = image_dropped;
 window.image_draws = image_draws;
 window.image_worker_tasks = image_worker_tasks;

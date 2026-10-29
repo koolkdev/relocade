@@ -9,6 +9,7 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+relocade-dos-app = { path = "../../apps/dos" }
 relocade-app = { path = "../../crates/app", features = ["window"] }
 relocade-machine = { path = "../../crates/machine" }
 relocade-renderer = { path = "../../crates/renderer" }

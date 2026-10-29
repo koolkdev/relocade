@@ -128,7 +128,7 @@ pub fn start_image() -> Result<relocade_app::web::BrowserControl, wasm_bindgen::
     let application = TestImage::default();
     OBSERVATIONS.with(|slot| *slot.borrow_mut() = Some(application.observations.clone()));
     relocade_app::open(application, Default::default())
-        .map(relocade_app::web::control)
+        .map(|control| relocade_app::web::control(control, Into::into))
         .map_err(|error| wasm_bindgen::JsValue::from_str(&error))
 }
 
@@ -171,4 +171,12 @@ pub fn image_worker_tasks() -> u32 {
             .worker_tasks
             .load(Ordering::Acquire)
     })
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn start_dos(
+    program: &[u8],
+) -> Result<relocade_app::web::BrowserControl, wasm_bindgen::JsValue> {
+    relocade_dos_app::open(program)
 }

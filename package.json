@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "tests/browser",
-    "tests/app/web"
+    "tests/app/web",
+    "apps/dos/web"
   ],
   "devDependencies": {
     "playwright": "1.64.1",

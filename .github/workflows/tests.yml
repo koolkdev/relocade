@@ -96,3 +96,4 @@ jobs:
           npm --prefix tests/browser test
           node tests/app/web/build.mjs
           node tests/app/web/test.mjs
+          npm --prefix apps/dos/web run build
