@@ -5,6 +5,10 @@ use winit::{
     window::{Window, WindowAttributes},
 };
 
+#[cfg(feature = "graphics")]
+#[path = "native/graphics.rs"]
+pub(crate) mod graphics;
+
 pub(super) fn run<T: 'static, A: ApplicationHandler<T> + 'static>(
     event_loop: EventLoop<T>,
     mut application: A,
