@@ -1,5 +1,5 @@
 use crate::platform;
-use std::{marker::PhantomData, rc::Rc};
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
 use winit::{
     dpi::PhysicalSize,
     error::OsError,
@@ -32,7 +32,7 @@ impl WindowState {
 /// On web, creation attaches the canvas if necessary and dropping removes it.
 /// Browser dimensions follow CSS unless explicitly set in the window attributes.
 pub struct Window {
-    window: WinitWindow,
+    window: Arc<WinitWindow>,
     state: WindowState,
     _main_thread: PhantomData<Rc<()>>,
 }
@@ -42,7 +42,7 @@ impl Window {
         event_loop: &ActiveEventLoop,
         attributes: WindowAttributes,
     ) -> Result<Self, OsError> {
-        let window = platform::create_window(event_loop, attributes)?;
+        let window = Arc::new(platform::create_window(event_loop, attributes)?);
         let state = WindowState {
             size: window.inner_size(),
             scale_factor: window.scale_factor(),
@@ -63,6 +63,17 @@ impl Window {
 
     pub fn state(&self) -> WindowState {
         self.state
+    }
+
+    /// Prepares the platform surface on main. Transfer this setup to the graphics
+    /// worker and initialize it there. Keep this window alive until that worker ends.
+    /// A browser canvas can be transferred only once.
+    #[cfg(feature = "graphics")]
+    pub fn surface_setup(
+        &self,
+        event_loop: &ActiveEventLoop,
+    ) -> Result<crate::graphics::SurfaceSetup, String> {
+        crate::graphics::SurfaceSetup::new(self.window.clone(), event_loop)
     }
 
     /// Updates lifecycle state and returns whether this event belongs to this window.
