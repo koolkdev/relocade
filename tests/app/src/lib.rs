@@ -1,22 +1,28 @@
 use relocade_app::{Application, Context, Input, WindowApplication};
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use std::sync::{
-    atomic::{AtomicU8, Ordering},
+    atomic::{AtomicU32, AtomicU8, Ordering},
     Arc,
 };
 
 #[derive(Default)]
 pub struct TestImage {
-    pub dropped: Arc<AtomicU8>,
+    pub observations: Arc<Observations>,
+}
+#[derive(Default)]
+pub struct Observations {
+    pub dropped: AtomicU8,
+    pub draws: AtomicU32,
+    pub worker_tasks: AtomicU32,
 }
 pub struct Source {
     _clock: relocade_machine::TimerHandle,
-    dropped: Arc<AtomicU8>,
+    observations: Arc<Observations>,
 }
-struct ExecutionState(Arc<AtomicU8>);
+struct ExecutionState(Arc<Observations>);
 impl Drop for ExecutionState {
     fn drop(&mut self) {
-        self.0.fetch_or(1, Ordering::Release);
+        self.0.dropped.fetch_or(1, Ordering::Release);
     }
 }
 pub struct Graphics {
@@ -24,12 +30,14 @@ pub struct Graphics {
     queue: wgpu::Queue,
     renderer: Renderer,
     image: Image,
-    dropped: Option<Arc<AtomicU8>>,
+    observations: Option<Arc<Observations>>,
+    #[cfg(target_arch = "wasm32")]
+    heartbeat: Option<heartbeat::Heartbeat>,
 }
 impl Drop for Graphics {
     fn drop(&mut self) {
-        if let Some(dropped) = &self.dropped {
-            dropped.fetch_or(2, Ordering::Release);
+        if let Some(observations) = &self.observations {
+            observations.dropped.fetch_or(2, Ordering::Release);
         }
     }
 }
@@ -39,11 +47,11 @@ impl Application for TestImage {
     type Output = u8;
 
     async fn run(self, context: Context<Self::Input, Self::Source>) -> Result<u8, String> {
-        let _state = ExecutionState(self.dropped.clone());
+        let _state = ExecutionState(self.observations.clone());
         // Retaining a clock in the source must not prevent window shutdown.
         context.publish(Source {
             _clock: context.clock.clone(),
-            dropped: self.dropped,
+            observations: self.observations,
         });
         Ok(7)
     }
@@ -71,7 +79,9 @@ impl WindowApplication for TestImage {
             queue,
             renderer,
             image,
-            dropped: None,
+            observations: None,
+            #[cfg(target_arch = "wasm32")]
+            heartbeat: None,
         })
     }
     fn draw(
@@ -80,7 +90,12 @@ impl WindowApplication for TestImage {
         attachment: &wgpu::TextureView,
         size: [u32; 2],
     ) -> Result<(), String> {
-        graphics.dropped = Some(source.dropped.clone());
+        graphics.observations = Some(source.observations.clone());
+        #[cfg(target_arch = "wasm32")]
+        graphics
+            .heartbeat
+            .get_or_insert_with(|| heartbeat::Heartbeat::new(source.observations.clone()));
+        source.observations.draws.fetch_add(1, Ordering::Release);
         let mut encoder = graphics.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -111,17 +126,49 @@ impl WindowApplication for TestImage {
 pub fn start_image() -> Result<relocade_app::web::BrowserControl, wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
     let application = TestImage::default();
-    DROPPED.with(|slot| *slot.borrow_mut() = Some(application.dropped.clone()));
+    OBSERVATIONS.with(|slot| *slot.borrow_mut() = Some(application.observations.clone()));
     relocade_app::open(application, Default::default())
         .map(relocade_app::web::control)
         .map_err(|error| wasm_bindgen::JsValue::from_str(&error))
 }
 
 #[cfg(target_arch = "wasm32")]
-thread_local! { static DROPPED: std::cell::RefCell<Option<Arc<AtomicU8>>> = const { std::cell::RefCell::new(None) }; }
+thread_local! { static OBSERVATIONS: std::cell::RefCell<Option<Arc<Observations>>> = const { std::cell::RefCell::new(None) }; }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn image_dropped() -> u8 {
-    DROPPED.with(|slot| slot.borrow().as_ref().unwrap().load(Ordering::Acquire))
+    OBSERVATIONS.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .unwrap()
+            .dropped
+            .load(Ordering::Acquire)
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+mod heartbeat;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn image_draws() -> u32 {
+    OBSERVATIONS.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .unwrap()
+            .draws
+            .load(Ordering::Acquire)
+    })
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn image_worker_tasks() -> u32 {
+    OBSERVATIONS.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .unwrap()
+            .worker_tasks
+            .load(Ordering::Acquire)
+    })
 }

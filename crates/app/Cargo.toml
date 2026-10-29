@@ -6,10 +6,11 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-window = ["dep:wgpu", "dep:winit", "dep:js-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys"]
+window = ["dep:wgpu", "dep:winit", "dep:event-listener", "dep:futures-timer", "dep:js-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys"]
 
 [dependencies]
 arc-swap = "=1.9.3"
+event-listener = { version = "=5.4.1", default-features = false, optional = true }
 futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-machine = { path = "../machine", features = ["worker"] }
@@ -17,6 +18,7 @@ wgpu = { workspace = true, optional = true }
 winit = { version = "=0.30.13", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"], optional = true }
 js-sys = { version = "=0.3.106", optional = true }
 wasm-bindgen = { version = "=0.2.129", optional = true }
 wasm-bindgen-futures = { version = "=0.4.79", optional = true }

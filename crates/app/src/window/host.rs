@@ -27,8 +27,9 @@ pub(crate) struct Host<A: WindowApplication> {
     proxy: EventLoopProxy<Event>,
     wake: Arc<WakeEvents>,
     ready: bool,
-    busy: bool,
-    visible: bool,
+    size: [u32; 2],
+    suspended: bool,
+    occluded: bool,
 }
 
 impl<A: WindowApplication> Host<A> {
@@ -44,8 +45,9 @@ impl<A: WindowApplication> Host<A> {
             proxy,
             wake,
             ready: false,
-            busy: false,
-            visible: true,
+            size: [0, 0],
+            suspended: false,
+            occluded: false,
         }
     }
     fn poll(&mut self, event_loop: &ActiveEventLoop) {
@@ -54,12 +56,16 @@ impl<A: WindowApplication> Host<A> {
             event_loop.exit();
         }
     }
+    fn visible(&self) -> bool {
+        !self.suspended && !self.occluded
+    }
+    fn update_output(&self) {
+        self.session.output(self.size, self.visible());
+    }
     fn request_redraw(&self) {
-        if self.ready && self.visible && !self.session.closing() {
+        if self.ready && self.visible() && !self.size.contains(&0) && !self.session.closing() {
             if let Some(window) = &self.window {
-                if window.inner_size().width > 0 && window.inner_size().height > 0 {
-                    window.request_redraw();
-                }
+                window.request_redraw();
             }
         }
     }
@@ -69,7 +75,7 @@ impl<A: WindowApplication> ApplicationHandler<Event> for Host<A> {
         if self.session.closing() {
             return;
         }
-        self.visible = true;
+        self.suspended = false;
         if self.window.is_none() {
             let attributes = Window::default_attributes().with_title(&self.options.title);
             #[cfg(not(target_arch = "wasm32"))]
@@ -89,6 +95,7 @@ impl<A: WindowApplication> ApplicationHandler<Event> for Host<A> {
                 .and_then(|window| {
                     let window = Arc::new(window);
                     let setup = platform::SurfaceSetup::new(window.clone(), event_loop)?;
+                    self.size = window.inner_size().into();
                     self.window = Some(window);
                     self.session.start_graphics(setup, self.proxy.clone());
                     Ok(())
@@ -97,11 +104,13 @@ impl<A: WindowApplication> ApplicationHandler<Event> for Host<A> {
                 self.session.fail(error);
             }
         }
+        self.update_output();
         self.request_redraw();
         self.poll(event_loop);
     }
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        self.visible = false;
+        self.suspended = true;
+        self.update_output();
     }
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Event) {
         match event {
@@ -113,7 +122,6 @@ impl<A: WindowApplication> ApplicationHandler<Event> for Host<A> {
                 self.request_redraw();
             }
             Event::Presented => {
-                self.busy = false;
                 self.request_redraw();
             }
             Event::Stop => self.session.stop(),
@@ -128,17 +136,24 @@ impl<A: WindowApplication> ApplicationHandler<Event> for Host<A> {
         match event {
             WindowEvent::CloseRequested | WindowEvent::Destroyed => self.session.stop(),
             WindowEvent::Occluded(hidden) => {
-                self.visible = !hidden;
+                self.occluded = hidden;
+                self.update_output();
                 self.request_redraw();
             }
-            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
-                self.request_redraw()
+            WindowEvent::Resized(size) => {
+                self.size = size.into();
+                self.update_output();
+                self.request_redraw();
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                self.size = window.inner_size().into();
+                self.update_output();
+                self.request_redraw();
             }
             WindowEvent::RedrawRequested
-                if self.ready && self.visible && !self.busy && !self.session.closing() =>
+                if self.ready && self.visible() && !self.session.closing() =>
             {
-                self.busy = true;
-                self.session.redraw(window.inner_size().into());
+                self.session.redraw();
             }
             WindowEvent::KeyboardInput {
                 event,

@@ -1,7 +1,13 @@
-use super::{graphics, host::Event, platform::SurfaceSetup, Input, WindowApplication};
+use super::{
+    graphics,
+    host::Event,
+    platform::SurfaceSetup,
+    redraw::{self, Redraw},
+    Input, WindowApplication,
+};
 use crate::{spawn, worker::Worker, Task};
 use arc_swap::ArcSwapOption;
-use futures_channel::{mpsc, oneshot};
+use futures_channel::oneshot;
 use relocade_machine::{timer_service, TimerDriver};
 use std::{
     future::Future,
@@ -16,7 +22,7 @@ pub(crate) struct Session<A: WindowApplication> {
     graphics: Option<Worker<Result<(), String>>>,
     timers: Option<Pin<Box<dyn Future<Output = ()>>>>,
     source: Arc<ArcSwapOption<A::Source>>,
-    requests: Option<mpsc::UnboundedSender<[u32; 2]>>,
+    requests: Option<Redraw>,
     result: Option<A::Output>,
     error: Option<String>,
     closing: bool,
@@ -42,7 +48,7 @@ impl<A: WindowApplication> Session<A> {
         }
     }
     pub fn start_graphics(&mut self, setup: SurfaceSetup, events: EventLoopProxy<Event>) {
-        let (requests, incoming) = mpsc::unbounded();
+        let (requests, incoming) = redraw::channel();
         let source = self.source.clone();
         self.graphics = Some(Worker::spawn(setup, move |setup| {
             graphics::run::<A>(setup, source, incoming, events)
@@ -54,9 +60,14 @@ impl<A: WindowApplication> Session<A> {
             execution.send_input(input);
         }
     }
-    pub fn redraw(&self, size: [u32; 2]) {
+    pub fn output(&self, size: [u32; 2], visible: bool) {
         if let Some(requests) = &self.requests {
-            let _ = requests.unbounded_send(size);
+            requests.output(size, visible);
+        }
+    }
+    pub fn redraw(&self) {
+        if let Some(requests) = &self.requests {
+            requests.request();
         }
     }
     pub fn closing(&self) -> bool {

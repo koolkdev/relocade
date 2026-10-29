@@ -2002,7 +2002,9 @@ name = "relocade-app"
 version = "0.0.0"
 dependencies = [
  "arc-swap",
+ "event-listener",
  "futures-channel",
+ "futures-timer",
  "futures-util",
  "js-sys",
  "pollster",
@@ -2019,11 +2021,13 @@ name = "relocade-app-tests"
 version = "0.0.0"
 dependencies = [
  "console_error_panic_hook",
+ "js-sys",
  "pollster",
  "relocade-app",
  "relocade-machine",
  "relocade-renderer",
  "wasm-bindgen",
+ "web-sys",
  "wgpu",
  "x11rb",
 ]
