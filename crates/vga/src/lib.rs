@@ -30,6 +30,9 @@ pub const TEXT_MEMORY_BYTES: u32 = 0x8000;
 pub const TEXT_MEMORY_RANGE: RangeInclusive<u32> =
     TEXT_MEMORY_START..=TEXT_MEMORY_START + TEXT_MEMORY_BYTES - 1;
 
+/// All host addresses decoded by the VGA's programmable memory-map selector.
+pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;
+
 /// An emulated VGA device owned by the execution worker.
 /// Registers and video memory are ordinary mutable state. Other workers receive
 /// completed frames through [`Display`], without accessing the live device.
@@ -67,7 +70,7 @@ impl<C: Clock> Vga<C> {
         TextScreen {
             cells: std::array::from_fn(|index| {
                 self.memory
-                    .cell(crtc.start_address().wrapping_add(index as u16))
+                    .cell(crtc.display_address(crtc.start_address().wrapping_add(index as u16), 0))
             }),
             cursor: TextCursor {
                 address: crtc.cursor_address(),
@@ -123,7 +126,9 @@ impl<C: Clock> Device for Vga<C> {
             return u64::from_le_bytes(value);
         }
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            *byte = self.memory.read(address - TEXT_MEMORY_START + index as u32);
+            *byte = self
+                .memory
+                .read(address.wrapping_add(index as u32), &self.registers);
         }
         u64::from_le_bytes(value)
     }
@@ -135,7 +140,7 @@ impl<C: Clock> Device for Vga<C> {
         }
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             self.memory
-                .write(address - TEXT_MEMORY_START + index as u32, *byte);
+                .write(address.wrapping_add(index as u32), *byte, &self.registers);
         }
     }
 

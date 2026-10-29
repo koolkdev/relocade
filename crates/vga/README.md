@@ -1,16 +1,28 @@
 # VGA text display
 
 `Vga` owns video memory, hardware registers, fixed text-mode timing, and pixel
-generation on the execution worker. The machine maps `B8000..BFFFF` as MMIO and
-connects the same device to `TEXT_MEMORY_RANGE` and `PORT_RANGES`. BIOS data stays
+generation on the execution worker. The machine maps `A0000..BFFFF` as MMIO and
+connects the same device to `MEMORY_RANGE` and `PORT_RANGES`. BIOS data stays
 in system RAM; BIOS output, DOS output and direct guest writes share VGA memory.
 
 The supported image is 80 by 25 cells with fixed 8-by-8 CP437 glyphs, PC colors,
 attribute blinking, hardware cursor shape and skew, and display-start addressing.
-The color aperture provides 32 KiB for eight BIOS pages. CPU bytes select the
-character and attribute planes; display addresses wrap within their full 16-bit
-cell address space. `screen()` copies live text state for inspection on the
-execution worker. It is not the display-output API.
+Four 64-KiB planes share CPU read latches. The Graphics Controller selects a
+128/64-KiB graphics aperture or a 32-KiB text aperture, read/compare modes,
+write modes 0–3, rotation, logical operations and pixel masks. Sequencer map
+masks and chain-4/odd-even addressing select the planes. Masked writes preserve
+latch bits from the last CPU read, even when writing a different address.
+Plane offsets remain physical across addressing-mode changes. Chain-4 clears
+the two low address bits; the Graphics Controller's odd/even chain replaces
+bit zero independently of CPU read/write plane selection. The 128-KiB aperture
+supplies A16 for this replacement; smaller apertures use page zero. Disabling
+extended memory restricts each plane to 16 KiB. Original EGA page-selection and
+64-KiB chaining variations are outside this VGA model.
+The initial color text aperture provides eight BIOS pages; character and
+attribute bytes select planes 0 and 1. CRTC word/doubleword addressing transforms
+the display counter into physical plane addresses. Scanout does not modify CPU
+latches. `screen()` copies live text state for inspection on the execution worker.
+It is not the display-output API.
 
 `registers/` owns port decoding, CRTC protection and register storage. Public
 port addresses, indices and `text_mode` values are shared with BIOS programming.
@@ -66,7 +78,7 @@ represent coalesced frames.
 // Execution worker:
 let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(runner.clock().clone()))));
 let display = vga.borrow().display();
-let io = IoBus::new([runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES)]);
+let io = IoBus::new([runner.connect(vga, [MEMORY_RANGE], PORT_RANGES)]);
 
 // App/graphics worker, on its own redraw schedule:
 if let Some(frame) = display.current_frame() {

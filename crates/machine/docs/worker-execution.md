@@ -114,7 +114,7 @@ Budget checks remain at block boundaries; they provide
 
 ## Video and application rendering
 
-Register VGA through `runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES)`.
+Register VGA through `runner.connect(vga, [MEMORY_RANGE], PORT_RANGES)`.
 The runner drives its device activity throughout the main session, including CPU
 service waits and gaps between programs. VGA follows fixed text-mode raster
 timing and rasterizes on this owner; its `Display` publishes immutable RGBA
