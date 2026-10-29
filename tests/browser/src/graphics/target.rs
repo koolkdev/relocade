@@ -1,5 +1,5 @@
 use futures_channel::oneshot;
-use relocade_renderer::Renderer;
+use relocade_renderer::{Image, Viewer};
 use relocade_vga::VideoFrame;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -49,7 +49,8 @@ pub struct Presented {
 pub struct Target {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    renderer: Renderer,
+    viewer: Viewer,
+    image: Option<Image>,
     format: wgpu::TextureFormat,
     #[cfg(target_arch = "wasm32")]
     surface: wgpu::Surface<'static>,
@@ -85,12 +86,13 @@ impl Target {
         let format = configuration.format;
         #[cfg(not(target_arch = "wasm32"))]
         let format = wgpu::TextureFormat::Rgba8Unorm;
-        let renderer =
-            Renderer::new(device.clone(), queue.clone(), format).map_err(|e| e.to_string())?;
+        let viewer =
+            Viewer::new(device.clone(), queue.clone(), format).map_err(|e| e.to_string())?;
         Ok(Self {
             device,
             queue,
-            renderer,
+            viewer,
+            image: None,
             format,
             #[cfg(target_arch = "wasm32")]
             surface,
@@ -120,12 +122,25 @@ impl Target {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        self.renderer
-            .render(
-                [frame.width, frame.height],
-                &frame.pixels,
-                &output.create_view(&Default::default()),
-            )
+        if self.image.as_ref().is_none_or(|image| {
+            image.size() != [frame.width, frame.height]
+                || image.pixel_aspect_ratio() != frame.pixel_aspect_ratio
+        }) {
+            self.image = Some(
+                Image::new(
+                    &self.device,
+                    [frame.width, frame.height],
+                    frame.pixel_aspect_ratio,
+                )
+                .map_err(|e| e.to_string())?,
+            );
+        }
+        let image = self.image.as_ref().unwrap();
+        image
+            .upload(&self.queue, &frame.pixels)
+            .map_err(|e| e.to_string())?;
+        self.viewer
+            .draw(image, &output.create_view(&Default::default()), size)
             .map_err(|e| e.to_string())?;
         let pixel = read_first_pixel(&self.device, &self.queue, &output).await;
         #[cfg(target_arch = "wasm32")]
@@ -138,11 +153,11 @@ impl Target {
                 | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
                 other => return Err(format!("surface acquisition: {other:?}")),
             };
-            self.renderer
-                .render(
-                    [frame.width, frame.height],
-                    &frame.pixels,
+            self.viewer
+                .draw(
+                    image,
                     &surface.texture.create_view(&Default::default()),
+                    size,
                 )
                 .map_err(|e| e.to_string())?;
             self.queue.present(surface);

@@ -21,3 +21,16 @@ fn vertex(@builtin(vertex_index) index: u32) -> Vertex {
 fn fragment(v: Vertex) -> @location(0) vec4<f32> {
     return textureSample(pixels, nearest, v.uv);
 }
+
+// Stored image colors are sRGB values. An sRGB output attachment encodes the
+// shader result, so decode here to preserve the original displayed colors.
+@fragment
+fn fragment_srgb(v: Vertex) -> @location(0) vec4<f32> {
+    let color = textureSample(pixels, nearest, v.uv);
+    let linear = select(
+        pow((color.rgb + vec3(0.055)) / 1.055, vec3(2.4)),
+        color.rgb / 12.92,
+        color.rgb <= vec3(0.04045),
+    );
+    return vec4(linear, color.a);
+}

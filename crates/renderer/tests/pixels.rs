@@ -1,4 +1,4 @@
-use relocade_renderer::{FrameError, Renderer};
+use relocade_renderer::{FrameError, Image, Viewer};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -93,7 +93,7 @@ async fn check_pixels() {
         wgpu::TextureFormat::Bgra8Unorm,
         wgpu::TextureFormat::Bgra8UnormSrgb,
     ] {
-        let mut renderer = Renderer::new(device.clone(), queue.clone(), format).unwrap();
+        let mut viewer = Viewer::new(device.clone(), queue.clone(), format).unwrap();
         let output = target(&device, [4, 4], format);
         let view = output.create_view(&Default::default());
         let colors: [[u8; 4]; 4] = [
@@ -102,33 +102,40 @@ async fn check_pixels() {
             [0, 170, 85, 255],
             [85, 0, 170, 255],
         ];
-        renderer
-            .render([2, 2], colors.as_flattened(), &view)
-            .unwrap();
+        let image = Image::new(&device, [2, 2], (1, 1)).unwrap();
+        image.upload(&queue, colors.as_flattened()).unwrap();
+        viewer.draw(&image, &view, [4, 4]).unwrap();
         let pixels = read_pixels(&device, &queue, &output).await;
         for y in 0..4 {
             for x in 0..4 {
                 assert_color(pixels[y * 4 + x], colors[(y / 2) * 2 + x / 2]);
             }
         }
-        // The next frame updates the existing texture, including alpha.
-        let changed: [[u8; 4]; 4] = [[32, 64, 96, 17]; 4];
-        renderer
-            .render([2, 2], changed.as_flattened(), &view)
-            .unwrap();
+        // Update the same texture, including alpha and the sRGB near-black transition.
+        let changed: [[u8; 4]; 4] = [[1, 10, 11, 17]; 4];
+        image.upload(&queue, changed.as_flattened()).unwrap();
+        viewer.draw(&image, &view, [4, 4]).unwrap();
         for pixel in read_pixels(&device, &queue, &output).await {
             assert_color(pixel, changed[0]);
         }
+        assert!(matches!(
+            Image::new(&device, [0, 2], (1, 1)),
+            Err(FrameError::InvalidSize)
+        ));
+        assert!(matches!(
+            Image::new(&device, [u32::MAX, 1], (1, 1)),
+            Err(FrameError::InvalidSize)
+        ));
+        assert!(matches!(
+            Image::new(&device, [2, 2], (0, 1)),
+            Err(FrameError::InvalidAspectRatio)
+        ));
         assert_eq!(
-            renderer.render([0, 2], &[], &view),
+            viewer.draw(&image, &view, [0, 2]),
             Err(FrameError::InvalidSize)
         );
         assert_eq!(
-            renderer.render([u32::MAX, 1], &[], &view),
-            Err(FrameError::InvalidSize)
-        );
-        assert_eq!(
-            renderer.render([2, 2], &[0; 15], &view),
+            image.upload(&queue, &[0; 15]),
             Err(FrameError::InvalidLength {
                 expected: 16,
                 actual: 15
@@ -136,12 +143,10 @@ async fn check_pixels() {
         );
         // Resize both source and output, with an unpadded 12-byte upload row.
         let output = target(&device, [6, 2], format);
-        renderer
-            .render(
-                [3, 1],
-                colors[..3].as_flattened(),
-                &output.create_view(&Default::default()),
-            )
+        let resized = Image::new(&device, [3, 1], (1, 1)).unwrap();
+        resized.upload(&queue, colors[..3].as_flattened()).unwrap();
+        viewer
+            .draw(&resized, &output.create_view(&Default::default()), [6, 2])
             .unwrap();
         for (index, pixel) in read_pixels(&device, &queue, &output)
             .await
@@ -152,7 +157,7 @@ async fn check_pixels() {
         }
     }
     assert!(matches!(
-        Renderer::new(
+        Viewer::new(
             device.clone(),
             queue.clone(),
             wgpu::TextureFormat::Rgba16Float
@@ -161,6 +166,7 @@ async fn check_pixels() {
             wgpu::TextureFormat::Rgba16Float
         ))
     ));
+    check_gpu_image_and_placement(&device, &queue).await;
     #[cfg(not(target_arch = "wasm32"))]
     check_text_screen(&device, &queue).await;
 }
@@ -193,19 +199,22 @@ async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
     let frame = vga.frame_source().current_capture().unwrap().rasterize();
     let size = [frame.width, frame.height];
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-    let output = target(device, size, format);
-    let mut renderer = Renderer::new(device.clone(), queue.clone(), format).unwrap();
-    renderer
-        .render(
-            size,
-            &frame.pixels,
+    let output_size = [640, 480];
+    let output = target(device, output_size, format);
+    let image = Image::new(device, size, frame.pixel_aspect_ratio).unwrap();
+    image.upload(queue, &frame.pixels).unwrap();
+    let mut viewer = Viewer::new(device.clone(), queue.clone(), format).unwrap();
+    viewer
+        .draw(
+            &image,
             &output.create_view(&Default::default()),
+            output_size,
         )
         .unwrap();
     let pixels = read_pixels(device, queue, &output).await;
     assert_color(pixels[0], [255, 255, 85, 255]);
     assert_color(pixels[8], [0, 0, 0, 255]);
-    assert_color(pixels[640 * 200 - 1], [170, 170, 170, 255]);
+    assert_color(pixels[640 * 480 - 1], [170, 170, 170, 255]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -218,4 +227,63 @@ fn uploads_scales_and_resizes_pixel_frames() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn uploads_scales_and_resizes_pixel_frames() {
     check_pixels().await;
+}
+
+// GPU-created contents must be viewable without a CPU upload. Viewing at a
+// different size must preserve both source storage and its display proportions.
+async fn check_gpu_image_and_placement(device: &wgpu::Device, queue: &wgpu::Queue) {
+    let image = Image::new(device, [640, 200], (5, 12)).unwrap();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: image.view(),
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 170.0 / 255.0,
+                        g: 85.0 / 255.0,
+                        b: 0.0,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+    }
+    queue.submit([encoder.finish()]);
+    for format in [
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+    ] {
+        let mut viewer = Viewer::new(device.clone(), queue.clone(), format).unwrap();
+        for (size, bounds) in [([16, 16], [0, 2, 16, 14]), ([24, 12], [4, 0, 20, 12])] {
+            let output = target(device, size, format);
+            viewer
+                .draw(&image, &output.create_view(&Default::default()), size)
+                .unwrap();
+            let pixels = read_pixels(device, queue, &output).await;
+            for y in 0..size[1] {
+                for x in 0..size[0] {
+                    let inside = x >= bounds[0] && x < bounds[2] && y >= bounds[1] && y < bounds[3];
+                    assert_color(
+                        pixels[(y * size[0] + x) as usize],
+                        if inside {
+                            [170, 85, 0, 255]
+                        } else {
+                            [0, 0, 0, 255]
+                        },
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(image.size(), [640, 200]);
+    assert_eq!(image.pixel_aspect_ratio(), (5, 12));
+    assert_color(
+        read_pixels(device, queue, image.texture()).await[0],
+        [170, 85, 0, 255],
+    );
 }

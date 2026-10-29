@@ -1,39 +1,39 @@
-# Pixel-frame rendering
+# GPU images and viewing
 
-`Renderer` accepts a frame's dimensions and tightly packed RGBA8 bytes, then draws
-into a wgpu texture view. The bytes contain sRGB colors; output can be RGBA8 or
-BGRA8 with either linear storage or an sRGB attachment. Alpha is copied without
-blending. Nearest-neighbor sampling fills the output view.
+`Image` owns reusable RGBA8 GPU storage and its pixel aspect ratio. GPU producers
+can draw into `image.view()`; the software path calls `image.upload(queue, pixels)`.
+An upload takes tightly packed top-to-bottom sRGB color bytes and queues them for
+the next queue submission. Image clones share storage, not historical pixels.
 
-The embedding creates the wgpu device and surface, configures the output size,
-acquires/presents surface textures and schedules frames. The renderer reuses its
-frame texture while the source size is unchanged. Changing source or output
-dimensions needs no renderer reconstruction, provided the output format stays
-the same. Skip surface acquisition while the window/canvas has zero size.
-
-VGA supplies immutable captured state independently of this pixel presenter.
-The embedding can call `CapturedFrame::rasterize()` when it wants a software
-image, then draw the result:
+`Viewer` draws an existing image into a caller-supplied texture view. It uses
+nearest-neighbor scaling, fits the image's display proportions inside the output,
+and clears unused borders to opaque black. It supports RGBA8 and BGRA8 targets,
+with or without sRGB encoding. Alpha is copied without blending. sRGB outputs
+use a shader decode before the attachment re-encodes the colors.
 
 ```rust,ignore
-let frame = capture.rasterize();
-renderer.render([frame.width, frame.height], &frame.pixels, &view)?;
+let image = relocade_renderer::Image::new(&device, [frame.width, frame.height],
+    frame.pixel_aspect_ratio)?;
+image.upload(&queue, &frame.pixels)?;
+let mut viewer = relocade_renderer::Viewer::new(device, queue, output_format)?;
+viewer.draw(&image, &output_view, output_size)?;
+// Later, reuse the image with another output size; no upload is needed.
 ```
 
-The [graphics fixture](../../tests/browser/src/graphics.rs) demonstrates doing
-conversion and presentation on one worker separate from CPU/VGA execution.
-The application owns that worker, its request channel, cached pixels and surface.
-Other renderers can read the captured text state directly without producing
-CPU pixels or using this presenter. See the [VGA contract](../vga/README.md).
+The owner supplies a device, its queue and single-sampled output attachments.
+The `output_size` is the extent of the supplied attachment's mip level. Surface
+acquisition, presentation, visibility, worker placement and redraw scheduling
+remain with that owner. Neither image upload nor viewing selects a surface or
+creates a task. A different output format needs a matching viewer, but the same
+image can be viewed through either format.
 
-No emulation state crosses into the GPU renderer. A native window and browser
-canvas use the same pixel-rendering path. Aspect ratio belongs to the embedding's
-output sizing; for a DOS display it can choose a 4:3 target even though the source
-has 640×200 pixels. Its display ratio is
-`width * pixel_aspect_ratio.0 / (height * pixel_aspect_ratio.1)`; the generic
-renderer does not interpret that metadata.
+Dimensions describe pixel storage; pixel aspect ratio describes pixel width /
+height. Their product determines display proportions. The VGA software image is
+640×200 with 5:12 pixels, so the viewer fits it at 4:3. Output sizing never changes
+the source image or asks its producer to decode it again.
 
-The `pixels` integration test reads back actual GPU output to check orientation,
-nearest-neighbor scaling, color encoding, alpha, updates and resizing. It runs on
-native wgpu and browser WebGPU. The native variant also checks a rasterized VGA
-text frame.
+`image.texture()` permits explicit copies and test readback. Ordinary drawing
+keeps the image on the GPU. The native/browser pixel checks cover uploads, GPU
+attachment writes, orientation, scaling, letterboxing, color encoding, alpha and
+resizing. The [worker fixture](../../tests/browser/src/graphics.rs) demonstrates
+an application-selected hosting arrangement and retains its own surface lifetime.
