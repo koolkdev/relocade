@@ -3,7 +3,9 @@
 use relocade_dos::{Dos, ProcessStatus};
 
 pub async fn dos() -> Dos {
-    Dos::new().await.unwrap()
+    let (clock, timers) = relocade_machine::timer_service();
+    std::thread::spawn(|| pollster::block_on(timers.run()));
+    Dos::new(clock).await.unwrap()
 }
 
 /// Poll once and release the waiter while the CPU retains the pending service.

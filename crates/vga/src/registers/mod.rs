@@ -49,6 +49,14 @@ impl Default for Registers {
 }
 
 impl Registers {
+    pub fn status_port(&self) -> u16 {
+        if self.miscellaneous & 1 == 0 {
+            MONO_INPUT_STATUS_1_PORT
+        } else {
+            COLOR_INPUT_STATUS_1_PORT
+        }
+    }
+
     fn crtc_ports(&self) -> (u16, u16) {
         if self.miscellaneous & 1 == 0 {
             (MONO_CRTC_INDEX_PORT, MONO_CRTC_DATA_PORT)
