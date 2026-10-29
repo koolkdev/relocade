@@ -33,7 +33,7 @@ jobs:
       - name: Install software graphics driver
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -50,6 +50,7 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
           cargo test --workspace --locked
+          xvfb-run -a cargo test -p relocade-app --test window --locked -- --ignored
 
   web:
     name: Browser tests
