@@ -1,4 +1,4 @@
-# VGA text capture
+# VGA compatibility
 
 `Vga` owns text memory, registers and fixed timing on the execution worker. BIOS
 and direct guest writes reach the same MMIO memory. The supported image is
@@ -12,6 +12,13 @@ Input Status 1 follows that raster, including during synchronous guest polling.
 Absolute oscillator arithmetic avoids accumulated timer rounding. Timing-register
 writes retain readback; arbitrary timing, reset behavior, fonts and graphics
 modes are outside this milestone.
+
+The sequencer, CRTC, Graphics Controller, Attribute Controller and six-bit DAC
+own their register storage and CPU access rules. Attribute writes alternate
+address and data phases; reading the active Input Status 1 port resets that
+phase. DAC reads and writes step through RGB channels and wrap palette addresses.
+The graphics, font and palette registers currently retain guest programming;
+their effects on memory and captured display state follow in later stages.
 
 At each serviced refresh boundary the device captures cells, cursor, display
 start, blink phase, blanking, source time and sequence. Late service coalesces
@@ -45,7 +52,7 @@ render the last capture after the DOS session ends.
 
 Register definitions follow the
 [IBM VGA/XGA Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf),
-VGA Function pages 2-12, 2-24–2-26, 2-42–2-50 and 2-55–2-76.
+VGA Function pages 2-12, 2-24–2-26, 2-42–2-96 and 2-104–2-106.
 
 ## Recording GPU decoding
 
