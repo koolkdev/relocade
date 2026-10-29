@@ -11,18 +11,22 @@ use std::{
 
 /// Immutable rasterizer input sampled at a completed text refresh boundary.
 /// It preserves coherent text state, not pixel history throughout the refresh.
+/// Renderers can read this state directly without allocating a CPU pixel image.
 pub struct CapturedFrame {
-    pub(crate) screen: TextScreen,
-    pub(crate) blink_on: bool,
-    pub(crate) blanked: bool,
+    /// Visible cells, display start and cursor registers at the boundary.
+    pub screen: TextScreen,
+    /// Captured phase shared by blinking attributes and the text cursor.
+    pub blink_on: bool,
+    /// Sequencer screen-off state; the image is black when set.
+    pub blanked: bool,
     pub time: Duration,
     pub sequence: u64,
 }
 
 impl CapturedFrame {
-    /// Performs synchronous pixel conversion on the calling worker. No live VGA
-    /// state is accessed. The execution worker only creates these small captures;
-    /// call this on the graphics worker when a redraw is requested.
+    /// Software rendering reference: synchronously converts this capture to RGBA8.
+    /// No live VGA state is accessed. The caller chooses when and where to render;
+    /// use a separate worker to keep conversion off the execution worker.
     pub fn rasterize(&self) -> VideoFrame {
         VideoFrame {
             width: scanout::WIDTH,
@@ -43,8 +47,8 @@ struct Captures {
     closed: AtomicBool,
 }
 
-/// Read-only input for VGA rasterization. Only one capture is retained; a slow
-/// graphics worker can skip obsolete inputs without blocking guest execution.
+/// Read-only captured VGA state. Only the latest capture is retained; slow
+/// consumers skip obsolete inputs without blocking guest execution.
 #[derive(Clone)]
 pub struct FrameSource {
     captures: Arc<Captures>,
@@ -57,12 +61,15 @@ impl FrameSource {
         }
     }
 
+    /// Latest completed capture, including after VGA is destroyed. Consumers
+    /// may retain it and render it again independently of the source lifetime.
     pub fn current_capture(&self) -> Option<Arc<CapturedFrame>> {
         self.captures.frame.load_full()
     }
 
     /// Waits for a newer captured input, not for pixels or app presentation.
-    /// A rendering consumer must wait for redraw demand separately.
+    /// Returns `None` when VGA is destroyed and no newer capture is available.
+    /// Captures already returned remain usable. This does not schedule rendering.
     pub async fn next_capture(&self, after: Option<u64>) -> Option<Arc<CapturedFrame>> {
         loop {
             let changed = self.captures.changed.listen();

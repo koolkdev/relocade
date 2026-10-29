@@ -83,6 +83,11 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     tick(&clock, video.as_mut(), boundary(1));
     let first = source.current_capture().unwrap();
     assert_eq!(first.time, boundary(1));
+    // An alternate renderer can consume captured state without producing CPU pixels.
+    assert_eq!(first.screen.cells[0].character, 0xdb);
+    assert_eq!(first.screen.cells[0].attribute, 0x1e);
+    assert_eq!(first.screen.start_address, 0);
+    assert_eq!(first.screen.cursor.address, 1);
     let first_pixels = first.rasterize();
     assert_eq!((first_pixels.width, first_pixels.height), (640, 200));
     assert_eq!(first_pixels.pixel_aspect_ratio, (5, 12));
@@ -103,6 +108,8 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     tick(&clock, video.as_mut(), boundary(2));
     let second = source.current_capture().unwrap();
     assert_eq!(second.time, boundary(2));
+    assert_eq!(second.screen.start_address, 1);
+    assert_eq!(first.screen.start_address, 0);
     assert_eq!(second.sequence, 2);
     assert_eq!(&second.rasterize().pixels[..4], [255, 255, 255, 255]);
     assert_eq!(&first_pixels.pixels[..4], [255, 255, 85, 255]);
@@ -179,12 +186,17 @@ fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
     let source = vga.borrow().frame_source();
     tick(&clock, video.as_mut(), boundary(1));
     let on = source.current_capture().unwrap();
+    assert!(on.blink_on);
+    assert_eq!(on.screen.cursor.start_scan_line, 6);
+    assert_eq!(on.screen.cursor.end_scan_line, 7);
     let pixels = on.rasterize().pixels.to_vec();
     let cursor = (6 * 640 + 8) * 4;
     assert_eq!(&pixels[..4], [170, 0, 0, 255]);
     assert_eq!(&pixels[cursor..cursor + 4], [170, 170, 170, 255]);
     tick(&clock, video.as_mut(), boundary(16)); // Sixteen vertical retraces toggle the blink phase.
     let off = source.current_capture().unwrap();
+    assert!(!off.blink_on);
+    assert!(on.blink_on);
     let off_pixels = off.rasterize();
     let blink = &off_pixels.pixels;
     assert_eq!(&blink[..4], [0, 0, 170, 255]);
@@ -210,6 +222,8 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     clock.set(boundary(6));
     vga.read_port(0x3da, 1);
     let blank = source.current_capture().unwrap();
+    assert!(blank.blanked);
+    assert!(!before.blanked);
     assert!(blank
         .rasterize()
         .pixels

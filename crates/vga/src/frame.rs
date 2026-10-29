@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-/// Completed VGA output. Pixels are tightly packed, top-to-bottom RGBA8,
-/// with sRGB color values and opaque alpha. Published frames are immutable.
+/// Owned software-rendered image. Pixels are tightly packed, top-to-bottom RGBA8,
+/// with sRGB color values and opaque alpha. Retaining an image requires no VGA owner.
 #[derive(Debug)]
 pub struct VideoFrame {
     pub width: u32,

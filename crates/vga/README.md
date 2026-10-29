@@ -27,27 +27,39 @@ while the app is not drawing. Destroying VGA closes this capture source and
 wakes waiters without creating an extra frame.
 
 `CapturedFrame::rasterize()` is a separate synchronous operation using only the
-owned snapshot. Call it on the graphics worker, on redraw demand. It cannot lock
+owned snapshot. The caller chooses when and where to invoke it. It cannot lock
 or borrow VGA, read mutable VRAM, or advance machine time. The resulting
-`VideoFrame` contains immutable RGBA8 pixels, dimensions, pixel aspect ratio,
-source time and sequence. The logical 640×200 image has aspect ratio 5:12; the
-presenter displays it at 4:3 without needing duplicate rows for scan doubling.
+`VideoFrame` is an ordinary owned image containing RGBA8 pixels, dimensions,
+pixel aspect ratio, source time and sequence. The logical 640×200 image has
+aspect ratio 5:12; the presenter displays it at 4:3 without needing duplicate
+rows for scan doubling.
 Blink and blanking use captured VGA state, independently of redraw cadence.
 
+The capture also exposes `screen`, `blink_on` and `blanked` for other rendering
+implementations. An implementation can consume that state directly; it does not
+need CPU pixel conversion or readback. The software path remains a usable
+renderer and reference for comparing future implementations.
+
 ```rust,ignore
-// Execution worker:
-let source = vga.borrow().frame_source();
-// Transfer source to the graphics worker. On an app redraw:
+// Called by the embedding at a redraw opportunity, off the execution worker.
 if let Some(capture) = source.current_capture() {
-    let frame = capture.rasterize();
-    renderer.render([frame.width, frame.height], &frame.pixels, &view)?;
+    if cached.as_ref().is_none_or(|image| image.sequence != capture.sequence) {
+        *cached = Some(capture.rasterize());
+    }
 }
+// The embedding can draw or retain the cached image, even after VGA shuts down.
 ```
 
+`Vga::run` services hardware time and captures. Rendering is explicit and has no
+VGA-owned request loop, worker, surface or output subscription. The embedding
+owns redraw scheduling, request coalescing, caching, dimensions and presentation.
+To keep slow conversion independent of guest execution, invoke the software
+rasterizer on a separate worker using the existing machine worker infrastructure.
+Closing the source only ends capture production; it does not invalidate retained
+captures or images, or require a surface to close.
+
 `scanout.rs` owns glyph-to-pixel conversion. The generic `relocade-renderer` owns
-GPU drawing and knows nothing about VGA, BIOS or DOS. The embedding owns surface
-setup, sizing and redraw scheduling. A bounded demand consumer and graphics
-session are added by the following changes.
+GPU drawing and knows nothing about VGA, BIOS or DOS.
 
 Register definitions follow the
 [IBM VGA/XGA Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf),

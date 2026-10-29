@@ -57,7 +57,7 @@ impl<C: Clock> Vga<C> {
         }
     }
 
-    /// Read-only captured inputs for rasterization on the graphics worker.
+    /// Read-only captured inputs for a caller-selected renderer.
     pub fn frame_source(&self) -> FrameSource {
         self.frames.clone()
     }
