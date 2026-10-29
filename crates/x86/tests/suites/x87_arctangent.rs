@@ -6,11 +6,11 @@ mod values;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{expected, Exit},
+    machine::{dispatch, expected, Exit},
     step::TestModule,
     x87::{
         arithmetic::{check_arithmetic, ArithmeticCase},
-        complete_x87, dispatch, stack_image, write_value, INDEFINITE,
+        complete_x87, stack_image, write_value, INDEFINITE,
     },
 };
 use relocade_x86::{Compiler, CpuState, SegmentProfile};

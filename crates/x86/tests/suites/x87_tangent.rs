@@ -6,7 +6,8 @@ mod values;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
-    x87::{complete_x87, dispatch, set_control, stack_image, write_value},
+    machine::dispatch,
+    x87::{complete_x87, set_control, stack_image, write_value},
 };
 use relocade_x86::SegmentProfile;
 

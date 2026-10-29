@@ -19,7 +19,7 @@ fn push_images(frontend: Frontend) {
             image.cpu.segments.ss = cache(Segment::Ss, 0x2000);
             image.cpu.registers.esp = 0xabcd_0000;
             image.map(0x2f, 0x8000, true);
-            let mut cpu = retired(&image, code.len());
+            let mut cpu = retire(image.cpu, code.len());
             cpu.registers.esp = 0xabcd_0000 | (0x10000 - width);
             cases.check(
                 "PUSHF reads IF/IOPL and lazy status without changing their raw backing",
@@ -54,7 +54,7 @@ fn pop_images(frontend: Frontend) {
             image.cpu.segments.ss = cache(Segment::Ss, 0x1000);
             image.map(0x1f, 0x8000, false);
             image.data(0x9000 - width, &image_bits.to_le_bytes()[..width as usize]);
-            let mut cpu = retired(&image, code.len());
+            let mut cpu = retire(image.cpu, code.len());
             cpu.registers.esp = 0xabcd_0000;
             cpu.flags.status_source.kind = 0;
             cpu.flags.bytes = FlagBytes {
@@ -124,7 +124,7 @@ fn histories(frontend: Frontend) {
     image.cpu.registers.esp = 0xabcd_2000;
     image.map(2, 0x8000, true);
     image.data(0x8000, &[0xff, 0xff, 0xff, 0xff, 0, 0x20]);
-    let mut dword = retired(&image, 2);
+    let mut dword = retire(image.cpu, 2);
     dword.registers.esp = 0xabcd_2004;
     dword.flags.bytes = FlagBytes {
         cf: 1,
@@ -201,7 +201,7 @@ fn interrupt_controls(frontend: Frontend) {
             let code = [0x66, 0x67, 0x64, opcode];
             let mut image = image(&code);
             image.cpu.flags = CpuState::filled(fill).flags;
-            let mut cpu = retired(&image, code.len());
+            let mut cpu = retire(image.cpu, code.len());
             cpu.flags.bytes.if_ = result;
             cases.check(
                 "CLI/STI write only IF and preserve opaque status and IOPL",
@@ -230,7 +230,7 @@ fn interrupt_histories(frontend: Frontend) {
     image.cpu.flags.bytes.iopl = 0xfe;
     image.cpu.registers.esp = 0xabcd_2004;
     image.map(2, 0x8000, true);
-    let mut set = retired(&image, 1);
+    let mut set = retire(image.cpu, 1);
     set.flags.bytes.if_ = 1;
     let mut pushed_set = set;
     pushed_set.eip += 1;

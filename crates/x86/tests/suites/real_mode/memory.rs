@@ -15,7 +15,7 @@ fn addressing(frontend: Frontend) {
         // A20 is enabled: the low alias must not be read.
         image.map(0, 0x9000, false);
         image.data(0x9000 + offset, &[0xee; 4]);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         cpu.registers.eax = if code[0] == 0x66 {
             0x1234_5678
         } else {
@@ -36,7 +36,7 @@ fn addressing(frontend: Frontend) {
     let code = [0x2e, 0xa3, 0, 0x20]; // MOV CS:[2000],AX
     let mut image = image(&code);
     image.map(2, 0x8000, true);
-    let cpu = retired(&image, code.len());
+    let cpu = retire(image.cpu, code.len());
     cases.check(
         "CS overrides allow real-mode data writes",
         &code,
@@ -54,7 +54,7 @@ fn addressing(frontend: Frontend) {
     image.cpu.segments.ss = cache(Segment::Ss, 0x400);
     image.map(4, 0x8000, false);
     image.data(0x8020, &[0xcd, 0xab]);
-    let mut cpu = retired(&image, code.len());
+    let mut cpu = retire(image.cpu, code.len());
     cpu.registers.eax = 0x1111_abcd;
     cases.check(
         "address decoding still selects SS for BP",
@@ -124,7 +124,7 @@ fn stack_edges(frontend: Frontend) {
         let mut image = image(&code);
         image.cpu.registers.esp = 0xabcd_8000;
         image.map(7, 0x8000, true);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         cpu.registers.esp = 0xabcd_0000 | u32::from(0x7ffeu16.wrapping_sub(allocation));
         cpu.registers.ebp = 0x6666_7ffe;
         cases.check(
@@ -154,14 +154,14 @@ fn physical_policy(frontend: Frontend) {
         &code,
         &rom,
         &[Step {
-            cpu: retired(&rom, code.len()),
+            cpu: retire(rom.cpu, code.len()),
             ram: &[(0x8fff, &[0x11])],
             exit: Exit::Dispatch(rom.cpu.eip + code.len() as u32),
         }],
     );
     for code in [&[0xa1, 0, 0x20][..], &[0xa3, 0, 0x20][..]] {
         let image = image(code);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         if code[0] == 0xa1 {
             cpu.registers.eax = 0x1111_ffff;
         }
@@ -184,7 +184,7 @@ fn physical_policy(frontend: Frontend) {
     image.cpu.registers.esi = 0xabcd_8ffe;
     image.map(0x18, 0x8000, false);
     image.data(0x8ffe, &[0x78, 0x56]);
-    let mut cpu = retired(&image, code.len());
+    let mut cpu = retire(image.cpu, code.len());
     cpu.registers.eax = 0x1111_ffff;
     cpu.registers.ecx = 0x1234_0000;
     cpu.registers.esi = 0xabcd_9002;
@@ -241,7 +241,7 @@ fn repeated_copy_remapping(frontend: Frontend) {
     let module = block
         .as_ref()
         .unwrap_or_else(|| TestModule::interpreter_with_profile(ExecutionProfile::Real16));
-    let mut cpu = retired(&image, code.len());
+    let mut cpu = retire(image.cpu, code.len());
     cpu.registers.ecx = 0x1234_0000;
     cpu.registers.esi = 0xabcd_2003;
     cpu.registers.edi = 0xdcba_3003;

@@ -2,15 +2,12 @@
 
 use super::*;
 use crate::support::{
-    blocks::BlockModules, encoding::check_length, machine::expected, step::TestModule,
+    blocks::BlockModules,
+    encoding::check_length,
+    machine::{expected, retire},
+    step::TestModule,
 };
 use relocade_x86::SegmentRegister;
-
-fn retired(mut cpu: relocade_x86::CpuState, length: usize) -> relocade_x86::CpuState {
-    cpu.eip += length as u32;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
-}
 
 fn prefetch(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented32);
@@ -20,7 +17,7 @@ fn prefetch(frontend: Frontend) {
         image.cpu.registers.eax = u32::MAX;
         image.cpu.segments.fs.usable = 0;
         image.cpu.segments.fs.limit = 0;
-        let cpu = retired(image.cpu, code.len());
+        let cpu = retire(image.cpu, code.len());
         checks.check(
             "prefetch ignores unusable segments, out-of-range offsets and absent pages",
             &code,
@@ -44,7 +41,7 @@ fn flush(frontend: Frontend) {
             image.map(4, 0x8000, false);
         }
         let cpu = if present {
-            retired(image.cpu, code.len())
+            retire(image.cpu, code.len())
         } else {
             image.cpu
         };
@@ -72,7 +69,7 @@ fn flush(frontend: Frontend) {
     image.cpu.registers.eax = 0x4000;
     image.cpu.registers.ecx = 0x5000;
     image.map(4, 0x8000, true);
-    let cpu = retired(image.cpu, 3);
+    let cpu = retire(image.cpu, 3);
     checks.check(
         "a CLFLUSH page fault preserves an earlier completed store",
         &code,
@@ -132,7 +129,7 @@ fn segment_permissions(frontend: Frontend) {
         image.cpu.registers.eax = 0xfff;
         image.map(4, 0x8000, false);
         let cpu = if allowed {
-            retired(image.cpu, code.len())
+            retire(image.cpu, code.len())
         } else {
             image.cpu
         };
@@ -187,7 +184,7 @@ fn physical_addresses(frontend: Frontend) {
             let cpu = if denied {
                 image.cpu
             } else {
-                retired(image.cpu, code.len())
+                retire(image.cpu, code.len())
             };
             let wanted = expected(
                 &image,

@@ -6,9 +6,9 @@ mod values;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{expected, Exit, Step},
+    machine::{dispatch, expected, Exit, Step},
     step::TestModule,
-    x87::{complete_x87, dispatch, real80, set_control, stack_image, write_value, INDEFINITE},
+    x87::{complete_x87, real80, set_control, stack_image, write_value, INDEFINITE},
 };
 use relocade_x86::{Compiler, CpuState, SegmentProfile};
 

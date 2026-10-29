@@ -14,7 +14,7 @@ fn jumps(frontend: Frontend) {
         let mut image = image(code);
         image.map(2, 0x8000, false);
         image.data(0x8000, &[0x78, 0x56, 4, 0]);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         cpu.eip = offset;
         cpu.segments.cs = cache(Segment::Cs, selector);
         cases.check(
@@ -65,7 +65,7 @@ fn calls(frontend: Frontend) {
         image.map((0x10000 + frame) >> 12, 0x8000, true);
         image.map(2, 0x9000, false);
         image.data(0x9000, &[0x34, 0x12, 0, 0]);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         cpu.eip = 0x1234;
         cpu.segments.cs = cache(Segment::Cs, 0);
         cpu.registers.esp = 0xabcd_0000 | frame;
@@ -133,7 +133,7 @@ fn returns(frontend: Frontend) {
         image.cpu.registers.esp = 0xabcd_0000 | sp;
         image.map(sp >> 12, 0x8000, false);
         image.data(0x8000 + (sp & 0xfff), frame);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         cpu.eip = target;
         cpu.registers.esp = 0xabcd_0000 | next_sp;
         cpu.segments.cs = cache(Segment::Cs, selector);

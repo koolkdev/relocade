@@ -2,8 +2,8 @@
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Step},
-    x87::{complete_x87, dispatch, set_control, stack_image},
+    machine::{dispatch, Exit, Step},
+    x87::{complete_x87, set_control, stack_image},
 };
 use relocade_x86::SegmentProfile;
 

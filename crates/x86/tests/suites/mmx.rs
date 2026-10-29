@@ -39,8 +39,8 @@ mod xmm_transfers;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
-    x87::{dispatch, stack_image, write_register_bits},
+    machine::{dispatch, retire, Exit, Image, Step},
+    x87::{stack_image, write_register_bits},
 };
 use relocade_x86::{CpuState, SegmentProfile};
 
@@ -48,9 +48,8 @@ fn image(code: &[u8]) -> Image {
     stack_image(code, 5, 0xffff)
 }
 
-fn complete(mut cpu: CpuState, bytes: u32) -> CpuState {
-    cpu.eip += bytes;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
+fn complete(cpu: CpuState, bytes: u32) -> CpuState {
+    let mut cpu = retire(cpu, bytes as usize);
     cpu.x87.tag_word = 0;
     cpu.x87.status.top = 0;
     cpu
