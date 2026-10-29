@@ -53,6 +53,7 @@ jobs:
           cargo test -p relocade-app --features graphics --test redraw --locked
           xvfb-run -a cargo test -p relocade-app --test window --locked -- --ignored
           xvfb-run -a cargo test -p relocade-app --features graphics --test surface --locked -- --ignored
+          xvfb-run -a cargo test -p relocade-dos-app --test window --locked -- --ignored
 
   web:
     name: Browser tests
@@ -96,3 +97,4 @@ jobs:
         run: |
           npm --prefix tests/browser ci
           npm --prefix tests/browser test
+          node tests/browser/app-test.mjs

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Relocade DOS</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; background: black; color: white; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+<script type="module">
+  import init, { open } from "./pkg/relocade_dos_app.js";
+  try {
+    const program = new URL(location.href).searchParams.get("program");
+    if (!program) throw new Error("Supply a program URL with ?program=/PROGRAM.COM");
+    const response = await fetch(program);
+    if (!response.ok) throw new Error(`Loading program: ${response.status}`);
+    await init();
+    window.dos = open(new Uint8Array(await response.arrayBuffer()));
+  } catch (error) {
+    document.body.textContent = String(error);
+    throw error;
+  }
+</script>
+</html>

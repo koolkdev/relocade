@@ -2,9 +2,12 @@ import { createServer } from "vite";
 import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
 
-export async function run(url = "/", bindings) {
+export async function run(url = "/", bindings, {
+    inspect,
+    configFile = fileURLToPath(new URL("./vite.config.mjs", import.meta.url)),
+} = {}) {
     const server = await createServer({
-        configFile: fileURLToPath(new URL("./vite.config.mjs", import.meta.url)),
+        configFile,
         resolve: bindings ? { alias: { "relocade:wasm-bindings": bindings } } : undefined,
         server: { host: "127.0.0.1", port: 0 },
     });
@@ -23,7 +26,13 @@ export async function run(url = "/", bindings) {
         page = await browser.newPage();
         page.on("console", message => console.log(message.text()));
         page.on("pageerror", error => console.error(error));
-        await page.goto(new URL(url, server.resolvedUrls.local[0]).href);
+        const address = new URL(url, server.resolvedUrls.local[0]).href;
+        if (inspect) {
+            // Interactive application fixtures install input/network setup before navigation.
+            await inspect(page, address);
+            return;
+        }
+        await page.goto(address);
         await page.waitForFunction(() => window.checks !== undefined);
         await Promise.race([
             page.evaluate(() => window.checks),

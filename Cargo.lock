@@ -2081,6 +2081,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-dos-app"
+version = "0.0.0"
+dependencies = [
+ "console_error_panic_hook",
+ "futures-channel",
+ "futures-util",
+ "relocade-app",
+ "relocade-dos",
+ "relocade-machine",
+ "relocade-renderer",
+ "relocade-vga",
+ "wasm-bindgen",
+ "wgpu",
+ "x11rb",
+]
+
+[[package]]
 name = "relocade-interpreter"
 version = "0.0.0"
 dependencies = [
