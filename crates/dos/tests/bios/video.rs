@@ -118,6 +118,62 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
 }
 
 #[test]
+fn mode_reset_restores_memory_access_and_palette_before_clearing_text() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        {
+            let mut context = dos.cpu().context();
+            context.memory.write_u16(0xb8000, 0x1e41).unwrap();
+            context.memory.write_u16(0xbfffe, 0x4f5a).unwrap();
+            context.io.write_port(0x3c4, 2, 0x0002); // Disable every write plane.
+            context.io.write_port(0x3c4, 2, 0x0e04); // Chain-4 addressing.
+            context.io.write_port(0x3c4, 2, 0x3f03); // Select other font banks.
+            for (index, value) in [(0, 15), (1, 15), (3, 31), (4, 3), (5, 0x4b), (6, 5), (8, 0)] {
+                context.io.write_port(0x3ce, 2, index | (value << 8));
+            }
+            context.io.read_port(0x3da, 1);
+            context.io.write_port(0x3c0, 1, 6);
+            context.io.write_port(0x3c0, 1, 0);
+            context.io.write_port(0x3c0, 1, 0x14); // Leave the next write in data phase.
+            context.io.write_port(0x3c6, 1, 0);
+            context.io.write_port(0x3c8, 1, 0x14);
+            context.io.write_port(0x3c9, 1, 0); // Leave an unfinished DAC write.
+        }
+        assert_eq!(
+            video(&mut dos, 0x0003, 0, 0, 0).registers.eax as u16,
+            0x0030
+        );
+        {
+            let mut context = dos.cpu().context();
+            assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x0720);
+            assert_eq!(context.memory.read_u16(0xbfffe).unwrap(), 0x0720);
+            assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 0xff);
+            context.memory.write_u16(0xb8000, 0x2e58).unwrap();
+            assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x2e58);
+            context.io.write_port(0x3c4, 1, 3);
+            assert_eq!(context.io.read_port(0x3c5, 1) & 0x3f, 0);
+            assert_eq!(context.io.read_port(0x3c0, 1) & 0x20, 0x20);
+            context.io.read_port(0x3da, 1);
+            context.io.write_port(0x3c0, 1, 6);
+            assert_eq!(context.io.read_port(0x3c1, 1) & 0x3f, 0x14);
+            assert_eq!(context.io.read_port(0x3c6, 1), 0xff);
+            context.io.write_port(0x3c7, 1, 0x14);
+            for expected in [42, 21, 0] {
+                assert_eq!(context.io.read_port(0x3c9, 1) & 0x3f, expected);
+            }
+        }
+        assert_eq!(
+            dos.screen().cells[0],
+            TextCell {
+                character: b'X',
+                attribute: 0x2e
+            }
+        );
+    });
+}
+
+#[test]
 fn repeated_writes_cross_page_padding_and_wrap_the_video_offset() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

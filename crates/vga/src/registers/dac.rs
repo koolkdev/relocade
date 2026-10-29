@@ -1,5 +1,7 @@
 //! Six-bit RGB palette and sequential CPU access, IBM VGA Function pp. 2-104–106.
 
+use super::text_mode;
+
 pub(crate) struct Dac {
     pub mask: u8,
     colors: [[u8; 3]; 256],
@@ -10,18 +12,9 @@ pub(crate) struct Dac {
 
 impl Default for Dac {
     fn default() -> Self {
-        let mut colors = [[0; 3]; 256];
-        // The initial EGA-compatible palette pairs with the text attribute palette.
-        for (index, color) in colors[..64].iter_mut().enumerate() {
-            *color = [
-                (((index >> 2) & 1) * 42 + ((index >> 5) & 1) * 21) as u8,
-                (((index >> 1) & 1) * 42 + ((index >> 4) & 1) * 21) as u8,
-                ((index & 1) * 42 + ((index >> 3) & 1) * 21) as u8,
-            ];
-        }
         Self {
             mask: 0xff,
-            colors,
+            colors: text_mode::DAC_PALETTE,
             address: 0,
             component: 0,
             reading: false,

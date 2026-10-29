@@ -3,7 +3,9 @@
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
     registers::{
-        crtc, sequencer, text_mode, CRTC_INDEX_PORT, MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
+        attribute, crtc, sequencer, text_mode, ATTRIBUTE_ADDRESS_PORT, COLOR_INPUT_STATUS_1_PORT,
+        CRTC_INDEX_PORT, DAC_DATA_PORT, DAC_MASK_PORT, DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT,
+        MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
     },
     TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
@@ -247,23 +249,16 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
     set_cursor_position(memory, io, page, u16::from_le_bytes([column, row]));
 }
 
-pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
-    // Stop the sequencer while restoring the supported 8-dot text mode. Mode
-    // setting must restore timing even after software selects monochrome ports
-    // or reprograms the oscillator, totals, and retrace registers directly.
-    write_indexed(
-        io,
-        SEQUENCER_INDEX_PORT,
-        sequencer::RESET,
-        sequencer::SYNCHRONOUS_RESET,
-    );
+fn program_text_mode(io: &IoBus) {
     io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(text_mode::MISC_OUTPUT));
-    write_indexed(
-        io,
-        SEQUENCER_INDEX_PORT,
-        sequencer::CLOCKING_MODE,
-        text_mode::CLOCKING_MODE,
-    );
+    for &(register, value) in text_mode::SEQUENCER_REGISTERS {
+        if register != sequencer::RESET {
+            write_indexed(io, SEQUENCER_INDEX_PORT, register, value);
+        }
+    }
+    for &(register, value) in text_mode::GRAPHICS_REGISTERS {
+        write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
+    }
     write_indexed(
         io,
         CRTC_INDEX_PORT,
@@ -273,6 +268,39 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     for &(register, value) in text_mode::CRTC_REGISTERS {
         write_indexed(io, CRTC_INDEX_PORT, register, value);
     }
+    io.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    for (index, value) in text_mode::ATTRIBUTE_PALETTE.into_iter().enumerate() {
+        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, index as u32);
+        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
+    }
+    for &(register, value) in text_mode::ATTRIBUTE_REGISTERS {
+        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(register));
+        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
+    }
+    io.write_port(
+        ATTRIBUTE_ADDRESS_PORT,
+        1,
+        u32::from(attribute::PALETTE_ADDRESS_SOURCE),
+    );
+    io.write_port(DAC_MASK_PORT, 1, 0xff);
+    io.write_port(DAC_WRITE_ADDRESS_PORT, 1, 0);
+    for color in text_mode::DAC_PALETTE {
+        for component in color {
+            io.write_port(DAC_DATA_PORT, 1, u32::from(component));
+        }
+    }
+}
+
+pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
+    // Hold the sequencer in reset while restoring the preset and text pages.
+    // CPU addressing and write masks must be restored before clearing memory.
+    write_indexed(
+        io,
+        SEQUENCER_INDEX_PORT,
+        sequencer::RESET,
+        sequencer::SYNCHRONOUS_RESET,
+    );
+    program_text_mode(io);
     memory.write_u8(MODE, 3).expect("video mode");
     memory
         .write_u16(COLUMNS, TextScreen::COLUMNS as u16)

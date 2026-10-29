@@ -8,7 +8,7 @@ use relocade_machine::{
     timer_service, worker::Thread, Cpu, CpuConfig, ExecutionWorker, Hook, HookResult, IoBus,
     MachineConfig, Memory,
 };
-use relocade_vga::{Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
+use relocade_vga::{Vga, MEMORY_RANGE, PORT_RANGES};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -32,12 +32,12 @@ pub async fn vga_workers() -> Result<(), String> {
             0x1000,
             PhysicalMemoryMap::new([
                 (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
-                (TEXT_MEMORY_RANGE, PhysicalMapping::Mmio),
+                (MEMORY_RANGE, PhysicalMapping::Mmio),
             ])
             .unwrap(),
         )
         .unwrap();
-        let io = IoBus::new([runner.connect(vga.clone(), [TEXT_MEMORY_RANGE], PORT_RANGES)]);
+        let io = IoBus::new([runner.connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)]);
         let memory = Memory::new(config).unwrap();
         memory
             .view()

@@ -62,4 +62,83 @@ impl Graphics {
         };
         self.registers[usize::from(self.index)] = value & mask;
     }
+
+    pub fn memory_offset(&self, address: u32) -> Option<u32> {
+        let (start, size) = match (self.register(MISCELLANEOUS) >> 2) & 3 {
+            0 => (0xa0000, 0x20000),
+            1 => (0xa0000, 0x10000),
+            2 => (0xb0000, 0x08000),
+            _ => (0xb8000, 0x08000),
+        };
+        address.checked_sub(start).filter(|offset| *offset < size)
+    }
+
+    pub fn odd_even_reads(&self) -> bool {
+        self.register(MODE) & 0x10 != 0
+    }
+
+    pub fn chain_odd_even(&self) -> bool {
+        self.register(MISCELLANEOUS) & 2 != 0
+    }
+
+    pub fn read_plane(&self) -> usize {
+        usize::from(self.register(READ_MAP_SELECT))
+    }
+
+    pub fn compare_reads(&self) -> bool {
+        self.register(MODE) & 8 != 0
+    }
+
+    pub fn compare(&self, latches: [u8; 4]) -> u8 {
+        let mut matches = 0xff;
+        for (plane, latch) in latches.into_iter().enumerate() {
+            if self.register(COLOR_DONT_CARE) & (1 << plane) != 0 {
+                let color = if self.register(COLOR_COMPARE) & (1 << plane) != 0 {
+                    0xff
+                } else {
+                    0
+                };
+                matches &= !(latch ^ color);
+            }
+        }
+        matches
+    }
+
+    /// The CPU read latches supply both logical-operation input and masked bits.
+    /// A write never reloads them from the destination address.
+    pub fn write_data(&self, value: u8, latches: [u8; 4]) -> [u8; 4] {
+        let mode = self.register(MODE) & 3;
+        if mode == 1 {
+            return latches;
+        }
+        let rotated = value.rotate_right(u32::from(self.register(DATA_ROTATE) & 7));
+        let mask = self.register(BIT_MASK) & if mode == 3 { rotated } else { 0xff };
+        std::array::from_fn(|plane| {
+            let set_reset = if self.register(SET_RESET) & (1 << plane) != 0 {
+                0xff
+            } else {
+                0
+            };
+            let source = match mode {
+                0 if self.register(ENABLE_SET_RESET) & (1 << plane) != 0 => set_reset,
+                0 => rotated,
+                2 => {
+                    if value & (1 << plane) != 0 {
+                        0xff
+                    } else {
+                        0
+                    }
+                }
+                _ => set_reset,
+            };
+            let latch = latches[plane];
+            let combined = match (self.register(DATA_ROTATE) >> 3) & 3 {
+                0 => source,
+                1 => source & latch,
+                2 => source | latch,
+                _ => source ^ latch,
+            };
+            (combined & mask) | (latch & !mask)
+        })
+    }
 }

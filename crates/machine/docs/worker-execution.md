@@ -111,7 +111,9 @@ Budget checks remain at block boundaries; they provide
 
 ## Video and application rendering
 
-Register VGA through `runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES)`.
+Register VGA through `runner.connect(vga, [MEMORY_RANGE], PORT_RANGES)`.
+Map that complete A0000–BFFFF range as MMIO; VGA registers select which aperture
+responds to each CPU access.
 The runner drives its device activity throughout the main session, including CPU
 service waits and gaps between programs. VGA follows fixed text-mode raster
 timing and captures immutable text on this owner. Pixel conversion runs on the
