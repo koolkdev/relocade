@@ -4,6 +4,7 @@ use std::sync::{
     atomic::{AtomicU32, AtomicU8, Ordering},
     Arc,
 };
+pub mod stress;
 
 #[derive(Default)]
 pub struct TestImage {

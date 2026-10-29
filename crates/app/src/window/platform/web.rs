@@ -1,3 +1,4 @@
+use super::host::Event;
 use relocade_machine::worker::{AsJs, Post};
 use std::sync::Arc;
 use wasm_bindgen::{JsCast, JsValue};
@@ -16,13 +17,34 @@ impl SurfaceSetup {
             .map_err(|e| format!("Canvas transfer: {e:?}"))
     }
 
-    pub fn into_surface(self) -> Result<(wgpu::Instance, wgpu::Surface<'static>, ()), String> {
-        let instance = wgpu::Instance::default();
-        let surface = instance
-            .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(self.0))
-            .map_err(|e| e.to_string())?;
-        Ok((instance, surface, ()))
+    pub fn into_surface(self) -> Result<(SurfaceTarget, wgpu::Surface<'static>), String> {
+        let target = SurfaceTarget {
+            instance: wgpu::Instance::default(),
+            canvas: self.0,
+        };
+        let surface = target.create()?;
+        Ok((target, surface))
     }
+}
+
+pub(crate) struct SurfaceTarget {
+    pub instance: wgpu::Instance,
+    canvas: web_sys::OffscreenCanvas,
+}
+impl SurfaceTarget {
+    fn create(&self) -> Result<wgpu::Surface<'static>, String> {
+        self.instance
+            .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(self.canvas.clone()))
+            .map_err(|e| e.to_string())
+    }
+    pub async fn recreate(
+        &self,
+        _events: &winit::event_loop::EventLoopProxy<Event>,
+    ) -> Result<wgpu::Surface<'static>, String> {
+        // Reuse the canvas already owned by this realm; never transfer it again.
+        self.create()
+    }
+    pub fn before_present(&self) {}
 }
 
 impl AsJs for SurfaceSetup {

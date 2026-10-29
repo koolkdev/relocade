@@ -74,4 +74,97 @@ await withBrowser({ configFile: fileURLToPath(new URL("./vite.config.mjs", impor
     assert.equal(await canvas.count(), 0);
     assert.deepEqual(errors, []);
     console.log("Displayed DOS input and retained output after program exit passed.");
+
+    await page.goto(`${address}?dos`);
+    await page.waitForFunction(() => window.start_stress !== undefined);
+    await page.evaluate(() => {
+        window.control = window.start_stress();
+        window.result = window.control.finished.then(() => ({ ok: true }), error => ({ error: String(error) }));
+    });
+    await canvas.waitFor({ state: "visible" });
+    await page.waitForFunction(() => window.stress_state().sequence > 2);
+    await canvas.click();
+    // Hidden output stops drawing while the guest and VGA continue advancing.
+    await canvas.evaluate(canvas => { canvas.style.display = 'none'; });
+    await page.waitForTimeout(250);
+    const hidden = await page.evaluate(() => window.stress_state());
+    await page.waitForFunction(before => {
+        const now = window.stress_state();
+        return now.sequence > before.sequence + 4 && now.counter !== before.counter;
+    }, hidden);
+    assert.equal((await page.evaluate(() => window.stress_state())).draws, hidden.draws);
+    await canvas.evaluate(canvas => { canvas.style.display = 'block'; });
+    await page.waitForFunction(draws => window.stress_state().draws > draws, hidden.draws);
+    await canvas.click();
+    await page.evaluate(() => window.hold_graphics(true));
+    await page.waitForFunction(() => window.stress_state().held === 1);
+    try {
+        const before = await page.evaluate(() => window.stress_state());
+        await page.waitForFunction(before => {
+            const now = window.stress_state();
+            return now.sequence > before.sequence + 3 && now.counter !== before.counter;
+        }, before);
+        assert.equal((await page.evaluate(() => window.stress_state())).draws, before.draws, "drawing escaped its gate");
+        // Give winit each resize while the graphics owner remains occupied.
+        for (let i = 0; i < 20; i++) {
+            await canvas.evaluate((canvas, width) => {
+                canvas.style.width = `${width}px`;
+                canvas.style.height = '600px';
+                return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            }, 700 + i * 5);
+        }
+        await canvas.evaluate(canvas => {
+            canvas.style.width = '800px';
+            return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
+        await page.keyboard.press('y');
+        await page.waitForFunction(() => window.stress_state().color === 0x22);
+    } finally {
+        await page.evaluate(() => window.hold_graphics(false));
+    }
+    await page.waitForFunction(() => window.stress_state().nextWidth !== 0);
+    const resized = await page.evaluate(() => window.stress_state());
+    assert.deepEqual([resized.nextWidth, resized.nextHeight], [800, 600], "next demand replayed stale dimensions");
+    await waitForCell([0, 170, 0]);
+
+    // A real device-loss callback must close both workers, including idle DOS.
+    await page.evaluate(() => window.destroy_device());
+    const lost = await page.evaluate(() => window.result);
+    assert.match(lost.error, /GPU|Surface/);
+    assert.equal((await page.evaluate(() => window.stress_state())).dropped, 3);
+    assert.equal(await canvas.count(), 0);
+    assert.deepEqual(errors, []);
+    console.log("Slow graphics, bounded resize, hidden timing and device-loss cleanup passed.");
+
+    // CDP changes DPR but Chromium's physical-box observer ignores that emulation.
+    // Exercise winit's supported CSS-size/DPR fallback (used by Safari) explicitly.
+    await page.addInitScript(() => { delete ResizeObserverEntry.prototype.devicePixelContentBoxSize; });
+    await page.goto(address);
+    await page.waitForFunction(() => window.image_draws?.() > 2);
+    const logicalSize = await canvas.evaluate(canvas => [canvas.clientWidth, canvas.clientHeight]);
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 2, mobile: false });
+    await page.waitForFunction(([width, height]) => {
+        const canvas = document.querySelector('canvas');
+        return canvas.width === width * 2 && canvas.height === height * 2;
+    }, logicalSize);
+    await cdp.send('Emulation.clearDeviceMetricsOverride');
+    await cdp.detach();
+    await page.evaluate(() => window.control.stop());
+    await page.evaluate(() => window.finished);
+    assert.equal(await canvas.count(), 0);
+    assert.deepEqual(errors, []);
+    console.log("Browser scale-factor fallback and shutdown passed.");
+
+    await page.goto(`${address}?cancel`);
+    await page.waitForFunction(() => window.finished !== undefined);
+    await page.evaluate(() => window.finished);
+    assert.equal(await canvas.count(), 0);
+    const cancelled = Date.now() + 10_000;
+    while (page.workers().length > 0) {
+        assert(Date.now() < cancelled, "startup cancellation left workers running");
+        await page.waitForTimeout(20);
+    }
+    assert.deepEqual(errors, []);
+    console.log("Cancellation during startup passed.");
 });

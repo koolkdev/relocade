@@ -18,6 +18,13 @@ pub(crate) enum Event {
     GraphicsReady,
     Presented,
     Stop,
+    Failed(String),
+    #[cfg(not(target_arch = "wasm32"))]
+    RecreateSurface {
+        instance: wgpu::Instance,
+        window: Arc<Window>,
+        reply: futures_channel::oneshot::Sender<Result<wgpu::Surface<'static>, String>>,
+    },
 }
 
 pub(crate) struct Host<A: WindowApplication> {
@@ -125,6 +132,24 @@ impl<A: WindowApplication> ApplicationHandler<Event> for Host<A> {
                 self.request_redraw();
             }
             Event::Stop => self.session.stop(),
+            Event::Failed(error) => {
+                if !self.session.closing() {
+                    self.session.fail(error);
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            Event::RecreateSurface {
+                instance,
+                window,
+                reply,
+            } => {
+                let result = if self.session.closing() {
+                    Err("Window closed during surface recovery".into())
+                } else {
+                    platform::create_surface(&instance, window)
+                };
+                let _ = reply.send(result);
+            }
         }
         self.poll(event_loop);
     }
