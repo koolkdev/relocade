@@ -167,31 +167,40 @@ async fn check_pixels() {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
-    use relocade_vga::{TextCell, TextCursor, TextRenderer, TextScreen};
-    let mut screen = TextScreen {
-        cells: [TextCell {
-            character: b' ',
-            attribute: 7,
-        }; 80 * 25],
-        cursor: TextCursor {
-            address: 1999,
-            start_scan_line: 6,
-            end_scan_line: 7,
-        },
-        start_address: 0,
-    };
-    screen.cells[0] = TextCell {
-        character: 0xdb,
-        attribute: 0x1e,
-    };
-    let mut text = TextRenderer::new();
-    let rgba = text.render(&screen, std::time::Duration::ZERO);
-    let size = [TextRenderer::WIDTH, TextRenderer::HEIGHT];
+    use relocade_machine::{Clock, Device};
+    use relocade_vga::{Vga, TEXT_MEMORY_START};
+    use std::{cell::Cell, rc::Rc, time::Duration};
+    struct TestClock(Cell<Duration>);
+    impl Clock for TestClock {
+        fn now(&self) -> Duration {
+            self.0.get()
+        }
+        async fn wait_until(&self, _: Duration) {
+            std::future::pending().await
+        }
+    }
+    let clock = Rc::new(TestClock(Cell::new(Duration::ZERO)));
+    let mut vga = Vga::with_clock(clock.clone());
+    for cell in 0..2000 {
+        vga.write_mmio(TEXT_MEMORY_START + cell * 2, 2, 0x0720);
+    }
+    vga.write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
+    for value in [0x070e, 0xcf0f, 0x060a, 0x070b] {
+        vga.write_port(0x3d4, 2, value);
+    }
+    clock.0.set(Duration::from_millis(20));
+    vga.read_port(0x3da, 1);
+    let frame = vga.display().current_frame().unwrap();
+    let size = [frame.width, frame.height];
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let output = target(device, size, format);
     let mut renderer = Renderer::new(device.clone(), queue.clone(), format).unwrap();
     renderer
-        .render(size, rgba, &output.create_view(&Default::default()))
+        .render(
+            size,
+            &frame.pixels,
+            &output.create_view(&Default::default()),
+        )
         .unwrap();
     let pixels = read_pixels(device, queue, &output).await;
     assert_color(pixels[0], [255, 255, 85, 255]);

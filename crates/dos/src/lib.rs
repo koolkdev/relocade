@@ -292,13 +292,13 @@ impl Dos {
     }
 
     /// Retains the execution-local device, including while the CPU awaits input.
-    /// Copy an owned screen on this worker before passing it to a renderer.
+    /// Give the renderer a [`relocade_vga::Display`] from [`Vga::display`].
     /// End device borrows before polling execution or dropping the session.
     pub fn vga(&self) -> Rc<RefCell<Vga>> {
         Rc::clone(&self.vga)
     }
 
-    /// Copies the VGA text display and its hardware cursor for a renderer.
+    /// Copies live VGA text state for inspection on the execution worker.
     /// DOS CON output, BIOS video services and direct guest writes all update
     /// video memory. The screen remains readable while a host service is pending.
     /// File redirection does not write to the screen.

@@ -103,3 +103,14 @@ Wasm compilation, can return to the underlying executor. This model does not
 promise periodic processing of arbitrary JavaScript callbacks on a busy worker.
 Budget checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).
+
+## Video and application rendering
+
+Register VGA through `runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES)`.
+The runner drives its device activity throughout the main session, including CPU
+service waits and gaps between programs. VGA follows fixed text-mode raster
+timing and rasterizes on this owner; its `Display` publishes immutable RGBA
+frames to other workers.
+Application rendering has its own schedule and reads `display.current_frame()` or awaits
+`display.next_frame(...)`. It cannot advance VGA time. See the
+[VGA contract](../../vga/README.md) and [renderer API](../../renderer/README.md).
