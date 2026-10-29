@@ -1,4 +1,5 @@
 use super::{execution, graphics, platform, tasks::Tasks};
+use futures_channel::mpsc;
 use relocade_app::{
     graphics::{redraw_channel, Redraw},
     winit::{
@@ -29,6 +30,7 @@ pub(super) struct Application {
     window: Option<Window>,
     program: Option<Vec<u8>>,
     execution: Option<ExecutionWorker<()>>,
+    input: Option<mpsc::UnboundedSender<WindowEvent>>,
     tasks: Tasks,
     redraw: Option<Redraw>,
     redraw_scheduled: bool,
@@ -50,6 +52,7 @@ impl Application {
             window: None,
             program: Some(program),
             execution: None,
+            input: None,
             redraw: None,
             redraw_scheduled: false,
             suspended: false,
@@ -68,9 +71,11 @@ impl Application {
             Event::Finished(Ok(()))
         });
         let program = self.program.take().expect("launch once");
+        let (input, incoming) = mpsc::unbounded();
+        self.input = Some(input);
         let events = self.events.clone();
         self.execution = Some(ExecutionWorker::spawn(clock, async move |runner| {
-            if let Err(error) = execution::run(runner, program, events.clone()).await {
+            if let Err(error) = execution::run(runner, program, incoming, events.clone()).await {
                 let _ = events.send_event(Event::Finished(Err(error)));
             }
         }));
@@ -128,6 +133,7 @@ impl Application {
 
     fn close(&mut self) {
         self.closing = true;
+        self.input = None;
         self.redraw = None; // Finish one outstanding draw, then close the receiver.
         if let Some(execution) = self.execution.take() {
             self.tasks.push(async move {
@@ -224,6 +230,14 @@ impl ApplicationHandler<Event> for Application {
         match event {
             WindowEvent::CloseRequested | WindowEvent::Destroyed => {
                 self.handle(event_loop, Event::Close)
+            }
+            WindowEvent::KeyboardInput { .. }
+            | WindowEvent::ModifiersChanged(_)
+            | WindowEvent::Focused(_) => {
+                if let Some(input) = &self.input {
+                    // Only input events cross to execution; the app keeps window lifecycle.
+                    let _ = input.unbounded_send(event);
+                }
             }
             WindowEvent::RedrawRequested if !self.closing => {
                 self.redraw_scheduled = false;

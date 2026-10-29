@@ -12,6 +12,12 @@ both owners have finished. An execution or graphics error follows the same shutd
 path. The current surface layer reports surface/device failures; automatic surface
 recreation is not implemented here.
 
+Keyboard events travel through an ordinary Rust mpsc channel to an async input
+activity on execution. Translation feeds the existing BIOS keyboard interface:
+ASCII text, control/Alt combinations, arrows/navigation, function keys and shift
+state. Unicode text and IME composition are not converted to DOS code pages yet.
+Focus loss clears held modifiers; synthetic focus events do not type characters.
+
 The main thread implements winit's existing `ApplicationHandler`. It owns the
 window, lifecycle and redraw opportunities, and polls host timers and worker
 completion through a coalesced winit wake. `ExecutionWorker` runs one DOS CPU and
@@ -59,9 +65,11 @@ worker shim alias in `web/vite.config.mjs` and the same isolation headers.
 ## Validation
 
 `cargo test -p relocade-dos-app --test window -- --ignored` uses X11 to exercise the
-production executable, inspect presented guest pixels after program exit, resize,
-and close. Run it under Xvfb when no display is available.
+production executable, type a key into a waiting DOS program, inspect presented
+guest pixels after exit, resize, and close. Run it under Xvfb when no display is available.
 
 `node tests/browser/app-test.mjs` builds the browser application and drives the
-production page in Chromium, checking displayed canvas pixels, sustained redraws,
-resizing and worker shutdown. It uses the dependencies in `tests/browser`.
+production page in Chromium. It stalls GPU submission while sending keyboard
+input, checks displayed pixels and pending resizes, hides and resumes output,
+and checks normal shutdown and GPU failure while DOS awaits input. It uses the
+dependencies in `tests/browser`.

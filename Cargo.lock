@@ -2089,6 +2089,7 @@ dependencies = [
  "futures-lite",
  "futures-util",
  "relocade-app",
+ "relocade-bios",
  "relocade-dos",
  "relocade-machine",
  "relocade-renderer",

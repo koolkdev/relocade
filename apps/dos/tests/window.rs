@@ -6,7 +6,10 @@ use std::{
 };
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{self, ConnectionExt, ImageFormat, ImageOrder},
+    protocol::{
+        xproto::{self, ConnectionExt, ImageFormat, ImageOrder, InputFocus},
+        xtest::ConnectionExt as _,
+    },
 };
 
 struct App(Child, std::path::PathBuf);
@@ -34,14 +37,14 @@ fn until<T>(state: &str, mut check: impl FnMut() -> Option<T>) -> T {
 
 #[test]
 #[ignore = "requires X11 and a graphics adapter; run under Xvfb"]
-fn program_exit_retains_display_through_resize_and_window_close() {
+fn keyboard_input_resumes_guest_and_retains_display_after_exit() {
     let program = std::env::temp_dir().join(format!("relocade-window-{}.com", std::process::id()));
-    // Write a white A on red through guest VRAM, then exit with code 7.
+    // Await a DOS key, write a white A on red, then return the received character.
     std::fs::write(
         &program,
         [
-            0xb8, 0x00, 0xb8, 0x8e, 0xc0, 0x26, 0xc7, 0x06, 0x00, 0x00, 0x41, 0x4f, 0xb8, 0x07,
-            0x4c, 0xcd, 0x21,
+            0xb4, 0x08, 0xcd, 0x21, 0x88, 0xc3, 0xb8, 0x00, 0xb8, 0x8e, 0xc0, 0x26, 0xc7, 0x06,
+            0x00, 0x00, 0x41, 0x4f, 0x88, 0xd8, 0xb4, 0x4c, 0xcd, 0x21,
         ],
     )
     .unwrap();
@@ -66,7 +69,7 @@ fn program_exit_retains_display_through_resize_and_window_close() {
         .reply()
         .unwrap()
         .atom;
-    let window = until("program exit", || {
+    let window = until("window creation", || {
         assert!(
             app.0.try_wait().unwrap().is_none(),
             "application exited before close"
@@ -83,8 +86,46 @@ fn program_exit_retains_display_through_resize_and_window_close() {
                     .get_property(false, id, title, utf8, 0, 100)
                     .unwrap()
                     .reply()
-                    .is_ok_and(|reply| String::from_utf8_lossy(&reply.value).contains("exited 7"))
+                    .is_ok_and(|reply| {
+                        String::from_utf8_lossy(&reply.value).contains("Relocade DOS")
+                    })
             })
+    });
+    connection
+        .set_input_focus(InputFocus::PARENT, window, x11rb::CURRENT_TIME)
+        .unwrap();
+    let setup = connection.setup();
+    let keys = connection
+        .get_keyboard_mapping(setup.min_keycode, setup.max_keycode - setup.min_keycode + 1)
+        .unwrap()
+        .reply()
+        .unwrap();
+    let keycode = |symbol| {
+        setup.min_keycode
+            + keys
+                .keysyms
+                .chunks(usize::from(keys.keysyms_per_keycode))
+                .position(|symbols| symbols[0] == symbol)
+                .unwrap() as u8
+    };
+    for (event, key) in [
+        (xproto::KEY_PRESS_EVENT, keycode(0xffe1)), // left Shift
+        (xproto::KEY_PRESS_EVENT, keycode(u32::from(b'a'))),
+        (xproto::KEY_RELEASE_EVENT, keycode(u32::from(b'a'))),
+        (xproto::KEY_RELEASE_EVENT, keycode(0xffe1)),
+    ] {
+        connection
+            .xtest_fake_input(event, key, x11rb::CURRENT_TIME, root, 0, 0, 0)
+            .unwrap();
+    }
+    connection.flush().unwrap();
+    until("DOS receiving uppercase A", || {
+        connection
+            .get_property(false, window, title, utf8, 0, 100)
+            .unwrap()
+            .reply()
+            .is_ok_and(|reply| String::from_utf8_lossy(&reply.value).contains("exited 65"))
+            .then_some(())
     });
     let pixel = || {
         let image = connection

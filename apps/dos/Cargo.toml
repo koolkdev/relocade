@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 relocade-app = { path = "../../crates/app", features = ["graphics"] }
 relocade-dos = { path = "../../crates/dos" }
+relocade-bios = { path = "../../crates/bios" }
 relocade-machine = { path = "../../crates/machine", features = ["worker"] }
 relocade-renderer = { path = "../../crates/renderer" }
 relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
