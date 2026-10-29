@@ -4,6 +4,7 @@ mod host;
 #[cfg_attr(not(target_arch = "wasm32"), path = "platform/native.rs")]
 #[cfg_attr(target_arch = "wasm32", path = "platform/web.rs")]
 mod platform;
+mod redraw;
 mod session;
 #[cfg(target_arch = "wasm32")]
 pub mod web;

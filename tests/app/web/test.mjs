@@ -25,6 +25,8 @@ await withBrowser({ configFile: fileURLToPath(new URL("./vite.config.mjs", impor
         assert(Date.now() < deadline, "test image never reached the displayed canvas");
         await page.waitForTimeout(50);
     }
+    // Sustained host redraws must leave the graphics worker's JS task queue alive.
+    await page.waitForFunction(() => window.image_draws() >= 120 && window.image_worker_tasks() >= 10);
     await page.evaluate(() => window.control.stop());
     assert.equal(await page.evaluate(() => window.finished), 7);
     assert.equal(await page.evaluate(() => window.image_dropped()), 3);

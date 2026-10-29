@@ -1,14 +1,12 @@
-use super::{host::Event, platform::SurfaceSetup, WindowApplication};
+use super::{host::Event, platform::SurfaceSetup, redraw::Requests, WindowApplication};
 use arc_swap::ArcSwapOption;
-use futures_channel::mpsc;
-use futures_util::StreamExt;
 use std::sync::Arc;
 use winit::event_loop::EventLoopProxy;
 
 pub(crate) async fn run<A: WindowApplication>(
     setup: SurfaceSetup,
     source: Arc<ArcSwapOption<A::Source>>,
-    mut requests: mpsc::UnboundedReceiver<[u32; 2]>,
+    requests: Requests,
     events: EventLoopProxy<Event>,
 ) -> Result<(), String> {
     let (instance, surface, _window) = setup.into_surface()?;
@@ -78,6 +76,10 @@ pub(crate) async fn run<A: WindowApplication>(
                 }
             }
         }
+        #[cfg(target_arch = "wasm32")]
+        // A ready Rust channel can keep a poll running indefinitely. Give canvas
+        // presentation and browser GPU callbacks an event-loop task between frames.
+        futures_timer::Delay::new(std::time::Duration::ZERO).await;
         let _ = events.send_event(Event::Presented);
     }
     Ok(())

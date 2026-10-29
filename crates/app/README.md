@@ -46,3 +46,14 @@ its source and result while the window remains open. Close or `Control::stop`
 cancels workers, waits for Rust cleanup and then removes the window/canvas.
 Browser dimensions come from embedding CSS; `WindowOptions::size` sets the initial
 native logical size.
+
+The main thread retains current physical size and visibility independently of
+demand. One pending redraw bit coalesces requests; updates during slow drawing
+replace dimensions instead of queuing old sizes. Hidden and zero-sized outputs
+stop drawing without stopping execution or its timer service. Resume/expose can
+draw the same source. Presentation acknowledgement means submission and handing
+the frame to the surface, not GPU completion.
+
+On the browser graphics worker, each serviced redraw yields through the timer API
+to an event-loop task so canvas presentation and GPU callbacks can progress under
+sustained demand. This is separate from CPU cooperation and VGA refresh timing.
