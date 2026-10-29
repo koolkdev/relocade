@@ -3,6 +3,10 @@
 
 pub use winit;
 
+#[cfg_attr(not(target_arch = "wasm32"), path = "platform/native.rs")]
+#[cfg_attr(target_arch = "wasm32", path = "platform/web.rs")]
+mod platform;
+
 use winit::{
     application::ApplicationHandler,
     error::EventLoopError,
@@ -23,15 +27,5 @@ pub fn run<T: 'static, A: ApplicationHandler<T> + 'static>(
 ) -> Result<(), EventLoopError> {
     let event_loop = EventLoop::<T>::with_user_event().build()?;
     let application = create(event_loop.create_proxy());
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let mut application = application;
-        event_loop.run_app(&mut application)
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        use winit::platform::web::EventLoopExtWebSys;
-        event_loop.spawn_app(application);
-        Ok(())
-    }
+    platform::run(event_loop, application)
 }
