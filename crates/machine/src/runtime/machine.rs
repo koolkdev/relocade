@@ -1,7 +1,7 @@
 //! The resources borrowed by guest execution and its host services.
 
 use super::{hooks::Handler, Backend, CpuContext, Dispatch, HookResult, RuntimeMemory};
-use crate::{CpuView, InterruptSource, IoBus};
+use crate::{CpuView, IoBus};
 use relocade_wasm_runtime::WasmMemoryAccess;
 use relocade_x86::ExecutionExit;
 use std::{
@@ -17,7 +17,6 @@ pub(super) struct Machine<T> {
     pub state: T,
     pub dispatch: Dispatch,
     pub hooks: HashMap<u32, Rc<dyn Handler<T>>>,
-    pub interrupts: Option<Box<dyn InterruptSource>>,
 }
 
 impl<T> Machine<T> {
@@ -67,10 +66,10 @@ impl<T> Machine<T> {
     }
 
     pub fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
-        if self.interrupts.is_none() || !self.context().cpu.interrupts_enabled() {
+        if !self.context().cpu.interrupts_enabled() {
             return Poll::Pending;
         }
-        self.interrupts.as_mut().unwrap().poll_interrupt(cx)
+        self.io.poll_interrupt(cx)
     }
 
     pub async fn call_host(&mut self, address: u32) -> HookResult {

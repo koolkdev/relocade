@@ -13,13 +13,11 @@ pub enum ConfigurationError {
     InvalidMemorySize,
     InsufficientMemory,
     InvalidTableRegister,
-    InterruptsRequireRealMode,
 }
 
 impl fmt::Display for ConfigurationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::InterruptsRequireRealMode => "external interrupt delivery requires real mode",
             Self::InvalidTableRegister => {
                 "CPU table registers do not satisfy the execution profile"
             }

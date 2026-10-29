@@ -1,8 +1,6 @@
 mod support;
 
-use relocade_machine::{
-    Cpu, Device, DispatchEntry, Hook, HookResult, InterruptSource, IoBus, Memory, Runner,
-};
+use relocade_machine::{Cpu, Device, DispatchEntry, Hook, HookResult, IoBus, Memory, Runner};
 use relocade_x86::{
     Compiler, CpuState, Exception, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister, Segments,
@@ -38,9 +36,7 @@ impl Device for InterruptDevice {
     fn write_port(&mut self, _: u16, _: u8, _: u32) {
         self.raise();
     }
-}
 
-impl InterruptSource for InterruptDevice {
     fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
         match self.request.take() {
             Some(vector) => {
@@ -84,9 +80,7 @@ async fn cpu(code: &[u8], device: &Rc<RefCell<InterruptDevice>>, flags: u32) -> 
         .write(u32::from(VECTOR) * 4, &[0, 3, 0, 0])
         .unwrap();
     memory.view().write(HANDLER, &[0x90, 0xcf]).unwrap();
-    let mut cpu = Cpu::new(memory, config.cpu, io, ()).await.unwrap();
-    cpu.set_interrupt_source(device.clone()).unwrap();
-    cpu
+    Cpu::new(memory, config.cpu, io, ()).await.unwrap()
 }
 
 async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) {
@@ -155,6 +149,29 @@ async fn check_device_entry() {
         assert_eq!(cpu.run(2).await, ExecutionExit::BudgetExhausted);
         assert_eq!(cpu.context().cpu.bx(), 1);
     }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn bus_acknowledges_one_connected_device_per_poll() {
+    let runner = Runner::with_clock(support::clock::ManualClock::default());
+    let first = Rc::new(RefCell::new(InterruptDevice::default()));
+    let second = Rc::new(RefCell::new(InterruptDevice::default()));
+    let io = IoBus::new([
+        runner.connect(first.clone(), [], []),
+        runner.connect(second.clone(), [], []),
+    ]);
+    first.borrow_mut().request = Some(0x61);
+    second.borrow_mut().request = Some(0x62);
+    let mut cx = Context::from_waker(Waker::noop());
+    assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(0x61));
+    assert_eq!(first.borrow().acknowledged, 1);
+    assert_eq!(second.borrow().request, Some(0x62));
+    assert_eq!(second.borrow().acknowledged, 0);
+    assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(0x62));
+    assert!(io.poll_interrupt(&mut cx).is_pending());
+    assert!(first.borrow().waker.is_some());
+    assert!(second.borrow().waker.is_some());
 }
 
 async fn check_masks_and_zero_budget() {

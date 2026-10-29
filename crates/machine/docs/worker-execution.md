@@ -111,14 +111,16 @@ Budget checks remain at block boundaries; they provide
 
 ## Device interrupts
 
-An execution-local device or interrupt controller implements `InterruptSource`.
-Connect that source to a real-mode CPU with `cpu.set_interrupt_source(source)`;
-an `Rc<RefCell<D>>` can be shared with its ordinary bus connection. The source
-owns pending requests, priority, masking and acknowledgement. Its
+A device or interrupt controller supplies vectors through `Device::poll_interrupt`.
+Its ordinary `runner.connect(device, mmio, ports)` connection carries memory,
+port and interrupt traffic through the CPU's `IoBus`. Devices with no mapped
+addresses use empty ranges. No additional CPU registration is needed.
 `poll_interrupt(cx)` returns `Ready(vector)` to acknowledge one request, or
-registers the supplied waker and returns `Pending`.
+registers the supplied waker and returns `Pending`. The default never raises IRQs.
+The bus accepts the first ready device in connection order and leaves later
+requests pending. A controller device can own more detailed priority and masking.
 
-Each nonzero `Cpu::run` checks the source before starting its instruction quantum.
+Each nonzero `Cpu::run` checks the bus before starting its instruction quantum.
 Completing a host service also checks before continuing guest dispatch, using
 the remaining budget. The CPU checks IF before polling, so masked
 requests remain with the device/controller. `Runner::run_cpu` supplies those
