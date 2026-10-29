@@ -1,5 +1,5 @@
 use futures_channel::oneshot;
-use relocade_renderer::{Image, ImageBlitter};
+use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::VideoFrame;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -49,7 +49,7 @@ pub struct Presented {
 pub struct Target {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    blitter: ImageBlitter,
+    renderer: Renderer,
     image: Option<Image>,
     format: wgpu::TextureFormat,
     #[cfg(target_arch = "wasm32")]
@@ -86,12 +86,11 @@ impl Target {
         let format = configuration.format;
         #[cfg(not(target_arch = "wasm32"))]
         let format = wgpu::TextureFormat::Rgba8Unorm;
-        let blitter =
-            ImageBlitter::new(device.clone(), queue.clone(), format).map_err(|e| e.to_string())?;
+        let renderer = Renderer::new(device.clone(), format).map_err(|e| e.to_string())?;
         Ok(Self {
             device,
             queue,
-            blitter,
+            renderer,
             image: None,
             format,
             #[cfg(target_arch = "wasm32")]
@@ -139,9 +138,14 @@ impl Target {
         image
             .upload(&self.queue, &frame.pixels)
             .map_err(|e| e.to_string())?;
-        self.blitter
-            .blit(image, &output.create_view(&Default::default()), size)
-            .map_err(|e| e.to_string())?;
+        draw(
+            &self.device,
+            &self.queue,
+            &mut self.renderer,
+            image,
+            &output.create_view(&Default::default()),
+            size,
+        );
         let pixel = read_first_pixel(&self.device, &self.queue, &output).await;
         #[cfg(target_arch = "wasm32")]
         {
@@ -153,13 +157,14 @@ impl Target {
                 | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
                 other => return Err(format!("surface acquisition: {other:?}")),
             };
-            self.blitter
-                .blit(
-                    image,
-                    &surface.texture.create_view(&Default::default()),
-                    size,
-                )
-                .map_err(|e| e.to_string())?;
+            draw(
+                &self.device,
+                &self.queue,
+                &mut self.renderer,
+                image,
+                &surface.texture.create_view(&Default::default()),
+                size,
+            );
             self.queue.present(surface);
         }
         self.count += 1;
@@ -227,4 +232,32 @@ async fn read_first_pixel(
     drop(mapped);
     buffer.unmap();
     pixel
+}
+
+// This fixture owns its output pass, placement, clear policy and submission.
+fn draw(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut Renderer,
+    image: &Image,
+    target: &wgpu::TextureView,
+    size: [u32; 2],
+) {
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        renderer.draw_image(&mut pass, image, fit_image(image, Rect::from_size(size)));
+    }
+    queue.submit([encoder.finish()]);
 }

@@ -1,39 +1,44 @@
-# GPU images and viewing
+# GPU images and drawing
 
 `Image` owns reusable RGBA8 GPU storage and its pixel aspect ratio. GPU producers
-can draw into `image.view()`; the software path calls `image.upload(queue, pixels)`.
-An upload takes tightly packed top-to-bottom sRGB color bytes and queues them for
-the next queue submission. Image clones share storage, not historical pixels.
+can draw into `image.view()`; CPU input uses `image.upload(queue, pixels)`. Uploads
+contain tightly packed top-to-bottom sRGB color bytes and are queued for the
+caller's next submission. Select one upload per image per submitted batch.
+Image clones share storage rather than preserving historical pixels.
 
-`ImageBlitter` draws an existing image into a caller-supplied texture view. It uses
-nearest-neighbor scaling, fits the image's display proportions inside the output,
-and clears unused borders to opaque black. It supports RGBA8 and BGRA8 targets,
-with or without sRGB encoding. Alpha is copied without blending. sRGB outputs
-use a shader decode before the attachment re-encodes the colors.
+`Renderer::draw_image` draws the whole image into an explicit destination in a
+caller-owned render pass. It uses nearest sampling and copies alpha without
+blending. Supported outputs are RGBA8 and BGRA8, with or without sRGB encoding.
+sRGB outputs use a shader decode before the attachment re-encodes the colors.
+The image format is fixed RGBA8Unorm containing sRGB-encoded colors.
 
 ```rust,ignore
-let image = relocade_renderer::Image::new(&device, [frame.width, frame.height],
-    frame.pixel_aspect_ratio)?;
-image.upload(&queue, &frame.pixels)?;
-let mut blitter = relocade_renderer::ImageBlitter::new(device, queue, output_format)?;
-blitter.blit(&image, &output_view, output_size)?;
-// Later, reuse the image with another output size; no upload is needed.
+let mut renderer = relocade_renderer::Renderer::new(device.clone(), output_format)?;
+let destination = relocade_renderer::fit_image(&image, available_rect);
+let mut encoder = device.create_command_encoder(&Default::default());
+{
+    let mut pass = encoder.begin_render_pass(&output_pass);
+    renderer.draw_image(&mut pass, &image, destination);
+    renderer.draw_image(&mut pass, &other_image, other_destination);
+}
+queue.submit([encoder.finish()]);
 ```
 
-The owner supplies a device, its queue and single-sampled output attachments.
-The `output_size` is the extent of the supplied attachment's mip level. Surface
-acquisition, presentation, visibility, worker placement and redraw scheduling
-remain with that owner. Neither image upload nor viewing selects a surface or
-creates a task. A different output format needs a matching blitter, but the same
-image can be viewed through either format.
+The caller chooses the attachments, load/clear policy, placement and submission.
+Drawing changes pipeline, binding 0 and viewport state, while retaining the
+caller's scissor. The pass must use the supplied device, configured output format
+and one sample. Destinations must fit inside the attachment; empty rectangles
+record no draw. Surfaces, presentation, workers and redraw scheduling belong to
+the embedding.
 
-Dimensions describe pixel storage; pixel aspect ratio describes pixel width /
-height. Their product determines display proportions. The VGA software image is
-640×200 with 5:12 pixels, so the blitter fits it at 4:3. Output sizing never changes
-the source image or asks its producer to decode it again.
+`Rect` describes output pixel coordinates. `fit_image` centers an image within
+that rectangle using its dimensions and pixel aspect ratio, without GPU work.
+The fixed VGA image is 640×200 with 5:12 pixels, so it fits at 4:3. Fitting is an
+optional caller operation; `draw_image` uses exactly the destination it receives.
+Changing placement or output size does not update the source image.
 
 `image.texture()` permits explicit copies and test readback. Ordinary drawing
-keeps the image on the GPU. The native/browser pixel checks cover uploads, GPU
-attachment writes, orientation, scaling, letterboxing, color encoding, alpha and
-resizing. The [worker fixture](../../tests/browser/src/graphics.rs) demonstrates
-an application-selected hosting arrangement and retains its own surface lifetime.
+keeps pixels on the GPU. Native/browser pixel checks cover uploads, GPU attachment
+writes, orientation, scaling, caller-selected placement, color encoding and alpha.
+The [worker fixture](../../tests/browser/src/graphics.rs) owns its surface and
+command submission independently of the image-drawing library.

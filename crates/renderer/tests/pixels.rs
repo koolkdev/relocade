@@ -1,4 +1,4 @@
-use relocade_renderer::{FrameError, Image, ImageBlitter};
+use relocade_renderer::{fit_image, FrameError, Image, Rect, Renderer};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -18,6 +18,34 @@ fn target(device: &wgpu::Device, size: [u32; 2], format: wgpu::TextureFormat) ->
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     })
+}
+
+// This fixture owns its output pass, placement, clear policy and submission.
+fn draw(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut Renderer,
+    image: &Image,
+    target: &wgpu::TextureView,
+    size: [u32; 2],
+) {
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        renderer.draw_image(&mut pass, image, fit_image(image, Rect::from_size(size)));
+    }
+    queue.submit([encoder.finish()]);
 }
 
 async fn read_pixels(
@@ -93,7 +121,7 @@ async fn check_pixels() {
         wgpu::TextureFormat::Bgra8Unorm,
         wgpu::TextureFormat::Bgra8UnormSrgb,
     ] {
-        let mut blitter = ImageBlitter::new(device.clone(), queue.clone(), format).unwrap();
+        let mut renderer = Renderer::new(device.clone(), format).unwrap();
         let output = target(&device, [4, 4], format);
         let view = output.create_view(&Default::default());
         let colors: [[u8; 4]; 4] = [
@@ -104,7 +132,7 @@ async fn check_pixels() {
         ];
         let image = Image::new(&device, [2, 2], (1, 1)).unwrap();
         image.upload(&queue, colors.as_flattened()).unwrap();
-        blitter.blit(&image, &view, [4, 4]).unwrap();
+        draw(&device, &queue, &mut renderer, &image, &view, [4, 4]);
         let pixels = read_pixels(&device, &queue, &output).await;
         for y in 0..4 {
             for x in 0..4 {
@@ -114,7 +142,7 @@ async fn check_pixels() {
         // Update the same texture, including alpha and the sRGB near-black transition.
         let changed: [[u8; 4]; 4] = [[1, 10, 11, 17]; 4];
         image.upload(&queue, changed.as_flattened()).unwrap();
-        blitter.blit(&image, &view, [4, 4]).unwrap();
+        draw(&device, &queue, &mut renderer, &image, &view, [4, 4]);
         for pixel in read_pixels(&device, &queue, &output).await {
             assert_color(pixel, changed[0]);
         }
@@ -131,10 +159,6 @@ async fn check_pixels() {
             Err(FrameError::InvalidAspectRatio)
         ));
         assert_eq!(
-            blitter.blit(&image, &view, [0, 2]),
-            Err(FrameError::InvalidSize)
-        );
-        assert_eq!(
             image.upload(&queue, &[0; 15]),
             Err(FrameError::InvalidLength {
                 expected: 16,
@@ -145,9 +169,14 @@ async fn check_pixels() {
         let output = target(&device, [6, 2], format);
         let resized = Image::new(&device, [3, 1], (1, 1)).unwrap();
         resized.upload(&queue, colors[..3].as_flattened()).unwrap();
-        blitter
-            .blit(&resized, &output.create_view(&Default::default()), [6, 2])
-            .unwrap();
+        draw(
+            &device,
+            &queue,
+            &mut renderer,
+            &resized,
+            &output.create_view(&Default::default()),
+            [6, 2],
+        );
         for (index, pixel) in read_pixels(&device, &queue, &output)
             .await
             .into_iter()
@@ -157,11 +186,7 @@ async fn check_pixels() {
         }
     }
     assert!(matches!(
-        ImageBlitter::new(
-            device.clone(),
-            queue.clone(),
-            wgpu::TextureFormat::Rgba16Float
-        ),
+        Renderer::new(device.clone(), wgpu::TextureFormat::Rgba16Float),
         Err(FrameError::UnsupportedFormat(
             wgpu::TextureFormat::Rgba16Float
         ))
@@ -203,14 +228,15 @@ async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
     let output = target(device, output_size, format);
     let image = Image::new(device, size, frame.pixel_aspect_ratio).unwrap();
     image.upload(queue, &frame.pixels).unwrap();
-    let mut blitter = ImageBlitter::new(device.clone(), queue.clone(), format).unwrap();
-    blitter
-        .blit(
-            &image,
-            &output.create_view(&Default::default()),
-            output_size,
-        )
-        .unwrap();
+    let mut renderer = Renderer::new(device.clone(), format).unwrap();
+    draw(
+        device,
+        queue,
+        &mut renderer,
+        &image,
+        &output.create_view(&Default::default()),
+        output_size,
+    );
     let pixels = read_pixels(device, queue, &output).await;
     assert_color(pixels[0], [255, 255, 85, 255]);
     assert_color(pixels[8], [0, 0, 0, 255]);
@@ -258,12 +284,17 @@ async fn check_gpu_image_and_placement(device: &wgpu::Device, queue: &wgpu::Queu
         wgpu::TextureFormat::Rgba8Unorm,
         wgpu::TextureFormat::Bgra8UnormSrgb,
     ] {
-        let mut blitter = ImageBlitter::new(device.clone(), queue.clone(), format).unwrap();
+        let mut renderer = Renderer::new(device.clone(), format).unwrap();
         for (size, bounds) in [([16, 16], [0, 2, 16, 14]), ([24, 12], [4, 0, 20, 12])] {
             let output = target(device, size, format);
-            blitter
-                .blit(&image, &output.create_view(&Default::default()), size)
-                .unwrap();
+            draw(
+                device,
+                queue,
+                &mut renderer,
+                &image,
+                &output.create_view(&Default::default()),
+                size,
+            );
             let pixels = read_pixels(device, queue, &output).await;
             for y in 0..size[1] {
                 for x in 0..size[0] {

@@ -1,22 +1,17 @@
-use crate::{FrameError, Image};
+use crate::{FrameError, Image, Rect};
 
-/// Nearest-neighbor viewing with centered, aspect-preserving placement.
-/// Owns a draw pipeline and bindings, but no surface, worker or render schedule.
-pub struct ImageBlitter {
+/// Shared drawing operations recorded into caller-owned render passes.
+/// Currently draws whole RGBA8 images with nearest sampling and no blending.
+pub struct Renderer {
     device: wgpu::Device,
-    queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
     binding: Option<(wgpu::Texture, wgpu::BindGroup)>,
 }
 
-impl ImageBlitter {
+impl Renderer {
     /// Output attachments must use this device and format, with one sample.
-    pub fn new(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-        format: wgpu::TextureFormat,
-    ) -> Result<Self, FrameError> {
+    pub fn new(device: wgpu::Device, format: wgpu::TextureFormat) -> Result<Self, FrameError> {
         if !matches!(
             format,
             wgpu::TextureFormat::Rgba8Unorm
@@ -28,7 +23,7 @@ impl ImageBlitter {
         }
         let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/frame.wgsl"));
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("image blitter"),
+            label: Some("image drawing"),
             layout: None,
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -60,28 +55,25 @@ impl ImageBlitter {
         });
         Ok(Self {
             device,
-            queue,
             pipeline,
             sampler,
             binding: None,
         })
     }
 
-    /// Fits the image into `size`, clearing unused borders to opaque black.
-    /// `size` must be the extent of the supplied attachment's mip level. The
-    /// attachment must allow `RENDER_ATTACHMENT` and use this blitter's format.
-    /// Submits work without waiting, changing the source image, or presenting.
-    pub fn blit(
+    /// Draws the entire image into `destination`, in attachment pixel coordinates.
+    /// Records pipeline, binding 0 and viewport state; retains the caller's scissor.
+    /// The destination must fit inside the attachment; empty rectangles draw nothing.
+    /// The pass must use this renderer's device, output format and one sample.
+    /// Clearing, pass lifetime, and submission belong to the caller.
+    pub fn draw_image(
         &mut self,
+        pass: &mut wgpu::RenderPass<'_>,
         image: &Image,
-        target: &wgpu::TextureView,
-        size: [u32; 2],
-    ) -> Result<(), FrameError> {
-        if size
-            .iter()
-            .any(|&n| n == 0 || n > self.device.limits().max_texture_dimension_2d)
-        {
-            return Err(FrameError::InvalidSize);
+        destination: Rect,
+    ) {
+        if destination.width == 0.0 || destination.height == 0.0 {
+            return;
         }
         if self
             .binding
@@ -105,41 +97,16 @@ impl ImageBlitter {
             self.binding = Some((image.texture().clone(), binding));
         }
         let (_, binding) = self.binding.as_ref().expect("bound image");
-        let [x, y, width, height] = placement(image.size(), image.pixel_aspect_ratio(), size);
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("image blitter"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, binding, &[]);
-            pass.set_viewport(x, y, width, height, 0.0, 1.0);
-            pass.draw(0..3, 0..1);
-        }
-        self.queue.submit([encoder.finish()]);
-        Ok(())
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, binding, &[]);
+        pass.set_viewport(
+            destination.x,
+            destination.y,
+            destination.width,
+            destination.height,
+            0.0,
+            1.0,
+        );
+        pass.draw(0..3, 0..1);
     }
-}
-
-fn placement(image: [u32; 2], aspect: (u32, u32), output: [u32; 2]) -> [f32; 4] {
-    let ratio =
-        f64::from(image[0]) * f64::from(aspect.0) / (f64::from(image[1]) * f64::from(aspect.1));
-    let width = f64::from(output[0]).min(f64::from(output[1]) * ratio);
-    let height = f64::from(output[1]).min(f64::from(output[0]) / ratio);
-    [
-        ((f64::from(output[0]) - width) / 2.0) as f32,
-        ((f64::from(output[1]) - height) / 2.0) as f32,
-        width as f32,
-        height as f32,
-    ]
 }
