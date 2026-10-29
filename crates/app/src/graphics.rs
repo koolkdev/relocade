@@ -1,6 +1,9 @@
 //! Surface initialization, acquisition and presentation on the graphics owner.
 //! Transfer `Window::surface_setup` using the existing `worker::Thread`, then
 //! create `Surface` there. Command recording and image drawing remain with the caller.
+mod redraw;
+pub use redraw::{redraw_channel, Redraw};
+
 use crate::platform::graphics::SurfaceOwner;
 pub use crate::platform::graphics::SurfaceSetup;
 use std::{marker::PhantomData, rc::Rc};

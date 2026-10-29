@@ -63,3 +63,15 @@ wgpu's acquisition status distinguishes retrying a timeout from waiting for an
 occluded window. Outdated configurations are refreshed on the next request.
 Surface loss is reported for application-level recovery rather than silently
 reinitializing GPU resources.
+
+`graphics::redraw_channel(window.state())` supplies a main-thread `Redraw` and a
+standard Rust mpsc receiver for graphics. Update `Redraw::output` when window state
+changes and call `request` on `RedrawRequested`. A worker consumes a size, performs
+or skips that draw, and reports completion through the application's winit proxy.
+Main then calls `completed`. While a draw is in flight, repeated requests coalesce
+and layout stays on main; the next dispatch uses the newest size and visibility.
+
+Neither layout updates nor completion create new demand. Hidden, zero-sized and
+closing output do not dispatch. Drop `Redraw` to finish outstanding work and close
+the receiver, then await the graphics task before releasing its window. This
+protocol adds no rendering timer or background task of its own.

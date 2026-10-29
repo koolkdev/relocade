@@ -50,6 +50,7 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
           cargo test --workspace --locked
+          cargo test -p relocade-app --features graphics --test redraw --locked
           xvfb-run -a cargo test -p relocade-app --test window --locked -- --ignored
           xvfb-run -a cargo test -p relocade-app --features graphics --test surface --locked -- --ignored
 
