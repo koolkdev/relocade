@@ -1,3 +1,7 @@
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "../../vga/tests/support/software.rs"]
+mod software;
+
 use relocade_renderer::{fit_image, FrameError, Image, Rect, Renderer};
 
 #[cfg(target_arch = "wasm32")]
@@ -221,7 +225,7 @@ async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
     }
     clock.0.set(Duration::from_millis(20));
     vga.read_port(0x3da, 1);
-    let frame = vga.frame_source().current_capture().unwrap().rasterize();
+    let frame = software::rasterize(&vga.frame_source().current_capture().unwrap());
     let size = [frame.width, frame.height];
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let output_size = [640, 480];

@@ -1,3 +1,4 @@
+use crate::software::{self, SoftwareFrame};
 use crate::{
     graphics::{request, target},
     vga::glyph_top,
@@ -6,7 +7,7 @@ use futures_channel::{mpsc, oneshot};
 use futures_util::{future::join, FutureExt, StreamExt};
 use relocade_dos::Dos;
 use relocade_machine::{timer_service, worker::Thread, ExecutionWorker};
-use relocade_vga::{FrameSource, VideoFrame};
+use relocade_vga::FrameSource;
 use std::{
     future::pending,
     io::Write,
@@ -76,7 +77,7 @@ pub async fn dos_workers() -> Result<(), String> {
         let graphics = Thread::new();
         let task = graphics.run_send(target::context()?, move |context| async move {
             let mut target = target::Target::new(context, target_drop).await?;
-            let mut cached: Option<Arc<VideoFrame>> = None;
+            let mut cached: Option<Arc<SoftwareFrame>> = None;
             while let Some(size) = incoming.next().await {
                 let Some(capture) = worker_source.next_capture(None).await else {
                     continue;
@@ -86,7 +87,7 @@ pub async fn dos_workers() -> Result<(), String> {
                     .is_none_or(|image| image.sequence != capture.sequence)
                 {
                     conversion_count.fetch_add(1, Ordering::Release);
-                    cached = Some(Arc::new(capture.rasterize()));
+                    cached = Some(Arc::new(software::rasterize(&capture)));
                 }
                 let image = cached.as_ref().unwrap().clone();
                 let presented = target.present(&image, size).await?;
@@ -190,11 +191,11 @@ pub async fn dos_workers() -> Result<(), String> {
 struct AppView {
     source: FrameSource,
     requests: mpsc::Sender<[u32; 2]>,
-    presentations: mpsc::UnboundedReceiver<(target::Presented, Arc<VideoFrame>)>,
+    presentations: mpsc::UnboundedReceiver<(target::Presented, Arc<SoftwareFrame>)>,
 }
 
 impl AppView {
-    async fn draw(&mut self) -> Arc<VideoFrame> {
+    async fn draw(&mut self) -> Arc<SoftwareFrame> {
         request(&mut self.requests, [640, 480]);
         let (presented, frame) = self.presentations.next().await.expect("worker is live");
         assert_eq!(frame.sequence, presented.sequence);
@@ -204,7 +205,7 @@ impl AppView {
         frame
     }
 
-    async fn matching(&mut self, matches: impl Fn(&VideoFrame) -> bool) -> Arc<VideoFrame> {
+    async fn matching(&mut self, matches: impl Fn(&SoftwareFrame) -> bool) -> Arc<SoftwareFrame> {
         loop {
             let frame = self.draw().await;
             if matches(&frame) {

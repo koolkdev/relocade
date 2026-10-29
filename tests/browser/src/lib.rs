@@ -6,6 +6,9 @@ pub fn initialize() {
     console_error_panic_hook::set_once();
 }
 
+#[path = "../../../crates/vga/tests/support/software.rs"]
+mod software;
+
 mod channels;
 mod clock;
 mod cpus;
@@ -20,7 +23,7 @@ pub use channels::rust_channels;
 pub use clock::timer_workers;
 pub use cpus::cpu_worker;
 pub use dos::dos_workers;
-pub use graphics::graphics_workers;
+pub use graphics::{gpu::gpu_workers, graphics_workers};
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
 pub use runner::runner_workers;
@@ -31,6 +34,11 @@ mod tests {
     #[test]
     fn dos_sessions_keep_captures_across_input_launches_and_host_redraws() {
         pollster::block_on(super::dos::dos_workers()).unwrap();
+    }
+
+    #[test]
+    fn gpu_rendering_uses_explicit_worker_demand_without_a_surface() {
+        pollster::block_on(super::gpu_workers()).unwrap();
     }
 
     #[test]

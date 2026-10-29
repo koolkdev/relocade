@@ -1,4 +1,4 @@
-use crate::{scanout, text, TextScreen, VideoFrame};
+use crate::TextScreen;
 use arc_swap::ArcSwapOption;
 use event_listener::Event;
 use std::{
@@ -21,22 +21,6 @@ pub struct CapturedFrame {
     pub blanked: bool,
     pub time: Duration,
     pub sequence: u64,
-}
-
-impl CapturedFrame {
-    /// Software rendering reference: synchronously converts this capture to RGBA8.
-    /// No live VGA state is accessed. The caller chooses when and where to render;
-    /// use a separate worker to keep conversion off the execution worker.
-    pub fn rasterize(&self) -> VideoFrame {
-        VideoFrame {
-            width: text::WIDTH,
-            height: text::HEIGHT,
-            pixels: scanout::render(&self.screen, self.blink_on, self.blanked),
-            pixel_aspect_ratio: text::PIXEL_ASPECT_RATIO,
-            time: self.time,
-            sequence: self.sequence,
-        }
-    }
 }
 
 #[derive(Default)]

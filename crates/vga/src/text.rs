@@ -1,4 +1,4 @@
-use crate::TextScreen;
+use super::TextScreen;
 
 pub(super) const GLYPH_WIDTH: usize = 8;
 pub(super) const GLYPH_HEIGHT: usize = 8;
