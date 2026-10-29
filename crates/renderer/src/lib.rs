@@ -1,10 +1,18 @@
-//! Present RGBA pixel frames through wgpu on native and browser hosts.
+//! GPU image storage and drawing operations for caller-owned render passes.
 //!
-//! [`Renderer`] owns the frame texture and draw pipeline. The embedding supplies
-//! a device, queue and output texture view, and owns surface configuration,
-//! presentation and frame scheduling. There is no dependency on DOS or BIOS.
+//! [`Image`] supports explicit CPU upload and GPU rendering into reusable RGBA8
+//! storage. [`Renderer::draw_image`] records a draw at a caller-selected destination;
+//! [`fit_image`] calculates aspect-preserving placement without GPU commands.
+//! The caller owns command recording, output passes, clearing and submission,
+//! along with surface, worker and redraw lifetimes.
 #![forbid(unsafe_code)]
 
-mod frame;
+mod error;
+mod geometry;
+mod image;
+mod renderer;
 
-pub use frame::{FrameError, Renderer};
+pub use error::FrameError;
+pub use geometry::{fit_image, Rect};
+pub use image::Image;
+pub use renderer::Renderer;

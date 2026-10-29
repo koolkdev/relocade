@@ -1,5 +1,5 @@
 use futures_channel::oneshot;
-use relocade_renderer::Renderer;
+use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::VideoFrame;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -50,6 +50,7 @@ pub struct Target {
     device: wgpu::Device,
     queue: wgpu::Queue,
     renderer: Renderer,
+    image: Option<Image>,
     format: wgpu::TextureFormat,
     #[cfg(target_arch = "wasm32")]
     surface: wgpu::Surface<'static>,
@@ -85,12 +86,12 @@ impl Target {
         let format = configuration.format;
         #[cfg(not(target_arch = "wasm32"))]
         let format = wgpu::TextureFormat::Rgba8Unorm;
-        let renderer =
-            Renderer::new(device.clone(), queue.clone(), format).map_err(|e| e.to_string())?;
+        let renderer = Renderer::new(device.clone(), format).map_err(|e| e.to_string())?;
         Ok(Self {
             device,
             queue,
             renderer,
+            image: None,
             format,
             #[cfg(target_arch = "wasm32")]
             surface,
@@ -120,13 +121,31 @@ impl Target {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        self.renderer
-            .render(
-                [frame.width, frame.height],
-                &frame.pixels,
-                &output.create_view(&Default::default()),
-            )
+        if self.image.as_ref().is_none_or(|image| {
+            image.size() != [frame.width, frame.height]
+                || image.pixel_aspect_ratio() != frame.pixel_aspect_ratio
+        }) {
+            self.image = Some(
+                Image::new(
+                    &self.device,
+                    [frame.width, frame.height],
+                    frame.pixel_aspect_ratio,
+                )
+                .map_err(|e| e.to_string())?,
+            );
+        }
+        let image = self.image.as_ref().unwrap();
+        image
+            .upload(&self.queue, &frame.pixels)
             .map_err(|e| e.to_string())?;
+        draw(
+            &self.device,
+            &self.queue,
+            &mut self.renderer,
+            image,
+            &output.create_view(&Default::default()),
+            size,
+        );
         let pixel = read_first_pixel(&self.device, &self.queue, &output).await;
         #[cfg(target_arch = "wasm32")]
         {
@@ -138,13 +157,14 @@ impl Target {
                 | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
                 other => return Err(format!("surface acquisition: {other:?}")),
             };
-            self.renderer
-                .render(
-                    [frame.width, frame.height],
-                    &frame.pixels,
-                    &surface.texture.create_view(&Default::default()),
-                )
-                .map_err(|e| e.to_string())?;
+            draw(
+                &self.device,
+                &self.queue,
+                &mut self.renderer,
+                image,
+                &surface.texture.create_view(&Default::default()),
+                size,
+            );
             self.queue.present(surface);
         }
         self.count += 1;
@@ -212,4 +232,32 @@ async fn read_first_pixel(
     drop(mapped);
     buffer.unmap();
     pixel
+}
+
+// This fixture owns its output pass, placement, clear policy and submission.
+fn draw(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut Renderer,
+    image: &Image,
+    target: &wgpu::TextureView,
+    size: [u32; 2],
+) {
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        renderer.draw_image(&mut pass, image, fit_image(image, Rect::from_size(size)));
+    }
+    queue.submit([encoder.finish()]);
 }
