@@ -66,22 +66,28 @@
 //! AX=4400h reports file/device information for the object behind a handle.
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
-//! The host controls execution through [`Dos::cpu`]. The CPU selects the native
-//! or browser Wasm engine; its hooks retain the DOS service state.
+//! Construct DOS inside [`relocade_machine::Runner::run`] or an execution worker.
+//! [`Dos::new`] registers VGA with that runner and shares its clock. [`Dos::run`]
+//! returns the current program's exit code; registered devices keep running while
+//! the main session awaits input or another program. [`Dos::display`] exposes the
+//! same completed-frame feed across launches, independently of app rendering.
+//! Direct CPU control remains available through [`Dos::cpu`].
+//! The [native/browser fixture](https://github.com/koolkdev/relocade/blob/main/tests/browser/src/dos.rs)
+//! demonstrates persistent execution and an independent renderer worker.
 //!
 //! ```no_run
-//! # async fn example(clock: relocade_machine::TimerHandle) -> Result<(), Box<dyn std::error::Error>>
+//! # async fn example(runner: &relocade_machine::Runner) -> Result<(), Box<dyn std::error::Error>>
 //! # {
 //! use relocade_dos::ProcessStatus;
 //! use std::io::Read;
 //!
-//! let mut dos = relocade_dos::Dos::new(clock).await?;
+//! let mut dos = relocade_dos::Dos::new(runner).await?;
 //! let mut disk = relocade_vfs::MemoryFileSystem::new();
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
 //! dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
 //! let process = dos.process().unwrap();
-//! assert_eq!(dos.cpu().run(u64::MAX).await, relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return));
+//! assert_eq!(dos.run(runner).await?, 7);
 //! assert_eq!(process.status(), ProcessStatus::Exited(Ok(7)));
 //! let mut output = Vec::new();
 //! dos.stdout().read_to_end(&mut output)?;
@@ -93,6 +99,7 @@
 
 mod com;
 mod error;
+mod execution;
 mod files;
 mod interrupt;
 mod kernel;
@@ -106,10 +113,11 @@ mod state;
 mod stdio;
 
 pub use error::{LaunchError, LoadError, MountError, ServiceError};
+pub use execution::RunError;
 pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
-use relocade_machine::{Cpu, CpuContext, DeviceConnection, IoBus, Memory, TimerHandle};
+use relocade_machine::{Cpu, CpuContext, IoBus, Memory, Runner};
 use relocade_vga::Vga;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
@@ -122,17 +130,19 @@ pub struct Dos {
 }
 
 impl Dos {
-    /// Prepares the memory map, interrupt vectors and DOS service hooks.
+    /// Prepares the memory map and service hooks, and registers VGA with the runner.
     /// Launch a program before executing DOS services.
-    pub async fn new(clock: TimerHandle) -> relocade_machine::Result<Self> {
+    pub async fn new(runner: &Runner) -> relocade_machine::Result<Self> {
         let state = Rc::new(DosState::default());
         let keyboard = state.stdio().input.clone();
-        let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock))));
-        let io = IoBus::new([DeviceConnection {
-            device: vga.clone(),
-            mmio: vec![relocade_vga::TEXT_MEMORY_RANGE],
-            ports: relocade_vga::PORT_RANGES.to_vec(),
-        }]);
+        let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
+            runner.clock().clone(),
+        ))));
+        let io = IoBus::new([runner.connect(
+            vga.clone(),
+            [relocade_vga::TEXT_MEMORY_RANGE],
+            relocade_vga::PORT_RANGES,
+        )]);
         let memory = Memory::new(kernel::configuration())?;
         let mut cpu = Cpu::new(memory, kernel::cpu(), io, ()).await?;
         kernel::initialize(&mut cpu.context().memory);
@@ -254,12 +264,12 @@ impl Dos {
     /// across launches; existing stream handles remain connected to the console.
     ///
     /// ```no_run
-    /// # async fn example(clock: relocade_machine::TimerHandle) -> Result<(), Box<dyn std::error::Error>>
+    /// # async fn example(runner: &relocade_machine::Runner) -> Result<(), Box<dyn std::error::Error>>
     /// # {
     /// use relocade_dos::ProcessStatus;
     /// use std::io::Write;
     ///
-    /// let mut dos = relocade_dos::Dos::new(clock).await?;
+    /// let mut dos = relocade_dos::Dos::new(runner).await?;
     /// dos.launch_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let process = dos.process().unwrap();
     /// let mut input = dos.stdin();
@@ -289,6 +299,12 @@ impl Dos {
     /// ```
     pub fn keyboard(&self) -> relocade_bios::Keyboard {
         self.state.stdio().input.clone()
+    }
+
+    /// Read-only completed RGBA frames, reusable across program launches. The runner's
+    /// registered VGA activity continues while the main session remains alive.
+    pub fn display(&self) -> relocade_vga::Display {
+        self.vga.borrow().display()
     }
 
     /// Retains the execution-local device, including while the CPU awaits input.

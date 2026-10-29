@@ -80,7 +80,8 @@ writes before explicitly stopping the execution worker.
 
 The [worker fixture](../../tests/browser/src/vga.rs) checks MMIO and status polling,
 frames during a borrowed input service, immutable pixels on another worker, and
-output closure.
+output closure. The [DOS fixture](../../tests/browser/src/dos.rs) covers persistent
+sessions, busy CPU execution, slow consumers and input waits.
 
 Register definitions follow the
 [IBM VGA/XGA Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf),
