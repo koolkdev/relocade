@@ -1,5 +1,13 @@
 #![cfg(feature = "renderer")]
 
+mod common;
+#[path = "gpu/parity.rs"]
+mod parity;
+#[path = "gpu/recording.rs"]
+mod recording;
+#[path = "support/software.rs"]
+mod software;
+
 use relocade_vga::{CapturedFrame, TextCell, TextCursor, TextScreen, VgaRenderer};
 use std::{sync::Arc, time::Duration};
 

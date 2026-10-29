@@ -1,5 +1,6 @@
-use super::{render, WIDTH};
-use crate::{TextCell, TextCursor, TextScreen};
+use super::reference::render;
+const WIDTH: u32 = 640;
+use relocade_vga::{TextCell, TextCursor, TextScreen};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

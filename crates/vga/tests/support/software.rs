@@ -1,8 +1,17 @@
-use crate::{text::*, TextScreen};
+// Included only by test crates and worker fixtures. Individual consumers use
+// different portions of this reference and its image metadata.
+#![allow(dead_code)]
+
+use relocade_vga::{CapturedFrame, TextScreen};
+use std::time::Duration;
+
+#[path = "../../src/text.rs"]
+mod text;
+use text::*;
 
 /// Convert an immutable text capture to pixels on the calling worker.
 /// This function never reads or borrows the VGA device.
-pub(super) fn render(screen: &TextScreen, blink_on: bool, blanked: bool) -> Box<[u8]> {
+pub(crate) fn render(screen: &TextScreen, blink_on: bool, blanked: bool) -> Box<[u8]> {
     let mut pixels = vec![0; WIDTH as usize * HEIGHT as usize * 4].into_boxed_slice();
     if blanked {
         for pixel in pixels.as_chunks_mut::<4>().0 {
@@ -47,5 +56,29 @@ pub(super) fn render(screen: &TextScreen, blink_on: bool, blanked: bool) -> Box<
     pixels
 }
 
-#[cfg(test)]
-mod tests;
+/// Owned software-rendered image. Pixels are tightly packed, top-to-bottom RGBA8,
+/// with sRGB color values and opaque alpha. Retaining an image requires no VGA owner.
+#[derive(Debug)]
+pub(crate) struct SoftwareFrame {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Box<[u8]>,
+    /// Pixel width / height. Combine with the image dimensions when sizing a viewport.
+    pub pixel_aspect_ratio: (u32, u32),
+    /// Elapsed session time at the completed frame boundary.
+    pub time: Duration,
+    /// Increasing frame identity; skipped frames can leave gaps.
+    pub sequence: u64,
+}
+
+/// Test reference for captured text; never reads live device state.
+pub(crate) fn rasterize(capture: &CapturedFrame) -> SoftwareFrame {
+    SoftwareFrame {
+        width: WIDTH,
+        height: HEIGHT,
+        pixels: render(&capture.screen, capture.blink_on, capture.blanked),
+        pixel_aspect_ratio: PIXEL_ASPECT_RATIO,
+        time: capture.time,
+        sequence: capture.sequence,
+    }
+}

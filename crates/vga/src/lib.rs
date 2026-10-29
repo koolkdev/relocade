@@ -8,18 +8,16 @@
 #![forbid(unsafe_code)]
 
 mod capture;
-mod frame;
 mod memory;
 pub mod registers;
 #[cfg(feature = "renderer")]
 mod renderer;
-mod scanout;
 mod screen;
+#[cfg(feature = "renderer")]
 mod text;
 mod timing;
 
 pub use capture::{CapturedFrame, FrameSource};
-pub use frame::VideoFrame;
 use futures_lite::future::yield_now;
 use memory::VideoMemory;
 use registers::Registers;

@@ -1,6 +1,8 @@
 use futures_util::task::{waker, ArcWake};
 use relocade_machine::{Clock, Device};
 mod common;
+#[path = "support/software.rs"]
+mod software;
 use common::{boundary, crtc, poll_video, ManualClock};
 use relocade_vga::{Vga, CRTC_INDEX_PORT, TEXT_MEMORY_START};
 use std::{
@@ -88,7 +90,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     assert_eq!(first.screen.cells[0].attribute, 0x1e);
     assert_eq!(first.screen.start_address, 0);
     assert_eq!(first.screen.cursor.address, 1);
-    let first_pixels = first.rasterize();
+    let first_pixels = software::rasterize(&first);
     assert_eq!((first_pixels.width, first_pixels.height), (640, 200));
     assert_eq!(first_pixels.pixel_aspect_ratio, (5, 12));
     assert_eq!(first_pixels.pixels.len(), 640 * 200 * 4);
@@ -111,7 +113,10 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     assert_eq!(second.screen.start_address, 1);
     assert_eq!(first.screen.start_address, 0);
     assert_eq!(second.sequence, 2);
-    assert_eq!(&second.rasterize().pixels[..4], [255, 255, 255, 255]);
+    assert_eq!(
+        &software::rasterize(&second).pixels[..4],
+        [255, 255, 255, 255]
+    );
     assert_eq!(&first_pixels.pixels[..4], [255, 255, 85, 255]);
 
     tick(
@@ -125,7 +130,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     drop(video);
     drop(vga);
     assert_eq!(
-        &source.current_capture().unwrap().rasterize().pixels[..4],
+        &software::rasterize(&source.current_capture().unwrap()).pixels[..4],
         [255, 255, 255, 255]
     );
 }
@@ -189,7 +194,7 @@ fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
     assert!(on.blink_on);
     assert_eq!(on.screen.cursor.start_scan_line, 6);
     assert_eq!(on.screen.cursor.end_scan_line, 7);
-    let pixels = on.rasterize().pixels.to_vec();
+    let pixels = software::rasterize(&on).pixels.to_vec();
     let cursor = (6 * 640 + 8) * 4;
     assert_eq!(&pixels[..4], [170, 0, 0, 255]);
     assert_eq!(&pixels[cursor..cursor + 4], [170, 170, 170, 255]);
@@ -197,11 +202,11 @@ fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
     let off = source.current_capture().unwrap();
     assert!(!off.blink_on);
     assert!(on.blink_on);
-    let off_pixels = off.rasterize();
+    let off_pixels = software::rasterize(&off);
     let blink = &off_pixels.pixels;
     assert_eq!(&blink[..4], [0, 0, 170, 255]);
     assert_eq!(&blink[cursor..cursor + 4], [0, 0, 0, 255]);
-    assert_eq!(&*on.rasterize().pixels, pixels);
+    assert_eq!(&*software::rasterize(&on).pixels, pixels);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -217,15 +222,17 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     let before = source.current_capture().unwrap();
     assert_eq!(before.sequence, 5);
     assert_eq!(before.time, boundary(5));
-    assert_eq!(&before.rasterize().pixels[..4], [255, 255, 85, 255]);
+    assert_eq!(
+        &software::rasterize(&before).pixels[..4],
+        [255, 255, 85, 255]
+    );
     vga.write_port(0x3c4, 2, 0x2101);
     clock.set(boundary(6));
     vga.read_port(0x3da, 1);
     let blank = source.current_capture().unwrap();
     assert!(blank.blanked);
     assert!(!before.blanked);
-    assert!(blank
-        .rasterize()
+    assert!(software::rasterize(&blank)
         .pixels
         .as_chunks::<4>()
         .0
@@ -235,8 +242,11 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     clock.set(boundary(7));
     vga.read_port(0x3da, 1);
     assert_eq!(
-        &source.current_capture().unwrap().rasterize().pixels[..4],
+        &software::rasterize(&source.current_capture().unwrap()).pixels[..4],
         [255, 255, 255, 255]
     );
-    assert_eq!(&before.rasterize().pixels[..4], [255, 255, 85, 255]);
+    assert_eq!(
+        &software::rasterize(&before).pixels[..4],
+        [255, 255, 85, 255]
+    );
 }

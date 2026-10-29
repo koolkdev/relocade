@@ -1,3 +1,4 @@
+use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
 use futures_util::{
     future::{join, poll_fn},
@@ -7,7 +8,7 @@ use relocade_machine::{
     timer_service, worker::Thread, Cpu, CpuConfig, ExecutionWorker, Hook, HookResult, IoBus,
     MachineConfig, Memory,
 };
-use relocade_vga::{Vga, VideoFrame, PORT_RANGES, TEXT_MEMORY_RANGE};
+use relocade_vga::{Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -123,7 +124,7 @@ pub async fn vga_workers() -> Result<(), String> {
         // Convert immutable captures on this worker; live VGA state remains on execution.
         let mut after = None;
         let frame = loop {
-            let frame = display.next_capture(after).await.unwrap().rasterize();
+            let frame = software::rasterize(&display.next_capture(after).await.unwrap());
             if glyph_top(&frame, 0, [255, 255, 85, 255]) == [124, 198, 198, 254, 198]
                 && glyph_top(&frame, 1, [255, 255, 255, 255]) == [252, 102, 102, 124, 102]
             {
@@ -138,11 +139,7 @@ pub async fn vga_workers() -> Result<(), String> {
         input.send(b'Z').unwrap();
         let mut sequence = frame.sequence;
         let next = loop {
-            let next = display
-                .next_capture(Some(sequence))
-                .await
-                .unwrap()
-                .rasterize();
+            let next = software::rasterize(&display.next_capture(Some(sequence)).await.unwrap());
             sequence = next.sequence;
             if glyph_top(&next, 0, [255, 255, 85, 255]) == [254, 198, 140, 24, 50] {
                 break next;
@@ -159,7 +156,7 @@ pub async fn vga_workers() -> Result<(), String> {
         }
         assert_eq!(
             glyph_top(
-                &display.current_capture().unwrap().rasterize(),
+                &software::rasterize(&display.current_capture().unwrap()),
                 0,
                 [255, 255, 85, 255]
             ),
@@ -179,7 +176,7 @@ struct Input {
 
 // Decode the top five rows for literal glyph assertions. Cursor blinking only
 // affects the bottom rows in these fixtures; it must not gate test progress.
-pub(crate) fn glyph_top(frame: &VideoFrame, column: usize, foreground: [u8; 4]) -> [u8; 5] {
+pub(crate) fn glyph_top(frame: &SoftwareFrame, column: usize, foreground: [u8; 4]) -> [u8; 5] {
     std::array::from_fn(|y| {
         (0..8).fold(0, |bits, x| {
             let at = (y * frame.width as usize + column * 8 + x) * 4;

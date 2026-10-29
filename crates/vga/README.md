@@ -26,47 +26,16 @@ The registered VGA activity keeps capturing while the CPU waits for input and
 while the app is not drawing. Destroying VGA closes this capture source and
 wakes waiters without creating an extra frame.
 
-`CapturedFrame::rasterize()` is a separate synchronous operation using only the
-owned snapshot. The caller chooses when and where to invoke it. It cannot lock
-or borrow VGA, read mutable VRAM, or advance machine time. The resulting
-`VideoFrame` is an ordinary owned image containing RGBA8 pixels, dimensions,
-pixel aspect ratio, source time and sequence. The logical 640×200 image has
-pixel aspect ratio 5:12; the presenter displays it at 4:3 without needing duplicate
-rows for scan doubling.
-Blink and blanking use captured VGA state, independently of redraw cadence.
+Captured cells, cursor, blink and blanking are renderer inputs. An embedding can
+read them directly or use the optional GPU renderer below. Device-only users do
+not need GPU dependencies. `Vga::run` services hardware time and captures; the
+embedding owns redraw scheduling, request coalescing, dimensions and presentation.
+Closing the source ends capture production without invalidating retained captures
+or requiring the embedding's GPU resources to close.
 
-The capture also exposes `screen`, `blink_on` and `blanked` for other rendering
-implementations. An implementation can consume that state directly; it does not
-need CPU pixel conversion or readback. The software path remains a usable
-renderer and reference for comparing GPU output.
-
-```rust,ignore
-// Called by the embedding at a redraw opportunity, off the execution worker.
-if let Some(capture) = source.current_capture() {
-    if cached.as_ref().is_none_or(|image| image.sequence != capture.sequence) {
-        *cached = Some(capture.rasterize());
-    }
-}
-// The embedding can draw or retain the cached image, even after VGA shuts down.
-```
-
-`Vga::run` services hardware time and captures. Rendering is explicit and has no
-VGA-owned request loop, worker, surface or output subscription. The embedding
-owns redraw scheduling, request coalescing, caching, dimensions and presentation.
-To keep slow conversion independent of guest execution, invoke the software
-rasterizer on a separate worker using the existing machine worker infrastructure.
-Closing the source only ends capture production; it does not invalidate retained
-captures or images, or require a surface to close.
-
-`scanout.rs` owns software conversion; `renderer` owns GPU text decoding. They
-share fixed mode data in `text.rs`. The generic `relocade-renderer` owns image
-storage and viewing and knows nothing about VGA, BIOS or DOS.
-
-The [native/browser graphics fixture](../../tests/browser/src/graphics.rs)
-assembles separate execution and rendering workers explicitly. Its single-slot
-request channel, image cache, GPU target and shutdown policy belong to that
-fixture. It verifies that blocked or paused rendering leaves the guest running,
-requests stay bounded, and presentation can outlive capture production.
+`renderer` owns GPU text decoding and `text.rs` owns fixed mode resources. The
+generic `relocade-renderer` owns image storage and attachment drawing and knows
+nothing about VGA, BIOS or DOS.
 
 DOS supplies this same capture source through `dos.frame_source()`. Construct
 `Dos::new(runner)` inside the execution session; its VGA registration persists
@@ -121,4 +90,23 @@ VGA owns the pass that writes its private image. The caller owns the output pass
 including its attachments, placement and load/clear policy, and submits the whole
 command batch. Neither renderer creates a surface, worker, timer or background
 task. Production rendering records commands without waiting for GPU completion.
-`CapturedFrame::rasterize()` provides the software reference without GPU dependencies.
+
+## Rendering checks
+
+Software conversion lives only in [test support](tests/support/software.rs),
+with its owned CPU image type. It is not part of the VGA library API. Capture,
+DOS, CPU-upload and explicit worker fixtures use that reference. The GPU suite
+compares complete images against it and retains literal glyph, palette, cursor,
+blink, blanking and page-selection expectations.
+
+Recording checks combine decoding and drawing in one caller submission, discard
+and retry an update, and resize a retained GPU image after dropping its decoder.
+The shared renderer's pixel checks draw two images into one loaded attachment,
+with explicit placement and a caller scissor, preserving untouched pixels.
+
+The [GPU worker fixture](../../tests/browser/src/graphics/gpu.rs) explicitly
+assembles execution and graphics workers with a bounded request channel. It
+creates no surface and checks that paused or slow rendering leaves the guest
+running, demand stays bounded, and captured images remain usable after VGA ends.
+The fixture owns its output pass and submits decoding and drawing together.
+The software fixture separately verifies the CPU-image upload path.

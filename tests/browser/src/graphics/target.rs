@@ -1,6 +1,6 @@
+use crate::software::SoftwareFrame;
 use futures_channel::oneshot;
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
-use relocade_vga::VideoFrame;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -104,7 +104,7 @@ impl Target {
 
     pub async fn present(
         &mut self,
-        frame: &VideoFrame,
+        frame: &SoftwareFrame,
         size: [u32; 2],
     ) -> Result<Presented, String> {
         let output = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -183,7 +183,7 @@ impl Drop for Target {
     }
 }
 
-async fn read_first_pixel(
+pub(super) async fn read_first_pixel(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
