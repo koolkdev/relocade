@@ -2001,8 +2001,6 @@ dependencies = [
 name = "relocade-app"
 version = "0.0.0"
 dependencies = [
- "futures-channel",
- "wasm-bindgen-test",
  "winit",
 ]
 

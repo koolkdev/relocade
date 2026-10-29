@@ -7,7 +7,6 @@ pub use winit;
 #[cfg_attr(target_arch = "wasm32", path = "platform/web.rs")]
 mod platform;
 
-use std::future::Future;
 use winit::{
     application::ApplicationHandler,
     error::EventLoopError,
@@ -20,18 +19,12 @@ use winit::{
 /// The application and factory need not be `Send`; window creation, event
 /// handling and cleanup belong in the application's winit callbacks.
 ///
-/// Returns a notification to await before asynchronous shutdown work:
-/// `let exited = run(create)?; exited.await;`.
-///
-/// Native desktops run until the event loop exits, then return a ready notification.
-/// Browsers register callbacks and return immediately; the notification completes
-/// after the application's `exiting` callback returns. Await it from a browser
-/// executor such as `wasm_bindgen_futures::spawn_local`, without blocking main.
-/// Dropping the notification does not stop the application.
+/// Native platforms run until the event loop exits. Browsers register callbacks
+/// and return immediately; returning `Ok(())` there means startup, not completion.
 /// This function creates no workers and does not configure rendering or execution.
 pub fn run<T: 'static, A: ApplicationHandler<T> + 'static>(
     create: impl FnOnce(EventLoopProxy<T>) -> A,
-) -> Result<impl Future<Output = ()> + 'static, EventLoopError> {
+) -> Result<(), EventLoopError> {
     let event_loop = EventLoop::<T>::with_user_event().build()?;
     let application = create(event_loop.create_proxy());
     platform::run(event_loop, application)
