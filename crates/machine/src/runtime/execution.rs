@@ -90,8 +90,7 @@ async fn execute<T>(
         }
         // A replacement waiter supplies one budget, applied after the
         // pending service returns. Ordinary waits do not replenish it.
-        let outcome = machine.dispatch(replacement_budget.take());
-        match outcome {
+        match machine.dispatch(replacement_budget.take()) {
             ExecutionExit::Host(HostExit::Call { address: next }) => address = next,
             exit => break exit,
         }

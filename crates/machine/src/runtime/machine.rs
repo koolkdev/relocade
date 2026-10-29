@@ -47,17 +47,9 @@ impl<T> Machine<T> {
     pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
         self.set_budget(budget);
         // This call does not suspend; each return to guest dispatch polls again.
-        let vector = match self.poll_interrupt(&mut Context::from_waker(Waker::noop())) {
-            Poll::Ready(vector) => Some(vector),
-            Poll::Pending => None,
-        };
-        self.enter(vector)
-    }
-
-    fn enter(&mut self, vector: Option<u8>) -> ExecutionExit {
-        let mut exit = match vector {
-            Some(vector) => self.dispatch.interrupt(&mut self.backend, vector),
-            None => self.dispatch.run(&mut self.backend),
+        let mut exit = match self.poll_interrupt(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(vector) => self.dispatch.interrupt(&mut self.backend, vector),
+            Poll::Pending => self.dispatch.run(&mut self.backend),
         };
         while exit == ExecutionExit::InterruptInhibited {
             exit = self.dispatch.step(&mut self.backend);
