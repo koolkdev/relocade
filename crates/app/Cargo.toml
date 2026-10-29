@@ -7,3 +7,9 @@ publish.workspace = true
 
 [dependencies]
 winit = "=0.30.13"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-channel = "=0.3.34"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"
