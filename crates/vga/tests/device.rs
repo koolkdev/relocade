@@ -135,7 +135,9 @@ fn sequencer_readback_preserves_defined_fields_and_selects_supported_registers()
     for (index, written, mask, expected) in [
         (0, 0xfc, 0x03, 0),
         (1, 0xff, 0x3d, 0x3d),
-        (2, 0xaa, 0xff, 0xff),
+        (2, 0xaa, 0x0f, 0x0a),
+        (3, 0xff, 0x3f, 0x3f),
+        (4, 0xff, 0x0e, 0x0e),
     ] {
         vga.write_port(0x3c4, 2, u32::from(u16::from_le_bytes([index, written])));
         assert_eq!(vga.read_port(0x3c5, 1) & mask, expected);

@@ -14,8 +14,16 @@ execution worker. It is not the display-output API.
 
 `registers/` owns port decoding, CRTC protection and register storage. Public
 port addresses, indices and `text_mode` values are shared with BIOS programming.
-BIOS mode setting holds sequencer reset, unlocks timing registers, restores the
+The register model includes the Graphics Controller, Attribute Controller,
+six-bit DAC palette, all five sequencer registers and all 25 CRTC registers.
+Attribute writes alternate index/data at 3C0; reading the active Input Status 1
+port resets that phase. DAC RGB transfers increment their palette address after
+three components and restart when software selects another address. These port
+protocols are independent of frame delivery. Graphics addressing and programmable
+pixel interpretation are implemented separately from register access.
+BIOS mode setting holds sequencer reset, restores clock controls and the CRTC
 preset with protection last, initializes pages/cursors, and releases reset.
+Restoring the other register banks is part of BIOS graphics-mode support.
 
 `timing.rs` models the nominal text raster: 25.175 MHz, 800 dots per line,
 449 lines per frame, 640 by 400 active dots, and vertical retrace on lines

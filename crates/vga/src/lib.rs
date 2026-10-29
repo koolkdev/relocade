@@ -142,13 +142,10 @@ impl<C: Clock> Device for Vga<C> {
     fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
         self.advance();
         let mut value = [0; 4];
+        let raster_status = self.timing.status(self.clock.now());
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
             let port = port.wrapping_add(index as u16);
-            *byte = if port == self.registers.status_port() {
-                self.timing.status(self.clock.now())
-            } else {
-                self.registers.read_port(port)
-            };
+            *byte = self.registers.read_port(port, raster_status);
         }
         u32::from_le_bytes(value)
     }
