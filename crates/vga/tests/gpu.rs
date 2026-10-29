@@ -3,6 +3,8 @@
 mod common;
 #[path = "gpu/parity.rs"]
 mod parity;
+#[path = "gpu/recording.rs"]
+mod recording;
 #[path = "support/software.rs"]
 mod software;
 

@@ -2,7 +2,7 @@ use super::{guest, request, target::read_first_pixel};
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::join, FutureExt, StreamExt};
 use relocade_machine::{timer_service, worker::Thread};
-use relocade_renderer::{Image, ImageBlitter};
+use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::VgaRenderer;
 use std::{
     sync::{
@@ -40,9 +40,8 @@ pub async fn gpu_workers() -> Result<(), String> {
             let instance = wgpu::Instance::default();
             let adapter = instance.request_adapter(&Default::default()).await.unwrap();
             let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-            let mut renderer = VgaRenderer::new(device.clone(), queue.clone()).unwrap();
-            let mut blitter =
-                ImageBlitter::new(device.clone(), queue.clone(), Image::FORMAT).unwrap();
+            let mut vga_renderer = VgaRenderer::new(&device, &queue).unwrap();
+            let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
             let mut barrier = Some((selected, allowed));
             while let Some(size) = incoming.next().await {
                 let capture = worker_source.current_capture().unwrap();
@@ -50,11 +49,31 @@ pub async fn gpu_workers() -> Result<(), String> {
                     selected.send(capture.sequence).unwrap();
                     allowed.await.unwrap(); // Hold graphics work, not guest execution.
                 }
-                let frame = renderer.render(&capture);
+                let mut encoder = device.create_command_encoder(&Default::default());
+                let frame = vga_renderer.encode(&queue, &mut encoder, &capture);
                 render_count.fetch_add(1, Ordering::Release);
                 let output = Image::new(&device, size, (1, 1)).unwrap();
-                blitter.blit(&frame.image, output.view(), size).unwrap();
-                // Only this assertion reads pixels back. The renderer and blitter
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: output.view(),
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        ..Default::default()
+                    });
+                    renderer.draw_image(
+                        &mut pass,
+                        &frame.image,
+                        fit_image(&frame.image, Rect::from_size(size)),
+                    );
+                }
+                queue.submit([encoder.finish()]);
+                // Only this assertion reads pixels back. Decoding and drawing
                 // normally keep the entire image on the GPU.
                 let pixel = read_first_pixel(&device, &queue, output.texture()).await;
                 report

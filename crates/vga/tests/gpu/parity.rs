@@ -1,7 +1,7 @@
 use super::software;
 use super::{capture, common, pixel, read_pixels};
 use relocade_machine::Device;
-use relocade_renderer::{Image, ImageBlitter};
+use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::{
     registers::{crtc, sequencer, COLOR_INPUT_STATUS_1_PORT, SEQUENCER_INDEX_PORT},
     CapturedFrame, TextCell, TextCursor, Vga, VgaRenderer, TEXT_MEMORY_START,
@@ -15,7 +15,9 @@ async fn compare(
     capture: Arc<CapturedFrame>,
 ) -> Vec<u8> {
     let software = software::rasterize(&capture);
-    let frame = renderer.render(&capture);
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let frame = renderer.encode(queue, &mut encoder, &capture);
+    queue.submit([encoder.finish()]);
     let pixels = read_pixels(device, queue, frame.image.texture()).await;
     assert_eq!(pixels.len(), software.pixels.len());
     for (index, (actual, expected)) in pixels
@@ -34,7 +36,7 @@ async fn check_parity() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-    let mut renderer = VgaRenderer::new(device.clone(), queue.clone()).unwrap();
+    let mut renderer = VgaRenderer::new(&device, &queue).unwrap();
     for blink_on in [true, false] {
         let mut input = capture();
         input.blink_on = blink_on;
@@ -143,12 +145,30 @@ async fn check_parity() {
 
     // The decoder can be destroyed: different attachment sizes still use its
     // retained GPU image. Resizing cannot request a second VGA decode.
-    let image = renderer.render(&page).image.clone();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let image = renderer.encode(&queue, &mut encoder, &page).image;
+    queue.submit([encoder.finish()]);
     drop(renderer);
-    let mut blitter = ImageBlitter::new(device.clone(), queue.clone(), Image::FORMAT).unwrap();
+    let mut drawing = Renderer::new(device.clone(), Image::FORMAT).unwrap();
     for size in [[640, 480], [320, 240]] {
         let output = Image::new(&device, size, (1, 1)).unwrap();
-        blitter.blit(&image, output.view(), size).unwrap();
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: output.view(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            drawing.draw_image(&mut pass, &image, fit_image(&image, Rect::from_size(size)));
+        }
+        queue.submit([encoder.finish()]);
         let pixels = read_pixels(&device, &queue, output.texture()).await;
         assert_eq!(&pixels[..4], [255, 255, 85, 255]);
         assert_eq!(&pixels[pixels.len() - 4..], [0, 0, 0, 255]);

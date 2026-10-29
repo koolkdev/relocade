@@ -196,8 +196,98 @@ async fn check_pixels() {
         ))
     ));
     check_gpu_image_and_placement(&device, &queue).await;
+    check_shared_output(&device, &queue).await;
     #[cfg(not(target_arch = "wasm32"))]
     check_text_screen(&device, &queue).await;
+}
+
+async fn check_shared_output(device: &wgpu::Device, queue: &wgpu::Queue) {
+    let red = Image::new(device, [1, 1], (1, 1)).unwrap();
+    red.upload(queue, &[170, 0, 0, 255]).unwrap();
+    let green = Image::new(device, [1, 1], (1, 1)).unwrap();
+    green.upload(queue, &[0, 170, 0, 255]).unwrap();
+    let output = Image::new(device, [12, 8], (1, 1)).unwrap();
+    let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        // The caller initializes the attachment before a separate, preserving pass.
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: output.view(),
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 170.0 / 255.0,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+    }
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: output.view(),
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        pass.set_scissor_rect(2, 1, 8, 6);
+        renderer.draw_image(
+            &mut pass,
+            &red,
+            Rect {
+                x: 1.0,
+                y: 2.0,
+                width: 4.0,
+                height: 3.0,
+            },
+        );
+        let destination = fit_image(
+            &green,
+            Rect {
+                x: 6.0,
+                y: 0.0,
+                width: 6.0,
+                height: 4.0,
+            },
+        );
+        assert_eq!(
+            destination,
+            Rect {
+                x: 7.0,
+                y: 0.0,
+                width: 4.0,
+                height: 4.0,
+            }
+        );
+        renderer.draw_image(&mut pass, &green, destination);
+        renderer.draw_image(&mut pass, &red, Rect::from_size([0, 8]));
+    }
+    queue.submit([encoder.finish()]);
+    let pixels = read_pixels(device, queue, output.texture()).await;
+    for y in 0..8 {
+        for x in 0..12 {
+            let expected = if (2..5).contains(&x) && (2..5).contains(&y) {
+                [170, 0, 0, 255]
+            } else if (7..10).contains(&x) && (1..4).contains(&y) {
+                [0, 170, 0, 255]
+            } else {
+                [0, 0, 170, 255]
+            };
+            assert_eq!(pixels[y * 12 + x], expected, "pixel ({x}, {y})");
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

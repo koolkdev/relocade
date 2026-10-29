@@ -32,6 +32,12 @@ including GPU readback, resizing and browser OffscreenCanvas presentation.
 Closing VGA leaves the surface alive and the last capture renderable; the fixture
 app closes its request channel separately to end presentation and drop resources.
 
+The [GPU text fixture](src/graphics/gpu.rs) uses the same guest with explicitly
+requested GPU decoding on a separate worker. The fixture records VGA decoding
+and image drawing into one command encoder, owns its output pass, and submits
+the batch. It checks bounded requests, guest progress while graphics is held,
+and rendering retained captures after execution ends, without owning a surface.
+
 The [DOS fixture](src/dos.rs) explicitly assembles its own rendering worker and
 reuses the concrete GPU target. It checks direct VGA output, DOS input/echo,
 final writes at process exit, paused redraws and a later launch in the same DOS

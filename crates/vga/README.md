@@ -99,8 +99,14 @@ DOS, CPU-upload and explicit worker fixtures use that reference. The GPU suite
 compares complete images against it and retains literal glyph, palette, cursor,
 blink, blanking and page-selection expectations.
 
+Recording checks combine decoding and drawing in one caller submission, discard
+and retry an update, and resize a retained GPU image after dropping its decoder.
+The shared renderer's pixel checks draw two images into one loaded attachment,
+with explicit placement and a caller scissor, preserving untouched pixels.
+
 The [GPU worker fixture](../../tests/browser/src/graphics/gpu.rs) explicitly
 assembles execution and graphics workers with a bounded request channel. It
 creates no surface and checks that paused or slow rendering leaves the guest
 running, demand stays bounded, and captured images remain usable after VGA ends.
+The fixture owns its output pass and submits decoding and drawing together.
 The software fixture separately verifies the CPU-image upload path.
