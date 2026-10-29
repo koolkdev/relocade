@@ -79,15 +79,23 @@ CPU/environment state or installing modules and hooks. Use owned input/output
 handles and `cpu.memory()` for interactive I/O and display. Dropping the CPU
 releases the suspended call chain and its machine together.
 
-Create a persistent DOS session and its CPU with `Dos::new(runner.clock().clone()).await`, then
+Create a persistent DOS session inside the main activity with
+`Dos::new(runner).await`, then
 mount filesystems and retain console handles before `launch_com(...)` or
 `launch_mz(...)`. These synchronous launches reuse the CPU and guest memory.
-Use `dos.process()` to retain the current program and inspect its `ProcessStatus`.
+Use `dos.run(runner).await` for its exit code and `dos.process()` to inspect its
+`ProcessStatus`.
 It returns `None` before the first launch; an exited process remains observable.
 A launch while active returns `LaunchError::ProcessActive`, including when a
 service is pending. Normal DOS termination releases process resources while the
 session's mounts, directories, memory and console remain available. Launch does
 not cancel a program. Guest break handling and nested EXEC are separate DOS work.
+`Dos::new` registers VGA with the runner, so video continues during input waits and
+between launches without a separate video task in application code.
+`dos.display()` returns the same completed-frame feed across launches. Keep the
+main session alive after process exit to capture final writes at the next hardware
+boundary. The [headless DOS fixture](../../../tests/browser/src/dos.rs) exercises
+this with an independent renderer on native threads and in the browser.
 
 ## Event-loop scheduling
 

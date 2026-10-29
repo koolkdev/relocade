@@ -26,6 +26,12 @@ The [execution-worker fixture](src/runner.rs) receives host timer notifications
 during busy CPU execution and suspended services, stops either case, and checks
 that local CPU state is destroyed before shutdown completes.
 
+The [DOS session check](src/dos.rs) uses the production DOS/runner assembly and a
+separate headless graphics worker. It covers guest VGA writes during busy execution,
+a deliberately slow consumer, frames during a real DOS input wait, final writes
+after process exit, a second launch on the same output, and explicit session stop.
+DOS service semantics and error translation remain in the native DOS suites.
+
 From this directory:
 
 ```sh

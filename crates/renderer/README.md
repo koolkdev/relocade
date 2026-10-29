@@ -14,7 +14,7 @@ the same. Skip surface acquisition while the window/canvas has zero size.
 VGA publishes ready-to-present pixel frames:
 
 ```rust,ignore
-let display = vga.borrow().display(); // VGA is registered with the machine runner.
+let display = dos.display();
 let mut renderer = relocade_renderer::Renderer::new(device, queue, format)?;
 
 // On the renderer worker, retain the latest completed frame:
