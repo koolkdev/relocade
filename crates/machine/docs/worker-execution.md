@@ -116,7 +116,7 @@ Budget checks remain at block boundaries; they provide
 
 Register VGA through `runner.connect(vga, [MEMORY_RANGE], PORT_RANGES)`.
 The runner drives its device activity throughout the main session, including CPU
-service waits and gaps between programs. VGA follows fixed text-mode raster
+service waits and gaps between programs. VGA follows its programmed raster
 timing and rasterizes on this owner; its `Display` publishes immutable RGBA
 frames to other workers.
 Application rendering has its own schedule and reads `display.current_frame()` or awaits

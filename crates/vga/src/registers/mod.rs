@@ -87,6 +87,15 @@ impl Registers {
         }
     }
 
+    pub fn oscillator_hz(&self) -> u64 {
+        // IBM VGA has two on-board oscillators. External clock inputs are not connected.
+        match (self.miscellaneous >> 2) & 3 {
+            0 => 25_175_000,
+            1 => 28_322_000,
+            _ => 0,
+        }
+    }
+
     pub fn video_memory_enabled(&self) -> bool {
         // Miscellaneous Output bit 1 enables CPU access to display RAM.
         self.miscellaneous & (1 << 1) != 0

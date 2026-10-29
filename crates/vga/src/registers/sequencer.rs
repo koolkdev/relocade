@@ -88,4 +88,26 @@ impl Sequencer {
         };
         self.register(MAP_MASK) & addressed
     }
+
+    pub fn reset_active(&self) -> bool {
+        self.register(RESET) != RESET_RELEASED
+    }
+
+    pub fn dots_per_character(&self) -> u64 {
+        // SR01 bit 0 selects eight dots when set, nine when clear.
+        if self.register(CLOCKING_MODE) & 1 == 0 {
+            9
+        } else {
+            8
+        }
+    }
+
+    pub fn dot_clock_divisor(&self) -> u64 {
+        // SR01 bit 3 divides the oscillator by two before generating dot clocks.
+        if self.register(CLOCKING_MODE) & 8 == 0 {
+            1
+        } else {
+            2
+        }
+    }
 }

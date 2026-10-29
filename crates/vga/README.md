@@ -1,6 +1,6 @@
 # VGA text display
 
-`Vga` owns video memory, hardware registers, fixed text-mode timing, and pixel
+`Vga` owns video memory, hardware registers, programmable raster timing, and pixel
 generation on the execution worker. The machine maps `A0000..BFFFF` as MMIO and
 connects the same device to `MEMORY_RANGE` and `PORT_RANGES`. BIOS data stays
 in system RAM; BIOS output, DOS output and direct guest writes share VGA memory.
@@ -37,18 +37,21 @@ BIOS mode setting holds sequencer reset, restores clock controls and the CRTC
 preset with protection last, initializes pages/cursors, and releases reset.
 Restoring the other register banks is part of BIOS graphics-mode support.
 
-`timing.rs` models the nominal text raster: 25.175 MHz, 800 dots per line,
-449 lines per frame, 640 by 400 active dots, and vertical retrace on lines
-412 through 413. This produces about 70.086 frames per second. Input Status 1
-reports display disable and retrace from the shared clock, including during a
-synchronous CPU polling loop. Port selection follows the color/monochrome bit.
-Timing register writes retain readback but do not reprogram this initial raster.
-Programmable clocks, totals, reset/reconfiguration timing and graphics modes are
-outside this milestone. Sequencer screen-off blanks output while frames continue.
+`timing.rs` decodes the programmed clocks, totals, display intervals and vertical
+retrace. `raster.rs` owns the live dot position, fractional progress and frame
+count. The default 25.175-MHz, 800-by-449 raster runs at about 70.086 Hz. The
+second oscillator is 28.322 MHz; external clock selections stop the raster.
+Sequencer reset holds the counters at zero. Clock division, 8/9-dot character
+width and the CRTC vertical-counter divider affect timing independently of
+character height and scanline repetition.
 
-Completed boundaries are counted with integer oscillator arithmetic. Deadlines
-are calculated from the device's origin and rounded up, so timer rounding does
-not accumulate drift. Cursor and attribute blink toggle every 16 retraces.
+Input Status 1 reports inverted display enable and vertical retrace, including
+inside a synchronous CPU polling loop. Register writes first account for elapsed
+time under the old configuration, then update the live counters and notify the
+async activity to replace its deadline. Sequencer screen-off blanks output while
+frames continue. Integer oscillator arithmetic carries fractional progress and
+rounds deadlines up; repeated polling does not accumulate timer rounding drift.
+Cursor and attribute blink toggle every 16 retraces.
 The current timebase is host elapsed time, shared with CPU services and devices;
 it is not a cycle-timed CPU model.
 

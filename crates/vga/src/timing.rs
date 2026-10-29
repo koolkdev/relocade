@@ -1,85 +1,132 @@
-//! Fixed raster timing for the initial 80-by-25 text mode.
-//! Register programming is retained for readback; programmable timing is separate.
+//! Decoded raster counts and exact conversion between time and dot clocks.
+//! Register encodings are interpreted by the register owners.
 
+use crate::registers::Registers;
 use std::time::Duration;
 
-const DOTS_PER_SECOND: u128 = 25_175_000;
-const NANOS_PER_SECOND: u128 = 1_000_000_000;
-const DOTS_PER_LINE: u128 = 800;
-const VISIBLE_DOTS: u128 = 640;
-const LINES_PER_FRAME: u128 = 449;
-const VISIBLE_LINES: u128 = 400;
-const RETRACE_START_LINE: u128 = 412;
-const RETRACE_END_LINE: u128 = 414;
-const DOTS_PER_FRAME: u128 = DOTS_PER_LINE * LINES_PER_FRAME;
-const FIRST_FRAME_DOTS: u128 = RETRACE_START_LINE * DOTS_PER_LINE;
+const NANOS_PER_SECOND: u64 = 1_000_000_000;
 
-/// Counts completed retrace boundaries on the shared session timebase.
-/// Absolute oscillator arithmetic keeps timer rounding from accumulating drift.
+/// Horizontal values count dot clocks; vertical values count increments
+/// of the vertical counter. `scanlines_per_vertical_count` relates that counter
+/// to physical scanlines. Character height does not multiply the totals.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct Timing {
-    origin: Duration,
-    pub completed_frames: u64,
+    /// Zero while reset holds the counters or the selected input is disconnected.
+    oscillator_hz: u64,
+    dot_clock_divisor: u64,
+    pub dots_per_character: u64,
+    pub horizontal_total: u64,
+    pub horizontal_display: u64,
+    pub horizontal_display_skew: u64,
+    pub vertical_total: u64,
+    pub vertical_display: u64,
+    pub scanlines_per_vertical_count: u64,
+    vertical_retrace_start: u64,
+    vertical_retrace_end_low_bits: u64,
+    pub reset_active: bool,
+    sync_enabled: bool,
 }
 
 impl Timing {
-    pub fn new(origin: Duration) -> Self {
+    pub fn new(registers: &Registers) -> Self {
+        let crtc = &registers.crtc;
+        let sequencer = &registers.sequencer;
+        let reset_active = sequencer.reset_active();
         Self {
-            origin,
-            completed_frames: 0,
+            oscillator_hz: if reset_active {
+                0
+            } else {
+                registers.oscillator_hz()
+            },
+            dot_clock_divisor: sequencer.dot_clock_divisor(),
+            dots_per_character: sequencer.dots_per_character(),
+            horizontal_total: crtc.horizontal_total() * sequencer.dots_per_character(),
+            horizontal_display: crtc.horizontal_display() * sequencer.dots_per_character(),
+            horizontal_display_skew: crtc.horizontal_display_skew()
+                * sequencer.dots_per_character(),
+            vertical_total: crtc.vertical_total(),
+            vertical_display: crtc.vertical_display(),
+            scanlines_per_vertical_count: crtc.scanlines_per_vertical_count(),
+            vertical_retrace_start: crtc.vertical_retrace_start(),
+            vertical_retrace_end_low_bits: crtc.vertical_retrace_end_low_bits(),
+            reset_active,
+            sync_enabled: crtc.sync_enabled(),
         }
     }
 
-    fn elapsed_dots(&self, now: Duration) -> u128 {
-        now.saturating_sub(self.origin).as_nanos() * DOTS_PER_SECOND / NANOS_PER_SECOND
+    pub fn clock_running(self) -> bool {
+        self.oscillator_hz != 0
     }
 
-    /// Account for elapsed frames; return whether a newer boundary was crossed.
-    pub fn advance_to(&mut self, now: Duration) -> bool {
-        let dots = self.elapsed_dots(now);
-        if dots < FIRST_FRAME_DOTS {
-            return false;
-        }
-        let frames = u64::try_from(1 + (dots - FIRST_FRAME_DOTS) / DOTS_PER_FRAME)
-            .expect("VGA frame sequence fits in u64");
-        if frames <= self.completed_frames {
-            return false;
-        }
-        self.completed_frames = frames;
-        true
+    pub fn frame_dots(self) -> u64 {
+        self.horizontal_total * self.vertical_total * self.scanlines_per_vertical_count
     }
 
-    fn frame_time(&self, frame: u64) -> Duration {
-        let dots = FIRST_FRAME_DOTS + u128::from(frame - 1) * DOTS_PER_FRAME;
-        let nanos = (dots * NANOS_PER_SECOND).div_ceil(DOTS_PER_SECOND);
-        self.origin
-            + Duration::new(
-                (nanos / NANOS_PER_SECOND) as u64,
-                (nanos % NANOS_PER_SECOND) as u32,
+    /// Dot position of the retrace boundary that completes a frame.
+    pub fn frame_boundary(self) -> Option<u64> {
+        (self.clock_running()
+            && self.sync_enabled
+            && self.vertical_retrace_start < self.vertical_total)
+            .then_some(
+                self.vertical_retrace_start
+                    * self.scanlines_per_vertical_count
+                    * self.horizontal_total,
             )
     }
 
-    pub fn completed_at(&self) -> Duration {
-        self.frame_time(self.completed_frames)
+    // Fractional dot position is numerator / phase_denominator(). An
+    // elapsed nanosecond adds oscillator_hz to that numerator. Keeping the
+    // division remainder avoids rounding every dot period to nanoseconds.
+    fn phase_denominator(self) -> u64 {
+        NANOS_PER_SECOND * self.dot_clock_divisor
     }
 
-    pub fn next_frame_at(&self) -> Duration {
-        self.frame_time(
-            self.completed_frames
-                .checked_add(1)
-                .expect("VGA frame sequence exhausted"),
-        )
+    /// Returns whole dot clocks and carries the fractional position forward.
+    pub fn elapsed_dots(self, elapsed: Duration, remainder: &mut u64) -> u128 {
+        let numerator =
+            elapsed.as_nanos() * u128::from(self.oscillator_hz) + u128::from(*remainder);
+        let denominator = u128::from(self.phase_denominator());
+        *remainder = (numerator % denominator) as u64;
+        numerator / denominator
     }
 
-    pub fn blink_on(&self) -> bool {
-        self.completed_frames % 32 < 16
+    /// Preserves fractional dot position when clock division changes.
+    pub fn rescale_remainder(self, remainder: u64, old: Self) -> u64 {
+        (u128::from(remainder) * u128::from(self.phase_denominator())
+            / u128::from(old.phase_denominator())) as u64
     }
 
-    pub fn status(&self, now: Duration) -> u8 {
-        let position = self.elapsed_dots(now) % DOTS_PER_FRAME;
-        let line = position / DOTS_PER_LINE;
-        let dot = position % DOTS_PER_LINE;
-        // Input Status 1: inverted display enable (bit 0), vertical retrace (bit 3).
-        u8::from(line >= VISIBLE_LINES || dot >= VISIBLE_DOTS)
-            | (u8::from((RETRACE_START_LINE..RETRACE_END_LINE).contains(&line)) << 3)
+    /// Time represented by whole dot clocks plus fractional progress.
+    /// Round elapsed time down when dating an already completed boundary.
+    pub fn elapsed_for_dots(self, dots: u64, remainder: u64) -> Duration {
+        let numerator =
+            u128::from(dots) * u128::from(self.phase_denominator()) + u128::from(remainder);
+        Duration::from_nanos((numerator / u128::from(self.oscillator_hz)) as u64)
+    }
+
+    /// Time to a future dot boundary, accounting for current progress.
+    /// Round up so the deadline cannot precede the boundary.
+    pub fn remaining_for_dots(self, dots: u64, remainder: u64) -> Duration {
+        let numerator =
+            u128::from(dots) * u128::from(self.phase_denominator()) - u128::from(remainder);
+        Duration::from_nanos(numerator.div_ceil(u128::from(self.oscillator_hz)) as u64)
+    }
+
+    pub fn vertical_retrace_active(self, vertical_count: u64) -> bool {
+        let start = self.vertical_retrace_start;
+        if self.reset_active || !self.sync_enabled || start >= self.vertical_total {
+            return false;
+        }
+        // CRTC compares only the low four counter bits at retrace end. Find the
+        // first match after the start; if the counter resets first, comparison
+        // resumes from zero (IBM VGA Function p2-70).
+        let end_low_bits = self.vertical_retrace_end_low_bits;
+        let first_end_match =
+            start + ((end_low_bits.wrapping_sub(start).wrapping_sub(1) & 0x0f) + 1);
+        if vertical_count >= start {
+            vertical_count < first_end_match
+        } else {
+            first_end_match >= self.vertical_total && vertical_count < end_low_bits
+        }
     }
 }

@@ -1,6 +1,6 @@
 //! VGA device state and scanout for the initial 80-by-25, 8-by-8 color text mode.
 //!
-//! The device owns video memory, VGA registers and fixed text-mode raster timing.
+//! The device owns video memory, VGA registers and programmable raster timing.
 //! Its text aperture is MMIO, independent of system RAM. BIOS bookkeeping belongs to the
 //! BIOS; direct port writes change hardware state without changing that data.
 //! Graphics modes, font/geometry programming, and effects within a scanline
@@ -9,14 +9,17 @@
 
 mod display;
 mod memory;
+mod raster;
 pub mod registers;
 mod scanout;
 mod screen;
 mod timing;
 
 pub use display::{Display, VideoFrame};
-use futures_lite::future::yield_now;
+use event_listener::Event;
+use futures_lite::future::{or, yield_now};
 use memory::VideoMemory;
+use raster::Raster;
 use registers::Registers;
 pub use registers::{CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, Device, TimerHandle};
@@ -41,19 +44,21 @@ pub struct Vga<C = TimerHandle> {
     memory: VideoMemory,
     registers: Registers,
     clock: Rc<C>,
-    timing: Timing,
+    raster: Raster,
+    timing_changed: Event,
     display: Display,
 }
 
 impl<C: Clock> Vga<C> {
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Rc<C>) -> Self {
-        let timing = Timing::new(clock.now());
+        let raster = Raster::new(clock.now());
         Self {
             memory: VideoMemory::default(),
             registers: Registers::default(),
             clock,
-            timing,
+            raster,
+            timing_changed: Event::new(),
             display: Display::new(),
         }
     }
@@ -83,20 +88,23 @@ impl<C: Clock> Vga<C> {
 
     /// Capture any completed boundary before a later guest access changes its state.
     fn advance(&mut self) {
-        if self.timing.advance_to(self.clock.now()) {
+        if let Some(boundary) = self
+            .raster
+            .advance(self.clock.now(), Timing::new(&self.registers))
+        {
             self.display.complete(VideoFrame {
                 width: scanout::WIDTH,
                 height: scanout::HEIGHT,
                 pixels: scanout::render(
                     &self.screen(),
-                    self.timing.blink_on(),
+                    boundary.blink_on,
                     self.registers.sequencer.screen_off(),
                 ),
                 // The logical 640x200 image fills a 4:3 display. Scan doubling is
                 // represented by pixel aspect rather than duplicated image rows.
                 pixel_aspect_ratio: (5, 12),
-                time: self.timing.completed_at(),
-                sequence: self.timing.completed_frames,
+                time: boundary.time,
+                sequence: self.raster.completed_frames,
             });
         }
     }
@@ -109,12 +117,19 @@ impl<C: Clock> Device for Vga<C> {
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
         loop {
-            let deadline = {
+            let (deadline, changed) = {
                 let mut device = device.borrow_mut();
                 device.advance();
-                device.timing.next_frame_at()
+                (
+                    device.raster.next_frame(Timing::new(&device.registers)),
+                    device.timing_changed.listen(),
+                )
             };
-            clock.wait_until(deadline).await;
+            if let Some(deadline) = deadline {
+                or(clock.wait_until(deadline), changed).await;
+            } else {
+                changed.await;
+            }
             yield_now().await;
         }
     }
@@ -147,7 +162,7 @@ impl<C: Clock> Device for Vga<C> {
     fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
         self.advance();
         let mut value = [0; 4];
-        let raster_status = self.timing.status(self.clock.now());
+        let raster_status = self.raster.status(Timing::new(&self.registers));
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
             let port = port.wrapping_add(index as u16);
             *byte = self.registers.read_port(port, raster_status);
@@ -157,9 +172,15 @@ impl<C: Clock> Device for Vga<C> {
 
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
         self.advance();
+        let old = Timing::new(&self.registers);
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             self.registers
                 .write_port(port.wrapping_add(index as u16), *byte);
+        }
+        let new = Timing::new(&self.registers);
+        if old != new {
+            self.raster.reconfigure(old, new);
+            self.timing_changed.notify(usize::MAX);
         }
     }
 }
