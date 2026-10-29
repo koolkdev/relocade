@@ -17,8 +17,8 @@ On native platforms, `run` returns after the event loop exits. In a browser it
 registers the callbacks and returns immediately; the application remains owned
 by winit until exit. An `Ok` return on the browser does not indicate completion.
 
-Workers, CPU/device execution, rendering, surfaces and application communication
-are owned explicitly by consumers. The launcher adds no worker or task protocol.
+The launcher itself creates no workers. CPU/device execution and application
+policy stay with its consumer; the optional graphics host owns one graphics worker.
 
 `Window` owns one native window or attached browser canvas on main. Create it in
 `resumed` using winit's `WindowAttributes`. Feed `window_event` arguments to
@@ -66,3 +66,62 @@ retaining the platform surface target. Drop old attachments and GPU resources
 first, then rebuild them with the new device and format. This never transfers a
 browser canvas again. Acquisition preserves `Lost` and `Validation` statuses;
 replacing the GPU device does not repair a lost platform surface.
+
+`graphics::Graphics` supplies the complete graphics owner when the application
+wants to connect a display to this surface. Its factory creates the display on
+the graphics worker using the same device and queue as the surface. The display
+implements `relocade_peripherals::display::DisplayRenderer`; an existing `Image`
+also works directly. Shared drawing tools remain in `relocade-renderer`, while
+peripheral contracts have their own crate.
+The app crate has no VGA, DOS or machine dependency. The factory runs once and
+can move its source into the display. The connection keeps its logical state
+across GPU replacement and owns any guest-visible loss/reset behavior through
+`device_lost()` and `attach_device(device, queue)`. Replacement is unsupported by
+default; a GPU-only static image needs a source to regenerate its contents.
+
+```rust,ignore
+let (mut graphics, finished) = relocade_app::graphics::Graphics::spawn(
+    window.surface_setup(event_loop)?,
+    move |device, queue| create_display(device, queue),
+    move || { let _ = events.send_event(MyEvent::RedrawNeeded); },
+);
+
+// On RedrawNeeded, resize or expose, schedule window.winit().request_redraw().
+// On winit's RedrawRequested, when the output is drawable:
+graphics.request_redraw(window.state().size);
+
+// Poll `finished` alongside the main event loop to observe errors as they occur.
+// When closing, request shutdown and await completion before releasing the window:
+graphics.close();
+finished.await?;
+```
+
+`notify_redraw_needed` runs on the graphics worker and asks the app to schedule
+a redraw opportunity. On winit's `RedrawRequested`, the app calls
+`graphics.request_redraw(size)` to queue drawing the latest image at that size.
+While a draw is running, later requests replace one pending size. Zero size
+suppresses drawing.
+The application stops requesting redraws when hidden or suspended; outstanding
+work can settle. Graphics handles completion internally and does not start another
+frame without demand. Normal presentation does not wait for GPU completion.
+
+The display's asynchronous `update(queue)` services inputs independently of draws.
+It returns `Some(true)` when a redraw is useful, `Some(false)` for input work that
+does not change visible content, and `None` when its source closes. Graphics submits
+queued uploads even without redraw demand, and coalesces redraw notifications until
+the next request. `encode_image(encoder)` records any GPU work needed for the current
+display image, or returns an existing image for reuse. The host records drawing that
+image later in the same command batch, then submits before another input update or
+encode. The image uses reusable GPU storage; recording does not wait for GPU
+completion. Guest execution stays independent of these host redraws.
+
+Source closure preserves the display and its last image. Closing or dropping the
+graphics connection stops the worker's activity. The separate completion future
+reports startup and GPU errors and retains the worker until its Rust resources
+have been released. Keep polling it through shutdown. Browser work yields to the
+event loop so continuously ready updates cannot starve WebGPU callbacks; this does
+not generate redraw demand. Surface loss is reported, without automatic recreation.
+
+The worker handles source updates, redraw requests and GPU failures in one loop.
+Drawing one frame reports whether presentation was requested, skipped or should
+be retried.

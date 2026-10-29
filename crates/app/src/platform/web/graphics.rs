@@ -50,3 +50,9 @@ impl Post for SurfaceSetup {
         js_sys::Array::of1(&self.0)
     }
 }
+
+/// Gives the browser worker's event loop a turn to dispatch WebGPU events.
+pub(crate) async fn yield_to_host() {
+    // A timer resumes through a browser task; a self-wake can stay in microtasks.
+    futures_timer::Delay::new(std::time::Duration::ZERO).await;
+}

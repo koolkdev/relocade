@@ -35,3 +35,8 @@ impl SurfaceSetup {
         queue.present(frame);
     }
 }
+
+/// Returns control to the Rust executor between batches of ready graphics work.
+pub(crate) async fn yield_to_host() {
+    futures_lite::future::yield_now().await;
+}

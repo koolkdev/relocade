@@ -6,20 +6,27 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-graphics = ["dep:wgpu", "dep:web-thread", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys"]
+graphics = ["dep:wgpu", "dep:web-thread", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys", "dep:futures-channel", "dep:async-channel", "dep:futures-lite", "dep:futures-timer", "dep:relocade-renderer", "dep:relocade-peripherals"]
 
 [dependencies]
 winit = "=0.30.13"
 wgpu = { workspace = true, optional = true }
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"], optional = true }
+futures-channel = { version = "=0.3.34", optional = true }
+async-channel = { version = "=2.5.0", default-features = false, optional = true }
+futures-lite = { version = "=2.6.1", optional = true }
+relocade-renderer = { path = "../renderer", optional = true }
+relocade-peripherals = { path = "../peripherals", features = ["display"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"], optional = true }
 wasm-bindgen = { version = "=0.2.129", optional = true }
 js-sys = { version = "=0.3.106", optional = true }
 web-sys = { version = "=0.3.106", features = ["OffscreenCanvas"], optional = true }
 
 [dev-dependencies]
 futures-channel = "=0.3.34"
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 relocade-renderer = { path = "../renderer" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -36,4 +43,8 @@ web-sys = { version = "=0.3.106", features = ["Window", "Document", "Element", "
 
 [[test]]
 name = "surface"
+required-features = ["graphics"]
+
+[[test]]
+name = "graphics"
 required-features = ["graphics"]
