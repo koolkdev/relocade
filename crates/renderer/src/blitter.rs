@@ -2,7 +2,7 @@ use crate::{FrameError, Image};
 
 /// Nearest-neighbor viewing with centered, aspect-preserving placement.
 /// Owns a draw pipeline and bindings, but no surface, worker or render schedule.
-pub struct Viewer {
+pub struct ImageBlitter {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
@@ -10,7 +10,7 @@ pub struct Viewer {
     binding: Option<(wgpu::Texture, wgpu::BindGroup)>,
 }
 
-impl Viewer {
+impl ImageBlitter {
     /// Output attachments must use this device and format, with one sample.
     pub fn new(
         device: wgpu::Device,
@@ -28,7 +28,7 @@ impl Viewer {
         }
         let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/frame.wgsl"));
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("image viewer"),
+            label: Some("image blitter"),
             layout: None,
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -69,9 +69,9 @@ impl Viewer {
 
     /// Fits the image into `size`, clearing unused borders to opaque black.
     /// `size` must be the extent of the supplied attachment's mip level. The
-    /// attachment must allow `RENDER_ATTACHMENT` and use this viewer's format.
+    /// attachment must allow `RENDER_ATTACHMENT` and use this blitter's format.
     /// Submits work without waiting, changing the source image, or presenting.
-    pub fn draw(
+    pub fn blit(
         &mut self,
         image: &Image,
         target: &wgpu::TextureView,
@@ -109,7 +109,7 @@ impl Viewer {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("image viewer"),
+                label: Some("image blitter"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target,
                     depth_slice: None,

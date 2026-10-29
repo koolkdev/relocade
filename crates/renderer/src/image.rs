@@ -58,7 +58,7 @@ impl Image {
         [self.texture.width(), self.texture.height()]
     }
 
-    /// Pixel width / height, used by the viewer to preserve display proportions.
+    /// Pixel width / height, used by the blitter to preserve display proportions.
     pub fn pixel_aspect_ratio(&self) -> (u32, u32) {
         self.pixel_aspect_ratio
     }
@@ -74,7 +74,7 @@ impl Image {
     }
 
     /// Queues a tightly packed, top-to-bottom RGBA8 CPU image for upload.
-    /// The next queue submission (including a viewer draw) submits this upload.
+    /// The next queue submission (including a blitter draw) submits this upload.
     /// Call `queue.submit([])` if no other GPU work follows.
     pub fn upload(&self, queue: &wgpu::Queue, pixels: &[u8]) -> Result<(), FrameError> {
         let size = self.size();
