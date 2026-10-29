@@ -1,79 +1,77 @@
-use crate::TextScreen;
+//! Pixel generation from programmed display addresses, font RAM and colors.
+//! Raster timing and app presentation are independent of this synchronous work.
 
-const GLYPH_WIDTH: usize = 8;
-const GLYPH_HEIGHT: usize = 8;
-const FONT: &[u8; 256 * GLYPH_HEIGHT] = include_bytes!("../assets/modern-dos-8x8.bin");
+mod text;
 
-// Fixed PC text colors, in text-attribute index order.
-// Each entry is [red, green, blue, alpha]; 0xff alpha is fully opaque.
-const PALETTE: [[u8; 4]; 16] = [
-    [0x00, 0x00, 0x00, 0xff], // 0x0: Black
-    [0x00, 0x00, 0xaa, 0xff], // 0x1: Blue
-    [0x00, 0xaa, 0x00, 0xff], // 0x2: Green
-    [0x00, 0xaa, 0xaa, 0xff], // 0x3: Cyan
-    [0xaa, 0x00, 0x00, 0xff], // 0x4: Red
-    [0xaa, 0x00, 0xaa, 0xff], // 0x5: Magenta
-    [0xaa, 0x55, 0x00, 0xff], // 0x6: Brown
-    [0xaa, 0xaa, 0xaa, 0xff], // 0x7: Light gray
-    [0x55, 0x55, 0x55, 0xff], // 0x8: Dark gray
-    [0x55, 0x55, 0xff, 0xff], // 0x9: Light blue
-    [0x55, 0xff, 0x55, 0xff], // 0xa: Light green
-    [0x55, 0xff, 0xff, 0xff], // 0xb: Light cyan
-    [0xff, 0x55, 0x55, 0xff], // 0xc: Light red
-    [0xff, 0x55, 0xff, 0xff], // 0xd: Light magenta
-    [0xff, 0xff, 0x55, 0xff], // 0xe: Yellow
-    [0xff, 0xff, 0xff, 0xff], // 0xf: White
-];
+use crate::{
+    memory::VideoMemory, raster::Boundary, registers::Registers, timing::Timing, VideoFrame,
+};
+use text::Text;
 
-pub(super) const WIDTH: u32 = (TextScreen::COLUMNS * GLYPH_WIDTH) as u32;
-pub(super) const HEIGHT: u32 = (TextScreen::ROWS * GLYPH_HEIGHT) as u32;
-
-/// Rasterize the supported text screen on the VGA execution owner.
-/// This milestone samples the entire screen at a completed retrace boundary.
-pub(super) fn render(screen: &TextScreen, blink_on: bool, blanked: bool) -> Box<[u8]> {
-    let mut pixels = vec![0; WIDTH as usize * HEIGHT as usize * 4].into_boxed_slice();
-    if blanked {
-        for pixel in pixels.as_chunks_mut::<4>().0 {
-            *pixel = [0, 0, 0, 255];
-        }
-        return pixels;
-    }
-    let cursor = screen.cursor;
-    let cursor_index = usize::from(cursor.address.wrapping_sub(screen.start_address));
-    let cursor_skew = usize::from((cursor.end_scan_line >> 5) & 3);
-    let cursor_visible = blink_on
-        && cursor.start_scan_line & 0x20 == 0
-        && cursor_index < screen.cells.len()
-        && cursor_index % TextScreen::COLUMNS + cursor_skew < TextScreen::COLUMNS;
-    let cursor_start = usize::from(cursor.start_scan_line & 0x1f);
-    let cursor_end = usize::from(cursor.end_scan_line & 0x1f);
-    for (index, cell) in screen.cells.iter().enumerate() {
-        let row = index / TextScreen::COLUMNS;
-        let column = index % TextScreen::COLUMNS;
-        let foreground = PALETTE[usize::from(cell.attribute & 0x0f)];
-        let background = PALETTE[usize::from((cell.attribute >> 4) & 7)];
-        let glyph_visible = blink_on || cell.attribute & 0x80 == 0;
-        let cursor_here = cursor_visible && index == cursor_index + cursor_skew;
-        let glyph_start = usize::from(cell.character) * GLYPH_HEIGHT;
-        for (y, &bits) in FONT[glyph_start..glyph_start + GLYPH_HEIGHT]
-            .iter()
-            .enumerate()
-        {
-            let cursor_line = cursor_here && (cursor_start..=cursor_end).contains(&y);
-            let offset = ((row * GLYPH_HEIGHT + y) * WIDTH as usize + column * GLYPH_WIDTH) * 4;
-            for (x, pixel) in pixels[offset..offset + GLYPH_WIDTH * 4]
-                .as_chunks_mut::<4>()
-                .0
-                .iter_mut()
-                .enumerate()
-            {
-                let lit = cursor_line || (glyph_visible && bits & (0x80 >> x) != 0);
-                pixel.copy_from_slice(if lit { &foreground } else { &background });
-            }
+pub(super) fn render(
+    memory: &VideoMemory,
+    registers: &Registers,
+    boundary: &Boundary,
+) -> VideoFrame {
+    let timing = Timing::new(registers);
+    let width = timing
+        .horizontal_display
+        .min(timing.horizontal_total - timing.horizontal_display_skew) as u32;
+    let height = (timing.vertical_display.min(timing.vertical_total)
+        * timing.scanlines_per_vertical_count) as u32;
+    let mut pixels = vec![0; width as usize * height as usize * 4].into_boxed_slice();
+    let text = Text::new(memory, registers, boundary.blink_on);
+    let crtc = &registers.crtc;
+    let split_line = (crtc.line_compare() + 1) * timing.scanlines_per_vertical_count as u32;
+    let blanked = registers.sequencer.screen_off() || !registers.attribute.output_enabled();
+    for y in 0..height {
+        let split = y >= split_line;
+        let (line, start, preset) = if split {
+            (y - split_line, 0, 0)
+        } else {
+            (y, crtc.start_address(), u32::from(crtc.preset_row_scan()))
+        };
+        let scan = line / crtc.scanline_repetitions() + preset;
+        let row = scan / u32::from(crtc.character_height());
+        let row_scan = (scan % u32::from(crtc.character_height())) as u8;
+        let address = start
+            .wrapping_add((row as u16).wrapping_mul(crtc.row_stride()))
+            .wrapping_add(crtc.byte_panning());
+        let pan = u32::from(
+            registers
+                .attribute
+                .panning(timing.dots_per_character == 9, split),
+        );
+        for x in 0..width {
+            let rgba = if blanked {
+                [0, 0, 0, 255]
+            } else {
+                let dot = x + pan;
+                let column = dot / timing.dots_per_character as u32;
+                let color = text.pixel(
+                    address,
+                    column as u16,
+                    row_scan,
+                    (dot % timing.dots_per_character as u32) as u8,
+                );
+                registers.dac.rgba(registers.attribute.palette_index(color))
+            };
+            let offset = (y as usize * width as usize + x as usize) * 4;
+            pixels[offset..offset + 4].copy_from_slice(&rgba);
         }
     }
-    pixels
+    // VGA modes target a 4:3 monitor. Keep the physical active raster, including
+    // repeated scanlines, and describe its pixel shape to the presenter.
+    let (mut a, mut b) = (4 * height, 3 * width);
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    VideoFrame {
+        width,
+        height,
+        pixels,
+        pixel_aspect_ratio: (4 * height / a, 3 * width / a),
+        time: boundary.time,
+        sequence: boundary.sequence,
+    }
 }
-
-#[cfg(test)]
-mod tests;

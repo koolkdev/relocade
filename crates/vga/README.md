@@ -5,8 +5,13 @@ generation on the execution worker. The machine maps `A0000..BFFFF` as MMIO and
 connects the same device to `MEMORY_RANGE` and `PORT_RANGES`. BIOS data stays
 in system RAM; BIOS output, DOS output and direct guest writes share VGA memory.
 
-The supported image is 80 by 25 cells with fixed 8-by-8 CP437 glyphs, PC colors,
-attribute blinking, hardware cursor shape and skew, and display-start addressing.
+The bootstrap image is 80 by 25 cells with 8-by-8 CP437 glyphs. Text scanout
+reads font bytes from plane two, including separate A/B font banks, programmed
+character height, 8/9-dot cells, line-graphics extension, underline, blinking,
+background intensity and the hardware cursor. The CRTC controls visible geometry,
+row stride, scanline repetition, display-start addressing and split screens;
+Attribute Controller panning shifts the pixels. Attribute palettes, color select,
+plane enables and the six-bit DAC determine the final colors.
 Four 64-KiB planes share CPU read latches. The Graphics Controller selects a
 128/64-KiB graphics aperture or a 32-KiB text aperture, read/compare modes,
 write modes 0–3, rotation, logical operations and pixel masks. Sequencer map
@@ -21,8 +26,8 @@ extended memory restricts each plane to 16 KiB. Original EGA page-selection and
 The initial color text aperture provides eight BIOS pages; character and
 attribute bytes select planes 0 and 1. CRTC word/doubleword addressing transforms
 the display counter into physical plane addresses. Scanout does not modify CPU
-latches. `screen()` copies live text state for inspection on the execution worker.
-It is not the display-output API.
+latches. `screen()` copies an 80-by-25 memory window for BIOS inspection and
+debugging; programmable display geometry is represented by pixel frames.
 
 `registers/` owns port decoding, CRTC protection and register storage. Public
 port addresses, indices and `text_mode` values are shared with BIOS programming.
@@ -60,7 +65,10 @@ VRAM or register changes. Its registered async activity also services deadlines
 while the CPU is idle or awaiting input. No device borrow spans a timer await.
 Late servicing coalesces missed boundaries into the latest completed frame.
 
-`scanout.rs` rasterizes the text snapshot synchronously on the execution worker.
+`scanout.rs` walks programmed display rows on the execution worker;
+`scanout/text.rs` serializes text cells from their character, attribute and font
+planes. VGA defaults include the bootstrap font in plane two. Firmware can upload
+replacement fonts through the ordinary planar aperture.
 This first implementation samples the whole screen at a retrace boundary; it
 does not reconstruct mid-frame changes, hardware fetch pipelines or display-start
 latching. Incremental scanout can replace this implementation without changing
@@ -68,8 +76,11 @@ frame consumers.
 
 `VideoFrame` carries dimensions, tightly packed RGBA8 pixels with sRGB colors and
 opaque alpha, pixel aspect ratio, boundary time, and an increasing sequence.
-The image is 640 by 200 with pixel width/height ratio 5:12, giving a 4:3 display.
-Scan doubling is represented by that ratio instead of duplicating image rows.
+Frames retain physical active raster dimensions, including repeated scanlines.
+The bootstrap image is 640 by 400 with pixel width/height ratio 5:6, giving a 4:3
+display. Programmable modes use the same 4:3 monitor assumption. Graphics
+serialization, programmed blanking intervals and historical mid-frame effects
+are not implemented yet.
 
 The read-only `Display` can cross workers. It retains one immutable
 `Arc<VideoFrame>` without a queue or producer backpressure. Retained images never

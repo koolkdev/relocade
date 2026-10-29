@@ -110,4 +110,22 @@ impl Sequencer {
             2
         }
     }
+
+    /// Physical base of the selected 8-KiB font bank in plane two.
+    pub fn font_base(&self, attribute: u8) -> u16 {
+        if !self.extended_memory() {
+            return 0;
+        }
+        let maps = self.register(CHARACTER_MAP_SELECT);
+        let select = if attribute & 8 != 0 {
+            ((maps >> 2) & 3) | ((maps >> 3) & 4)
+        } else {
+            (maps & 3) | ((maps >> 2) & 4)
+        };
+        (u16::from(select & 3) << 14) | (u16::from(select & 4) << 11)
+    }
+
+    pub fn separate_fonts(&self) -> bool {
+        self.font_base(0) != self.font_base(8)
+    }
 }

@@ -11,10 +11,21 @@ pub(super) struct VideoMemory {
 
 impl Default for VideoMemory {
     fn default() -> Self {
-        Self {
+        let mut memory = Self {
             planes: std::array::from_fn(|_| vec![0; PLANE_BYTES].into_boxed_slice()),
             latches: [0; 4],
+        };
+        // Match the bootstrap text registers. Guests can replace these bytes
+        // through normal plane-two writes; scanout has no private font copy.
+        for (character, glyph) in crate::registers::text_mode::FONT
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .enumerate()
+        {
+            memory.planes[2][character * 32..character * 32 + 8].copy_from_slice(glyph);
         }
+        memory
     }
 }
 
@@ -76,5 +87,9 @@ impl VideoMemory {
             character: self.planes[0][usize::from(address)],
             attribute: self.planes[1][usize::from(address)],
         }
+    }
+
+    pub fn plane(&self, plane: usize, address: u16) -> u8 {
+        self.planes[plane][usize::from(address)]
     }
 }

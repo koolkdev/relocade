@@ -66,4 +66,10 @@ impl Dac {
         self.colors[usize::from(self.address)][self.component] = value & 0x3f;
         self.step();
     }
+
+    pub fn rgba(&self, index: u8) -> [u8; 4] {
+        let [red, green, blue] = self.colors[usize::from(index & self.mask)];
+        let expand = |value: u8| (value << 2) | (value >> 4);
+        [expand(red), expand(green), expand(blue), 255]
+    }
 }

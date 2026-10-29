@@ -15,7 +15,8 @@ pub struct TextCursor {
     pub end_scan_line: u8,
 }
 
-/// An owned snapshot of the VGA text display, independent of BIOS bookkeeping.
+/// An owned 80-by-25 text-memory window for BIOS inspection and debugging.
+/// Programmable display geometry and font output are carried by pixel frames.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TextScreen {
     pub cells: [TextCell; Self::COLUMNS * Self::ROWS],

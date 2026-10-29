@@ -205,7 +205,7 @@ async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
     let pixels = read_pixels(device, queue, &output).await;
     assert_color(pixels[0], [255, 255, 85, 255]);
     assert_color(pixels[8], [0, 0, 0, 255]);
-    assert_color(pixels[640 * 200 - 1], [170, 170, 170, 255]);
+    assert_color(pixels[640 * 400 - 1], [170, 170, 170, 255]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

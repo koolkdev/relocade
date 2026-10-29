@@ -10,6 +10,7 @@ const BLINK_PERIOD_FRAMES: u8 = 2 * BLINK_HALF_PERIOD_FRAMES;
 pub(super) struct Boundary {
     pub time: Duration,
     pub blink_on: bool,
+    pub sequence: u64,
 }
 
 /// Raster position at `updated`. Register writes advance using the old timing
@@ -19,7 +20,7 @@ pub(super) struct Raster {
     dot: u64,
     /// Fractional dot position in the units maintained by `Timing`.
     dot_remainder: u64,
-    pub completed_frames: u64,
+    completed_frames: u64,
 }
 
 impl Raster {
@@ -54,6 +55,7 @@ impl Raster {
             let since_latest_boundary = (advanced % u128::from(frame_dots)) as u64;
             Some(Boundary {
                 time: now - timing.elapsed_for_dots(since_latest_boundary, self.dot_remainder),
+                sequence: self.completed_frames,
                 blink_on: self.completed_frames % u64::from(BLINK_PERIOD_FRAMES)
                     < u64::from(BLINK_HALF_PERIOD_FRAMES),
             })

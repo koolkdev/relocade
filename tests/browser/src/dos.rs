@@ -96,7 +96,7 @@ pub async fn dos_workers() -> Result<(), String> {
         })
         .await;
         let busy_pixels = busy.pixels.to_vec();
-        assert_eq!(busy_pixels.len(), 640 * 200 * 4);
+        assert_eq!(busy_pixels.len(), 640 * 400 * 4);
         slow.send(busy.sequence).unwrap();
         let completed_sequence = render_resume.await.unwrap();
         // Resume on the consumer's schedule and sample the newest completed output.
@@ -161,7 +161,7 @@ pub async fn dos_workers() -> Result<(), String> {
             glyph_top(&retained, 0, [255, 255, 255, 255]),
             [124, 198, 192, 124, 6]
         );
-        assert_eq!(retained.pixels.len(), 640 * 200 * 4);
+        assert_eq!(retained.pixels.len(), 640 * 400 * 4);
     });
     let control = async {
         rendering_done.await.unwrap();

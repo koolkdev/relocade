@@ -5,6 +5,9 @@
 use super::{attribute, crtc, graphics, sequencer};
 
 pub const CHARACTER_HEIGHT: u16 = 8;
+/// Bootstrap CP437 font. Firmware can upload it through the ordinary VGA aperture.
+pub const FONT: &[u8; 256 * CHARACTER_HEIGHT as usize] =
+    include_bytes!("../../assets/modern-dos-8x8.bin");
 /// Color I/O, video RAM enabled, 25.175 MHz oscillator.
 pub const MISC_OUTPUT: u8 = 0x43;
 /// Eight dots per character, undivided clock, screen on.

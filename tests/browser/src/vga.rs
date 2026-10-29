@@ -131,7 +131,7 @@ pub async fn vga_workers() -> Result<(), String> {
             }
             after = Some(frame.sequence);
         };
-        assert_eq!(frame.pixels.len(), 640 * 200 * 4);
+        assert_eq!(frame.pixels.len(), 640 * 400 * 4);
         let retained = frame.pixels.to_vec();
         let mut input = Some(input);
         let mut sequence = frame.sequence;
@@ -183,7 +183,8 @@ struct Input {
 pub(crate) fn glyph_top(frame: &VideoFrame, column: usize, foreground: [u8; 4]) -> [u8; 5] {
     std::array::from_fn(|y| {
         (0..8).fold(0, |bits, x| {
-            let at = (y * frame.width as usize + column * 8 + x) * 4;
+            // The bootstrap font repeats each row on two physical scanlines.
+            let at = (y * 2 * frame.width as usize + column * 8 + x) * 4;
             (bits << 1) | u8::from(frame.pixels[at..at + 4] == foreground)
         })
     })

@@ -83,9 +83,9 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     tick(&clock, video.as_mut(), boundary(1));
     let first = display.current_frame().unwrap();
     assert_eq!(first.time, boundary(1));
-    assert_eq!((first.width, first.height), (640, 200));
-    assert_eq!(first.pixel_aspect_ratio, (5, 12));
-    assert_eq!(first.pixels.len(), 640 * 200 * 4);
+    assert_eq!((first.width, first.height), (640, 400));
+    assert_eq!(first.pixel_aspect_ratio, (5, 6));
+    assert_eq!(first.pixels.len(), 640 * 400 * 4);
     assert_eq!(first.sequence, 1);
     assert_eq!(&first.pixels[..4], [255, 255, 85, 255]);
     assert_eq!(&first.pixels[32..36], [255, 255, 255, 255]);
@@ -179,7 +179,7 @@ fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
     tick(&clock, video.as_mut(), boundary(1));
     let on = display.current_frame().unwrap();
     let pixels = on.pixels.to_vec();
-    let cursor = (6 * 640 + 8) * 4;
+    let cursor = (12 * 640 + 8) * 4;
     assert_eq!(&pixels[..4], [170, 0, 0, 255]);
     assert_eq!(&pixels[cursor..cursor + 4], [170, 170, 170, 255]);
     tick(&clock, video.as_mut(), boundary(16)); // Sixteen vertical retraces toggle the blink phase.

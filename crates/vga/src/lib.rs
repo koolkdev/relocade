@@ -1,10 +1,9 @@
-//! VGA device state and scanout for the initial 80-by-25, 8-by-8 color text mode.
+//! VGA registers, planar memory, programmable timing and text pixel output.
 //!
 //! The device owns video memory, VGA registers and programmable raster timing.
 //! Its text aperture is MMIO, independent of system RAM. BIOS bookkeeping belongs to the
 //! BIOS; direct port writes change hardware state without changing that data.
-//! Graphics modes, font/geometry programming, and effects within a scanline
-//! are not implemented yet.
+//! Graphics serialization and effects within a scanline are not implemented yet.
 #![forbid(unsafe_code)]
 
 mod display;
@@ -39,7 +38,8 @@ pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;
 /// An emulated VGA device owned by the execution worker.
 /// Registers and video memory are ordinary mutable state. Other workers receive
 /// completed frames through [`Display`], without accessing the live device.
-/// New video memory is zeroed. The BIOS initializes its text pages and registers.
+/// The bootstrap text mode includes a font in plane two; other memory is zeroed.
+/// BIOS mode setting initializes text pages and programs the hardware registers.
 pub struct Vga<C = TimerHandle> {
     memory: VideoMemory,
     registers: Registers,
@@ -68,8 +68,9 @@ impl<C: Clock> Vga<C> {
         self.display.clone()
     }
 
-    /// Copies the current device state on its owning worker. The returned screen
-    /// stays stable across later device writes; it does not publish to displays.
+    /// Copies an 80-by-25 text-memory window from the current start address for
+    /// BIOS inspection and debugging. Programmable display geometry and fonts
+    /// are represented by pixel frames, not by this fixed-size memory window.
     pub fn screen(&self) -> TextScreen {
         let crtc = &self.registers.crtc;
         TextScreen {
@@ -92,20 +93,8 @@ impl<C: Clock> Vga<C> {
             .raster
             .advance(self.clock.now(), Timing::new(&self.registers))
         {
-            self.display.complete(VideoFrame {
-                width: scanout::WIDTH,
-                height: scanout::HEIGHT,
-                pixels: scanout::render(
-                    &self.screen(),
-                    boundary.blink_on,
-                    self.registers.sequencer.screen_off(),
-                ),
-                // The logical 640x200 image fills a 4:3 display. Scan doubling is
-                // represented by pixel aspect rather than duplicated image rows.
-                pixel_aspect_ratio: (5, 12),
-                time: boundary.time,
-                sequence: self.raster.completed_frames,
-            });
+            self.display
+                .complete(scanout::render(&self.memory, &self.registers, &boundary));
         }
     }
 }

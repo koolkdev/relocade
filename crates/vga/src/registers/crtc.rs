@@ -195,4 +195,38 @@ impl Crtc {
     pub fn sync_enabled(&self) -> bool {
         self.register(MODE_CONTROL) & (1 << 7) != 0
     }
+
+    pub fn character_height(&self) -> u8 {
+        (self.register(MAXIMUM_SCAN_LINE) & 0x1f) + 1
+    }
+
+    pub fn scanline_repetitions(&self) -> u32 {
+        if self.register(MAXIMUM_SCAN_LINE) & 0x80 != 0 {
+            2
+        } else {
+            1
+        }
+    }
+
+    pub fn preset_row_scan(&self) -> u8 {
+        self.register(PRESET_ROW_SCAN) & 0x1f
+    }
+
+    pub fn byte_panning(&self) -> u16 {
+        u16::from((self.register(PRESET_ROW_SCAN) >> 5) & 3)
+    }
+
+    pub fn row_stride(&self) -> u16 {
+        u16::from(self.register(OFFSET)) * 2
+    }
+
+    pub fn line_compare(&self) -> u32 {
+        u32::from(self.register(LINE_COMPARE))
+            | (u32::from(self.register(OVERFLOW) & 0x10) << 4)
+            | (u32::from(self.register(MAXIMUM_SCAN_LINE) & 0x40) << 3)
+    }
+
+    pub fn underline_scan(&self) -> u8 {
+        self.register(UNDERLINE_LOCATION) & 0x1f
+    }
 }
