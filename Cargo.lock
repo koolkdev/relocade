@@ -1473,10 +1473,14 @@ version = "0.0.0"
 dependencies = [
  "arc-swap",
  "event-listener",
+ "futures-channel",
  "futures-lite",
  "futures-util",
+ "pollster",
  "relocade-machine",
+ "relocade-renderer",
  "wasm-bindgen-test",
+ "wgpu",
 ]
 
 [[package]]

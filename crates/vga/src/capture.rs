@@ -1,4 +1,4 @@
-use crate::{scanout, TextScreen, VideoFrame};
+use crate::{scanout, text, TextScreen, VideoFrame};
 use arc_swap::ArcSwapOption;
 use event_listener::Event;
 use std::{
@@ -29,11 +29,10 @@ impl CapturedFrame {
     /// use a separate worker to keep conversion off the execution worker.
     pub fn rasterize(&self) -> VideoFrame {
         VideoFrame {
-            width: scanout::WIDTH,
-            height: scanout::HEIGHT,
+            width: text::WIDTH,
+            height: text::HEIGHT,
             pixels: scanout::render(&self.screen, self.blink_on, self.blanked),
-            // Represent scan doubling by pixel aspect instead of duplicate rows.
-            pixel_aspect_ratio: (5, 12),
+            pixel_aspect_ratio: text::PIXEL_ASPECT_RATIO,
             time: self.time,
             sequence: self.sequence,
         }
