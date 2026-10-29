@@ -2024,6 +2024,7 @@ dependencies = [
  "js-sys",
  "pollster",
  "relocade-app",
+ "relocade-dos-app",
  "relocade-machine",
  "relocade-renderer",
  "wasm-bindgen",
@@ -2095,6 +2096,25 @@ dependencies = [
  "relocade-vfs",
  "relocade-vga",
  "relocade-x86",
+]
+
+[[package]]
+name = "relocade-dos-app"
+version = "0.0.0"
+dependencies = [
+ "console_error_panic_hook",
+ "futures-lite",
+ "futures-util",
+ "pollster",
+ "relocade-app",
+ "relocade-bios",
+ "relocade-dos",
+ "relocade-machine",
+ "relocade-renderer",
+ "relocade-vga",
+ "wasm-bindgen",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]

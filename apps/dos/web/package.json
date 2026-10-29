@@ -1,0 +1,9 @@
+{
+  "name": "relocade-dos-app-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs && vite build",
+    "dev": "vite --host 127.0.0.1"
+  }
+}

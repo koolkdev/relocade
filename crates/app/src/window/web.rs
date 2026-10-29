@@ -18,12 +18,15 @@ impl BrowserControl {
     }
 }
 
-pub fn control<T: Into<JsValue> + 'static>(control: Control<T>) -> BrowserControl {
+pub fn control<T: 'static>(
+    control: Control<T>,
+    output: impl FnOnce(T) -> JsValue + 'static,
+) -> BrowserControl {
     let proxy = control.proxy.clone();
     let finished = wasm_bindgen_futures::future_to_promise(async move {
         control
             .await
-            .map(|result| result.map(Into::into).unwrap_or(JsValue::UNDEFINED))
+            .map(|result| result.map(output).unwrap_or(JsValue::UNDEFINED))
             .map_err(|error| js_sys::Error::new(&error).into())
     });
     BrowserControl { proxy, finished }
