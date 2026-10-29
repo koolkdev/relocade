@@ -1,5 +1,16 @@
 # VGA text display
 
+Register storage and port access live in `src/registers/`. CRTC indices, write
+protection and cursor fields belong to `crtc.rs`; sequencer reset and clocking
+registers belong to `sequencer.rs`. Miscellaneous Output selects color/monochrome
+CRTC ports and enables CPU access to video RAM. Unsupported registers read FF
+and ignore writes. The public `registers` module gives firmware the same port
+addresses and register names used by the device.
+
+The shared preset in `registers/text_mode.rs` documents the initial register
+bytes alongside their decoded values: 100 eight-dot character clocks per line,
+449 lines per frame, and 640 by 400 active dots. The fixed eight-row text font is double-scanned.
+
 `Vga` owns mutable video memory and hardware registers on the execution worker
 and implements `relocade_machine::Device`. System RAM contains BIOS
 bookkeeping, not the framebuffer. The board maps `B8000..BFFFF` as MMIO and connects
@@ -13,8 +24,9 @@ and attribute planes. Scanout uses the full 16-bit CRTC cell address into two
 
 CRTC indices 0A/0B control cursor shape, visibility and skew; 0C/0D control display
 start; 0E/0F control cursor location. Byte and paired index/data port writes work.
-Other registers currently read FF and ignore writes. Programmable graphics modes,
-font loading, palette programming and display timing are future device work.
+The timing and clock-control registers retain their programmed values. Raster
+progression, programmable graphics modes, font loading and palette programming
+are not implemented yet.
 
 BIOS services maintain their BDA mode, page and per-page cursor data and program
 these registers. Direct guest port writes affect the device without updating the

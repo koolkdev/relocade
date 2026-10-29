@@ -1,7 +1,10 @@
 //! BIOS text-page operations and firmware display data.
 
 use relocade_machine::{IoBus, MemoryView};
-use relocade_vga::{TextScreen, CRTC_INDEX_PORT, TEXT_MEMORY_BYTES, TEXT_MEMORY_START};
+use relocade_vga::{
+    registers::{crtc, text_mode, CRTC_INDEX_PORT},
+    TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
+};
 
 pub(super) const PAGE_BYTES: u32 = 0x1000;
 pub(super) const MODE: u32 = 0x449;
@@ -14,7 +17,6 @@ pub(super) const ACTIVE_PAGE: u32 = 0x462;
 const CRTC_PORT: u32 = 0x463;
 const LAST_ROW: u32 = 0x484;
 const DEFAULT_ATTRIBUTE: u8 = 7;
-const CHARACTER_HEIGHT: u16 = 8;
 
 /// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
 /// CR, LF and backspace move the cursor; other glyphs retain cell attributes.
@@ -41,7 +43,11 @@ pub(super) fn select_page(memory: &mut MemoryView<'_>, io: &IoBus, page: u8) {
     memory
         .write_u16(PAGE_OFFSET, u16::from(page) * PAGE_BYTES as u16)
         .expect("video page offset");
-    write_crtc_word(io, 0x0c, u16::from(page) * (PAGE_BYTES / 2) as u16);
+    write_crtc_word(
+        io,
+        crtc::START_ADDRESS_HIGH,
+        u16::from(page) * (PAGE_BYTES / 2) as u16,
+    );
     update_cursor(memory, io, page);
 }
 
@@ -70,8 +76,8 @@ pub(super) fn set_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u
         .write_u16(CURSOR_SHAPE, shape)
         .expect("video cursor shape");
     let [start, end] = shape.to_be_bytes();
-    write_crtc(io, 0x0a, start);
-    write_crtc(io, 0x0b, end);
+    write_indexed(io, CRTC_INDEX_PORT, crtc::CURSOR_START, start);
+    write_indexed(io, CRTC_INDEX_PORT, crtc::CURSOR_END, end);
 }
 
 fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
@@ -79,12 +85,12 @@ fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
     let position = u16::from(page)
         .wrapping_mul((PAGE_BYTES / 2) as u16)
         .wrapping_add(u16::from(row) * TextScreen::COLUMNS as u16 + u16::from(column));
-    write_crtc_word(io, 0x0e, position);
+    write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, position);
 }
 
-fn write_crtc(io: &IoBus, register: u8, value: u8) {
+fn write_indexed(io: &IoBus, index_port: u16, register: u8, value: u8) {
     io.write_port(
-        CRTC_INDEX_PORT,
+        index_port,
         2,
         u32::from(u16::from_le_bytes([register, value])),
     );
@@ -92,8 +98,8 @@ fn write_crtc(io: &IoBus, register: u8, value: u8) {
 
 fn write_crtc_word(io: &IoBus, register: u8, value: u16) {
     let [high, low] = value.to_be_bytes();
-    write_crtc(io, register, high);
-    write_crtc(io, register + 1, low);
+    write_indexed(io, CRTC_INDEX_PORT, register, high);
+    write_indexed(io, CRTC_INDEX_PORT, register + 1, low);
 }
 
 fn cell_address(page: u8, row: u8, column: u8) -> u32 {
@@ -252,8 +258,10 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     set_cursor_shape(memory, io, 0x0607);
     select_page(memory, io, 0);
     // BIOS data: color CRTC port, last text row and character height.
-    memory.write_u16(CRTC_PORT, 0x3d4).expect("CRTC port");
-    let [height_lo, height_hi] = CHARACTER_HEIGHT.to_le_bytes();
+    memory
+        .write_u16(CRTC_PORT, CRTC_INDEX_PORT)
+        .expect("CRTC port");
+    let [height_lo, height_hi] = text_mode::CHARACTER_HEIGHT.to_le_bytes();
     memory
         .write(
             LAST_ROW,
