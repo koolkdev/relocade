@@ -13,6 +13,8 @@ relocade-dos-app = { path = "../../apps/dos" }
 relocade-app = { path = "../../crates/app", features = ["window"] }
 relocade-machine = { path = "../../crates/machine" }
 relocade-renderer = { path = "../../crates/renderer" }
+relocade-vga = { path = "../../crates/vga" }
+web-time = "=1.1.0"
 wgpu.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -25,4 +27,4 @@ web-sys = { version = "=0.3.106", features = ["DedicatedWorkerGlobalScope"] }
 console_error_panic_hook = "=0.1.7"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-x11rb = "=0.13.2"
+x11rb = { version = "=0.13.2", features = ["xtest"] }

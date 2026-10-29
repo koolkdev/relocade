@@ -57,3 +57,13 @@ the frame to the surface, not GPU completion.
 On the browser graphics worker, each serviced redraw yields through the timer API
 to an event-loop task so canvas presentation and GPU callbacks can progress under
 sustained demand. This is separate from CPU cooperation and VGA refresh timing.
+
+The private surface owner reconfigures outdated/suboptimal output and recreates a
+lost surface on its platform owner: through main on native, on the graphics worker
+using the existing OffscreenCanvas on web. Incompatible recovered surfaces and
+GPU device loss/errors close the session through normal cleanup. Device recreation
+and application-resource rebuilding are outside this one-window harness. A surface
+reporting occlusion waits for another host expose/resume.
+
+`web::control` exposes `stop()` and a `finished` Promise to browser callers. Its
+output-conversion closure maps a completed Rust value into JavaScript.

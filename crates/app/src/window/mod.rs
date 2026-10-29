@@ -6,6 +6,7 @@ mod host;
 mod platform;
 mod redraw;
 mod session;
+mod surface;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 

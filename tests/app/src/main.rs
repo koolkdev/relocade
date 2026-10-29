@@ -1,6 +1,16 @@
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        if std::env::args().nth(1).as_deref() == Some("dos") {
+            let control = relocade_app::open(
+                relocade_app_tests::stress::StressDos::default(),
+                Default::default(),
+            )
+            .unwrap();
+            assert!(pollster::block_on(control).unwrap().is_none());
+            println!("DOS closed");
+            return;
+        }
         let application = relocade_app_tests::TestImage::default();
         let observations = application.observations.clone();
         let result =

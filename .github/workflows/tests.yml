@@ -51,6 +51,7 @@ jobs:
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
           cargo test --workspace --locked
           xvfb-run -a cargo test -p relocade-app-tests --test window --locked -- --ignored
+          xvfb-run -a cargo test -p relocade-app --features window --lib --locked -- --ignored
 
   web:
     name: Browser tests

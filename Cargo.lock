@@ -2027,8 +2027,10 @@ dependencies = [
  "relocade-dos-app",
  "relocade-machine",
  "relocade-renderer",
+ "relocade-vga",
  "wasm-bindgen",
  "web-sys",
+ "web-time",
  "wgpu",
  "x11rb",
 ]
