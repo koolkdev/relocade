@@ -41,13 +41,17 @@ export function cargo(command, args) {
     ]);
 }
 
-export function build() {
+export function buildBindings(packageName, directory) {
     // Match cargo test's optimization while retaining debug assertions and symbols.
-    cargo("build", ["-p", "relocade-browser-tests", "--profile", "test"]);
+    cargo("build", ["-p", packageName, "--lib", "--profile", "test"]);
     run("wasm-bindgen", [
-        path.join(target, "wasm32-unknown-unknown/debug/relocade_browser_tests.wasm"),
-        "--target", "web", "--out-dir", path.join(directory, "pkg"), "--no-typescript",
+        path.join(target, "wasm32-unknown-unknown/debug", `${packageName.replaceAll("-", "_")}.wasm`),
+        "--target", "web", "--out-dir", directory, "--no-typescript",
     ]);
+}
+
+export function build() {
+    buildBindings("relocade-browser-tests", path.join(directory, "pkg"));
 }
 
 if (import.meta.main) build();

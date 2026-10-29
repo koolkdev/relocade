@@ -2165,6 +2165,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-window-example"
+version = "0.0.0"
+dependencies = [
+ "relocade-app",
+ "wasm-bindgen",
+ "web-sys",
+ "x11rb",
+]
+
+[[package]]
 name = "relocade-x86"
 version = "0.0.0"
 dependencies = [

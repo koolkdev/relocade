@@ -1,0 +1,19 @@
+[package]
+name = "relocade-window-example"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+relocade-app = { path = "../../crates/app" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.129"
+web-sys = { version = "=0.3.106", features = ["Window", "Document", "Element", "Node", "HtmlCanvasElement"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = { version = "=0.13.2", features = ["xtest"] }

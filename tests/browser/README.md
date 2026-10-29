@@ -73,6 +73,9 @@ npm run test:backends -- --test memory
 Cargo test filters can also be passed to `npm test`, for example
 `npm test -- --test memory`; the worker checks still run afterward.
 For only the worker checks, run `npm run build && npm run test:workers`.
+The independent main-thread window/canvas example is checked with
+`node window.mjs`. It uses the same build and browser helpers, but creates no
+workers. See [the example](../../examples/window) for interactive launch instructions.
 `npm run dev` opens those checks for manual inspection after building them.
 The build script defaults to `target/browser` and honors `CARGO_TARGET_DIR`.
 Worker fixtures use Cargo's test profile, including optimization and debug

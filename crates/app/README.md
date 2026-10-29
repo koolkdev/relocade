@@ -19,3 +19,6 @@ by winit until exit. An `Ok` return on the browser does not indicate completion.
 
 Workers, CPU/device execution, rendering, surfaces and application communication
 are owned explicitly by consumers. The launcher adds no worker or task protocol.
+
+The [window example](../../examples/window) demonstrates native and browser input,
+resize, redraw and cleanup using a main-thread `ApplicationHandler`.
