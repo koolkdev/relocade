@@ -9,6 +9,9 @@ wasm-runtime, machine, VGA and renderer tests with wasm-bindgen-test, then the w
 integration checks. Both stages run
 through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
+Worker checks also use the workspace's test profile, matching the backend tests'
+optimization while retaining debug assertions and symbols. This matters for the
+CPU and frame-generation work that must progress alongside real-time deadlines.
 
 The worker checks cover Rust channel wakeups after a task returns Pending,
 host timer delivery while an execution worker stays continuously runnable,
