@@ -13,8 +13,9 @@ use std::{
 /// permitted by IF. `Ready(vector)` acknowledges one
 /// request; `Pending` must arrange a wake when a request becomes available.
 ///
-/// Requests are considered at instruction-quantum boundaries. Suspended borrowed
-/// host services finish before another boundary can be considered.
+/// Requests are considered at instruction-quantum boundaries and when a host
+/// service completes and continues guest dispatch. Suspended borrowed host
+/// services finish before another boundary can be considered.
 /// Polling never reenters guest execution.
 /// Keep this source on the execution owner, alongside its devices.
 pub trait InterruptSource {

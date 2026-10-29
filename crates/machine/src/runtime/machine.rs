@@ -47,16 +47,10 @@ impl<T> Machine<T> {
 
     pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
         self.set_budget(budget);
-        // A host continuation within the same quantum does not introduce a new
-        // acceptance point. A replacement run waiter supplies a new quantum.
-        let vector = if budget.is_some() {
-            // This call does not suspend; the next quantum polls again.
-            match self.poll_interrupt(&mut Context::from_waker(Waker::noop())) {
-                Poll::Ready(vector) => Some(vector),
-                Poll::Pending => None,
-            }
-        } else {
-            None
+        // This call does not suspend; each return to guest dispatch polls again.
+        let vector = match self.poll_interrupt(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(vector) => Some(vector),
+            Poll::Pending => None,
         };
         self.enter(vector)
     }
@@ -73,7 +67,7 @@ impl<T> Machine<T> {
     }
 
     pub fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
-        if self.interrupts.is_none() || self.context().cpu.eflags() & (1 << 9) == 0 {
+        if self.interrupts.is_none() || !self.context().cpu.interrupts_enabled() {
             return Poll::Pending;
         }
         self.interrupts.as_mut().unwrap().poll_interrupt(cx)

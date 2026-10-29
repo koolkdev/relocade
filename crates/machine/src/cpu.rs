@@ -116,6 +116,16 @@ impl<'a> CpuView<'a> {
         self.set_eflags((self.eflags() & !1) | u32::from(value));
     }
 
+    /// Whether live IF permits maskable interrupts.
+    pub fn interrupts_enabled(&self) -> bool {
+        self.eflags() & (1 << 9) != 0
+    }
+
+    /// Changes live IF while preserving every other flag.
+    pub fn set_interrupts_enabled(&mut self, enabled: bool) {
+        self.set_eflags((self.eflags() & !(1 << 9)) | (u32::from(enabled) << 9));
+    }
+
     pub fn segment(&self, segment: Segment) -> SegmentRegister {
         SegmentRegister::from_bytes(self.read(segment_offset(segment)))
     }

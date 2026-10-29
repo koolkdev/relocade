@@ -112,8 +112,8 @@ impl<T: 'static> Cpu<T> {
     /// Dropping the CPU drops the suspended call chain and its machine together.
     ///
     /// A connected interrupt source is polled at the start of each nonzero run
-    /// when IF permits entry. Pending borrowed host
-    /// services complete before a replacement run's interrupt check.
+    /// and when a host service completes and continues guest dispatch, subject
+    /// to IF. Pending borrowed host services finish before that interrupt check.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         self.execution.run(instruction_budget).await
     }

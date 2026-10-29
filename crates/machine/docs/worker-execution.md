@@ -119,7 +119,8 @@ owns pending requests, priority, masking and acknowledgement. Its
 registers the supplied waker and returns `Pending`.
 
 Each nonzero `Cpu::run` checks the source before starting its instruction quantum.
-The CPU checks IF before polling, so masked
+Completing a host service also checks before continuing guest dispatch, using
+the remaining budget. The CPU checks IF before polling, so masked
 requests remain with the device/controller. `Runner::run_cpu` supplies those
 quanta without another timer or scheduler. Entry uses the same generated
 real-mode mechanism as software INT, but saves the current IP and retires no

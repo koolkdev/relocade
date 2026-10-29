@@ -10,7 +10,6 @@ use relocade_x86::{
 use std::{
     cell::{Cell, RefCell},
     future::{poll_fn, Future},
-    pin::pin,
     rc::Rc,
     task::{Context, Poll, Waker},
 };
@@ -235,7 +234,7 @@ async fn check_protected_steps() {
     }
 }
 
-async fn check_pending_borrowed_call() {
+async fn check_pending_borrowed_call(replace_waiter: bool) {
     let device = Rc::new(RefCell::new(InterruptDevice::default()));
     let mut cpu = cpu(&[0x90, 0x90, 0xeb, 0xfe], &device, 0x202).await;
     let ready = Rc::new(Cell::new(false));
@@ -260,12 +259,19 @@ async fn check_pending_borrowed_call() {
     .await
     .unwrap();
     let mut cx = Context::from_waker(Waker::noop());
-    assert!(pin!(cpu.run(1)).as_mut().poll(&mut cx).is_pending());
+    let mut run = Box::pin(cpu.run(1));
+    assert!(run.as_mut().poll(&mut cx).is_pending());
     device.borrow_mut().raise();
-    assert!(pin!(cpu.run(1)).as_mut().poll(&mut cx).is_pending());
+    assert!(run.as_mut().poll(&mut cx).is_pending());
     assert_eq!(device.borrow().acknowledged, 0);
     ready.set(true);
-    assert_eq!(cpu.run(1).await, ExecutionExit::Host(HostExit::Return));
+    let exit = if replace_waiter {
+        drop(run);
+        cpu.run(1).await
+    } else {
+        run.await
+    };
+    assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
     assert_eq!(device.borrow().acknowledged, 1);
 }
 
@@ -329,8 +335,11 @@ fn interrupt_entry_reports_guest_stack_faults() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn borrowed_calls_defer_requests_until_the_replacement_quantum() {
-    pollster::block_on(check_pending_borrowed_call());
+fn borrowed_calls_defer_requests_until_completion() {
+    pollster::block_on(async {
+        check_pending_borrowed_call(false).await;
+        check_pending_borrowed_call(true).await;
+    });
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -364,8 +373,9 @@ async fn interrupt_entry_reports_guest_stack_faults() {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn borrowed_calls_defer_requests_until_the_replacement_quantum() {
-    check_pending_borrowed_call().await;
+async fn borrowed_calls_defer_requests_until_completion() {
+    check_pending_borrowed_call(false).await;
+    check_pending_borrowed_call(true).await;
 }
 
 #[cfg(target_arch = "wasm32")]
