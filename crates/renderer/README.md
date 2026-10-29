@@ -11,30 +11,20 @@ frame texture while the source size is unchanged. Changing source or output
 dimensions needs no renderer reconstruction, provided the output format stays
 the same. Skip surface acquisition while the window/canvas has zero size.
 
-VGA captures immutable text inputs for conversion on the graphics worker:
+VGA supplies immutable captured state independently of this pixel presenter.
+The embedding can call `CapturedFrame::rasterize()` when it wants a software
+image, then draw the result:
 
 ```rust,ignore
-let source = vga.borrow().frame_source(); // VGA is registered with the machine runner.
-let mut renderer = relocade_renderer::Renderer::new(device, queue, format)?;
-
-// On the graphics worker, when the app requests a redraw:
-let capture = source.current_capture().expect("first refresh captured");
-let frame = capture.rasterize(); // Run this on the graphics worker.
-// Acquire the surface texture and create its `view` here.
-renderer.render(
-    [frame.width, frame.height],
-    &frame.pixels,
-    &view,
-)?;
-// Present that texture here.
+let frame = capture.rasterize();
+renderer.render([frame.width, frame.height], &frame.pixels, &view)?;
 ```
 
-The execution worker services VGA deadlines and captures immutable text inputs.
-The graphics worker rasterizes, uploads and presents them when requested. The
-browser main thread supplies redraw opportunities and handles canvas events.
-The renderer worker can own the device, queue, surface and presentation lifecycle.
-The embedding supplies platform surface setup and forwards resize/lifecycle
-messages. See the [VGA threading contract](../vga/README.md).
+The [graphics fixture](../../tests/browser/src/graphics.rs) demonstrates doing
+conversion and presentation on one worker separate from CPU/VGA execution.
+The application owns that worker, its request channel, cached pixels and surface.
+Other renderers can read the captured text state directly without producing
+CPU pixels or using this presenter. See the [VGA contract](../vga/README.md).
 
 No emulation state crosses into the GPU renderer. A native window and browser
 canvas use the same pixel-rendering path. Aspect ratio belongs to the embedding's

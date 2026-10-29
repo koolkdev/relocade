@@ -79,9 +79,14 @@ CPU/environment state or installing modules and hooks. Use owned input/output
 handles and `cpu.memory()` for interactive I/O and display. Dropping the CPU
 releases the suspended call chain and its machine together.
 
-Create a persistent DOS session and its CPU with `Dos::new(runner.clock().clone()).await`, then
-mount filesystems and retain console handles before `launch_com(...)` or
-`launch_mz(...)`. These synchronous launches reuse the CPU and guest memory.
+Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
+registers VGA with the runner and shares its timer. Mount filesystems and retain
+console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
+launches reuse the CPU and guest memory. `dos.run(runner).await` returns the current
+process exit code; keeping the main session alive afterwards leaves VGA active
+for final captures and later launches. `dos.frame_source()` exposes the same
+immutable capture source across those launches. Rendering and surface lifetimes
+belong to the embedding and can outlive DOS.
 Use `dos.process()` to retain the current program and inspect its `ProcessStatus`.
 It returns `None` before the first launch; an exited process remains observable.
 A launch while active returns `LaunchError::ProcessActive`, including when a
@@ -110,6 +115,9 @@ Register VGA through `runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES)`.
 The runner drives its device activity throughout the main session, including CPU
 service waits and gaps between programs. VGA follows fixed text-mode raster
 timing and captures immutable text on this owner. Pixel conversion runs on the
-worker receiving those captures, without borrowing the live device.
+worker receiving those captures, without borrowing the live device. The
+[graphics fixture](../../../tests/browser/src/graphics.rs) assembles this with
+`Thread::run_send` and an application-owned request channel. VGA does not create
+workers or own rendering and presentation lifetimes.
 Application redraws cannot advance VGA time. See the
 [VGA contract](../../vga/README.md) and [renderer API](../../renderer/README.md).
