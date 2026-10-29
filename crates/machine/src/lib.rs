@@ -40,6 +40,7 @@ mod config;
 mod cpu;
 mod io;
 mod memory;
+mod runner;
 pub mod runtime;
 
 pub use clock::{timer_service, Clock, TimerDriver, TimerHandle};
@@ -48,6 +49,7 @@ pub use cpu::CpuView;
 pub use io::{Device, DeviceConnection, IoBus};
 pub use memory::{Memory, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::MemoryAccess;
+pub use runner::{yield_now, Runner};
 
 #[cfg(feature = "worker")]
 pub use relocade_wasm_runtime::worker;

@@ -10,6 +10,7 @@ worker = ["relocade-wasm-runtime/worker"]
 
 [dependencies]
 futures-channel = "=0.3.34"
+futures-lite = { version = "=2.6.1", default-features = false }
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 web-time = "=1.1.0"
 relocade-wasm-runtime = { path = "../wasm-runtime" }

@@ -1,9 +1,35 @@
 # Worker execution
 
-An interactive embedding can use one persistent async task owning the guest
-environment and runtime for the session's lifetime. In a browser, this task lives
-in a worker alongside message handlers. The [worker transport](workers.md) supplies
-threads and messages; the application supplies its execution loop and controls.
+`Runner` owns one main execution activity and registered device activities on the
+execution thread. `run` drives them together until the main activity finishes or
+is cancelled. `run_cpu` executes finite instruction quanta and retains a pending
+CPU service across device wakeups. Devices keep running while the main activity
+awaits input or the next program.
+
+Create the [shared timer service](clock.md) on the host, and pass its clock into
+the execution worker. The existing [worker transport](workers.md) supplies threads
+and initial resource transfers:
+
+```rust,ignore
+let (clock, timers) = relocade_machine::timer_service();
+let execution = thread.run_send((), move |()| async move {
+    Runner::with_clock(clock).run(async |runner| {
+        let device = create_device(runner.clock().clone());
+        let io = IoBus::new([runner.connect(device, memory_ranges, ports)]);
+        let mut cpu = create_cpu(io).await?;
+        runner.run_cpu(&mut cpu).await;
+        wait_for_next_program().await;
+        Ok::<(), Error>(())
+    }).await
+});
+futures_util::future::join(timers.run(), execution).await;
+```
+
+`connect` registers the device's ordinary async `Device::run` future and returns
+its bus connection. Passive devices use the default empty activity. Device
+activities retain their own handles, release mutable borrows before awaiting,
+and use the same `Clock::sleep` or `wait_until` API as CPU services. Ending the
+main activity drops all device futures on their owner.
 
 The task owns one `Cpu<T>` for its lifetime. `T` is its guest environment state;
 BIOS/DOS service futures execute on the same worker. The CPU selects the native
@@ -14,20 +40,15 @@ Services can hold ordinary views and local references across input awaits.
 Shared guest-memory handles support independent readers.
 
 ```text
-UI --input/control messages--> worker message handlers
-                                      |
-                               queues and wakeups
-                                      |
-                               execution task
-                               owns DOS + runtime
+host input and timer tasks --Rust channels--> execution activity + devices
 ```
 
-For a blocking console read, the execution task awaits input after the guest
-returns. A worker message handler receives input bytes and writes them through an
-owned stdin handle, waking the same task. The handle accesses an independent
-queue, so delivering input does not borrow the runtime. Browser stream handles
-stay inside the worker; messages carry bytes across the thread boundary. A native
-embedding can use channels and a task on the runtime's owning thread.
+For a blocking console read, the CPU activity awaits input after the guest
+returns. A local input activity receives bytes through a Rust channel and writes
+them through the existing stdin handle. Its queue is independent of the borrowed
+CPU context. Browser input and I/O callbacks stay on a responsive host and send
+results through shared Rust channels. Local JavaScript message handlers are not
+a control path for a continuously running CPU.
 
 Worker creation, UI messaging and task lifetime belong to the embedding
 application. The runtime owns execution and service completion; the web and
@@ -48,8 +69,8 @@ an execution future that owns the machine and call chain until execution stops.
 The future then returns the machine and exit result to the CPU and is released.
 Runs that finish without reaching a host service allocate no execution future.
 
-Dropping a `run` waiter preserves the pending future and its call chain; a later
-`run` resumes it and supplies a new budget for subsequent guest execution.
+Dropping a `Cpu::run` waiter preserves the pending future and its call chain; a later
+`Cpu::run` resumes it and supplies a new budget for subsequent guest execution.
 Zero-budget runs do not poll pending work.
 
 While a host service is pending, complete it before borrowing
@@ -69,8 +90,15 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-CPU-bound execution also needs finite instruction budgets and an actual yield
-to the worker event loop between runs. Awaiting an already-ready future does not
-yield, and repeatedly scheduling microtasks can starve message delivery. Budget
-checks remain at block boundaries; they provide
+`run_cpu` requests a nonzero instruction quantum (10,000 by default), then
+cooperates with the main/device task set through `yield_now`. This is a Rust
+polling opportunity, with no per-quantum or periodic host timer. The host timer
+driver delivers deadline notifications through Rust channels even while the
+execution worker stays runnable. CPU services can sleep without suspending
+devices, and sleeping devices do not suspend the CPU.
+
+Continuously ready device loops must also cooperate. Genuine CPU waits, including
+Wasm compilation, can return to the underlying executor. This model does not
+promise periodic processing of arbitrary JavaScript callbacks on a busy worker.
+Budget checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).
