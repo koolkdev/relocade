@@ -10,7 +10,9 @@
 //! wasm32 applications must link with `--growable-table` and
 //! `--export=__stack_pointer`, as configured by this workspace. Callbacks retain
 //! their Rust owners through Wasm externrefs until their last engine reference
-//! is collected. Wasm traps and invalid ABI values are fatal programming errors.
+//! is collected. Backend state belongs to the Rust backend and is released when
+//! it is dropped; callbacks require that backend to remain alive. Wasm traps and
+//! invalid ABI values are fatal programming errors.
 //!
 //! ```
 //! use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
@@ -87,6 +89,7 @@ pub trait WasmContext: WasmMemoryAccess {
 ///
 /// Instances retain their imports. Exported functions and table entries remain
 /// valid after the original module and instance handles are dropped.
+/// Execution requires the owning backend, which retains its state and memories.
 pub trait WasmBackend: WasmMemoryAccess + Sized {
     type State: 'static;
     type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
@@ -174,6 +177,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// state is accessed through the context. Memory keys can be captured normally.
     /// Linked modules retain callbacks for as long as they can call them.
     /// The import owns its handle without borrowing the backend.
+    /// Callbacks access state owned by the backend and do not extend its lifetime.
     ///
     /// ```
     /// use relocade_compiler::abi::Function;
@@ -224,6 +228,8 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
         self.function_import(&function.handle)
     }
 
+    /// Links a compiled module and runs its startup while borrowing this backend.
+    /// Once polled, instantiation completes without suspending module startup.
     fn instantiate(
         &mut self,
         module: &Self::Module,

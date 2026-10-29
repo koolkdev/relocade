@@ -207,9 +207,8 @@ impl<T: 'static> WasmBackend for Backend<T> {
             };
             set(&namespace, import.name(), &value)?;
         }
-        JsFuture::from(WebAssembly::instantiate_module(&module.0, &bindings))
-            .await
-            .map(|instance| instance.unchecked_into())
+        // Linking and module startup finish while this call borrows the backend.
+        WebAssembly::Instance::new(&module.0, &bindings)
             .map_err(|error| js_error("instantiate Wasm", error))
     }
 
