@@ -11,35 +11,37 @@ frame texture while the source size is unchanged. Changing source or output
 dimensions needs no renderer reconstruction, provided the output format stays
 the same. Skip surface acquisition while the window/canvas has zero size.
 
-For the current text screen, the two crates connect directly:
+VGA captures immutable text inputs for conversion on the graphics worker:
 
 ```rust,ignore
-// Copy on the execution worker and transfer this owned snapshot to rendering:
-let screen = dos.screen();
-let mut text = relocade_vga::TextRenderer::new();
+let source = vga.borrow().frame_source(); // VGA is registered with the machine runner.
 let mut renderer = relocade_renderer::Renderer::new(device, queue, format)?;
 
-// On the renderer worker, acquire an output texture:
+// On the graphics worker, when the app requests a redraw:
+let capture = source.current_capture().expect("first refresh captured");
+let frame = capture.rasterize(); // Run this on the graphics worker.
 // Acquire the surface texture and create its `view` here.
-let pixels = text.render(&screen, elapsed);
 renderer.render(
-    [relocade_vga::TextRenderer::WIDTH, relocade_vga::TextRenderer::HEIGHT],
-    pixels,
+    [frame.width, frame.height],
+    &frame.pixels,
     &view,
 )?;
 // Present that texture here.
 ```
 
-The live VGA device stays on the execution worker. The renderer receives an owned
-`TextScreen`; rasterization and GPU work do not borrow the device. The renderer
-worker can own the device, queue, surface and presentation lifecycle. The embedding
-supplies platform surface setup and forwards resize/lifecycle messages. See the
-[VGA ownership contract](../vga/README.md).
+The execution worker services VGA deadlines and captures immutable text inputs.
+The graphics worker rasterizes, uploads and presents them when requested. The
+browser main thread supplies redraw opportunities and handles canvas events.
+The renderer worker can own the device, queue, surface and presentation lifecycle.
+The embedding supplies platform surface setup and forwards resize/lifecycle
+messages. See the [VGA threading contract](../vga/README.md).
 
 No emulation state crosses into the GPU renderer. A native window and browser
 canvas use the same pixel-rendering path. Aspect ratio belongs to the embedding's
 output sizing; for a DOS display it can choose a 4:3 target even though the source
-has 640×200 pixels.
+has 640×200 pixels. Its display ratio is
+`width * pixel_aspect_ratio.0 / (height * pixel_aspect_ratio.1)`; the generic
+renderer does not interpret that metadata.
 
 The `pixels` integration test reads back actual GPU output to check orientation,
 nearest-neighbor scaling, color encoding, alpha, updates and resizing. It runs on
