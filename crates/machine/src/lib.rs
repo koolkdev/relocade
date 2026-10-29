@@ -35,12 +35,14 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod clock;
 mod config;
 mod cpu;
 mod io;
 mod memory;
 pub mod runtime;
 
+pub use clock::{timer_service, Clock, TimerDriver, TimerHandle};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::CpuView;
 pub use io::{Device, DeviceConnection, IoBus};

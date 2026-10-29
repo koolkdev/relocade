@@ -1,12 +1,14 @@
 //! Cross-thread checks shared by the browser suite and native tests.
 
 mod channels;
+mod clock;
 mod cpus;
 mod memory;
 mod modules;
 mod vga;
 
 pub use channels::rust_channels;
+pub use clock::timer_workers;
 pub use cpus::cpu_worker;
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
@@ -14,6 +16,11 @@ pub use vga::vga_workers;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    #[test]
+    fn host_timers_wake_a_continuously_runnable_worker() {
+        pollster::block_on(super::clock::timer_workers()).unwrap();
+    }
+
     #[test]
     fn rust_channels_wake_worker_tasks() {
         pollster::block_on(super::channels::rust_channels()).unwrap();
