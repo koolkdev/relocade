@@ -22,6 +22,23 @@ MMIO and CRTC ports, polls retrace, and awaits input while immutable text captur
 reach a separate rasterizing worker. It observes final writes after CPU completion,
 and retained frames stay readable after the session shuts down.
 
+The [graphics fixture](src/graphics.rs) explicitly assembles a `Thread`, a
+single-slot Rust request channel and a local wgpu target. It demonstrates one
+hosting arrangement, with no rendering worker or request protocol in VGA.
+A barrier holds conversion while the guest writes VRAM and reads status.
+Request bursts coalesce; pausing requests stops conversion; resumed requests
+select recent captures. The same worker rasterizes and draws through wgpu,
+including GPU readback, resizing and browser OffscreenCanvas presentation.
+Closing VGA leaves the surface alive and the last capture renderable; the fixture
+app closes its request channel separately to end presentation and drop resources.
+
+The [DOS fixture](src/dos.rs) explicitly assembles its own rendering worker and
+reuses the concrete GPU target. It checks direct VGA output, DOS input/echo,
+final writes at process exit, paused redraws and a later launch in the same DOS
+session. Presentation continues from the retained capture after DOS shuts down;
+the fixture closes the host worker separately. DOS and BIOS service semantics
+remain in their native suites.
+
 The [execution-worker fixture](src/runner.rs) receives host timer notifications
 during busy CPU execution and suspended services, stops either case, and checks
 that local CPU state is destroyed before shutdown completes.
@@ -36,7 +53,8 @@ CHROME_BINARY=/path/to/chrome npm test
 ```
 
 The shared runner selects `CHROME_BINARY` and configures software WebGPU for
-the renderer tests. ChromeDriver is not required.
+the renderer tests. WebGPU uses the OpenGL ES adapter so it can share canvas
+images with the SwiftShader compositor. ChromeDriver is not required.
 CI uses the same entrypoint in [the browser job](../../.github/workflows/tests.yml).
 
 For focused backend tests without the worker checks, use `npm run test:backends`.
@@ -51,6 +69,8 @@ Cargo test filters can also be passed to `npm test`, for example
 For only the worker checks, run `npm run build && npm run test:workers`.
 `npm run dev` opens those checks for manual inspection after building them.
 The build script defaults to `target/browser` and honors `CARGO_TARGET_DIR`.
+Worker fixtures use Cargo's test profile, including optimization and debug
+assertions, just like the native integration tests.
 Vite supplies the required isolation headers and worker binding alias.
 
 The Cargo runner in `wasm-test.mjs` asks `wasm-bindgen-test-runner` to select the

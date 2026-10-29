@@ -42,7 +42,8 @@ export function cargo(command, args) {
 }
 
 export function build() {
-    cargo("build", ["-p", "relocade-browser-tests"]);
+    // Match cargo test's optimization while retaining debug assertions and symbols.
+    cargo("build", ["-p", "relocade-browser-tests", "--profile", "test"]);
     run("wasm-bindgen", [
         path.join(target, "wasm32-unknown-unknown/debug/relocade_browser_tests.wasm"),
         "--target", "web", "--out-dir", path.join(directory, "pkg"), "--no-typescript",

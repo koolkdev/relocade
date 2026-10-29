@@ -14,7 +14,11 @@ export async function run(url = "/", bindings) {
     try {
         browser = await chromium.launch({
             executablePath: process.env.CHROME_BINARY,
-            args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--js-flags=--expose-gc"],
+            // Use the same software GL backend for WebGPU and canvas composition.
+            // Offscreen readback also works with Dawn's default adapter, but that
+            // adapter cannot share canvas images with SwiftShader's GL compositor.
+            args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+                "--use-webgpu-adapter=opengles", "--js-flags=--expose-gc"],
         });
         page = await browser.newPage();
         page.on("console", message => console.log(message.text()));
