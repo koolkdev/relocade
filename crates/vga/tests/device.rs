@@ -1,10 +1,13 @@
+mod common;
+use common::ManualClock;
 use relocade_machine::Device;
 use relocade_vga::{TextCell, Vga, CRTC_DATA_PORT, CRTC_INDEX_PORT, TEXT_MEMORY_START};
+use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn register(vga: &mut Vga, index: u8, value: u8) {
+fn register(vga: &mut impl Device, index: u8, value: u8) {
     vga.write_port(
         CRTC_INDEX_PORT,
         2,
@@ -15,7 +18,7 @@ fn register(vga: &mut Vga, index: u8, value: u8) {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
-    let mut vga = Vga::new();
+    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
     vga.write_mmio(TEXT_MEMORY_START, 4, 0x2f42_1e41);
     vga.write_mmio(TEXT_MEMORY_START + 1, 1, 0x17);
     assert_eq!(vga.read_mmio(TEXT_MEMORY_START, 4), 0x2f42_1741);
@@ -76,7 +79,7 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn crtc_byte_and_paired_writes_share_register_state() {
-    let mut vga = Vga::new();
+    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
     register(&mut vga, 0x0c, 0x12);
     vga.write_port(CRTC_INDEX_PORT, 1, 0x0d);
     vga.write_port(CRTC_DATA_PORT, 1, 0x34);
@@ -101,7 +104,7 @@ fn crtc_byte_and_paired_writes_share_register_state() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn protected_registers_and_monochrome_port_selection_match_guest_reads() {
-    let mut vga = Vga::new();
+    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
     register(&mut vga, 0, 0x10);
     assert_eq!(vga.read_port(0x3d5, 1), 0x5f);
     register(&mut vga, 7, 0xe0);
@@ -115,6 +118,7 @@ fn protected_registers_and_monochrome_port_selection_match_guest_reads() {
     assert_eq!(vga.read_port(0x3da, 1), 0xff);
     vga.write_port(0x3b4, 2, 0x0a00);
     assert_eq!(vga.read_port(0x3b4, 2), 0x0a00);
+    assert_eq!(vga.read_port(0x3ba, 1), 0);
     vga.write_mmio(TEXT_MEMORY_START, 2, 0x0741);
     vga.write_port(0x3c2, 1, 0x40); // Disable display RAM decoding.
     vga.write_mmio(TEXT_MEMORY_START, 2, 0x075a);
@@ -126,7 +130,7 @@ fn protected_registers_and_monochrome_port_selection_match_guest_reads() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn sequencer_readback_preserves_defined_fields_and_selects_supported_registers() {
-    let mut vga = Vga::new();
+    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
     // Clocking-mode bits 7, 6 and 1 have undefined readback (IBM VGA p2-49).
     for (index, written, mask, expected) in [
         (0, 0xfc, 0x03, 0),

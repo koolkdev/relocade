@@ -70,12 +70,12 @@
 //! or browser Wasm engine; its hooks retain the DOS service state.
 //!
 //! ```no_run
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>>
+//! # async fn example(clock: relocade_machine::TimerHandle) -> Result<(), Box<dyn std::error::Error>>
 //! # {
 //! use relocade_dos::ProcessStatus;
 //! use std::io::Read;
 //!
-//! let mut dos = relocade_dos::Dos::new().await?;
+//! let mut dos = relocade_dos::Dos::new(clock).await?;
 //! let mut disk = relocade_vfs::MemoryFileSystem::new();
 //! disk.replace_file("README.TXT", b"mounted on D:".to_vec())?;
 //! dos.mount('D', disk)?;
@@ -109,7 +109,7 @@ pub use error::{LaunchError, LoadError, MountError, ServiceError};
 pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
-use relocade_machine::{Cpu, CpuContext, DeviceConnection, IoBus, Memory};
+use relocade_machine::{Cpu, CpuContext, DeviceConnection, IoBus, Memory, TimerHandle};
 use relocade_vga::Vga;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
@@ -124,14 +124,14 @@ pub struct Dos {
 impl Dos {
     /// Prepares the memory map, interrupt vectors and DOS service hooks.
     /// Launch a program before executing DOS services.
-    pub async fn new() -> relocade_machine::Result<Self> {
+    pub async fn new(clock: TimerHandle) -> relocade_machine::Result<Self> {
         let state = Rc::new(DosState::default());
         let keyboard = state.stdio().input.clone();
-        let vga = Rc::new(RefCell::new(Vga::new()));
+        let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock))));
         let io = IoBus::new([DeviceConnection {
             device: vga.clone(),
             mmio: vec![relocade_vga::TEXT_MEMORY_RANGE],
-            ports: vec![relocade_vga::CRTC_PORT_RANGE],
+            ports: relocade_vga::PORT_RANGES.to_vec(),
         }]);
         let memory = Memory::new(kernel::configuration())?;
         let mut cpu = Cpu::new(memory, kernel::cpu(), io, ()).await?;
@@ -254,12 +254,12 @@ impl Dos {
     /// across launches; existing stream handles remain connected to the console.
     ///
     /// ```no_run
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>>
+    /// # async fn example(clock: relocade_machine::TimerHandle) -> Result<(), Box<dyn std::error::Error>>
     /// # {
     /// use relocade_dos::ProcessStatus;
     /// use std::io::Write;
     ///
-    /// let mut dos = relocade_dos::Dos::new().await?;
+    /// let mut dos = relocade_dos::Dos::new(clock).await?;
     /// dos.launch_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let process = dos.process().unwrap();
     /// let mut input = dos.stdin();
