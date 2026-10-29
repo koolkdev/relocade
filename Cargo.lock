@@ -1420,6 +1420,7 @@ version = "0.0.0"
 name = "relocade-vga"
 version = "0.0.0"
 dependencies = [
+ "futures-lite",
  "relocade-machine",
  "wasm-bindgen-test",
 ]

@@ -1,5 +1,5 @@
 //! Register values for the supported 80-column, eight-dot color text mode.
-//! Shared preset for VGA device defaults and firmware mode programming.
+//! Device defaults and BIOS mode setting use this same preset.
 
 use super::crtc;
 

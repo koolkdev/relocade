@@ -76,6 +76,15 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         assert_eq!(dos.screen().cells[164].character, b'Z');
         assert_eq!(dos.screen().cursor.address, 0x38a5);
 
+        // Mode reset also restores clock controls and timing after guest writes.
+        {
+            let context = dos.cpu().context();
+            context.io.write_port(0x3c2, 1, 0x46); // 28 MHz and monochrome ports.
+            context.io.write_port(0x3c4, 2, 0x2801); // Divide clock and blank screen.
+            context.io.write_port(0x3b4, 2, 0x0011); // Unlock CRTC timing.
+            context.io.write_port(0x3b4, 2, 0x1000); // Change the horizontal total.
+            context.io.write_port(0x3b4, 2, 0x8011); // Re-lock timing before BIOS mode set.
+        }
         // Mode reset returns AL=30h and clears pages and cursors.
         assert_eq!(
             video(&mut dos, 0x0003, 0, 0, 0).registers.eax as u16,
@@ -84,6 +93,18 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         let screen = dos.screen();
         assert_eq!(screen.start_address, 0);
         assert_eq!(screen.cursor.address, 0);
+        {
+            let context = dos.cpu().context();
+            assert_eq!(context.io.read_port(0x3cc, 1), 0x43);
+            context.io.write_port(0x3c4, 1, 1);
+            assert_eq!(context.io.read_port(0x3c5, 1), 1);
+            context.io.write_port(0x3c4, 1, 0);
+            assert_eq!(context.io.read_port(0x3c5, 1), 3);
+            context.io.write_port(0x3d4, 1, 0);
+            assert_eq!(context.io.read_port(0x3d5, 1), 0x5f);
+            context.io.write_port(0x3d4, 1, 0x11);
+            assert_eq!(context.io.read_port(0x3d5, 1), 0xae); // Timing is protected again.
+        }
         video(&mut dos, 0x0507, 0, 0, 0);
         assert_eq!(
             dos.screen().cells[164],
