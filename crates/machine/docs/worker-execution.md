@@ -109,6 +109,39 @@ promise periodic processing of arbitrary JavaScript callbacks on a busy worker.
 Budget checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).
 
+## Device interrupts
+
+A device or interrupt controller supplies vectors through `Device::poll_interrupt`.
+Its ordinary `runner.connect(device, mmio, ports)` connection carries memory,
+port and interrupt traffic through the CPU's `IoBus`. Devices with no mapped
+addresses use empty ranges. No additional CPU registration is needed.
+`poll_interrupt(cx)` returns `Ready(vector)` to acknowledge one request, or
+registers the supplied waker and returns `Pending`. The default never raises IRQs.
+The bus accepts the first ready device in connection order and leaves later
+requests pending. A controller device can own more detailed priority and masking.
+
+Each nonzero `Cpu::run` checks the bus before starting its instruction quantum.
+Completing a host service also checks before continuing guest dispatch, using
+the remaining budget. The CPU checks IF before polling, so masked
+requests remain with the device/controller. `Runner::run_cpu` supplies those
+quanta without another timer or scheduler. Entry uses the same generated
+real-mode mechanism as software INT, but saves the current IP and retires no
+instruction. The guest handler returns normally through IRET.
+
+STI from IF=0 and MOV/POP SS end their block with `InterruptInhibited`. The
+runtime consumes this exit synchronously by calling the existing interpreter
+`step`, then continues normal dispatch. There is no await, IRQ check or budget
+check between the inhibitor and its successor. LSS and STI from IF=1 do not
+request that step. Consecutive inhibitors use the same loop. A fault or unsupported
+exit from the successor returns normally with the inhibitor already retired.
+
+Zero-budget runs do not poll or enter Wasm. Entry faults are returned as guest
+exceptions after the source has acknowledged the vector.
+
+Borrowed asynchronous hooks still hold the CPU until their operation completes;
+these waits do not run nested guest interrupt handlers. Protected-mode delivery,
+nonmaskable interrupts and interrupt-controller emulation are separate capabilities.
+
 ## Video and application rendering
 
 Register VGA through `runner.connect(vga, [MEMORY_RANGE], PORT_RANGES)`.

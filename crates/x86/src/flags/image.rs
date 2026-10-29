@@ -2,7 +2,8 @@
 //!
 //! Protected transfers fix IF=1 and IOPL=0; real mode reads and writes both.
 //! VM/RF/VIF/VIP are unrepresented and stay clear. Transferring TF, IF, NT, AC or ID does
-//! not enable debug delivery, task switching, alignment checks or interrupts.
+//! not enable debug delivery, task switching or alignment checks. The machine
+//! checks real-mode IF at safe boundaries before accepting an interrupt request.
 
 use relocade_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};
 

@@ -24,8 +24,9 @@ where
 pub enum HookResult {
     /// Resume guest dispatch at the continuation set by the handler.
     Continue,
-    /// Return an execution exit to the run loop. `HostExit::Call` is
-    /// reserved for generated entries and must not be returned by a handler.
+    /// Return an execution exit to the run loop. `HostExit::Call`
+    /// and `InterruptInhibited` are reserved for generated entries and must not
+    /// be returned by a handler.
     Exit(ExecutionExit),
 }
 
