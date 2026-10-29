@@ -10,7 +10,7 @@ The nominal raster is 25.175 MHz, 800 dots per line and 449 lines per frame,
 with 640×400 active dots and vertical retrace on lines 412–413 (about 70.086 Hz).
 Input Status 1 follows that raster, including during synchronous guest polling.
 Absolute oscillator arithmetic avoids accumulated timer rounding. Timing-register
-writes retain readback; arbitrary timing, reset behavior, fonts and graphics
+writes retain readback; arbitrary timing, display-state latching and graphics
 modes are outside this milestone.
 
 The sequencer, CRTC, Graphics Controller, Attribute Controller and six-bit DAC
@@ -28,9 +28,8 @@ target does not implement legacy EGA page-selection inputs or 64-KiB chaining.
 Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
 physical map and device bus. The Graphics Controller selects the active aperture;
 reads outside it return FF and writes are ignored. BIOS text-mode setup restores
-the shared preset through guest-visible ports before clearing text memory.
-Font and palette registers retain guest programming; programmable captured
-display state and graphics decoding follow in later stages.
+font memory and the shared register preset through guest-visible ports and memory
+accesses before clearing text pages. Rendering has no BIOS-mode-number dispatch.
 
 At each serviced refresh boundary the device captures cells, cursor, display
 start, blink phase, blanking, source time and sequence. Late service coalesces
@@ -44,6 +43,13 @@ and mask, and blink phase. Skipping a capture loses no inputs required by a newe
 one. `Vga::snapshot()` copies those same inputs immediately without publishing a
 frame or changing CPU latches and access phases. The fixed text renderer continues
 to consume the cell view until programmable decoding replaces that representation.
+
+`DisplaySnapshot::text_display()` derives effective text settings from those
+immutable inputs. `TextDisplay` holds font selection, resolved colors, cursor and
+blink settings; `TextLayout` owns geometry and address generation, including
+stride, byte/word/doubleword addressing, panning and static line-compare splits.
+BIOS loads its 8×8 CP437 font into 32-byte slots in plane two. The existing GPU
+renderer still uses its fixed font and 80×25 cell view.
 
 `FrameSource` retains just the latest immutable `CapturedFrame`. The capture has
 one accumulated dirty rectangle per physical memory plane. Writes mark damage

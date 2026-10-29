@@ -3,11 +3,11 @@
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
     registers::{
-        attribute, crtc, sequencer, text_mode, ATTRIBUTE_ADDRESS_PORT, COLOR_INPUT_STATUS_1_PORT,
-        CRTC_INDEX_PORT, DAC_DATA_PORT, DAC_MASK_PORT, DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT,
-        MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
+        attribute, crtc, graphics, sequencer, text_mode, ATTRIBUTE_ADDRESS_PORT,
+        COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
+        DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT, MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
     },
-    TextScreen, TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
+    TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 
 pub(super) const PAGE_BYTES: u32 = 0x1000;
@@ -88,7 +88,7 @@ fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
     let [column, row] = cursor_position(memory, page).to_le_bytes();
     let position = u16::from(page)
         .wrapping_mul((PAGE_BYTES / 2) as u16)
-        .wrapping_add(u16::from(row) * TextScreen::COLUMNS as u16 + u16::from(column));
+        .wrapping_add(u16::from(row) * text_mode::COLUMNS as u16 + u16::from(column));
     write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, position);
 }
 
@@ -109,13 +109,13 @@ fn write_crtc_word(io: &IoBus, register: u8, value: u16) {
 fn cell_address(page: u8, row: u8, column: u8) -> u32 {
     TEXT_MEMORY_START
         + u32::from(page) * PAGE_BYTES
-        + (u32::from(row) * TextScreen::COLUMNS as u32 + u32::from(column)) * 2
+        + (u32::from(row) * text_mode::COLUMNS as u32 + u32::from(column)) * 2
 }
 
 pub(super) fn read_cell(memory: &MemoryView<'_>, page: u8) -> [u8; 2] {
     let [column, row] = cursor_position(memory, page).to_le_bytes();
     let mut cell = [0; 2];
-    if usize::from(row) < TextScreen::ROWS && usize::from(column) < TextScreen::COLUMNS {
+    if usize::from(row) < text_mode::ROWS && usize::from(column) < text_mode::COLUMNS {
         memory
             .read(cell_address(page, row, column), &mut cell)
             .expect("text cell");
@@ -132,7 +132,7 @@ pub(super) fn write_repeated(
 ) {
     let [column, row] = cursor_position(memory, page).to_le_bytes();
     let start = (u16::from(page) * PAGE_BYTES as u16)
-        .wrapping_add((u16::from(row) * TextScreen::COLUMNS as u16 + u16::from(column)) * 2);
+        .wrapping_add((u16::from(row) * text_mode::COLUMNS as u16 + u16::from(column)) * 2);
     // BIOS repeat writes advance a 16-bit video offset; the visible page edge
     // does not stop them or move the cursor.
     for index in 0..count {
@@ -165,8 +165,8 @@ pub(super) fn scroll(
     attribute: u8,
     direction: ScrollDirection,
 ) {
-    let bottom = window.bottom.min((TextScreen::ROWS - 1) as u8);
-    let right = window.right.min((TextScreen::COLUMNS - 1) as u8);
+    let bottom = window.bottom.min((text_mode::ROWS - 1) as u8);
+    let right = window.right.min((text_mode::COLUMNS - 1) as u8);
     if window.top > bottom || window.left > right {
         return;
     }
@@ -177,7 +177,7 @@ pub(super) fn scroll(
         lines.min(height)
     };
     let width_bytes = usize::from(right - window.left + 1) * 2;
-    let mut row_bytes = [0; TextScreen::COLUMNS * 2];
+    let mut row_bytes = [0; text_mode::COLUMNS * 2];
     for index in 0..height {
         let (row, source) = match direction {
             ScrollDirection::Up => {
@@ -207,7 +207,7 @@ pub(super) fn scroll(
 
 fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
     let [mut column, mut row] = cursor_position(memory, page).to_le_bytes();
-    if usize::from(row) >= TextScreen::ROWS || usize::from(column) >= TextScreen::COLUMNS {
+    if usize::from(row) >= text_mode::ROWS || usize::from(column) >= text_mode::COLUMNS {
         return;
     }
     match character {
@@ -220,13 +220,13 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
                 .write_u8(cell_address(page, row, column), character)
                 .expect("text character");
             column += 1;
-            if usize::from(column) == TextScreen::COLUMNS {
+            if usize::from(column) == text_mode::COLUMNS {
                 column = 0;
                 row += 1;
             }
         }
     }
-    if usize::from(row) == TextScreen::ROWS {
+    if usize::from(row) == text_mode::ROWS {
         row -= 1;
         // BIOS reads the fill attribute after advancing the cursor. A wrapped
         // line uses column zero; a line feed retains its previous column.
@@ -239,7 +239,7 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
                 top: 0,
                 left: 0,
                 bottom: row,
-                right: (TextScreen::COLUMNS - 1) as u8,
+                right: (text_mode::COLUMNS - 1) as u8,
             },
             1,
             attribute,
@@ -247,6 +247,33 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
         );
     }
     set_cursor_position(memory, io, page, u16::from_le_bytes([column, row]));
+}
+
+fn load_text_font(memory: &mut MemoryView<'_>, io: &IoBus) {
+    io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(text_mode::MISC_OUTPUT));
+    write_indexed(io, SEQUENCER_INDEX_PORT, sequencer::MAP_MASK, 4);
+    write_indexed(io, SEQUENCER_INDEX_PORT, sequencer::MEMORY_MODE, 6);
+    for (register, value) in [
+        (graphics::ENABLE_SET_RESET, 0),
+        (graphics::DATA_ROTATE, 0),
+        (graphics::MODE, 0),
+        (graphics::MISCELLANEOUS, 5),
+        (graphics::BIT_MASK, 0xff),
+    ] {
+        write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
+    }
+    for (character, glyph) in text_mode::FONT
+        .as_chunks::<{ text_mode::CHARACTER_HEIGHT as usize }>()
+        .0
+        .iter()
+        .enumerate()
+    {
+        let mut slot = [0; 32];
+        slot[..glyph.len()].copy_from_slice(glyph);
+        memory
+            .write(0xa0000 + character as u32 * 32, &slot)
+            .expect("text font");
+    }
 }
 
 fn program_text_mode(io: &IoBus) {
@@ -300,10 +327,11 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
         sequencer::RESET,
         sequencer::SYNCHRONOUS_RESET,
     );
+    load_text_font(memory, io);
     program_text_mode(io);
     memory.write_u8(MODE, 3).expect("video mode");
     memory
-        .write_u16(COLUMNS, TextScreen::COLUMNS as u16)
+        .write_u16(COLUMNS, text_mode::COLUMNS as u16)
         .expect("video columns");
     memory
         .write_u16(PAGE_SIZE, PAGE_BYTES as u16)
@@ -320,7 +348,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     memory
         .write(
             LAST_ROW,
-            &[(TextScreen::ROWS - 1) as u8, height_lo, height_hi],
+            &[(text_mode::ROWS - 1) as u8, height_lo, height_hi],
         )
         .expect("video font geometry");
     let blank_page = [b' ', DEFAULT_ATTRIBUTE].repeat(PAGE_BYTES as usize / 2);

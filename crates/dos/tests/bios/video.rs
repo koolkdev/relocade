@@ -118,7 +118,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
 }
 
 #[test]
-fn mode_reset_restores_memory_access_and_palette_before_clearing_text() {
+fn mode_reset_restores_font_memory_access_and_palette_before_clearing_text() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
@@ -126,6 +126,15 @@ fn mode_reset_restores_memory_access_and_palette_before_clearing_text() {
             let mut context = dos.cpu().context();
             context.memory.write_u16(0xb8000, 0x1e41).unwrap();
             context.memory.write_u16(0xbfffe, 0x4f5a).unwrap();
+            // Corrupt a complete font slot through the same planar aperture BIOS uses.
+            context.io.write_port(0x3c4, 2, 0x0402);
+            context.io.write_port(0x3c4, 2, 0x0604);
+            context.io.write_port(0x3ce, 2, 0x0005);
+            context.io.write_port(0x3ce, 2, 0x0506);
+            context
+                .memory
+                .write(0xa0000 + 65 * 32, &[0xff; 32])
+                .unwrap();
             context.io.write_port(0x3c4, 2, 0x0002); // Disable every write plane.
             context.io.write_port(0x3c4, 2, 0x0e04); // Chain-4 addressing.
             context.io.write_port(0x3c4, 2, 0x3f03); // Select other font banks.
@@ -141,9 +150,19 @@ fn mode_reset_restores_memory_access_and_palette_before_clearing_text() {
             context.io.write_port(0x3c9, 1, 0); // Leave an unfinished DAC write.
         }
         assert_eq!(
+            &dos.vga().borrow().snapshot().plane(2)[65 * 32..66 * 32],
+            &[0xff; 32]
+        );
+        assert_eq!(
             video(&mut dos, 0x0003, 0, 0, 0).registers.eax as u16,
             0x0030
         );
+        let snapshot = dos.vga().borrow().snapshot();
+        assert_eq!(
+            &snapshot.plane(2)[65 * 32..65 * 32 + 8],
+            &[0x7c, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0]
+        );
+        assert_eq!(&snapshot.plane(2)[65 * 32 + 8..66 * 32], &[0; 24]);
         {
             let mut context = dos.cpu().context();
             assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x0720);

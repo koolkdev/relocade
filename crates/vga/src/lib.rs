@@ -1,14 +1,16 @@
-//! VGA device state and scanout for the initial 80-by-25, 8-by-8 color text mode.
+//! VGA device state, immutable captures, and captured text settings.
 //!
 //! The device owns video memory, VGA register banks and fixed text-mode raster timing.
 //! Its programmable aperture is MMIO, independent of system RAM. BIOS bookkeeping
 //! belongs to the BIOS; direct port writes change hardware without changing that data.
-//! Graphics decoding, programmable font/geometry output, and effects within a scanline
-//! are not implemented yet.
+//! Captured registers describe programmable text geometry, fonts and colors. GPU
+//! output still uses the initial 80-by-25, 8-by-8 text mode. Graphics decoding and
+//! effects within a scanline are not implemented yet.
 #![forbid(unsafe_code)]
 
 mod capture;
 mod damage;
+mod display;
 mod memory;
 pub mod registers;
 #[cfg(feature = "renderer")]
@@ -21,6 +23,7 @@ mod timing;
 
 pub use capture::{CapturedFrame, FrameSource};
 pub use damage::{MemoryDamage, MemoryRect};
+pub use display::{TextDisplay, TextLayout, TextScanline};
 use futures_lite::future::yield_now;
 use memory::VideoMemory;
 use registers::Registers;
@@ -46,7 +49,7 @@ pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;
 /// An emulated VGA device owned by the execution worker.
 /// Registers and video memory are ordinary mutable state. Other workers receive
 /// immutable text captures through [`FrameSource`], without accessing the live device.
-/// New video memory is zeroed. The BIOS initializes its text pages and registers.
+/// New video memory is zeroed. The BIOS initializes its font memory, text pages and registers.
 pub struct Vga<C = TimerHandle> {
     memory: VideoMemory,
     registers: Registers,

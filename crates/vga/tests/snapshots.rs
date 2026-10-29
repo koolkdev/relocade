@@ -48,6 +48,16 @@ fn snapshots_own_fonts_palette_and_programmed_geometry_after_device_destruction(
 
     assert_eq!(snapshot.plane(2).len(), 65536);
     assert_eq!(snapshot.plane(2)[0xe821], 0xa5);
+    let text = snapshot.text_display();
+    assert_eq!(text.layout.size, [320, 400]);
+    assert_eq!(text.layout.glyph_height, 16);
+    assert_eq!(text.layout.stride, 40);
+    assert_eq!((text.font_a, text.font_b), (0x6000, 0x6000));
+    assert!(!text.dual_font);
+    assert_eq!(text.font_address(b'A', 7, 1), 0x6821);
+    let second_row = text.layout.scanline(16);
+    assert_eq!(second_row.counter, 40);
+    assert_eq!(second_row.glyph_row, 0);
     let registers = snapshot.registers;
     assert_eq!(registers.sequencer[3], 0x35);
     assert_eq!(registers.crtc[1], 39);
