@@ -1,0 +1,10 @@
+{
+  "name": "relocade-app-tests-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "vite --host 127.0.0.1",
+    "test": "node test.mjs"
+  }
+}

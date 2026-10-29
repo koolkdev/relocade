@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Relocade application checks</title>
+<style>html,body{margin:0;width:100%;height:100%;background:#222} canvas{display:block;width:640px;height:480px;outline:none}</style>
+</head><body>
+<script type="module">
+import init, { start_image, image_dropped } from './pkg/relocade_app_tests.js';
+await init();
+window.control = start_image();
+window.finished = window.control.finished;
+window.image_dropped = image_dropped;
+</script>
+</body></html>
