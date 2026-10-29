@@ -18,6 +18,7 @@ that subset. The project is under development; the crates are not published.
 
 | Crate | Responsibility |
 | --- | --- |
+| [relocade-app](crates/app/README.md) | Main-thread winit application startup on native platforms and the browser. |
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
