@@ -2,7 +2,7 @@ mod common;
 
 use common::{boundary, ManualClock};
 use relocade_machine::Device;
-use relocade_vga::Vga;
+use relocade_vga::{MemoryRect, Vga};
 use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
@@ -108,4 +108,135 @@ fn newest_capture_contains_changes_from_skipped_frames() {
     assert_eq!(newest.display.plane(2)[0x100], 0x12);
     assert_eq!(newest.display.plane(2)[0x200], 0x34);
     assert_eq!(newest.display.plane(2)[0x300], 0x56);
+    let damage = newest.display.memory_changes_since(&first.display);
+    assert_eq!(damage.plane(0), None);
+    assert_eq!(damage.plane(1), None);
+    assert_eq!(
+        damage.plane(2),
+        Some(MemoryRect {
+            left: 0,
+            top: 2,
+            right: 1,
+            bottom: 4
+        })
+    );
+    assert_eq!(damage.plane(3), None);
+    // Retaining and revisiting an older snapshot never applies a forward delta.
+    assert_eq!(
+        first.display.memory_changes_since(&newest.display).plane(2),
+        Some(MemoryRect {
+            left: 0,
+            top: 0,
+            right: 256,
+            bottom: 256
+        })
+    );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn memory_damage_uses_final_physical_writes_and_ignores_noops() {
+    let clock = Rc::new(ManualClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
+    let source = vga.frame_source();
+    font_access(&mut vga);
+    indexed(&mut vga, 0x3c4, 2, 0x0f);
+    indexed(&mut vga, 0x3c4, 4, 0x0e); // Chain four selects plane one below.
+    clock.set(boundary(1));
+    vga.read_port(0x3da, 1);
+    let before = source.current_capture().unwrap();
+    vga.write_mmio(0xa0125, 1, 0x5a);
+    let immediate = vga.snapshot(); // Inspection must not consume pending changes.
+    clock.set(boundary(2));
+    vga.read_port(0x3da, 1);
+    let changed = source.current_capture().unwrap();
+    let damage = changed.display.memory_changes_since(&before.display);
+    assert_eq!(
+        damage.plane(1),
+        Some(MemoryRect {
+            left: 0x24,
+            top: 1,
+            right: 0x25,
+            bottom: 2
+        })
+    );
+    for plane in [0, 2, 3] {
+        assert_eq!(damage.plane(plane), None);
+    }
+    assert_eq!(immediate.plane(1)[0x124], 0x5a);
+
+    vga.write_mmio(0xa0125, 1, 0x5a); // Same byte.
+    vga.read_mmio(0xa0125, 1); // Load the existing byte into the latch.
+    indexed(&mut vga, 0x3ce, 8, 0); // Mask preserves every latched bit.
+    vga.write_mmio(0xa0125, 1, 0xff);
+    indexed(&mut vga, 0x3c4, 2, 0); // Plane mask rejects the write entirely.
+    vga.write_mmio(0xa0125, 1, 0);
+    clock.set(boundary(3));
+    vga.read_port(0x3da, 1);
+    let unchanged = source.current_capture().unwrap();
+    for plane in 0..4 {
+        assert_eq!(
+            unchanged
+                .display
+                .memory_changes_since(&changed.display)
+                .plane(plane),
+            None
+        );
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn damage_falls_back_for_other_observers_sources_and_immediate_snapshots() {
+    let clock = Rc::new(ManualClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
+    let source = vga.frame_source();
+    clock.set(boundary(1));
+    vga.read_port(0x3da, 1);
+    let first = source.current_capture().unwrap();
+    vga.write_mmio(0xb8000, 1, 1);
+    clock.set(boundary(2));
+    vga.read_port(0x3da, 1);
+    let second = source.clone().current_capture().unwrap(); // Another observer.
+    vga.write_mmio(0xb8002, 1, 2);
+    clock.set(boundary(3));
+    vga.read_port(0x3da, 1);
+    let third = source.current_capture().unwrap();
+    assert_eq!(
+        third.display.memory_changes_since(&second.display).plane(0),
+        Some(MemoryRect {
+            left: 2,
+            top: 0,
+            right: 3,
+            bottom: 1
+        })
+    );
+    let full = Some(MemoryRect {
+        left: 0,
+        top: 0,
+        right: 256,
+        bottom: 256,
+    });
+    assert_eq!(
+        third.display.memory_changes_since(&first.display).plane(0),
+        full
+    );
+    assert_eq!(
+        third.display.memory_changes_since(&vga.snapshot()).plane(0),
+        full
+    );
+
+    let other_clock = Rc::new(ManualClock::default());
+    let mut other = Vga::with_clock(other_clock.clone());
+    other_clock.set(boundary(3));
+    other.read_port(0x3da, 1);
+    let unrelated = other.frame_source().current_capture().unwrap();
+    assert_eq!(unrelated.sequence, third.sequence);
+    assert_eq!(
+        third
+            .display
+            .memory_changes_since(&unrelated.display)
+            .plane(0),
+        full
+    );
 }

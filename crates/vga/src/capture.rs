@@ -1,4 +1,7 @@
-use crate::{DisplaySnapshot, TextScreen};
+use crate::{
+    damage::{CaptureChanges, MemoryDamage},
+    DisplaySnapshot, TextScreen,
+};
 use arc_swap::ArcSwapOption;
 use event_listener::Event;
 use std::{
@@ -27,9 +30,15 @@ pub struct CapturedFrame {
 
 #[derive(Default)]
 struct Captures {
-    frame: ArcSwapOption<CapturedFrame>,
+    frame: ArcSwapOption<PublishedCapture>,
+    source: Arc<()>,
     changed: Event,
     closed: AtomicBool,
+}
+
+struct PublishedCapture {
+    frame: Arc<CapturedFrame>,
+    observed: AtomicBool,
 }
 
 /// Read-only captured VGA state. Only the latest capture is retained; slow
@@ -49,7 +58,9 @@ impl FrameSource {
     /// Latest completed capture, including after VGA is destroyed. Consumers
     /// may retain it and render it again independently of the source lifetime.
     pub fn current_capture(&self) -> Option<Arc<CapturedFrame>> {
-        self.captures.frame.load_full()
+        let published = self.captures.frame.load_full()?;
+        published.observed.store(true, Ordering::Release);
+        Some(published.frame.clone())
     }
 
     /// Waits for a newer captured input, not for pixels or app presentation.
@@ -71,8 +82,29 @@ impl FrameSource {
         }
     }
 
-    pub(crate) fn capture(&self, frame: CapturedFrame) {
-        self.captures.frame.store(Some(Arc::new(frame)));
+    pub(crate) fn capture(&self, mut frame: CapturedFrame, mut memory: MemoryDamage) {
+        let mut after = 0;
+        if let Some(previous) = &*self.captures.frame.load() {
+            let changes = previous.frame.display.changes.as_ref().unwrap();
+            if previous.observed.load(Ordering::Acquire) {
+                after = changes.sequence;
+            } else {
+                // Keep one complete snapshot and union all pending damage. An
+                // observer racing publication can only cause a larger interval.
+                after = changes.after;
+                memory.union(changes.memory);
+            }
+        }
+        frame.display.changes = Some(CaptureChanges {
+            source: self.captures.source.clone(),
+            after,
+            sequence: frame.sequence,
+            memory,
+        });
+        self.captures.frame.store(Some(Arc::new(PublishedCapture {
+            frame: Arc::new(frame),
+            observed: AtomicBool::new(false),
+        })));
         self.captures.changed.notify(usize::MAX);
     }
 

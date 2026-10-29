@@ -1,12 +1,15 @@
-use crate::{registers::Registers, TextCell};
-
-const PLANE_BYTES: usize = 65536;
+use crate::{
+    damage::{MemoryDamage, PLANE_BYTES},
+    registers::Registers,
+    TextCell,
+};
 
 /// Four independent VGA planes. CPU reads latch all planes; scanout reads do not
 /// disturb those latches. Plane addressing wraps at the hardware's 16-bit limit.
 pub(super) struct VideoMemory {
     planes: [Box<[u8]>; 4],
     latches: [u8; 4],
+    damage: MemoryDamage,
 }
 
 impl Default for VideoMemory {
@@ -14,11 +17,16 @@ impl Default for VideoMemory {
         Self {
             planes: std::array::from_fn(|_| vec![0; PLANE_BYTES].into_boxed_slice()),
             latches: [0; 4],
+            damage: MemoryDamage::default(),
         }
     }
 }
 
 impl VideoMemory {
+    pub fn take_damage(&mut self) -> MemoryDamage {
+        std::mem::take(&mut self.damage)
+    }
+
     pub fn snapshot(&self) -> [Box<[u8]>; 4] {
         self.planes.clone()
     }
@@ -69,8 +77,9 @@ impl VideoMemory {
         let planes = registers.sequencer.write_planes(offset);
         let values = registers.graphics.write_data(value, self.latches);
         for (plane, value) in values.into_iter().enumerate() {
-            if planes & (1 << plane) != 0 {
+            if planes & (1 << plane) != 0 && self.planes[plane][index] != value {
                 self.planes[plane][index] = value;
+                self.damage.include_byte(plane, index);
             }
         }
     }

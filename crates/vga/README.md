@@ -46,8 +46,21 @@ frame or changing CPU latches and access phases. The fixed text renderer continu
 to consume the cell view until programmable decoding replaces that representation.
 
 `FrameSource` retains just the latest immutable `CapturedFrame`. The capture has
-no RGBA image. It can cross workers and survive device destruction. Waiting for
-`next_capture` observes emulated refreshes, not pixel output or presentation.
+one accumulated dirty rectangle per physical memory plane. Writes mark damage
+only when their final value changes a byte after VGA masks and write modes.
+Rectangles use 256-byte memory rows, independently of text or graphics layout.
+Pending captures union these rectangles until a consumer observes the source;
+older unobserved snapshots are replaced rather than queued. Font-plane changes
+therefore remain separate from character and attribute changes.
+
+`DisplaySnapshot::memory_changes_since` returns conservative bounds relative to
+an earlier snapshot. Another observer, another device, an immediate snapshot or
+replaying older state can require a full comparison. Captures always contain all
+bytes, so this optimization does not constrain retention or independent readers.
+Register and palette settings are captured separately from memory damage.
+
+The capture has no RGBA image. It can cross workers and survive device
+destruction. Waiting for `next_capture` observes emulated refreshes, not pixel output or presentation.
 The registered VGA activity keeps capturing while the CPU waits for input and
 while the app is not drawing. Destroying VGA closes this capture source and
 wakes waiters without creating an extra frame.

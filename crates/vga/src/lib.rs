@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod capture;
+mod damage;
 mod memory;
 pub mod registers;
 #[cfg(feature = "renderer")]
@@ -19,6 +20,7 @@ mod text;
 mod timing;
 
 pub use capture::{CapturedFrame, FrameSource};
+pub use damage::{MemoryDamage, MemoryRect};
 use futures_lite::future::yield_now;
 use memory::VideoMemory;
 use registers::Registers;
@@ -79,6 +81,7 @@ impl<C: Clock> Vga<C> {
             planes: self.memory.snapshot(),
             registers: self.registers.snapshot(),
             blink_on: self.timing.blink_on(),
+            changes: None,
         }
     }
 
@@ -104,14 +107,15 @@ impl<C: Clock> Vga<C> {
     /// Capture any completed boundary before a later guest access changes its state.
     fn advance(&mut self) {
         if self.timing.advance_to(self.clock.now()) {
-            self.frames.capture(CapturedFrame {
+            let frame = CapturedFrame {
                 display: self.snapshot(),
                 screen: self.screen(),
                 blink_on: self.timing.blink_on(),
                 blanked: self.registers.sequencer.screen_off(),
                 time: self.timing.completed_at(),
                 sequence: self.timing.completed_frames,
-            });
+            };
+            self.frames.capture(frame, self.memory.take_damage());
         }
     }
 }
