@@ -104,15 +104,3 @@ assembles execution and graphics workers with a bounded request channel. It
 creates no surface and checks that paused or slow rendering leaves the guest
 running, demand stays bounded, and captured images remain usable after VGA ends.
 The software fixture separately verifies the CPU-image upload path.
-
-Run the opt-in native cost probe with:
-
-```sh
-cargo test -p relocade-vga --features renderer --test gpu report_render_costs -- --ignored --nocapture
-```
-
-It reports CPU reference conversion, image upload, GPU text decoding and blitting
-for the selected adapter. GPU completion measurements include submission, driver
-and wait overhead; they are not isolated shader timings. The probe waits after
-each operation to measure latency, while normal rendering only submits work.
-It performs no readback and imposes no performance threshold.

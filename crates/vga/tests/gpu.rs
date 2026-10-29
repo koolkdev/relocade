@@ -1,9 +1,6 @@
 #![cfg(feature = "renderer")]
 
 mod common;
-#[cfg(not(target_arch = "wasm32"))]
-#[path = "gpu/costs.rs"]
-mod costs;
 #[path = "gpu/parity.rs"]
 mod parity;
 #[path = "support/software.rs"]
