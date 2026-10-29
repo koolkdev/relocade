@@ -49,12 +49,12 @@ The [execution-worker fixture](src/runner.rs) receives host timer notifications
 during busy CPU execution and suspended services, stops either case, and checks
 that local CPU state is destroyed before shutdown completes.
 
-From this directory:
+Install npm dependencies from the repository root; run browser commands from this directory:
 
 ```sh
 rustup toolchain install nightly-2026-10-20 --profile minimal --component rust-src
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
-npm ci
+npm --prefix ../.. ci
 CHROME_BINARY=/path/to/chrome npm test
 ```
 
