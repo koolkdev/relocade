@@ -7,12 +7,14 @@
 //! are not implemented yet.
 #![forbid(unsafe_code)]
 
+mod display;
 mod memory;
 pub mod registers;
+mod scanout;
 mod screen;
-mod text_renderer;
 mod timing;
 
+pub use display::{Display, VideoFrame};
 use futures_lite::future::yield_now;
 use memory::VideoMemory;
 use registers::Registers;
@@ -20,7 +22,6 @@ pub use registers::{CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGE
 use relocade_machine::{Clock, Device, TimerHandle};
 pub use screen::{TextCell, TextCursor, TextScreen};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
-pub use text_renderer::TextRenderer;
 use timing::Timing;
 
 /// The color text aperture in the supported fixed mode.
@@ -30,14 +31,15 @@ pub const TEXT_MEMORY_RANGE: RangeInclusive<u32> =
     TEXT_MEMORY_START..=TEXT_MEMORY_START + TEXT_MEMORY_BYTES - 1;
 
 /// An emulated VGA device owned by the execution worker.
-/// Registers and video memory are ordinary mutable state. `screen()` copies
-/// text state for inspection or rendering without sharing the live device.
+/// Registers and video memory are ordinary mutable state. Other workers receive
+/// completed frames through [`Display`], without accessing the live device.
 /// New video memory is zeroed. The BIOS initializes its text pages and registers.
 pub struct Vga<C = TimerHandle> {
     memory: VideoMemory,
     registers: Registers,
     clock: Rc<C>,
     timing: Timing,
+    display: Display,
 }
 
 impl<C: Clock> Vga<C> {
@@ -49,11 +51,17 @@ impl<C: Clock> Vga<C> {
             registers: Registers::default(),
             clock,
             timing,
+            display: Display::new(),
         }
     }
 
+    /// Retains completed video output independently of device ownership.
+    pub fn display(&self) -> Display {
+        self.display.clone()
+    }
+
     /// Copies the current device state on its owning worker. The returned screen
-    /// stays stable across later device writes.
+    /// stays stable across later device writes; it does not publish to displays.
     pub fn screen(&self) -> TextScreen {
         let crtc = &self.registers.crtc;
         TextScreen {
@@ -70,13 +78,29 @@ impl<C: Clock> Vga<C> {
         }
     }
 
+    /// Capture any completed boundary before a later guest access changes its state.
     fn advance(&mut self) {
-        self.timing.advance_to(self.clock.now());
+        if self.timing.advance_to(self.clock.now()) {
+            self.display.complete(VideoFrame {
+                width: scanout::WIDTH,
+                height: scanout::HEIGHT,
+                pixels: scanout::render(
+                    &self.screen(),
+                    self.timing.blink_on(),
+                    self.registers.sequencer.screen_off(),
+                ),
+                // The logical 640x200 image fills a 4:3 display. Scan doubling is
+                // represented by pixel aspect rather than duplicated image rows.
+                pixel_aspect_ratio: (5, 12),
+                time: self.timing.completed_at(),
+                sequence: self.timing.completed_frames,
+            });
+        }
     }
 }
 
 impl<C: Clock> Device for Vga<C> {
-    /// Service fixed frame boundaries while the CPU is idle or awaiting a service.
+    /// Publish frames while the CPU is busy, idle, or awaiting a service.
     /// The runner polls this activity alongside CPU execution. No device borrow
     /// spans a wait; ordinary Rust yielding handles a timer that is already late.
     async fn run(device: Rc<RefCell<Self>>) {
@@ -135,5 +159,11 @@ impl<C: Clock> Device for Vga<C> {
             self.registers
                 .write_port(port.wrapping_add(index as u16), *byte);
         }
+    }
+}
+
+impl<C> Drop for Vga<C> {
+    fn drop(&mut self) {
+        self.display.close();
     }
 }

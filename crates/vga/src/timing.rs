@@ -18,7 +18,7 @@ const FIRST_FRAME_DOTS: u128 = RETRACE_START_LINE * DOTS_PER_LINE;
 /// Absolute oscillator arithmetic keeps timer rounding from accumulating drift.
 pub(super) struct Timing {
     origin: Duration,
-    completed_frames: u64,
+    pub completed_frames: u64,
 }
 
 impl Timing {
@@ -58,12 +58,20 @@ impl Timing {
             )
     }
 
+    pub fn completed_at(&self) -> Duration {
+        self.frame_time(self.completed_frames)
+    }
+
     pub fn next_frame_at(&self) -> Duration {
         self.frame_time(
             self.completed_frames
                 .checked_add(1)
                 .expect("VGA frame sequence exhausted"),
         )
+    }
+
+    pub fn blink_on(&self) -> bool {
+        self.completed_frames % 32 < 16
     }
 
     pub fn status(&self, now: Duration) -> u8 {

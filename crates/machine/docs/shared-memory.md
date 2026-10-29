@@ -104,6 +104,6 @@ their backend context. Asynchronous host services use the machine's bus without
 holding a device borrow. Dropping the machine releases both bus handles.
 
 Create devices on the execution worker. Publish owned observations to other
-workers instead of sending the live bus or device. A VGA `TextScreen` can be copied
-on its owner and sent to a renderer. Shared RAM remains available independently
-of device ownership.
+workers instead of sending the live bus or device. VGA publishes immutable
+completed frames; see the [display contract](../../vga/README.md). Shared RAM
+remains available independently of device ownership.

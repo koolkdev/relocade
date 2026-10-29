@@ -50,4 +50,8 @@ impl Sequencer {
             _ => {}
         }
     }
+
+    pub fn screen_off(&self) -> bool {
+        self.clocking_mode & (1 << 5) != 0
+    }
 }

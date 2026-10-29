@@ -17,10 +17,10 @@ later growth and writes after the allocating worker exits, and compiled-module
 handoff between execution owners. The [CPU worker example](src/cpus.rs) retains
 caller access to mapped memory while a worker awaits Rust input, resumes guest
 execution, and imports the retained allocation into a later worker.
-The [VGA worker check](src/vga.rs) connects an execution-local device to guest
-MMIO and CRTC ports. The execution worker sends owned snapshots to a separate
-renderer while the CPU awaits input and after execution ends. Device tests and
-text rasterization use local state and need no blocking locks.
+The [VGA fixture](src/vga.rs) registers VGA alongside the CPU. Guest code uses
+MMIO and CRTC ports, polls retrace, and awaits input while completed RGBA frames reach
+a separate renderer. The renderer observes the final writes after CPU completion,
+and retained frames stay readable after the session shuts down.
 
 The [execution-worker fixture](src/runner.rs) receives host timer notifications
 during busy CPU execution and suspended services, stops either case, and checks
