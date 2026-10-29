@@ -3,35 +3,30 @@ mod input;
 use crate::{text, CapturedFrame};
 use input::TextInput;
 use relocade_renderer::{FrameError, Image};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
-/// The renderer's current GPU image with source capture metadata.
-/// Dimensions and pixel aspect ratio are carried by `image`. Storage is reused
-/// on later renders; retaining an image clone does not retain historical pixels.
+/// Reusable GPU output with metadata for the capture recorded by `encode`.
+/// The caller must submit the recorded work before consuming the updated pixels.
+/// Later encodes reuse this storage; retaining the image does not retain history.
 pub struct VgaImage {
-    /// Renderer-owned storage for sampling or copying. Leave its contents
-    /// intact so rendering the same capture can reuse them.
     pub image: Image,
     pub time: Duration,
     pub sequence: u64,
 }
 
-/// Explicit GPU rendering of immutable fixed-mode text captures.
-/// Owns no device state, surface, worker, timer, or redraw loop. The caller
-/// orders rendering and viewing on the supplied device and queue.
+/// GPU text decoding recorded into a caller-owned command encoder.
+/// Owns captured-input resources and one reusable output image. Accesses no live
+/// VGA state and owns no host output pass, surface, worker, or submission schedule.
 pub struct VgaRenderer {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
     input: TextInput,
-    frame: VgaImage,
-    capture: Option<Arc<CapturedFrame>>,
+    image: Image,
 }
 
 impl VgaRenderer {
-    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Result<Self, FrameError> {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, FrameError> {
         let image = Image::new(
-            &device,
+            device,
             [text::WIDTH, text::HEIGHT],
             text::PIXEL_ASPECT_RATIO,
         )?;
@@ -57,56 +52,51 @@ impl VgaRenderer {
             multiview_mask: None,
             cache: None,
         });
-        let input = TextInput::new(&device, &queue, &pipeline.get_bind_group_layout(0));
+        let input = TextInput::new(device, queue, &pipeline.get_bind_group_layout(0));
         Ok(Self {
-            device,
-            queue,
             pipeline,
             input,
-            frame: VgaImage {
-                image,
-                time: Duration::ZERO,
-                sequence: 0,
-            },
-            capture: None,
+            image,
         })
     }
 
-    /// Uploads text state and submits decoding only when given a different capture.
-    /// Capture identity also distinguishes independent sources with equal sequences.
-    /// Repeated calls for the same capture reuse the image. No CPU pixel conversion
-    /// or GPU readback occurs; completion is ordered before later queue submissions.
-    pub fn render(&mut self, capture: &Arc<CapturedFrame>) -> &VgaImage {
-        if self
-            .capture
-            .as_ref()
-            .is_none_or(|previous| !Arc::ptr_eq(previous, capture))
+    /// Queues captured text input and records the pass that overwrites its private image.
+    /// Always records a decode, including when retrying a discarded encoder.
+    /// The returned metadata describes recorded work, not completed GPU output.
+    ///
+    /// Select one capture version per renderer per submitted batch. `write_buffer`
+    /// uploads run before that batch, so several captures cannot share this input
+    /// storage in one submission. Submit or discard an update before encoding another.
+    /// Retain the returned image for resize-only redraws without another encode.
+    pub fn encode(
+        &mut self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        capture: &CapturedFrame,
+    ) -> VgaImage {
+        self.input.upload(queue, capture);
         {
-            self.input.upload(&self.queue, capture);
-            let mut encoder = self.device.create_command_encoder(&Default::default());
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("VGA text decoding"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: self.frame.image.view(),
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    ..Default::default()
-                });
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.input.binding, &[]);
-                pass.draw(0..3, 0..1);
-            }
-            self.queue.submit([encoder.finish()]);
-            self.frame.time = capture.time;
-            self.frame.sequence = capture.sequence;
-            self.capture = Some(capture.clone());
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("VGA text decoding"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: self.image.view(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.input.binding, &[]);
+            pass.draw(0..3, 0..1);
         }
-        &self.frame
+        VgaImage {
+            image: self.image.clone(),
+            time: capture.time,
+            sequence: capture.sequence,
+        }
     }
 }

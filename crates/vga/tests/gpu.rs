@@ -83,7 +83,7 @@ async fn check_image() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-    let mut renderer = VgaRenderer::new(device.clone(), queue.clone()).unwrap();
+    let mut renderer = VgaRenderer::new(&device, &queue).unwrap();
     let mut input = capture();
     input.screen.cells[0] = TextCell {
         character: b'F',
@@ -94,7 +94,9 @@ async fn check_image() {
         attribute: 0x09,
     };
     let input = Arc::new(input);
-    let frame = renderer.render(&input);
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let frame = renderer.encode(&queue, &mut encoder, &input);
+    queue.submit([encoder.finish()]);
     assert_eq!(frame.image.size(), [640, 200]);
     assert_eq!(frame.image.pixel_aspect_ratio(), (5, 12));
     assert_eq!(frame.time, input.time);
@@ -118,10 +120,9 @@ async fn check_image() {
     assert_eq!(pixel(&pixels, 8, 0), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 639, 199), [85, 85, 255, 255]);
     let image = frame.image.clone();
-    assert_eq!(renderer.render(&input).image.texture(), image.texture());
 
-    // Another source can publish the same sequence. Its capture still updates
-    // reusable storage, including any retained Image handles.
+    // Another capture updates reusable storage, including retained Image handles,
+    // even when the sequence is unchanged.
     let mut other = capture();
     other.time += Duration::from_secs(1);
     other.screen.cells[0] = TextCell {
@@ -129,7 +130,9 @@ async fn check_image() {
         attribute: 4,
     };
     let other = Arc::new(other);
-    let frame = renderer.render(&other);
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let frame = renderer.encode(&queue, &mut encoder, &other);
+    queue.submit([encoder.finish()]);
     assert_eq!(frame.sequence, input.sequence);
     assert_eq!(frame.time, other.time);
     assert_eq!(frame.image.texture(), image.texture());

@@ -78,32 +78,47 @@ Register definitions follow the
 [IBM VGA/XGA Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf),
 VGA Function pages 2-12, 2-24–2-26, 2-42–2-50 and 2-55–2-76.
 
-## Explicit GPU rendering
+## Recording GPU decoding
 
-The optional `renderer` feature exposes `VgaRenderer`. Its owner supplies a wgpu
-device and queue, selects a capture, and calls it directly:
+The optional `renderer` feature exposes `VgaRenderer`. It uses the owner's wgpu
+device and queue and records its private image-generation pass into the owner's
+command encoder:
 
 ```rust,ignore
-let mut vga_renderer = relocade_vga::VgaRenderer::new(device.clone(), queue.clone())?;
-let mut blitter = relocade_renderer::ImageBlitter::new(device, queue, output_format)?;
+let mut vga_renderer = relocade_vga::VgaRenderer::new(&device, &queue)?;
+let mut renderer = relocade_renderer::Renderer::new(device.clone(), output_format)?;
 if let Some(capture) = source.current_capture() {
-    let frame = vga_renderer.render(&capture);
-    blitter.blit(&frame.image, &output_view, output_size)?;
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let frame = vga_renderer.encode(&queue, &mut encoder, &capture);
+    let destination = relocade_renderer::fit_image(&frame.image, output_bounds);
+    {
+        let mut pass = encoder.begin_render_pass(&output_pass);
+        renderer.draw_image(&mut pass, &frame.image, destination);
+    }
+    queue.submit([encoder.finish()]);
 }
 ```
 
 The text shader writes a 640×200 GPU image from captured cells, cursor, blink
-and blanking. Fixed font and palette data are uploaded once. `render` uploads
-4 KB of text state for a different capture and reuses its image for the same
-capture; it never reads live device state or converts pixels on the CPU.
+and blanking. Fixed font and palette data are uploaded once. `encode` queues
+4 KB of text state and always records decoding. It never reads live device state,
+converts CPU pixels, creates an encoder or submits work.
 
-`VgaImage` carries source time and sequence alongside the image's dimensions
-and pixel aspect ratio. Its GPU storage is reused on the next update. The caller
-orders updates and viewing; cloning the image does not preserve older pixels.
-The immutable capture remains available for another renderer or software conversion.
+Select one capture version per `VgaRenderer` per submitted batch. Queue uploads
+run before the batch's commands, so this input buffer cannot hold separate capture
+versions for multiple decodes within one submission. Submit or discard the prior
+update before encoding another capture; the encoder can be discarded and retried
+without a cross-call cache suppressing the new decode.
 
-`ImageBlitter` can draw the image at another output size without calling `render`
-again. No surface, worker, timer, request channel or background task is created.
-Normal viewing keeps pixels on the GPU; copies and readback are explicit caller
-operations. The CPU `CapturedFrame::rasterize()` path remains available without
-any GPU dependencies.
+`VgaImage` carries the recorded capture's time and sequence alongside the image's
+dimensions and pixel aspect ratio. Metadata describes recorded work, not GPU
+completion. Submit the update before consuming its contents in later batches.
+The image storage is reused on the next encode; retaining it does not retain
+historical pixels. Retain the image and call `Renderer::draw_image` at a different
+destination for a resize-only redraw, with no new VGA decode.
+
+VGA owns the pass that writes its private image. The caller owns the output pass,
+including its attachments, placement and load/clear policy, and submits the whole
+command batch. Neither renderer creates a surface, worker, timer or background
+task. Production rendering records commands without waiting for GPU completion.
+`CapturedFrame::rasterize()` provides the software reference without GPU dependencies.
