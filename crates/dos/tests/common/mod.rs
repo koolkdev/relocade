@@ -101,3 +101,10 @@ pub fn mz_image(code: &[u8]) -> Vec<u8> {
     image.extend_from_slice(code);
     image
 }
+
+#[path = "../../../vga/tests/support/inspection.rs"]
+pub mod inspection;
+
+pub fn screen(dos: &relocade_dos::Dos) -> inspection::Inspection {
+    inspection::inspect(&dos.vga().borrow().snapshot())
+}

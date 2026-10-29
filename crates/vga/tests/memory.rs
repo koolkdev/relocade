@@ -213,10 +213,9 @@ fn display_addressing_preserves_high_counter_bits_in_word_and_doubleword_modes()
     ] {
         set(&mut vga, 0x3d4, 0x17, mode);
         set(&mut vga, 0x3d4, 0x14, underline);
-        assert_eq!(vga.screen().cells[0].character, character);
-        let snapshot = vga.snapshot();
-        let layout = snapshot.text_display().layout;
-        let address = usize::from(layout.address(layout.start_address, 0));
-        assert_eq!(snapshot.plane(0)[address], character);
+        assert_eq!(
+            common::inspection::inspect(&vga.snapshot()).cells[0].character,
+            character
+        );
     }
 }

@@ -1,25 +1,23 @@
-use super::{capture, pixel, read_pixels};
+use super::{common, pixel, read_pixels, set_cell, text_device};
 use relocade_renderer::{Image, Rect, Renderer};
-use relocade_vga::{TextCell, VgaRenderer};
+use relocade_vga::VgaRenderer;
 use std::time::Duration;
 
 async fn check_recording() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-    let mut vga = VgaRenderer::new(&device, &queue).unwrap();
+    let mut vga = VgaRenderer::new(&device).unwrap();
     let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
     let output = Image::new(&device, [640, 200], (5, 12)).unwrap();
-    let mut input = capture();
+    let mut device_state = text_device();
 
     for (attribute, expected, discard_first) in
         [(4, [170, 0, 0, 255], false), (1, [0, 0, 170, 255], true)]
     {
-        input.screen.cells[0] = TextCell {
-            character: 0xdb,
-            attribute,
-        };
-        input.sequence += 1;
+        set_cell(&mut device_state, 0, 0xdb, attribute);
+        let mut input = common::fixture::capture(&device_state);
+        input.sequence += u64::from(attribute);
         input.time += Duration::from_millis(1);
         if discard_first {
             let mut encoder = device.create_command_encoder(&Default::default());

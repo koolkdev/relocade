@@ -1,10 +1,10 @@
 use super::software;
-use super::{capture, common, pixel, read_pixels};
+use super::{capture, common, pixel, read_pixels, set_cell, text_device};
 use relocade_machine::Device;
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::{
     registers::{crtc, sequencer, COLOR_INPUT_STATUS_1_PORT, SEQUENCER_INDEX_PORT},
-    CapturedFrame, TextCell, TextCursor, Vga, VgaRenderer, TEXT_MEMORY_START,
+    CapturedFrame, VgaRenderer, TEXT_MEMORY_START,
 };
 use std::{rc::Rc, sync::Arc};
 
@@ -36,28 +36,17 @@ async fn check_parity() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-    let mut renderer = VgaRenderer::new(&device, &queue).unwrap();
+    let mut renderer = VgaRenderer::new(&device).unwrap();
     for blink_on in [true, false] {
-        let mut input = capture();
-        input.blink_on = blink_on;
+        let mut vga = text_device();
         for value in 0..256 {
-            input.screen.cells[value] = TextCell {
-                character: value as u8,
-                attribute: 0x6f,
-            };
-            input.screen.cells[256 + value] = TextCell {
-                character: b'A',
-                attribute: value as u8,
-            };
+            set_cell(&mut vga, value, value as u8, 0x6f);
+            set_cell(&mut vga, 256 + value, b'A', value as u8);
         }
-        input.screen.cells[600] = TextCell {
-            character: 0xdb,
-            attribute: 0x94, // Blinking red on blue.
-        };
-        input.screen.cells[601] = TextCell {
-            character: 0xdb,
-            attribute: 0x14, // Steady red on blue.
-        };
+        set_cell(&mut vga, 600, 0xdb, 0x94);
+        set_cell(&mut vga, 601, 0xdb, 0x14);
+        let mut input = common::fixture::capture(&vga);
+        input.display.blink_on = blink_on;
         let pixels = compare(&mut renderer, &device, &queue, Arc::new(input)).await;
         assert_eq!(
             pixel(&pixels, 320, 56),
@@ -81,12 +70,14 @@ async fn check_parity() {
         (0, 2000, 6, 7, None),               // Below the screen.
     ] {
         let mut input = capture();
-        input.screen.start_address = display_start;
-        input.screen.cursor = TextCursor {
-            address,
-            start_scan_line: start_row,
-            end_scan_line: end_row,
-        };
+        let [high, low] = (display_start as u16).to_be_bytes();
+        input.display.registers.crtc[12] = high;
+        input.display.registers.crtc[13] = low;
+        let [high, low] = (address as u16).to_be_bytes();
+        input.display.registers.crtc[14] = high;
+        input.display.registers.crtc[15] = low;
+        input.display.registers.crtc[10] = start_row;
+        input.display.registers.crtc[11] = end_row;
         let pixels = compare(&mut renderer, &device, &queue, Arc::new(input)).await;
         if let Some((x, y)) = lit_pixel {
             assert_eq!(pixel(&pixels, x, y), [170, 170, 170, 255]);
@@ -100,8 +91,8 @@ async fn check_parity() {
         }
     }
     let mut cursor_off = capture();
-    cursor_off.blink_on = false;
-    cursor_off.screen.cursor.start_scan_line = 6;
+    cursor_off.display.blink_on = false;
+    cursor_off.display.registers.crtc[10] = 6;
     let pixels = compare(&mut renderer, &device, &queue, Arc::new(cursor_off)).await;
     assert!(pixels
         .as_chunks::<4>()
@@ -112,7 +103,7 @@ async fn check_parity() {
     // Use real device writes for page selection and blanking, then retain both
     // captures after the source closes. Neither renderer may consult live VGA.
     let clock = Rc::new(common::ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let mut vga = common::text_vga(clock.clone());
     let source = vga.frame_source();
     vga.write_mmio(TEXT_MEMORY_START, 2, 0x04db); // Hidden page: red block.
     vga.write_mmio(TEXT_MEMORY_START + 0x200, 2, 0x0edb); // Visible page: yellow.
@@ -185,4 +176,55 @@ fn matches_software_for_text_state_and_reuses_the_image_after_resize() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn matches_software_for_text_state_and_reuses_the_image_after_resize() {
     check_parity().await;
+}
+
+#[path = "../support/programmed_text.rs"]
+mod programmed;
+
+async fn check_programmed_text() {
+    let instance = wgpu::Instance::default();
+    let adapter = instance.request_adapter(&Default::default()).await.unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let mut renderer = VgaRenderer::new(&device).unwrap();
+    let cases = programmed::cases();
+    // Revisit retained snapshots after other sizes/fonts/palettes have been rendered.
+    for case in cases.iter().chain(cases.iter().rev()) {
+        let capture = CapturedFrame {
+            display: case.display.clone(),
+            time: std::time::Duration::ZERO,
+            sequence: 1,
+        };
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let frame = renderer.encode(&queue, &mut encoder, &capture);
+        queue.submit([encoder.finish()]);
+        assert_eq!(frame.image.size(), case.size, "{}", case.name);
+        let pixels = read_pixels(&device, &queue, frame.image.texture()).await;
+        assert_eq!(
+            pixels,
+            software::render(&capture.display).as_ref(),
+            "{}",
+            case.name
+        );
+        for &(x, y, expected) in &case.pixels {
+            let offset = ((y * case.size[0] + x) * 4) as usize;
+            assert_eq!(
+                pixels[offset..offset + 4],
+                expected,
+                "{} ({x},{y})",
+                case.name
+            );
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn programmable_text_and_retained_snapshots_match_literal_pixels() {
+    pollster::block_on(check_programmed_text());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn programmable_text_and_retained_snapshots_match_literal_pixels() {
+    check_programmed_text().await;
 }

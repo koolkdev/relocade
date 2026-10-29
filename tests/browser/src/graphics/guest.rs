@@ -30,6 +30,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
             runner.clock().clone(),
         ))));
+        crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         send_source.send(vga.borrow().frame_source()).ok().unwrap();
         let config = MachineConfig::new(
             0x1000,
@@ -80,7 +81,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
 
     let source = source.await.unwrap();
     let mut ready = source.next_capture(None).await.unwrap();
-    while ready.screen.cells[0].character != 0xdb || progress.load(Ordering::Acquire) == 0 {
+    while ready.display.plane(0)[0] != 0xdb || progress.load(Ordering::Acquire) == 0 {
         ready = source.next_capture(Some(ready.sequence)).await.unwrap();
     }
     Guest {

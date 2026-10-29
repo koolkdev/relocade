@@ -75,7 +75,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         }
         assert_eq!(common::output(output.clone()), b"\r\n");
         assert_eq!(dos.read_file("OUT.TXT").unwrap(), b""); // Echo belongs to CON.
-        let screen = dos.screen();
+        let screen = common::screen(&dos);
         assert_eq!(screen.cells[0].character, b'a');
         assert_eq!(screen.cells[1].character, b'C'); // Backspace erased the previous b.
         assert_eq!(screen.cells[2].character, b' ');

@@ -23,7 +23,7 @@ that subset. The project is under development; the crates are not published.
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
 | [relocade-machine](crates/machine/src/lib.rs) | CPU views, execution, dispatch, hooks and worker tasks. |
-| [relocade-vga](crates/vga/README.md) | VGA text registers, fixed timing, immutable captures and explicit software rasterization. |
+| [relocade-vga](crates/vga/README.md) | VGA text registers, fixed timing, immutable captures and programmable GPU text decoding. |
 | [relocade-dos](crates/dos/src/lib.rs) | Persistent DOS sessions, process services and runner-integrated video. |
 | [relocade-renderer](crates/renderer/README.md) | Generic RGBA pixel presentation through wgpu. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |

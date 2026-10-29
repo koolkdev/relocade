@@ -91,48 +91,4 @@ impl Crtc {
         }
         self.registers[usize::from(index)] = value;
     }
-
-    pub fn start_address(&self) -> u16 {
-        u16::from_be_bytes([
-            self.register(START_ADDRESS_HIGH),
-            self.register(START_ADDRESS_LOW),
-        ])
-    }
-
-    pub fn cursor_address(&self) -> u16 {
-        u16::from_be_bytes([
-            self.register(CURSOR_ADDRESS_HIGH),
-            self.register(CURSOR_ADDRESS_LOW),
-        ])
-    }
-
-    pub fn cursor_start(&self) -> u8 {
-        self.register(CURSOR_START)
-    }
-
-    pub fn cursor_end(&self) -> u8 {
-        self.register(CURSOR_END)
-    }
-
-    /// Translate the CRTC address counter to physical plane address pins.
-    /// Word/doubleword modes rotate high counter bits into the low output bits
-    /// (IBM VGA p2-75); they do not compact CPU accesses in video memory.
-    pub fn display_address(&self, counter: u16, row_scan: u8) -> u16 {
-        let mode = self.register(MODE_CONTROL);
-        let mut address = if self.register(UNDERLINE_LOCATION) & 0x40 != 0 {
-            (counter << 2) | ((counter >> 12) & 3)
-        } else if mode & 0x40 == 0 {
-            let wrap_bit = if mode & 0x20 != 0 { 15 } else { 13 };
-            (counter << 1) | ((counter >> wrap_bit) & 1)
-        } else {
-            counter
-        };
-        if mode & 1 == 0 {
-            address = (address & !0x2000) | (u16::from(row_scan & 1) << 13);
-        }
-        if mode & 2 == 0 {
-            address = (address & !0x4000) | (u16::from(row_scan & 2) << 13);
-        }
-        address
-    }
 }

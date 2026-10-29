@@ -1,17 +1,20 @@
 # VGA compatibility
 
 `Vga` owns four 64-KiB memory planes, registers and fixed timing on the execution
-worker. BIOS and direct guest writes reach the same MMIO memory. The supported image is
-80×25 cells with 8×8 CP437 glyphs, fixed PC colors, cursor shape/skew, blinking,
-blanking and display-start/page selection. Named registers and the text preset
-are shared with BIOS mode programming.
+worker. BIOS and direct guest writes reach the same MMIO memory. Text decoding
+uses captured geometry, row stride, physical address mapping, 8/9-dot characters,
+font banks and heights, attribute/DAC colors, cursor shape/skew, underline,
+blinking, blanking, panning and split-display settings. The BIOS text preset
+loads an 8×8 CP437 font into plane two and initializes 80×25 cells.
 
 The nominal raster is 25.175 MHz, 800 dots per line and 449 lines per frame,
 with 640×400 active dots and vertical retrace on lines 412–413 (about 70.086 Hz).
 Input Status 1 follows that raster, including during synchronous guest polling.
 Absolute oscillator arithmetic avoids accumulated timer rounding. Timing-register
-writes retain readback; arbitrary timing, display-state latching and graphics
-modes are outside this milestone.
+writes retain readback; arbitrary clock/retrace timing, display-state latching
+and graphics decoding remain later milestones. Static text settings apply to the
+whole captured image. Historical scanout requires more precise device timing and
+captures that retain changes throughout the frame.
 
 The sequencer, CRTC, Graphics Controller, Attribute Controller and six-bit DAC
 own their register storage and CPU access rules. Attribute writes alternate
@@ -31,25 +34,19 @@ reads outside it return FF and writes are ignored. BIOS text-mode setup restores
 font memory and the shared register preset through guest-visible ports and memory
 accesses before clearing text pages. Rendering has no BIOS-mode-number dispatch.
 
-At each serviced refresh boundary the device captures cells, cursor, display
-start, blink phase, blanking, source time and sequence. Late service coalesces
-missed boundaries. Guest mutations first preserve any completed boundary using
-the preceding state. The fidelity contract is a coherent text-state snapshot at
-a completed refresh boundary, not reconstruction of pixel history during it.
+At each serviced refresh boundary the device captures a complete `DisplaySnapshot`:
+four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
+settings, DAC colors and mask, and blink phase. `CapturedFrame` adds source time
+and sequence. Late service coalesces missed boundaries; guest mutations first
+preserve completed boundaries using the preceding state. The fidelity contract
+remains a coherent frame snapshot.
 
-Each capture also owns a complete `DisplaySnapshot`: four physical memory planes
-(including font memory), sequencer/CRTC/graphics/attribute settings, DAC colors
-and mask, and blink phase. Skipping a capture loses no inputs required by a newer
-one. `Vga::snapshot()` copies those same inputs immediately without publishing a
-frame or changing CPU latches and access phases. The fixed text renderer continues
-to consume the cell view until programmable decoding replaces that representation.
-
-`DisplaySnapshot::text_display()` derives effective text settings from those
-immutable inputs. `TextDisplay` holds font selection, resolved colors, cursor and
-blink settings; `TextLayout` owns geometry and address generation, including
-stride, byte/word/doubleword addressing, panning and static line-compare splits.
-BIOS loads its 8×8 CP437 font into 32-byte slots in plane two. The existing GPU
-renderer still uses its fixed font and 80×25 cell view.
+Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
+copies those same inputs immediately without publishing a frame or changing CPU
+latches and access phases. Immediate inspection and refresh-boundary publication
+share this physical representation. `TextDisplay` derives text geometry and
+appearance from it. Its `TextLayout` owns address generation separately from
+colors, cursor and blink; there is no separate fixed text grid.
 
 `FrameSource` retains just the latest immutable `CapturedFrame`. The capture has
 one accumulated dirty rectangle per physical memory plane. Writes mark damage
@@ -66,21 +63,25 @@ bytes, so this optimization does not constrain retention or independent readers.
 Register and palette settings are captured separately from memory damage.
 
 The capture has no RGBA image. It can cross workers and survive device
-destruction. Waiting for `next_capture` observes emulated refreshes, not pixel output or presentation.
-The registered VGA activity keeps capturing while the CPU waits for input and
-while the app is not drawing. Destroying VGA closes this capture source and
+destruction. Waiting for `next_capture` observes emulated refreshes, not pixel
+output or presentation. The registered VGA activity keeps capturing while the CPU
+waits for input and while the app is not drawing. Destroying VGA closes this capture source and
 wakes waiters without creating an extra frame.
 
-Captured cells, cursor, blink and blanking are renderer inputs. An embedding can
+Captured memory and display settings are renderer inputs. An embedding can
 read them directly or use the optional GPU renderer below. Device-only users do
 not need GPU dependencies. `Vga::run` services hardware time and captures; the
 embedding owns redraw scheduling, request coalescing, dimensions and presentation.
 Closing the source ends capture production without invalidating retained captures
 or requiring the embedding's GPU resources to close.
 
-`renderer` owns GPU text decoding and `text.rs` owns fixed mode resources. The
-generic `relocade-renderer` owns image storage and attachment drawing and knows
-nothing about VGA, BIOS or DOS.
+`display` owns register interpretation and text address generation. `renderer/memory`
+owns persistent physical-plane GPU storage, dirty-rectangle selection and byte
+comparison. `renderer/text_input` supplies text addressing and font-bank selection;
+`renderer/upload` coalesces changed words. Future packed and planar graphics
+layouts can select physical ranges through the same memory mechanism without
+making the application understand VGA modes. The generic `relocade-renderer` owns
+image storage and attachment drawing and knows nothing about VGA, BIOS or DOS.
 
 DOS supplies this same capture source through `dos.frame_source()`. Construct
 `Dos::new(runner)` inside the execution session; its VGA registration persists
@@ -99,7 +100,7 @@ device and queue and records its private image-generation pass into the owner's
 command encoder:
 
 ```rust,ignore
-let mut vga_renderer = relocade_vga::VgaRenderer::new(&device, &queue)?;
+let mut vga_renderer = relocade_vga::VgaRenderer::new(&device)?;
 let mut renderer = relocade_renderer::Renderer::new(device.clone(), output_format)?;
 if let Some(capture) = source.current_capture() {
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -113,23 +114,42 @@ if let Some(capture) = source.current_capture() {
 }
 ```
 
-The text shader writes a 640×200 GPU image from captured cells, cursor, blink
-and blanking. Fixed font and palette data are uploaded once. `encode` queues
-4 KB of text state and always records decoding. It never reads live device state,
-converts CPU pixels, creates an encoder or submits work.
+The text shader reads physical plane bytes at stable GPU addresses. Glyphs come
+from captured plane two, and colors follow the captured attribute palette, color
+select, plane enable and DAC mask. Output dimensions follow the CRTC. Identical
+scan-doubled rows share one image row; a split within a repeated pair retains the
+physical rows. Pixel aspect ratio targets nominal 4:3 display proportions rather
+than modeling a particular monitor. The default preset still produces 640×200.
 
-Select one capture version per `VgaRenderer` per submitted batch. Queue uploads
-run before the batch's commands, so this input buffer cannot hold separate capture
-versions for multiple decodes within one submission. Submit or discard the prior
-update before encoding another capture; the encoder can be discarded and retried
-without a cross-call cache suppressing the new decode.
+The renderer requires a 2D texture limit of at least 2304 pixels for the largest
+nine-dot text width. It uses an integer texture array for physical planes and a
+small uniform for display settings. Text addresses are selected once per layout
+change. The selected font banks stay resident (8 KiB each, at most two), including
+unused glyphs, so changing a character never discovers or uploads a new glyph.
+Character, attribute and font changes arrive in separate physical-plane rectangles.
+Each renderer compares only selected words within those rectangles against its own
+queued bytes. Adjacent changed words combine into row-bounded texture writes.
+Newly visible memory and newly selected font banks receive a fresh comparison,
+including banks changed while hidden. Unchanged inputs queue no upload, including
+when only capture time or sequence changes.
+
+`encode(queue, encoder, capture)` queues changed required inputs and records
+one decode into the reusable image. It always records a draw, including retries
+after an encoder was discarded. It never reads live VRAM, converts CPU pixels,
+creates an encoder or submits work.
+
+Select one capture version per renderer per submitted batch. Queue writes run
+before submitted commands, and the persistent input resources hold one version.
+Submit or discard the prior decode before encoding another capture. The embedding
+owns redraw scheduling and can reuse a decoded image for resize-only draws.
 
 `VgaImage` carries the recorded capture's time and sequence alongside the image's
 dimensions and pixel aspect ratio. Metadata describes recorded work, not GPU
 completion. Submit the update before consuming its contents in later batches.
-The image storage is reused on the next encode; retaining it does not retain
-historical pixels. Retain the image and call `Renderer::draw_image` at a different
-destination for a resize-only redraw, with no new VGA decode.
+Image storage is reused while geometry stays the same; retaining it does not
+retain historical pixels. Geometry changes allocate new output storage. Retain
+the image and call `Renderer::draw_image` at a different destination for a
+resize-only redraw, with no new VGA decode.
 
 VGA owns the pass that writes its private image. The caller owns the output pass,
 including its attachments, placement and load/clear policy, and submits the whole

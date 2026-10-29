@@ -1,6 +1,6 @@
 use crate::{
     damage::{CaptureChanges, MemoryDamage},
-    DisplaySnapshot, TextScreen,
+    DisplaySnapshot,
 };
 use arc_swap::ArcSwapOption;
 use event_listener::Event;
@@ -18,12 +18,6 @@ use std::{
 pub struct CapturedFrame {
     /// Complete physical memory, palette and programmable display settings.
     pub display: DisplaySnapshot,
-    /// Visible cells, display start and cursor registers at the boundary.
-    pub screen: TextScreen,
-    /// Captured phase shared by blinking attributes and the text cursor.
-    pub blink_on: bool,
-    /// Sequencer screen-off state; the image is black when set.
-    pub blanked: bool,
     pub time: Duration,
     pub sequence: u64,
 }

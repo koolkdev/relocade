@@ -1,7 +1,6 @@
 use crate::{
     damage::{MemoryDamage, PLANE_BYTES},
     registers::Registers,
-    TextCell,
 };
 
 /// Four independent VGA planes. CPU reads latch all planes; scanout reads do not
@@ -81,13 +80,6 @@ impl VideoMemory {
                 self.planes[plane][index] = value;
                 self.damage.include_byte(plane, index);
             }
-        }
-    }
-
-    pub fn cell(&self, address: u16) -> TextCell {
-        TextCell {
-            character: self.planes[0][usize::from(address)],
-            attribute: self.planes[1][usize::from(address)],
         }
     }
 }

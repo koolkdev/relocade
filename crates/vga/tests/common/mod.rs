@@ -63,3 +63,14 @@ pub fn poll_video(
         assert!(video.as_mut().poll(cx).is_pending());
     }
 }
+
+#[path = "../support/fixture.rs"]
+pub mod fixture;
+#[path = "../support/inspection.rs"]
+pub mod inspection;
+
+pub fn text_vga<C: Clock>(clock: std::rc::Rc<C>) -> relocade_vga::Vga<C> {
+    let mut vga = relocade_vga::Vga::with_clock(clock);
+    fixture::initialize_font(&mut vga);
+    vga
+}

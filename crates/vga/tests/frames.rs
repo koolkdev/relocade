@@ -57,7 +57,7 @@ fn ready_deadlines_leave_a_polling_opportunity_for_other_activities() {
         }
     }
     let clock = Rc::new(LateClock::default());
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
+    let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
     let source = vga.borrow().frame_source();
     let mut video = Box::pin(Vga::run(vga));
     let wakes = Arc::new(WakeCount::default());
@@ -75,7 +75,7 @@ fn ready_deadlines_leave_a_polling_opportunity_for_other_activities() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     let clock = Rc::new(ManualClock::default());
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
+    let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
     let mut video = Box::pin(Vga::run(vga.clone()));
     let source = vga.borrow().frame_source();
     assert!(source.current_capture().is_none());
@@ -86,10 +86,11 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     let first = source.current_capture().unwrap();
     assert_eq!(first.time, boundary(1));
     // An alternate renderer can consume captured state without producing CPU pixels.
-    assert_eq!(first.screen.cells[0].character, 0xdb);
-    assert_eq!(first.screen.cells[0].attribute, 0x1e);
-    assert_eq!(first.screen.start_address, 0);
-    assert_eq!(first.screen.cursor.address, 1);
+    let first_text = common::inspection::inspect(&first.display);
+    assert_eq!(first_text.cells[0].character, 0xdb);
+    assert_eq!(first_text.cells[0].attribute, 0x1e);
+    assert_eq!(first_text.start_address, 0);
+    assert_eq!(first_text.cursor.address, 1);
     let first_pixels = software::rasterize(&first);
     assert_eq!((first_pixels.width, first_pixels.height), (640, 200));
     assert_eq!(first_pixels.pixel_aspect_ratio, (5, 12));
@@ -110,8 +111,11 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     tick(&clock, video.as_mut(), boundary(2));
     let second = source.current_capture().unwrap();
     assert_eq!(second.time, boundary(2));
-    assert_eq!(second.screen.start_address, 1);
-    assert_eq!(first.screen.start_address, 0);
+    assert_eq!(
+        common::inspection::inspect(&second.display).start_address,
+        1
+    );
+    assert_eq!(common::inspection::inspect(&first.display).start_address, 0);
     assert_eq!(second.sequence, 2);
     assert_eq!(
         &software::rasterize(&second).pixels[..4],
@@ -139,7 +143,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
     let clock = Rc::new(ManualClock::default());
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
+    let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
     let mut video = Box::pin(Vga::run(vga.clone()));
     let source = vga.borrow().frame_source();
     let wake_a = Arc::new(WakeCount::default());
@@ -180,7 +184,7 @@ fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
     let clock = Rc::new(ManualClock::default());
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
+    let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
     let mut video = Box::pin(Vga::run(vga.clone()));
     vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x94db);
     vga.borrow_mut()
@@ -191,17 +195,18 @@ fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
     let source = vga.borrow().frame_source();
     tick(&clock, video.as_mut(), boundary(1));
     let on = source.current_capture().unwrap();
-    assert!(on.blink_on);
-    assert_eq!(on.screen.cursor.start_scan_line, 6);
-    assert_eq!(on.screen.cursor.end_scan_line, 7);
+    assert!(on.display.blink_on);
+    let on_text = common::inspection::inspect(&on.display);
+    assert_eq!(on_text.cursor.start_scan_line, 6);
+    assert_eq!(on_text.cursor.end_scan_line, 7);
     let pixels = software::rasterize(&on).pixels.to_vec();
     let cursor = (6 * 640 + 8) * 4;
     assert_eq!(&pixels[..4], [170, 0, 0, 255]);
     assert_eq!(&pixels[cursor..cursor + 4], [170, 170, 170, 255]);
     tick(&clock, video.as_mut(), boundary(16)); // Sixteen vertical retraces toggle the blink phase.
     let off = source.current_capture().unwrap();
-    assert!(!off.blink_on);
-    assert!(on.blink_on);
+    assert!(!off.display.blink_on);
+    assert!(on.display.blink_on);
     let off_pixels = software::rasterize(&off);
     let blink = &off_pixels.pixels;
     assert_eq!(&blink[..4], [0, 0, 170, 255]);
@@ -213,7 +218,7 @@ fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let mut vga = common::text_vga(clock.clone());
     let source = vga.frame_source();
     vga.write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
     crtc(&mut vga, 0x0a, 0x20);
@@ -230,8 +235,8 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     clock.set(boundary(6));
     vga.read_port(0x3da, 1);
     let blank = source.current_capture().unwrap();
-    assert!(blank.blanked);
-    assert!(!before.blanked);
+    assert!(blank.display.text_display().blanked);
+    assert!(!before.display.text_display().blanked);
     assert!(software::rasterize(&blank)
         .pixels
         .as_chunks::<4>()

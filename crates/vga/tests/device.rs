@@ -1,7 +1,7 @@
 mod common;
 use common::ManualClock;
 use relocade_machine::Device;
-use relocade_vga::{TextCell, Vga, CRTC_DATA_PORT, CRTC_INDEX_PORT, TEXT_MEMORY_START};
+use relocade_vga::{Vga, CRTC_DATA_PORT, CRTC_INDEX_PORT, TEXT_MEMORY_START};
 use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
@@ -22,17 +22,17 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
     vga.write_mmio(TEXT_MEMORY_START, 4, 0x2f42_1e41);
     vga.write_mmio(TEXT_MEMORY_START + 1, 1, 0x17);
     assert_eq!(vga.read_mmio(TEXT_MEMORY_START, 4), 0x2f42_1741);
-    let first = vga.screen();
+    let first = common::inspection::inspect(&vga.snapshot());
     assert_eq!(
         first.cells[0],
-        TextCell {
+        common::inspection::Cell {
             character: b'A',
             attribute: 0x17
         }
     );
     assert_eq!(
         first.cells[1],
-        TextCell {
+        common::inspection::Cell {
             character: b'B',
             attribute: 0x2f
         }
@@ -42,18 +42,18 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
     vga.write_mmio(TEXT_MEMORY_START + 0x7ffe, 2, 0x3e5a);
     register(&mut vga, 0x0c, 0x3f);
     register(&mut vga, 0x0d, 0xff);
-    let last = vga.screen();
+    let last = common::inspection::inspect(&vga.snapshot());
     assert_eq!(last.start_address, 0x3fff);
     assert_eq!(
         last.cells[0],
-        TextCell {
+        common::inspection::Cell {
             character: b'Z',
             attribute: 0x3e
         }
     );
     assert_eq!(
         last.cells[1],
-        TextCell {
+        common::inspection::Cell {
             character: 0,
             attribute: 0
         }
@@ -62,17 +62,20 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
     // Scanout wraps at the 16-bit CRTC cell address, not the CPU aperture edge.
     register(&mut vga, 0x0c, 0xff);
     register(&mut vga, 0x0d, 0xff);
-    let wrapped = vga.screen();
+    let wrapped = common::inspection::inspect(&vga.snapshot());
     assert_eq!(
         wrapped.cells[0],
-        TextCell {
+        common::inspection::Cell {
             character: 0,
             attribute: 0
         }
     );
     assert_eq!(wrapped.cells[1], first.cells[0]);
     vga.write_mmio(TEXT_MEMORY_START, 1, u64::from(b'X'));
-    assert_eq!(vga.screen().cells[1].character, b'X');
+    assert_eq!(
+        common::inspection::inspect(&vga.snapshot()).cells[1].character,
+        b'X'
+    );
     assert_eq!(wrapped.cells[1].character, b'A');
 }
 
@@ -87,7 +90,7 @@ fn crtc_byte_and_paired_writes_share_register_state() {
     register(&mut vga, 0x0f, 0xcd);
     register(&mut vga, 0x0a, 0xe6);
     register(&mut vga, 0x0b, 0xe7);
-    let screen = vga.screen();
+    let screen = common::inspection::inspect(&vga.snapshot());
     assert_eq!(screen.start_address, 0x1234);
     assert_eq!(screen.cursor.address, 0xabcd);
     assert_eq!(screen.cursor.start_scan_line, 0x26);
@@ -98,7 +101,7 @@ fn crtc_byte_and_paired_writes_share_register_state() {
     vga.write_port(CRTC_INDEX_PORT, 1, 0x1f);
     vga.write_port(CRTC_DATA_PORT, 1, 0x55);
     assert_eq!(vga.read_port(CRTC_DATA_PORT, 1), 0xff);
-    assert_eq!(vga.screen(), screen);
+    assert_eq!(common::inspection::inspect(&vga.snapshot()), screen);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

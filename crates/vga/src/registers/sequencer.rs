@@ -63,10 +63,6 @@ impl Sequencer {
         self.registers[usize::from(self.index)] = value & mask;
     }
 
-    pub fn screen_off(&self) -> bool {
-        self.register(CLOCKING_MODE) & (1 << 5) != 0
-    }
-
     pub fn chain_four(&self) -> bool {
         self.register(MEMORY_MODE) & 8 != 0
     }

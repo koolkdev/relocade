@@ -8,6 +8,8 @@ pub fn initialize() {
 
 #[path = "../../../crates/vga/tests/support/software.rs"]
 mod software;
+#[path = "../../../crates/vga/tests/support/fixture.rs"]
+mod vga_fixture;
 
 mod channels;
 mod clock;
