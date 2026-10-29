@@ -10,7 +10,7 @@ use std::{
 ///
 /// A device or interrupt controller owns pending requests, priority, masking and
 /// acknowledgement policy. The CPU polls only when real-mode interrupt entry is
-/// permitted by IF and no protected interpreter step is pending. `Ready(vector)` acknowledges one
+/// permitted by IF. `Ready(vector)` acknowledges one
 /// request; `Pending` must arrange a wake when a request becomes available.
 ///
 /// Requests are considered at instruction-quantum boundaries. Suspended borrowed

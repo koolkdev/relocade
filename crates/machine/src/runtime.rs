@@ -85,7 +85,6 @@ impl<T: 'static> Cpu<T> {
             dispatch,
             hooks: HashMap::new(),
             interrupts: None,
-            step_pending: false,
         };
         Ok(Self {
             execution: Execution::new(machine),

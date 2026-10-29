@@ -59,7 +59,7 @@ impl InterruptSource for InterruptDevice {
 async fn cpu(code: &[u8], device: &Rc<RefCell<InterruptDevice>>, flags: u32) -> Cpu {
     let clock = support::clock::ManualClock::default();
     let runner = Runner::with_clock(clock);
-    let io = IoBus::new([runner.connect(device.clone(), [], [0x80..=0x80])]);
+    let io = IoBus::new([runner.connect(device.clone(), [], std::iter::once(0x80..=0x80))]);
     let mut state = CpuState {
         eip: 0x200,
         segments: Segments::real_mode(),
@@ -287,15 +287,10 @@ async fn check_entry_fault() {
     );
 }
 
-async fn check_protected_fault_retry() {
+async fn check_protected_fault() {
     for fault in [&[0x0f, 0x0b][..], &[0xf4][..]] {
         let device = Rc::new(RefCell::new(InterruptDevice::default()));
         let mut cpu = cpu(&[&[0xfb], fault, &[0xeb, 0xfe]].concat(), &device, 2).await;
-        cpu.install_hooks([Hook::new(HANDLER, async |_| {
-            HookResult::Exit(ExecutionExit::Host(HostExit::Return))
-        })])
-        .await
-        .unwrap();
         let expected = if fault == [0xf4] {
             ExecutionExit::UnsupportedInstruction {
                 eip: 0x201,
@@ -308,17 +303,6 @@ async fn check_protected_fault_retry() {
         assert_eq!(cpu.context().cpu.instruction_count(), 1);
         assert_eq!(cpu.context().cpu.eip(), 0x201);
         assert_eq!(cpu.context().cpu.eflags(), 0x202);
-        device.borrow_mut().raise();
-        cpu.memory()
-            .view()
-            .write(CODE + 1, &[0x90, 0xeb, 0xfe])
-            .unwrap();
-        assert_eq!(cpu.run(0).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(cpu.context().cpu.instruction_count(), 2);
-        assert_eq!(device.borrow().acknowledged, 0);
-        assert_eq!(cpu.run(1).await, ExecutionExit::Host(HostExit::Return));
-        assert_eq!(device.borrow().acknowledged, 1);
     }
 }
 
@@ -352,7 +336,7 @@ fn borrowed_calls_defer_requests_until_the_replacement_quantum() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_fault_in_the_protected_step_keeps_the_completed_inhibitor() {
-    pollster::block_on(check_protected_fault_retry());
+    pollster::block_on(check_protected_fault());
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -387,5 +371,5 @@ async fn borrowed_calls_defer_requests_until_the_replacement_quantum() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn a_fault_in_the_protected_step_keeps_the_completed_inhibitor() {
-    check_protected_fault_retry().await;
+    check_protected_fault().await;
 }

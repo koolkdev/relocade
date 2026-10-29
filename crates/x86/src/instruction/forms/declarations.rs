@@ -69,8 +69,6 @@ pub(in crate::instruction) enum ExecutionEffect {
     PortIo,
     /// Complete prior work and resume through dispatch before the next fetch.
     Serializing,
-    /// Changes interrupt acceptance and may require a protected successor.
-    InterruptControl,
     /// Execution always raises a guest fault, so no successor belongs to the block.
     UnconditionalFault,
 }

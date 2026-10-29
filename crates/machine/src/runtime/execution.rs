@@ -44,15 +44,10 @@ impl<T: 'static> Execution<T> {
         match self {
             Self::Idle(machine) => {
                 // Guest-only runs leave the machine here and allocate no future.
-                let exit = poll_fn(|cx| {
-                    Poll::Ready(
-                        machine
-                            .as_mut()
-                            .expect("idle machine")
-                            .dispatch(Some(budget), cx),
-                    )
-                })
-                .await;
+                let exit = machine
+                    .as_mut()
+                    .expect("idle machine")
+                    .dispatch(Some(budget));
                 let ExecutionExit::Host(HostExit::Call { address }) = exit else {
                     return exit;
                 };
@@ -95,8 +90,7 @@ async fn execute<T>(
         }
         // A replacement waiter supplies one budget, applied after the
         // pending service returns. Ordinary waits do not replenish it.
-        let outcome =
-            poll_fn(|cx| Poll::Ready(machine.dispatch(replacement_budget.take(), cx))).await;
+        let outcome = machine.dispatch(replacement_budget.take());
         match outcome {
             ExecutionExit::Host(HostExit::Call { address: next }) => address = next,
             exit => break exit,
@@ -118,7 +112,7 @@ impl<T: 'static> Cpu<T> {
     /// Dropping the CPU drops the suspended call chain and its machine together.
     ///
     /// A connected interrupt source is polled at the start of each nonzero run
-    /// when IF permits entry and no protected step is pending. Pending borrowed host
+    /// when IF permits entry. Pending borrowed host
     /// services complete before a replacement run's interrupt check.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         self.execution.run(instruction_budget).await

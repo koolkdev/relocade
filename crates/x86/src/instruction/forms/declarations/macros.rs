@@ -142,9 +142,6 @@ macro_rules! declaration_opcode {
 }
 
 macro_rules! declaration_effect {
-    (interrupt_control) => {
-        ExecutionEffect::InterruptControl
-    };
     (serializing) => {
         ExecutionEffect::Serializing
     };

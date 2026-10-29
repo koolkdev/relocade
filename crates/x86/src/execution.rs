@@ -51,7 +51,6 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     completed: u32,
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
-    protect_next: Val<I1>,
 }
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
@@ -80,7 +79,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             completed: 0,
             can_fallback: false,
             observed_cpu: None,
-            protect_next: false.into(),
         })
     }
 
@@ -346,9 +344,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             .state
             .publish(&mut self.body, &self.eip, self.completed)?
             .expect("successful completion retires an instruction");
-        self.body.if_(self.protect_next, |body| {
-            body.return_(crate::ExecutionExitValues::interrupt_inhibited())
-        })?;
         if check_budget {
             self.state
                 .check_instruction_budget(&mut self.body, &count)?;

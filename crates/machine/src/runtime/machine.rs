@@ -7,7 +7,7 @@ use relocade_x86::ExecutionExit;
 use std::{
     collections::HashMap,
     rc::Rc,
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 
 pub(super) struct Machine<T> {
@@ -18,8 +18,6 @@ pub(super) struct Machine<T> {
     pub dispatch: Dispatch,
     pub hooks: HashMap<u32, Rc<dyn Handler<T>>>,
     pub interrupts: Option<Box<dyn InterruptSource>>,
-    // Retain the required step if it faults or encounters an unsupported opcode.
-    pub step_pending: bool,
 }
 
 impl<T> Machine<T> {
@@ -47,12 +45,13 @@ impl<T> Machine<T> {
         }
     }
 
-    pub fn dispatch(&mut self, budget: Option<u64>, cx: &mut Context<'_>) -> ExecutionExit {
+    pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
         self.set_budget(budget);
         // A host continuation within the same quantum does not introduce a new
         // acceptance point. A replacement run waiter supplies a new quantum.
         let vector = if budget.is_some() {
-            match self.poll_interrupt(cx) {
+            // This call does not suspend; the next quantum polls again.
+            match self.poll_interrupt(&mut Context::from_waker(Waker::noop())) {
                 Poll::Ready(vector) => Some(vector),
                 Poll::Pending => None,
             }
@@ -63,28 +62,18 @@ impl<T> Machine<T> {
     }
 
     fn enter(&mut self, vector: Option<u8>) -> ExecutionExit {
-        let mut exit = if self.step_pending {
-            ExecutionExit::InterruptInhibited
-        } else {
-            match vector {
-                Some(vector) => self.dispatch.interrupt(&mut self.backend, vector),
-                None => self.dispatch.run(&mut self.backend),
-            }
+        let mut exit = match vector {
+            Some(vector) => self.dispatch.interrupt(&mut self.backend, vector),
+            None => self.dispatch.run(&mut self.backend),
         };
         while exit == ExecutionExit::InterruptInhibited {
-            let before = self.context().cpu.instruction_count();
             exit = self.dispatch.step(&mut self.backend);
-            let completed = self.context().cpu.instruction_count() != before;
-            self.step_pending = !completed;
         }
         exit
     }
 
     pub fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
-        if self.step_pending
-            || self.interrupts.is_none()
-            || self.context().cpu.eflags() & (1 << 9) == 0
-        {
+        if self.interrupts.is_none() || self.context().cpu.eflags() & (1 << 9) == 0 {
             return Poll::Pending;
         }
         self.interrupts.as_mut().unwrap().poll_interrupt(cx)

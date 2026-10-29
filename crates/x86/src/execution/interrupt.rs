@@ -47,12 +47,18 @@ impl ExecutionBuilder<'_, '_> {
         self.runtime.dispatch(self.body)
     }
 
-    pub(crate) fn inhibit_interrupts(
+    /// Completes the current Real16 instruction and requests its protected successor.
+    /// Call only after all of the instruction's effects and fault checks.
+    pub(crate) fn interrupt_inhibited_if(
         &mut self,
         condition: impl Into<Val<I1>>,
+        next_ip: &Val<I32>,
     ) -> Result<(), BuildError> {
         if self.profile() == ExecutionProfile::Real16 {
-            self.protect_next = self.body.value(condition.into())?;
+            self.body.if_(condition, |mut body| {
+                self.state.publish(&mut body, next_ip, self.completed + 1)?;
+                body.return_(crate::ExecutionExitValues::interrupt_inhibited())
+            })?;
         }
         Ok(())
     }

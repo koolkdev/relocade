@@ -44,7 +44,7 @@ instruction_families! {
     }
     MOV_TO_SEGMENT {
         execute: load_selector;
-        effects: [segment_load];
+        effects: [control_transfer, segment_load];
         forms {
             0x8E /0 => word(segment(Segment::Es), rm);
             0x8E /2 => word(segment(Segment::Ss), rm);
@@ -66,7 +66,7 @@ instruction_families! {
     }
     POP_SEGMENT {
         execute: pop_selector::<_>;
-        effects: [segment_load];
+        effects: [control_transfer, segment_load];
         forms {
             0x07 => word_or_dword(segment(Segment::Es));
             0x17 => word_or_dword(segment(Segment::Ss));
@@ -178,13 +178,16 @@ fn load_selector(
     execution: &mut ExecutionBuilder<'_, '_>,
     segment: Segment,
     source: TypedLocation<I16>,
-) -> Result<(), BuildError> {
+    _condition: Option<Condition>,
+    fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError> {
     let selector = source.read(execution)?;
     let resolved = execution.resolve_segment(segment, &selector)?;
+    resolved.commit(execution)?;
     if segment == Segment::Ss {
-        execution.inhibit_interrupts(true)?;
+        execution.interrupt_inhibited_if(true, &fallthrough)?;
     }
-    resolved.commit(execution)
+    Ok(fallthrough)
 }
 
 fn push_selector<T: RegisterType>(
@@ -198,17 +201,20 @@ fn push_selector<T: RegisterType>(
 fn pop_selector<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     segment: Segment,
-) -> Result<(), BuildError> {
+    _condition: Option<Condition>,
+    fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError> {
     let frame = execution.pop_frame(T::BYTES, 2)?;
     let selector = frame.field::<I16>(execution, 0)?.read(execution)?;
     let resolved = execution.resolve_segment(segment, &selector)?;
     // Resolve before changing ESP; commit its old-SS pointer before replacing
     // the cache, since the new SS may have a different base or stack width.
     frame.commit(execution, 0)?;
+    resolved.commit(execution)?;
     if segment == Segment::Ss {
-        execution.inhibit_interrupts(true)?;
+        execution.interrupt_inhibited_if(true, &fallthrough)?;
     }
-    resolved.commit(execution)
+    Ok(fallthrough)
 }
 
 fn load_pointer<T: RegisterType>(

@@ -30,7 +30,7 @@ instruction_families! {
     }
     STI {
         execute: enable_interrupts;
-        effects: [interrupt_control];
+        effects: [control_transfer];
         availability: IoPrivileged;
         forms {
             0xFB => no_operands();
@@ -63,8 +63,13 @@ fn complement_carry(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), Buil
     execution.write_flag(Flag::CF, carry.xor(true))
 }
 
-fn enable_interrupts(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+fn enable_interrupts(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    _condition: Option<Condition>,
+    fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError> {
     let enabled = execution.read_flag(Flag::IF)?;
-    execution.inhibit_interrupts(enabled.eq(false))?;
-    execution.write_flag(Flag::IF, true)
+    execution.write_flag(Flag::IF, true)?;
+    execution.interrupt_inhibited_if(enabled.eq(false), &fallthrough)?;
+    Ok(fallthrough)
 }

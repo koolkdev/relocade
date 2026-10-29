@@ -129,11 +129,10 @@ STI from IF=0 and MOV/POP SS end their block with `InterruptInhibited`. The
 runtime consumes this exit synchronously by calling the existing interpreter
 `step`, then continues normal dispatch. There is no await, IRQ check or budget
 check between the inhibitor and its successor. LSS and STI from IF=1 do not
-request that step. Consecutive inhibitors use the same loop. If the protected
-instruction cannot execute, its pending step survives the returned fault or
-unsupported exit so a retry still precedes an IRQ check.
+request that step. Consecutive inhibitors use the same loop. A fault or unsupported
+exit from the successor returns normally with the inhibitor already retired.
 
-Zero-budget runs do not poll or execute pending steps. Entry faults are returned as guest
+Zero-budget runs do not poll or enter Wasm. Entry faults are returned as guest
 exceptions after the source has acknowledged the vector.
 
 Borrowed asynchronous hooks still hold the CPU until their operation completes;
