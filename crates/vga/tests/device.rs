@@ -97,3 +97,46 @@ fn crtc_byte_and_paired_writes_share_register_state() {
     assert_eq!(vga.read_port(CRTC_DATA_PORT, 1), 0xff);
     assert_eq!(vga.screen(), screen);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn protected_registers_and_monochrome_port_selection_match_guest_reads() {
+    let mut vga = Vga::new();
+    register(&mut vga, 0, 0x10);
+    assert_eq!(vga.read_port(0x3d5, 1), 0x5f);
+    register(&mut vga, 7, 0xe0);
+    assert_eq!(vga.read_port(0x3d5, 1), 0x0f); // Only line-compare bit 8 changed.
+    register(&mut vga, 0x11, 0x2e);
+    register(&mut vga, 0, 0x10);
+    assert_eq!(vga.read_port(0x3d4, 2), 0x1000);
+    vga.write_port(0x3c2, 1, 0x42); // Monochrome CRTC and status addresses.
+    assert_eq!(vga.read_port(0x3cc, 1), 0x42);
+    assert_eq!(vga.read_port(0x3d4, 2), 0xffff);
+    assert_eq!(vga.read_port(0x3da, 1), 0xff);
+    vga.write_port(0x3b4, 2, 0x0a00);
+    assert_eq!(vga.read_port(0x3b4, 2), 0x0a00);
+    vga.write_mmio(TEXT_MEMORY_START, 2, 0x0741);
+    vga.write_port(0x3c2, 1, 0x40); // Disable display RAM decoding.
+    vga.write_mmio(TEXT_MEMORY_START, 2, 0x075a);
+    assert_eq!(vga.read_mmio(TEXT_MEMORY_START, 2), 0xffff);
+    vga.write_port(0x3c2, 1, 0x42);
+    assert_eq!(vga.read_mmio(TEXT_MEMORY_START, 2), 0x0741);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn sequencer_readback_preserves_defined_fields_and_selects_supported_registers() {
+    let mut vga = Vga::new();
+    // Clocking-mode bits 7, 6 and 1 have undefined readback (IBM VGA p2-49).
+    for (index, written, mask, expected) in [
+        (0, 0xfc, 0x03, 0),
+        (1, 0xff, 0x3d, 0x3d),
+        (2, 0xaa, 0xff, 0xff),
+    ] {
+        vga.write_port(0x3c4, 2, u32::from(u16::from_le_bytes([index, written])));
+        assert_eq!(vga.read_port(0x3c5, 1) & mask, expected);
+    }
+    vga.write_port(0x3c4, 1, 0xff);
+    assert_eq!(vga.read_port(0x3c4, 1) & 7, 7);
+    assert_eq!(vga.read_port(0x3c5, 1), 0xff);
+}
