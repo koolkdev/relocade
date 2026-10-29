@@ -1,41 +1,49 @@
-//! Fixed device connections shared by guest execution and host services.
+//! Device connections local to guest execution and its host services.
 
-use std::{ops::RangeInclusive, sync::Arc};
+use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 /// A synchronous device on the machine's memory and port buses.
 /// Addresses are physical bus addresses, after A20 translation for MMIO.
 /// Values are little endian. MMIO transfers contain one through eight bytes;
 /// port transfers retain their architectural width of one, two or four bytes.
 ///
-/// Implementations own their mutable state and synchronize access with display
-/// readers or other host threads. Callbacks must not reenter guest execution.
-pub trait Device: Send + Sync {
-    fn read_mmio(&self, _address: u32, _bytes: u8) -> u64 {
+/// The execution worker owns device state. Reads can have side effects, so every
+/// transfer borrows the device mutably. Callbacks must not reenter guest execution
+/// or access the same device recursively. Publish owned observations separately
+/// when another worker needs to display or inspect device output.
+pub trait Device {
+    fn read_mmio(&mut self, _address: u32, _bytes: u8) -> u64 {
         u64::MAX
     }
 
-    fn write_mmio(&self, _address: u32, _bytes: u8, _value: u64) {}
+    fn write_mmio(&mut self, _address: u32, _bytes: u8, _value: u64) {}
 
-    fn read_port(&self, _port: u16, _bytes: u8) -> u32 {
+    fn read_port(&mut self, _port: u16, _bytes: u8) -> u32 {
         u32::MAX
     }
 
-    fn write_port(&self, _port: u16, _bytes: u8, _value: u32) {}
+    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {}
 }
 
 /// The addresses decoded by one device. Memory ranges must also be marked
 /// [`relocade_x86::PhysicalMapping::Mmio`] in the machine's physical map.
 pub struct DeviceConnection {
-    pub device: Arc<dyn Device>,
+    pub device: Rc<RefCell<dyn Device>>,
     pub mmio: Vec<RangeInclusive<u32>>,
     pub ports: Vec<RangeInclusive<u16>>,
 }
 
-/// Immutable device routing. Clones retain the same connections and device state.
+/// Immutable routing on one execution worker. Clones retain the same local
+/// devices; the bus cannot be sent or shared across threads.
 /// Unconnected reads return FF bytes and unconnected writes are ignored.
+///
+/// ```compile_fail
+/// let io = relocade_machine::IoBus::default();
+/// std::thread::spawn(move || io.read_port(0x3d4, 1));
+/// ```
 #[derive(Clone, Default)]
 pub struct IoBus {
-    connections: Arc<[DeviceConnection]>,
+    connections: Rc<[DeviceConnection]>,
 }
 
 impl IoBus {
@@ -61,7 +69,7 @@ impl IoBus {
             let current = address + u32::from(done);
             let (device, count) = self.mmio_span(current, bytes - done);
             if let Some(device) = device {
-                let value = device.read_mmio(current, count).to_le_bytes();
+                let value = device.borrow_mut().read_mmio(current, count).to_le_bytes();
                 result[usize::from(done)..usize::from(done + count)]
                     .copy_from_slice(&value[..usize::from(count)]);
             }
@@ -84,7 +92,9 @@ impl IoBus {
                 let mut part = [0; 8];
                 part[..usize::from(count)]
                     .copy_from_slice(&value[usize::from(done)..usize::from(done + count)]);
-                device.write_mmio(current, count, u64::from_le_bytes(part));
+                device
+                    .borrow_mut()
+                    .write_mmio(current, count, u64::from_le_bytes(part));
             }
             done += count;
         }
@@ -94,27 +104,29 @@ impl IoBus {
     /// the meaning of a wide transfer, including paired index/data registers.
     pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        let value = self
-            .port_device(port)
-            .map_or(u32::MAX, |device| device.read_port(port, bytes));
+        let value = self.port_device(port).map_or(u32::MAX, |device| {
+            device.borrow_mut().read_port(port, bytes)
+        });
         value & (u32::MAX >> ((4 - bytes) * 8))
     }
 
     pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
         if let Some(device) = self.port_device(port) {
-            device.write_port(port, bytes, value & (u32::MAX >> ((4 - bytes) * 8)));
+            device
+                .borrow_mut()
+                .write_port(port, bytes, value & (u32::MAX >> ((4 - bytes) * 8)));
         }
     }
 
-    fn port_device(&self, port: u16) -> Option<&dyn Device> {
+    fn port_device(&self, port: u16) -> Option<&RefCell<dyn Device>> {
         self.connections
             .iter()
             .find(|connection| connection.ports.iter().any(|range| range.contains(&port)))
             .map(|connection| connection.device.as_ref())
     }
 
-    fn mmio_span(&self, address: u32, bytes: u8) -> (Option<&dyn Device>, u8) {
+    fn mmio_span(&self, address: u32, bytes: u8) -> (Option<&RefCell<dyn Device>>, u8) {
         let mut count = u64::from(bytes);
         for connection in &*self.connections {
             for range in &connection.mmio {

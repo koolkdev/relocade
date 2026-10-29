@@ -4,28 +4,28 @@ use relocade_machine::{
     worker::Thread, Cpu, CpuConfig, DeviceConnection, Hook, HookResult, IoBus, MachineConfig,
     Memory,
 };
-use relocade_vga::{TextCell, TextRenderer, Vga, CRTC_PORT_RANGE, TEXT_MEMORY_RANGE};
+use relocade_vga::{TextCell, TextRenderer, TextScreen, Vga, CRTC_PORT_RANGE, TEXT_MEMORY_RANGE};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segments,
 };
-use std::{sync::Arc, time::Duration};
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 struct Input {
     incoming: oneshot::Receiver<u8>,
-    waiting: Option<oneshot::Sender<()>>,
+    waiting: Option<oneshot::Sender<TextScreen>>,
+    vga: Rc<RefCell<Vga>>,
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn vga_workers() -> Result<(), String> {
-    let vga = Arc::new(Vga::new());
-    let cpu_vga = vga.clone();
     let (input, incoming) = oneshot::channel();
     let (waiting, started) = oneshot::channel();
     let (finished, exited) = oneshot::channel();
     let execution = Thread::new();
     let display = Thread::new();
     let cpu_task = execution.run_send((), move |()| async move {
+        let vga = Rc::new(RefCell::new(Vga::new()));
         let config = MachineConfig::new(
             0x1000,
             PhysicalMemoryMap::new([
@@ -36,11 +36,11 @@ pub async fn vga_workers() -> Result<(), String> {
         )
         .unwrap();
         let io = IoBus::new([DeviceConnection {
-            device: cpu_vga,
+            device: vga.clone(),
             mmio: vec![TEXT_MEMORY_RANGE],
             ports: vec![CRTC_PORT_RANGE],
         }]);
-        let memory = Memory::new(config, io).unwrap();
+        let memory = Memory::new(config).unwrap();
         memory
             .view()
             .write(
@@ -79,9 +79,11 @@ pub async fn vga_workers() -> Result<(), String> {
         let mut cpu = Cpu::new(
             memory,
             cpu_config,
+            io,
             Input {
                 incoming,
                 waiting: Some(waiting),
+                vga: vga.clone(),
             },
         )
         .await
@@ -93,7 +95,7 @@ pub async fn vga_workers() -> Result<(), String> {
                     let poll = input.incoming.poll_unpin(context);
                     if poll.is_pending() {
                         if let Some(waiting) = input.waiting.take() {
-                            waiting.send(()).unwrap();
+                            waiting.send(input.vga.borrow().screen()).unwrap();
                         }
                     }
                     poll
@@ -112,12 +114,11 @@ pub async fn vga_workers() -> Result<(), String> {
         .unwrap();
         assert_eq!(cpu.run(100).await, ExecutionExit::Host(HostExit::Return));
         drop(cpu);
-        finished.send(()).unwrap();
+        finished.send(vga.borrow().screen()).unwrap();
     });
     let display_task = display.run_send((), move |()| async move {
         // No input is sent until a snapshot and a frame complete on this worker.
-        started.await.unwrap();
-        let before = vga.screen();
+        let before = started.await.unwrap();
         assert_eq!(before.start_address, 0x10);
         assert_eq!(before.cursor.address, 0x11);
         assert_eq!(before.cursor.start_scan_line, 0x20);
@@ -138,8 +139,7 @@ pub async fn vga_workers() -> Result<(), String> {
         let pixels = text.render(&before, Duration::ZERO);
         assert_eq!(pixels.len(), 640 * 200 * 4);
         input.send(b'Z').unwrap();
-        exited.await.unwrap();
-        let after = vga.screen();
+        let after = exited.await.unwrap();
         assert_eq!(
             after.cells[0],
             TextCell {

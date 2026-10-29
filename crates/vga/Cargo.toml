@@ -9,5 +9,4 @@ publish.workspace = true
 relocade-machine = { path = "../machine" }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-relocade-machine = { path = "../machine", features = ["worker"] }
 wasm-bindgen-test = "=0.3.79"
