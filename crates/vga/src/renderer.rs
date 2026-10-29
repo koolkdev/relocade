@@ -25,6 +25,12 @@ pub struct VgaRenderer {
     pipeline: wgpu::RenderPipeline,
     input: TextInput,
     image: Image,
+    frame: Option<FrameMetadata>,
+}
+
+struct FrameMetadata {
+    time: Duration,
+    sequence: u64,
 }
 
 impl VgaRenderer {
@@ -64,23 +70,15 @@ impl VgaRenderer {
             pipeline,
             input,
             image,
+            frame: None,
         })
     }
 
-    /// Queues changed required input words and records decoding into its image.
-    /// Always records a decode, including when retrying a discarded encoder.
-    /// The returned metadata describes recorded work, not completed GPU output.
-    ///
-    /// Select one capture version per renderer per submitted batch. Buffer and texture
-    /// uploads run before that batch, so several captures cannot share this input
-    /// storage in one submission. Submit or discard an update before encoding another.
-    /// Retain the returned image for resize-only redraws without another encode.
-    pub fn encode(
-        &mut self,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        capture: &CapturedFrame,
-    ) -> VgaImage {
+    /// Queues changed input bytes into persistent GPU resources without decoding
+    /// or presenting an image. Captures may be uploaded independently of redraws.
+    /// Call `queue.submit([])` to submit uploads when no drawing follows.
+    /// Complete retained captures can also restore older input state.
+    pub fn upload(&mut self, queue: &wgpu::Queue, capture: &CapturedFrame) {
         let text = capture.display.text_display();
         let aspect = text.layout.pixel_aspect_ratio();
         if self.image.size() != text.layout.size || self.image.pixel_aspect_ratio() != aspect {
@@ -88,6 +86,20 @@ impl VgaRenderer {
                 .expect("VGA text dimensions fit the validated device limits");
         }
         self.input.upload(queue, &capture.display, &text);
+        self.frame = Some(FrameMetadata {
+            time: capture.time,
+            sequence: capture.sequence,
+        });
+    }
+
+    /// Records decoding of the latest uploaded inputs. Returns `None` before the
+    /// first upload. Always records a draw, including retries of discarded work.
+    ///
+    /// Submit or discard this encoder before uploading another capture: queued
+    /// writes run before submitted commands and this input texture holds one version.
+    /// Retain the returned image for resize-only draws without another decode.
+    pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) -> Option<VgaImage> {
+        let frame = self.frame.as_ref()?;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("VGA text decoding"),
@@ -106,10 +118,10 @@ impl VgaRenderer {
             pass.set_bind_group(0, &self.input.binding, &[]);
             pass.draw(0..3, 0..1);
         }
-        VgaImage {
+        Some(VgaImage {
             image: self.image.clone(),
-            time: capture.time,
-            sequence: capture.sequence,
-        }
+            time: frame.time,
+            sequence: frame.sequence,
+        })
     }
 }

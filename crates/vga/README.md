@@ -104,7 +104,8 @@ let mut vga_renderer = relocade_vga::VgaRenderer::new(&device)?;
 let mut renderer = relocade_renderer::Renderer::new(device.clone(), output_format)?;
 if let Some(capture) = source.current_capture() {
     let mut encoder = device.create_command_encoder(&Default::default());
-    let frame = vga_renderer.encode(&queue, &mut encoder, &capture);
+    vga_renderer.upload(&queue, &capture);
+    let frame = vga_renderer.encode(&mut encoder).unwrap();
     let destination = relocade_renderer::fit_image(&frame.image, output_bounds);
     {
         let mut pass = encoder.begin_render_pass(&output_pass);
@@ -133,15 +134,23 @@ Newly visible memory and newly selected font banks receive a fresh comparison,
 including banks changed while hidden. Unchanged inputs queue no upload, including
 when only capture time or sequence changes.
 
-`encode(queue, encoder, capture)` queues changed required inputs and records
-one decode into the reusable image. It always records a draw, including retries
-after an encoder was discarded. It never reads live VRAM, converts CPU pixels,
-creates an encoder or submits work.
+`upload(queue, capture)` synchronizes persistent input resources without decoding
+or presenting. The graphics owner can service captures independently of redraw
+requests and submit uploads with `queue.submit([])`. `encode(encoder)` decodes the
+latest uploaded inputs and returns `None` before the first upload. It always records
+a decode, including retries after an encoder was discarded. Uploading inputs does
+not imply that image pixels have been generated.
 
-Select one capture version per renderer per submitted batch. Queue writes run
-before submitted commands, and the persistent input resources hold one version.
-Submit or discard the prior decode before encoding another capture. The embedding
-owns redraw scheduling and can reuse a decoded image for resize-only draws.
+The main thread can coalesce new-frame notifications and resize events into one
+animation-frame redraw request. The graphics worker uploads incoming captures;
+on a redraw request it decodes the latest inputs if necessary, draws and presents.
+A resize with no new inputs reuses the decoded image. Scheduling remains with the
+embedding; VGA creates no worker, redraw queue or presentation loop.
+
+Submit or discard a decode encoder before uploading another capture. Queue writes
+run before submitted commands, and the persistent input resources hold one version.
+Neither operation reads live VRAM or converts CPU pixels; the caller creates
+encoders and submits work.
 
 `VgaImage` carries the recorded capture's time and sequence alongside the image's
 dimensions and pixel aspect ratio. Metadata describes recorded work, not GPU
@@ -173,5 +182,7 @@ The [GPU worker fixture](../../tests/browser/src/graphics/gpu.rs) explicitly
 assembles execution and graphics workers with a bounded request channel. It
 creates no surface and checks that paused or slow rendering leaves the guest
 running, demand stays bounded, and captured images remain usable after VGA ends.
-The fixture owns its output pass and submits decoding and drawing together.
-The software fixture separately verifies the CPU-image upload path.
+The fixture services input uploads while presentation is idle, owns its output
+pass, and submits decoding and drawing together. Resize-only requests reuse the
+last decoded image. The software fixture separately verifies the CPU-image upload
+path.

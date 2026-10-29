@@ -1,9 +1,12 @@
 use super::{guest, request, target::read_first_pixel};
 use futures_channel::{mpsc, oneshot};
-use futures_util::{future::join, FutureExt, StreamExt};
+use futures_util::{
+    future::{join, select, Either},
+    FutureExt, StreamExt,
+};
 use relocade_machine::{timer_service, worker::Thread};
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
-use relocade_vga::VgaRenderer;
+use relocade_vga::{CapturedFrame, VgaImage, VgaRenderer};
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -11,6 +14,11 @@ use std::{
     },
     time::Duration,
 };
+
+enum GraphicsEvent {
+    Capture(Option<Arc<CapturedFrame>>),
+    Redraw(Option<[u32; 2]>),
+}
 
 struct Report {
     sequence: u64,
@@ -32,6 +40,9 @@ pub async fn gpu_workers() -> Result<(), String> {
         let (selected, selection) = oneshot::channel();
         let (release, allowed) = oneshot::channel();
         let (report, mut reports) = mpsc::unbounded();
+        let (ready, initialized) = oneshot::channel();
+        let uploads = Arc::new(AtomicUsize::new(0));
+        let upload_count = uploads.clone();
         let renders = Arc::new(AtomicUsize::new(0));
         let render_count = renders.clone();
         let worker_source = source.clone();
@@ -43,15 +54,55 @@ pub async fn gpu_workers() -> Result<(), String> {
             let mut vga_renderer = VgaRenderer::new(&device).unwrap();
             let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
             let mut barrier = Some((selected, allowed));
-            while let Some(size) = incoming.next().await {
-                let capture = worker_source.current_capture().unwrap();
+            let mut ready = Some(ready);
+            let mut uploaded_sequence = None;
+            let mut source_closed = false;
+            let mut cached: Option<VgaImage> = None;
+            loop {
+                let event = {
+                    let next = async {
+                        if source_closed {
+                            std::future::pending().await
+                        } else {
+                            worker_source.next_capture(uploaded_sequence).await
+                        }
+                    };
+                    match select(Box::pin(next), incoming.next()).await {
+                        Either::Left((capture, _)) => GraphicsEvent::Capture(capture),
+                        Either::Right((request, _)) => GraphicsEvent::Redraw(request),
+                    }
+                };
+                let size = match event {
+                    GraphicsEvent::Capture(Some(capture)) => {
+                        vga_renderer.upload(&queue, &capture);
+                        queue.submit([]); // Uploads run independently of redraw requests.
+                        uploaded_sequence = Some(capture.sequence);
+                        let count = upload_count.fetch_add(1, Ordering::Release) + 1;
+                        if count == 2 {
+                            ready.take().unwrap().send(()).unwrap();
+                        }
+                        continue;
+                    }
+                    GraphicsEvent::Capture(None) => {
+                        source_closed = true;
+                        continue;
+                    }
+                    GraphicsEvent::Redraw(Some(size)) => size,
+                    GraphicsEvent::Redraw(None) => break,
+                };
                 if let Some((selected, allowed)) = barrier.take() {
-                    selected.send(capture.sequence).unwrap();
+                    selected.send(uploaded_sequence.unwrap()).unwrap();
                     allowed.await.unwrap(); // Hold graphics work, not guest execution.
                 }
                 let mut encoder = device.create_command_encoder(&Default::default());
-                let frame = vga_renderer.encode(&queue, &mut encoder, &capture);
-                render_count.fetch_add(1, Ordering::Release);
+                if cached
+                    .as_ref()
+                    .is_none_or(|image| Some(image.sequence) != uploaded_sequence)
+                {
+                    cached = vga_renderer.encode(&mut encoder);
+                    render_count.fetch_add(1, Ordering::Release);
+                }
+                let frame = cached.as_ref().unwrap();
                 let output = Image::new(&device, size, (1, 1)).unwrap();
                 {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -87,7 +138,8 @@ pub async fn gpu_workers() -> Result<(), String> {
             }
         });
 
-        // Merely producing captures does not ask the graphics owner to render.
+        // Input uploads continue while decoding and presentation are idle.
+        initialized.await.unwrap();
         let mut capture = source.current_capture().unwrap();
         let before = progress.load(Ordering::Acquire);
         for _ in 0..5 {
@@ -95,6 +147,7 @@ pub async fn gpu_workers() -> Result<(), String> {
         }
         assert!(progress.load(Ordering::Acquire) > before);
         assert_eq!(renders.load(Ordering::Acquire), 0);
+        assert!(uploads.load(Ordering::Acquire) >= 2);
         request(&mut requests, [64, 48]);
         let selected = selection.await.unwrap();
 
@@ -133,6 +186,7 @@ pub async fn gpu_workers() -> Result<(), String> {
         assert_eq!(execution.stop().await.map_err(|e| e.to_string())?, None);
         let last = source.current_capture().unwrap();
         assert!(source.next_capture(Some(last.sequence)).await.is_none());
+        let mut last_decode_count = None;
         for size in [[640, 480], [320, 240]] {
             request(&mut requests, size);
             let retained = reports.next().await.unwrap();
@@ -140,6 +194,11 @@ pub async fn gpu_workers() -> Result<(), String> {
             assert_eq!(retained.time, last.time);
             assert_eq!(retained.size, size);
             assert_eq!(retained.pixel, first.pixel);
+            let count = renders.load(Ordering::Acquire);
+            if let Some(previous) = last_decode_count {
+                assert_eq!(count, previous);
+            }
+            last_decode_count = Some(count);
         }
         drop(requests);
         task.await.map_err(|e| e.to_string())?;
