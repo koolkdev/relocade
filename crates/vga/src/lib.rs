@@ -1,6 +1,6 @@
 //! VGA device state and scanout for the initial 80-by-25, 8-by-8 color text mode.
 //!
-//! The device owns video memory, VGA registers and fixed text-mode raster timing.
+//! The device owns video memory, VGA register banks and fixed text-mode raster timing.
 //! Its text aperture is MMIO, independent of system RAM. BIOS bookkeeping belongs to the
 //! BIOS; direct port writes change hardware state without changing that data.
 //! Graphics modes, font/geometry programming, and effects within a scanline
@@ -142,11 +142,9 @@ impl<C: Clock> Device for Vga<C> {
         let mut value = [0; 4];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
             let port = port.wrapping_add(index as u16);
-            *byte = if port == self.registers.status_port() {
-                self.timing.status(self.clock.now())
-            } else {
-                self.registers.read_port(port)
-            };
+            *byte = self
+                .registers
+                .read_port(port, self.timing.status(self.clock.now()));
         }
         u32::from_le_bytes(value)
     }

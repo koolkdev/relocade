@@ -11,6 +11,7 @@ pub const HORIZONTAL_RETRACE_START: u8 = 0x04;
 pub const HORIZONTAL_RETRACE_END: u8 = 0x05;
 pub const VERTICAL_TOTAL: u8 = 0x06;
 pub const OVERFLOW: u8 = 0x07;
+pub const PRESET_ROW_SCAN: u8 = 0x08;
 pub const MAXIMUM_SCAN_LINE: u8 = 0x09;
 pub const CURSOR_START: u8 = 0x0a;
 pub const CURSOR_END: u8 = 0x0b;
@@ -21,9 +22,12 @@ pub const CURSOR_ADDRESS_LOW: u8 = 0x0f;
 pub const VERTICAL_RETRACE_START: u8 = 0x10;
 pub const VERTICAL_RETRACE_END: u8 = 0x11;
 pub const VERTICAL_DISPLAY_END: u8 = 0x12;
+pub const OFFSET: u8 = 0x13;
+pub const UNDERLINE_LOCATION: u8 = 0x14;
 pub const VERTICAL_BLANK_START: u8 = 0x15;
 pub const VERTICAL_BLANK_END: u8 = 0x16;
 pub const MODE_CONTROL: u8 = 0x17;
+pub const LINE_COMPARE: u8 = 0x18;
 
 pub const PROTECT_TIMING_REGISTERS: u8 = 1 << 7;
 const LINE_COMPARE_OVERFLOW: u8 = 1 << 4;
@@ -61,9 +65,7 @@ impl Crtc {
 
     pub fn read(&self) -> u8 {
         match self.index {
-            HORIZONTAL_TOTAL..=OVERFLOW
-            | MAXIMUM_SCAN_LINE..=VERTICAL_DISPLAY_END
-            | VERTICAL_BLANK_START..=MODE_CONTROL => self.register(self.index),
+            HORIZONTAL_TOTAL..=LINE_COMPARE => self.register(self.index),
             _ => 0xff,
         }
     }
@@ -83,9 +85,8 @@ impl Crtc {
         match index {
             CURSOR_START => value &= 0x3f, // Scanline and cursor-disable bits.
             CURSOR_END => value &= 0x7f,   // Scanline and cursor-skew bits.
-            HORIZONTAL_TOTAL..=OVERFLOW
-            | MAXIMUM_SCAN_LINE..=VERTICAL_DISPLAY_END
-            | VERTICAL_BLANK_START..=MODE_CONTROL => {}
+            PRESET_ROW_SCAN | UNDERLINE_LOCATION => value &= 0x7f,
+            HORIZONTAL_TOTAL..=LINE_COMPARE => {}
             _ => return,
         }
         self.registers[usize::from(index)] = value;

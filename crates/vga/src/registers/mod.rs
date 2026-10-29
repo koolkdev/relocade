@@ -2,32 +2,46 @@
 //! Firmware programs these through the device bus; mutable register state and
 //! field decoding stay inside the VGA device.
 
+pub mod attribute;
 pub mod crtc;
+mod dac;
+pub mod graphics;
 pub mod sequencer;
 pub mod text_mode;
 
+use attribute::Attribute;
 use crtc::Crtc;
+use dac::Dac;
+use graphics::Graphics;
 use sequencer::Sequencer;
 use std::ops::RangeInclusive;
 
 pub const MONO_CRTC_INDEX_PORT: u16 = 0x3b4;
 pub const MONO_CRTC_DATA_PORT: u16 = 0x3b5;
 pub const MONO_INPUT_STATUS_1_PORT: u16 = 0x3ba;
+pub const ATTRIBUTE_ADDRESS_PORT: u16 = 0x3c0;
+pub const ATTRIBUTE_DATA_READ_PORT: u16 = 0x3c1;
 pub const MISC_OUTPUT_WRITE_PORT: u16 = 0x3c2;
 pub const SEQUENCER_INDEX_PORT: u16 = 0x3c4;
 pub const SEQUENCER_DATA_PORT: u16 = 0x3c5;
+pub const DAC_MASK_PORT: u16 = 0x3c6;
+pub const DAC_READ_ADDRESS_PORT: u16 = 0x3c7;
+pub const DAC_WRITE_ADDRESS_PORT: u16 = 0x3c8;
+pub const DAC_DATA_PORT: u16 = 0x3c9;
+pub const FEATURE_CONTROL_READ_PORT: u16 = 0x3ca;
 pub const MISC_OUTPUT_READ_PORT: u16 = 0x3cc;
+pub const GRAPHICS_INDEX_PORT: u16 = 0x3ce;
+pub const GRAPHICS_DATA_PORT: u16 = 0x3cf;
 pub const CRTC_INDEX_PORT: u16 = 0x3d4;
 pub const CRTC_DATA_PORT: u16 = 0x3d5;
 pub const COLOR_INPUT_STATUS_1_PORT: u16 = 0x3da;
 pub const CRTC_PORT_RANGE: RangeInclusive<u16> = CRTC_INDEX_PORT..=CRTC_DATA_PORT;
 
 /// VGA register and status ports, including monochrome/color CRTC aliases.
-pub const PORT_RANGES: [RangeInclusive<u16>; 6] = [
+pub const PORT_RANGES: [RangeInclusive<u16>; 5] = [
     MONO_CRTC_INDEX_PORT..=MONO_CRTC_DATA_PORT,
     MONO_INPUT_STATUS_1_PORT..=MONO_INPUT_STATUS_1_PORT,
-    MISC_OUTPUT_WRITE_PORT..=SEQUENCER_DATA_PORT,
-    MISC_OUTPUT_READ_PORT..=MISC_OUTPUT_READ_PORT,
+    ATTRIBUTE_ADDRESS_PORT..=GRAPHICS_DATA_PORT,
     CRTC_PORT_RANGE,
     COLOR_INPUT_STATUS_1_PORT..=COLOR_INPUT_STATUS_1_PORT,
 ];
@@ -35,7 +49,11 @@ pub const PORT_RANGES: [RangeInclusive<u16>; 6] = [
 pub(super) struct Registers {
     pub crtc: Crtc,
     pub sequencer: Sequencer,
+    pub graphics: Graphics,
+    pub attribute: Attribute,
+    pub dac: Dac,
     miscellaneous: u8,
+    feature_control: u8,
 }
 
 impl Default for Registers {
@@ -43,7 +61,11 @@ impl Default for Registers {
         Self {
             crtc: Crtc::default(),
             sequencer: Sequencer::default(),
+            graphics: Graphics::default(),
+            attribute: Attribute::default(),
+            dac: Dac::default(),
             miscellaneous: text_mode::MISC_OUTPUT,
+            feature_control: 0,
         }
     }
 }
@@ -70,12 +92,26 @@ impl Registers {
         self.miscellaneous & (1 << 1) != 0
     }
 
-    pub fn read_port(&self, port: u16) -> u8 {
+    pub fn read_port(&mut self, port: u16, raster_status: u8) -> u8 {
         let (crtc_index, crtc_data) = self.crtc_ports();
         match port {
+            ATTRIBUTE_ADDRESS_PORT => self.attribute.address(),
+            ATTRIBUTE_DATA_READ_PORT => self.attribute.read(),
+            MISC_OUTPUT_WRITE_PORT => 0x10, // Attached color display; no retrace IRQ wired.
             MISC_OUTPUT_READ_PORT => self.miscellaneous,
             SEQUENCER_INDEX_PORT => self.sequencer.index(),
             SEQUENCER_DATA_PORT => self.sequencer.read(),
+            GRAPHICS_INDEX_PORT => self.graphics.index(),
+            GRAPHICS_DATA_PORT => self.graphics.read(),
+            DAC_MASK_PORT => self.dac.mask,
+            DAC_READ_ADDRESS_PORT => self.dac.state(),
+            DAC_WRITE_ADDRESS_PORT => self.dac.address(),
+            DAC_DATA_PORT => self.dac.read(),
+            FEATURE_CONTROL_READ_PORT => self.feature_control,
+            port if port == self.status_port() => {
+                self.attribute.reset_address();
+                raster_status
+            }
             port if port == crtc_index => self.crtc.index(),
             port if port == crtc_data => self.crtc.read(),
             _ => 0xff,
@@ -85,9 +121,17 @@ impl Registers {
     pub fn write_port(&mut self, port: u16, value: u8) {
         let (crtc_index, crtc_data) = self.crtc_ports();
         match port {
+            ATTRIBUTE_ADDRESS_PORT => self.attribute.write(value),
             MISC_OUTPUT_WRITE_PORT => self.miscellaneous = value,
             SEQUENCER_INDEX_PORT => self.sequencer.select(value),
             SEQUENCER_DATA_PORT => self.sequencer.write(value),
+            GRAPHICS_INDEX_PORT => self.graphics.select(value),
+            GRAPHICS_DATA_PORT => self.graphics.write(value),
+            DAC_MASK_PORT => self.dac.mask = value,
+            DAC_READ_ADDRESS_PORT => self.dac.select(value, true),
+            DAC_WRITE_ADDRESS_PORT => self.dac.select(value, false),
+            DAC_DATA_PORT => self.dac.write(value),
+            port if port == self.status_port() => self.feature_control = value,
             port if port == crtc_index => self.crtc.select(value),
             port if port == crtc_data => self.crtc.write(value),
             _ => {}

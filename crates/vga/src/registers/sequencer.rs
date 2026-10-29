@@ -4,6 +4,9 @@ use super::text_mode;
 
 pub const RESET: u8 = 0x00;
 pub const CLOCKING_MODE: u8 = 0x01;
+pub const MAP_MASK: u8 = 0x02;
+pub const CHARACTER_MAP_SELECT: u8 = 0x03;
+pub const MEMORY_MODE: u8 = 0x04;
 
 /// Reset register value: hold synchronous reset, release asynchronous reset.
 pub const SYNCHRONOUS_RESET: u8 = 0x01;
@@ -12,16 +15,18 @@ pub const RESET_RELEASED: u8 = 0x03;
 
 pub(crate) struct Sequencer {
     index: u8,
-    reset: u8,
-    clocking_mode: u8,
+    registers: [u8; 5],
 }
 
 impl Default for Sequencer {
     fn default() -> Self {
+        let mut registers = [0; 5];
+        for &(index, value) in text_mode::SEQUENCER_REGISTERS {
+            registers[usize::from(index)] = value;
+        }
         Self {
             index: RESET,
-            reset: RESET_RELEASED,
-            clocking_mode: text_mode::CLOCKING_MODE,
+            registers,
         }
     }
 }
@@ -36,22 +41,29 @@ impl Sequencer {
     }
 
     pub fn read(&self) -> u8 {
-        match self.index {
-            RESET => self.reset,
-            CLOCKING_MODE => self.clocking_mode,
-            _ => 0xff,
-        }
+        self.registers
+            .get(usize::from(self.index))
+            .copied()
+            .unwrap_or(0xff)
+    }
+
+    fn register(&self, index: u8) -> u8 {
+        self.registers[usize::from(index)]
     }
 
     pub fn write(&mut self, value: u8) {
-        match self.index {
-            RESET => self.reset = value & RESET_RELEASED,
-            CLOCKING_MODE => self.clocking_mode = value & 0x3f,
-            _ => {}
-        }
+        let mask = match self.index {
+            RESET => RESET_RELEASED,
+            CLOCKING_MODE => 0x3d,
+            CHARACTER_MAP_SELECT => 0x3f,
+            MAP_MASK => 0x0f,
+            MEMORY_MODE => 0x0e,
+            _ => return,
+        };
+        self.registers[usize::from(self.index)] = value & mask;
     }
 
     pub fn screen_off(&self) -> bool {
-        self.clocking_mode & (1 << 5) != 0
+        self.register(CLOCKING_MODE) & (1 << 5) != 0
     }
 }
