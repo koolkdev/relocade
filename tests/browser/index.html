@@ -4,13 +4,13 @@
 <link rel="icon" href="data:,">
 <pre id="output">Running worker integration checks…</pre>
 <script type="module">
-    import init, { rust_channels, timer_workers, shared_memory, compiled_modules, cpu_worker, vga_workers, runner_workers } from "./pkg/relocade_browser_tests.js";
+    import init, { rust_channels, timer_workers, shared_memory, compiled_modules, cpu_worker, vga_workers, graphics_workers, runner_workers } from "./pkg/relocade_browser_tests.js";
     const result = document.querySelector("#output");
     window.checks = (async () => {
         try {
             await init();
             if (!crossOriginIsolated) throw new Error("Browser tests require cross-origin isolation");
-            for (const check of [rust_channels, timer_workers, shared_memory, compiled_modules, cpu_worker, vga_workers, runner_workers]) {
+            for (const check of [rust_channels, timer_workers, shared_memory, compiled_modules, cpu_worker, vga_workers, graphics_workers, runner_workers]) {
                 result.textContent = `Running ${check.name}…`;
                 await check();
                 console.log(`${check.name} passed`);

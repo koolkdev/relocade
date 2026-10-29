@@ -61,6 +61,12 @@ captures or images, or require a surface to close.
 `scanout.rs` owns glyph-to-pixel conversion. The generic `relocade-renderer` owns
 GPU drawing and knows nothing about VGA, BIOS or DOS.
 
+The [native/browser graphics fixture](../../tests/browser/src/graphics.rs)
+assembles separate execution and rendering workers explicitly. Its single-slot
+request channel, image cache, GPU target and shutdown policy belong to that
+fixture. It verifies that blocked or paused rendering leaves the guest running,
+requests stay bounded, and presentation can outlive capture production.
+
 Register definitions follow the
 [IBM VGA/XGA Technical Reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf),
 VGA Function pages 2-12, 2-24–2-26, 2-42–2-50 and 2-55–2-76.

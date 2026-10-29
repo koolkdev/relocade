@@ -110,6 +110,9 @@ Register VGA through `runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES)`.
 The runner drives its device activity throughout the main session, including CPU
 service waits and gaps between programs. VGA follows fixed text-mode raster
 timing and captures immutable text on this owner. Pixel conversion runs on the
-worker receiving those captures, without borrowing the live device.
+worker receiving those captures, without borrowing the live device. The
+[graphics fixture](../../../tests/browser/src/graphics.rs) assembles this with
+`Thread::run_send` and an application-owned request channel. VGA does not create
+workers or own rendering and presentation lifetimes.
 Application redraws cannot advance VGA time. See the
 [VGA contract](../../vga/README.md) and [renderer API](../../renderer/README.md).

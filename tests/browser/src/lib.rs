@@ -1,8 +1,15 @@
 //! Cross-thread checks shared by the browser suite and native tests.
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn initialize() {
+    console_error_panic_hook::set_once();
+}
+
 mod channels;
 mod clock;
 mod cpus;
+mod graphics;
 mod memory;
 mod modules;
 mod runner;
@@ -11,6 +18,7 @@ mod vga;
 pub use channels::rust_channels;
 pub use clock::timer_workers;
 pub use cpus::cpu_worker;
+pub use graphics::graphics_workers;
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
 pub use runner::runner_workers;
@@ -18,6 +26,11 @@ pub use vga::vga_workers;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    #[test]
+    fn graphics_demand_does_not_stall_execution_or_queue_frames() {
+        pollster::block_on(super::graphics::graphics_workers()).unwrap();
+    }
+
     #[test]
     fn runner_stops_busy_or_waiting_cpus_after_host_timer_delivery() {
         pollster::block_on(super::runner::runner_workers()).unwrap();
