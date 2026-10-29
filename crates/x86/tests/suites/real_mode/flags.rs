@@ -210,7 +210,11 @@ fn interrupt_controls(frontend: Frontend) {
                 &[Step {
                     cpu,
                     ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
+                    exit: if opcode == 0xfb && fill & 1 == 0 {
+                        Exit::Other(crate::ExecutionExit::InterruptInhibited)
+                    } else {
+                        Exit::Dispatch(cpu.eip)
+                    },
                 }],
             );
         }
@@ -244,37 +248,45 @@ fn interrupt_histories(frontend: Frontend) {
     pushed_clear.eip += 1;
     pushed_clear.instruction_count += 1;
     pushed_clear.registers.esp = 0xabcd_2000;
+    let steps = [
+        Step {
+            cpu: set,
+            ram: &[],
+            exit: Exit::Other(crate::ExecutionExit::InterruptInhibited),
+        },
+        Step {
+            cpu: pushed_set,
+            ram: &[(0x8002, &[0x97, 0x67])],
+            exit: Exit::Dispatch(pushed_set.eip),
+        },
+        Step {
+            cpu: clear,
+            ram: &[],
+            exit: Exit::Dispatch(clear.eip),
+        },
+        Step {
+            cpu: pushed_clear,
+            ram: &[(0x8000, &[0x97, 0x65])],
+            exit: Exit::Dispatch(pushed_clear.eip),
+        },
+        Step {
+            cpu: pushed_clear,
+            ram: &[],
+            exit: Exit::GeneralProtection { error: 0 },
+        },
+    ];
     sequences(frontend).check(
-        "STI/CLI feed PUSHF and survive a later fault in the same entry",
+        "STI publishes IF before requesting a protected interpreter step",
         &code,
         &image,
-        &[
-            Step {
-                cpu: set,
-                ram: &[],
-                exit: Exit::Dispatch(set.eip),
-            },
-            Step {
-                cpu: pushed_set,
-                ram: &[(0x8002, &[0x97, 0x67])],
-                exit: Exit::Dispatch(pushed_set.eip),
-            },
-            Step {
-                cpu: clear,
-                ram: &[],
-                exit: Exit::Dispatch(clear.eip),
-            },
-            Step {
-                cpu: pushed_clear,
-                ram: &[(0x8000, &[0x97, 0x65])],
-                exit: Exit::Dispatch(pushed_clear.eip),
-            },
-            Step {
-                cpu: pushed_clear,
-                ram: &[],
-                exit: Exit::GeneralProtection { error: 0 },
-            },
-        ],
+        &steps[..1],
+    );
+    image.cpu = set;
+    sequences(frontend).check(
+        "STI/CLI feed PUSHF and survive a later fault",
+        &code[1..],
+        &image,
+        &steps[1..],
     );
 }
 test_frontends!(interrupt_flag_histories, interrupt_histories);

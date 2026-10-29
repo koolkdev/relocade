@@ -105,6 +105,15 @@ impl Compiler {
         let memory = Rc::new(Memory::declare(&mut program, profile));
         let runtime = Runtime::declare(&mut program);
         let target = self.target;
+        if profile == ExecutionProfile::Real16 {
+            let cpu = cpu.clone();
+            let memory = memory.clone();
+            crate::abi::INTERRUPT.define(&mut program, move |mut body, (vector,)| {
+                let eip = cpu.read_eip(&mut body)?;
+                ExecutionBuilder::new(body, &cpu, &memory, runtime, eip, target)?
+                    .deliver_interrupt(vector)
+            })?;
+        }
         let before_cpu = cpu.clone();
         let decoder = RuntimeDecoder::new(
             &mut program,

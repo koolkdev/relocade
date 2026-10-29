@@ -41,6 +41,7 @@ mod dispatch;
 mod error;
 mod execution;
 mod hooks;
+mod interrupt;
 mod io;
 mod machine;
 mod memory;
@@ -83,6 +84,8 @@ impl<T: 'static> Cpu<T> {
             state,
             dispatch,
             hooks: HashMap::new(),
+            interrupts: None,
+            step_pending: false,
         };
         Ok(Self {
             execution: Execution::new(machine),

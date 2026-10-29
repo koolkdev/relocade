@@ -24,6 +24,10 @@ pub enum ExecutionExit {
         eip: u32,
         opcode: u8,
     },
+    /// The completed instruction protects its successor from interrupt delivery.
+    /// The runtime must immediately enter interpreter STEP without checking IRQs
+    /// or the instruction budget. Reserved for generated entries, not handlers.
+    InterruptInhibited,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

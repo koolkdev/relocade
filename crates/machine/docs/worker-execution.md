@@ -109,6 +109,37 @@ promise periodic processing of arbitrary JavaScript callbacks on a busy worker.
 Budget checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).
 
+## Device interrupts
+
+An execution-local device or interrupt controller implements `InterruptSource`.
+Connect that source to a real-mode CPU with `cpu.set_interrupt_source(source)`;
+an `Rc<RefCell<D>>` can be shared with its ordinary bus connection. The source
+owns pending requests, priority, masking and acknowledgement. Its
+`poll_interrupt(cx)` returns `Ready(vector)` to acknowledge one request, or
+registers the supplied waker and returns `Pending`.
+
+Each nonzero `Cpu::run` checks the source before starting its instruction quantum.
+The CPU checks IF before polling, so masked
+requests remain with the device/controller. `Runner::run_cpu` supplies those
+quanta without another timer or scheduler. Entry uses the same generated
+real-mode mechanism as software INT, but saves the current IP and retires no
+instruction. The guest handler returns normally through IRET.
+
+STI from IF=0 and MOV/POP SS end their block with `InterruptInhibited`. The
+runtime consumes this exit synchronously by calling the existing interpreter
+`step`, then continues normal dispatch. There is no await, IRQ check or budget
+check between the inhibitor and its successor. LSS and STI from IF=1 do not
+request that step. Consecutive inhibitors use the same loop. If the protected
+instruction cannot execute, its pending step survives the returned fault or
+unsupported exit so a retry still precedes an IRQ check.
+
+Zero-budget runs do not poll or execute pending steps. Entry faults are returned as guest
+exceptions after the source has acknowledged the vector.
+
+Borrowed asynchronous hooks still hold the CPU until their operation completes;
+these waits do not run nested guest interrupt handlers. Protected-mode delivery,
+nonmaskable interrupts and interrupt-controller emulation are separate capabilities.
+
 ## Video and application rendering
 
 Register VGA through `runner.connect(vga, [MEMORY_RANGE], PORT_RANGES)`.

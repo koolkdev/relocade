@@ -41,6 +41,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let runtime = self.runtime;
         let eip = self.eip.clone();
         let completed = self.completed;
+        let protect_next = self.protect_next.clone();
         move |body| ExecutionBuilder {
             body,
             state: state.clone(),
@@ -59,6 +60,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             // so it cannot restart that instruction from its entry state.
             can_fallback: false,
             observed_cpu: None,
+            protect_next: protect_next.clone(),
         }
     }
 
