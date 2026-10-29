@@ -11,8 +11,11 @@ mod capture;
 mod frame;
 mod memory;
 pub mod registers;
+#[cfg(feature = "renderer")]
+mod renderer;
 mod scanout;
 mod screen;
+mod text;
 mod timing;
 
 pub use capture::{CapturedFrame, FrameSource};
@@ -22,6 +25,8 @@ use memory::VideoMemory;
 use registers::Registers;
 pub use registers::{CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, Device, TimerHandle};
+#[cfg(feature = "renderer")]
+pub use renderer::{VgaImage, VgaRenderer};
 pub use screen::{TextCell, TextCursor, TextScreen};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 use timing::Timing;

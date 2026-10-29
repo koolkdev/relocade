@@ -15,7 +15,7 @@ relocade-wasm-runtime = { path = "../../crates/wasm-runtime" }
 relocade-compiler = { path = "../../crates/compiler" }
 relocade-dos = { path = "../../crates/dos" }
 relocade-machine = { path = "../../crates/machine", features = ["worker"] }
-relocade-vga = { path = "../../crates/vga" }
+relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
 relocade-renderer = { path = "../../crates/renderer" }
 wgpu.workspace = true
 relocade-x86 = { path = "../../crates/x86" }
