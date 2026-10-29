@@ -71,6 +71,20 @@ impl Default for Registers {
 }
 
 impl Registers {
+    pub fn snapshot(&self) -> crate::DisplayRegisters {
+        crate::DisplayRegisters {
+            sequencer: self.sequencer.registers,
+            crtc: self.crtc.registers,
+            graphics: self.graphics.registers,
+            attribute: self.attribute.registers,
+            miscellaneous: self.miscellaneous,
+            palette_address_source: self.attribute.address() & attribute::PALETTE_ADDRESS_SOURCE
+                != 0,
+            dac_mask: self.dac.mask,
+            palette: self.dac.colors,
+        }
+    }
+
     pub fn status_port(&self) -> u16 {
         if self.miscellaneous & 1 == 0 {
             MONO_INPUT_STATUS_1_PORT

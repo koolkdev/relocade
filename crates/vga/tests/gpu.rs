@@ -16,6 +16,8 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn capture() -> CapturedFrame {
     CapturedFrame {
+        display: relocade_vga::Vga::with_clock(std::rc::Rc::new(common::ManualClock::default()))
+            .snapshot(),
         screen: TextScreen {
             cells: [TextCell {
                 character: b' ',

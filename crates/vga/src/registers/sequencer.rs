@@ -15,7 +15,7 @@ pub const RESET_RELEASED: u8 = 0x03;
 
 pub(crate) struct Sequencer {
     index: u8,
-    registers: [u8; 5],
+    pub(super) registers: [u8; 5],
 }
 
 impl Default for Sequencer {

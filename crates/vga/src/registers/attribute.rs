@@ -12,7 +12,7 @@ pub const PALETTE_ADDRESS_SOURCE: u8 = 0x20;
 pub(crate) struct Attribute {
     address: u8,
     data_next: bool,
-    registers: [u8; 0x15],
+    pub(super) registers: [u8; 0x15],
 }
 
 impl Default for Attribute {

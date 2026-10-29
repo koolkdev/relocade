@@ -4,7 +4,7 @@ use super::text_mode;
 
 pub(crate) struct Dac {
     pub mask: u8,
-    colors: [[u8; 3]; 256],
+    pub(super) colors: [[u8; 3]; 256],
     address: u8,
     component: usize,
     reading: bool,

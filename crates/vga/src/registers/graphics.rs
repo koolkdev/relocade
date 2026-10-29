@@ -14,7 +14,7 @@ pub const BIT_MASK: u8 = 0x08;
 
 pub(crate) struct Graphics {
     index: u8,
-    registers: [u8; 9],
+    pub(super) registers: [u8; 9],
 }
 
 impl Default for Graphics {

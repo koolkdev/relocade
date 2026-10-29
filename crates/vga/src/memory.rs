@@ -19,6 +19,10 @@ impl Default for VideoMemory {
 }
 
 impl VideoMemory {
+    pub fn snapshot(&self) -> [Box<[u8]>; 4] {
+        self.planes.clone()
+    }
+
     fn index(offset: u32, registers: &Registers) -> usize {
         let address_bits = if registers.sequencer.extended_memory() {
             16

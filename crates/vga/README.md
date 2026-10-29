@@ -38,6 +38,13 @@ missed boundaries. Guest mutations first preserve any completed boundary using
 the preceding state. The fidelity contract is a coherent text-state snapshot at
 a completed refresh boundary, not reconstruction of pixel history during it.
 
+Each capture also owns a complete `DisplaySnapshot`: four physical memory planes
+(including font memory), sequencer/CRTC/graphics/attribute settings, DAC colors
+and mask, and blink phase. Skipping a capture loses no inputs required by a newer
+one. `Vga::snapshot()` copies those same inputs immediately without publishing a
+frame or changing CPU latches and access phases. The fixed text renderer continues
+to consume the cell view until programmable decoding replaces that representation.
+
 `FrameSource` retains just the latest immutable `CapturedFrame`. The capture has
 no RGBA image. It can cross workers and survive device destruction. Waiting for
 `next_capture` observes emulated refreshes, not pixel output or presentation.

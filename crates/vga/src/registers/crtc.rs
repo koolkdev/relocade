@@ -34,7 +34,7 @@ const LINE_COMPARE_OVERFLOW: u8 = 1 << 4;
 
 pub(crate) struct Crtc {
     index: u8,
-    registers: [u8; 0x19],
+    pub(super) registers: [u8; 0x19],
 }
 
 impl Default for Crtc {
