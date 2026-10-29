@@ -17,7 +17,7 @@ use std::{cell::RefCell, rc::Rc};
 pub(super) enum Event {
     Poll,
     Frames(FrameSource),
-    GraphicsReady,
+    Redraw,
     DrawComplete { occluded: bool },
     ProgramExited(u8),
     Finished(Result<(), String>),
@@ -31,6 +31,7 @@ pub(super) struct Application {
     execution: Option<ExecutionWorker<()>>,
     tasks: Tasks,
     redraw: Option<Redraw>,
+    redraw_scheduled: bool,
     suspended: bool,
     surface_occluded: bool,
     closing: bool,
@@ -50,6 +51,7 @@ impl Application {
             program: Some(program),
             execution: None,
             redraw: None,
+            redraw_scheduled: false,
             suspended: false,
             surface_occluded: false,
             closing: false,
@@ -113,10 +115,11 @@ impl Application {
         }
     }
 
-    fn request_redraw(&self) {
-        if !self.closing && !self.suspended && !self.surface_occluded {
+    fn request_redraw(&mut self) {
+        if !self.redraw_scheduled && !self.closing && !self.suspended && !self.surface_occluded {
             if let Some(window) = &self.window {
                 if window.state().drawable() {
+                    self.redraw_scheduled = true;
                     window.winit().request_redraw();
                 }
             }
@@ -155,7 +158,7 @@ impl Application {
                     self.fail(error);
                 }
             }
-            Event::GraphicsReady => self.request_redraw(),
+            Event::Redraw => self.request_redraw(),
             Event::DrawComplete { occluded } if !self.closing => {
                 self.surface_occluded = occluded;
                 self.update_output();
@@ -164,7 +167,6 @@ impl Application {
                         self.fail(error.to_string());
                     }
                 }
-                self.request_redraw();
             }
             Event::ProgramExited(code) => {
                 if let Some(window) = &self.window {
@@ -205,6 +207,7 @@ impl ApplicationHandler<Event> for Application {
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
         self.suspended = true;
+        self.redraw_scheduled = false;
         self.update_output();
         self.poll(event_loop);
     }
@@ -223,6 +226,7 @@ impl ApplicationHandler<Event> for Application {
                 self.handle(event_loop, Event::Close)
             }
             WindowEvent::RedrawRequested if !self.closing => {
+                self.redraw_scheduled = false;
                 self.surface_occluded = false;
                 self.update_output();
                 if let Some(redraw) = &mut self.redraw {

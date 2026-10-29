@@ -6,7 +6,7 @@ use relocade_app::{
 };
 use relocade_renderer::{fit_image, Rect, Renderer};
 use relocade_vga::{FrameSource, VgaImage, VgaRenderer};
-use std::sync::Arc;
+use std::{future::pending, sync::Arc};
 
 pub(super) async fn run(
     setup: SurfaceSetup,
@@ -32,52 +32,66 @@ pub(super) async fn run(
     let mut renderer =
         Renderer::new(surface.device.clone(), surface.format()).map_err(|e| e.to_string())?;
     let mut image: Option<VgaImage> = None;
-    let _ = events.send_event(Event::GraphicsReady);
-    while let Ok(size) = requests.recv().await {
-        let frame = match surface.acquire(size)? {
-            wgpu::CurrentSurfaceTexture::Success(frame)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
-            status => {
-                let _ = events.send_event(Event::DrawComplete {
-                    occluded: matches!(status, wgpu::CurrentSurfaceTexture::Occluded),
-                });
-                continue;
+    let captures = async {
+        let mut sequence = None;
+        while let Some(capture) = source.next_capture(sequence).await {
+            sequence = Some(capture.sequence);
+            let _ = events.send_event(Event::Redraw);
+        }
+        // A closed source still leaves its last image available for host redraws.
+        pending::<Result<(), String>>().await
+    };
+    let draw = async {
+        let _ = events.send_event(Event::Redraw);
+        while let Ok(size) = requests.recv().await {
+            let frame = match surface.acquire(size)? {
+                wgpu::CurrentSurfaceTexture::Success(frame)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                status => {
+                    let occluded = matches!(status, wgpu::CurrentSurfaceTexture::Occluded);
+                    let _ = events.send_event(Event::DrawComplete { occluded });
+                    if !occluded {
+                        let _ = events.send_event(Event::Redraw);
+                    }
+                    continue;
+                }
+            };
+            let mut encoder = surface.device.create_command_encoder(&Default::default());
+            if let Some(capture) = source.current_capture() {
+                if image
+                    .as_ref()
+                    .is_none_or(|image| image.sequence != capture.sequence)
+                {
+                    image = Some(vga.encode(&surface.queue, &mut encoder, &capture));
+                }
             }
-        };
-        let mut encoder = surface.device.create_command_encoder(&Default::default());
-        if let Some(capture) = source.current_capture() {
-            if image
-                .as_ref()
-                .is_none_or(|image| image.sequence != capture.sequence)
+            let view = frame.texture.create_view(&Default::default());
             {
-                image = Some(vga.encode(&surface.queue, &mut encoder, &capture));
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
+                if let Some(image) = &image {
+                    renderer.draw_image(
+                        &mut pass,
+                        &image.image,
+                        fit_image(&image.image, Rect::from_size(size.into())),
+                    );
+                }
             }
+            surface.queue.submit([encoder.finish()]);
+            surface.present(frame);
+            let _ = events.send_event(Event::DrawComplete { occluded: false });
         }
-        let view = frame.texture.create_view(&Default::default());
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-            if let Some(image) = &image {
-                renderer.draw_image(
-                    &mut pass,
-                    &image.image,
-                    fit_image(&image.image, Rect::from_size(size.into())),
-                );
-            }
-        }
-        surface.queue.submit([encoder.finish()]);
-        surface.present(frame);
-        let _ = events.send_event(Event::DrawComplete { occluded: false });
-    }
-    Ok(())
+        Ok(())
+    };
+    futures_lite::future::or(captures, draw).await
 }

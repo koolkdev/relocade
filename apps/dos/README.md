@@ -21,9 +21,13 @@ its registered devices. A separate existing `worker::Thread` owns the surface,
 `RedrawRequested` supplies bounded demand. Graphics selects the newest immutable
 capture when servicing a request, decodes it only if its sequence changed, draws
 the image, submits once, and presents. Resize/expose can reuse the GPU image.
-Completion requests the next winit redraw opportunity; there is no extra frame
-timer and no CPU pixel conversion. Hiding or zero-sizing the window suppresses
-drawing while DOS/VGA continue. Guest program exit does not close the capture source.
+The graphics owner sends a generic redraw notification when captured input changes.
+Main coalesces it with resize/expose into one pending winit redraw callback (a browser
+animation frame on web). It sends only the output size to graphics; capture versions
+and GPU resources stay there. While graphics is busy, pending demand keeps the newest
+size. Completion releases that demand without requesting another frame by itself.
+Hiding or zero-sizing the window suppresses drawing while DOS/VGA continue. Guest
+program exit does not close the capture source.
 
 ## Browser
 

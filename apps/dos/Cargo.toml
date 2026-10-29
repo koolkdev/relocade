@@ -15,6 +15,7 @@ relocade-machine = { path = "../../crates/machine", features = ["worker"] }
 relocade-renderer = { path = "../../crates/renderer" }
 relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
 futures-channel = "=0.3.34"
+futures-lite = { version = "=2.6.1", default-features = false }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 wgpu.workspace = true
 

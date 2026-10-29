@@ -2086,6 +2086,7 @@ version = "0.0.0"
 dependencies = [
  "console_error_panic_hook",
  "futures-channel",
+ "futures-lite",
  "futures-util",
  "relocade-app",
  "relocade-dos",
