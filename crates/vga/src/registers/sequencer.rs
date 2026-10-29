@@ -66,4 +66,27 @@ impl Sequencer {
     pub fn screen_off(&self) -> bool {
         self.register(CLOCKING_MODE) & (1 << 5) != 0
     }
+
+    pub fn chain_four(&self) -> bool {
+        self.register(MEMORY_MODE) & 8 != 0
+    }
+
+    pub fn odd_even_writes(&self) -> bool {
+        self.register(MEMORY_MODE) & 4 == 0
+    }
+
+    pub fn extended_memory(&self) -> bool {
+        self.register(MEMORY_MODE) & 2 != 0
+    }
+
+    pub fn write_planes(&self, offset: u32) -> u8 {
+        let addressed = if self.chain_four() {
+            1 << (offset & 3)
+        } else if self.odd_even_writes() {
+            0x05 << (offset & 1)
+        } else {
+            0x0f
+        };
+        self.register(MAP_MASK) & addressed
+    }
 }

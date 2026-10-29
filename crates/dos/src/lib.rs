@@ -141,7 +141,7 @@ impl Dos {
         ))));
         let io = IoBus::new([runner.connect(
             vga.clone(),
-            [relocade_vga::TEXT_MEMORY_RANGE],
+            [relocade_vga::MEMORY_RANGE],
             relocade_vga::PORT_RANGES,
         )]);
         let memory = Memory::new(kernel::configuration())?;

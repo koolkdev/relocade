@@ -1,7 +1,7 @@
 # VGA compatibility
 
-`Vga` owns text memory, registers and fixed timing on the execution worker. BIOS
-and direct guest writes reach the same MMIO memory. The supported image is
+`Vga` owns four 64-KiB memory planes, registers and fixed timing on the execution
+worker. BIOS and direct guest writes reach the same MMIO memory. The supported image is
 80×25 cells with 8×8 CP437 glyphs, fixed PC colors, cursor shape/skew, blinking,
 blanking and display-start/page selection. Named registers and the text preset
 are shared with BIOS mode programming.
@@ -17,8 +17,20 @@ The sequencer, CRTC, Graphics Controller, Attribute Controller and six-bit DAC
 own their register storage and CPU access rules. Attribute writes alternate
 address and data phases; reading the active Input Status 1 port resets that
 phase. DAC reads and writes step through RGB channels and wrap palette addresses.
-The graphics, font and palette registers currently retain guest programming;
-their effects on memory and captured display state follow in later stages.
+CPU reads load all four latches; writes preserve those latched bytes. Memory
+transfers apply VGA read modes 0–1, write modes 0–3, rotation, logical operations,
+plane masks and pixel masks.
+Chain-4 and odd/even routing select physical planes without repacking memory
+when guest software changes modes. CRTC byte, word and doubleword addressing
+translates display counters to those same physical addresses. The IBM VGA
+target does not implement legacy EGA page-selection inputs or 64-KiB chaining.
+
+Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
+physical map and device bus. The Graphics Controller selects the active aperture;
+reads outside it return FF and writes are ignored. BIOS text-mode setup restores
+the shared preset through guest-visible ports before clearing text memory.
+Font and palette registers retain guest programming; programmable captured
+display state and graphics decoding follow in later stages.
 
 At each serviced refresh boundary the device captures cells, cursor, display
 start, blink phase, blanking, source time and sequence. Late service coalesces

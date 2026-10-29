@@ -1,9 +1,9 @@
 //! VGA device state and scanout for the initial 80-by-25, 8-by-8 color text mode.
 //!
 //! The device owns video memory, VGA register banks and fixed text-mode raster timing.
-//! Its text aperture is MMIO, independent of system RAM. BIOS bookkeeping belongs to the
-//! BIOS; direct port writes change hardware state without changing that data.
-//! Graphics modes, font/geometry programming, and effects within a scanline
+//! Its programmable aperture is MMIO, independent of system RAM. BIOS bookkeeping
+//! belongs to the BIOS; direct port writes change hardware without changing that data.
+//! Graphics decoding, programmable font/geometry output, and effects within a scanline
 //! are not implemented yet.
 #![forbid(unsafe_code)]
 
@@ -35,6 +35,10 @@ pub const TEXT_MEMORY_BYTES: u32 = 0x8000;
 pub const TEXT_MEMORY_RANGE: RangeInclusive<u32> =
     TEXT_MEMORY_START..=TEXT_MEMORY_START + TEXT_MEMORY_BYTES - 1;
 
+/// CPU addresses decoded by VGA's programmable memory-map selector.
+/// Register this entire range on both the physical memory map and the device bus.
+pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;
+
 /// An emulated VGA device owned by the execution worker.
 /// Registers and video memory are ordinary mutable state. Other workers receive
 /// immutable text captures through [`FrameSource`], without accessing the live device.
@@ -65,14 +69,15 @@ impl<C: Clock> Vga<C> {
         self.frames.clone()
     }
 
-    /// Copies the current device state on its owning worker. The returned screen
-    /// stays stable across later device writes; it does not publish to displays.
+    /// Copies an 80-by-25 text inspection window on the owning worker, using
+    /// the CRTC display-address translation. The copy does not change CPU read
+    /// latches or publish a capture, and stays stable across later device writes.
     pub fn screen(&self) -> TextScreen {
         let crtc = &self.registers.crtc;
         TextScreen {
             cells: std::array::from_fn(|index| {
                 self.memory
-                    .cell(crtc.start_address().wrapping_add(index as u16))
+                    .cell(crtc.display_address(crtc.start_address().wrapping_add(index as u16), 0))
             }),
             cursor: TextCursor {
                 address: crtc.cursor_address(),
@@ -121,7 +126,7 @@ impl<C: Clock> Device for Vga<C> {
             return u64::from_le_bytes(value);
         }
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            *byte = self.memory.read(address - TEXT_MEMORY_START + index as u32);
+            *byte = self.memory.read(address + index as u32, &self.registers);
         }
         u64::from_le_bytes(value)
     }
@@ -133,7 +138,7 @@ impl<C: Clock> Device for Vga<C> {
         }
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             self.memory
-                .write(address - TEXT_MEMORY_START + index as u32, *byte);
+                .write(address + index as u32, *byte, &self.registers);
         }
     }
 

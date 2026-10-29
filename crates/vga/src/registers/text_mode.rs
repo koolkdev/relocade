@@ -1,6 +1,5 @@
 //! Register values for the supported 80-column, eight-dot color text mode.
-//! Device defaults use these tables. BIOS mode setting currently restores the
-//! CRTC table and clock controls; complete bank restoration belongs to firmware.
+//! Device defaults and BIOS mode setting use these same tables.
 
 use super::{attribute, crtc, graphics, sequencer};
 
@@ -36,6 +35,22 @@ pub const GRAPHICS_REGISTERS: &[(u8, u8)] = &[
 pub const ATTRIBUTE_PALETTE: [u8; 16] = [
     0, 1, 2, 3, 4, 5, 0x14, 7, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
 ];
+
+/// Six-bit RGB values addressed by the text Attribute Controller palette.
+/// The first 64 entries form the EGA palette; unused entries start black.
+pub const DAC_PALETTE: [[u8; 3]; 256] = {
+    let mut colors = [[0; 3]; 256];
+    let mut index = 0;
+    while index < 64 {
+        colors[index] = [
+            (((index >> 2) & 1) * 42 + ((index >> 5) & 1) * 21) as u8,
+            (((index >> 1) & 1) * 42 + ((index >> 4) & 1) * 21) as u8,
+            ((index & 1) * 42 + ((index >> 3) & 1) * 21) as u8,
+        ];
+        index += 1;
+    }
+    colors
+};
 
 pub const ATTRIBUTE_REGISTERS: &[(u8, u8)] = &[
     (attribute::MODE_CONTROL, 0x0c), // Blink and line-graphics extension.

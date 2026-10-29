@@ -19,7 +19,7 @@ pub(crate) fn configuration() -> MachineConfig {
             0..=CONVENTIONAL_RAM_SIZE - 1,
             PhysicalMapping::Ram { backing_offset: 0 },
         ),
-        (relocade_vga::TEXT_MEMORY_RANGE, PhysicalMapping::Mmio),
+        (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
         (
             kernel_rom_start..=MEMORY_SIZE - 1,
             PhysicalMapping::Rom {

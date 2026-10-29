@@ -3,6 +3,45 @@ use relocade_vga::{TextCell, TextCursor, TextScreen};
 use relocade_x86::ExecutionExit;
 
 #[test]
+fn guest_planar_programming_reaches_the_graphics_aperture() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.cpu()
+            .context()
+            .memory
+            .write_backing(0xa0000, &[0x99])
+            .unwrap();
+        dos.launch_com(
+            &[
+                0xba, 0xc4, 0x03, // MOV DX,03C4.
+                0xb8, 0x04, 0x06, 0xef, // Sequencer: extended planar memory.
+                0xb8, 0x02, 0x01, 0xef, // Enable plane zero writes.
+                0xba, 0xce, 0x03, // MOV DX,03CE.
+                0xb8, 0x05, 0x00, 0xef, // Graphics Controller: read/write mode zero.
+                0xb8, 0x06, 0x05, 0xef, // Select A0000, 64 KiB.
+                0xb8, 0x00, 0xa0, // MOV AX,A000.
+                0x8e, 0xc0, // MOV ES,AX.
+                0x26, 0xc6, 0x06, 0, 0, 0x5a, // MOV byte ES:[0],5A.
+                0x26, 0xa0, 0, 0, // MOV AL,ES:[0].
+                0xeb, 0xfe,
+            ],
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(dos.cpu().run(40).await, ExecutionExit::BudgetExhausted);
+        let context = dos.cpu().context();
+        assert_eq!(context.cpu.al(), 0x5a);
+        assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 0x5a);
+        let mut backing = [0];
+        context.memory.read_backing(0xa0000, &mut backing).unwrap();
+        assert_eq!(backing, [0x99]);
+        assert_eq!(context.memory.read_u8(0x449).unwrap(), 3); // BIOS bookkeeping is unchanged.
+        context.io.write_port(0x3ce, 2, 0x0104); // Plane one retains the BIOS text attribute.
+        assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 7);
+    });
+}
+
+#[test]
 fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
