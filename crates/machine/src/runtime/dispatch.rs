@@ -8,6 +8,8 @@ use relocade_wasm_runtime::{Function, Import, Module, WasmBackend};
 use relocade_x86::{abi, ExecutionExit};
 use table::DispatchTable;
 
+type InterruptEntry = Function<Backend, fn(u8) -> ExecutionExit>;
+
 /// An ordinary `() -> ExecutionExit` export to publish at a guest linear address.
 pub struct DispatchEntry<'a> {
     pub address: u32,
@@ -20,7 +22,7 @@ pub struct DispatchEntry<'a> {
 pub(crate) struct Dispatch {
     dispatch: Function<Backend, abi::ExecutionSignature>,
     interpret: Function<Backend, abi::ExecutionSignature>,
-    interrupt: Option<Function<Backend, fn(u8) -> ExecutionExit>>,
+    interrupt: Option<InterruptEntry>,
     step: Option<Function<Backend, abi::ExecutionSignature>>,
     table: DispatchTable<Backend>,
     host_imports: Vec<Import<'static, Backend>>,
