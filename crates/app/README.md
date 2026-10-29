@@ -21,3 +21,28 @@ The last published source remains readable after execution completes.
 
 This uses the existing machine worker and timer infrastructure. It adds no executor
 or CPU loop; CPU consumers continue using the machine's `Runner`.
+
+## Window hosting
+
+Enable the `window` feature and implement `WindowApplication` to display a source.
+It adds graphics construction and drawing to `Application`; window-independent
+tasks do not depend on winit or wgpu.
+
+```rust,ignore
+let control = relocade_app::open(application, WindowOptions::default())?;
+let result = control.await?;
+```
+
+The main thread owns winit, input and window/canvas lifetime. A separate graphics
+worker owns GPU resources, surface configuration, acquisition and presentation.
+`create_graphics` and `draw` run there; the application records and submits drawing
+commands into the supplied attachment. Native surfaces are created on the main
+thread, including the macOS/Metal requirement. The browser transfers its canvas
+once and creates the surface on the graphics worker.
+
+Native `open` runs the event loop until close; web `open` registers it and returns.
+The main event loop drives the shared timer service. Execution completion preserves
+its source and result while the window remains open. Close or `Control::stop`
+cancels workers, waits for Rust cleanup and then removes the window/canvas.
+Browser dimensions come from embedding CSS; `WindowOptions::size` sets the initial
+native logical size.

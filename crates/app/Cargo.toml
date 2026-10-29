@@ -5,11 +5,22 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+window = ["dep:wgpu", "dep:winit", "dep:js-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys"]
+
 [dependencies]
 arc-swap = "=1.9.3"
 futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-machine = { path = "../machine", features = ["worker"] }
+wgpu = { workspace = true, optional = true }
+winit = { version = "=0.30.13", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "=0.3.106", optional = true }
+wasm-bindgen = { version = "=0.2.129", optional = true }
+wasm-bindgen-futures = { version = "=0.4.79", optional = true }
+web-sys = { version = "=0.3.106", optional = true, features = ["Element", "HtmlCanvasElement", "OffscreenCanvas"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"

@@ -1,0 +1,25 @@
+[package]
+name = "relocade-app-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+relocade-app = { path = "../../crates/app", features = ["window"] }
+relocade-machine = { path = "../../crates/machine" }
+relocade-renderer = { path = "../../crates/renderer" }
+wgpu.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "=1.0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.129"
+console_error_panic_hook = "=0.1.7"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = "=0.13.2"
