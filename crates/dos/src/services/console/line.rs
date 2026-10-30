@@ -1,26 +1,23 @@
-use super::{
-    input,
-    output::{write_cooked_character, CharacterOutput},
-};
-use crate::{error::DosError, files::Handle, interrupt::DosContext};
+use super::{input, output::CharacterOutput};
+use crate::{error::DosError, files::Handle};
+use relocade_bios::Keyboard;
 
 /// Edits a line with capacity for its final carriage return.
 pub(in crate::services) async fn read_line(
-    call: &mut DosContext,
+    input: &Keyboard,
     source: &Handle,
     capacity: u8,
-    echo: CharacterOutput,
+    echo: &CharacterOutput<'_>,
 ) -> Result<Vec<u8>, DosError> {
     let mut editor = LineEditor {
         bytes: Vec::new(),
         capacity,
-        echo,
         extended_key: false,
         first: true,
     };
     loop {
-        let byte = input::read_character(source, &call.dos.stdio().input).await?;
-        if editor.accept(call, byte) {
+        let byte = input::read_character(source, input).await?;
+        if editor.accept(echo, byte) {
             return Ok(editor.bytes);
         }
     }
@@ -30,13 +27,12 @@ pub(in crate::services) async fn read_line(
 struct LineEditor {
     bytes: Vec<u8>,
     capacity: u8,
-    echo: CharacterOutput,
     extended_key: bool,
     first: bool,
 }
 
 impl LineEditor {
-    fn accept(&mut self, call: &mut DosContext, byte: u8) -> bool {
+    fn accept(&mut self, output: &CharacterOutput<'_>, byte: u8) -> bool {
         if self.extended_key {
             self.extended_key = false;
             return false;
@@ -46,41 +42,41 @@ impl LineEditor {
             0 => self.extended_key = true,
             b'\r' => {
                 self.bytes.push(byte);
-                self.echo(call, b"\r");
+                self.echo(output, b"\r");
                 return true;
             }
             // Discard a leading LF left over from redirected CRLF input.
             b'\n' => {
                 if !first {
-                    self.echo(call, b"\r\n");
+                    self.echo(output, b"\r\n");
                 }
             }
             8 | 127 => {
                 if let Some(byte) = self.bytes.pop() {
-                    self.echo(call, b"\x08 \x08");
+                    self.echo(output, b"\x08 \x08");
                     if byte < b' ' && byte != b'\t' {
-                        self.echo(call, b"\x08 \x08");
+                        self.echo(output, b"\x08 \x08");
                     }
                 }
             }
             _ if self.bytes.len() == usize::from(self.capacity) - 1 => {
-                self.echo(call, b"\x07");
+                self.echo(output, b"\x07");
             }
             _ => {
                 self.bytes.push(byte);
                 if byte < b' ' && byte != b'\t' {
-                    self.echo(call, &[b'^', byte + b'@']);
+                    self.echo(output, &[b'^', byte + b'@']);
                 } else {
-                    self.echo(call, &[byte]);
+                    self.echo(output, &[byte]);
                 }
             }
         }
         false
     }
 
-    fn echo(&self, call: &mut DosContext, bytes: &[u8]) {
+    fn echo(&self, output: &CharacterOutput<'_>, bytes: &[u8]) {
         for &byte in bytes {
-            write_cooked_character(call, self.echo, byte);
+            output.write_cooked(byte);
         }
     }
 }
