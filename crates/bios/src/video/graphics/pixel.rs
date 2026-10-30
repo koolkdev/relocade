@@ -40,7 +40,7 @@ impl Pixel {
             // In 256-color modes bit seven is part of the color, not XOR.
             Self::Indexed { address } => memory.write_u8(address, color).expect("graphics pixel"),
             Self::Planar { address, mask } => {
-                PlanarAccess::new(io).write_pixel(memory, address, mask, color)
+                PlanarAccess::new(io).write_masked(memory, address, mask, color)
             }
         }
     }

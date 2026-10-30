@@ -5,12 +5,14 @@
 //! Mode setting honors AL bit 7 to preserve video memory; AH=0Fh reports the
 //! mode, that flag, character columns and active page. AH=0Ch/0Dh write/read
 //! graphics pixels, with XOR in planar modes and eight pages in mode 0Dh.
+//! Graphics page/cursor and scroll services use that same layout. AH=09h/0Ah
+//! draw characters from live BIOS font vectors; AH=0Eh and [`write_text`] share
+//! teletype wrapping and scrolling in text and graphics modes.
 //! AH=10h reads/writes attribute and DAC palettes, blink, paging and the DAC mask.
 //! AH=11h loads text fonts, selects font banks and reports ROM font pointers.
 //! AH=12h/BL=30h selects the next text mode set's scanline profile.
 //! Unsupported video services or pixel coordinates/pages return AH=86h with
-//! carry set. [`write_text`] ignores graphics output until BIOS glyph drawing
-//! in graphics modes is implemented.
+//! carry set.
 //! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared host keyboard.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. A machine timer must update these fields.

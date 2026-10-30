@@ -1,10 +1,12 @@
 //! INT 10h/AH=11h loads fonts through VGA memory and programs text geometry.
+mod glyph;
 mod layout;
 mod rom;
 mod upload;
 
 use super::{buffer_addresses, unsupported, write_indexed, CHARACTER_HEIGHT, LAST_ROW};
 use crate::screen;
+pub(crate) use glyph::Glyph;
 use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus, MemoryView};
 use relocade_vga::registers::{sequencer, SEQUENCER_INDEX_PORT};
 use relocade_x86::{Segment, SegmentRegister};

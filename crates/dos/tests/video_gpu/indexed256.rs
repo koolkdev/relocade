@@ -33,20 +33,17 @@ fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures()
             assert_eq!(*pixel, expected, "guest pixel {offset}");
         }
 
-        // A second guest changes the DAC; console output stays in the byte
-        // stream until graphics-mode glyph drawing is supported. VRAM is shared.
+        // A second guest changes only the DAC, retaining the shared VRAM.
         let recolored = run(
             &mut dos,
             &[
                 0xba, 0xc8, 3, 0xb0, 6, 0xee, 0x42, 0x30, 0xc0, 0xee, // Red = 0.
                 0xb0, 63, 0xee, // Green = 63.
                 0x30, 0xc0, 0xee, // Blue = 0.
-                0xb4, 2, 0xb2, b'A', 0xcd, 0x21, // DOS console output.
                 0xc3, // RET.
             ],
         )
         .await;
-        assert_eq!(common::output(dos.stdout()), b"A");
         for plane in 0..4 {
             assert!(std::ptr::eq(
                 graphics.display.plane(plane),

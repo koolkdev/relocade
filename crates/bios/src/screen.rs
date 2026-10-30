@@ -1,7 +1,11 @@
 //! BIOS character grids, pages, cursors and firmware display data.
+mod characters;
 mod geometry;
 mod scroll;
+
 use crate::video::graphics::Page as GraphicsPage;
+pub use characters::write_text;
+pub(super) use characters::{read_cell, teletype, write_repeated};
 use geometry::Geometry;
 pub(super) use scroll::{Scroll, ScrollDirection, Window};
 
@@ -9,21 +13,7 @@ use crate::video::{
     write_crtc_word, ACTIVE_PAGE, COLOR_TEXT_80X25, CURSORS, CURSOR_SHAPE, MODE, PAGE_OFFSET,
 };
 use relocade_machine::{IoBus, MemoryView};
-use relocade_vga::{registers::crtc, TEXT_MEMORY_START};
-
-/// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
-/// CR, LF and backspace move the cursor; other glyphs retain cell attributes.
-/// This updates guest video memory and BIOS cursor data without a host output stream.
-/// Output in graphics modes is currently ignored.
-pub fn write_text(memory: &mut MemoryView<'_>, io: &IoBus, bytes: &[u8]) {
-    if !is_text_mode(memory) {
-        return;
-    }
-    let page = active_page(memory);
-    for &byte in bytes {
-        teletype(memory, io, page, byte);
-    }
-}
+use relocade_vga::registers::crtc;
 
 pub(super) fn is_text_mode(memory: &MemoryView<'_>) -> bool {
     memory.read_u8(MODE).expect("video mode") == COLOR_TEXT_80X25
@@ -96,42 +86,6 @@ fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
     write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, position);
 }
 
-pub(super) fn read_cell(memory: &MemoryView<'_>, page: u8) -> [u8; 2] {
-    let geometry = Geometry::read(memory);
-    let [column, row] = cursor_position(memory, page).to_le_bytes();
-    let mut cell = [0; 2];
-    if geometry.contains(u16::from(row), u16::from(column)) {
-        memory
-            .read(
-                geometry.cell_address(page, u16::from(row), u16::from(column)),
-                &mut cell,
-            )
-            .expect("text cell");
-    }
-    cell
-}
-
-pub(super) fn write_repeated(
-    memory: &mut MemoryView<'_>,
-    page: u8,
-    character: u8,
-    attribute: Option<u8>,
-    count: u16,
-) {
-    let [column, row] = cursor_position(memory, page).to_le_bytes();
-    let start = Geometry::read(memory).cell_offset(page, u16::from(row), u16::from(column));
-    // BIOS repeat writes advance a 16-bit video offset; the visible page edge
-    // does not stop them or move the cursor.
-    for index in 0..count {
-        let offset = start.wrapping_add(index.wrapping_mul(2));
-        let address = TEXT_MEMORY_START + u32::from(offset);
-        let cell = [character, attribute.unwrap_or(0)];
-        memory
-            .write(address, &cell[..if attribute.is_some() { 2 } else { 1 }])
-            .expect("text cell");
-    }
-}
-
 pub(super) fn scroll(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
@@ -142,79 +96,13 @@ pub(super) fn scroll(
 ) {
     let geometry = Geometry::read(memory);
     let page = active_page(memory);
-    if is_text_mode(memory) {
-        if let Some(scroll) = Scroll::new(window, lines, direction, geometry.columns, geometry.rows)
-        {
-            scroll.text(memory, &geometry, page, color);
-        }
-    } else if let Some(page) = GraphicsPage::locate(memory, page) {
-        let font_height = memory
-            .read_u16(crate::video::CHARACTER_HEIGHT)
-            .expect("font height");
-        if let Some(scroll) = Scroll::new(
-            window,
-            lines,
-            direction,
-            geometry.columns.min(page.columns()),
-            geometry.rows.min(page.rows(font_height)),
-        ) {
-            page.scroll(memory, io, &scroll, font_height, color);
-        }
-    }
-}
-
-fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
-    let geometry = Geometry::read(memory);
-    let [column, row] = cursor_position(memory, page).to_le_bytes();
-    let (mut column, mut row) = (u16::from(column), u16::from(row));
-    if !geometry.contains(row, column) {
+    let Some(scroll) = Scroll::new(window, lines, direction, geometry.columns, geometry.rows)
+    else {
         return;
+    };
+    if is_text_mode(memory) {
+        scroll.text(memory, &geometry, page, color);
+    } else if let Some(page) = GraphicsPage::locate(memory, page) {
+        page.scroll(memory, io, &scroll, geometry.font_height, color);
     }
-    match character {
-        7 => return, // Bell requires a future speaker device.
-        8 => column = column.saturating_sub(1),
-        b'\r' => column = 0,
-        b'\n' => row += 1,
-        _ => {
-            memory
-                .write_u8(geometry.cell_address(page, row, column), character)
-                .expect("text character");
-            column += 1;
-            if column == geometry.columns {
-                column = 0;
-                row += 1;
-            }
-        }
-    }
-    if row == geometry.rows {
-        row -= 1;
-        // BIOS reads the fill attribute after advancing the cursor. A wrapped
-        // line uses column zero; a line feed retains its previous column.
-        set_cursor_position(
-            memory,
-            io,
-            page,
-            u16::from_le_bytes([column as u8, row as u8]),
-        );
-        let attribute = read_cell(memory, page)[1];
-        scroll(
-            memory,
-            io,
-            Window {
-                top: 0,
-                left: 0,
-                bottom: row as u8,
-                right: (geometry.columns - 1).min(255) as u8,
-            },
-            1,
-            attribute,
-            ScrollDirection::Up,
-        );
-    }
-    set_cursor_position(
-        memory,
-        io,
-        page,
-        u16::from_le_bytes([column as u8, row as u8]),
-    );
 }
