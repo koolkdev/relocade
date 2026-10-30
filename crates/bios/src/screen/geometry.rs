@@ -1,21 +1,28 @@
-//! BIOS text addressing uses firmware bookkeeping, not the renderer's geometry.
-use crate::video::{COLUMNS, LAST_ROW, PAGE_SIZE};
+//! BIOS character grids and text addressing use firmware bookkeeping.
+use crate::video::{graphics::Page, CHARACTER_HEIGHT, COLUMNS, LAST_ROW, PAGE_SIZE};
 use relocade_machine::MemoryView;
 use relocade_vga::{TEXT_MEMORY_BYTES, TEXT_MEMORY_START};
 
 pub(super) struct Geometry {
     pub columns: u16,
     pub rows: u16,
+    pub font_height: u16,
     page_bytes: u16,
 }
 
 impl Geometry {
     pub fn read(memory: &MemoryView<'_>) -> Self {
-        Self {
+        let mut geometry = Self {
             columns: memory.read_u16(COLUMNS).expect("video columns"),
             rows: u16::from(memory.read_u8(LAST_ROW).expect("video rows")) + 1,
+            font_height: memory.read_u16(CHARACTER_HEIGHT).expect("font height"),
             page_bytes: memory.read_u16(PAGE_SIZE).expect("video page size"),
+        };
+        if let Some(page) = Page::locate(memory, 0) {
+            geometry.columns = geometry.columns.min(page.columns());
+            geometry.rows = geometry.rows.min(page.rows(geometry.font_height));
         }
+        geometry
     }
 
     pub fn valid_page(&self, page: u8) -> bool {

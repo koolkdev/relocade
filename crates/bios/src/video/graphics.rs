@@ -1,5 +1,6 @@
 //! BIOS graphics layouts and native scanline operations through the VGA aperture.
 mod access;
+mod glyph;
 mod pixel;
 pub(super) use pixel::Pixel;
 

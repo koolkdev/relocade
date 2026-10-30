@@ -1,6 +1,8 @@
 //! Guest BIOS calls, MMIO and DAC writes feed the ordinary captured GPU path.
 #![cfg(not(target_arch = "wasm32"))]
 
+#[path = "video_gpu/characters.rs"]
+mod characters;
 mod common;
 #[path = "video_gpu/fonts.rs"]
 mod fonts;

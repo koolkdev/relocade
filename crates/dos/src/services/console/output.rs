@@ -1,4 +1,4 @@
-//! DOS output routing, cooked character handling and the CON text screen.
+//! DOS output routing, cooked character handling and the CON display.
 
 use crate::{
     error::DosError,

@@ -109,8 +109,30 @@ Planar copying uses write mode one, pairing each source read with its destinatio
 write before another read replaces the latches. Pixel and scroll operations
 share the BIOS layout and temporary VGA access-register handling. Other pages,
 pixels outside the window and the caller's access registers remain intact.
-Graphics-mode glyph services remain unsupported; DOS console bytes are still
-buffered but do not draw graphics-mode text.
+
+AH=09h/0Ah draw graphics characters using BL as the foreground and black as the
+background; both leave the cursor unchanged and treat control bytes as glyphs.
+Planar color bit 7 instead requests XOR of set glyph bits, preserving background
+pixels. Mode 13h keeps all eight color bits. BH selects a valid page, including
+page zero in mode 13h; the ET4000 convention that uses BH as a background color
+is outside this VGA target. Repeats beyond the current row are unspecified by
+the BIOS interface: this firmware wraps through visible cells, stops at the
+page bottom and never scrolls. Text repeats retain their 16-bit offset wrapping.
+
+Graphics font bytes come from the guest's live vectors, with 16-bit source-offset
+wrapping. Eight-high fonts use INT 43h for characters 00h–7Fh and INT 1Fh for
+80h–FFh; taller fonts use INT 43h for all characters. The BIOS reads a complete
+glyph before changing VGA access, so a source in VRAM uses the caller's read
+settings. Font height and the character grid come from the BIOS data area,
+bounded by the graphics layout. Native planar masks or indexed rows write the
+same MMIO memory as pixel services, with no renderer-side character path.
+
+AH=0Eh uses the active page and BL foreground in graphics modes. It handles BEL
+(currently silent), backspace without erasure, CR and LF, wraps at the right edge
+and scrolls at the bottom with black fill. DOS console output shares this
+teletype implementation with foreground 7, alongside its existing byte stream.
+Graphics character recognition (AH=08h), AH=13h string writes and AH=11h graphics
+font-selection subfunctions remain unsupported.
 
 BIOS text operations read columns, rows and page allocation from the BIOS data
 area. Cursor addresses, character access, teletype wrapping and scroll windows

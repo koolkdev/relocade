@@ -55,7 +55,7 @@ impl<'a> PlanarAccess<'a> {
         color
     }
 
-    pub fn write_pixel(&self, memory: &mut MemoryView<'_>, address: u32, mask: u8, color: u8) {
+    pub fn write_masked(&self, memory: &mut MemoryView<'_>, address: u32, mask: u8, color: u8) {
         write_indexed(self.io, GRAPHICS_INDEX_PORT, graphics::MODE, self.mode | 2);
         write_indexed(
             self.io,
@@ -64,8 +64,10 @@ impl<'a> PlanarAccess<'a> {
             if color & 0x80 != 0 { 0x18 } else { 0 },
         );
         write_indexed(self.io, GRAPHICS_INDEX_PORT, graphics::BIT_MASK, mask);
-        memory.read_u8(address).expect("graphics pixel latches");
-        memory.write_u8(address, color).expect("graphics pixel");
+        memory.read_u8(address).expect("graphics write latches");
+        memory
+            .write_u8(address, color)
+            .expect("masked graphics write");
     }
 
     pub fn copy(&self, memory: &mut MemoryView<'_>, source: u32, destination: u32, bytes: usize) {
@@ -84,6 +86,8 @@ impl<'a> PlanarAccess<'a> {
 
     pub fn fill(&self, memory: &mut MemoryView<'_>, destination: u32, bytes: usize, color: u8) {
         write_indexed(self.io, GRAPHICS_INDEX_PORT, graphics::MODE, self.mode | 2);
+        write_indexed(self.io, GRAPHICS_INDEX_PORT, graphics::DATA_ROTATE, 0);
+        write_indexed(self.io, GRAPHICS_INDEX_PORT, graphics::BIT_MASK, 255);
         // Full masks replace every pixel. Bit seven is never XOR for a scroll fill.
         for offset in 0..bytes as u32 {
             memory

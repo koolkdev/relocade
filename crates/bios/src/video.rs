@@ -6,6 +6,7 @@ mod modes;
 mod palette;
 mod presets;
 
+pub(super) use fonts::Glyph;
 pub(super) use modes::{set_mode, COLOR_TEXT_80X25};
 
 use crate::screen::{self, ScrollDirection, Window};
@@ -109,22 +110,25 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
                 },
             );
         }
-        // Character services still operate on text memory.
-        _ if !screen::is_text_mode(&call.memory) => return unsupported(call),
-        0x08..=0x0a if !screen::valid_page(&call.memory, page) => return unsupported(call),
-        0x01 => screen::set_cursor_shape(&mut call.memory, call.io, cx),
-        0x08 => {
+        0x01 if screen::is_text_mode(&call.memory) => {
+            screen::set_cursor_shape(&mut call.memory, call.io, cx)
+        }
+        0x08 if screen::is_text_mode(&call.memory) && screen::valid_page(&call.memory, page) => {
             let cell = screen::read_cell(&call.memory, page);
             call.cpu.set_ax(u16::from_le_bytes(cell));
         }
-        0x09 | 0x0a => screen::write_repeated(
+        0x09 | 0x0a if screen::valid_page(&call.memory, page) => screen::write_repeated(
             &mut call.memory,
+            call.io,
             page,
             al,
-            (function == 0x09).then_some(attribute),
+            attribute,
             cx,
+            function == 0x09,
         ),
-        0x0e => screen::write_text(&mut call.memory, call.io, &[al]),
+        0x0e if screen::valid_page(&call.memory, screen::active_page(&call.memory)) => {
+            screen::teletype(&mut call.memory, call.io, al, attribute)
+        }
         _ => return unsupported(call),
     }
     real_mode_interrupt::return_from_interrupt(call)
