@@ -87,9 +87,17 @@ Graphics mode setup clears the 64-KiB A0000 aperture through the selected memory
 routing; in planar modes this clears all four planes. All modes use guest-visible
 ports and memory accesses and honor AL bit 7 to preserve video memory. AH=0Fh
 reports the BIOS mode and geometry; rendering has no BIOS-mode-number dispatch.
-Graphics guests write pixels and DAC colors directly. BIOS pixel/glyph services
-in graphics mode remain unsupported; DOS console bytes are still buffered but
-do not draw graphics-mode text.
+Graphics guests can write pixels and DAC colors directly. BIOS AH=0Ch/0Dh also
+write/read individual pixels through the same memory aperture. Planar writes
+use VGA write mode two and its latches to preserve neighboring pixels; AL bit 7
+requests XOR in these modes, while mode 13h keeps all eight color bits. BH selects
+one of eight mode-0Dh pages and is ignored in the single-page modes 12h/13h.
+These BIOS services assume the layout established by mode setting; they do not
+infer arbitrary guest-reprogrammed layouts. Unsupported modes, out-of-range
+coordinates and invalid mode-0Dh pages return AH=86h with carry set. This bounds
+policy is local; the BIOS interface does not specify out-of-range results.
+Graphics-mode glyph services remain unsupported; DOS console bytes are still
+buffered but do not draw graphics-mode text.
 
 At the start of vertical retrace the device latches the programmed display start,
 then captures a complete `DisplaySnapshot` for the following active display:

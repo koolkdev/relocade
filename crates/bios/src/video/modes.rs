@@ -15,9 +15,9 @@ use relocade_vga::{
 
 // BIOS mode numbers accepted by INT 10h/AH=00h.
 pub(crate) const COLOR_TEXT_80X25: u8 = 0x03;
-const GRAPHICS_320X200_16: u8 = 0x0d;
-const GRAPHICS_640X480_16: u8 = 0x12;
-const GRAPHICS_320X200_256: u8 = 0x13;
+pub(super) const GRAPHICS_320X200_16: u8 = 0x0d;
+pub(super) const GRAPHICS_640X480_16: u8 = 0x12;
+pub(super) const GRAPHICS_320X200_256: u8 = 0x13;
 
 /// Returns the mode-set AL result, or leaves the device untouched if unsupported.
 pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
