@@ -1,3 +1,4 @@
+use super::worker::Failure;
 use crate::graphics::Surface;
 use relocade_peripherals::display::DisplayRenderer;
 use relocade_renderer::{fit_image, Rect, Renderer};
@@ -9,23 +10,27 @@ pub(super) enum DrawOutcome {
     Retry,
 }
 
-/// Draws one requested frame. The worker decides when to draw again.
+/// Draws one requested frame. The worker decides when to draw again or recover.
 pub(super) fn draw<D: DisplayRenderer>(
     surface: &mut Surface,
     display: &mut D,
     renderer: &mut Renderer,
     size: PhysicalSize<u32>,
-) -> Result<DrawOutcome, String> {
+) -> Result<DrawOutcome, Failure> {
     if size.width == 0 || size.height == 0 {
         return Ok(DrawOutcome::Skipped);
     }
-    let frame = match surface.acquire(size)? {
+    let frame = match surface.acquire(size).map_err(Failure::Fatal)? {
         wgpu::CurrentSurfaceTexture::Success(frame)
         | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
         wgpu::CurrentSurfaceTexture::Occluded => return Ok(DrawOutcome::Skipped),
-        wgpu::CurrentSurfaceTexture::Lost => return Err("Window surface was lost".into()),
+        // Lost can precede the asynchronous device-loss callback. Report it to
+        // the worker so both paths use the same recovery policy.
+        wgpu::CurrentSurfaceTexture::Lost => return Err(Failure::SurfaceLost),
         wgpu::CurrentSurfaceTexture::Validation => {
-            return Err("Surface acquisition failed validation".into());
+            return Err(Failure::Fatal(
+                "Surface acquisition failed validation".into(),
+            ));
         }
         _ => return Ok(DrawOutcome::Retry),
     };
