@@ -48,6 +48,10 @@ pub enum HostExit {
     /// CPU state is published; the runtime consumes this exit before resuming.
     /// Reserved for execution entries, not handler results.
     Call { address: u32 },
+    /// A service's guest resume label requests its top suspended invocation.
+    /// `address` identifies the service entry, as in `Call`. Reserved for generated
+    /// resume entries; it never creates a new service call.
+    Resume { address: u32 },
 }
 
 /// CPU state must already describe the completed block.

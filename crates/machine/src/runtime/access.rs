@@ -5,12 +5,15 @@ use crate::{CpuAccess, CpuView, IoBus, Memory, MemoryView};
 use relocade_wasm_runtime::{MemoryAccess, WasmMemoryAccess};
 use std::{
     cell::{Cell, RefCell},
+    future::Future,
     rc::{Rc, Weak},
 };
 
 pub(super) struct Access<T> {
     machine: Weak<RefCell<Machine<T>>>,
     pub active: Cell<bool>,
+    interrupt_scopes: Cell<usize>,
+    restore_interrupts: Cell<bool>,
 }
 
 /// Owned resources and CPU access for an asynchronous [`super::Hook::new`].
@@ -90,6 +93,53 @@ impl<T> CallContext<T> {
         let mut context = machine.context();
         operation(&mut context)
     }
+
+    /// Enables live IF for the duration of an await.
+    ///
+    /// Every pending await allows IRQ delivery according to IF; this helper only
+    /// manages the flag. Use an ordinary await if IF is already set as required.
+    ///
+    /// Restores the previous live IF on completion or cancellation, preserving
+    /// all other flags and the caller's saved interrupt frame. Guest IRQ return
+    /// must reach the installed resume entry before this future is polled again.
+    /// Abandoning a parked invocation never restores IF into the active frame.
+    ///
+    /// Nested and overlapping wrappers restore IF only when the last scope ends.
+    /// Dropping a run waiter or exhausting an ISR's instruction budget preserves
+    /// the future and its IF scope.
+    pub async fn with_interrupts_enabled<F: Future>(&self, future: F) -> F::Output {
+        let access = self.access.upgrade().expect("call is still alive");
+        self.with(|call| {
+            if access.interrupt_scopes.get() == 0 {
+                access.restore_interrupts.set(call.cpu.interrupts_enabled());
+            }
+            call.cpu.set_interrupts_enabled(true);
+        });
+        access
+            .interrupt_scopes
+            .set(access.interrupt_scopes.get() + 1);
+        let _scope = InterruptsEnabled(access);
+        future.await
+    }
+}
+
+struct InterruptsEnabled<T>(Rc<Access<T>>);
+
+impl<T> Drop for InterruptsEnabled<T> {
+    fn drop(&mut self) {
+        let remaining = self.0.interrupt_scopes.get() - 1;
+        self.0.interrupt_scopes.set(remaining);
+        if remaining == 0 && self.0.active.get() {
+            // An abandoned parked call must not edit the active guest frame.
+            if let Some(machine) = self.0.machine.upgrade() {
+                machine
+                    .borrow_mut()
+                    .context()
+                    .cpu
+                    .set_interrupts_enabled(self.0.restore_interrupts.get());
+            }
+        }
+    }
 }
 
 impl<T> Access<T> {
@@ -97,6 +147,8 @@ impl<T> Access<T> {
         let access = Rc::new(Self {
             machine: Rc::downgrade(machine),
             active: Cell::new(false),
+            interrupt_scopes: Cell::new(0),
+            restore_interrupts: Cell::new(false),
         });
         let context = {
             let machine = machine.borrow();

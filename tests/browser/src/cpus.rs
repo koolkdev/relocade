@@ -52,7 +52,7 @@ pub async fn cpu_worker() -> Result<(), String> {
         let mut cpu = Cpu::new(memory, cpu_config, Default::default(), input)
             .await
             .unwrap();
-        cpu.install_hooks([Hook::<Input>::new(0x100, async |mut call| {
+        cpu.install_hooks([Hook::<Input>::new(0x100, 0x101, async |mut call| {
             let (mut incoming, mut waiting, completed) = call.with(|context| {
                 let input = &mut *context.state;
                 (

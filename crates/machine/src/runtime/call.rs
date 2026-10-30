@@ -32,7 +32,7 @@ impl<T: 'static> Call<T> {
             .as_mut()
             .poll(cx);
         if result.is_ready() {
-            // Completion cleanup still has access to this invocation.
+            // Retained child waits restore IF before this invocation releases access.
             drop(self.future.take());
         }
         self.access.active.set(false);

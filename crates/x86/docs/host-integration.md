@@ -1087,16 +1087,29 @@ dispatch after a hook retains the original instruction target; hooks do not
 retire guest instructions. An address without a registered handler is a
 programming error.
 
+Each service registers an entry/resume pair within its environment-owned stub.
+Starting an invocation moves live EIP to its resume label before polling the
+future. An IRQ therefore saves that position through ordinary interrupt entry.
+The resume label emits `HostExit::Resume { address }`, identifying the service
+entry. The driver resumes only a matching top suspended frame, without restoring
+CPU state. An unmatched resume returns to the embedding with suspended work
+intact. The guest return convention and completion label belong to the environment;
+the generic runner reserves no separate guest continuation address.
+
 `HostExit::Return` requests a return to the embedding. The runtime awaits a
 service's future after the guest call returns; pending work has no guest
 execution exit. Hook continuation is a separate `HookResult::Continue` variant;
 `HookResult::Exit` carries an execution outcome. Async handlers use this
-Rust-only type and must not return `HostExit::Call` or `InterruptInhibited`, which
-are reserved for generated entries. The runner owns pinned futures until completion or CPU drop,
+Rust-only type and must not return `HostExit::Call`, `HostExit::Resume` or
+`InterruptInhibited`, which are reserved for generated entries. The runner owns
+pinned futures until completion,
+session termination through `HostExit::Return`, or CPU drop,
 even when a run waiter is dropped. Handler captures and futures may be local to
-the CPU's thread and need not be `Send` or `Sync`. Handlers use short CPU access through `CallContext::cpu` and
-scoped `CallContext::with` batches. Their memory and I/O handles remain usable
-across ordinary awaits without retaining backend borrows.
+the CPU's thread and need not be `Send` or `Sync`. Handlers use short register
+access through `CallContext::cpu` or scoped `CallContext::with` batches; retained
+memory and I/O handles need no backend borrow. Each pending await permits IRQ
+delivery according to live IF; ready awaits continue synchronously. Interrupt entry clears IF, and a
+handler can temporarily enable it with `CallContext::with_interrupts_enabled`.
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

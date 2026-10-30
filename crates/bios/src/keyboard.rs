@@ -192,7 +192,7 @@ pub(super) async fn interrupt<T>(mut call: CallContext<T>, keyboard: &Keyboard) 
     let function = call.cpu.ah();
     match function {
         0x00 => {
-            let key = keyboard.read().await;
+            let key = call.with_interrupts_enabled(keyboard.read()).await;
             call.cpu.set_ax(key.word());
         }
         0x01 => call.with(|context| {

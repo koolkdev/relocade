@@ -52,9 +52,13 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         backend: &mut B,
         instance: &B::Instance,
         entries: &[DispatchEntry<'_>],
+        removed: &[u32],
     ) -> Result<()> {
         // Resolve every export before changing existing callable slots.
         let mut addresses = self.addresses.clone();
+        for address in removed {
+            addresses.remove(*address);
+        }
         let mut next_slot = self.next_slot;
         let mut functions = Vec::with_capacity(entries.len());
         for entry in entries {
