@@ -1,7 +1,7 @@
 //! BIOS services for a real-mode PC, reached through ordinary runtime hooks.
 //!
-//! INT 10h sets modes 03h and 13h, with text output, cursors, pages and scrolling
-//! in mode 03h. Mode 13h programs VGA for direct guest pixel and palette writes.
+//! INT 10h sets text mode 03h with output, cursors, pages and scrolling.
+//! Graphics modes 0Dh, 12h and 13h program VGA for direct guest pixel and palette writes.
 //! Mode setting honors AL bit 7 to preserve video memory; AH=0Fh reports the
 //! mode, that flag, character columns and active page. Other video services in
 //! graphics mode return AH=86h with carry set. [`write_text`] ignores graphics
