@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/derive", "crates/compiler", "crates/x86", "crates/interpreter", "crates/test-support", "crates/machine", "crates/wasm-bindings", "crates/wasm-runtime", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer", "crates/vga", "tests/browser", "crates/app"]
-default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/wasm-runtime", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer", "crates/vga"]
+members = ["crates/derive", "crates/compiler", "crates/x86", "crates/interpreter", "crates/test-support", "crates/machine", "crates/wasm-bindings", "crates/wasm-runtime", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer", "crates/vga", "crates/pit", "tests/browser", "crates/app"]
+default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/wasm-runtime", "crates/vfs", "crates/bios", "crates/dos", "crates/renderer", "crates/vga", "crates/pit"]
 
 [workspace.package]
 version = "0.0.0"

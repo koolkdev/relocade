@@ -85,11 +85,12 @@ service resume labels installed. `HostExit::Return` abandons parked
 services; dropping the CPU releases every future and the machine together.
 
 Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
-registers VGA with the runner and shares its timer. Mount filesystems and retain
-console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
-launches reuse the CPU and guest memory. `dos.run(runner).await` returns the current
-process exit code; keeping the main session alive afterwards leaves VGA active
-for final captures and later launches. `dos.frame_source()` exposes the same
+registers VGA and the fixed-rate timer with the runner, sharing its clock. Mount
+filesystems and retain console handles before `launch_com(...)` or `launch_mz(...)`.
+These synchronous launches reuse the CPU and guest memory. `dos.run(runner).await`
+returns the current process exit code; keeping the main session alive afterwards
+leaves VGA and the timer active for final captures and later launches.
+`dos.frame_source()` exposes the same
 immutable capture source across those launches. Rendering and surface lifetimes
 belong to the embedding and can outlive DOS.
 Use `dos.process()` to retain the current program and inspect its `ProcessStatus`.

@@ -3,15 +3,16 @@
 //! INT 10h supplies basic mode-3 text output, cursors, pages and scrolling.
 //! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared host keyboard.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
-//! 0040:006C and 0040:0070. A machine timer must update these fields.
+//! 0040:006C and 0040:0070. IRQ0 advances these fields at the default timer rate.
 #![forbid(unsafe_code)]
 
+mod clock;
 mod keyboard;
 mod screen;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HookResult};
+use relocade_machine::{real_mode_interrupt, Hook};
 use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;
 
@@ -22,8 +23,8 @@ const KEYBOARD_ENTRY: u16 = 0xff10;
 const KEYBOARD_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + KEYBOARD_ENTRY as u32;
 const VIDEO_ENTRY: u16 = 0xff20;
 const VIDEO_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + VIDEO_ENTRY as u32;
-const CLOCK_TICKS: u32 = 0x46c;
-const MIDNIGHT_ROLLOVER: u32 = 0x470;
+const TIMER_ENTRY: u16 = 0xff30;
+const TIMER_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + TIMER_ENTRY as u32;
 
 /// Initializes the clock data, BIOS vectors and their ROM return instructions.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
@@ -31,9 +32,10 @@ const MIDNIGHT_ROLLOVER: u32 = 0x470;
 /// the supplied bus at its color text aperture and [`relocade_vga::PORT_RANGES`].
 pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     screen::initialize(memory, io);
-    memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
+    clock::initialize(memory);
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
     for (vector, offset) in [
+        (0x08, TIMER_ENTRY),
         (0x1a, CLOCK_ENTRY),
         (0x16, KEYBOARD_ENTRY),
         (0x10, VIDEO_ENTRY),
@@ -51,33 +53,13 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
 
 /// Returns hooks for installation alongside another environment's hooks.
 /// The keyboard is captured by the hooks and may be shared with console input.
-pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
+pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 4] {
     [
-        real_mode_interrupt::hook(CLOCK_ADDRESS, async |call| call.with(clock)),
+        real_mode_interrupt::hook(CLOCK_ADDRESS, async |call| call.with(clock::read)),
+        real_mode_interrupt::hook(TIMER_ADDRESS, async |call| call.with(clock::tick)),
         real_mode_interrupt::hook(KEYBOARD_ADDRESS, async move |call| {
             keyboard::interrupt(call, &keyboard).await
         }),
         real_mode_interrupt::hook(VIDEO_ADDRESS, async |call| call.with(video::interrupt)),
     ]
-}
-
-fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
-    if call.cpu.ah() == 0 {
-        let mut data = [0; 5];
-        call.memory
-            .read(CLOCK_TICKS, &mut data)
-            .expect("BIOS clock data");
-        let cpu = &mut call.cpu;
-        cpu.set_dx(u16::from_le_bytes([data[0], data[1]]));
-        cpu.set_cx(u16::from_le_bytes([data[2], data[3]]));
-        cpu.set_al(data[4]);
-        call.memory
-            .write(MIDNIGHT_ROLLOVER, &[0])
-            .expect("BIOS midnight rollover");
-    } else {
-        // Unsupported BIOS function.
-        call.cpu.set_ah(0x86);
-        real_mode_interrupt::set_carry(&call.cpu, &mut call.memory, true);
-    }
-    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }

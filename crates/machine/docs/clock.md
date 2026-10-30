@@ -11,6 +11,10 @@ channel notifications. Request delivery time therefore counts toward the wait.
 Clones share their time origin across native threads and threaded browser workers.
 Tests can implement `Clock` with manually controlled time.
 
+The [PC timer device](../../pit/README.md) uses this clock to raise IRQ0 at the
+fixed BIOS rate. Its ordinary `Runner::connect` connection carries interrupts
+through the CPU's `IoBus`, including during interruptible BIOS input waits.
+
 The driver uses `futures_timer::Delay` directly and rechecks the deadline after
 waking. Cancelling a wait cancels its host timer through the response channel;
 there is no per-CPU-quantum timer or platform-specific duration conversion.
