@@ -11,6 +11,7 @@ relocade-vfs = { path = "../vfs" }
 relocade-x86 = { path = "../x86" }
 relocade-machine = { path = "../machine" }
 relocade-vga = { path = "../vga" }
+relocade-pit = { path = "../pit" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"

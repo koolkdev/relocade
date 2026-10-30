@@ -5,8 +5,8 @@
 //! MZ executables use their header's memory request, relocation table and CS:IP/SS:SP.
 //! Both formats receive a separate environment block through PSP:002C, containing
 //! the supplied variables and executable path. Its storage comes from conventional RAM.
-//! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock; ticks initially remain zero
-//! until the embedding updates them.
+//! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock. The fixed-rate timer
+//! raises IRQ0 about 18.2 times per second; the BIOS handler advances the clock.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. CON output is buffered as guest
@@ -68,11 +68,11 @@
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
 //! Construct DOS inside [`relocade_machine::Runner::run`] or an execution worker.
-//! [`Dos::new`] registers VGA with that runner and shares its clock. [`Dos::run`]
-//! returns the current program's exit code; registered devices keep running while
-//! the main session awaits input or another program. [`Dos::frame_source`] exposes
-//! captured text across launches. The caller chooses the rendering implementation
-//! and its worker, scheduling and presentation lifetime.
+//! [`Dos::new`] registers VGA and the timer with that runner, sharing its clock.
+//! [`Dos::run`] returns the current program's exit code; registered devices keep
+//! running while the main session awaits input or another program.
+//! [`Dos::frame_source`] exposes captured text across launches. The caller chooses
+//! the rendering implementation and its worker, scheduling and presentation lifetime.
 //! Direct CPU control remains available through [`Dos::cpu`].
 //! The [native/browser fixture](https://github.com/koolkdev/relocade/blob/main/tests/browser/src/dos.rs)
 //! demonstrates persistent execution and an independent renderer worker.
@@ -132,7 +132,7 @@ pub struct Dos {
 }
 
 impl Dos {
-    /// Prepares the memory map and service hooks, and registers VGA with the runner.
+    /// Prepares memory and services, and registers VGA and the timer with the runner.
     /// Launch a program before executing DOS services.
     pub async fn new(runner: &Runner) -> relocade_machine::Result<Self> {
         let state = Rc::new(DosState::default());
@@ -140,11 +140,17 @@ impl Dos {
         let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
             runner.clock().clone(),
         ))));
-        let io = IoBus::new([runner.connect(
-            vga.clone(),
-            [relocade_vga::MEMORY_RANGE],
-            relocade_vga::PORT_RANGES,
-        )]);
+        let pit = Rc::new(RefCell::new(relocade_pit::Pit::with_clock(Rc::new(
+            runner.clock().clone(),
+        ))));
+        let io = IoBus::new([
+            runner.connect(pit, [], []),
+            runner.connect(
+                vga.clone(),
+                [relocade_vga::MEMORY_RANGE],
+                relocade_vga::PORT_RANGES,
+            ),
+        ]);
         let memory = Memory::new(kernel::configuration())?;
         let mut cpu = Cpu::new(memory, kernel::cpu(), io, ()).await?;
         cpu.with(|context| {
