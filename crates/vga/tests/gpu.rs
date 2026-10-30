@@ -81,7 +81,8 @@ async fn check_image() {
     let input = common::fixture::capture(&vga);
     let input = Arc::new(input);
     let mut encoder = device.create_command_encoder(&Default::default());
-    let frame = renderer.encode(&queue, &mut encoder, &input);
+    renderer.upload(&queue, &input);
+    let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
     assert_eq!(frame.image.size(), [640, 200]);
     assert_eq!(frame.image.pixel_aspect_ratio(), (5, 12));
@@ -115,7 +116,8 @@ async fn check_image() {
     other.time += Duration::from_secs(1);
     let other = Arc::new(other);
     let mut encoder = device.create_command_encoder(&Default::default());
-    let frame = renderer.encode(&queue, &mut encoder, &other);
+    renderer.upload(&queue, &other);
+    let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
     assert_eq!(frame.sequence, input.sequence);
     assert_eq!(frame.time, other.time);
