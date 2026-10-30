@@ -10,6 +10,8 @@ use readback::read_pixels;
 mod indexed256;
 #[path = "gpu/parity.rs"]
 mod parity;
+#[path = "gpu/planar16.rs"]
+mod planar16;
 #[path = "gpu/recording.rs"]
 mod recording;
 #[path = "gpu/unchained256.rs"]

@@ -1,3 +1,9 @@
+// Text and planar graphics share the sixteen colors decoded at each vertex.
+fn palette_color(input: DisplayVertex, index: u32) -> u32 {
+    let colors = array(input.colors0, input.colors1, input.colors2, input.colors3);
+    return colors[index / 4u][index % 4u];
+}
+
 // The attribute controller maps four-bit colors to entries in the DAC palette.
 fn attribute_color(color: u32) -> u32 {
     let select_bits = attribute_reg(0x14u);

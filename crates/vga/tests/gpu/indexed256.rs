@@ -2,7 +2,10 @@ use super::{
     common,
     graphics::{color, load_palette, pixels, Gpu},
 };
-use common::support::indexed256::{attribute, indexed, palette, program};
+use common::support::{
+    indexed256::program,
+    registers::{attribute, indexed, palette},
+};
 use relocade_machine::Device;
 use relocade_vga::Vga;
 use std::rc::Rc;
