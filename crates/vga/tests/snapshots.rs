@@ -50,6 +50,7 @@ fn snapshots_own_fonts_palette_and_programmed_geometry_after_device_destruction(
 
     assert_eq!(snapshot.plane(2).len(), 65536);
     assert_eq!(snapshot.plane(2)[0xe821], 0xa5);
+    assert_eq!(snapshot.geometry().size, [320, 400]);
     let registers = snapshot.registers;
     assert_eq!(registers.sequencer.values[3], 0x35);
     assert_eq!(registers.crtc.values[1], 39);
