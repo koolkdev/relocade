@@ -117,6 +117,80 @@ async fn check_pages() {
     }
 }
 
+async fn check_split() {
+    let mut gpu = Gpu::new().await;
+    let clock = Rc::new(common::ManualClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
+    program(&mut vga);
+    unchain(&mut vga);
+    load_palette(&mut vga);
+    for plane in 0..4u8 {
+        indexed(&mut vga, 0x3c4, 2, 1 << plane);
+        for address in 0..32u8 {
+            vga.write_mmio(
+                0xa0000 + u32::from(address),
+                1,
+                u64::from(address * 4 + plane),
+            );
+        }
+    }
+    start(&mut vga, 1);
+    clock.set(common::boundary(1));
+    vga.read_port(0x3da, 1);
+    // Eight pixels from a 24-pixel virtual row, beginning halfway through a
+    // repeated row. Split after three physical scanlines; byte and pel pan both
+    // cross four-plane groups above the split.
+    for (index, value) in [
+        (1, 1),
+        (7, 0),
+        (9, 1),
+        (8, 0x21),
+        (0x12, 5),
+        (0x13, 3),
+        (0x18, 2),
+    ] {
+        indexed(&mut vga, 0x3d4, index, value);
+    }
+    attribute(&mut vga, 0x13, 6);
+    attribute(&mut vga, 0x10, 0x61);
+    let reset_pan = common::fixture::capture(&vga);
+    attribute(&mut vga, 0x10, 0x41);
+    let keep_pan = common::fixture::capture(&vga);
+    drop(vga);
+    gpu.expect(
+        &reset_pan,
+        [8, 6],
+        &pixels(
+            [11..19, 35..43, 35..43, 0..8, 0..8, 24..32]
+                .into_iter()
+                .flatten(),
+        ),
+    )
+    .await;
+    gpu.expect(
+        &keep_pan,
+        [8, 6],
+        &pixels(
+            [11..19, 35..43, 35..43, 7..15, 7..15, 31..39]
+                .into_iter()
+                .flatten(),
+        ),
+    )
+    .await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn unchained_split_combines_preset_stride_and_both_panning_shifts() {
+    pollster::block_on(check_split());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn unchained_split_combines_preset_stride_and_both_panning_shifts() {
+    check_split().await;
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn unchained_plane_writes_pages_scroll_and_sparse_updates() {

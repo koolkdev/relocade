@@ -8,6 +8,8 @@ mod indexed256;
 mod planar16;
 #[path = "../../vga/tests/gpu/readback.rs"]
 mod readback;
+#[path = "video_gpu/transitions.rs"]
+mod transitions;
 #[path = "video_gpu/unchained256.rs"]
 mod unchained256;
 

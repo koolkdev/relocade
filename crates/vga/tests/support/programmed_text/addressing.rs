@@ -52,7 +52,8 @@ pub(super) fn append(cases: &mut Vec<Case>) {
     font(&mut vga, 0, b'A', &[0, 0x10]);
     font(&mut vga, 0, b'B', &[0x08]);
     font(&mut vga, 0, b'C', &[0x80]);
-    for (address, character) in [(0x246a, b'A'), (0x24be, b'B'), (2, b'C')] {
+    font(&mut vga, 0, b'D', &[0x08]);
+    for (address, character) in [(0x246a, b'A'), (0x24be, b'B'), (0, b'C'), (2, b'D')] {
         physical_cell(&mut vga, address, character, 7);
     }
     geometry(&mut vga, 40, 8, 4);
@@ -65,7 +66,7 @@ pub(super) fn append(cases: &mut Vec<Case>) {
     let mut display = vga.snapshot();
     display.registers.crtc.display_start = 0x1234;
     cases.push(Case {
-        name: "byte panning and preset rows survive a stride and split",
+        name: "split resets byte and pel panning after preset and stride",
         display,
         size: [360, 8],
         pixels: vec![
@@ -76,6 +77,15 @@ pub(super) fn append(cases: &mut Vec<Case>) {
             (0, 4, GRAY),
             (3, 4, BLACK),
         ],
+    });
+    attribute(&mut vga, 0x10, 0x0c);
+    let mut display = vga.snapshot();
+    display.registers.crtc.display_start = 0x1234;
+    cases.push(Case {
+        name: "split preserves both pans when compatibility is disabled",
+        display,
+        size: [360, 8],
+        pixels: vec![(0, 0, GRAY), (0, 4, BLACK), (1, 4, GRAY)],
     });
 
     let mut vga = text_device();

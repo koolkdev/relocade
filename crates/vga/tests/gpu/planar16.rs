@@ -98,14 +98,24 @@ async fn check_addressing() {
         &expected(&[15..31, 47..63]),
     )
     .await;
+    indexed(&mut vga, 0x3d4, 8, 0x20); // One additional byte of horizontal panning.
     attribute(&mut vga, 0x10, 0x21);
     indexed(&mut vga, 0x3d4, 0x18, 0); // Split the repeated pair and reset panning.
     gpu.expect(
         &common::fixture::capture(&vga),
         [16, 4],
-        &expected(&[15..31, 0..16, 0..16, 32..48]),
+        &expected(&[23..39, 0..16, 0..16, 32..48]),
     )
     .await;
+    attribute(&mut vga, 0x10, 1); // Preserve both panning shifts after the split.
+    gpu.expect(
+        &common::fixture::capture(&vga),
+        [16, 4],
+        &expected(&[23..39, 15..31, 15..31, 47..63]),
+    )
+    .await;
+    indexed(&mut vga, 0x3d4, 8, 0);
+    attribute(&mut vga, 0x10, 0x21);
 
     // Dividing the vertical counter doubles the display and split positions,
     // while the row-scan counter still advances once per physical scanline.

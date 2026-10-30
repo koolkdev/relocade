@@ -181,16 +181,13 @@ impl Layout {
         } else {
             u32::from(self.start_address)
         };
+        let reset_pan = split && self.reset_panning;
         Scanline {
             counter: (start
                 + (row / self.glyph_height) * u32::from(self.stride)
-                + self.byte_panning) as u16,
+                + if reset_pan { 0 } else { self.byte_panning }) as u16,
             glyph_row: (row % self.glyph_height) as u8,
-            pan: if split && self.reset_panning {
-                0
-            } else {
-                self.pel_panning
-            },
+            pan: if reset_pan { 0 } else { self.pel_panning },
         }
     }
 
