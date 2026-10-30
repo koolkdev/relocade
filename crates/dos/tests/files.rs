@@ -58,10 +58,7 @@ fn create(dos: &mut Dos, path: &[u8], attributes: u16) -> CpuState {
 fn buffer(dos: &mut Dos) -> [u8; 8] {
     let mut bytes = [0; 8];
     dos.cpu()
-        .context()
-        .memory
-        .read(0x10200, &mut bytes)
-        .unwrap();
+        .with(|call| call.memory.read(0x10200, &mut bytes).unwrap());
     bytes
 }
 
@@ -90,10 +87,7 @@ async fn check_handles() {
     assert_eq!(buffer(&mut dos)[0], b'a'); // Independent cursor.
     assert_eq!(success(&service(&mut dos, 0x3f00, 5, 0, 0x200)), 0);
     dos.cpu()
-        .context()
-        .memory
-        .write(0x10200, b"!!!!!!!!")
-        .unwrap();
+        .with(|call| call.memory.write(0x10200, b"!!!!!!!!").unwrap());
     assert_eq!(success(&service(&mut dos, 0x3f00, 5, 8, 0x200)), 2);
     assert_eq!(buffer(&mut dos), *b"cd!!!!!!"); // Short read preserves the buffer tail.
     assert_eq!(success(&service(&mut dos, 0x3f00, 5, 8, 0x200)), 0); // EOF.
@@ -183,7 +177,8 @@ fn position(cpu: &CpuState) -> u32 {
 }
 
 fn write(dos: &mut Dos, handle: u16, bytes: &[u8]) -> CpuState {
-    dos.cpu().context().memory.write(0x10200, bytes).unwrap();
+    dos.cpu()
+        .with(|call| call.memory.write(0x10200, bytes).unwrap());
     service(dos, 0x4000, handle, bytes.len() as u16, 0x200)
 }
 

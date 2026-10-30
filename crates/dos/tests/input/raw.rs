@@ -19,15 +19,14 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         input.write_all(b"\x1a\x08").unwrap();
-        {
-            let mut machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             let cpu = &mut machine.cpu;
             cpu.set_eip(0x100);
             cpu.set_ax(0x3f00);
             cpu.set_bx(handle);
             cpu.set_cx(5);
             cpu.set_dx(0x400);
-        }
+        });
         crate::common::assert_pending(dos.cpu().run(10));
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
@@ -46,7 +45,7 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
                 Poll::Ready(ExecutionExit::BudgetExhausted)
             ));
         }
-        let cpu = dos.cpu().context().cpu.snapshot();
+        let cpu = dos.cpu().with(|call| call.cpu.snapshot());
         assert_eq!(success(&cpu), 5);
         assert_eq!(cpu.registers.esp as u16, 0xfffe);
         let mut bytes = [0; 5];

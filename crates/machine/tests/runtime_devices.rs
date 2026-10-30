@@ -91,7 +91,7 @@ async fn check_devices() {
     })])
     .await
     .unwrap();
-    cpu.context().cpu.set_eip(0x100);
+    cpu.with(|call| call.cpu.set_eip(0x100));
     let mut cx = Context::from_waker(Waker::noop());
     {
         let mut run = pin!(runner.run(async |runner| runner.run_cpu(&mut cpu).await));

@@ -10,15 +10,14 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
         for function in [0x01, 0x07, 0x08, 0x0a] {
             dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
             dos.stdin().write_all(b"old\r").unwrap();
-            {
-                let mut machine = dos.cpu().context();
+            dos.cpu().with(|machine| {
                 machine.memory.write(0x10400, &[8, 0]).unwrap();
                 let cpu = &mut machine.cpu;
                 cpu.set_ax(0x0c00 | function);
                 cpu.set_bx(0x1234);
                 cpu.set_dx(0x400);
                 cpu.set_eflags(0x643);
-            }
+            });
             crate::common::assert_pending(dos.cpu().run(10));
             assert!(common::output(dos.stdout()).is_empty());
             assert_eq!(dos.cpu().memory().view().read_u16(0x1fff8).unwrap(), 0x102);
@@ -28,8 +27,7 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 .write_all(if function == 0x0a { b"K\r" } else { b"K" })
                 .unwrap();
             assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
-            {
-                let machine = dos.cpu().context();
+            dos.cpu().with(|machine| {
                 if function == 0x0a {
                     let mut buffer = [0; 4];
                     machine.memory.read(0x10400, &mut buffer).unwrap();
@@ -44,7 +42,7 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 assert_eq!(cpu.eflags(), 0x643);
                 assert_eq!(cpu.sp(), 0xfffe);
                 assert_eq!(cpu.eip(), 0x102);
-            }
+            });
             let expected = match function {
                 0x01 => b"K".as_slice(),
                 0x0a => b"K\r",
@@ -63,7 +61,7 @@ fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         service(&mut dos, 0x0200, 0, 0, u16::from(b'P'));
         dos.stdin().write_all(b"old\r").unwrap();
-        dos.cpu().context().cpu.set_eflags(0x603);
+        dos.cpu().with(|call| call.cpu.set_eflags(0x603));
         let cpu = service(&mut dos, 0x0c06, 0, 0, 0xff);
         assert_eq!(cpu.registers.eax as u16, 0x0c00);
         assert_eq!(cpu.flags.eflags(), 0x643);
@@ -77,7 +75,7 @@ fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
         assert_eq!(service(&mut dos, 0x0b00, 0, 0, 0).registers.eax as u8, 0);
         for function in [0, 0x0c, 0xff] {
             dos.stdin().write_all(b"old").unwrap();
-            dos.cpu().context().cpu.set_eflags(0x603);
+            dos.cpu().with(|call| call.cpu.set_eflags(0x603));
             let cpu = service(&mut dos, 0x0c00 | function, 0, 0, 0);
             assert_eq!(cpu.registers.eax as u8, 0);
             assert_eq!(cpu.flags.eflags(), 0x603);

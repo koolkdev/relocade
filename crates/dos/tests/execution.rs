@@ -12,9 +12,9 @@ fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
         dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())
             .unwrap();
         assert_eq!(dos.run(runner).await, Ok(7));
-        let count = dos.cpu().context().cpu.instruction_count();
+        let count = dos.cpu().with(|call| call.cpu.instruction_count());
         assert_eq!(dos.run(runner).await, Ok(7));
-        assert_eq!(dos.cpu().context().cpu.instruction_count(), count);
+        assert_eq!(dos.cpu().with(|call| call.cpu.instruction_count()), count);
 
         dos.launch_com(&[0xb4, 0xfe, 0xcd, 0x21], Default::default())
             .unwrap();

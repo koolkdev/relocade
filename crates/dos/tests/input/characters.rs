@@ -9,26 +9,24 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
         let mut dos = common::dos().await;
         for function in [0x01, 0x08] {
             dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-            {
-                let mut machine = dos.cpu().context();
+            dos.cpu().with(|machine| {
                 let cpu = &mut machine.cpu;
                 cpu.set_ax(function << 8);
                 cpu.set_bx(0x1234);
                 cpu.set_eflags(0x643);
-            }
+            });
             crate::common::assert_pending(dos.cpu().run(10));
             assert!(common::output(dos.stdout()).is_empty());
             dos.stdin().write_all(b"KZ").unwrap();
             assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
-            {
-                let machine = dos.cpu().context();
+            dos.cpu().with(|machine| {
                 let cpu = &machine.cpu;
                 assert_eq!(cpu.ax(), (function << 8) | u16::from(b'K'));
                 assert_eq!(cpu.bx(), 0x1234);
                 assert_eq!(cpu.eflags(), 0x643);
                 assert_eq!(cpu.eip(), 0x102);
                 assert_eq!(cpu.sp(), 0xfffe);
-            }
+            });
             // The second queued byte returns immediately through the same handler.
             let cpu = service(&mut dos, function << 8, 0, 0, 0);
             assert_eq!(cpu.registers.eax as u8, b'Z');

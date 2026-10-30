@@ -34,10 +34,7 @@ async fn check_command_tails() {
             }
             let mut bytes = [0; 128];
             dos.cpu()
-                .context()
-                .memory
-                .read(0x10080, &mut bytes)
-                .unwrap();
+                .with(|call| call.memory.read(0x10080, &mut bytes).unwrap());
             assert_eq!(bytes[0] as usize, tail.len());
             assert_eq!(&bytes[1..1 + tail.len()], tail);
             assert_eq!(bytes[1 + tail.len()], 13);
@@ -52,13 +49,10 @@ async fn check_command_tails() {
             assert_eq!(common::output(dos.stdout()), tail);
         }
 
-        let cpu = dos.cpu().context().cpu.snapshot();
+        let cpu = dos.cpu().with(|call| call.cpu.snapshot());
         let mut before = [0; 256];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x10000, &mut before)
-            .unwrap();
+            .with(|call| call.memory.read(0x10000, &mut before).unwrap());
         let options = LoadOptions {
             command_tail: &[b'x'; 127],
             ..Default::default()
@@ -69,13 +63,10 @@ async fn check_command_tails() {
             dos.launch_com(&image, options)
         };
         assert_eq!(result, Err(LoadError::CommandTailTooLong.into()));
-        assert_eq!(dos.cpu().context().cpu.snapshot(), cpu);
+        assert_eq!(dos.cpu().with(|call| call.cpu.snapshot()), cpu);
         let mut after = [0; 256];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x10000, &mut after)
-            .unwrap();
+            .with(|call| call.memory.read(0x10000, &mut after).unwrap());
         assert_eq!(after, before);
         assert_eq!(
             dos.process().unwrap().status(),

@@ -49,8 +49,7 @@ async fn check_mz_execution() {
     let mut file = executable();
     file.extend_from_slice(b"not part of the load module");
     dos.launch_mz(&file, Default::default()).unwrap();
-    {
-        let machine = dos.cpu().context();
+    dos.cpu().with(|machine| {
         let cpu = machine.cpu.snapshot();
         assert_eq!(cpu.segments[Segment::Cs].selector, 0x1011);
         assert_eq!(cpu.eip, 2);
@@ -71,7 +70,7 @@ async fn check_mz_execution() {
         let mut after_image = [0; 4];
         machine.memory.read(0x10144, &mut after_image).unwrap();
         assert_eq!(after_image, [0; 4]); // Ignore bytes beyond the declared file size.
-    }
+    });
     assert_eq!(
         dos.cpu().run(100).await,
         ExecutionExit::Host(HostExit::Return)
@@ -88,7 +87,8 @@ async fn check_mz_execution() {
         set_word(&mut file, 0x0c, maximum);
         dos.launch_mz(&file, Default::default()).unwrap();
         let mut end = [0; 2];
-        dos.cpu().context().memory.read(0x10002, &mut end).unwrap();
+        dos.cpu()
+            .with(|call| call.memory.read(0x10002, &mut end).unwrap());
         assert_eq!(u16::from_le_bytes(end), expected_end);
         assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
         assert_eq!(
@@ -103,7 +103,8 @@ async fn check_mz_execution() {
     set_word(&mut file, 0x02, 0);
     dos.launch_mz(&file, Default::default()).unwrap();
     let mut end = [0; 2];
-    dos.cpu().context().memory.read(0x10002, &mut end).unwrap();
+    dos.cpu()
+        .with(|call| call.memory.read(0x10002, &mut end).unwrap());
     assert_eq!(u16::from_le_bytes(end), 0x105e);
     assert_eq!(
         pollster::block_on(dos.cpu().run(100)),
@@ -118,7 +119,7 @@ async fn check_mz_execution() {
     set_word(&mut file, 0x0e, 0);
     set_word(&mut file, 0x10, 0x12);
     dos.launch_mz(&file, Default::default()).unwrap();
-    let cpu = dos.cpu().context().cpu.snapshot();
+    let cpu = dos.cpu().with(|call| call.cpu.snapshot());
     assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffa);
     assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ff9);
     assert_eq!(cpu.segments[Segment::Ds].selector, 0x1000);
@@ -148,13 +149,10 @@ async fn check_invalid_mz() {
         dos.cpu().run(100).await,
         ExecutionExit::Host(HostExit::Return)
     );
-    let saved_cpu = dos.cpu().context().cpu.snapshot();
+    let saved_cpu = dos.cpu().with(|call| call.cpu.snapshot());
     let mut saved_memory = vec![0; 0x110]; // First MCB and PSP.
     dos.cpu()
-        .context()
-        .memory
-        .read(0xfff0, &mut saved_memory)
-        .unwrap();
+        .with(|call| call.memory.read(0xfff0, &mut saved_memory).unwrap());
     let file = executable();
     // All short inputs and a truncated load module must be rejected.
     for length in 0..file.len() {
@@ -185,12 +183,9 @@ async fn check_invalid_mz() {
     }
     let mut memory = vec![0; saved_memory.len()];
     dos.cpu()
-        .context()
-        .memory
-        .read(0xfff0, &mut memory)
-        .unwrap();
+        .with(|call| call.memory.read(0xfff0, &mut memory).unwrap());
     assert_eq!(memory, saved_memory);
-    assert_eq!(dos.cpu().context().cpu.snapshot(), saved_cpu);
+    assert_eq!(dos.cpu().with(|call| call.cpu.snapshot()), saved_cpu);
     assert_eq!(
         dos.process().unwrap().status(),
         ProcessStatus::Exited(Ok(3))

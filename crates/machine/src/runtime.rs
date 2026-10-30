@@ -1,17 +1,16 @@
 //! Execution of one guest, independent of the host Wasm engine.
 //!
 //! [`Cpu::new`] prepares an interpreter and dispatcher over supplied [`Memory`]
-//! and initializes private CPU storage. [`Cpu::context`] lends access to
+//! and initializes private CPU storage. [`Cpu::with`] lends scoped access to
 //! the stopped CPU and mapped memory, both backed directly by Wasm storage.
 //! CPU edits take effect immediately. Preparation is asynchronous
 //! for native and web engines. [`Cpu::run`] awaits host operations
 //! between synchronous Wasm calls.
 //!
-//! A retained execution future owns the machine from its first host service until
-//! execution stops. Services borrow it through ordinary async calls and keep local
-//! values across waits. CPU views borrow the backend directly; their accesses need
-//! no handle lookup or invocation check. Environment state is independent of the
-//! backend's callback state.
+//! The CPU keeps its machine in one allocation and retains each pending host call.
+//! Services borrow it through ordinary async calls and keep local values across
+//! waits. CPU views borrow the backend directly. Environment state is independent
+//! of the backend's callback state.
 //!
 //! A pending service survives dropping its run waiter. Dropping the CPU ends
 //! the call chain and destroys the machine without undoing completed effects.
@@ -28,7 +27,7 @@
 //!     memory.view().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //!     let mut cpu = Cpu::new(memory, cpu_config, Default::default(), ()).await?;
 //!     let exit = cpu.run(100).await;
-//!     let ax = cpu.context().cpu.ax();
+//!     let ax = cpu.with(|call| call.cpu.ax());
 //!     # let _ = (exit, ax);
 //!     Ok(())
 //! }
@@ -51,18 +50,23 @@ pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-use execution::Execution;
+use futures_util::future::LocalBoxFuture;
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
-use std::collections::HashMap;
+use std::{
+    cell::{RefCell, RefMut},
+    collections::HashMap,
+    rc::Rc,
+};
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu<T: 'static = ()> {
-    execution: Execution<T>,
+    machine: Rc<RefCell<Machine<T>>>,
+    call: Option<LocalBoxFuture<'static, HookResult>>,
     memory: Memory,
 }
 
@@ -85,7 +89,8 @@ impl<T: 'static> Cpu<T> {
             hooks: HashMap::new(),
         };
         Ok(Self {
-            execution: Execution::new(machine),
+            machine: Rc::new(RefCell::new(machine)),
+            call: None,
             memory,
         })
     }
@@ -102,12 +107,17 @@ impl<T: 'static> Cpu<T> {
     ///
     /// # Panics
     /// Panics if a service is suspended. Complete it before installing.
+    #[allow(
+        clippy::await_holding_refcell_ref,
+        reason = "Installation excludes guest execution and pending host calls."
+    )]
     pub async fn install_module(
         &mut self,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let machine = self.execution.machine_mut();
+        let mut borrow = self.machine_mut();
+        let machine = &mut *borrow;
         let compiler = machine.backend.compiler();
         let module = compiler.compile(bytes).await?;
         machine
@@ -120,13 +130,23 @@ impl<T: 'static> Cpu<T> {
         Ok(())
     }
 
-    /// Borrows the stopped machine. The context and its views must end before
-    /// running or installing modules.
+    /// Borrows the stopped machine for a synchronous operation.
+    /// Return owned values; CPU, memory and environment borrows cannot escape
+    /// the callback or cross an await.
+    ///
+    /// ```compile_fail
+    /// # use relocade_machine::Cpu;
+    /// fn escape(cpu: &mut Cpu<u32>) -> &mut u32 {
+    ///     cpu.with(|call| call.state)
+    /// }
+    /// ```
     ///
     /// # Panics
     /// Panics if a service is suspended. Complete it to regain access.
-    pub fn context(&mut self) -> CpuContext<'_, T> {
-        self.execution.machine_mut().context()
+    pub fn with<R>(&mut self, operation: impl FnOnce(&mut CpuContext<'_, T>) -> R) -> R {
+        let mut machine = self.machine_mut();
+        let mut context = machine.context();
+        operation(&mut context)
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.
@@ -135,19 +155,11 @@ impl<T: 'static> Cpu<T> {
         self.memory.clone()
     }
 
-    /// Borrows the environment state between guest calls. Drop the borrow before running.
-    ///
-    /// # Panics
-    /// Panics if a service is suspended. Complete it to regain access.
-    pub fn state(&self) -> &T {
-        &self.execution.machine().state
-    }
-
-    /// Borrows mutable environment state between guest calls.
-    ///
-    /// # Panics
-    /// Panics if a service is suspended. Complete it to regain access.
-    pub fn state_mut(&mut self) -> &mut T {
-        &mut self.execution.machine_mut().state
+    fn machine_mut(&mut self) -> RefMut<'_, Machine<T>> {
+        assert!(
+            self.call.is_none(),
+            "host service is suspended; complete it before accessing the machine"
+        );
+        self.machine.borrow_mut()
     }
 }

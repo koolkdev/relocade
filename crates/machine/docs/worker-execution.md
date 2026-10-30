@@ -65,10 +65,11 @@ execution thread, and waits for completion before releasing the thread.
 these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
 
-The CPU holds its machine directly between runs. Reaching a host service creates
-an execution future that owns the machine and call chain until execution stops.
-The future then returns the machine and exit result to the CPU and is released.
-Runs that finish without reaching a host service allocate no execution future.
+The CPU keeps its machine in one shared allocation throughout execution.
+Each host invocation owns a future that borrows the machine until it completes.
+The CPU retains that future across pending waits; each run advances the stored
+call or guest execution without moving the machine into an execution future.
+Runs that finish without reaching a host service allocate no call future.
 
 Dropping a `Cpu::run` waiter preserves the pending future and its call chain; a later
 `Cpu::run` resumes it and supplies a new budget for subsequent guest execution.

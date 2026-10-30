@@ -37,16 +37,18 @@ async fn check_timing() {
     .unwrap();
     let input = Rc::new(Input::default());
     let mut cpu = support::create_cpu(input.clone(), config).await.unwrap();
-    cpu.context().cpu.set_sp(0xff00);
-    cpu.context()
-        .memory
-        .write(0x100, &[0xcd, 0x21, 0x40, 0xeb, 0xfb])
-        .unwrap();
-    cpu.context().memory.write(0x84, &[0, 2, 0, 0]).unwrap();
-    cpu.context()
-        .memory
-        .write(0x200, &real_mode_interrupt::HOOK_STUB)
-        .unwrap();
+    cpu.with(|call| call.cpu.set_sp(0xff00));
+    cpu.with(|call| {
+        call.memory
+            .write(0x100, &[0xcd, 0x21, 0x40, 0xeb, 0xfb])
+            .unwrap()
+    });
+    cpu.with(|call| call.memory.write(0x84, &[0, 2, 0, 0]).unwrap());
+    cpu.with(|call| {
+        call.memory
+            .write(0x200, &real_mode_interrupt::HOOK_STUB)
+            .unwrap()
+    });
     cpu.install_hooks([Hook::<Rc<Input>>::new(0x200, async |call| {
         let memory = &mut call.memory;
         let input = &call.state;
@@ -96,10 +98,10 @@ async fn check_timing() {
         assert!(run.as_mut().poll(&mut cx).is_pending());
     }
     // Timer wakes must not replace the run waiter and replenish its budget.
-    assert_eq!(cpu.context().cpu.instruction_count(), 6);
-    assert_eq!(cpu.context().cpu.eip(), 0x102);
-    assert_eq!(cpu.context().cpu.ax(), 1);
-    assert_eq!(cpu.context().memory.read_u16(0x300).unwrap(), 2);
+    assert_eq!(cpu.with(|call| call.cpu.instruction_count()), 6);
+    assert_eq!(cpu.with(|call| call.cpu.eip()), 0x102);
+    assert_eq!(cpu.with(|call| call.cpu.ax()), 1);
+    assert_eq!(cpu.with(|call| call.memory.read_u16(0x300).unwrap()), 2);
     assert_eq!(*times.borrow(), [10, 20].map(Duration::from_millis));
 }
 

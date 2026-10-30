@@ -17,15 +17,13 @@ async fn check_shared_file_handles() {
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 2, 0x200)), 2);
         let mut bytes = [0; 2];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x10200, &mut bytes)
-            .unwrap();
+            .with(|call| call.memory.read(0x10200, &mut bytes).unwrap());
         assert_eq!(&bytes, expected);
     }
     // Seek and write through either duplicate move the same cursor.
     assert_eq!(success(&service(&mut dos, 0x4200, 6, 0, 1)), 1);
-    dos.cpu().context().memory.write(0x10200, b"Z").unwrap();
+    dos.cpu()
+        .with(|call| call.memory.write(0x10200, b"Z").unwrap());
     assert_eq!(success(&service(&mut dos, 0x4000, 5, 1, 0x200)), 1);
     assert_eq!(success(&service(&mut dos, 0x4201, 6, 0, 0)), 2);
     assert_eq!(dos.read_file("DATA.BIN").unwrap(), b"aZcdef");
@@ -33,10 +31,7 @@ async fn check_shared_file_handles() {
     assert_eq!(success(&service(&mut dos, 0x3f00, 6, 2, 0x200)), 2);
     let mut bytes = [0; 2];
     dos.cpu()
-        .context()
-        .memory
-        .read(0x10200, &mut bytes)
-        .unwrap();
+        .with(|call| call.memory.read(0x10200, &mut bytes).unwrap());
     assert_eq!(&bytes, b"cd"); // Closing the source keeps the duplicate alive.
     assert_eq!(success(&service(&mut dos, 0x4500, 7, 0, 0)), 5);
     error(&service(&mut dos, 0x4000, 5, 1, 0x200), 5); // Access rights survive duplication.
@@ -61,7 +56,8 @@ async fn check_redirection_and_capacity() {
     success(&service(&mut dos, 0x3e00, 6, 0, 0));
     error(&service(&mut dos, 0x4600, 6, 1, 0), 6); // Invalid source leaves stdout intact.
     error(&service(&mut dos, 0x4600, 5, 20, 0), 6);
-    dos.cpu().context().memory.write(0x10200, b"file").unwrap();
+    dos.cpu()
+        .with(|call| call.memory.write(0x10200, b"file").unwrap());
     assert_eq!(success(&service(&mut dos, 0x4000, 1, 4, 0x200)), 4);
     assert_eq!(dos.read_file("OUT.TXT").unwrap(), b"file");
     assert!(common::output(dos.stdout()).is_empty());

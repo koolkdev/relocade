@@ -129,7 +129,7 @@ async fn check_device_entry() {
         .await
         .unwrap();
         assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(cpu.context().cpu.eip(), 0x202);
+        assert_eq!(cpu.with(|call| call.cpu.eip()), 0x202);
         assert_eq!(device.borrow().acknowledged, 0);
         assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
         let (entry, frame) = observed.borrow().unwrap();
@@ -139,7 +139,7 @@ async fn check_device_entry() {
         assert_eq!(entry.eip, HANDLER);
         assert_eq!(entry.flags.eflags(), 0x897); // IF, TF and AC cleared.
         assert_eq!(frame, [2, 2, 0, 0x10, 0x97, 0x0b]);
-        let restored = cpu.context().cpu.snapshot();
+        let restored = cpu.with(|call| call.cpu.snapshot());
         assert_eq!(restored.eip, 0x202);
         assert_eq!(restored.segments.cs.selector, 0x1000);
         assert_eq!(restored.registers.esp, 0xabcd_8000);
@@ -147,7 +147,7 @@ async fn check_device_entry() {
         assert_eq!(restored.instruction_count, 2);
         assert_eq!(device.borrow().acknowledged, 1);
         assert_eq!(cpu.run(2).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(cpu.context().cpu.bx(), 1);
+        assert_eq!(cpu.with(|call| call.cpu.bx()), 1);
     }
 }
 
@@ -185,10 +185,10 @@ async fn check_masks_and_zero_budget() {
     device.borrow_mut().raise();
     assert_eq!(cpu.run(0).await, ExecutionExit::BudgetExhausted);
     assert_eq!(device.borrow().acknowledged, 0);
-    cpu.context().cpu.set_eflags(2);
+    cpu.with(|call| call.cpu.set_eflags(2));
     assert_eq!(cpu.run(5).await, ExecutionExit::BudgetExhausted);
     assert_eq!(device.borrow().request, Some(VECTOR));
-    cpu.context().cpu.set_eflags(0x202);
+    cpu.with(|call| call.cpu.set_eflags(0x202));
     assert_eq!(cpu.run(1).await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(device.borrow().acknowledged, 1);
 }
@@ -218,7 +218,7 @@ async fn check_protected_steps() {
             .unwrap();
             assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
             assert_eq!(
-                cpu.context().cpu.instruction_count(),
+                cpu.with(|call| call.cpu.instruction_count()),
                 if blocks { 2 } else { 1 }
             );
             assert_eq!(device.borrow().request, blocks.then_some(VECTOR));
@@ -243,7 +243,7 @@ async fn check_protected_steps() {
         .await
         .unwrap();
         assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(cpu.context().cpu.instruction_count(), 3);
+        assert_eq!(cpu.with(|call| call.cpu.instruction_count()), 3);
         assert_eq!(device.borrow().request, Some(VECTOR));
         assert_eq!(device.borrow().acknowledged, 0);
         assert_eq!(cpu.run(1).await, ExecutionExit::Host(HostExit::Return));
@@ -295,14 +295,14 @@ async fn check_pending_borrowed_call(replace_waiter: bool) {
 async fn check_entry_fault() {
     let device = Rc::new(RefCell::new(InterruptDevice::default()));
     let mut cpu = cpu(&[0xeb, 0xfe], &device, 0x202).await;
-    cpu.context().cpu.set_sp(3);
-    let before = cpu.context().cpu.snapshot();
+    cpu.with(|call| call.cpu.set_sp(3));
+    let before = cpu.with(|call| call.cpu.snapshot());
     device.borrow_mut().raise();
     assert_eq!(
         cpu.run(1).await,
         ExecutionExit::Exception(Exception::StackFault { error_code: 0 })
     );
-    assert_eq!(cpu.context().cpu.snapshot(), before);
+    assert_eq!(cpu.with(|call| call.cpu.snapshot()), before);
     assert_eq!(
         device.borrow().acknowledged,
         1,
@@ -323,9 +323,9 @@ async fn check_protected_fault() {
             ExecutionExit::Exception(Exception::InvalidOpcode)
         };
         assert_eq!(cpu.run(1).await, expected);
-        assert_eq!(cpu.context().cpu.instruction_count(), 1);
-        assert_eq!(cpu.context().cpu.eip(), 0x201);
-        assert_eq!(cpu.context().cpu.eflags(), 0x202);
+        assert_eq!(cpu.with(|call| call.cpu.instruction_count()), 1);
+        assert_eq!(cpu.with(|call| call.cpu.eip()), 0x201);
+        assert_eq!(cpu.with(|call| call.cpu.eflags()), 0x202);
     }
 }
 

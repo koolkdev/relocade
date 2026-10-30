@@ -45,12 +45,13 @@ memory.write_u16(0x200, registers.ax())?;
 registers.set_ax(memory.read_u16(0x202)?);
 ```
 
-Those views and the context borrow the stopped CPU. Drop the context before
-resuming execution or installing modules. `cpu.memory()` returns an owned
-handle whose lifetime is independent of execution.
+Those views and the context borrow the stopped CPU. Embeddings use
+`cpu.with(|call| ...)` for scoped access; borrowed hooks keep their views until
+the call completes. `cpu.memory()` returns an owned handle whose lifetime is
+independent of execution.
 
 A suspended service keeps its machine borrow; complete it before calling
-`cpu.context()` again. Independent `Memory` handles remain usable during
+`cpu.with(...)` again. Independent `Memory` handles remain usable during
 execution, while a service awaits input, and after CPU destruction.
 
 Pass `memory.backing().clone()` directly as a worker task's context.

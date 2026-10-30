@@ -17,19 +17,18 @@ use std::{
 const PROGRAM: &[u8] = &[0xcd, 0x16, 0xeb, 0xfe, 0xcd, 0x21, 0xeb, 0xfe];
 
 fn invoke(dos: &mut Dos, ip: u32, ax: u16) -> CpuState {
-    {
-        let mut machine = dos.cpu().context();
+    dos.cpu().with(|machine| {
         let cpu = &mut machine.cpu;
         cpu.set_eip(ip);
         cpu.set_ax(ax);
         cpu.set_bx(0xabcd);
         cpu.set_eflags(0x643);
-    }
+    });
     assert_eq!(
         pollster::block_on(dos.cpu().run(10)),
         ExecutionExit::BudgetExhausted
     );
-    let cpu = dos.cpu().context().cpu.snapshot();
+    let cpu = dos.cpu().with(|call| call.cpu.snapshot());
     assert_eq!(cpu.registers.ebx as u16, 0xabcd);
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
     cpu
@@ -84,8 +83,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        dos.cpu().context().cpu.set_ax(0);
-        dos.cpu().context().cpu.set_eflags(0x643);
+        dos.cpu().with(|call| call.cpu.set_ax(0));
+        dos.cpu().with(|call| call.cpu.set_eflags(0x643));
         let keyboard = dos.keyboard();
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
@@ -103,20 +102,18 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
                 Poll::Ready(ExecutionExit::BudgetExhausted)
             ));
         }
-        {
-            let machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             let cpu = &machine.cpu;
             assert_eq!(cpu.ax(), 0x4800);
             assert_eq!(cpu.eip(), 0x102);
             assert_eq!(cpu.sp(), 0xfffe);
             assert_eq!(cpu.eflags(), 0x643);
-        }
+        });
         // Dropping a waiter preserves the input registration and the BIOS read.
-        {
-            let mut machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             machine.cpu.set_eip(0x100);
             machine.cpu.set_ax(0);
-        }
+        });
         {
             let mut run = pin!(dos.cpu().run(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());
@@ -131,17 +128,16 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             Err(LaunchError::ProcessActive)
         );
         assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(dos.cpu().context().cpu.ax(), 0x2d58);
+        assert_eq!(dos.cpu().with(|call| call.cpu.ax()), 0x2d58);
         // Termination preserves queued BIOS keys, including their scan codes.
         keyboard.push(KeyStroke {
             character: b'Y',
             scan_code: 0x15,
         });
-        {
-            let mut execution = dos.cpu().context();
+        dos.cpu().with(|execution| {
             execution.cpu.set_eip(0x104); // PROGRAM's DOS INT 21h entry.
             execution.cpu.set_ax(0x4c00);
-        }
+        });
         assert_eq!(
             dos.cpu().run(10).await,
             ExecutionExit::Host(HostExit::Return)
@@ -151,8 +147,8 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         assert_eq!(cpu.flags.eflags() & 0x40, 0);
         assert_eq!(cpu.registers.eax as u16, 0x1559);
         assert_eq!(invoke(&mut dos, 0x100, 0).registers.eax as u16, 0x1559);
-        dos.cpu().context().cpu.set_eip(0x100);
-        dos.cpu().context().cpu.set_ax(0);
+        dos.cpu().with(|call| call.cpu.set_eip(0x100));
+        dos.cpu().with(|call| call.cpu.set_ax(0));
         {
             let mut run = pin!(dos.cpu().run(10));
             assert!(run.as_mut().poll(&mut cx).is_pending());

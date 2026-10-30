@@ -6,8 +6,7 @@ use relocade_x86::{CpuState, ExecutionExit};
 const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
 
 fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
-    {
-        let mut machine = dos.cpu().context();
+    dos.cpu().with(|machine| {
         let cpu = &mut machine.cpu;
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
@@ -15,12 +14,12 @@ fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_cx(cx);
         cpu.set_dx(dx);
         cpu.set_eflags(0x643);
-    }
+    });
     assert_eq!(
         pollster::block_on(dos.cpu().run(15)),
         ExecutionExit::BudgetExhausted
     );
-    let cpu = dos.cpu().context().cpu.snapshot();
+    let cpu = dos.cpu().with(|call| call.cpu.snapshot());
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
     assert_eq!(cpu.flags.eflags(), 0x643);
     cpu
@@ -66,10 +65,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         );
         let mut page_offset = [0; 2];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x44e, &mut page_offset)
-            .unwrap();
+            .with(|call| call.memory.read(0x44e, &mut page_offset).unwrap());
         assert_eq!(page_offset, [0, 0x70]);
         // Teletype writes the active page, independently of incoming BH.
         video(&mut dos, 0x0e5a, 0xff00, 0, 0);
@@ -77,14 +73,13 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         assert_eq!(dos.screen().cursor.address, 0x38a5);
 
         // Mode reset also restores clock controls and timing after guest writes.
-        {
-            let context = dos.cpu().context();
+        dos.cpu().with(|context| {
             context.io.write_port(0x3c2, 1, 0x46); // 28 MHz and monochrome ports.
             context.io.write_port(0x3c4, 2, 0x2801); // Divide clock and blank screen.
             context.io.write_port(0x3b4, 2, 0x0011); // Unlock CRTC timing.
             context.io.write_port(0x3b4, 2, 0x1000); // Change the horizontal total.
             context.io.write_port(0x3b4, 2, 0x8011); // Re-lock timing before BIOS mode set.
-        }
+        });
         // Mode reset returns AL=30h and clears pages and cursors.
         assert_eq!(
             video(&mut dos, 0x0003, 0, 0, 0).registers.eax as u16,
@@ -93,8 +88,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         let screen = dos.screen();
         assert_eq!(screen.start_address, 0);
         assert_eq!(screen.cursor.address, 0);
-        {
-            let context = dos.cpu().context();
+        dos.cpu().with(|context| {
             assert_eq!(context.io.read_port(0x3cc, 1), 0x43);
             context.io.write_port(0x3c4, 1, 1);
             assert_eq!(context.io.read_port(0x3c5, 1), 1);
@@ -104,7 +98,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
             assert_eq!(context.io.read_port(0x3d5, 1), 0x5f);
             context.io.write_port(0x3d4, 1, 0x11);
             assert_eq!(context.io.read_port(0x3d5, 1), 0xae); // Timing is protected again.
-        }
+        });
         video(&mut dos, 0x0507, 0, 0, 0);
         assert_eq!(
             dos.screen().cells[164],
@@ -122,8 +116,7 @@ fn mode_reset_restores_memory_access_and_palette_before_clearing_text() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        {
-            let mut context = dos.cpu().context();
+        dos.cpu().with(|context| {
             context.memory.write_u16(0xb8000, 0x1e41).unwrap();
             context.memory.write_u16(0xbfffe, 0x4f5a).unwrap();
             context.io.write_port(0x3c4, 2, 0x0002); // Disable every write plane.
@@ -139,13 +132,12 @@ fn mode_reset_restores_memory_access_and_palette_before_clearing_text() {
             context.io.write_port(0x3c6, 1, 0);
             context.io.write_port(0x3c8, 1, 0x14);
             context.io.write_port(0x3c9, 1, 0); // Leave an unfinished DAC write.
-        }
+        });
         assert_eq!(
             video(&mut dos, 0x0003, 0, 0, 0).registers.eax as u16,
             0x0030
         );
-        {
-            let mut context = dos.cpu().context();
+        dos.cpu().with(|context| {
             assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x0720);
             assert_eq!(context.memory.read_u16(0xbfffe).unwrap(), 0x0720);
             assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 0xff);
@@ -162,7 +154,7 @@ fn mode_reset_restores_memory_access_and_palette_before_clearing_text() {
             for expected in [42, 21, 0] {
                 assert_eq!(context.io.read_port(0x3c9, 1) & 0x3f, expected);
             }
-        }
+        });
         assert_eq!(
             dos.screen().cells[0],
             TextCell {
@@ -184,24 +176,28 @@ fn repeated_writes_cross_page_padding_and_wrap_the_video_offset() {
         video(&mut dos, 0x0951, 0x001e, 50, 0);
         for address in [0xb8f9e, 0xb8fa0, 0xb8ffe, 0xb9000] {
             let mut cell = [0; 2];
-            dos.cpu().context().memory.read(address, &mut cell).unwrap();
+            dos.cpu()
+                .with(|call| call.memory.read(address, &mut cell).unwrap());
             assert_eq!(cell, [b'Q', 0x1e]);
         }
         let cursor = video(&mut dos, 0x0300, 0, 0, 0);
         assert_eq!(cursor.registers.edx as u16, 0x184f);
         video(&mut dos, 0x0a4b, 0, 50, 0);
         let mut cell = [0; 2];
-        dos.cpu().context().memory.read(0xb9000, &mut cell).unwrap();
+        dos.cpu()
+            .with(|call| call.memory.read(0xb9000, &mut cell).unwrap());
         assert_eq!(cell, [b'K', 0x1e]);
 
         // Page 7 plus an out-of-range BIOS cursor wraps the 16-bit byte offset:
         // 7000 + (255 * 80) * 2 = 10F60, so the write lands at B800:0F60.
         video(&mut dos, 0x0200, 0x0700, 0, 0xff00);
         video(&mut dos, 0x0951, 0x071e, 1, 0);
-        dos.cpu().context().memory.read(0xb8f60, &mut cell).unwrap();
+        dos.cpu()
+            .with(|call| call.memory.read(0xb8f60, &mut cell).unwrap());
         assert_eq!(cell, [b'Q', 0x1e]);
         video(&mut dos, 0x0a4b, 0x0700, 1, 0);
-        dos.cpu().context().memory.read(0xb8f60, &mut cell).unwrap();
+        dos.cpu()
+            .with(|call| call.memory.read(0xb8f60, &mut cell).unwrap());
         assert_eq!(cell, [b'K', 0x1e]);
         assert_eq!(
             video(&mut dos, 0x0300, 0x0700, 0, 0).registers.edx as u16,
@@ -217,11 +213,11 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         for (row, text) in [b"1234", b"5678", b"abcd"].into_iter().enumerate() {
             let bytes: Vec<_> = text.iter().flat_map(|&byte| [byte, 0x17]).collect();
-            dos.cpu()
-                .context()
-                .memory
-                .write(0xb8000 + row as u32 * 160, &bytes)
-                .unwrap();
+            dos.cpu().with(|call| {
+                call.memory
+                    .write(0xb8000 + row as u32 * 160, &bytes)
+                    .unwrap()
+            });
         }
         video(&mut dos, 0x0601, 0x4e00, 0x0001, 0x0202);
         let screen = dos.screen();
@@ -263,10 +259,7 @@ fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         dos.cpu()
-            .context()
-            .memory
-            .write(0xb8f00, &[b' ', 0x2a])
-            .unwrap();
+            .with(|call| call.memory.write(0xb8f00, &[b' ', 0x2a]).unwrap());
         video(&mut dos, 0x0200, 0, 0, 0x184f); // Last visible cell.
         video(&mut dos, 0x0920, 0x001f, 1, 0);
         video(&mut dos, 0x0e5a, 0, 0, 0);

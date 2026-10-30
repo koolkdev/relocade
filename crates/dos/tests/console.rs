@@ -44,12 +44,13 @@ fn cooked_character_output_shares_tab_stops_with_strings_and_line_echo() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        dos.cpu().context().memory.write(0x10300, b"abc$").unwrap();
+        dos.cpu()
+            .with(|call| call.memory.write(0x10300, b"abc$").unwrap());
         service(&mut dos, 0x0900, 0, 0, 0x300);
         assert_eq!(common::output(dos.stdout()), b"abc");
         common::terminate(&mut dos);
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        dos.cpu().context().cpu.set_eflags(0x643);
+        dos.cpu().with(|call| call.cpu.set_eflags(0x643));
         let cpu = service(&mut dos, 0x027b, 0x1234, 0x5678, u16::from(b'\t'));
         assert_eq!(cpu.registers.eax as u16, 0x0220);
         assert_eq!(cpu.flags.eflags(), 0x643);
@@ -60,24 +61,26 @@ fn cooked_character_output_shares_tab_stops_with_strings_and_line_echo() {
         service(&mut dos, 0x0200, 0, 0, u16::from(b'\x08'));
         service(&mut dos, 0x0200, 0, 0, u16::from(b'\t'));
         assert_eq!(common::output(dos.stdout()), b"\x08 ");
-        dos.cpu().context().memory.write(0x10300, &[8, 0]).unwrap();
+        dos.cpu()
+            .with(|call| call.memory.write(0x10300, &[8, 0]).unwrap());
         dos.stdin().write_all(b"x\r").unwrap();
         service(&mut dos, 0x0a00, 0, 0, 0x300);
         assert_eq!(common::output(dos.stdout()), b"x\r");
         service(&mut dos, 0x0200, 0, 0, u16::from(b'\t'));
         assert_eq!(common::output(dos.stdout()), b"        "); // Echoed CR reset the column.
 
-        dos.cpu().context().memory.write(0x10300, b"\rabc").unwrap();
+        dos.cpu()
+            .with(|call| call.memory.write(0x10300, b"\rabc").unwrap());
         assert_eq!(success(&service(&mut dos, 0x4000, 1, 4, 0x300)), 4);
         service(&mut dos, 0x0600, 0, 0, u16::from(b'\t'));
         service(&mut dos, 0x0200, 0, 0, u16::from(b'\t'));
         assert_eq!(common::output(dos.stdout()), b"\rabc\t     ");
 
-        dos.cpu()
-            .context()
-            .memory
-            .write(0x10300, b"\rabc\t\x1anot output")
-            .unwrap();
+        dos.cpu().with(|call| {
+            call.memory
+                .write(0x10300, b"\rabc\t\x1anot output")
+                .unwrap()
+        });
         assert_eq!(success(&service(&mut dos, 0x4000, 2, 16, 0x300)), 5);
         assert_eq!(common::output(dos.stderr()), b"\rabc     ");
         assert!(common::output(dos.stdout()).is_empty());
@@ -97,7 +100,8 @@ async fn check_handle_output() {
     let mut dos = common::dos().await;
     dos.launch_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
         .unwrap(); // INT 21h; JMP $
-    dos.cpu().context().memory.write(0x10200, b"A$\0Z").unwrap();
+    dos.cpu()
+        .with(|call| call.memory.write(0x10200, b"A$\0Z").unwrap());
     // Deliberately start with the opposite carry value. IRET must restore all
     // other represented flags, including direction and interrupt enable.
     for (handle, count, carry_before, expected_ax, expected_carry, output) in [
@@ -106,8 +110,7 @@ async fn check_handle_output() {
         (1, 0, true, 0, false, b"".as_slice()),
         (99, 4, false, 6, true, b"".as_slice()),
     ] {
-        {
-            let mut machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             let cpu = &mut machine.cpu;
             cpu.set_eip(0x100);
             cpu.set_ax(0x4000);
@@ -115,17 +118,18 @@ async fn check_handle_output() {
             cpu.set_cx(count);
             cpu.set_dx(0x200);
             cpu.set_eflags(0x642 | u32::from(carry_before));
-        }
+        });
         assert_eq!(
             pollster::block_on(dos.cpu().run(10)),
             ExecutionExit::BudgetExhausted
         );
-        let machine = dos.cpu().context();
-        let cpu = &machine.cpu;
-        assert_eq!(cpu.ax(), expected_ax);
-        assert_eq!(cpu.eflags(), 0x642 | u32::from(expected_carry));
-        assert_eq!(cpu.sp(), 0xfffe);
-        assert_eq!(cpu.eip(), 0x102);
+        dos.cpu().with(|machine| {
+            let cpu = &machine.cpu;
+            assert_eq!(cpu.ax(), expected_ax);
+            assert_eq!(cpu.eflags(), 0x642 | u32::from(expected_carry));
+            assert_eq!(cpu.sp(), 0xfffe);
+            assert_eq!(cpu.eip(), 0x102);
+        });
         if handle == 2 {
             assert_eq!(common::output(dos.stderr()), output);
             assert!(common::output(dos.stdout()).is_empty());
@@ -156,11 +160,8 @@ async fn check_redirected_string() {
     assert_eq!(success(&path_service(&mut dos, b"OUT.TXT", 0x3c00, 0)), 6);
     success(&service(&mut dos, 0x4600, 6, 1, 0));
     dos.cpu()
-        .context()
-        .memory
-        .write(0x10200, b"out$not output")
-        .unwrap();
-    dos.cpu().context().cpu.set_eflags(0x0a57);
+        .with(|call| call.memory.write(0x10200, b"out$not output").unwrap());
+    dos.cpu().with(|call| call.cpu.set_eflags(0x0a57));
     let cpu = service(&mut dos, 0x0900, 0xabcd, 0x1234, 0x200);
     assert_eq!(cpu.registers.eax as u16, 0x0924); // AL='$'.
     assert_eq!(cpu.registers.ebx as u16, 0xabcd);
@@ -190,7 +191,7 @@ async fn check_redirected_string() {
 async fn check_direct_console_io() {
     let mut dos = common::dos().await;
     dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    dos.cpu().context().cpu.set_eflags(0x603);
+    dos.cpu().with(|call| call.cpu.set_eflags(0x603));
     let cpu = service(&mut dos, 0x06aa, 0, 0, 0xff);
     assert_eq!(cpu.registers.eax as u16, 0x0600);
     assert_eq!(cpu.flags.eflags(), 0x643); // Empty input sets ZF, preserving CF/IF/DF.
@@ -199,7 +200,7 @@ async fn check_direct_console_io() {
     dos.stdin().write_all(b"A\0").unwrap();
     dos.stdin().write_all(&[0x48, 3, 0x1a, 0xff]).unwrap();
     for byte in [b'A', 0, 0x48, 3, 0x1a, 0xff] {
-        dos.cpu().context().cpu.set_eflags(0x643);
+        dos.cpu().with(|call| call.cpu.set_eflags(0x643));
         let cpu = service(&mut dos, 0x06aa, 0x1234, 0x5678, 0xff);
         assert_eq!(cpu.registers.eax as u16, 0x0600 | u16::from(byte));
         assert_eq!(cpu.flags.eflags(), 0x603); // Even a zero byte is available input.

@@ -77,8 +77,7 @@ pub async fn cpu_worker() -> Result<(), String> {
         .await
         .unwrap();
         assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
-        let ax = cpu.context().cpu.ax();
-        (ax, cpu.state().completed.get())
+        cpu.with(|call| (call.cpu.ax(), call.state.completed.get()))
     });
 
     started.await.map_err(|error| error.to_string())?;
@@ -98,8 +97,7 @@ pub async fn cpu_worker() -> Result<(), String> {
         let mut cpu = Cpu::new(memory, cpu_config, Default::default(), ())
             .await
             .unwrap();
-        let context = cpu.context();
-        (context.cpu.ax(), context.memory.read_u16(0x204).unwrap())
+        cpu.with(|call| (call.cpu.ax(), call.memory.read_u16(0x204).unwrap()))
     });
     assert_eq!(task.await.map_err(|error| error.to_string())?, (0, 0x42));
     drop(worker);

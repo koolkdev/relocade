@@ -22,13 +22,10 @@ fn active_process_rejects_launches_without_changing_its_state() {
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 1, 0x400)), 1);
         service(&mut dos, 0x1a00, 0, 0, 0x600);
         service(&mut dos, 0x0200, 0, 0, u16::from(b'X'));
-        let before_cpu = dos.cpu().context().cpu.snapshot();
+        let before_cpu = dos.cpu().with(|call| call.cpu.snapshot());
         let mut before_memory = vec![0; 0x90010]; // Arena, PSP, program and environment.
         dos.cpu()
-            .context()
-            .memory
-            .read(0xfff0, &mut before_memory)
-            .unwrap();
+            .with(|call| call.memory.read(0xfff0, &mut before_memory).unwrap());
 
         let mz = common::mz_image(&[0xb8, 0, 0x4c, 0xcd, 0x21]);
         for result in [
@@ -41,12 +38,9 @@ fn active_process_rejects_launches_without_changing_its_state() {
         }
         let mut after_memory = vec![0; before_memory.len()];
         dos.cpu()
-            .context()
-            .memory
-            .read(0xfff0, &mut after_memory)
-            .unwrap();
+            .with(|call| call.memory.read(0xfff0, &mut after_memory).unwrap());
         assert_eq!(after_memory, before_memory);
-        assert_eq!(dos.cpu().context().cpu.snapshot(), before_cpu);
+        assert_eq!(dos.cpu().with(|call| call.cpu.snapshot()), before_cpu);
         assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
         assert_eq!(common::output(dos.stdout()), b"X");
         let cpu = service(&mut dos, 0x2f00, 0, 0, 0);
@@ -54,7 +48,8 @@ fn active_process_rejects_launches_without_changing_its_state() {
         assert_eq!(cpu.registers.ebx as u16, 0x600);
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 1, 0x400)), 1);
         let mut byte = [0];
-        dos.cpu().context().memory.read(0x10400, &mut byte).unwrap();
+        dos.cpu()
+            .with(|call| call.memory.read(0x10400, &mut byte).unwrap());
         assert_eq!(byte, [b'b']); // The open handle and its cursor survived.
     });
 }
@@ -76,33 +71,30 @@ fn normal_and_error_termination_release_process_resources() {
             success(&path_service(&mut dos, b"A.DAT", 0x4301, 0));
             let handle = success(&path_service(&mut dos, b"A.DAT", 0x3d42, 0));
             let duplicate = success(&service(&mut dos, 0x4500, handle, 0, 0));
-            dos.cpu().context().memory.write(0x10400, b"Z").unwrap();
+            dos.cpu()
+                .with(|call| call.memory.write(0x10400, b"Z").unwrap());
             assert_eq!(success(&service(&mut dos, 0x4000, handle, 1, 0x400)), 1);
             service(&mut dos, 0x1a00, 0, 0, 0x600);
             success(&path_service(&mut dos, b"*.DAT", 0x4e00, 0));
             let mut search = [0; 43];
             dos.cpu()
-                .context()
-                .memory
-                .read(0x10600, &mut search)
-                .unwrap();
+                .with(|call| call.memory.read(0x10600, &mut search).unwrap());
             assert_eq!(&search[30..36], b"A.DAT\0");
 
             // Allocate another block so termination must release the whole arena.
             success(&service(&mut dos, 0x4a00, 0x1000, 0, 0));
             let allocated = success(&service(&mut dos, 0x4800, 0x10, 0, 0));
             let mut owner = [0; 2];
-            dos.cpu()
-                .context()
-                .memory
-                .read(u32::from(allocated) * 16 - 15, &mut owner)
-                .unwrap();
+            dos.cpu().with(|call| {
+                call.memory
+                    .read(u32::from(allocated) * 16 - 15, &mut owner)
+                    .unwrap()
+            });
             assert_eq!(owner, [0, 0x10]); // Bound process PSP.
-            {
-                let mut execution = dos.cpu().context();
+            dos.cpu().with(|execution| {
                 execution.cpu.set_eip(0x100);
                 execution.cpu.set_ax(function);
-            }
+            });
             assert_eq!(
                 pollster::block_on(dos.cpu().run(10)),
                 ExecutionExit::Host(HostExit::Return)
@@ -112,7 +104,8 @@ fn normal_and_error_termination_release_process_resources() {
                 ProcessStatus::Exited(status)
             );
             let mut mcb = [0; 5];
-            dos.cpu().context().memory.read(0xfff0, &mut mcb).unwrap();
+            dos.cpu()
+                .with(|call| call.memory.read(0xfff0, &mut mcb).unwrap());
             assert_eq!(mcb, [b'Z', 0, 0, 0, 0x90]);
             assert_eq!(dos.read_file("A.DAT").unwrap(), b"Zbc");
 
@@ -122,7 +115,8 @@ fn normal_and_error_termination_release_process_resources() {
             let cpu = service(&mut dos, 0x2f00, 0, 0, 0);
             assert_eq!(cpu.segments[Segment::Es].selector, 0x1000);
             assert_eq!(cpu.registers.ebx as u16, 0x80);
-            dos.cpu().context().memory.write(0x10080, &search).unwrap();
+            dos.cpu()
+                .with(|call| call.memory.write(0x10080, &search).unwrap());
             error(&service(&mut dos, 0x4f00, 0, 0, 0), 18);
             let cpu = path_service(&mut dos, b"A.DAT", 0x4300, 0);
             success(&cpu);
@@ -223,8 +217,7 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
 fn bios_input_can_complete_before_the_first_process_launch() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        {
-            let mut execution = dos.cpu().context();
+        dos.cpu().with(|execution| {
             execution
                 .memory
                 .write(0x7000, &[0xcd, 0x16, 0xeb, 0xfe]) // INT 16h; JMP $.
@@ -232,7 +225,7 @@ fn bios_input_can_complete_before_the_first_process_launch() {
             execution.cpu.set_eip(0x7000);
             execution.cpu.set_sp(0x8000);
             execution.cpu.set_ax(0);
-        }
+        });
         common::assert_pending(dos.cpu().run(10));
         assert!(dos.process().is_none());
         dos.keyboard().push(relocade_bios::KeyStroke {
@@ -240,7 +233,7 @@ fn bios_input_can_complete_before_the_first_process_launch() {
             scan_code: 0x2d,
         });
         assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(dos.cpu().context().cpu.ax(), 0x2d58);
+        assert_eq!(dos.cpu().with(|call| call.cpu.ax()), 0x2d58);
         assert!(dos.process().is_none());
         dos.launch_com(&[0xc3], Default::default()).unwrap();
         assert_eq!(

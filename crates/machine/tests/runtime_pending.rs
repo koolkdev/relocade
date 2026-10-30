@@ -99,19 +99,19 @@ async fn check_pending_calls() {
     .unwrap();
     let state = Rc::new(State::default());
     let mut runtime = support::create_cpu(state.clone(), config).await.unwrap();
-    runtime.context().cpu.set_sp(0xff00);
-    runtime.context().cpu.set_eflags(0x202);
-    runtime
-        .context()
-        .memory
-        .write(0x100, &[0xcd, 0x21, 0x40, 0xeb, 0xfb]) // INT 21h; INC AX; JMP 0100
-        .unwrap();
-    runtime.context().memory.write(0x84, &[0, 2, 0, 0]).unwrap();
-    runtime
-        .context()
-        .memory
-        .write(0x200, &real_mode_interrupt::HOOK_STUB)
-        .unwrap();
+    runtime.with(|call| call.cpu.set_sp(0xff00));
+    runtime.with(|call| call.cpu.set_eflags(0x202));
+    runtime.with(|call| {
+        call.memory
+            .write(0x100, &[0xcd, 0x21, 0x40, 0xeb, 0xfb]) // INT 21h; INC AX; JMP 0100
+            .unwrap()
+    });
+    runtime.with(|call| call.memory.write(0x84, &[0, 2, 0, 0]).unwrap());
+    runtime.with(|call| {
+        call.memory
+            .write(0x200, &real_mode_interrupt::HOOK_STUB)
+            .unwrap()
+    });
     runtime
         .install_hooks([Hook::<Rc<State>>::new(0x200, async |call| {
             // Distinct fields stay borrowed together through both awaits.
@@ -179,7 +179,7 @@ async fn check_pending_calls() {
     assert_eq!(state.first_awaits.get(), 2);
     assert_eq!(state.completed.get(), 2);
     assert_eq!(state.dropped.get(), 2);
-    let cpu = runtime.context().cpu.snapshot();
+    let cpu = runtime.with(|call| call.cpu.snapshot());
     assert_eq!(cpu.instruction_count, 6);
     assert_eq!(cpu.eip, 0x102);
     assert_eq!(cpu.registers.eax, 1);
@@ -187,7 +187,7 @@ async fn check_pending_calls() {
     assert_eq!(cpu.registers.esp, 0xff00);
     assert_eq!(cpu.flags.eflags(), 0x202);
     let mut bytes = [0; 2];
-    runtime.context().memory.read(0x300, &mut bytes).unwrap();
+    runtime.with(|call| call.memory.read(0x300, &mut bytes).unwrap());
     assert_eq!(bytes, [70, 0]);
 
     // Dropping a waiter leaves the future, its local references and partial
@@ -205,25 +205,21 @@ async fn check_pending_calls() {
     assert_eq!(runtime.run(0).await, ExecutionExit::BudgetExhausted);
     assert_eq!(state.completed.get(), 2);
     assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.context().cpu.bx(), 120);
+    assert_eq!(runtime.with(|call| call.cpu.bx()), 120);
     assert_eq!(state.started.get(), 3);
     assert_eq!(state.completed.get(), 3);
     assert_eq!(state.dropped.get(), 3);
 
     // Once the service completes, guest execution can continue without a host call.
-    runtime.context().cpu.set_eip(0x400);
-    runtime
-        .context()
-        .memory
-        .write(0x400, &[0xeb, 0xfe])
-        .unwrap();
+    runtime.with(|call| call.cpu.set_eip(0x400));
+    runtime.with(|call| call.memory.write(0x400, &[0xeb, 0xfe]).unwrap());
     assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
-    let count = runtime.context().cpu.instruction_count();
-    runtime
-        .context()
-        .memory
-        .write(0x500, &[0x0f, 0x0b]) // UD2: completing must not enter the guest.
-        .unwrap();
+    let count = runtime.with(|call| call.cpu.instruction_count());
+    runtime.with(|call| {
+        call.memory
+            .write(0x500, &[0x0f, 0x0b]) // UD2: completing must not enter the guest.
+            .unwrap()
+    });
     runtime
         .install_hooks([Hook::new(0x400, async |call| {
             // Completion returns directly even if the continuation names guest code.
@@ -238,11 +234,11 @@ async fn check_pending_calls() {
         .await
         .unwrap();
     assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
-    assert_eq!(runtime.context().cpu.cx(), 100);
-    assert_eq!(runtime.context().cpu.eip(), 0x500);
-    assert_eq!(runtime.context().cpu.instruction_count(), count);
+    assert_eq!(runtime.with(|call| call.cpu.cx()), 100);
+    assert_eq!(runtime.with(|call| call.cpu.eip()), 0x500);
+    assert_eq!(runtime.with(|call| call.cpu.instruction_count()), count);
 
-    runtime.context().cpu.set_eip(0x100);
+    runtime.with(|call| call.cpu.set_eip(0x100));
     assert_pending(runtime.run(10));
     assert_eq!(state.dropped.get(), 3);
     drop(runtime);
@@ -293,7 +289,7 @@ async fn check_completed_replacement() {
     assert!(released.upgrade().is_some());
     state.send(&[42]);
     assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
-    assert_eq!(runtime.context().cpu.ax(), 42);
+    assert_eq!(runtime.with(|call| call.cpu.ax()), 42);
     // Completion drops the invocation; replacing the registration releases
     // the final owner of its captures.
     assert!(released.upgrade().is_some());
@@ -306,7 +302,7 @@ async fn check_completed_replacement() {
         .unwrap();
     assert!(released.upgrade().is_none());
     assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
-    assert_eq!(runtime.context().cpu.ax(), 99);
+    assert_eq!(runtime.with(|call| call.cpu.ax()), 99);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
