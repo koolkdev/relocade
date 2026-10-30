@@ -1,6 +1,9 @@
-//! BIOS text-page operations and firmware display data.
+//! BIOS character grids, pages, cursors and firmware display data.
 mod geometry;
+mod scroll;
+use crate::video::graphics::Page as GraphicsPage;
 use geometry::Geometry;
+pub(super) use scroll::{Scroll, ScrollDirection, Window};
 
 use crate::video::{
     write_crtc_word, ACTIVE_PAGE, COLOR_TEXT_80X25, CURSORS, CURSOR_SHAPE, MODE, PAGE_OFFSET,
@@ -31,18 +34,28 @@ pub(super) fn active_page(memory: &MemoryView<'_>) -> u8 {
 }
 
 pub(super) fn valid_page(memory: &MemoryView<'_>, page: u8) -> bool {
-    Geometry::read(memory).valid_page(page)
+    if is_text_mode(memory) {
+        Geometry::read(memory).valid_page(page)
+    } else {
+        GraphicsPage::locate(memory, page).is_some()
+    }
 }
 
 pub(super) fn select_page(memory: &mut MemoryView<'_>, io: &IoBus, page: u8) {
-    let offset = Geometry::read(memory).page_offset(page);
+    let (offset, start) = if is_text_mode(memory) {
+        let offset = Geometry::read(memory).page_offset(page);
+        (offset, offset / 2)
+    } else {
+        let page = GraphicsPage::locate(memory, page).expect("validated graphics page");
+        (page.offset(), page.display_start())
+    };
     memory
         .write_u8(ACTIVE_PAGE, page)
         .expect("active video page");
     memory
         .write_u16(PAGE_OFFSET, offset)
         .expect("video page offset");
-    write_crtc_word(io, crtc::START_ADDRESS_HIGH, offset / 2);
+    write_crtc_word(io, crtc::START_ADDRESS_HIGH, start);
     update_cursor(memory, io, page);
 }
 
@@ -74,6 +87,10 @@ pub(super) fn set_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u
 }
 
 fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
+    // Graphics cursors are BIOS bookkeeping only.
+    if !is_text_mode(memory) {
+        return;
+    }
     let [column, row] = cursor_position(memory, page).to_le_bytes();
     let position = Geometry::read(memory).cursor_address(page, u16::from(row), u16::from(column));
     write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, position);
@@ -115,70 +132,34 @@ pub(super) fn write_repeated(
     }
 }
 
-pub(super) struct Window {
-    pub top: u8,
-    pub left: u8,
-    pub bottom: u8,
-    pub right: u8,
-}
-
-pub(super) enum ScrollDirection {
-    Up,
-    Down,
-}
-
 pub(super) fn scroll(
     memory: &mut MemoryView<'_>,
-    page: u8,
+    io: &IoBus,
     window: Window,
     lines: u8,
-    attribute: u8,
+    color: u8,
     direction: ScrollDirection,
 ) {
     let geometry = Geometry::read(memory);
-    if geometry.columns == 0 {
-        return;
-    }
-    let bottom = u16::from(window.bottom).min(geometry.rows - 1);
-    let right = u16::from(window.right).min(geometry.columns - 1);
-    let top = u16::from(window.top);
-    let left = u16::from(window.left);
-    if top > bottom || left > right {
-        return;
-    }
-    let height = bottom - top + 1;
-    let count = if lines == 0 {
-        height
-    } else {
-        u16::from(lines).min(height)
-    };
-    let width_bytes = usize::from(right - left + 1) * 2;
-    // INT 10h window columns are bytes, so at most 256 cells can be selected.
-    let mut row_bytes = [0; 256 * 2];
-    for index in 0..height {
-        let (row, source) = match direction {
-            ScrollDirection::Up => {
-                let row = top + index;
-                (row, i32::from(row) + i32::from(count))
-            }
-            ScrollDirection::Down => {
-                let row = bottom - index;
-                (row, i32::from(row) - i32::from(count))
-            }
-        };
-        let bytes = &mut row_bytes[..width_bytes];
-        if source >= i32::from(top) && source <= i32::from(bottom) {
-            memory
-                .read(geometry.cell_address(page, source as u16, left), bytes)
-                .expect("scroll source");
-        } else {
-            for cell in bytes.as_chunks_mut::<2>().0 {
-                *cell = [b' ', attribute];
-            }
+    let page = active_page(memory);
+    if is_text_mode(memory) {
+        if let Some(scroll) = Scroll::new(window, lines, direction, geometry.columns, geometry.rows)
+        {
+            scroll.text(memory, &geometry, page, color);
         }
-        memory
-            .write(geometry.cell_address(page, row, left), bytes)
-            .expect("scroll destination");
+    } else if let Some(page) = GraphicsPage::locate(memory, page) {
+        let font_height = memory
+            .read_u16(crate::video::CHARACTER_HEIGHT)
+            .expect("font height");
+        if let Some(scroll) = Scroll::new(
+            window,
+            lines,
+            direction,
+            geometry.columns.min(page.columns()),
+            geometry.rows.min(page.rows(font_height)),
+        ) {
+            page.scroll(memory, io, &scroll, font_height, color);
+        }
     }
 }
 
@@ -218,7 +199,7 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
         let attribute = read_cell(memory, page)[1];
         scroll(
             memory,
-            page,
+            io,
             Window {
                 top: 0,
                 left: 0,
