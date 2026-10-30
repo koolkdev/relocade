@@ -78,6 +78,8 @@ impl<C: Clock> Vga<C> {
     /// Captures current display inputs immediately on the execution owner, without
     /// advancing time, publishing a frame, or changing CPU read/access latches.
     /// Shares immutable VRAM planes and copies the small register state.
+    /// The display-start latch stays at the last serviced retrace; this does not
+    /// force pending CRTC start-address writes to become effective.
     /// Unlike [`FrameSource`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
         DisplaySnapshot {
@@ -96,6 +98,7 @@ impl<C: Clock> Vga<C> {
     /// Guest writes call this first, while the preceding registers and VRAM still apply.
     fn sync_to_clock(&mut self) {
         if let Some(time) = self.raster.update_to(self.clock.now()) {
+            self.registers.crtc.latch_display_start();
             let display = self.snapshot();
             // Only publication starts a new dirty interval. Immediate snapshots
             // must leave writes visible to the next published capture.

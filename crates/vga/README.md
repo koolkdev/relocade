@@ -29,14 +29,15 @@ count. `Vga::sync_to_clock()` updates that state and publishes the latest due
 capture before a guest write changes registers or VRAM. Timing changes replace
 the pending deadline; sequencer reset holds the raster, and the disconnected
 external or reserved clock selections stop it. Screen-off continues to generate
-retraces. Disabling CRTC sync suppresses the status pulse while internal sampling continues. Integer
-arithmetic carries fractional progress so repeated polling cannot accumulate drift.
+retraces. Disabling CRTC sync suppresses the status pulse while internal sampling
+continues. Integer arithmetic carries fractional progress so repeated polling
+cannot accumulate drift.
 The shared clock measures session elapsed time, not CPU instruction cycles.
 
-Static display settings still apply to the whole captured image. Display-start
-latching and per-pixel blanking remain unsupported. Historical scanout requires
-captures that retain changes throughout the frame and, for accurate guest event
-times, machine-level timing.
+Static display settings still apply to the whole captured image. Per-pixel
+blanking remains unsupported. Historical scanout requires captures that retain
+changes throughout the frame and, for accurate guest event times, machine-level
+timing.
 
 The sequencer, CRTC, Graphics Controller, Attribute Controller and six-bit DAC
 own their register storage and CPU access rules. Attribute writes alternate
@@ -66,23 +67,31 @@ Graphics guests write pixels and DAC colors directly. BIOS pixel/glyph services
 in graphics mode remain unsupported; DOS console bytes are still buffered but
 do not draw graphics-mode text.
 
-At each serviced refresh boundary the device captures a complete `DisplaySnapshot`:
+At the start of vertical retrace the device latches the programmed display start,
+then captures a complete `DisplaySnapshot` for the following active display:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
-settings, DAC colors and mask, and blink phase. `CapturedFrame` adds source time
-and sequence. Late service coalesces missed boundaries; guest mutations first
-preserve completed boundaries using the preceding state. The fidelity contract
-remains a coherent frame snapshot.
+settings, DAC colors and mask, the effective start address, and blink phase.
+`CapturedFrame` adds the sampling boundary's time and sequence. Late service
+coalesces missed boundaries; guest mutations first service elapsed time using
+the preceding state. A write exactly at a retrace edge applies after that latch.
+The capture describes selected inputs, not pixels scanned earlier in the frame.
+Other registers are sampled at that same edge. In particular, a preset-row
+update made after retrace starts appears in the next capture. The snapshot
+approximation does not reproduce the within-blanking ordering used by
+raster-synchronized smooth scrolling.
 
 The device and `DisplaySnapshot::registers` use the same `Registers` type.
 Capture creation clones the complete structure, including bank indices and
 palette-transfer phases. Raw bank values are available through fields such as
-`registers.crtc.values` and `registers.dac.colors`; port-access operations remain
-inside the device. There is no separate display-register projection to maintain.
+`registers.crtc.values` and `registers.dac.colors`; `registers.crtc.display_start`
+holds the effective latch alongside the programmed bytes. Port-access operations
+remain inside the device. There is no separate display-register projection to
+maintain.
 
 Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
-captures those same inputs immediately without publishing a frame or changing CPU
-latches and access phases. `DisplaySnapshot::geometry()` derives only image
-dimensions, scanline spacing and nominal pixel aspect ratio. All pixel
+captures those same inputs immediately without publishing a frame, forcing a
+display-start latch, or changing CPU access phases. `DisplaySnapshot::geometry()`
+derives only image dimensions, scanline spacing and nominal pixel aspect ratio. All pixel
 interpretation uses captured registers and VRAM directly in the shader.
 
 Snapshots share four immutable 64-KiB planes with the device. Capturing or cloning

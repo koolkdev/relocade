@@ -29,6 +29,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
             dos.process().unwrap().status(),
             ProcessStatus::Exited(Ok(0))
         );
+        common::next_capture(&dos).await;
         let screen = common::screen(&dos);
         assert_eq!(screen.start_address, 0x800);
         assert_eq!(

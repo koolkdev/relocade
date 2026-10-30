@@ -71,9 +71,7 @@ async fn check_parity() {
         (0, 2000, 6, 7, None),               // Below the screen.
     ] {
         let mut input = capture();
-        let [high, low] = (display_start as u16).to_be_bytes();
-        input.display.registers.crtc.values[12] = high;
-        input.display.registers.crtc.values[13] = low;
+        input.display.registers.crtc.display_start = display_start;
         let [high, low] = (address as u16).to_be_bytes();
         input.display.registers.crtc.values[14] = high;
         input.display.registers.crtc.values[15] = low;

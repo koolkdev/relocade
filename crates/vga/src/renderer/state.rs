@@ -76,12 +76,13 @@ fn header(snapshot: &DisplaySnapshot, geometry: DisplayGeometry) -> [u8; HEADER_
     ] {
         bytes[offset..offset + bank.len()].copy_from_slice(bank);
     }
-    for (slot, word) in bytes[96..116].as_chunks_mut::<4>().0.iter_mut().zip([
+    for (slot, word) in bytes[96..120].as_chunks_mut::<4>().0.iter_mut().zip([
         u32::from(r.miscellaneous),
         u32::from(r.attribute.address()),
         u32::from(r.dac.mask),
         u32::from(snapshot.blink_on),
         geometry.scanline_step,
+        u32::from(r.crtc.display_start),
     ]) {
         slot.copy_from_slice(&word.to_le_bytes());
     }

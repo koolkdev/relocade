@@ -47,6 +47,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         let mode = video(&mut dos, 0x0f00, 0x00a5, 0, 0);
         assert_eq!(mode.registers.eax as u16, 0x5003);
         assert_eq!(mode.registers.ebx as u16, 0x07a5);
+        common::next_capture(&dos).await;
         let screen = common::screen(&dos);
         assert_eq!(screen.start_address, 0x3800);
         assert_eq!(screen.cursor.start_scan_line, 0x20);
@@ -90,6 +91,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
             video(&mut dos, 0x0003, 0, 0, 0).registers.eax as u16,
             0x0030
         );
+        common::next_capture(&dos).await;
         let screen = common::screen(&dos);
         assert_eq!(screen.start_address, 0);
         assert_eq!(screen.cursor.address, 0);

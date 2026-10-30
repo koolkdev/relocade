@@ -32,11 +32,14 @@ pub const LINE_COMPARE: u8 = 0x18;
 pub const PROTECT_TIMING_REGISTERS: u8 = 1 << 7;
 const LINE_COMPARE_OVERFLOW: u8 = 1 << 4;
 
-/// CRTC values and the current CPU register index.
+/// Programmed CRTC values, the CPU register index and the display-start latch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Crtc {
     index: u8,
     pub values: [u8; 0x19],
+    /// Start address selected at the last vertical retrace. CPU reads of 0C/0D
+    /// still return the programmed bytes, which can differ until the next edge.
+    pub display_start: u16,
 }
 
 impl Default for Crtc {
@@ -45,11 +48,22 @@ impl Default for Crtc {
         for &(index, value) in text_mode::CRTC_REGISTERS {
             values[usize::from(index)] = value;
         }
-        Self { index: 0, values }
+        Self {
+            index: 0,
+            values,
+            display_start: 0,
+        }
     }
 }
 
 impl Crtc {
+    pub(crate) fn latch_display_start(&mut self) {
+        self.display_start = u16::from_be_bytes([
+            self.register(START_ADDRESS_HIGH),
+            self.register(START_ADDRESS_LOW),
+        ]);
+    }
+
     fn register(&self, index: u8) -> u8 {
         self.values[usize::from(index)]
     }

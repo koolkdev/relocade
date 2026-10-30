@@ -18,7 +18,8 @@ fn register(vga: &mut impl Device, index: u8, value: u8) {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let clock = Rc::new(ManualClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
     vga.write_mmio(TEXT_MEMORY_START, 4, 0x2f42_1e41);
     vga.write_mmio(TEXT_MEMORY_START + 1, 1, 0x17);
     assert_eq!(vga.read_mmio(TEXT_MEMORY_START, 4), 0x2f42_1741);
@@ -42,6 +43,8 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
     vga.write_mmio(TEXT_MEMORY_START + 0x7ffe, 2, 0x3e5a);
     register(&mut vga, 0x0c, 0x3f);
     register(&mut vga, 0x0d, 0xff);
+    clock.set(common::boundary(1));
+    vga.read_port(0x3da, 1);
     let last = common::support::inspection::inspect(&vga.snapshot());
     assert_eq!(last.start_address, 0x3fff);
     assert_eq!(
@@ -62,6 +65,8 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
     // Scanout wraps at the 16-bit CRTC cell address, not the CPU aperture edge.
     register(&mut vga, 0x0c, 0xff);
     register(&mut vga, 0x0d, 0xff);
+    clock.set(common::boundary(2));
+    vga.read_port(0x3da, 1);
     let wrapped = common::support::inspection::inspect(&vga.snapshot());
     assert_eq!(
         wrapped.cells[0],
@@ -82,7 +87,8 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn crtc_byte_and_paired_writes_share_register_state() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let clock = Rc::new(ManualClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
     register(&mut vga, 0x0c, 0x12);
     vga.write_port(CRTC_INDEX_PORT, 1, 0x0d);
     vga.write_port(CRTC_DATA_PORT, 1, 0x34);
@@ -90,6 +96,8 @@ fn crtc_byte_and_paired_writes_share_register_state() {
     register(&mut vga, 0x0f, 0xcd);
     register(&mut vga, 0x0a, 0xe6);
     register(&mut vga, 0x0b, 0xe7);
+    clock.set(common::boundary(1));
+    vga.read_port(0x3da, 1);
     let screen = common::support::inspection::inspect(&vga.snapshot());
     assert_eq!(screen.start_address, 0x1234);
     assert_eq!(screen.cursor.address, 0xabcd);

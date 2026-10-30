@@ -84,8 +84,12 @@ async fn check_full_frame() {
 
 async fn check_addressing() {
     let mut gpu = Gpu::new().await;
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+    let clock = Rc::new(common::ManualClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
     program(&mut vga);
+    common::crtc(&mut vga, 13, 1);
+    clock.set(common::boundary(1));
+    vga.read_port(0x3da, 1); // Latch the start before changing the viewport.
     load_palette(&mut vga);
     for offset in 0..256 {
         vga.write_mmio(0xa0000 + offset, 1, u64::from(offset));
@@ -136,6 +140,8 @@ async fn check_addressing() {
     for (index, value) in [(9, 1), (0x12, 1), (12, 0x3f), (13, 0xff)] {
         common::crtc(&mut vga, index, value);
     }
+    clock.set(std::time::Duration::from_secs(1));
+    vga.read_port(0x3da, 1);
     let wrapped = common::fixture::capture(&vga);
     gpu.expect(&wrapped, [8, 1], &pixels([252, 253, 254, 255, 0, 1, 2, 3]))
         .await;

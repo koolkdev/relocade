@@ -65,8 +65,12 @@ async fn check_pixels() {
 
 async fn check_addressing() {
     let mut gpu = Gpu::new().await;
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+    let clock = Rc::new(common::ManualClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
     program(&mut vga);
+    indexed(&mut vga, 0x3d4, 13, 1);
+    clock.set(common::dots(490 * 800, 25_175_000));
+    vga.read_port(0x3da, 1); // Latch the start before changing the viewport.
     load_palette(&mut vga);
     // A 16-pixel window into rows with a 32-pixel stride; two scanlines per row.
     for (index, value) in [(1, 1), (7, 0), (9, 1), (13, 1), (0x12, 3), (0x13, 2)] {
