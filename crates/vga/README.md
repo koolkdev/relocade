@@ -99,6 +99,12 @@ policy is local; the BIOS interface does not specify out-of-range results.
 Graphics-mode glyph services remain unsupported; DOS console bytes are still
 buffered but do not draw graphics-mode text.
 
+BIOS text operations read columns, rows and page allocation from the BIOS data
+area. Cursor addresses, character access, teletype wrapping and scroll windows
+share that geometry. Valid pages fit the 32-KiB text aperture and the eight BIOS
+cursor records. This firmware bookkeeping does not control rendering; VGA
+scanout still follows its captured registers and memory.
+
 BIOS AH=10h programs those same Attribute Controller and DAC registers. Supported
 subfunctions are 00h/07h (individual attribute register), 01h/08h (overscan),
 02h/09h (16 colors plus overscan), 03h (blink/intensity), 10h/15h (individual DAC

@@ -72,7 +72,7 @@ pub(super) const TEXT: Preset = Preset {
     columns: 80,
     character_rows: 25,
     character_height: 8,
-    page_bytes: crate::screen::PAGE_BYTES as u16,
+    page_bytes: 0x1000,
     miscellaneous: text_mode::MISC_OUTPUT,
     sequencer: text_mode::SEQUENCER_REGISTERS,
     graphics: text_mode::GRAPHICS_REGISTERS,
