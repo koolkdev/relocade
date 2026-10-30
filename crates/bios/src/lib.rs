@@ -11,7 +11,7 @@ mod screen;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HookResult};
+use relocade_machine::{real_mode_interrupt, CallContext, Hook, HookResult};
 use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;
 
@@ -61,10 +61,11 @@ pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
     ]
 }
 
-async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+async fn clock<T>(mut call: CallContext<T>) -> HookResult {
     if call.cpu.ah() == 0 {
         let mut data = [0; 5];
         call.memory
+            .view()
             .read(CLOCK_TICKS, &mut data)
             .expect("BIOS clock data");
         let cpu = &mut call.cpu;
@@ -72,12 +73,13 @@ async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
         cpu.set_cx(u16::from_le_bytes([data[2], data[3]]));
         cpu.set_al(data[4]);
         call.memory
+            .view()
             .write(MIDNIGHT_ROLLOVER, &[0])
             .expect("BIOS midnight rollover");
     } else {
         // Unsupported BIOS function.
         call.cpu.set_ah(0x86);
-        real_mode_interrupt::set_carry(call, true);
+        real_mode_interrupt::set_carry(&call.cpu, &mut call.memory.view(), true);
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }

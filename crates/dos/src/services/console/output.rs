@@ -14,18 +14,18 @@ pub(in crate::services) enum CharacterOutput {
 }
 
 pub(in crate::services) fn write_console(
-    call: &mut DosContext<'_, '_>,
+    call: &mut DosContext,
     stream: OutputStream,
     bytes: &[u8],
 ) {
     call.dos.stdio().output(stream).extend(bytes);
-    relocade_bios::write_text(&mut call.execution.memory, call.execution.io, bytes);
+    relocade_bios::write_text(&mut call.execution.memory.view(), &call.execution.io, bytes);
 }
 
 /// DOS cooked output expands tabs, tracks its column and ignores write errors.
 /// Returns the last output byte (a space for a tab).
 pub(in crate::services) fn write_cooked_character(
-    call: &mut DosContext<'_, '_>,
+    call: &mut DosContext,
     output: CharacterOutput,
     byte: u8,
 ) -> u8 {
@@ -43,7 +43,7 @@ pub(in crate::services) fn write_cooked_character(
 
 /// Character output preserves console EOF; only AH=40h handle writes clear it.
 pub(super) fn write_characters(
-    call: &mut DosContext<'_, '_>,
+    call: &mut DosContext,
     handle: u16,
     bytes: &[u8],
 ) -> Result<(), DosError> {

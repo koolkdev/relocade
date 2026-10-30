@@ -113,30 +113,24 @@ async fn check_pending_calls() {
             .unwrap()
     });
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x200, async |call| {
-            // Distinct fields stay borrowed together through both awaits.
-            let cpu = &mut call.cpu;
-            let memory = &mut call.memory;
-            let state = &mut *call.state;
+        .install_hooks([Hook::<Rc<State>>::new(0x200, async |mut call| {
+            let state = call.with(|context| context.state.clone());
             state.started.set(state.started.get() + 1);
             let operation = Operation(state.clone());
             let first = operation.0.read().await;
-            cpu.set_bx(first);
-            operation
-                .0
-                .first_awaits
-                .set(operation.0.first_awaits.get() + 1);
+            call.cpu.set_bx(first);
+            state.first_awaits.set(state.first_awaits.get() + 1);
             // This reference to a local remains valid while the future is pinned.
             let values = [first];
             let saved = &values[0];
             let second = operation.0.read().await;
-            assert_eq!(cpu.bx(), *saved);
             let sum = *saved + second;
-            cpu.set_bx(sum);
+            assert_eq!(call.cpu.bx(), *saved);
+            call.cpu.set_bx(sum);
             drop(operation);
             state.completed.set(state.completed.get() + 1);
-            memory.write(0x300, &sum.to_le_bytes()).unwrap();
-            real_mode_interrupt::return_from_interrupt(call)
+            call.memory.view().write(0x300, &sum.to_le_bytes()).unwrap();
+            real_mode_interrupt::return_from_interrupt(&mut call.cpu)
         })])
         .await
         .unwrap();
@@ -147,7 +141,7 @@ async fn check_pending_calls() {
     assert_pending(runtime.run(100));
     assert_eq!(state.started.get(), 1);
     assert_eq!(runtime.run(0).await, ExecutionExit::BudgetExhausted);
-    // An unpolled run has no effect on the retained service.
+    // An unpolled run has no effect on the retained call.
     drop(runtime.run(5));
     let wakes = Arc::new(WakeCount::default());
     let waker = Waker::from(wakes.clone());
@@ -164,7 +158,7 @@ async fn check_pending_calls() {
         state.send(&[20]);
         assert!(run.as_mut().poll(&mut cx).is_pending());
         // Independent readers see writes from the completed operation while
-        // the next service waits.
+        // the next call waits.
         assert_eq!(reader.read_u16(0x300).unwrap(), 30);
         assert_eq!(state.started.get(), 2);
         assert_eq!(state.completed.get(), 1);
@@ -191,7 +185,7 @@ async fn check_pending_calls() {
     assert_eq!(bytes, [70, 0]);
 
     // Dropping a waiter leaves the future, its local references and partial
-    // effects intact. The service retains exclusive access until it returns.
+    // effects intact. Embedding access stays excluded until the call returns.
     {
         let mut run = pin!(runtime.run(10));
         assert!(run.as_mut().poll(&mut cx).is_pending());
@@ -210,7 +204,7 @@ async fn check_pending_calls() {
     assert_eq!(state.completed.get(), 3);
     assert_eq!(state.dropped.get(), 3);
 
-    // Once the service completes, guest execution can continue without a host call.
+    // Once the call completes, guest execution can continue without a host call.
     runtime.with(|call| call.cpu.set_eip(0x400));
     runtime.with(|call| call.memory.write(0x400, &[0xeb, 0xfe]).unwrap());
     assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
@@ -221,7 +215,7 @@ async fn check_pending_calls() {
             .unwrap()
     });
     runtime
-        .install_hooks([Hook::new(0x400, async |call| {
+        .install_hooks([Hook::new(0x400, async |mut call| {
             // Completion returns directly even if the continuation names guest code.
             call.cpu.set_eip(0x500);
             let value = std::future::ready(99).await;
@@ -248,13 +242,13 @@ async fn check_pending_calls() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn pending_services_survive_waiter_changes_and_preserve_each_run_budget() {
+fn pending_calls_survive_waiter_changes_and_preserve_each_run_budget() {
     pollster::block_on(check_pending_calls());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn pending_services_survive_waiter_changes_and_preserve_each_run_budget() {
+async fn pending_calls_survive_waiter_changes_and_preserve_each_run_budget() {
     check_pending_calls().await;
 }
 
@@ -275,9 +269,9 @@ async fn check_completed_replacement() {
     let registration = Rc::new(());
     let released = Rc::downgrade(&registration);
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x400, async move |call| {
+        .install_hooks([Hook::<Rc<State>>::new(0x400, async move |mut call| {
             let registration = registration.clone();
-            let input = call.state.clone();
+            let input = call.with(|context| context.state.clone());
             let value = input.read().await;
             call.cpu.set_ax(value);
             drop(registration);
@@ -294,7 +288,7 @@ async fn check_completed_replacement() {
     // the final owner of its captures.
     assert!(released.upgrade().is_some());
     runtime
-        .install_hooks([Hook::new(0x400, async |call| {
+        .install_hooks([Hook::new(0x400, async |mut call| {
             call.cpu.set_ax(99);
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         })])

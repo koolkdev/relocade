@@ -106,7 +106,8 @@ async fn check_device_access() {
         .unwrap();
         let memory = Memory::new(config.machine).unwrap();
         {
-            let mut view = memory.view().with_io(&io);
+            let memory_bus = memory.clone().with_io(io.clone());
+            let mut view = memory_bus.view();
             view.write_backing(0x3ffe, &[0xaa; 4]).unwrap();
             // Adjacent MMIO pages preserve the transfer width after A20 translation.
             view.write(0x103ffe, &[1, 2, 3]).unwrap();
@@ -191,11 +192,12 @@ async fn check_device_access() {
             cpu.with(|call| call.io.write_port(0x3d4, 2, 0x9876));
             assert_eq!(cpu.with(|call| call.io.read_port(0x3d4, 2)), 0x9876);
             assert_eq!(cpu.with(|call| call.io.read_port(0x3d5, 1)), 0xff);
-            // The local bus, rather than shared RAM, retains the device after CPU teardown.
+            // The retained memory bus keeps device routing after the CPU and bus
+            // supplied by the embedding are dropped.
             drop(cpu);
+            drop(io);
             assert_eq!(view.read_u32(0x3ffe).unwrap(), 0x1234_5678);
         }
-        drop(io);
         assert_eq!(Rc::strong_count(&device), 1);
     }
 }

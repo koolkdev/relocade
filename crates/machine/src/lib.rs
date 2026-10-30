@@ -2,8 +2,9 @@
 //!
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
 //! size and the fixed physical map. [`CpuContext`] borrows the machine and exposes
-//! live CPU state and [`MemoryView`] with the machine's access policy. Views can
-//! cross ordinary awaits while keeping the machine borrowed.
+//! live CPU state and [`MemoryView`] inside synchronous callbacks. [`CallContext`]
+//! owns invocation access and independently retained memory/I/O resources; only
+//! those resource views and handles may cross awaits.
 //!
 //! ```
 //! use relocade_machine::{CpuConfig, MachineConfig};
@@ -45,9 +46,9 @@ pub mod runtime;
 
 pub use clock::{timer_service, Clock, TimerDriver, TimerHandle};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
-pub use cpu::CpuView;
+pub use cpu::{CpuAccess, CpuView};
 pub use io::{Device, DeviceConnection, IoBus};
-pub use memory::{Memory, MemoryError, MemoryView};
+pub use memory::{Memory, MemoryBus, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::MemoryAccess;
 #[cfg(feature = "worker")]
 pub use runner::ExecutionWorker;
@@ -56,5 +57,6 @@ pub use runner::{yield_now, Runner};
 #[cfg(feature = "worker")]
 pub use relocade_wasm_runtime::worker;
 pub use runtime::{
-    real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, Hook, HookResult, Result,
+    real_mode_interrupt, CallContext, Cpu, CpuContext, DispatchEntry, Error, Hook, HookResult,
+    InvocationAccess, Result,
 };

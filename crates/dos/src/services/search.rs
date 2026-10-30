@@ -8,28 +8,28 @@ use relocade_machine::{real_mode_interrupt::return_from_interrupt, HookResult};
 use relocade_x86::{Segment, SegmentRegister};
 
 /// AH=1Ah: select the disk transfer area at DS:DX, preserving flags.
-pub(super) fn set_dta(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(super) fn set_dta(call: &mut DosContext) -> HookResult {
     let segment = call.execution.cpu.segment(Segment::Ds).selector;
     let offset = call.execution.cpu.dx();
     let mut dta = call.process.dta();
     dta.segment = segment;
     dta.offset = offset;
-    return_from_interrupt(call.execution)
+    return_from_interrupt(&mut call.execution.cpu)
 }
 
 /// AH=2Fh: return the current DTA in ES:BX, preserving flags.
-pub(super) fn get_dta(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(super) fn get_dta(call: &mut DosContext) -> HookResult {
     let dta = call.process.dta();
     call.execution.cpu.set_segment(
         Segment::Es,
         SegmentRegister::real_mode(Segment::Es, dta.segment),
     );
     call.execution.cpu.set_bx(dta.offset);
-    return_from_interrupt(call.execution)
+    return_from_interrupt(&mut call.execution.cpu)
 }
 
 /// AH=4Eh: find DS:DX's 8.3 pattern with CX's attributes; fill the current DTA.
-pub(super) fn find_first(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(super) fn find_first(call: &mut DosContext) -> HookResult {
     let attributes = call.execution.cpu.cx() as u8;
     let result = read_path(call).and_then(|path| {
         call.process
@@ -40,11 +40,12 @@ pub(super) fn find_first(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 /// AH=4Fh: continue the search saved in the current DTA.
-pub(super) fn find_next(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(super) fn find_next(call: &mut DosContext) -> HookResult {
     let address = call.process.dta().address();
     let mut data = [0; FIND_DATA_BYTES];
     call.execution
         .memory
+        .view()
         .read(address, &mut data)
         .expect("real-mode DTA");
     let result = call
@@ -55,13 +56,14 @@ pub(super) fn find_next(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 fn return_search(
-    call: &mut DosContext<'_, '_>,
+    call: &mut DosContext,
     result: Result<[u8; FIND_DATA_BYTES], DosError>,
 ) -> HookResult {
     let result = result.map(|data| {
         let address = call.process.dta().address();
         call.execution
             .memory
+            .view()
             .write(address, &data)
             .expect("real-mode DTA");
     });

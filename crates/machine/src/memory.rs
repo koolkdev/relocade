@@ -1,7 +1,7 @@
 mod view;
 pub use view::{MemoryError, MemoryView};
 
-use crate::{ConfigurationError, MachineConfig, Result};
+use crate::{ConfigurationError, IoBus, MachineConfig, Result};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use std::sync::Arc;
 
@@ -43,9 +43,35 @@ impl Memory {
         &self.backing
     }
 
+    /// Retains this memory and its local device bus as one memory-access handle.
+    /// The resulting handle stays on the execution worker; raw memory can still
+    /// be retained separately for sharing backing storage with other workers.
+    pub fn with_io(self, io: IoBus) -> MemoryBus {
+        MemoryBus { memory: self, io }
+    }
+
     /// Borrows a read/write view of this handle without borrowing a CPU.
-    /// MMIO requires attaching the execution worker's bus with [`MemoryView::with_io`].
+    /// For MMIO, bind the execution worker's bus with [`Self::with_io`].
     pub fn view(&self) -> MemoryView<'_> {
         MemoryView::new(&self.config, self.backing.view())
+    }
+}
+
+/// Owned access to guest RAM, ROM and devices on one execution worker.
+///
+/// Clones retain the same [`Memory`] and [`IoBus`] independently of CPU execution.
+/// Views borrow only this handle and may cross awaits. This does not retain a
+/// backend or borrow a device between transfers. Use [`Memory`] separately when
+/// sharing backing storage with another worker.
+#[derive(Clone)]
+pub struct MemoryBus {
+    memory: Memory,
+    io: IoBus,
+}
+
+impl MemoryBus {
+    /// Borrows a live view with device routing already attached.
+    pub fn view(&self) -> MemoryView<'_> {
+        self.memory.view().with_io(&self.io)
     }
 }

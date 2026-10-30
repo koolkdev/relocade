@@ -34,8 +34,10 @@ BIOS/DOS service futures execute on the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
 Hooks run in Rust after Wasm returns. A `CpuContext` borrows the executing machine;
 its CPU views bind storage directly and keep that backend borrow until they end.
-Services can hold ordinary views and local references across input awaits.
-Shared guest-memory handles support independent readers.
+`CallContext` owns a CPU access handle and retains memory and I/O resources.
+Its register operations borrow the backend only while accessing storage.
+`CallContext::with` remains available for synchronous batches and mutable
+environment state. Retained resource views and Rust locals may cross awaits.
 
 ```text
 host input and timer tasks --Rust channels--> execution activity + devices
@@ -66,19 +68,19 @@ these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
 
 The CPU keeps its machine in one shared allocation throughout execution.
-Each host invocation owns a future that borrows the machine until it completes.
-The CPU retains that future across pending waits; each run advances the stored
-call or guest execution without moving the machine into an execution future.
-Runs that finish without reaching a host service allocate no call future.
+Each host invocation owns a future retained separately by the CPU and borrows
+machine state for each register operation or synchronous `CallContext::with` batch.
+The run loop advances calls and
+guest execution without moving the machine. Runs without host services allocate
+no call future.
 
 Dropping a `Cpu::run` waiter preserves the pending future and its call chain; a later
 `Cpu::run` resumes it and supplies a new budget for subsequent guest execution.
 Zero-budget runs do not poll pending work.
 
-While a host service is pending, complete it before borrowing
-CPU/environment state or installing modules and hooks. Use owned input/output
-handles and `cpu.memory()` for interactive I/O and display. Dropping the CPU
-releases the suspended call chain and its machine together.
+While a run awaits a host future, use owned input/output handles and `cpu.memory()`
+for interactive I/O and display. Dropping the CPU releases the pending future
+and the machine together.
 
 Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
 registers VGA with the runner and shares its timer. Mount filesystems and retain
@@ -122,9 +124,10 @@ The bus accepts the first ready device in connection order and leaves later
 requests pending. A controller device can own more detailed priority and masking.
 
 Each nonzero `Cpu::run` checks the bus before starting its instruction quantum.
-Completing a host service also checks before continuing guest dispatch, using
-the remaining budget. The CPU checks IF before polling, so masked
-requests remain with the device/controller. `Runner::run_cpu` supplies those
+Completing a host call also checks before continuing guest dispatch, using
+the remaining budget. Pending host calls finish before this check. The CPU checks IF
+before polling, so masked requests remain with the device/controller.
+`Runner::run_cpu` supplies those
 quanta without another timer or scheduler. Entry uses the same generated
 real-mode mechanism as software INT, but saves the current IP and retires no
 instruction. The guest handler returns normally through IRET.
@@ -139,9 +142,31 @@ exit from the successor returns normally with the inhibitor already retired.
 Zero-budget runs do not poll or enter Wasm. Entry faults are returned as guest
 exceptions after the source has acknowledged the vector.
 
-Borrowed asynchronous hooks still hold the CPU until their operation completes;
-these waits do not run nested guest interrupt handlers. Protected-mode delivery,
-nonmaskable interrupts and interrupt-controller emulation are separate capabilities.
+Protected-mode delivery, nonmaskable interrupts and interrupt-controller emulation
+are separate capabilities.
+
+## Asynchronous host calls
+
+`Hook::new` gives every invocation a `CallContext`. Its `cpu` field uses the same
+`CpuView<A>` register implementation as borrowed CPU views. Each access validates
+the invocation and releases its backend borrow before returning. Its retained
+`Memory` and `IoBus` build guest views independently of the backend. `with` lends
+CPU, memory and mutable environment state for synchronous batches; references
+from that callback cannot escape into the future. Retained resources and
+ordinary Rust locals can cross awaits. Pending calls complete before guest
+execution resumes; dropping a run waiter preserves the same future.
+
+```rust,ignore
+Hook::new(address, async move |mut call| {
+    let value = input.read().await;
+    call.cpu.set_ax(value);
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
+})
+```
+
+Each invocation has a weak handle to the machine. CPU access is enabled only
+during its future poll and completion cleanup; escaped contexts cannot access
+a stopped or destroyed CPU. Resource views remain independent of that access.
 
 ## Video and application rendering
 

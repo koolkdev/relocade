@@ -6,7 +6,7 @@ use crate::{error::DosError, files::Handle, interrupt::DosContext};
 
 /// Edits a line with capacity for its final carriage return.
 pub(in crate::services) async fn read_line(
-    call: &mut DosContext<'_, '_>,
+    call: &mut DosContext,
     source: &Handle,
     capacity: u8,
     echo: CharacterOutput,
@@ -36,7 +36,7 @@ struct LineEditor {
 }
 
 impl LineEditor {
-    fn accept(&mut self, call: &mut DosContext<'_, '_>, byte: u8) -> bool {
+    fn accept(&mut self, call: &mut DosContext, byte: u8) -> bool {
         if self.extended_key {
             self.extended_key = false;
             return false;
@@ -78,7 +78,7 @@ impl LineEditor {
         false
     }
 
-    fn echo(&self, call: &mut DosContext<'_, '_>, bytes: &[u8]) {
+    fn echo(&self, call: &mut DosContext, bytes: &[u8]) {
         for &byte in bytes {
             write_cooked_character(call, self.echo, byte);
         }

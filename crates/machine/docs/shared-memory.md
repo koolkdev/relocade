@@ -45,14 +45,22 @@ memory.write_u16(0x200, registers.ax())?;
 registers.set_ax(memory.read_u16(0x202)?);
 ```
 
-Those views and the context borrow the stopped CPU. Embeddings use
-`cpu.with(|call| ...)` for scoped access; borrowed hooks keep their views until
-the call completes. `cpu.memory()` returns an owned handle whose lifetime is
-independent of execution.
+Those scoped views borrow the stopped CPU. Embeddings use `cpu.with(|call| ...)`;
+host hooks may use `CallContext::with` for the same synchronous batching.
+Ordinary hooks use `call.cpu.ax()` and `call.cpu.set_ax(value)` directly. Each
+operation validates invocation access and releases its backend borrow.
 
-A suspended service keeps its machine borrow; complete it before calling
-`cpu.with(...)` again. Independent `Memory` handles remain usable during
-execution, while a service awaits input, and after CPU destruction.
+An invocation's `memory` field is a `MemoryBus`, which retains its `Memory` and
+`IoBus` together. `call.memory.view()` already includes MMIO routing and borrows
+only that field, leaving `call.cpu` independently usable while the view is alive.
+The view may cross an await. CPU, flags and stack edits remain live; memory does
+not cache a snapshot. Clone `call.memory` to retain routed access independently
+of the invocation. `cpu.memory()` returns the raw `Memory` handle for sharing
+backing storage without retaining local devices.
+
+A pending run excludes `cpu.with(...)` access. Independent `Memory`
+handles remain usable during execution, while a service awaits input, and after
+CPU destruction.
 
 Pass `memory.backing().clone()` directly as a worker task's context.
 The worker transport moves native handles and preserves browser shared-memory
@@ -91,9 +99,10 @@ let mut cpu = Cpu::new(memory, cpu_config, io, ()).await?;
 The board's physical map must mark that memory range `PhysicalMapping::Mmio`.
 The device owns its storage; it does not use guest RAM backing. CPU-context memory
 transfers and guest instructions route to the same device, after A20 translation.
-BIOS services use `CpuContext.io` for port operations. Unconnected ranges retain
+BIOS services use `call.io` for port operations. Unconnected ranges retain
 the open-bus behavior: FF reads and ignored writes. A host operation on the same
-worker can attach its retained bus explicitly with `memory.view().with_io(&io)`.
+worker can bind its retained resources once with `memory.with_io(io)`, then use
+the resulting `MemoryBus::view` for mapped memory access.
 This also distinguishes an attached empty bus from a view without device access.
 
 MMIO callbacks receive one through eight little-endian bytes, including partial
