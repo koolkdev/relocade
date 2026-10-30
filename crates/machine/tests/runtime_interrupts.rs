@@ -120,11 +120,13 @@ async fn check_device_entry() {
         let observed = Rc::new(RefCell::new(None));
         let capture = observed.clone();
         cpu.install_hooks([Hook::new(HANDLER, async move |call| {
-            let mut frame = [0; 6];
-            call.memory.read(0x27ffa, &mut frame).unwrap();
-            *capture.borrow_mut() = Some((call.cpu.snapshot(), frame));
-            call.cpu.set_eip(HANDLER + 1); // Let the guest execute IRET.
-            HookResult::Continue
+            call.with(|call| {
+                let mut frame = [0; 6];
+                call.memory.read(0x27ffa, &mut frame).unwrap();
+                *capture.borrow_mut() = Some((call.cpu.snapshot(), frame));
+                call.cpu.set_eip(HANDLER + 1); // Let the guest execute IRET.
+                HookResult::Continue
+            })
         })])
         .await
         .unwrap();
@@ -251,7 +253,7 @@ async fn check_protected_steps() {
     }
 }
 
-async fn check_pending_borrowed_call(replace_waiter: bool) {
+async fn check_atomic_pending_call(replace_waiter: bool) {
     let device = Rc::new(RefCell::new(InterruptDevice::default()));
     let mut cpu = cpu(&[0x90, 0x90, 0xeb, 0xfe], &device, 0x202).await;
     let ready = Rc::new(Cell::new(false));
@@ -266,7 +268,9 @@ async fn check_pending_borrowed_call(replace_waiter: bool) {
                 }
             })
             .await;
-            call.cpu.set_eip(0x202);
+            call.with(|context| {
+                context.cpu.set_eip(0x202);
+            });
             HookResult::Continue
         }),
         Hook::new(HANDLER, async |_| {
@@ -352,10 +356,10 @@ fn interrupt_entry_reports_guest_stack_faults() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn borrowed_calls_defer_requests_until_completion() {
+fn pending_calls_finish_before_irq_delivery() {
     pollster::block_on(async {
-        check_pending_borrowed_call(false).await;
-        check_pending_borrowed_call(true).await;
+        check_atomic_pending_call(false).await;
+        check_atomic_pending_call(true).await;
     });
 }
 
@@ -390,9 +394,9 @@ async fn interrupt_entry_reports_guest_stack_faults() {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn borrowed_calls_defer_requests_until_completion() {
-    check_pending_borrowed_call(false).await;
-    check_pending_borrowed_call(true).await;
+async fn pending_calls_finish_before_irq_delivery() {
+    check_atomic_pending_call(false).await;
+    check_atomic_pending_call(true).await;
 }
 
 #[cfg(target_arch = "wasm32")]

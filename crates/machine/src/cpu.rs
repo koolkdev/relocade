@@ -7,13 +7,30 @@ use std::mem::offset_of;
 use crate::{ConfigurationError, CpuConfig};
 use relocade_wasm_runtime::{Load, MemoryAccess, MemoryValue, Store};
 
+/// Supplies synchronous access to published CPU storage. The callback cannot
+/// retain the storage borrow. Invocation providers validate access on each use.
+pub trait CpuAccess {
+    fn with<R>(&self, operation: impl FnOnce(&MemoryAccess<'_>) -> R) -> R;
+    fn with_mut<R>(&mut self, operation: impl FnOnce(&mut MemoryAccess<'_>) -> R) -> R;
+}
+
+impl CpuAccess for MemoryAccess<'_> {
+    fn with<R>(&self, operation: impl FnOnce(&MemoryAccess<'_>) -> R) -> R {
+        operation(self)
+    }
+
+    fn with_mut<R>(&mut self, operation: impl FnOnce(&mut MemoryAccess<'_>) -> R) -> R {
+        operation(self)
+    }
+}
+
 /// A live view of published CPU state. Each register access transfers only its
 /// own bytes; there is no cached snapshot or deferred writeback.
-/// Register operations require a stopped CPU. Views from a CPU context retain
-/// its backend borrow, excluding guest execution until the view ends.
-pub struct CpuView<'a> {
-    config: &'a CpuConfig,
-    storage: MemoryAccess<'a>,
+/// Register operations require a stopped CPU. A borrowed storage provider retains
+/// its backend borrow; an invocation provider borrows only during each operation.
+pub struct CpuView<A> {
+    target: ExecutionTarget,
+    storage: A,
     #[cfg(test)]
     reads: std::cell::RefCell<Vec<(u32, usize)>>,
 }
@@ -32,17 +49,17 @@ macro_rules! register {
     };
 }
 
-impl<'a> CpuView<'a> {
+impl<A: CpuAccess> CpuView<A> {
     /// The execution profile and CPU model represented by these registers.
     pub fn execution_target(&self) -> ExecutionTarget {
-        self.config.execution_target()
+        self.storage.with(|_| self.target)
     }
 
     /// Borrows an initialized `ExecutionContext` image compatible with the execution target.
     #[inline]
-    pub(crate) fn new(config: &'a CpuConfig, storage: MemoryAccess<'a>) -> Self {
+    pub(crate) fn new(config: &CpuConfig, storage: A) -> Self {
         Self {
-            config,
+            target: config.execution_target(),
             storage,
             #[cfg(test)]
             reads: Default::default(),
@@ -136,7 +153,7 @@ impl<'a> CpuView<'a> {
     /// Panics before writing if the cache violates this CPU's execution profile.
     #[track_caller]
     pub fn set_segment(&mut self, segment: Segment, value: SegmentRegister) {
-        let profile = self.config.execution_target().profile;
+        let profile = self.execution_target().profile;
         assert!(
             profile.is_segment_compatible(segment, &value),
             "segment {segment:?} violates execution profile {profile:?}"
@@ -161,7 +178,7 @@ impl<'a> CpuView<'a> {
     }
 
     pub fn set_idtr(&mut self, value: DescriptorTableRegister) -> Result<(), ConfigurationError> {
-        crate::config::validate_idtr(self.config.execution_target().profile, value)?;
+        crate::config::validate_idtr(self.execution_target().profile, value)?;
         self.write(offset_of!(CpuState, idtr) as u32, &value.to_bytes());
         Ok(())
     }
@@ -171,6 +188,7 @@ impl<'a> CpuView<'a> {
     }
 
     pub fn set_ldtr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
+        self.storage.with(|_| ());
         crate::config::validate_system_segment(value, true)?;
         self.write(offset_of!(CpuState, ldtr) as u32, &value.to_bytes());
         Ok(())
@@ -181,6 +199,7 @@ impl<'a> CpuView<'a> {
     }
 
     pub fn set_tr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
+        self.storage.with(|_| ());
         crate::config::validate_system_segment(value, false)?;
         self.write(offset_of!(CpuState, tr) as u32, &value.to_bytes());
         Ok(())
@@ -197,7 +216,7 @@ impl<'a> CpuView<'a> {
     /// Returns an error without writing if the snapshot violates this CPU's
     /// execution target.
     pub fn restore(&mut self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
-        crate::config::validate_cpu(self.config.execution_target(), snapshot)?;
+        crate::config::validate_cpu(self.execution_target(), snapshot)?;
         self.write(0, &snapshot.to_bytes());
         Ok(())
     }
@@ -205,21 +224,22 @@ impl<'a> CpuView<'a> {
     #[inline]
     fn load<V: MemoryValue>(&self, offset: usize) -> V
     where
-        MemoryAccess<'a>: Load<V>,
+        for<'a> MemoryAccess<'a>: Load<V>,
     {
         let address = (offset_of!(ExecutionContext, cpu) + offset) as u32;
         #[cfg(test)]
         self.reads.borrow_mut().push((address, size_of::<V>()));
-        self.storage.load(address)
+        self.storage.with(|storage| storage.load(address))
     }
 
     #[inline]
     fn store<V: MemoryValue>(&mut self, offset: usize, value: V)
     where
-        MemoryAccess<'a>: Store<V>,
+        for<'a> MemoryAccess<'a>: Store<V>,
     {
-        self.storage
-            .store((offset_of!(ExecutionContext, cpu) + offset) as u32, value);
+        self.storage.with_mut(|storage| {
+            storage.store((offset_of!(ExecutionContext, cpu) + offset) as u32, value);
+        });
     }
 
     #[inline]
@@ -228,14 +248,16 @@ impl<'a> CpuView<'a> {
         #[cfg(test)]
         self.reads.borrow_mut().push((address, N));
         let mut bytes = [0; N];
-        self.storage.read(address, &mut bytes);
+        self.storage
+            .with(|storage| storage.read(address, &mut bytes));
         bytes
     }
 
     #[inline]
     fn write(&mut self, offset: u32, bytes: &[u8]) {
-        self.storage
-            .write(offset_of!(ExecutionContext, cpu) as u32 + offset, bytes);
+        self.storage.with_mut(|storage| {
+            storage.write(offset_of!(ExecutionContext, cpu) as u32 + offset, bytes);
+        });
     }
 }
 

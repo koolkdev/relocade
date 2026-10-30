@@ -1,6 +1,6 @@
 //! Host-fed keyboard input shared by BIOS keystrokes and DOS character reads.
 
-use relocade_machine::{real_mode_interrupt, CpuContext, HookResult};
+use relocade_machine::{real_mode_interrupt, CallContext, HookResult};
 use std::{
     cell::RefCell,
     collections::VecDeque,
@@ -188,24 +188,25 @@ impl Drop for WaitForKey<'_> {
     }
 }
 
-pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>, keyboard: &Keyboard) -> HookResult {
-    match call.cpu.ah() {
+pub(super) async fn interrupt<T>(mut call: CallContext<T>, keyboard: &Keyboard) -> HookResult {
+    let function = call.cpu.ah();
+    match function {
         0x00 => {
             let key = keyboard.read().await;
             call.cpu.set_ax(key.word());
         }
-        0x01 => {
+        0x01 => call.with(|context| {
             let key = keyboard.peek();
             if let Some(key) = key {
-                call.cpu.set_ax(key.word());
+                context.cpu.set_ax(key.word());
             }
-            real_mode_interrupt::set_zero(call, key.is_none());
-        }
-        0x02 => call.cpu.set_al(keyboard.0.borrow().shifts.bits()),
-        _ => {
-            call.cpu.set_ah(0x86);
-            real_mode_interrupt::set_carry(call, true);
-        }
+            real_mode_interrupt::set_zero(&context.cpu, &mut context.memory, key.is_none());
+        }),
+        0x02 => call.with(|context| context.cpu.set_al(keyboard.0.borrow().shifts.bits())),
+        _ => call.with(|context| {
+            context.cpu.set_ah(0x86);
+            real_mode_interrupt::set_carry(&context.cpu, &mut context.memory, true);
+        }),
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }

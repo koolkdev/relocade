@@ -57,7 +57,7 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
-pub(crate) async fn int21(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(crate) async fn int21(call: &mut DosContext) -> HookResult {
     match call.execution.cpu.ah() {
         DIRECT_CONSOLE_IO => console::direct_io(call),
         READ_CHARACTER_ECHO => console::read_character(call, true).await,
@@ -105,12 +105,12 @@ pub(crate) async fn int21(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
-fn terminate_process(call: &mut DosContext<'_, '_>) -> HookResult {
+fn terminate_process(call: &mut DosContext) -> HookResult {
     let code = call.execution.cpu.al();
     call.exit(Ok(code))
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) async fn int20(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(crate) async fn int20(call: &mut DosContext) -> HookResult {
     call.exit(Ok(0))
 }

@@ -53,15 +53,15 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
 /// The keyboard is captured by the hooks and may be shared with console input.
 pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
     [
-        Hook::new(CLOCK_ADDRESS, clock),
+        Hook::new(CLOCK_ADDRESS, async |call| call.with(clock)),
         Hook::new(KEYBOARD_ADDRESS, async move |call| {
             keyboard::interrupt(call, &keyboard).await
         }),
-        Hook::new(VIDEO_ADDRESS, video::interrupt),
+        Hook::new(VIDEO_ADDRESS, async |call| call.with(video::interrupt)),
     ]
 }
 
-async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     if call.cpu.ah() == 0 {
         let mut data = [0; 5];
         call.memory
@@ -77,7 +77,7 @@ async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     } else {
         // Unsupported BIOS function.
         call.cpu.set_ah(0x86);
-        real_mode_interrupt::set_carry(call, true);
+        real_mode_interrupt::set_carry(&call.cpu, &mut call.memory, true);
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }

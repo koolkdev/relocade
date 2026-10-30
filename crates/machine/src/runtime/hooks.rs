@@ -2,24 +2,24 @@ use relocade_compiler::Program;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionExitValues, HostExitValues};
 
-use super::{Cpu, CpuContext, DispatchEntry, Result};
+use super::{CallContext, Cpu, DispatchEntry, Result};
 use futures_util::future::LocalBoxFuture;
 use std::rc::Rc;
 
 pub(super) trait Handler<T> {
-    fn call<'a>(&'a self, context: &'a mut CpuContext<'_, T>) -> LocalBoxFuture<'a, HookResult>;
+    fn call(self: Rc<Self>, context: CallContext<T>) -> LocalBoxFuture<'static, HookResult>;
 }
 
-impl<T, F> Handler<T> for F
+impl<T: 'static, F> Handler<T> for F
 where
-    F: AsyncFn(&mut CpuContext<'_, T>) -> HookResult,
+    F: AsyncFn(CallContext<T>) -> HookResult + 'static,
 {
-    fn call<'a>(&'a self, context: &'a mut CpuContext<'_, T>) -> LocalBoxFuture<'a, HookResult> {
-        Box::pin(self(context))
+    fn call(self: Rc<Self>, context: CallContext<T>) -> LocalBoxFuture<'static, HookResult> {
+        Box::pin(async move { self(context).await })
     }
 }
 
-/// Result of a completed host service.
+/// Result of a completed host call.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HookResult {
     /// Resume guest dispatch at the continuation set by the handler.
@@ -34,12 +34,11 @@ pub enum HookResult {
 /// `T` is the machine's environment state, borrowed through the context.
 ///
 /// ```
-/// use relocade_machine::{Hook, HookResult, CpuContext};
+/// use relocade_machine::{CallContext, Hook, HookResult};
 /// use relocade_x86::{ExecutionExit, HostExit};
 ///
-/// async fn terminate(call: &mut CpuContext<'_, Option<u8>>) -> HookResult {
-///     let code = call.cpu.al();
-///     *call.state = Some(code);
+/// async fn terminate(call: CallContext<Option<u8>>) -> HookResult {
+///     call.with(|context| *context.state = Some(context.cpu.al()));
 ///     HookResult::Exit(ExecutionExit::Host(HostExit::Return))
 /// }
 /// let hook = Hook::new(0xf0100, terminate);
@@ -50,14 +49,17 @@ pub struct Hook<T = ()> {
 }
 
 impl<T: 'static> Hook<T> {
-    /// On Continue, the handler must set the guest continuation in CPU state.
-    /// Exit returns its execution exit without changing that state.
+    /// Creates a host call with invocation CPU access and retained memory/I/O resources.
+    /// Its future and locals survive waiter changes. Ready awaits continue
+    /// synchronously; pending awaits finish before guest dispatch resumes.
+    /// On Continue, set the guest continuation. Exit preserves CPU state.
     /// Interrupt/ABI return conventions belong to the handler's environment.
-    /// Handlers run in Rust after guest Wasm returns. Captures and environment
-    /// data stay on the CPU's thread and do not need Send or Sync.
+    ///
+    /// Handlers run in Rust after guest Wasm returns. Captures and environment data
+    /// stay on the CPU's thread and do not need Send or Sync.
     pub fn new<F>(address: u32, handler: F) -> Self
     where
-        F: AsyncFn(&mut CpuContext<'_, T>) -> HookResult + 'static,
+        F: AsyncFn(CallContext<T>) -> HookResult + 'static,
     {
         Self {
             address,
@@ -73,11 +75,12 @@ impl<T: 'static> Cpu<T> {
     /// Entries begin with CPU state already published by the predecessor. They
     /// cache no CPU values across the host call. Hooks do not retire guest
     /// instructions; continuing execution retains the current instruction target.
-    /// Handlers borrow the machine across ordinary awaits and complete in Rust
-    /// before guest execution resumes. Dropping a run waiter preserves that call.
+    /// Each call retains its future; register operations borrow only while accessing
+    /// storage. `CallContext::with` supports synchronous batches. Dropping a run waiter
+    /// preserves the pending call.
     ///
     /// # Panics
-    /// Panics if a service is suspended. Complete it before installing.
+    /// Panics while a host call is pending.
     #[allow(
         clippy::await_holding_refcell_ref,
         reason = "Installation excludes guest execution and pending host calls."

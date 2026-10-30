@@ -53,25 +53,32 @@ pub async fn cpu_worker() -> Result<(), String> {
             .await
             .unwrap();
         cpu.install_hooks([Hook::<Input>::new(0x100, async |call| {
-            let cpu = &mut call.cpu;
-            let memory = &mut call.memory;
-            let input = &mut *call.state;
-            memory.write_u8(0x200, 0x11).unwrap();
-            let value = poll_fn(|context| {
-                let poll = input.incoming.poll_next_unpin(context);
-                if poll.is_pending() {
-                    // The caller sends only after this task registers its waker.
-                    if let Some(waiting) = input.waiting.take() {
-                        waiting.send(()).unwrap();
+            call.with(|context| context.memory.write_u8(0x200, 0x11).unwrap());
+            let value = poll_fn(|cx| {
+                call.with(|context| {
+                    let input = &mut *context.state;
+                    let poll = input.incoming.poll_next_unpin(cx);
+                    if poll.is_pending() {
+                        // The caller sends only after this task registers its waker.
+                        if let Some(waiting) = input.waiting.take() {
+                            waiting.send(()).unwrap();
+                        }
                     }
-                }
-                poll
+                    poll
+                })
             })
             .await
             .unwrap();
-            cpu.set_ax(value + memory.read_u16(0x202).unwrap());
-            cpu.set_eip(0x300);
-            input.completed.set(input.completed.get() + 1);
+            call.with(|context| {
+                context
+                    .cpu
+                    .set_ax(value + context.memory.read_u16(0x202).unwrap());
+                context.cpu.set_eip(0x300);
+                context
+                    .state
+                    .completed
+                    .set(context.state.completed.get() + 1);
+            });
             HookResult::Continue
         })])
         .await

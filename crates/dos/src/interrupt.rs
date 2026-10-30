@@ -6,24 +6,23 @@ use crate::{
     state::DosState,
     ServiceError,
 };
-use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HookResult};
+use relocade_machine::{real_mode_interrupt, CallContext, Hook, HookResult};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::rc::Rc;
 
-/// One CPU invocation bound to its process and shared DOS resources.
-/// Resource borrows last for each operation, not the whole invocation.
-pub(crate) struct DosContext<'call, 'cpu> {
-    pub(crate) execution: &'call mut CpuContext<'cpu>,
-    pub(crate) dos: &'call DosState,
-    pub(crate) process: &'call Process,
+/// A DOS invocation owns CPU access and retains its originally selected process.
+pub(crate) struct DosContext {
+    pub(crate) execution: CallContext,
+    pub(crate) dos: Rc<DosState>,
+    pub(crate) process: Rc<Process>,
 }
 
-impl DosContext<'_, '_> {
+impl DosContext {
     /// Terminates the process and returns from DOS execution.
     pub(crate) fn exit(&mut self, status: Result<u8, ServiceError>) -> HookResult {
         self.process.terminate(
             status,
-            &mut self.execution.memory,
+            &mut self.execution.memory(),
             &mut self.dos.filesystem(),
         );
         HookResult::Exit(ExecutionExit::Host(HostExit::Return))
@@ -33,7 +32,7 @@ impl DosContext<'_, '_> {
 /// Captures the session and resolves its active process at each hook entry.
 pub(crate) fn hook<F>(address: u32, session: Rc<DosState>, handler: F) -> Hook
 where
-    F: AsyncFn(&mut DosContext<'_, '_>) -> HookResult + 'static,
+    F: AsyncFn(&mut DosContext) -> HookResult + 'static,
 {
     Hook::new(address, async move |execution| {
         let process = session.process().expect("DOS hook requires a process");
@@ -44,24 +43,25 @@ where
         );
         let mut call = DosContext {
             execution,
-            dos: &session,
-            process: &process,
+            dos: session.clone(),
+            process,
         };
         handler(&mut call).await
     })
 }
 
 /// Returns a DOS result through the interrupt frame, preserving other flags.
-pub(crate) fn return_result(
-    call: &mut DosContext<'_, '_>,
-    result: Result<(), DosError>,
-) -> HookResult {
+pub(crate) fn return_result(call: &mut DosContext, result: Result<(), DosError>) -> HookResult {
     if let Err(error) = result {
         call.execution.cpu.set_ax(error.code());
         if let DosError::InsufficientMemory { available } = error {
             call.execution.cpu.set_bx(available);
         }
     }
-    real_mode_interrupt::set_carry(call.execution, result.is_err());
-    real_mode_interrupt::return_from_interrupt(call.execution)
+    real_mode_interrupt::set_carry(
+        &call.execution.cpu,
+        &mut call.execution.memory(),
+        result.is_err(),
+    );
+    real_mode_interrupt::return_from_interrupt(&mut call.execution.cpu)
 }

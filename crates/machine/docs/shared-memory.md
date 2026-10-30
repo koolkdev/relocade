@@ -45,14 +45,19 @@ memory.write_u16(0x200, registers.ax())?;
 registers.set_ax(memory.read_u16(0x202)?);
 ```
 
-Those views and the context borrow the stopped CPU. Embeddings use
-`cpu.with(|call| ...)` for scoped access; borrowed hooks keep their views until
-the call completes. `cpu.memory()` returns an owned handle whose lifetime is
-independent of execution.
+Those scoped views borrow the stopped CPU. Embeddings use `cpu.with(|call| ...)`;
+host hooks may use `CallContext::with` for the same synchronous batching.
+Ordinary hooks use `call.cpu.ax()` and `call.cpu.set_ax(value)` directly. Each
+operation validates invocation access and releases its backend borrow.
 
-A suspended service keeps its machine borrow; complete it before calling
-`cpu.with(...)` again. Independent `Memory` handles remain usable during
-execution, while a service awaits input, and after CPU destruction.
+An invocation independently retains `Memory` and `IoBus`. A guest view built with
+`call.memory.view().with_io(&call.io)` borrows only those resources and may cross
+an await. CPU, flags and stack edits remain live; memory does not cache a snapshot.
+`cpu.memory()` also returns an owned handle independent of execution.
+
+A pending run excludes `cpu.with(...)` access. Independent `Memory`
+handles remain usable during execution, while a service awaits input, and after
+CPU destruction.
 
 Pass `memory.backing().clone()` directly as a worker task's context.
 The worker transport moves native handles and preserves browser shared-memory

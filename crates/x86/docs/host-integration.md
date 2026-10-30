@@ -1094,7 +1094,9 @@ execution exit. Hook continuation is a separate `HookResult::Continue` variant;
 Rust-only type and must not return `HostExit::Call` or `InterruptInhibited`, which
 are reserved for generated entries. The runner owns pinned futures until completion or CPU drop,
 even when a run waiter is dropped. Handler captures and futures may be local to
-the CPU's thread and need not be `Send` or `Sync`.
+the CPU's thread and need not be `Send` or `Sync`. Handlers use short CPU access through `CallContext::cpu` and
+scoped `CallContext::with` batches. Their memory and I/O handles remain usable
+across ordinary awaits without retaining backend borrows.
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

@@ -16,13 +16,14 @@ use relocade_x86::Segment;
 const CONSOLE_LINE_CAPACITY: u8 = 128;
 
 /// AH=3Fh: retain the source and DS:DX destination throughout a pending read.
-pub(in crate::services) async fn read(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(in crate::services) async fn read(call: &mut DosContext) -> HookResult {
     let cpu = &call.execution.cpu;
     let handle = cpu.bx();
     let offset = cpu.dx();
     let count = transfer_count(offset, cpu.cx());
     let segment = cpu.segment(Segment::Ds);
-    let source = match call.process.files().readable_handle(handle) {
+    let source = call.process.files().readable_handle(handle);
+    let source = match source {
         Ok(source) => source,
         Err(error) => return return_result(call, Err(error)),
     };
@@ -32,7 +33,7 @@ pub(in crate::services) async fn read(call: &mut DosContext<'_, '_>) -> HookResu
     };
     if !bytes.is_empty() {
         call.execution
-            .memory
+            .memory()
             .write_segment(&segment, u32::from(offset), &bytes)
             .expect("real-mode read buffer");
     }
@@ -41,7 +42,7 @@ pub(in crate::services) async fn read(call: &mut DosContext<'_, '_>) -> HookResu
 }
 
 async fn read_bytes(
-    call: &mut DosContext<'_, '_>,
+    call: &mut DosContext,
     source: &Handle,
     count: usize,
 ) -> Result<Vec<u8>, DosError> {
@@ -94,7 +95,7 @@ async fn read_bytes(
 }
 
 /// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
-pub(in crate::services) fn write(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(in crate::services) fn write(call: &mut DosContext) -> HookResult {
     let cpu = &call.execution.cpu;
     let handle = cpu.bx();
     let offset = cpu.dx();
@@ -103,7 +104,7 @@ pub(in crate::services) fn write(call: &mut DosContext<'_, '_>) -> HookResult {
     let mut bytes = vec![0; count];
     if count != 0 {
         call.execution
-            .memory
+            .memory()
             .read_segment(&segment, u32::from(offset), &mut bytes)
             .expect("real-mode write buffer");
     }
@@ -115,7 +116,7 @@ pub(in crate::services) fn write(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 fn write_bytes(
-    call: &mut DosContext<'_, '_>,
+    call: &mut DosContext,
     destination: &Handle,
     bytes: &[u8],
 ) -> Result<usize, DosError> {

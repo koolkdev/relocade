@@ -68,10 +68,12 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
             .await
             .unwrap();
         cpu.install_hooks([Hook::<Arc<AtomicUsize>>::new(0x200, async |call| {
-            assert_eq!(call.cpu.al() & !9, 0);
-            call.state.fetch_add(1, Ordering::Release);
-            call.cpu.set_eip(0x100);
-            HookResult::Continue
+            call.with(|call| {
+                assert_eq!(call.cpu.al() & !9, 0);
+                call.state.fetch_add(1, Ordering::Release);
+                call.cpu.set_eip(0x100);
+                HookResult::Continue
+            })
         })])
         .await
         .unwrap();
