@@ -39,10 +39,29 @@ continues. Integer arithmetic carries fractional progress so repeated polling
 cannot accumulate drift.
 The shared clock measures session elapsed time, not CPU instruction cycles.
 
-Static display settings still apply to the whole captured image. Per-pixel
-blanking remains unsupported. Historical scanout requires captures that retain
-changes throughout the frame and, for accurate guest event times, machine-level
-timing.
+Static display settings still apply to the whole captured image. Programmed CRTC
+blanking masks pixels to opaque black independently of VRAM, palette and panning.
+Horizontal edges use character clocks; vertical edges use the physical scanline
+counter, including its divider. Display-enable skew determines the horizontal crop
+origin. The image retains its displayed dimensions; repeated rows share storage
+only when no visible blank/unblank edge separates them. Input Status 1 bit 0
+continues to report inverted display enable, a separate signal.
+
+Blanking follows an explicit original-VGA convention: output boundaries are one
+count after the raw comparator values, the horizontal end compares six low bits,
+and the vertical end compares seven. This follows
+[Xorg's VGA boundary programming](https://github.com/mirror/xserver/blob/master/hw/xfree86/vgahw/vgaHW.c)
+and [Linux's original-VGA end mask](https://github.com/torvalds/linux/blob/master/drivers/video/fbdev/vga16fb.c).
+The [IBM reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf)
+(VGA Function pp. 2-57–59 and 2-73) describes the comparators, but is inconsistent
+about some end/offset details. These conventions are not a claim of measured
+silicon fidelity. End matching resumes from zero after total-counter reset.
+An unreachable start leaves blanking inactive; an unreachable end or coincident
+set/end with no later end match leaves it active in steady state. Zero-boundary
+quirks and reset transients of particular adapters are not modeled. Raster setups
+whose displayed region exceeds the programmed total are outside this timing model.
+Historical scanout requires captures that retain changes throughout the frame
+and, for accurate guest event times, machine-level timing.
 
 The sequencer, CRTC, Graphics Controller, Attribute Controller and six-bit DAC
 own their register storage and CPU access rules. Attribute writes alternate
@@ -181,7 +200,7 @@ preset produces 640×200; standard mode-13h registers produce 320×200 with a 5:
 pixel aspect ratio.
 
 The renderer requires a 2D texture limit of at least 2304 pixels for the largest
-nine-dot text width, 11 flat inter-stage variables and one 256-KiB fragment
+nine-dot text width, 13 flat inter-stage variables and one 256-KiB fragment
 storage buffer. The first upload fills all four physical planes and 896 bytes
 of state: a 128-byte register/geometry header and the 768-byte DAC palette. With
 the renderer feature enabled, actual memory changes mark fixed 1-KiB pages after

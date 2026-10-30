@@ -1,5 +1,7 @@
 #![cfg(feature = "renderer")]
 
+#[path = "gpu/blanking.rs"]
+mod blanking;
 mod common;
 #[path = "gpu/graphics.rs"]
 mod graphics;

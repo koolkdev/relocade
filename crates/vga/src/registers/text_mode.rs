@@ -67,7 +67,6 @@ pub const ATTRIBUTE_REGISTERS: &[(u8, u8)] = &[
 
 /// 100 eight-dot character clocks per line and 449 lines per frame, with
 /// 640 × 400 active dots. The fixed eight-row font is double-scanned.
-/// Blanking registers are retained; per-pixel blanking is not modeled yet.
 /// The final entry restores protection after programming the timing registers.
 pub const CRTC_REGISTERS: &[(u8, u8)] = &[
     (crtc::HORIZONTAL_TOTAL, 0x5f),       // 95 + 5 = 100 character clocks.

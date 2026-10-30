@@ -15,6 +15,8 @@ struct DisplayVertex {
     @location(8) @interpolate(flat) colors1: vec4<u32>,
     @location(9) @interpolate(flat) colors2: vec4<u32>,
     @location(10) @interpolate(flat) colors3: vec4<u32>,
+    @location(11) @interpolate(flat) horizontal_blank: vec3<u32>,
+    @location(12) @interpolate(flat) vertical_blank: vec3<u32>,
 }
 
 @vertex
@@ -80,15 +82,17 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     output.colors1 = colors[1];
     output.colors2 = colors[2];
     output.colors3 = colors[3];
+    output.horizontal_blank = horizontal_blanking();
+    output.vertical_blank = vertical_blanking();
     return output;
 }
 
 @fragment
 fn fragment(input: DisplayVertex) -> @location(0) vec4<f32> {
-    if input.display.z != 0u {
+    let pixel = vec2<u32>(input.position.xy);
+    if input.display.z != 0u || pixel_blanked(input, pixel) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
-    let pixel = vec2<u32>(input.position.xy);
     let line = display_scanline(input, pixel.y);
     if input.display.w != 0u {
         return unpack4x8unorm(indexed256_color(input, line, pixel.x));
