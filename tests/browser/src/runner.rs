@@ -119,9 +119,10 @@ pub async fn runner_workers() -> Result<(), String> {
             .unwrap();
             if pending_service {
                 cpu.install_hooks([Hook::<DropProbe>::new(0x100, async |call| {
-                    call.with(|context| context.memory.write_u16(0x300, 2).unwrap());
+                    let mut memory = call.memory.view().with_io(&call.io);
+                    memory.write_u16(0x300, 2).unwrap();
                     pending::<()>().await;
-                    call.with(|context| context.memory.write_u16(0x300, 3).unwrap());
+                    memory.write_u16(0x300, 3).unwrap();
                     HookResult::Continue
                 })])
                 .await

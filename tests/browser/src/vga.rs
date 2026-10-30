@@ -1,9 +1,6 @@
 use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
-use futures_util::{
-    future::{join, poll_fn},
-    FutureExt,
-};
+use futures_util::future::join;
 use relocade_machine::{
     timer_service, worker::Thread, Cpu, CpuConfig, ExecutionWorker, Hook, HookResult, IoBus,
     MachineConfig, Memory,
@@ -82,29 +79,29 @@ pub async fn vga_workers() -> Result<(), String> {
             cpu_config,
             io,
             Input {
-                incoming,
+                incoming: Some(incoming),
                 waiting: Some(waiting),
             },
         )
         .await
         .unwrap();
         cpu.install_hooks([
-            Hook::<Input>::new(0x200, async |call| {
-                call.with(|context| {
-                    context.io.write_port(0x3d4, 2, 0x060b);
-                    assert_eq!(context.memory.read_u16(0xb8020).unwrap(), 0x1e41);
-                    context.state.waiting.take().unwrap().send(()).unwrap();
+            Hook::<Input>::new(0x200, async |mut call| {
+                let (incoming, waiting) = call.with(|context| {
+                    (
+                        context.state.incoming.take().unwrap(),
+                        context.state.waiting.take().unwrap(),
+                    )
                 });
-                let value =
-                    poll_fn(|cx| call.with(|context| context.state.incoming.poll_unpin(cx)))
-                        .await
-                        .unwrap();
-                call.with(|context| {
-                    assert_eq!(context.io.read_port(0x3d4, 2), 0x060b);
-                    context.memory.write_u8(0xb8022, b'C').unwrap();
-                    context.cpu.set_al(value);
-                    context.cpu.set_eip(0x300);
-                });
+                call.io.write_port(0x3d4, 2, 0x060b);
+                let mut memory = call.memory.view().with_io(&call.io);
+                assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
+                waiting.send(()).unwrap();
+                let value = incoming.await.unwrap();
+                assert_eq!(call.io.read_port(0x3d4, 2), 0x060b);
+                memory.write_u8(0xb8022, b'C').unwrap();
+                call.cpu.set_al(value);
+                call.cpu.set_eip(0x300);
                 HookResult::Continue
             }),
             Hook::<Input>::new(0x400, async |_call| {
@@ -173,7 +170,7 @@ pub async fn vga_workers() -> Result<(), String> {
 }
 
 struct Input {
-    incoming: oneshot::Receiver<u8>,
+    incoming: Option<oneshot::Receiver<u8>>,
     waiting: Option<oneshot::Sender<()>>,
 }
 
