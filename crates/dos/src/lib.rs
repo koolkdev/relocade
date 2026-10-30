@@ -315,14 +315,6 @@ impl Dos {
         Rc::clone(&self.vga)
     }
 
-    /// Copies live VGA text state for inspection on the execution worker.
-    /// DOS CON output, BIOS video services and direct guest writes all update
-    /// video memory. The screen remains readable while a host service is pending.
-    /// File redirection does not write to the screen.
-    pub fn screen(&self) -> relocade_vga::TextScreen {
-        self.vga.borrow().screen()
-    }
-
     /// Returns an owned reader that drains currently buffered standard output.
     /// An empty buffer returns zero, even if the guest may produce more later.
     /// It can be used while `run` waits. DOS redirection follows the handle's

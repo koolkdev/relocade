@@ -56,7 +56,7 @@ pub async fn dos_workers() -> Result<(), String> {
             input.write_all(&[key_input.await.unwrap()]).unwrap();
         };
         let (result, ()) = join(dos.run(runner), fixture_input).await;
-        assert_eq!(dos.screen().cells[1].character, b'X');
+        assert_eq!(dos.vga().borrow().snapshot().plane(0)[2], b'X');
         first_done.send(result.unwrap()).unwrap();
         next_launch.await.unwrap();
         dos.launch_com(SECOND_PROGRAM, Default::default()).unwrap();

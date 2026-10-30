@@ -1,83 +1,84 @@
-// Included only by test crates and worker fixtures. Individual consumers use
-// different portions of this reference and its image metadata.
+// Independent CPU rendering for tests and worker fixtures. All text settings
+// come from raw captures; literal pixel cases check both this and the GPU shader.
 #![allow(dead_code)]
-
-use relocade_vga::{CapturedFrame, TextScreen};
+use super::text;
+use relocade_vga::{CapturedFrame, DisplaySnapshot};
 use std::time::Duration;
 
-#[path = "../../src/text.rs"]
-mod text;
-use text::*;
-
-/// Convert an immutable text capture to pixels on the calling worker.
-/// This function never reads or borrows the VGA device.
-pub(crate) fn render(screen: &TextScreen, blink_on: bool, blanked: bool) -> Box<[u8]> {
-    let mut pixels = vec![0; WIDTH as usize * HEIGHT as usize * 4].into_boxed_slice();
-    if blanked {
-        for pixel in pixels.as_chunks_mut::<4>().0 {
-            *pixel = [0, 0, 0, 255];
-        }
-        return pixels;
-    }
-    let cursor = screen.cursor;
-    let cursor_index = usize::from(cursor.address.wrapping_sub(screen.start_address));
-    let cursor_skew = usize::from((cursor.end_scan_line >> 5) & 3);
-    let cursor_visible = blink_on
-        && cursor.start_scan_line & 0x20 == 0
-        && cursor_index < screen.cells.len()
-        && cursor_index % TextScreen::COLUMNS + cursor_skew < TextScreen::COLUMNS;
-    let cursor_start = usize::from(cursor.start_scan_line & 0x1f);
-    let cursor_end = usize::from(cursor.end_scan_line & 0x1f);
-    for (index, cell) in screen.cells.iter().enumerate() {
-        let row = index / TextScreen::COLUMNS;
-        let column = index % TextScreen::COLUMNS;
-        let foreground = PALETTE[usize::from(cell.attribute & 0x0f)];
-        let background = PALETTE[usize::from((cell.attribute >> 4) & 7)];
-        let glyph_visible = blink_on || cell.attribute & 0x80 == 0;
-        let cursor_here = cursor_visible && index == cursor_index + cursor_skew;
-        let glyph_start = usize::from(cell.character) * GLYPH_HEIGHT;
-        for (y, &bits) in FONT[glyph_start..glyph_start + GLYPH_HEIGHT]
-            .iter()
-            .enumerate()
-        {
-            let cursor_line = cursor_here && (cursor_start..=cursor_end).contains(&y);
-            let offset = ((row * GLYPH_HEIGHT + y) * WIDTH as usize + column * GLYPH_WIDTH) * 4;
-            for (x, pixel) in pixels[offset..offset + GLYPH_WIDTH * 4]
-                .as_chunks_mut::<4>()
-                .0
-                .iter_mut()
-                .enumerate()
-            {
-                let lit = cursor_line || (glyph_visible && bits & (0x80 >> x) != 0);
-                pixel.copy_from_slice(if lit { &foreground } else { &background });
+pub(crate) fn render(snapshot: &DisplaySnapshot) -> Box<[u8]> {
+    let text = text::Text::new(snapshot);
+    let [width, height] = text.layout.size;
+    let mut pixels = vec![0; width as usize * height as usize * 4].into_boxed_slice();
+    for y in 0..height {
+        let line = text.layout.scanline(y);
+        for x in 0..width {
+            let column = (x + line.pan) / text.layout.glyph_width;
+            let dot = (x + line.pan) % text.layout.glyph_width;
+            let counter = line
+                .counter
+                .wrapping_add((column / text.layout.count_divisor) as u16);
+            let address = usize::from(text.layout.address(counter, line.glyph_row));
+            let character = snapshot.plane(0)[address];
+            let attribute = snapshot.plane(1)[address];
+            let font = usize::from(text.font_address(character, attribute, line.glyph_row));
+            let bits = if attribute & 0x77 == 1 && line.glyph_row == text.layout.underline & 31 {
+                255
+            } else {
+                snapshot.plane(2)[font]
+            };
+            let mut lit = if dot < 8 {
+                bits & (0x80 >> dot) != 0
+            } else {
+                text.attribute_mode & 4 != 0 && (0xc0..=0xdf).contains(&character) && bits & 1 != 0
+            };
+            let blinking = text.attribute_mode & 8 != 0;
+            if blinking && attribute & 0x80 != 0 && !text.blink_on {
+                lit = false;
             }
+            let skew = u32::from((text.cursor_end >> 5) & 3);
+            lit |= text.blink_on
+                && text.cursor_start & 0x20 == 0
+                && column >= skew
+                && column < text.layout.columns
+                && line
+                    .counter
+                    .wrapping_add(((column - skew) / text.layout.count_divisor) as u16)
+                    == text.cursor_address
+                && (text.cursor_start & 31..=text.cursor_end & 31).contains(&line.glyph_row);
+            let color = if lit {
+                attribute & if text.dual_font { 7 } else { 15 }
+            } else {
+                (attribute >> 4) & if blinking { 7 } else { 15 }
+            };
+            let rgba = if text.blanked {
+                [0, 0, 0, 255]
+            } else {
+                text.colors[usize::from(color)].to_le_bytes()
+            };
+            let offset = ((y * width + x) * 4) as usize;
+            pixels[offset..offset + 4].copy_from_slice(&rgba);
         }
     }
     pixels
 }
 
-/// Owned software-rendered image. Pixels are tightly packed, top-to-bottom RGBA8,
-/// with sRGB color values and opaque alpha. Retaining an image requires no VGA owner.
 #[derive(Debug)]
 pub(crate) struct SoftwareFrame {
     pub width: u32,
     pub height: u32,
     pub pixels: Box<[u8]>,
-    /// Pixel width / height. Combine with the image dimensions when sizing a viewport.
     pub pixel_aspect_ratio: (u32, u32),
-    /// Elapsed session time at the completed frame boundary.
     pub time: Duration,
-    /// Increasing frame identity; skipped frames can leave gaps.
     pub sequence: u64,
 }
 
-/// Test reference for captured text; never reads live device state.
 pub(crate) fn rasterize(capture: &CapturedFrame) -> SoftwareFrame {
+    let text = text::Text::new(&capture.display);
     SoftwareFrame {
-        width: WIDTH,
-        height: HEIGHT,
-        pixels: render(&capture.screen, capture.blink_on, capture.blanked),
-        pixel_aspect_ratio: PIXEL_ASPECT_RATIO,
+        width: text.layout.size[0],
+        height: text.layout.size[1],
+        pixels: render(&capture.display),
+        pixel_aspect_ratio: text.layout.pixel_aspect_ratio(),
         time: capture.time,
         sequence: capture.sequence,
     }

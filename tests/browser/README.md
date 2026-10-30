@@ -18,7 +18,7 @@ handoff between execution owners. The [CPU worker example](src/cpus.rs) retains
 caller access to mapped memory while a worker awaits Rust input, resumes guest
 execution, and imports the retained allocation into a later worker.
 The [VGA fixture](src/vga.rs) registers VGA alongside the CPU. Guest code uses
-MMIO and CRTC ports, polls retrace, and awaits input while immutable text captures
+MMIO and CRTC ports, polls retrace, and awaits input while immutable display captures
 reach a separate rasterizing worker. It observes final writes after CPU completion,
 and retained frames stay readable after the session shuts down.
 

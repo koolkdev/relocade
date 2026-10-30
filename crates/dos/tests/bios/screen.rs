@@ -1,5 +1,5 @@
 use crate::common;
-use relocade_vga::{TextCell, TextCursor, TextScreen};
+use crate::common::inspection::{Cell, Cursor};
 use relocade_x86::ExecutionExit;
 
 #[test]
@@ -49,11 +49,11 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
         let vga = dos.vga();
         let mut view = memory.view();
         view.write_backing(0xb8000, &[0x99, 0xee]).unwrap();
-        let screen = vga.borrow().screen();
+        let screen = common::inspection::inspect(&vga.borrow().snapshot());
         assert_eq!(screen.start_address, 0);
         assert_eq!(
             screen.cursor,
-            TextCursor {
+            Cursor {
                 address: 0,
                 start_scan_line: 6,
                 end_scan_line: 7,
@@ -61,7 +61,7 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
         );
         assert_eq!(
             screen.cells,
-            [TextCell {
+            [Cell {
                 character: b' ',
                 attribute: 7
             }; 80 * 25]
@@ -88,17 +88,17 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
             pollster::block_on(dos.cpu().run(10)),
             ExecutionExit::BudgetExhausted
         );
-        let screen = vga.borrow().screen();
+        let screen = common::inspection::inspect(&vga.borrow().snapshot());
         assert_eq!(
             screen.cells[0],
-            TextCell {
+            Cell {
                 character: b'A',
                 attribute: 0x1e
             }
         );
         assert_eq!(
             screen.cells[1],
-            TextCell {
+            Cell {
                 character: b' ',
                 attribute: 7
             }
@@ -116,7 +116,10 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
             memory.write(0x456, &[79, 24]).unwrap();
             memory.write(0xbff9e, &[b'Z', 0x2f]).unwrap();
         }
-        assert_eq!(vga.borrow().screen(), screen);
+        assert_eq!(
+            common::inspection::inspect(&vga.borrow().snapshot()),
+            screen
+        );
         {
             let mut context = dos.cpu().context();
             context
@@ -136,20 +139,21 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
             context.cpu.set_eip(0x100);
         }
         assert_eq!(dos.cpu().run(30).await, ExecutionExit::BudgetExhausted);
-        let page = vga.borrow().screen();
+        let page = common::inspection::inspect(&vga.borrow().snapshot());
         assert_eq!(page.start_address, 0x3800);
         assert_eq!(page.cursor.address, 0x3fcf);
         assert_eq!(view.read_u8(0x462).unwrap(), 3);
         assert_eq!(view.read_u16(0x456).unwrap(), 0x184f);
         assert_eq!(
-            page.cells[TextScreen::COLUMNS * TextScreen::ROWS - 1],
-            TextCell {
+            page.cells[80 * 25 - 1],
+            Cell {
                 character: b'Z',
                 attribute: 0x2f
             }
         );
         assert_eq!(screen.cells[0].character, b'A'); // Snapshots remain owned.
         drop(dos);
-        assert_eq!(vga.borrow().screen(), page); // The device outlives execution.
+        // The device outlives execution.
+        assert_eq!(common::inspection::inspect(&vga.borrow().snapshot()), page);
     });
 }

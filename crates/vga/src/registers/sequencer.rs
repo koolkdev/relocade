@@ -65,10 +65,6 @@ impl Sequencer {
         self.values[usize::from(self.index)] = value & mask;
     }
 
-    pub(crate) fn screen_off(&self) -> bool {
-        self.register(CLOCKING_MODE) & (1 << 5) != 0
-    }
-
     pub(crate) fn chain_four(&self) -> bool {
         self.register(MEMORY_MODE) & 8 != 0
     }

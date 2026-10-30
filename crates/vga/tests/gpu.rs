@@ -5,36 +5,17 @@ mod common;
 mod parity;
 #[path = "gpu/recording.rs"]
 mod recording;
-#[path = "support/software.rs"]
-mod software;
+use common::support::software;
 
-use relocade_vga::{CapturedFrame, TextCell, TextCursor, TextScreen, VgaRenderer};
+use relocade_vga::{CapturedFrame, VgaRenderer};
 use std::{sync::Arc, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+use common::fixture::{set_cell, text_device};
 fn capture() -> CapturedFrame {
-    CapturedFrame {
-        display: relocade_vga::Vga::with_clock(std::rc::Rc::new(common::ManualClock::default()))
-            .snapshot(),
-        screen: TextScreen {
-            cells: [TextCell {
-                character: b' ',
-                attribute: 7,
-            }; TextScreen::COLUMNS * TextScreen::ROWS],
-            cursor: TextCursor {
-                address: 0,
-                start_scan_line: 0x20,
-                end_scan_line: 7,
-            },
-            start_address: 0,
-        },
-        blink_on: true,
-        blanked: false,
-        time: Duration::from_millis(123),
-        sequence: 42,
-    }
+    common::fixture::capture(&text_device())
 }
 
 async fn read_pixels(
@@ -93,16 +74,11 @@ async fn check_image() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-    let mut renderer = VgaRenderer::new(&device, &queue).unwrap();
-    let mut input = capture();
-    input.screen.cells[0] = TextCell {
-        character: b'F',
-        attribute: 0x6f,
-    };
-    input.screen.cells[1999] = TextCell {
-        character: 0xdb,
-        attribute: 0x09,
-    };
+    let mut renderer = VgaRenderer::new(&device).unwrap();
+    let mut vga = text_device();
+    set_cell(&mut vga, 0, b'F', 0x6f);
+    set_cell(&mut vga, 1999, 0xdb, 0x09);
+    let input = common::fixture::capture(&vga);
     let input = Arc::new(input);
     let mut encoder = device.create_command_encoder(&Default::default());
     let frame = renderer.encode(&queue, &mut encoder, &input);
@@ -133,12 +109,10 @@ async fn check_image() {
 
     // Another capture updates reusable storage, including retained Image handles,
     // even when the sequence is unchanged.
-    let mut other = capture();
+    let mut vga = text_device();
+    set_cell(&mut vga, 0, 0xdb, 4);
+    let mut other = common::fixture::capture(&vga);
     other.time += Duration::from_secs(1);
-    other.screen.cells[0] = TextCell {
-        character: 0xdb,
-        attribute: 4,
-    };
     let other = Arc::new(other);
     let mut encoder = device.create_command_encoder(&Default::default());
     let frame = renderer.encode(&queue, &mut encoder, &other);

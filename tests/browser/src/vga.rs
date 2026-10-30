@@ -27,6 +27,7 @@ pub async fn vga_workers() -> Result<(), String> {
         let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
             runner.clock().clone(),
         ))));
+        crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         assert!(source.send(vga.borrow().frame_source()).is_ok());
         let config = MachineConfig::new(
             0x1000,

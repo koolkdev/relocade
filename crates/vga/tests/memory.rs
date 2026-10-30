@@ -213,6 +213,9 @@ fn display_addressing_preserves_high_counter_bits_in_word_and_doubleword_modes()
     ] {
         set(&mut vga, 0x3d4, 0x17, mode);
         set(&mut vga, 0x3d4, 0x14, underline);
-        assert_eq!(vga.screen().cells[0].character, character);
+        assert_eq!(
+            common::support::inspection::inspect(&vga.snapshot()).cells[0].character,
+            character
+        );
     }
 }
