@@ -78,8 +78,13 @@ impl<T: 'static> Cpu<T> {
     ///
     /// # Panics
     /// Panics if a service is suspended. Complete it before installing.
+    #[allow(
+        clippy::await_holding_refcell_ref,
+        reason = "Installation excludes guest execution and pending host calls."
+    )]
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
-        let machine = self.execution.machine_mut();
+        let mut borrow = self.machine_mut();
+        let machine = &mut *borrow;
         let hooks: Vec<_> = hooks.into_iter().collect();
         let names: Vec<_> = (0..hooks.len())
             .map(|index| format!("hook_{index}"))

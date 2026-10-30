@@ -6,18 +6,18 @@ use crate::{CpuView, IoBus, MemoryView};
 /// CPU and memory views borrow live storage and apply writes immediately.
 /// The fields borrow separate resources and can be used together, including
 /// while borrowing environment state. Borrow a field instead of the whole context.
-/// A view can cross an ordinary await, keeping its machine borrow until it ends.
-/// Contexts cannot escape their handler or the borrow of [`super::Cpu`].
-/// Drop the context before resuming guest execution or installing modules.
+/// A borrowed hook's view can cross an ordinary await, keeping its machine borrow
+/// until it ends. Views supplied by [`super::Cpu::with`] stay within its synchronous
+/// callback. Drop all views before resuming guest execution or installing modules.
 ///
-/// A live view excludes another run:
+/// A view cannot escape a synchronous embedding operation:
 /// ```compile_fail
 /// use relocade_machine::Cpu;
 /// async fn overlap(cpu: &mut Cpu) {
-///     let mut context = cpu.context();
-///     let view = &context.cpu;
-///     cpu.run(1).await;
-///     let _ = view.ax();
+///     cpu.with(|context| async move {
+///         std::future::pending::<()>().await;
+///         context.cpu.ax()
+///     }).await;
 /// }
 /// ```
 pub struct CpuContext<'a, T = ()> {

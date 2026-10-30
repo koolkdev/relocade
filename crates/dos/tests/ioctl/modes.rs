@@ -46,10 +46,7 @@ fn raw_handle_output_preserves_control_bytes_and_cooked_output_still_expands_tab
         let mut dos = common::dos().await;
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu()
-            .context()
-            .memory
-            .write(0x10400, b"A\t\x1aZ")
-            .unwrap();
+            .with(|call| call.memory.write(0x10400, b"A\t\x1aZ").unwrap());
         success(&service(&mut dos, 0x4401, 1, 0, 0xe3));
         assert_eq!(success(&service(&mut dos, 0x4000, 1, 4, 0x400)), 4);
         assert_eq!(common::output(dos.stdout()), b"A\t\x1aZ");

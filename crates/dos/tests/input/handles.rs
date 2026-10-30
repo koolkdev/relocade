@@ -35,8 +35,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             .read(0x10400, &mut unchanged)
             .unwrap();
         assert_eq!(&unchanged, b"untouched");
-        {
-            let mut machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             let cpu = &mut machine.cpu;
             cpu.set_eip(0x100);
             cpu.set_ax(0x3f00);
@@ -44,7 +43,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             cpu.set_cx(2);
             cpu.set_dx(0x400);
             cpu.set_eflags(0x643);
-        }
+        });
         let mut input = dos.stdin();
         let output = dos.stdout();
         {
@@ -60,8 +59,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
                 Poll::Ready(ExecutionExit::BudgetExhausted)
             ));
         }
-        {
-            let machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             machine.memory.read(0x10400, &mut unchanged).unwrap();
             assert_eq!(&unchanged, b"aCtouched");
             let cpu = &machine.cpu;
@@ -72,7 +70,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             assert_eq!(cpu.eflags(), 0x642);
             assert_eq!(cpu.sp(), 0xfffe);
             assert_eq!(cpu.eip(), 0x102);
-        }
+        });
         assert_eq!(common::output(output.clone()), b"\r\n");
         assert_eq!(dos.read_file("OUT.TXT").unwrap(), b""); // Echo belongs to CON.
         let screen = dos.screen();
@@ -233,7 +231,8 @@ fn program_launch_preserves_the_console_line_remainder() {
         assert!(dos.launch_com(&[], Default::default()).is_err());
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         let mut byte = [0];
-        dos.cpu().context().memory.read(0x10400, &mut byte).unwrap();
+        dos.cpu()
+            .with(|call| call.memory.read(0x10400, &mut byte).unwrap());
         assert_eq!(byte, [b'l']); // Rejected launches preserve the buffered line.
         common::terminate(&mut dos);
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
@@ -241,18 +240,12 @@ fn program_launch_preserves_the_console_line_remainder() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 20, 0x400)), 3);
         let mut remainder = [0; 3];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x10400, &mut remainder)
-            .unwrap();
+            .with(|call| call.memory.read(0x10400, &mut remainder).unwrap());
         assert_eq!(&remainder, b"d\r\n");
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 20, 0x400)), 5);
         let mut bytes = [0; 5];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x10400, &mut bytes)
-            .unwrap();
+            .with(|call| call.memory.read(0x10400, &mut bytes).unwrap());
         assert_eq!(&bytes, b"new\r\n");
         assert_eq!(common::output(dos.stdout()), b"old\r\nnew\r\n");
     });

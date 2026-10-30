@@ -30,29 +30,27 @@ use relocade_x86::{CpuState, ExecutionExit};
 pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
 
 pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
-    {
-        let mut machine = dos.cpu().context();
+    dos.cpu().with(|machine| {
         let cpu = &mut machine.cpu;
         cpu.set_eip(0x100);
         cpu.set_ax(ax);
         cpu.set_bx(bx);
         cpu.set_cx(cx);
         cpu.set_dx(dx);
-    }
+    });
     assert_eq!(
         pollster::block_on(dos.cpu().run(10)),
         ExecutionExit::BudgetExhausted
     );
-    dos.cpu().context().cpu.snapshot()
+    dos.cpu().with(|call| call.cpu.snapshot())
 }
 
 /// Terminates a process running SERVICE_PROGRAM through its DOS interrupt.
 pub fn terminate(dos: &mut Dos) {
-    {
-        let mut execution = dos.cpu().context();
+    dos.cpu().with(|execution| {
         execution.cpu.set_eip(0x100);
         execution.cpu.set_ax(0x4c00);
-    }
+    });
     assert_eq!(
         pollster::block_on(dos.cpu().run(10)),
         ExecutionExit::Host(relocade_x86::HostExit::Return)
@@ -67,10 +65,7 @@ pub fn path_service(dos: &mut Dos, path: &[u8], ax: u16, cx: u16) -> CpuState {
     let mut terminated = path.to_vec();
     terminated.push(0);
     dos.cpu()
-        .context()
-        .memory
-        .write(0x10300, &terminated)
-        .unwrap();
+        .with(|call| call.memory.write(0x10300, &terminated).unwrap());
     service(dos, ax, 0, cx, 0x300)
 }
 

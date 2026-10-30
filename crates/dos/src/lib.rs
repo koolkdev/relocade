@@ -146,11 +146,10 @@ impl Dos {
         )]);
         let memory = Memory::new(kernel::configuration())?;
         let mut cpu = Cpu::new(memory, kernel::cpu(), io, ()).await?;
-        kernel::initialize(&mut cpu.context().memory);
-        {
-            let mut context = cpu.context();
+        cpu.with(|context| {
+            kernel::initialize(&mut context.memory);
             relocade_bios::initialize(&mut context.memory, context.io);
-        }
+        });
         cpu.install_hooks(
             kernel::hooks(Rc::clone(&state))
                 .into_iter()
@@ -195,7 +194,7 @@ impl Dos {
         {
             return Err(LaunchError::ProcessActive);
         }
-        let psp_segment = load(&mut self.cpu.context())?;
+        let psp_segment = self.cpu.with(load)?;
         self.state.start_process(psp_segment);
         Ok(())
     }

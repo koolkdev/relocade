@@ -79,16 +79,13 @@ async fn check_context_lifetime() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         rejects(|| {
-            runtime.context();
-        });
-        rejects(|| {
-            runtime.state();
+            runtime.with(|_| ());
         });
     }
     complete.set(true);
     assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
-    assert_eq!(runtime.context().cpu.eax(), 0x1234);
-    assert_eq!(runtime.state().calls, 1);
+    assert_eq!(runtime.with(|call| call.cpu.eax()), 0x1234);
+    assert_eq!(runtime.with(|call| call.state.calls), 1);
     assert!(!dropped.get());
     // Dropping the CPU while another invocation waits releases its owned machine.
     complete.set(false);

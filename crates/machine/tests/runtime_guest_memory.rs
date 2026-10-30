@@ -51,13 +51,13 @@ async fn check_guest_memory() {
     let mut other = Cpu::new(shared.clone(), config.cpu, Default::default(), ())
         .await
         .unwrap();
-    runtime.context().cpu.set_ax(0x1234);
+    runtime.with(|call| call.cpu.set_ax(0x1234));
     assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.context().cpu.eip(), 0x108);
-    assert_eq!(other.context().cpu.eip(), 0x100);
-    assert_eq!(other.context().cpu.ax(), 0);
+    assert_eq!(runtime.with(|call| call.cpu.eip()), 0x108);
+    assert_eq!(other.with(|call| call.cpu.eip()), 0x100);
+    assert_eq!(other.with(|call| call.cpu.ax()), 0);
     assert_eq!(other.memory().view().read_u16(0xffe).unwrap(), 0x0741);
-    runtime.context().memory.write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
+    runtime.with(|call| call.memory.write(0x1000, &[0, 0]).unwrap()); // ROM ignores writes.
     let mut bytes = [0; 4];
     reader.read(0xffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0x41, 7, 0x12, 0x34]);
@@ -67,7 +67,7 @@ async fn check_guest_memory() {
         reader.read(hole, &mut bytes).unwrap();
         assert_eq!(bytes, [0xff; 4]);
     }
-    runtime.context().memory.read(0x3000, &mut bytes).unwrap();
+    runtime.with(|call| call.memory.read(0x3000, &mut bytes).unwrap());
     assert_eq!(bytes, [0xff; 4]);
     assert_eq!(
         reader.read(u32::MAX, &mut bytes),

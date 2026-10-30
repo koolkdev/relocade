@@ -17,12 +17,12 @@ async fn check_device_information() {
     dos.mount_file("DATA.BIN", b"ab".to_vec(), FileAccess::ReadWrite)
         .unwrap();
     dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-    dos.cpu().context().cpu.set_eflags(0x0a57);
+    dos.cpu().with(|call| call.cpu.set_eflags(0x0a57));
     // CON includes both the driver and handle device bits, input/output, and no input EOF.
     for handle in 0..=2 {
         assert_eq!(information(&mut dos, handle), 0x80c3);
     }
-    assert_eq!(dos.cpu().context().cpu.eflags(), 0x0a56);
+    assert_eq!(dos.cpu().with(|call| call.cpu.eflags()), 0x0a56);
     for handle in [3, 4] {
         assert_eq!(information(&mut dos, handle), 0x80c0); // AUX and PRN.
     }
@@ -74,7 +74,7 @@ fn console_status_queries_do_not_consume_input_or_change_buffered_reads() {
         let mut dos = common::dos().await;
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         for flags in [0x602, 0x643] {
-            dos.cpu().context().cpu.set_eflags(flags);
+            dos.cpu().with(|call| call.cpu.set_eflags(flags));
             let cpu = service(&mut dos, 0x0b7b, 0x1234, 0x5678, 0x9abc);
             assert_eq!(cpu.registers.eax as u8, 0);
             assert_eq!(cpu.flags.eflags(), flags);
@@ -84,7 +84,7 @@ fn console_status_queries_do_not_consume_input_or_change_buffered_reads() {
         }
         dos.stdin().write_all(&[0, 0x48]).unwrap();
         for _ in 0..2 {
-            dos.cpu().context().cpu.set_eflags(0x643);
+            dos.cpu().with(|call| call.cpu.set_eflags(0x643));
             let cpu = service(&mut dos, 0x0b00, 0, 0, 0);
             assert_eq!(cpu.registers.eax as u8, 0xff);
             assert_eq!(cpu.flags.eflags(), 0x643);
@@ -109,10 +109,7 @@ fn console_status_queries_do_not_consume_input_or_change_buffered_reads() {
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 10, 0x400)), 4);
         let mut remainder = [0; 4];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x10400, &mut remainder)
-            .unwrap();
+            .with(|call| call.memory.read(0x10400, &mut remainder).unwrap());
         assert_eq!(&remainder, b"bc\r\n");
 
         dos.stdin().write_all(b"\x1a\rQ").unwrap();
@@ -137,7 +134,7 @@ fn stdin_status_falls_back_to_the_console_when_stdin_is_closed() {
         for (input, status) in [(b"".as_slice(), 0x00), (b"\0".as_slice(), 0xff)] {
             dos.stdin().write_all(input).unwrap();
             for flags in [0x602, 0x643] {
-                dos.cpu().context().cpu.set_eflags(flags);
+                dos.cpu().with(|call| call.cpu.set_eflags(flags));
                 let cpu = service(&mut dos, 0x0b7b, 0x1234, 0x5678, 0x9abc);
                 assert_eq!(cpu.registers.eax as u16, 0x0b00 | status);
                 assert_eq!(cpu.flags.eflags(), flags);

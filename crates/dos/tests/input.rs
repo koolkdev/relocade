@@ -38,12 +38,11 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        {
-            let mut machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             let cpu = &mut machine.cpu;
             cpu.set_ax(0x077b);
             cpu.set_eflags(0x643);
-        }
+        });
         crate::common::assert_pending(dos.cpu().run(10));
         assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
         let memory = dos.cpu().memory();
@@ -62,21 +61,20 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
 
         dos.stdin().write_all(&[0, 0x48]).unwrap(); // Extended key prefix is data.
         assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
-        {
-            let machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             let cpu = &machine.cpu;
             assert_eq!(cpu.ax(), 0x0700);
             assert_eq!(cpu.eip(), 0x102);
             assert_eq!(cpu.segment(Segment::Cs).selector, 0x1000);
             assert_eq!(cpu.sp(), 0xfffe);
             assert_eq!(cpu.eflags(), 0x643);
-        }
+        });
         let cpu = service(&mut dos, 0x0700, 0, 0, 0);
         assert_eq!(cpu.registers.eax as u16, 0x0748);
         assert_eq!(cpu.flags.eflags(), 0x643);
         assert!(common::output(dos.stdout()).is_empty()); // No echo.
 
-        dos.cpu().context().cpu.set_eip(0x100);
+        dos.cpu().with(|call| call.cpu.set_eip(0x100));
         common::assert_pending(dos.cpu().run(10));
         let mut suspended_frame = [0; 6];
         memory
@@ -101,7 +99,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         let mut input = dos.stdin();
         input.write_all(b"R").unwrap();
         assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(dos.cpu().context().cpu.ax(), 0x0752);
+        assert_eq!(dos.cpu().with(|call| call.cpu.ax()), 0x0752);
         input.write_all(b"Q").unwrap();
         common::terminate(&mut dos);
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
@@ -113,7 +111,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
             0x074e
         );
-        dos.cpu().context().cpu.set_eip(0x100);
+        dos.cpu().with(|call| call.cpu.set_eip(0x100));
         common::assert_pending(dos.cpu().run(10));
         {
             let mut run = pin!(dos.cpu().run(10));
@@ -133,7 +131,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         );
         input.write_all(b"T").unwrap();
         assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(dos.cpu().context().cpu.ax(), 0x0754);
+        assert_eq!(dos.cpu().with(|call| call.cpu.ax()), 0x0754);
         common::terminate(&mut dos);
         dos.launch_mz(&mz, Default::default()).unwrap();
         assert_eq!(
@@ -219,8 +217,8 @@ fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
             0x074b
         );
         success(&service(&mut dos, 0x4600, 6, 0, 0));
-        dos.cpu().context().cpu.set_ax(0x0700);
-        dos.cpu().context().cpu.set_eip(0x100);
+        dos.cpu().with(|call| call.cpu.set_ax(0x0700));
+        dos.cpu().with(|call| call.cpu.set_eip(0x100));
         crate::common::assert_pending(dos.cpu().run(10));
         let mut input = dos.stdin();
         let wakes = Arc::new(WakeCount::default());

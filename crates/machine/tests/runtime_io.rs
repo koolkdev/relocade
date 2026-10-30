@@ -159,7 +159,7 @@ async fn check_device_access() {
                 cpu.install_module(&module.bytes, &entries).await.unwrap();
             }
             assert_eq!(cpu.run(7).await, ExecutionExit::BudgetExhausted);
-            assert_eq!(cpu.context().cpu.eax(), 0x1234_5678);
+            assert_eq!(cpu.with(|call| call.cpu.eax()), 0x1234_5678);
             assert_eq!(
                 device.borrow_mut().take_transfers(),
                 [
@@ -188,9 +188,9 @@ async fn check_device_access() {
             view.read_backing(0x3ffe, &mut backing).unwrap();
             assert_eq!(backing, [0xaa; 4]);
 
-            cpu.context().io.write_port(0x3d4, 2, 0x9876);
-            assert_eq!(cpu.context().io.read_port(0x3d4, 2), 0x9876);
-            assert_eq!(cpu.context().io.read_port(0x3d5, 1), 0xff);
+            cpu.with(|call| call.io.write_port(0x3d4, 2, 0x9876));
+            assert_eq!(cpu.with(|call| call.io.read_port(0x3d4, 2)), 0x9876);
+            assert_eq!(cpu.with(|call| call.io.read_port(0x3d5, 1)), 0xff);
             // The local bus, rather than shared RAM, retains the device after CPU teardown.
             drop(cpu);
             assert_eq!(view.read_u32(0x3ffe).unwrap(), 0x1234_5678);

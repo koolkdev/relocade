@@ -17,15 +17,14 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             .view()
             .write(0x10300, &[5, 0, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb])
             .unwrap();
-        {
-            let mut machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             let cpu = &mut machine.cpu;
             cpu.set_ax(0x0a7b);
             cpu.set_bx(0x1234);
             cpu.set_cx(0x5678);
             cpu.set_dx(0x300);
             cpu.set_eflags(0x643);
-        }
+        });
         let mut input = dos.stdin();
         let output = dos.stdout();
         input.write_all(b"ab").unwrap();
@@ -54,8 +53,7 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             ));
         }
         assert_eq!(common::output(output), b"c\r");
-        {
-            let machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             machine.memory.read(0x10300, &mut buffer).unwrap();
             assert_eq!(buffer, [5, 2, b'a', b'c', b'\r', 0xaa, 0xaa, 0xbb]);
             let cpu = &machine.cpu;
@@ -66,7 +64,7 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             assert_eq!(cpu.eflags(), 0x643);
             assert_eq!(cpu.sp(), 0xfffe);
             assert_eq!(cpu.eip(), 0x102);
-        }
+        });
         assert_eq!(
             service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u16,
             0x074e
@@ -155,7 +153,8 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
         // Queued console input survives termination and the next launch.
         common::terminate(&mut dos);
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        dos.cpu().context().memory.write(0x10400, &[8, 0]).unwrap();
+        dos.cpu()
+            .with(|call| call.memory.write(0x10400, &[8, 0]).unwrap());
         dos.stdin().write_all(b"new\r").unwrap();
         service(&mut dos, 0x0a00, 0, 0, 0x400);
         assert_eq!(common::output(dos.stdout()), b"Knew\r");
@@ -164,9 +163,9 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
         let input_handle = success(&path_service(&mut dos, b"IN.TXT", 0x3d00, 0));
         success(&service(&mut dos, 0x4200, input_handle, 0, 9));
         success(&service(&mut dos, 0x4600, input_handle, 0, 0));
-        dos.cpu().context().cpu.set_eip(0x100);
-        dos.cpu().context().cpu.set_ax(0x0a00);
-        dos.cpu().context().cpu.set_dx(0x400);
+        dos.cpu().with(|call| call.cpu.set_eip(0x100));
+        dos.cpu().with(|call| call.cpu.set_ax(0x0a00));
+        dos.cpu().with(|call| call.cpu.set_dx(0x400));
         dos.stdin().write_all(b"K").unwrap();
         common::assert_pending(dos.cpu().run(10));
         assert!(dos.keyboard().has_input());
@@ -182,8 +181,7 @@ fn suspended_reads_keep_their_buffer_across_run_waiters() {
             if raw {
                 success(&service(&mut dos, 0x4401, 0, 0, 0xe3));
             }
-            {
-                let mut context = dos.cpu().context();
+            dos.cpu().with(|context| {
                 context
                     .memory
                     .write(0x10300, &[6, 0, 0xaa, 0xaa, 0xaa, 0xaa])
@@ -193,7 +191,7 @@ fn suspended_reads_keep_their_buffer_across_run_waiters() {
                 context.cpu.set_bx(0);
                 context.cpu.set_cx(3);
                 context.cpu.set_dx(0x300);
-            }
+            });
             dos.stdin().write_all(b"A").unwrap();
             common::assert_pending(dos.cpu().run(10));
             // Shared memory remains accessible. A later capacity edit does not
@@ -201,23 +199,24 @@ fn suspended_reads_keep_their_buffer_across_run_waiters() {
             dos.cpu().memory().view().write_u8(0x10300, 0).unwrap();
             dos.stdin().write_all(b"B\r").unwrap();
             assert_eq!(dos.cpu().run(1).await, ExecutionExit::BudgetExhausted);
-            let context = dos.cpu().context();
-            let mut bytes = [0; 6];
-            context.memory.read(0x10300, &mut bytes).unwrap();
-            if function == 0x0a00 {
-                assert_eq!(bytes, [0, 2, b'A', b'B', b'\r', 0xaa]);
-            } else {
-                assert_eq!(bytes, [b'A', b'B', b'\r', 0xaa, 0xaa, 0xaa]);
-                assert_eq!(context.cpu.ax(), 3);
-            }
-            assert_eq!(
-                (context.cpu.bx(), context.cpu.cx(), context.cpu.dx()),
-                (0, 3, 0x300)
-            );
-            assert_eq!(
-                context.cpu.segment(relocade_x86::Segment::Ds).selector,
-                0x1000
-            );
+            dos.cpu().with(|context| {
+                let mut bytes = [0; 6];
+                context.memory.read(0x10300, &mut bytes).unwrap();
+                if function == 0x0a00 {
+                    assert_eq!(bytes, [0, 2, b'A', b'B', b'\r', 0xaa]);
+                } else {
+                    assert_eq!(bytes, [b'A', b'B', b'\r', 0xaa, 0xaa, 0xaa]);
+                    assert_eq!(context.cpu.ax(), 3);
+                }
+                assert_eq!(
+                    (context.cpu.bx(), context.cpu.cx(), context.cpu.dx()),
+                    (0, 3, 0x300)
+                );
+                assert_eq!(
+                    context.cpu.segment(relocade_x86::Segment::Ds).selector,
+                    0x1000
+                );
+            });
         }
     });
 }

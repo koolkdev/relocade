@@ -50,17 +50,11 @@ fn nul_reads_eof_discards_writes_and_can_redirect_standard_handles() {
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         let handle = success(&path_service(&mut dos, b"NUL", 0x3d02, 0));
         dos.cpu()
-            .context()
-            .memory
-            .write(0x10400, b"A\t\x1aZ")
-            .unwrap();
+            .with(|call| call.memory.write(0x10400, b"A\t\x1aZ").unwrap());
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 4, 0x400)), 0);
         let mut untouched = [0; 4];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x10400, &mut untouched)
-            .unwrap();
+            .with(|call| call.memory.read(0x10400, &mut untouched).unwrap());
         assert_eq!(&untouched, b"A\t\x1aZ");
         assert_eq!(success(&service(&mut dos, 0x4400, handle, 0, 0)), 0x8084);
         assert_eq!(success(&service(&mut dos, 0x4000, handle, 4, 0x400)), 4);
@@ -122,10 +116,7 @@ fn console_opens_keep_eof_and_access_separate_while_duplicates_share_them() {
         assert_eq!(success(&service(&mut dos, 0x3f00, duplicate, 10, 0x400)), 4);
         let mut bytes = [0; 4];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x10400, &mut bytes)
-            .unwrap();
+            .with(|call| call.memory.read(0x10400, &mut bytes).unwrap());
         assert_eq!(&bytes, b"ok\r\n");
         assert_eq!(common::output(dos.stdout()), b"^Z\r\nok\r\n");
         dos.stdin().write_all(b"E\r").unwrap();

@@ -7,10 +7,7 @@ fn guest_planar_programming_reaches_the_graphics_aperture() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.cpu()
-            .context()
-            .memory
-            .write_backing(0xa0000, &[0x99])
-            .unwrap();
+            .with(|call| call.memory.write_backing(0xa0000, &[0x99]).unwrap());
         dos.launch_com(
             &[
                 0xba, 0xc4, 0x03, // MOV DX,03C4.
@@ -29,15 +26,16 @@ fn guest_planar_programming_reaches_the_graphics_aperture() {
         )
         .unwrap();
         assert_eq!(dos.cpu().run(40).await, ExecutionExit::BudgetExhausted);
-        let context = dos.cpu().context();
-        assert_eq!(context.cpu.al(), 0x5a);
-        assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 0x5a);
-        let mut backing = [0];
-        context.memory.read_backing(0xa0000, &mut backing).unwrap();
-        assert_eq!(backing, [0x99]);
-        assert_eq!(context.memory.read_u8(0x449).unwrap(), 3); // BIOS bookkeeping is unchanged.
-        context.io.write_port(0x3ce, 2, 0x0104); // Plane one retains the BIOS text attribute.
-        assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 7);
+        dos.cpu().with(|context| {
+            assert_eq!(context.cpu.al(), 0x5a);
+            assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 0x5a);
+            let mut backing = [0];
+            context.memory.read_backing(0xa0000, &mut backing).unwrap();
+            assert_eq!(backing, [0x99]);
+            assert_eq!(context.memory.read_u8(0x449).unwrap(), 3); // BIOS bookkeeping is unchanged.
+            context.io.write_port(0x3ce, 2, 0x0104); // Plane one retains the BIOS text attribute.
+            assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 7);
+        });
     });
 }
 
@@ -68,10 +66,7 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
         );
         let mut geometry = [0; 6];
         dos.cpu()
-            .context()
-            .memory
-            .read(0x449, &mut geometry)
-            .unwrap();
+            .with(|call| call.memory.read(0x449, &mut geometry).unwrap());
         assert_eq!(geometry, [3, 80, 0, 0, 0x10, 0]);
 
         dos.launch_com(
@@ -109,16 +104,14 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
         assert_eq!(backing, [0x99, 0xee]);
 
         // BIOS bookkeeping alone does not program the hardware.
-        {
-            let mut machine = dos.cpu().context();
+        dos.cpu().with(|machine| {
             let memory = &mut machine.memory;
             memory.write(0x462, &[3]).unwrap();
             memory.write(0x456, &[79, 24]).unwrap();
             memory.write(0xbff9e, &[b'Z', 0x2f]).unwrap();
-        }
+        });
         assert_eq!(vga.borrow().screen(), screen);
-        {
-            let mut context = dos.cpu().context();
+        dos.cpu().with(|context| {
             context
                 .memory
                 .write(
@@ -134,7 +127,7 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
                 )
                 .unwrap();
             context.cpu.set_eip(0x100);
-        }
+        });
         assert_eq!(dos.cpu().run(30).await, ExecutionExit::BudgetExhausted);
         let page = vga.borrow().screen();
         assert_eq!(page.start_address, 0x3800);
