@@ -6,7 +6,7 @@ use crate::{
     interrupt::{return_result, DosContext},
     services::{
         buffers::transfer_count,
-        console::{read_line, write_console, write_cooked_character, CharacterOutput},
+        console::{read_line, Console},
     },
 };
 use relocade_machine::HookResult;
@@ -18,16 +18,17 @@ const CONSOLE_LINE_CAPACITY: u8 = 128;
 /// AH=3Fh: retain the source and DS:DX destination throughout a pending read.
 pub(in crate::services) async fn read(call: &mut DosContext) -> HookResult {
     let cpu = &call.execution.cpu;
-    let handle = cpu.bx();
     let offset = cpu.dx();
     let count = transfer_count(offset, cpu.cx());
     let segment = cpu.segment(Segment::Ds);
-    let source = call.process.files().readable_handle(handle);
+    let source = call.process.files().readable_handle(cpu.bx());
     let source = match source {
         Ok(source) => source,
         Err(error) => return return_result(call, Err(error)),
     };
-    let bytes = match read_bytes(call, &source, count).await {
+    let console = call.console();
+    let result = read_bytes(&console, &source, count).await;
+    let bytes = match result {
         Ok(bytes) => bytes,
         Err(error) => return return_result(call, Err(error)),
     };
@@ -42,7 +43,7 @@ pub(in crate::services) async fn read(call: &mut DosContext) -> HookResult {
 }
 
 async fn read_bytes(
-    call: &mut DosContext,
+    console: &Console<'_>,
     source: &Handle,
     count: usize,
 ) -> Result<Vec<u8>, DosError> {
@@ -68,27 +69,27 @@ async fn read_bytes(
                 if device.raw() {
                     let mut bytes = Vec::with_capacity(count);
                     while bytes.len() < count {
-                        bytes.push(call.dos.stdio().input.read_character().await);
+                        bytes.push(console.stdio.input.read_character().await);
                     }
                     return Ok(bytes);
                 }
-                if count != 0 && !call.dos.stdio().has_buffered_line() {
+                if count != 0 && !console.stdio.has_buffered_line() {
                     let mut bytes = read_line(
-                        call,
+                        &console.stdio.input,
                         source,
                         CONSOLE_LINE_CAPACITY,
-                        CharacterOutput::Console(stream),
+                        &console.stream(stream),
                     )
                     .await?;
                     let eof = bytes.first() == Some(&0x1a);
                     device.set_eof(eof);
-                    write_console(call, stream, b"\n");
+                    console.write(stream, b"\n");
                     if !eof {
                         bytes.push(b'\n');
-                        call.dos.stdio().buffer_line(bytes);
+                        console.stdio.buffer_line(bytes);
                     }
                 }
-                Ok(call.dos.stdio().take_line_bytes(count))
+                Ok(console.stdio.take_line_bytes(count))
             }
         },
     }
@@ -132,7 +133,7 @@ fn write_bytes(
             Device::Console(stream) => {
                 device.set_eof(false);
                 if device.raw() {
-                    write_console(call, stream, bytes);
+                    call.console().write(stream, bytes);
                     return Ok(bytes.len());
                 }
                 // Cooked writes stop before Ctrl-Z and count source bytes, including tabs.
@@ -141,7 +142,7 @@ fn write_bytes(
                     .position(|&byte| byte == 0x1a)
                     .unwrap_or(bytes.len());
                 for &byte in &bytes[..count] {
-                    write_cooked_character(call, CharacterOutput::Console(stream), byte);
+                    call.console().stream(stream).write_cooked(byte);
                 }
                 Ok(count)
             }
