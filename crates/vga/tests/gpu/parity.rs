@@ -118,7 +118,7 @@ async fn check_parity() {
         2,
         u32::from(u16::from_le_bytes([
             sequencer::CLOCKING_MODE,
-            1 << 5, // Screen off.
+            1 | (1 << 5), // Screen off, keeping the eight-dot clock.
         ])),
     );
     clock.set(common::boundary(2));

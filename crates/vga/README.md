@@ -1,6 +1,6 @@
 # VGA compatibility
 
-`Vga` owns four 64-KiB memory planes, registers and fixed timing on the execution
+`Vga` owns four 64-KiB memory planes, registers and programmable timing on the execution
 worker. BIOS and direct guest writes reach the same MMIO memory. Text decoding
 uses captured geometry, row stride, physical address mapping, 8/9-dot characters,
 font banks and heights, attribute/DAC colors, cursor shape/skew, underline,
@@ -17,15 +17,26 @@ Planar 16-color graphics combines one bit from each physical plane and uses the
 same Attribute Controller palette as text. Display start, stride, panning,
 repeated rows and split display share the common CRTC address calculation.
 
-The nominal raster is 25.175 MHz, 800 dots per line and 449 lines per frame,
-with 640×400 active dots and vertical retrace on lines 412–413 (about 70.086 Hz).
-Input Status 1 follows that raster, including during synchronous guest polling.
-Absolute oscillator arithmetic avoids accumulated timer rounding. Timing-register
-writes retain readback; arbitrary clock/retrace timing, display-state latching
-and CGA shifter layouts remain later milestones.
-Static display settings apply to the
-whole captured image. Historical scanout requires more precise device timing and
-captures that retain changes throughout the frame.
+The default raster is 25.175 MHz, 800 dots per line and 449 lines per frame
+(about 70.086 Hz). Guest clock selection, 8/9-dot width, clock division and CRTC
+counters determine Input Status 1 and capture deadlines. Mode 12h uses 800×525
+at about 59.94 Hz. The vertical-counter divider scales display height and split
+position independently of character height and repeated scanlines.
+
+`Timing` decodes the register fields and converts between time and oscillator
+ticks. `Raster` retains the current position, fractional progress and retrace
+count. `Vga::sync_to_clock()` updates that state and publishes the latest due
+capture before a guest write changes registers or VRAM. Timing changes replace
+the pending deadline; sequencer reset holds the raster, and the disconnected
+external or reserved clock selections stop it. Screen-off continues to generate
+retraces. Disabling CRTC sync suppresses the status pulse while internal sampling continues. Integer
+arithmetic carries fractional progress so repeated polling cannot accumulate drift.
+The shared clock measures session elapsed time, not CPU instruction cycles.
+
+Static display settings still apply to the whole captured image. Display-start
+latching and per-pixel blanking remain unsupported. Historical scanout requires
+captures that retain changes throughout the frame and, for accurate guest event
+times, machine-level timing.
 
 The sequencer, CRTC, Graphics Controller, Attribute Controller and six-bit DAC
 own their register storage and CPU access rules. Attribute writes alternate

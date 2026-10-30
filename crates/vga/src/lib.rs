@@ -1,15 +1,15 @@
-//! VGA device state, immutable display captures, and programmable text decoding.
+//! VGA hardware state, immutable captures and GPU text/graphics decoding.
 //!
-//! The device owns video memory, VGA register banks and fixed text-mode raster timing.
-//! Its programmable aperture is MMIO, independent of system RAM. BIOS bookkeeping
-//! belongs to the BIOS; direct port writes change hardware without changing that data.
-//! Text output follows captured fonts, geometry and colors. Graphics decoding and
-//! time-resolved raster effects are not implemented yet.
+//! The device owns physical VRAM, register banks and programmable raster timing.
+//! BIOS and direct guest programming use the same ports and memory aperture.
+//! Captures retain complete inputs sampled at retrace boundaries; historical
+//! scanout within a frame and CPU-cycle timing are separate fidelity milestones.
 #![forbid(unsafe_code)]
 
 mod capture;
 mod geometry;
 mod memory;
+mod raster;
 pub mod registers;
 #[cfg(feature = "renderer")]
 mod renderer;
@@ -17,9 +17,11 @@ mod snapshot;
 mod timing;
 
 pub use capture::{CapturedFrame, FrameSource};
-use futures_lite::future::yield_now;
+use event_listener::Event;
+use futures_lite::future::{or, yield_now};
 pub use geometry::DisplayGeometry;
 use memory::VideoMemory;
+use raster::Raster;
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, Device, TimerHandle};
 #[cfg(feature = "renderer")]
@@ -48,19 +50,22 @@ pub struct Vga<C = TimerHandle> {
     memory: VideoMemory,
     registers: Registers,
     clock: Rc<C>,
-    timing: Timing,
+    raster: Raster,
+    timing_changed: Event,
     frames: FrameSource,
 }
 
 impl<C: Clock> Vga<C> {
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Rc<C>) -> Self {
-        let timing = Timing::new(clock.now());
+        let registers = Registers::default();
+        let raster = Raster::new(clock.now(), Timing::new(&registers));
         Self {
             memory: VideoMemory::default(),
-            registers: Registers::default(),
+            registers,
             clock,
-            timing,
+            raster,
+            timing_changed: Event::new(),
             frames: FrameSource::new(),
         }
     }
@@ -78,7 +83,7 @@ impl<C: Clock> Vga<C> {
         DisplaySnapshot {
             planes: self.memory.snapshot(),
             registers: self.registers.clone(),
-            blink_on: self.timing.blink_on(),
+            blink_on: self.raster.blink_on(),
             #[cfg(feature = "renderer")]
             changes: self.frames.current_capture().map(|previous| MemoryChanges {
                 baseline: previous.display.planes.clone(),
@@ -87,36 +92,44 @@ impl<C: Clock> Vga<C> {
         }
     }
 
-    /// Capture any completed boundary before a later guest access changes its state.
-    fn advance(&mut self) {
-        if self.timing.advance_to(self.clock.now()) {
+    /// Bring raster state up to the shared clock and publish the latest due capture.
+    /// Guest writes call this first, while the preceding registers and VRAM still apply.
+    fn sync_to_clock(&mut self) {
+        if let Some(time) = self.raster.update_to(self.clock.now()) {
             let display = self.snapshot();
             // Only publication starts a new dirty interval. Immediate snapshots
             // must leave writes visible to the next published capture.
             #[cfg(feature = "renderer")]
             self.memory.clear_changes();
-            self.frames.capture(CapturedFrame {
+            self.frames.publish(CapturedFrame {
                 display,
-                time: self.timing.completed_at(),
-                sequence: self.timing.completed_frames,
+                time,
+                sequence: self.raster.retrace_count,
             });
         }
     }
 }
 
 impl<C: Clock> Device for Vga<C> {
-    /// Capture text while the CPU is busy, idle, or awaiting a service.
+    /// Capture display inputs while the CPU is busy, idle, or awaiting a service.
     /// The runner polls this activity alongside CPU execution. No device borrow
     /// spans a wait; ordinary Rust yielding handles a timer that is already late.
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
         loop {
-            let deadline = {
+            let (deadline, changed) = {
                 let mut device = device.borrow_mut();
-                device.advance();
-                device.timing.next_frame_at()
+                device.sync_to_clock();
+                (
+                    device.raster.next_retrace_at(),
+                    device.timing_changed.listen(),
+                )
             };
-            clock.wait_until(deadline).await;
+            if let Some(deadline) = deadline {
+                or(clock.wait_until(deadline), changed).await;
+            } else {
+                changed.await;
+            }
             yield_now().await;
         }
     }
@@ -134,7 +147,7 @@ impl<C: Clock> Device for Vga<C> {
     }
 
     fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
-        self.advance();
+        self.sync_to_clock();
         if !self.registers.video_memory_enabled() {
             return;
         }
@@ -145,22 +158,23 @@ impl<C: Clock> Device for Vga<C> {
     }
 
     fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
-        self.advance();
+        self.sync_to_clock();
         let mut value = [0; 4];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
             let port = port.wrapping_add(index as u16);
-            *byte = self
-                .registers
-                .read_port(port, self.timing.status(self.clock.now()));
+            *byte = self.registers.read_port(port, self.raster.input_status_1());
         }
         u32::from_le_bytes(value)
     }
 
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
-        self.advance();
+        self.sync_to_clock();
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             self.registers
                 .write_port(port.wrapping_add(index as u16), *byte);
+        }
+        if self.raster.set_timing(Timing::new(&self.registers)) {
+            self.timing_changed.notify(usize::MAX);
         }
     }
 }

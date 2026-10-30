@@ -20,7 +20,7 @@ async fn check_pixels() {
         .flat_map(|y| (0..640).map(move |x| ((x ^ (x / 16) ^ (y * 3)) & 15) as u8))
         .collect();
     write_pixels(&mut vga, &indices);
-    clock.set(common::boundary(1));
+    clock.set(common::dots(490 * 800, 25_175_000)); // 640×480 retrace.
     vga.read_port(0x3da, 1);
     let source = vga.frame_source();
     let first = source.current_capture().unwrap();
@@ -34,7 +34,7 @@ async fn check_pixels() {
     vga.read_mmio(0xa0000 + 12345, 1);
     vga.write_mmio(0xa0000 + 12345, 1, 3);
     indices[12345 * 8 + 2] = 3;
-    clock.set(common::boundary(2));
+    clock.set(common::dots((490 + 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     gpu.expect(
         &source.current_capture().unwrap(),
@@ -100,6 +100,16 @@ async fn check_addressing() {
         &common::fixture::capture(&vga),
         [16, 4],
         &expected(&[15..31, 0..16, 0..16, 32..48]),
+    )
+    .await;
+
+    // Dividing the vertical counter doubles the display and split positions,
+    // while the row-scan counter still advances once per physical scanline.
+    indexed(&mut vga, 0x3d4, 0x17, 0xe7);
+    gpu.expect(
+        &common::fixture::capture(&vga),
+        [16, 4],
+        &expected(&[15..31, 0..16, 32..48, 64..80]),
     )
     .await;
 
