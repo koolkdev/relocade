@@ -1,6 +1,8 @@
 #![cfg(feature = "renderer")]
 
 mod common;
+#[path = "gpu/indexed256.rs"]
+mod indexed256;
 #[path = "gpu/parity.rs"]
 mod parity;
 #[path = "gpu/recording.rs"]

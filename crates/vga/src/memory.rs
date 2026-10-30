@@ -50,7 +50,9 @@ impl VideoMemory {
             14
         };
         let offset = if registers.sequencer.chain_four() {
-            offset & !3
+            // Chain-4 uses CPU A0/A1 for plane selection. The plane address
+            // receives A14/A15 on those pins, matching CRTC doubleword output.
+            (offset & !3) | ((offset >> 14) & 3)
         } else if registers.graphics.chain_odd_even() {
             // Only the 128-KiB aperture exposes A16. The IBM VGA target has
             // no programmable page-select input for the smaller apertures.

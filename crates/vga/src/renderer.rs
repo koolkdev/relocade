@@ -18,7 +18,7 @@ pub struct VgaImage {
     pub sequence: u64,
 }
 
-/// GPU text decoding recorded into a caller-owned command encoder.
+/// GPU VGA decoding recorded into a caller-owned command encoder.
 /// Owns captured-input resources and one reusable output image. Accesses no live
 /// VGA state and owns no host output pass, surface, worker, or submission schedule.
 pub struct VgaRenderer {
@@ -52,11 +52,11 @@ impl VgaRenderer {
         }
         let image = Image::new(device, [640, 200], (5, 12))?;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("VGA text decoding"),
-            source: wgpu::ShaderSource::Wgsl(shaders::TEXT.into()),
+            label: Some("VGA decoding"),
+            source: wgpu::ShaderSource::Wgsl(shaders::DISPLAY.into()),
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("VGA text decoding"),
+            label: Some("VGA decoding"),
             layout: None,
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -98,7 +98,7 @@ impl VgaRenderer {
         let aspect = geometry.pixel_aspect_ratio();
         if self.image.size() != geometry.size || self.image.pixel_aspect_ratio() != aspect {
             self.image = Image::new(&self.device, geometry.size, aspect)
-                .expect("VGA text dimensions fit the validated device limits");
+                .expect("VGA dimensions fit the validated device limits");
         }
         self.memory.upload(queue, &capture.display);
         self.state.upload(queue, &capture.display, geometry);
@@ -118,7 +118,7 @@ impl VgaRenderer {
         let frame = self.frame.as_ref()?;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("VGA text decoding"),
+                label: Some("VGA decoding"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: self.image.view(),
                     depth_slice: None,

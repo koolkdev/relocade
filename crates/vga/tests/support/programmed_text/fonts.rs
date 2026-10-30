@@ -74,4 +74,23 @@ pub(super) fn append(cases: &mut Vec<Case>) {
         size: [8, 16],
         pixels: vec![(7, 0, GRAY), (0, 7, BLACK), (0, 15, GRAY)],
     });
+
+    let mut vga = text_device();
+    font(&mut vga, 0, b'A', &[0x80, 0x40]);
+    set_cell(&mut vga, 0, b'A', 7);
+    geometry(&mut vga, 1, 3, 2);
+    indexed(&mut vga, 0x3d4, 9, 0x81);
+    cases.push(Case {
+        name: "partial doubled row retains physical text scanlines",
+        display: vga.snapshot(),
+        size: [8, 3],
+        pixels: vec![
+            (0, 0, GRAY),
+            (1, 0, BLACK),
+            (0, 1, GRAY),
+            (1, 1, BLACK),
+            (0, 2, BLACK),
+            (1, 2, GRAY),
+        ],
+    });
 }

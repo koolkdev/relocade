@@ -93,9 +93,11 @@ impl Text {
         let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
             | (u32::from(c[crtc::OVERFLOW as usize] & 0x10) << 4)
             | (u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x40) << 3);
-        // Keep physical rows when a split interrupts a repeated pair. Otherwise
-        // identical scan-doubled rows can share one output row and pixel aspect.
-        let output_step = if scan_repeat == 2 && line_compare < lines && line_compare % 2 == 0 {
+        // Keep physical rows when a split interrupts a pair or the display ends
+        // with half a pair. Only complete pairs have equal vertical weights.
+        let output_step = if scan_repeat == 2
+            && (lines % 2 == 0 || (line_compare < lines && line_compare % 2 == 0))
+        {
             1
         } else {
             scan_repeat
