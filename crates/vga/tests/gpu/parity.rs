@@ -16,7 +16,8 @@ async fn compare(
 ) -> Vec<u8> {
     let software = software::rasterize(&capture);
     let mut encoder = device.create_command_encoder(&Default::default());
-    let frame = renderer.encode(queue, &mut encoder, &capture);
+    renderer.upload(queue, &capture);
+    let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
     let pixels = read_pixels(device, queue, frame.image.texture()).await;
     assert_eq!(pixels.len(), software.pixels.len());
@@ -137,7 +138,8 @@ async fn check_parity() {
     // The decoder can be destroyed: different attachment sizes still use its
     // retained GPU image. Resizing cannot request a second VGA decode.
     let mut encoder = device.create_command_encoder(&Default::default());
-    let image = renderer.encode(&queue, &mut encoder, &page).image;
+    renderer.upload(&queue, &page);
+    let image = renderer.encode(&mut encoder).unwrap().image;
     queue.submit([encoder.finish()]);
     drop(renderer);
     let mut drawing = Renderer::new(device.clone(), Image::FORMAT).unwrap();
@@ -195,7 +197,8 @@ async fn check_programmed_text() {
             sequence: 1,
         };
         let mut encoder = device.create_command_encoder(&Default::default());
-        let frame = renderer.encode(&queue, &mut encoder, &capture);
+        renderer.upload(&queue, &capture);
+        let frame = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
         assert_eq!(frame.image.size(), case.size, "{}", case.name);
         let pixels = read_pixels(&device, &queue, frame.image.texture()).await;
