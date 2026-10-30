@@ -8,13 +8,13 @@
 //! between synchronous Wasm calls.
 //!
 //! The CPU keeps its machine in one allocation and retains each pending host call.
-//! Services borrow it through ordinary async calls and keep local values across
-//! waits. CPU views borrow the backend directly. Environment state is independent
-//! of the backend's callback state.
+//! [`CallContext`] owns short CPU access and independent memory/I/O resources.
+//! The same Rust future and local values remain alive across pending awaits.
+//! Environment state is independent of backend state.
 //!
-//! A pending service survives dropping its run waiter. Dropping the CPU ends
+//! A pending call survives dropping its run waiter. Dropping the CPU ends
 //! the call chain and destroys the machine without undoing completed effects.
-//! A suspended service excludes embedding access to CPU and environment state;
+//! A pending host call excludes embedding access to CPU and environment state;
 //! independent input handles and shared guest memory remain accessible.
 //!
 //! ```
@@ -34,6 +34,8 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod access;
+mod call;
 mod code;
 mod context;
 mod dispatch;
@@ -46,11 +48,12 @@ mod memory;
 pub mod real_mode_interrupt;
 
 use crate::{CpuConfig, IoBus, Memory};
+pub use access::{CallContext, InvocationAccess};
+use call::Call;
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-use futures_util::future::LocalBoxFuture;
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
@@ -63,10 +66,10 @@ use std::{
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
-/// Executes one guest and owns its machine, registered services and suspended calls.
+/// Executes one guest and owns its machine, registered hooks and suspended calls.
 pub struct Cpu<T: 'static = ()> {
     machine: Rc<RefCell<Machine<T>>>,
-    call: Option<LocalBoxFuture<'static, HookResult>>,
+    active_call: Option<Call<T>>,
     memory: Memory,
 }
 
@@ -90,7 +93,7 @@ impl<T: 'static> Cpu<T> {
         };
         Ok(Self {
             machine: Rc::new(RefCell::new(machine)),
-            call: None,
+            active_call: None,
             memory,
         })
     }
@@ -106,7 +109,7 @@ impl<T: 'static> Cpu<T> {
     /// execution belongs to `run`.
     ///
     /// # Panics
-    /// Panics if a service is suspended. Complete it before installing.
+    /// Panics while a host call is pending.
     #[allow(
         clippy::await_holding_refcell_ref,
         reason = "Installation excludes guest execution and pending host calls."
@@ -142,7 +145,7 @@ impl<T: 'static> Cpu<T> {
     /// ```
     ///
     /// # Panics
-    /// Panics if a service is suspended. Complete it to regain access.
+    /// Panics while a host call is pending.
     pub fn with<R>(&mut self, operation: impl FnOnce(&mut CpuContext<'_, T>) -> R) -> R {
         let mut machine = self.machine_mut();
         let mut context = machine.context();
@@ -157,8 +160,8 @@ impl<T: 'static> Cpu<T> {
 
     fn machine_mut(&mut self) -> RefMut<'_, Machine<T>> {
         assert!(
-            self.call.is_none(),
-            "host service is suspended; complete it before accessing the machine"
+            self.active_call.is_none(),
+            "host call is suspended; complete it before accessing the machine"
         );
         self.machine.borrow_mut()
     }

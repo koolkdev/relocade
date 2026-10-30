@@ -90,18 +90,21 @@ pub async fn vga_workers() -> Result<(), String> {
         .unwrap();
         cpu.install_hooks([
             Hook::<Input>::new(0x200, async |call| {
-                // The local bus and mapped view remain usable across a service await.
-                let io = call.io;
-                let memory = &mut call.memory;
-                io.write_port(0x3d4, 2, 0x060b);
-                assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
-                call.state.waiting.take().unwrap().send(()).unwrap();
-                let input = &mut call.state.incoming;
-                let value = poll_fn(|context| input.poll_unpin(context)).await.unwrap();
-                assert_eq!(io.read_port(0x3d4, 2), 0x060b);
-                memory.write_u8(0xb8022, b'C').unwrap();
-                call.cpu.set_al(value);
-                call.cpu.set_eip(0x300);
+                call.with(|context| {
+                    context.io.write_port(0x3d4, 2, 0x060b);
+                    assert_eq!(context.memory.read_u16(0xb8020).unwrap(), 0x1e41);
+                    context.state.waiting.take().unwrap().send(()).unwrap();
+                });
+                let value =
+                    poll_fn(|cx| call.with(|context| context.state.incoming.poll_unpin(cx)))
+                        .await
+                        .unwrap();
+                call.with(|context| {
+                    assert_eq!(context.io.read_port(0x3d4, 2), 0x060b);
+                    context.memory.write_u8(0xb8022, b'C').unwrap();
+                    context.cpu.set_al(value);
+                    context.cpu.set_eip(0x300);
+                });
                 HookResult::Continue
             }),
             Hook::<Input>::new(0x400, async |_call| {

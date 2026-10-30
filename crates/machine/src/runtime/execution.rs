@@ -1,10 +1,9 @@
 //! Execution of guest code and retained host calls on a stable machine owner.
 
-use super::{Cpu, HookResult};
+use super::{Call, Cpu, HookResult};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::{
     future::poll_fn,
-    rc::Rc,
     task::{ready, Poll},
 };
 
@@ -22,7 +21,7 @@ impl<T: 'static> Cpu<T> {
     ///
     /// Connected devices are polled at the start of each nonzero run
     /// and when a host service completes and continues guest dispatch, subject
-    /// to IF. Pending borrowed host services finish before that interrupt check.
+    /// to IF. Pending host services finish before that interrupt check.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         if instruction_budget == 0 {
             return ExecutionExit::BudgetExhausted;
@@ -30,10 +29,10 @@ impl<T: 'static> Cpu<T> {
         let mut budget = Some(instruction_budget);
         poll_fn(|cx| {
             loop {
-                if let Some(call) = &mut self.call {
-                    let result = ready!(call.as_mut().poll(cx));
-                    // Release the call's machine borrow before guest execution resumes.
-                    self.call = None;
+                if let Some(call) = &mut self.active_call {
+                    let result = ready!(call.poll(cx));
+                    // Release the invocation before guest execution resumes.
+                    self.active_call = None;
                     if let HookResult::Exit(exit) = result {
                         return Poll::Ready(exit);
                     }
@@ -42,13 +41,14 @@ impl<T: 'static> Cpu<T> {
                 let exit = self.machine.borrow_mut().dispatch(budget.take());
                 match exit {
                     ExecutionExit::Host(HostExit::Call { address }) => {
-                        let machine = Rc::clone(&self.machine);
-                        #[allow(
-                            clippy::await_holding_refcell_ref,
-                            reason = "Borrowed hooks exclude guest execution for the whole call."
-                        )]
-                        let call = async move { machine.borrow_mut().call_host(address).await };
-                        self.call = Some(Box::pin(call));
+                        let handler = self
+                            .machine
+                            .borrow()
+                            .hooks
+                            .get(&address)
+                            .expect("registered host entry")
+                            .clone();
+                        self.active_call = Some(Call::start(&self.machine, handler));
                     }
                     exit => return Poll::Ready(exit),
                 }
