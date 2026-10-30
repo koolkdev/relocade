@@ -7,6 +7,8 @@ const PALETTE_BYTES: usize = 256 * 3;
 
 pub(super) struct GpuState {
     buffer: wgpu::Buffer,
+    previous_header: Option<[u8; HEADER_BYTES]>,
+    previous_palette: Option<[[u8; 3]; 256]>,
     pub binding: wgpu::BindGroup,
 }
 
@@ -36,7 +38,12 @@ impl GpuState {
                 },
             ],
         });
-        Self { buffer, binding }
+        Self {
+            buffer,
+            previous_header: None,
+            previous_palette: None,
+            binding,
+        }
     }
 
     pub fn upload(
@@ -45,12 +52,16 @@ impl GpuState {
         snapshot: &DisplaySnapshot,
         geometry: DisplayGeometry,
     ) {
-        queue.write_buffer(&self.buffer, 0, &header(snapshot, geometry));
-        queue.write_buffer(
-            &self.buffer,
-            HEADER_BYTES as u64,
-            snapshot.registers.dac.colors.as_flattened(),
-        );
+        let header = header(snapshot, geometry);
+        if self.previous_header.as_ref() != Some(&header) {
+            queue.write_buffer(&self.buffer, 0, &header);
+            self.previous_header = Some(header);
+        }
+        let palette = &snapshot.registers.dac.colors;
+        if self.previous_palette.as_ref() != Some(palette) {
+            queue.write_buffer(&self.buffer, HEADER_BYTES as u64, palette.as_flattened());
+            self.previous_palette = Some(*palette);
+        }
     }
 }
 
