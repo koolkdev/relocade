@@ -45,6 +45,5 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let foreground = cell_attribute & select(15u, 7u, dual_font);
     let background = (cell_attribute >> 4u) & select(15u, 7u, blinking);
     let color = select(background, foreground, foreground_pixel);
-    let colors = array(input.colors0, input.colors1, input.colors2, input.colors3);
-    return colors[color / 4u][color % 4u];
+    return palette_color(input, color);
 }

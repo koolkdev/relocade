@@ -2,16 +2,7 @@
 //! Kept independent of BIOS mode tables so those tables are tested separately.
 use relocade_machine::Device;
 
-pub fn indexed(vga: &mut impl Device, port: u16, index: u8, value: u8) {
-    vga.write_port(port, 2, u32::from(u16::from_le_bytes([index, value])));
-}
-
-pub fn attribute(vga: &mut impl Device, index: u8, value: u8) {
-    vga.read_port(0x3da, 1);
-    vga.write_port(0x3c0, 1, u32::from(index));
-    vga.write_port(0x3c0, 1, u32::from(value));
-    vga.write_port(0x3c0, 1, 0x20);
-}
+use super::registers::{attribute, indexed};
 
 pub fn program(vga: &mut impl Device) {
     vga.write_port(0x3c2, 1, 0x63);
@@ -59,13 +50,6 @@ pub fn program(vga: &mut impl Device) {
     }
     vga.write_port(0x3c6, 1, 0xff);
     indexed(vga, 0x3c4, 0, 3);
-}
-
-pub fn palette(vga: &mut impl Device, index: u8, rgb: [u8; 3]) {
-    vga.write_port(0x3c8, 1, u32::from(index));
-    for component in rgb {
-        vga.write_port(0x3c9, 1, u32::from(component));
-    }
 }
 
 /// Unchain the CPU aperture and switch the CRTC to byte addresses. Four

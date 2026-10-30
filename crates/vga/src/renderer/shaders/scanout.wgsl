@@ -26,6 +26,9 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     let graphics_mode = (attribute_mode & 1u) != 0u;
     let indexed256 = graphics_mode && (attribute_mode & 0x40u) != 0u
         && (graphics(5u) & 0x40u) != 0u;
+    // GC shift bit 5 selects the separate CGA shifter, not four-plane pixels.
+    let planar16 = graphics_mode && (attribute_mode & 0x40u) == 0u
+        && (graphics(5u) & 0x60u) == 0u;
     let glyph_width = select(9u, 8u, (clocking & 1u) != 0u);
 
     let line_compare = crtc(0x18u) | ((crtc(7u) & 0x10u) << 4u)
@@ -34,7 +37,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     var pel_pan = attribute_reg(0x13u);
     if indexed256 {
         pel_pan = (pel_pan & 7u) / 2u;
-    } else if glyph_width == 9u {
+    } else if !graphics_mode && glyph_width == 9u {
         pel_pan = select(0u, pel_pan + 1u, pel_pan < 8u);
     } else {
         pel_pan &= 7u;
@@ -55,7 +58,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
         + (((font_maps >> 4u) & 1u) * 0x2000u)) & font_mask;
 
     let blanked = (clocking & 0x20u) != 0u || (state.attribute_address & 0x20u) == 0u
-        || (graphics_mode && !indexed256)
+        || (graphics_mode && !indexed256 && !planar16)
         || (!graphics_mode && (graphics(6u) & 1u) != 0u);
     var colors: array<vec4<u32>, 4>;
     for (var color = 0u; color < 16u; color++) {
@@ -87,6 +90,9 @@ fn fragment(input: DisplayVertex) -> @location(0) vec4<f32> {
     let line = display_scanline(input, pixel.y);
     if input.display.w != 0u {
         return unpack4x8unorm(indexed256_color(input, line, pixel.x));
+    }
+    if (input.display.x & 1u) != 0u {
+        return unpack4x8unorm(planar16_color(input, line, pixel.x));
     }
     return unpack4x8unorm(text_color(input, line, pixel.x));
 }

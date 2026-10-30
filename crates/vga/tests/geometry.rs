@@ -52,30 +52,55 @@ fn doubled_rows_share_storage_unless_a_split_separates_them() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn graphics_geometry_preserves_partial_repeats_and_row_address_changes() {
+    for planar in [false, true] {
+        let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+        if planar {
+            common::support::planar16::program(&mut vga);
+        } else {
+            common::support::indexed256::program(&mut vga);
+        }
+        let width = if planar { 640 } else { 320 };
+        // Four row scans per memory row, eight visible scanlines.
+        crtc(&mut vga, 7, 0x10);
+        crtc(&mut vga, 9, 0x43);
+        crtc(&mut vga, 0x12, 7);
+        for (preset, split, mode, last, expected_height, expected_step) in [
+            (0, 0xff, 0xa3, 7, 2, 4),
+            (1, 0xff, 0xa3, 7, 8, 1), // Preset starts partway through a repeated row.
+            (0, 2, 0xa3, 7, 8, 1),    // Split cuts a group of four.
+            (0, 3, 0xa3, 7, 2, 4),    // Split lies exactly between groups.
+            (0, 0xff, 0xa1, 7, 8, 1), // Row scan substitutes address bit 14.
+            (0, 0xff, 0xa3, 5, 6, 1), // A partial final group has a different height.
+        ] {
+            crtc(&mut vga, 7, 0); // Keep the line compare in the low eight bits.
+            crtc(&mut vga, 9, 3);
+            crtc(&mut vga, 8, preset);
+            crtc(&mut vga, 0x18, split);
+            crtc(&mut vga, 0x17, mode);
+            crtc(&mut vga, 0x12, last);
+            let geometry = vga.snapshot().geometry();
+            assert_eq!(geometry.size, [width, expected_height]);
+            assert_eq!(geometry.scanline_step, expected_step);
+        }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn planar_geometry_uses_character_clocks_and_double_scanning() {
     let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
-    common::support::indexed256::program(&mut vga);
-    assert_eq!(vga.snapshot().geometry().size, [320, 200]);
-    assert_eq!(vga.snapshot().geometry().pixel_aspect_ratio(), (5, 6));
-    // Four row scans per memory row, eight visible scanlines.
-    crtc(&mut vga, 7, 0x10);
-    crtc(&mut vga, 9, 0x43);
-    crtc(&mut vga, 0x12, 7);
-    for (preset, split, mode, last, expected_height, expected_step) in [
-        (0, 0xff, 0xa3, 7, 2, 4),
-        (1, 0xff, 0xa3, 7, 8, 1), // Preset starts partway through a repeated row.
-        (0, 2, 0xa3, 7, 8, 1),    // Split cuts a group of four.
-        (0, 3, 0xa3, 7, 2, 4),    // Split lies exactly between groups.
-        (0, 0xff, 0xa1, 7, 8, 1), // Row scan substitutes address bit 14.
-        (0, 0xff, 0xa3, 5, 6, 1), // A partial final group has a different height.
-    ] {
-        crtc(&mut vga, 7, 0); // Keep the line compare in the low eight bits.
-        crtc(&mut vga, 9, 3);
-        crtc(&mut vga, 8, preset);
-        crtc(&mut vga, 0x18, split);
-        crtc(&mut vga, 0x17, mode);
-        crtc(&mut vga, 0x12, last);
+    common::support::planar16::program(&mut vga);
+    assert_eq!(vga.snapshot().geometry().size, [640, 480]);
+    assert_eq!(vga.snapshot().geometry().pixel_aspect_ratio(), (1, 1));
+    for (index, value) in [(1, 39), (7, 0x1f), (9, 0xc0), (0x12, 0x8f)] {
+        crtc(&mut vga, index, value);
+    }
+    // Divide Dot Clock changes the oscillator rate, not the pixel count.
+    for clocking in [1, 9] {
+        common::support::registers::indexed(&mut vga, 0x3c4, 1, clocking);
         let geometry = vga.snapshot().geometry();
-        assert_eq!(geometry.size, [320, expected_height]);
-        assert_eq!(geometry.scanline_step, expected_step);
+        assert_eq!(geometry.size, [320, 200]);
+        assert_eq!(geometry.scanline_step, 2);
+        assert_eq!(geometry.pixel_aspect_ratio(), (5, 6));
     }
 }

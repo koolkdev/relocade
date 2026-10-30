@@ -13,12 +13,16 @@ Mode X guests can program 320×200 or 320×240 output from the same physical pla
 The decoder follows the captured registers, including
 when guest software changes CPU memory routing independently of display settings.
 
+Planar 16-color graphics combines one bit from each physical plane and uses the
+same Attribute Controller palette as text. Display start, stride, panning,
+repeated rows and split display share the common CRTC address calculation.
+
 The nominal raster is 25.175 MHz, 800 dots per line and 449 lines per frame,
 with 640×400 active dots and vertical retrace on lines 412–413 (about 70.086 Hz).
 Input Status 1 follows that raster, including during synchronous guest polling.
 Absolute oscillator arithmetic avoids accumulated timer rounding. Timing-register
 writes retain readback; arbitrary clock/retrace timing, display-state latching
-and planar 16-color graphics remain later milestones.
+and CGA shifter layouts remain later milestones.
 Static display settings apply to the
 whole captured image. Historical scanout requires more precise device timing and
 captures that retain changes throughout the frame.
@@ -97,10 +101,11 @@ queued GPU contents, otherwise it restores the affected plane.
 and the unchanged DAC palette into one uniform buffer. The raw Attribute
 Controller address byte is preserved; the shader tests its display-enable bit.
 The shader interprets memory addresses, font banks, attributes and colors directly.
-`shaders/scanout` dispatches pixels to `text` or `indexed256`; both use the shared
-scanline and physical-address logic in `addressing` and the DAC lookup in `palette`.
-Its vertex stage decodes frame-constant settings and the 16 text colors, passing them flat to
-fragments in the same draw. There is no preparation pass or intermediate GPU
+`shaders/scanout` dispatches pixels to `text`, `indexed256` or `planar16`. All use
+the scanline and physical-address logic in `addressing` and the DAC lookup in
+`palette`. Its vertex stage decodes frame-constant settings and the 16 attribute
+colors, passing them flat to fragments in the same draw. There is no preparation
+pass or intermediate GPU
 buffer. Further graphics decoders can read the same physical
 buffer without mode-specific upload tracking or application changes.
 The generic `relocade-renderer` owns image storage and attachment drawing and knows
@@ -222,8 +227,11 @@ blink, blanking and page-selection expectations.
 Graphics checks compare all 64,000 pixels against the guest's linear byte pattern,
 including CPU address-bit transitions. Focused fixtures cover display start and
 stride, panning across plane groups, split and partial repeated rows, address wrap,
-palette changes, skipped captures and retained text/graphics captures. Mode X
-checks select all four planes, flip through the 64-KiB address space, scroll a
+palette changes, skipped captures and retained text/graphics captures. Planar
+checks cover all 640×480 pixels, masked write-mode-two updates, attribute palette
+changes and shared scrolling/split behavior. Unsupported CGA shifter settings
+still blank the image. Mode X checks select all four planes, flip through the
+64-KiB address space, scroll a
 wider virtual display and apply sparse writes through the ordinary page uploads.
 Native DOS checks exercise INT 10h mode setup, memory preservation and register
 restoration. A guest-to-GPU check runs COM programs that set mode 13h, write the

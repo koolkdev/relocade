@@ -1,5 +1,5 @@
 //! GPU comparison and distinctive palette values for graphics-layout checks.
-use super::{common::support::indexed256::palette, read_pixels};
+use super::{common::support::registers::palette, read_pixels};
 use relocade_machine::Device;
 use relocade_vga::{CapturedFrame, VgaRenderer};
 
