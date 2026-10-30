@@ -11,6 +11,7 @@
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. CON output is buffered as guest
 //! bytes and also updates the VGA text display through BIOS services, including input echo.
+//! Graphics-mode console bytes remain buffered but do not draw glyphs yet.
 //! AH=06h polls stdin without echo or writes one byte to stdout.
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
@@ -70,7 +71,7 @@
 //! [`Dos::new`] registers VGA with that runner and shares its clock. [`Dos::run`]
 //! returns the current program's exit code; registered devices keep running while
 //! the main session awaits input or another program. [`Dos::frame_source`] exposes
-//! captured text across launches. The caller chooses the rendering implementation
+//! captured display state across launches. The caller chooses the rendering implementation
 //! and its worker, scheduling and presentation lifetime.
 //! Direct CPU control remains available through [`Dos::cpu`].
 //! The [native/browser fixture](https://github.com/koolkdev/relocade/blob/main/tests/browser/src/dos.rs)

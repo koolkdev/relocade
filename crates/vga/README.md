@@ -37,9 +37,14 @@ target does not implement legacy EGA page-selection inputs or 64-KiB chaining.
 
 Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
 physical map and device bus. The Graphics Controller selects the active aperture;
-reads outside it return FF and writes are ignored. BIOS text-mode setup restores
-font memory and the shared register preset through guest-visible ports and memory
-accesses before clearing text pages. Rendering has no BIOS-mode-number dispatch.
+reads outside it return FF and writes are ignored. BIOS mode 03h restores font
+memory and the shared text preset. Mode 13h programs the standard 320×200 layout
+and 256-color palette, then clears the 64-KiB A0000 aperture. Both use guest-visible
+ports and memory accesses and honor AL bit 7 to preserve video memory. AH=0Fh
+reports the BIOS mode and geometry; rendering has no BIOS-mode-number dispatch.
+Graphics guests write pixels and DAC colors directly. BIOS pixel/glyph services
+in graphics mode remain unsupported; DOS console bytes are still buffered but
+do not draw graphics-mode text.
 
 At each serviced refresh boundary the device captures a complete `DisplaySnapshot`:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
@@ -216,6 +221,10 @@ Graphics checks compare all 64,000 pixels against the guest's linear byte patter
 including CPU address-bit transitions. Focused fixtures cover display start and
 stride, panning across plane groups, split and partial repeated rows, address wrap,
 palette changes, skipped captures and retained text/graphics captures.
+Native DOS checks exercise INT 10h mode setup, memory preservation and register
+restoration. A guest-to-GPU check runs COM programs that set mode 13h, write the
+graphics aperture and DAC, restore text mode, and replay the retained graphics
+capture after the session ends.
 
 Recording checks combine decoding and drawing in one caller submission, discard
 and retry an update, and resize a retained GPU image after dropping its decoder.

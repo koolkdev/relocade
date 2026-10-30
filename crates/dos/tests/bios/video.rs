@@ -3,9 +3,9 @@ use crate::common::inspection::Cell;
 use relocade_dos::Dos;
 use relocade_x86::{CpuState, ExecutionExit};
 
-const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
+pub(super) const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
 
-fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
+pub(super) fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
         let cpu = &mut machine.cpu;
