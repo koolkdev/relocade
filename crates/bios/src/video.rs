@@ -1,7 +1,8 @@
-//! INT 10h mode setup and text services. BIOS bookkeeping never selects rendering.
+//! INT 10h services. BIOS bookkeeping never selects rendering.
 
 mod modes;
 mod palette;
+mod pixels;
 mod presets;
 
 pub(super) use modes::{set_mode, COLOR_TEXT_80X25};
@@ -46,6 +47,16 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             call.cpu
                 .set_ax(u16::from_le_bytes([mode | preserved, columns]));
             call.cpu.set_bh(active);
+        }
+        0x0c | 0x0d => {
+            let Some(pixel) = pixels::Pixel::locate(&call.memory, page, cx, dx) else {
+                return unsupported(call);
+            };
+            if function == 0x0c {
+                pixel.write(&mut call.memory, call.io, al);
+            } else {
+                call.cpu.set_al(pixel.read(&call.memory, call.io));
+            }
         }
         // The remaining services operate on text pages.
         _ if !screen::is_text_mode(&call.memory) => return unsupported(call),
@@ -104,6 +115,11 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
 
 fn write_indexed(io: &IoBus, port: u16, register: u8, value: u8) {
     io.write_port(port, 2, u32::from(u16::from_le_bytes([register, value])));
+}
+
+fn read_indexed(io: &IoBus, port: u16, register: u8) -> u8 {
+    io.write_port(port, 1, u32::from(register));
+    io.read_port(port + 1, 1) as u8
 }
 
 pub(super) fn write_crtc_word(io: &IoBus, register: u8, value: u16) {

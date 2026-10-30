@@ -3,9 +3,11 @@
 //! INT 10h sets text mode 03h with output, cursors, pages and scrolling.
 //! Graphics modes 0Dh, 12h and 13h program VGA for direct guest pixel and palette writes.
 //! Mode setting honors AL bit 7 to preserve video memory; AH=0Fh reports the
-//! mode, that flag, character columns and active page. Other video services in
-//! graphics mode return AH=86h with carry set. [`write_text`] ignores graphics
-//! output until BIOS glyph drawing in graphics modes is implemented.
+//! mode, that flag, character columns and active page. AH=0Ch/0Dh write/read
+//! graphics pixels, with XOR in planar modes and eight pages in mode 0Dh.
+//! Unsupported video services or pixel coordinates/pages return AH=86h with
+//! carry set. [`write_text`] ignores graphics output until BIOS glyph drawing
+//! in graphics modes is implemented.
 //! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared host keyboard.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. A machine timer must update these fields.
