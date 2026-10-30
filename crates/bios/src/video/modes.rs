@@ -1,8 +1,8 @@
 //! Firmware mode transitions through the same ports and MMIO used by guests.
 use super::{
-    fonts, presets, write_crtc_word, write_indexed, ACTIVE_PAGE, COLUMNS, CRTC_PORT, CURSORS,
-    CURSOR_SHAPE, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
-    VIDEO_SWITCHES,
+    fonts, graphics, palette, presets, write_crtc_word, write_indexed, ACTIVE_PAGE, COLUMNS,
+    CRTC_PORT, CURSORS, CURSOR_SHAPE, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET, PAGE_SIZE,
+    VIDEO_CONTROL, VIDEO_SWITCHES,
 };
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
@@ -12,6 +12,10 @@ use relocade_vga::{
 
 // BIOS mode numbers accepted by INT 10h/AH=00h.
 pub(crate) const COLOR_TEXT_80X25: u8 = 0x03;
+pub(super) const GRAPHICS_320X200_4: u8 = 0x04;
+// VGA has identical output for the original CGA color/burst-disabled pair.
+pub(super) const GRAPHICS_320X200_4_ALT: u8 = 0x05;
+pub(super) const GRAPHICS_640X200_2: u8 = 0x06;
 pub(super) const GRAPHICS_320X200_16: u8 = 0x0d;
 pub(super) const GRAPHICS_640X480_16: u8 = 0x12;
 pub(super) const GRAPHICS_320X200_256: u8 = 0x13;
@@ -26,6 +30,8 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
             0x10 => &presets::TEXT_400,
             _ => &presets::TEXT_200,
         },
+        GRAPHICS_320X200_4 | GRAPHICS_320X200_4_ALT => &presets::CGA_320X200,
+        GRAPHICS_640X200_2 => &presets::CGA_640X200,
         GRAPHICS_320X200_16 => &presets::PLANAR_320X200,
         GRAPHICS_640X480_16 => &presets::PLANAR_640X480,
         GRAPHICS_320X200_256 => &presets::INDEXED256,
@@ -44,6 +50,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
     preset.program(io);
 
     memory.write_u8(MODE, mode).expect("video mode");
+    palette::initialize_compatibility(memory, mode);
     memory
         .write_u16(COLUMNS, preset.columns)
         .expect("video columns");
@@ -86,12 +93,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
                     .expect("text page");
             }
         } else {
-            let blank = [0; 4096];
-            for offset in (0..65536).step_by(blank.len()) {
-                memory
-                    .write(0xa0000 + offset, &blank)
-                    .expect("graphics memory");
-            }
+            graphics::clear(memory);
         }
     }
     write_indexed(
@@ -100,7 +102,11 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         sequencer::RESET,
         sequencer::RESET_RELEASED,
     );
-    Some(if text { 0x30 } else { 0x20 })
+    Some(match mode {
+        COLOR_TEXT_80X25 | GRAPHICS_320X200_4 | GRAPHICS_320X200_4_ALT => 0x30,
+        GRAPHICS_640X200_2 => 0x3f,
+        _ => 0x20,
+    })
 }
 
 /// AH=12h/BL=30h selects a profile for a later mode set; it does not touch VGA.

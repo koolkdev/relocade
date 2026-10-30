@@ -69,6 +69,7 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
                 call.cpu.set_al(pixel.read(&call.memory, call.io));
             }
         }
+        0x0b => return palette::compatibility(call),
         0x10 => return palette::interrupt(call),
         0x11 => return fonts::interrupt(call),
         0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {

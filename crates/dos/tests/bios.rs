@@ -1,3 +1,5 @@
+#[path = "bios/cga.rs"]
+mod cga;
 mod common;
 #[path = "bios/fonts.rs"]
 mod fonts;

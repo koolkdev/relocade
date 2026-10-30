@@ -2,6 +2,30 @@ use super::video::{video, PROGRAM};
 use crate::common;
 
 #[test]
+fn indexed_pixel_access_restores_hostile_guest_write_settings() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        video(&mut dos, 0x0013, 0, 0, 0);
+        for (port, word) in [
+            (0x3c4, 0x0002),
+            (0x3ce, 0x0f01),
+            (0x3ce, 0x1b03),
+            (0x3ce, 0x4b05),
+            (0x3ce, 0x5a08),
+        ] {
+            dos.cpu().context().io.write_port(port, 2, word);
+        }
+        let before = dos.vga().borrow().snapshot();
+        video(&mut dos, 0x0c85, 0, 0, 0);
+        assert_eq!(video(&mut dos, 0x0d00, 0, 0, 0).registers.eax as u8, 0x85);
+        let after = dos.vga().borrow().snapshot();
+        assert_eq!(after.plane(0)[0], 0x85);
+        assert_eq!(after.registers, before.registers);
+    });
+}
+
+#[test]
 fn planar_pixel_calls_preserve_neighbors_and_restore_access_registers() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

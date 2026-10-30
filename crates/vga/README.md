@@ -92,49 +92,70 @@ reads outside it return FF and writes are ignored. BIOS mode 03h restores font
 memory and the shared text preset. Mode 13h programs the standard 320×200 layout
 and 256-color palette. Modes 0Dh (320×200) and 12h (640×480) program planar
 16-color state with their respective RGBI and EGA default palette mappings.
-Graphics mode setup clears the 64-KiB A0000 aperture through the selected memory
-routing; in planar modes this clears all four planes. All modes use guest-visible
-ports and memory accesses and honor AL bit 7 to preserve video memory. AH=0Fh
-reports the BIOS mode and geometry; rendering has no BIOS-mode-number dispatch.
+Modes 04h/05h (320×200, four colors) and 06h (640×200, two colors) use packed
+B8000 storage with alternating 8-KiB scanline banks. Modes 04h/05h use the
+interleaved shifter; mode 06h uses the serial shifter with plane zero enabled.
+They expose one 16-KiB page and an 8-high character grid, 40 or 80 columns by
+25 rows. Modes 04h/05h produce the same VGA image: CGA composite color-burst
+behavior is outside this adapter target.
+
+Graphics mode setup clears the selected aperture through its restored memory
+routing: 32 KiB at B8000 for the packed modes or 64 KiB at A0000 otherwise.
+Planar clears reach all four planes; packed clears preserve unused planes.
+All modes use guest-visible ports and memory accesses and honor AL bit 7 to
+preserve video memory. AH=0Fh reports the BIOS mode and geometry; rendering has
+no BIOS-mode-number dispatch.
 Graphics guests can write pixels and DAC colors directly. BIOS AH=0Ch/0Dh also
 write/read individual pixels through the same memory aperture. Planar writes
 use VGA write mode two and its latches to preserve neighboring pixels; AL bit 7
-requests XOR in these modes, while mode 13h keeps all eight color bits. BH selects
-one of eight mode-0Dh pages and is ignored in the single-page modes 12h/13h.
+requests XOR in planar and packed modes, while mode 13h keeps all eight color
+bits. Packed writes preserve other bit fields in the same byte. BH selects
+one of eight mode-0Dh pages and is ignored for pixel calls in single-page modes.
 These BIOS services assume the layout established by mode setting; they do not
 infer arbitrary guest-reprogrammed layouts. Unsupported modes, out-of-range
 coordinates and invalid mode-0Dh pages return AH=86h with carry set. This bounds
 policy is local; the BIOS interface does not specify out-of-range results.
 AH=02h/03h keep per-page graphics cursors in BIOS memory without enabling a
-hardware text cursor. AH=05h selects pages 0–7 in mode 0Dh and page 0 in modes
-12h/13h. Mode-0Dh pages occupy 2000h bytes per plane; page selection programs
-the CRTC start address in the units of the mode preset.
+hardware text cursor. AH=05h selects pages 0–7 in mode 0Dh and page 0 in other
+graphics modes. Mode-0Dh pages occupy 2000h bytes per plane; page selection
+programs the CRTC start address in the units of the mode preset.
 
 AH=06h/07h scroll or clear character-cell rectangles on the active page. Windows
 clip to the BIOS grid and graphics bounds, using the BIOS character height to
 move whole glyph rows. Newly exposed pixels take BH's low four bits in planar
 modes or all eight bits in mode 13h; bit 7 never requests XOR for a scroll fill.
+Packed modes repeat BH's raw byte, following IBM VGA firmware: BH=55h fills
+four-color pixels with color one, while BH=1Bh repeats colors zero through three.
 Planar copying uses write mode one, pairing each source read with its destination
 write before another read replaces the latches. Pixel and scroll operations
-share the BIOS layout and temporary VGA access-register handling. Other pages,
-pixels outside the window and the caller's access registers remain intact.
+share explicit planar, indexed and packed layouts in `video/graphics/layout`.
+`GraphicsAccess` owns temporary read/write modes, masks and register restoration
+for the whole operation. CPU aperture and chain/odd-even routing still follow
+the mode preset. Other pages, pixels outside the window and the caller's access
+registers remain intact.
 
 AH=09h/0Ah draw graphics characters using BL as the foreground and black as the
 background; both leave the cursor unchanged and treat control bytes as glyphs.
-Planar color bit 7 instead requests XOR of set glyph bits, preserving background
-pixels. Mode 13h keeps all eight color bits. BH selects a valid page, including
-page zero in mode 13h; the ET4000 convention that uses BH as a background color
-is outside this VGA target. Repeats beyond the current row are unspecified by
-the BIOS interface: this firmware wraps through visible cells, stops at the
-page bottom and never scrolls. Text repeats retain their 16-bit offset wrapping.
+Planar and packed color bit 7 instead requests XOR of set glyph bits, preserving
+background pixels. Mode 06h always draws the foreground bit, ignoring BL's low
+color bits; pixel writes still use AL's requested bit. These packed scrolling
+and glyph rules follow the
+[IBM VGA ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
+(routines x20F3 and x27DC). Mode 13h keeps all eight color bits. BH selects a
+valid page, including page zero in mode 13h; the ET4000 convention that uses BH
+as a background color is outside this VGA target. Repeats beyond the current
+row are unspecified by the BIOS interface: this firmware wraps through visible
+cells, stops at the page bottom and never scrolls. Text repeats retain their
+16-bit offset wrapping.
 
 Graphics font bytes come from the guest's live vectors, with 16-bit source-offset
 wrapping. Eight-high fonts use INT 43h for characters 00h–7Fh and INT 1Fh for
 80h–FFh; taller fonts use INT 43h for all characters. The BIOS reads a complete
 glyph before changing VGA access, so a source in VRAM uses the caller's read
 settings. Font height and the character grid come from the BIOS data area,
-bounded by the graphics layout. Native planar masks or indexed rows write the
-same MMIO memory as pixel services, with no renderer-side character path.
+bounded by the graphics layout. Native planar masks, indexed rows or packed
+bytes write the same MMIO memory as pixel services, with no renderer-side
+character path.
 
 AH=0Eh uses the active page and BL foreground in graphics modes. It handles BEL
 (currently silent), backspace without erasure, CR and LF, wraps at the right edge
@@ -194,6 +215,15 @@ BIOS font handling owns ROM data, temporary plane-two access and validated
 geometry transitions in separate modules. Mode setting reuses that same font
 writer. Font bytes and bank selection reach captures and GPU uploads through
 the existing VRAM/register path.
+
+BIOS AH=0Bh implements legacy background/intensity (BH=0) and palette selection
+(BH=1) through VGA Attribute Controller registers. The firmware retains mode
+and color shadows at BDA 465h/466h; graphics mode sets above 07h preserve them.
+Background changes program overscan and, in graphics modes, palette entry zero.
+Graphics calls rebuild entries one through three from the color shadow's
+palette/intensity bits, including in mode 06h. Text palette selection is a
+complete no-op. This follows the same IBM VGA ROM (x1E50 and x2ABD); it does not
+add CGA I/O ports or change the DAC colors.
 
 BIOS AH=10h programs those same Attribute Controller and DAC registers. Supported
 subfunctions are 00h/07h (individual attribute register), 01h/08h (overscan),
@@ -399,9 +429,11 @@ Mode X checks select all four planes, flip through the
 64-KiB address space, scroll a wider virtual display and apply sparse writes
 through the ordinary page uploads.
 Native DOS checks exercise INT 10h mode setup, memory preservation and register
-restoration. Guest-to-GPU checks run COM programs that set modes 13h, 0Dh and
-12h, write pixels through the graphics aperture, change DAC colors and restore
-text. Mode X guests unchain the memory and flip pages without rewriting pixels.
+restoration. Guest-to-GPU checks run COM programs that set modes 04h–06h, 0Dh,
+12h and 13h, write pixels through their memory apertures, change palette colors
+and restore text. Packed checks compare complete images against CPU-visible
+banked byte patterns and retain palette-only updates without VRAM writes.
+Mode X guests unchain the memory and flip pages without rewriting pixels.
 Retained captures still render after the DOS session ends.
 Transition checks begin with a scrolled, split Mode X page, blank and unblank it
 without changing VRAM, then switch through planar BIOS modes and return to text.
