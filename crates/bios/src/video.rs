@@ -58,6 +58,7 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
                 call.cpu.set_al(pixel.read(&call.memory, call.io));
             }
         }
+        0x10 => return palette::interrupt(call),
         // The remaining services operate on text pages.
         _ if !screen::is_text_mode(&call.memory) => return unsupported(call),
         0x02 | 0x03 | 0x08..=0x0a if !screen::valid_page(page) => return unsupported(call),

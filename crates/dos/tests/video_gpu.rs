@@ -4,6 +4,8 @@
 mod common;
 #[path = "video_gpu/indexed256.rs"]
 mod indexed256;
+#[path = "video_gpu/palette.rs"]
+mod palette;
 #[path = "video_gpu/pixels.rs"]
 mod pixels;
 #[path = "video_gpu/planar16.rs"]
