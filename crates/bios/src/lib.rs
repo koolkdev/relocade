@@ -5,6 +5,7 @@
 //! Mode setting honors AL bit 7 to preserve video memory; AH=0Fh reports the
 //! mode, that flag, character columns and active page. AH=0Ch/0Dh write/read
 //! graphics pixels, with XOR in planar modes and eight pages in mode 0Dh.
+//! AH=10h reads/writes attribute and DAC palettes, blink, paging and the DAC mask.
 //! Unsupported video services or pixel coordinates/pages return AH=86h with
 //! carry set. [`write_text`] ignores graphics output until BIOS glyph drawing
 //! in graphics modes is implemented.

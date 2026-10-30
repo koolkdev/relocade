@@ -1,11 +1,12 @@
 //! Register presets for BIOS modes. Rendering interprets the resulting hardware state.
 mod indexed256;
+mod palette;
 mod planar16;
 
 pub(super) use indexed256::INDEXED256;
 pub(super) use planar16::{PLANAR_320X200, PLANAR_640X480};
 
-use super::{palette, write_indexed};
+use super::write_indexed;
 use relocade_machine::IoBus;
 use relocade_vga::registers::{
     attribute, crtc, sequencer, text_mode, ATTRIBUTE_ADDRESS_PORT, COLOR_INPUT_STATUS_1_PORT,

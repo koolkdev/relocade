@@ -99,6 +99,19 @@ policy is local; the BIOS interface does not specify out-of-range results.
 Graphics-mode glyph services remain unsupported; DOS console bytes are still
 buffered but do not draw graphics-mode text.
 
+BIOS AH=10h programs those same Attribute Controller and DAC registers. Supported
+subfunctions are 00h/07h (individual attribute register), 01h/08h (overscan),
+02h/09h (16 colors plus overscan), 03h (blink/intensity), 10h/15h (individual DAC
+color), 12h/17h (DAC blocks), 13h/1Ah (palette paging), and 18h/19h (DAC mask).
+Attribute access preserves the display-enable bit and selected register while
+handling either monochrome or color status ports. Block buffers use ES:DX with
+16-bit offset wrapping; DAC addresses wrap independently and components retain
+their low six bits. Zero-color transfers leave streaming state untouched.
+Palette paging follows the [BIOS interface](https://www.ctyme.com/intr/rb-0123.htm)
+and cannot be set in mode 13h. Grayscale conversion (1Bh) remains unsupported.
+Palette changes use the ordinary captured register upload; they do not rewrite
+VRAM or select another rendering path.
+
 At the start of vertical retrace the device latches the programmed display start,
 then captures a complete `DisplaySnapshot` for the following active display:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
