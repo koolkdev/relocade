@@ -16,11 +16,20 @@ when guest software changes CPU memory routing independently of display settings
 Planar 16-color graphics combines one bit from each physical plane and uses the
 same Attribute Controller palette as text. Display start, stride, panning,
 repeated rows and split display share the common CRTC address calculation.
+VGA shift-interleave (GC05 bit 5) instead emits high-to-low bit pairs from maps
+0/2 for the first four pixels and maps 1/3 for the next four. Maps 2/3 supply
+the upper two color bits, so this CGA-compatible shifter can use all 16 colors.
+The Attribute Controller masks the assembled color and maps it through the same
+palette. GC05 bit 6 takes precedence and selects the 256-color shifter, as in the
+[IBM reference](https://bitsavers.trailing-edge.com/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf)
+(VGA Function p. 2-86). CPU odd/even access and CRTC row-scan banking remain
+independent register settings. Interleaved output uses ordinary 0–7 pel panning
+and eight pixels per fetch; only 256-color output halves the image width.
 After line compare, the lower region starts at address zero with row scan zero.
 Pixel Panning Mode resets both byte and pel shifts there, following the
 [FreeVGA programming reference](https://github.com/logiclrd/QBX/blob/main/References/VGA.md#L997-L998).
 With that bit clear, both regions retain the programmed shifts. This shared
-behavior applies to text, planar pixels and byte-addressed Mode X.
+behavior applies to text, serial/interleaved four-bit pixels and byte-addressed Mode X.
 
 The default raster is 25.175 MHz, 800 dots per line and 449 lines per frame
 (about 70.086 Hz). Guest clock selection, 8/9-dot width, clock division and CRTC
@@ -256,7 +265,7 @@ queued GPU contents, otherwise it restores the affected plane.
 and the unchanged DAC palette into one uniform buffer. The raw Attribute
 Controller address byte is preserved; the shader tests its display-enable bit.
 The shader interprets memory addresses, font banks, attributes and colors directly.
-`shaders/scanout` dispatches pixels to `text`, `indexed256` or `planar16`. All use
+`shaders/scanout` dispatches pixels to `text`, `indexed256` or `graphics16`. All use
 the scanline and physical-address logic in `addressing` and the DAC lookup in
 `palette`. Its vertex stage decodes frame-constant settings and the 16 attribute
 colors, passing them flat to fragments in the same draw. There is no preparation
@@ -383,8 +392,10 @@ including CPU address-bit transitions. Focused fixtures cover display start and
 stride, panning across plane groups, split and partial repeated rows, address wrap,
 palette changes, skipped captures and retained text/graphics captures. Planar
 checks cover all 640×480 pixels, masked write-mode-two updates, attribute palette
-changes and shared scrolling/split behavior. Unsupported CGA shifter settings
-still blank the image. Mode X checks select all four planes, flip through the
+changes and shared scrolling/split behavior. Interleaved-shifter cases use
+literal four-plane colors, plane-enable masks, panning across plane pairs,
+256-color precedence, odd/even B8000 writes, banked rows, counting and splits.
+Mode X checks select all four planes, flip through the
 64-KiB address space, scroll a wider virtual display and apply sparse writes
 through the ordinary page uploads.
 Native DOS checks exercise INT 10h mode setup, memory preservation and register

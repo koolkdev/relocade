@@ -1,4 +1,4 @@
-// Text and planar graphics share the sixteen colors decoded at each vertex.
+// Text and four-bit graphics share the sixteen colors decoded at each vertex.
 fn palette_color(input: DisplayVertex, index: u32) -> u32 {
     let colors = array(input.colors0, input.colors1, input.colors2, input.colors3);
     return colors[index / 4u][index % 4u];

@@ -10,7 +10,7 @@ struct DisplayVertex {
     @location(3) @interpolate(flat) fonts: vec3<u32>, // A/B bases and dual-font selection.
     @location(4) @interpolate(flat) cursor: vec3<u32>, // Address and start/end scanlines.
     @location(5) @interpolate(flat) scanlines: vec2<u32>, // Scan repeat and output row step.
-    @location(6) @interpolate(flat) display: vec4<u32>, // Attribute mode, blink, blanked, eight-bit graphics.
+    @location(6) @interpolate(flat) display: vec4<u32>, // Attribute mode, blink, blanked, GC shift bits.
     @location(7) @interpolate(flat) colors0: vec4<u32>,
     @location(8) @interpolate(flat) colors1: vec4<u32>,
     @location(9) @interpolate(flat) colors2: vec4<u32>,
@@ -26,11 +26,12 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     let attribute_mode = attribute_reg(0x10u);
     let maximum_scan_line = crtc(9u);
     let graphics_mode = (attribute_mode & 1u) != 0u;
+    let shift_mode = graphics(5u) & 0x60u;
+    // The 256-color shift bit takes precedence over shift interleave.
     let indexed256 = graphics_mode && (attribute_mode & 0x40u) != 0u
-        && (graphics(5u) & 0x40u) != 0u;
-    // GC shift bit 5 selects the separate CGA shifter, not four-plane pixels.
-    let planar16 = graphics_mode && (attribute_mode & 0x40u) == 0u
-        && (graphics(5u) & 0x60u) == 0u;
+        && (shift_mode & 0x40u) != 0u;
+    let graphics16 = graphics_mode && (attribute_mode & 0x40u) == 0u
+        && (shift_mode & 0x40u) == 0u;
     let glyph_width = select(9u, 8u, (clocking & 1u) != 0u);
 
     let line_compare = crtc(0x18u) | ((crtc(7u) & 0x10u) << 4u)
@@ -62,7 +63,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
         + (((font_maps >> 4u) & 1u) * 0x2000u)) & font_mask;
 
     let blanked = (clocking & 0x20u) != 0u || (state.attribute_address & 0x20u) == 0u
-        || (graphics_mode && !indexed256 && !planar16)
+        || (graphics_mode && !indexed256 && !graphics16)
         || (!graphics_mode && (graphics(6u) & 1u) != 0u);
     var colors: array<vec4<u32>, 4>;
     for (var color = 0u; color < 16u; color++) {
@@ -77,7 +78,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     output.fonts = vec3(font_a, font_b, u32(extended_memory && font_a != font_b));
     output.cursor = vec3((crtc(14u) << 8u) | crtc(15u), crtc(10u), crtc(11u));
     output.scanlines = vec2(1u << (maximum_scan_line >> 7u), state.scanline_step);
-    output.display = vec4(attribute_mode, state.blink_on, u32(blanked), u32(indexed256));
+    output.display = vec4(attribute_mode, state.blink_on, u32(blanked), shift_mode);
     output.colors0 = colors[0];
     output.colors1 = colors[1];
     output.colors2 = colors[2];
@@ -94,11 +95,11 @@ fn fragment(input: DisplayVertex) -> @location(0) vec4<f32> {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
     let line = display_scanline(input, pixel.y);
-    if input.display.w != 0u {
+    if (input.display.x & 1u) == 0u {
+        return unpack4x8unorm(text_color(input, line, pixel.x));
+    }
+    if (input.display.w & 0x40u) != 0u {
         return unpack4x8unorm(indexed256_color(input, line, pixel.x));
     }
-    if (input.display.x & 1u) != 0u {
-        return unpack4x8unorm(planar16_color(input, line, pixel.x));
-    }
-    return unpack4x8unorm(text_color(input, line, pixel.x));
+    return unpack4x8unorm(graphics16_color(input, line, pixel.x));
 }

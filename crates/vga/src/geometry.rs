@@ -15,7 +15,7 @@ pub struct DisplayGeometry {
 }
 
 impl DisplaySnapshot {
-    /// Output geometry for text, planar and eight-bit graphics layouts.
+    /// Output geometry for text, four-bit and eight-bit graphics layouts.
     pub fn geometry(&self) -> DisplayGeometry {
         let c = &self.registers.crtc.values;
         let clocking_mode = self.registers.sequencer.values[sequencer::CLOCKING_MODE as usize];
@@ -23,7 +23,7 @@ impl DisplaySnapshot {
         let attribute_mode = self.registers.attribute.values[attribute::MODE_CONTROL as usize];
         let graphics_mode = self.registers.graphics.values[graphics::MODE as usize];
         let indexed256 = attribute_mode & 0x41 == 0x41 && graphics_mode & 0x40 != 0;
-        let planar16 = attribute_mode & 0x41 == 1 && graphics_mode & 0x60 == 0;
+        let graphics16 = attribute_mode & 0x41 == 1 && graphics_mode & 0x40 == 0;
         let columns = u32::from(c[crtc::HORIZONTAL_DISPLAY_END as usize]) + 1;
         let vertical_divisor = self.registers.crtc.scanlines_per_vertical_count() as u32;
         let last_line = self.registers.crtc.vertical_display() as u32 * vertical_divisor - 1;
@@ -37,7 +37,7 @@ impl DisplaySnapshot {
         // Graphics repeats a memory row while the row-scan counter advances.
         // Collapse it only when row-scan bits cannot change the memory address
         // and the preset does not begin partway through that row.
-        if (indexed256 || planar16)
+        if (indexed256 || graphics16)
             && c[crtc::MODE_CONTROL as usize] & 3 == 3
             && u32::from(c[crtc::PRESET_ROW_SCAN as usize] & 31) % row_height == 0
         {
