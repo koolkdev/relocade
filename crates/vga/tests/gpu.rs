@@ -1,6 +1,8 @@
 #![cfg(feature = "renderer")]
 
 mod common;
+#[path = "gpu/graphics.rs"]
+mod graphics;
 #[path = "gpu/readback.rs"]
 mod readback;
 use readback::read_pixels;
@@ -10,6 +12,8 @@ mod indexed256;
 mod parity;
 #[path = "gpu/recording.rs"]
 mod recording;
+#[path = "gpu/unchained256.rs"]
+mod unchained256;
 use common::support::software;
 
 use relocade_vga::{CapturedFrame, VgaRenderer};

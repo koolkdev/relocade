@@ -34,14 +34,18 @@ pub fn program(vga: &mut impl Device) {
     indexed(vga, 0x3d4, 0x11, 0);
     for (index, value) in [
         (1, 79),
+        (6, 0xbf),
         (7, 0x1f),
         (8, 0),
         (9, 0x41),
         (12, 0),
         (13, 0),
+        (0x10, 0x9c),
         (0x12, 0x8f),
         (0x13, 40),
         (0x14, 0x40),
+        (0x15, 0x96),
+        (0x16, 0xb9),
         (0x17, 0xa3),
         (0x18, 0xff),
     ] {
@@ -62,4 +66,12 @@ pub fn palette(vga: &mut impl Device, index: u8, rgb: [u8; 3]) {
     for component in rgb {
         vga.write_port(0x3c9, 1, u32::from(component));
     }
+}
+
+/// Unchain the CPU aperture and switch the CRTC to byte addresses. Four
+/// consecutive pixels occupy the four planes at one address, including above 16 KiB.
+pub fn unchain(vga: &mut impl Device) {
+    indexed(vga, 0x3c4, 4, 6);
+    indexed(vga, 0x3d4, 0x14, 0);
+    indexed(vga, 0x3d4, 0x17, 0xe3);
 }

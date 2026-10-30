@@ -6,17 +6,19 @@ uses captured geometry, row stride, physical address mapping, 8/9-dot characters
 font banks and heights, attribute/DAC colors, cursor shape/skew, underline,
 blinking, blanking, panning and split-display settings. The BIOS text preset
 loads an 8×8 CP437 font into plane two and initializes 80×25 cells.
-Eight-bit graphics decoding supports the standard mode-13h memory layout:
-linear guest writes, all 256 DAC colors, display start and stride, repeated rows,
-panning and split display. The decoder follows the captured registers, including
+Eight-bit graphics decoding supports chained mode 13h and byte-addressed
+unchained layouts (Mode X): linear or plane-masked guest writes, all 256 DAC
+colors, display pages and stride, repeated rows, panning and split display.
+Mode X guests can program 320×200 or 320×240 output from the same physical planes.
+The decoder follows the captured registers, including
 when guest software changes CPU memory routing independently of display settings.
 
 The nominal raster is 25.175 MHz, 800 dots per line and 449 lines per frame,
 with 640×400 active dots and vertical retrace on lines 412–413 (about 70.086 Hz).
 Input Status 1 follows that raster, including during synchronous guest polling.
 Absolute oscillator arithmetic avoids accumulated timer rounding. Timing-register
-writes retain readback; arbitrary clock/retrace timing, display-state latching,
-planar 16-color graphics and broader unchained layouts remain later milestones.
+writes retain readback; arbitrary clock/retrace timing, display-state latching
+and planar 16-color graphics remain later milestones.
 Static display settings apply to the
 whole captured image. Historical scanout requires more precise device timing and
 captures that retain changes throughout the frame.
@@ -220,7 +222,9 @@ blink, blanking and page-selection expectations.
 Graphics checks compare all 64,000 pixels against the guest's linear byte pattern,
 including CPU address-bit transitions. Focused fixtures cover display start and
 stride, panning across plane groups, split and partial repeated rows, address wrap,
-palette changes, skipped captures and retained text/graphics captures.
+palette changes, skipped captures and retained text/graphics captures. Mode X
+checks select all four planes, flip through the 64-KiB address space, scroll a
+wider virtual display and apply sparse writes through the ordinary page uploads.
 Native DOS checks exercise INT 10h mode setup, memory preservation and register
 restoration. A guest-to-GPU check runs COM programs that set mode 13h, write the
 graphics aperture and DAC, restore text mode, and replay the retained graphics
