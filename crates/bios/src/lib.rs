@@ -27,8 +27,9 @@ const MIDNIGHT_ROLLOVER: u32 = 0x470;
 
 /// Initializes the clock data, BIOS vectors and their ROM return instructions.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
-/// VGA text memory must be mapped as MMIO, with the VGA device connected to
-/// the supplied bus at its color text aperture and [`relocade_vga::PORT_RANGES`].
+/// Map [`relocade_vga::MEMORY_RANGE`] as MMIO and connect VGA to that memory
+/// range and [`relocade_vga::PORT_RANGES`] on the supplied bus. Font loading uses
+/// the A0000 aperture before mode setup restores the color text aperture.
 pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     screen::initialize(memory, io);
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
