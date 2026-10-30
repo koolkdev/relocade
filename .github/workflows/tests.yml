@@ -47,12 +47,13 @@ jobs:
             wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-
 
       - name: Run workspace tests
+        env:
+          # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
+          # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
+          GALLIUM_OVERRIDE_CPU_CAPS: avx
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          # Temporarily skip this native GPU test while investigating Mesa 25.2.8.
-          # It remains enabled locally and in the browser suite.
-          cargo test --workspace --locked -- \
-            --skip parity::programmable_text_and_retained_snapshots_match_literal_pixels
+          cargo test --workspace --locked
 
   web:
     name: Browser tests
