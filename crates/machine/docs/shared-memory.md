@@ -58,7 +58,8 @@ not cache a snapshot. Clone `call.memory` to retain routed access independently
 of the invocation. `cpu.memory()` returns the raw `Memory` handle for sharing
 backing storage without retaining local devices.
 
-A pending run excludes `cpu.with(...)` access. Independent `Memory`
+A pending run excludes `cpu.with(...)` access. An ISR budget or fault exit
+permits access while its interrupted call stays suspended. Independent `Memory`
 handles remain usable during execution, while a service awaits input, and after
 CPU destruction.
 

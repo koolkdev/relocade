@@ -86,7 +86,7 @@ pub async fn vga_workers() -> Result<(), String> {
         .await
         .unwrap();
         cpu.install_hooks([
-            Hook::<Input>::new(0x200, async |mut call| {
+            Hook::<Input>::new(0x200, 0x201, async |mut call| {
                 let (incoming, waiting) = call.with(|context| {
                     (
                         context.state.incoming.take().unwrap(),
@@ -104,7 +104,7 @@ pub async fn vga_workers() -> Result<(), String> {
                 call.cpu.set_eip(0x300);
                 HookResult::Continue
             }),
-            Hook::<Input>::new(0x400, async |_call| {
+            Hook::<Input>::new(0x400, 0x401, async |_call| {
                 HookResult::Exit(ExecutionExit::Host(HostExit::Return))
             }),
         ])

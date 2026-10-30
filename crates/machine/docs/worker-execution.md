@@ -79,8 +79,10 @@ Dropping a `Cpu::run` waiter preserves the pending future and its call chain; a 
 Zero-budget runs do not poll pending work.
 
 While a run awaits a host future, use owned input/output handles and `cpu.memory()`
-for interactive I/O and display. Dropping the CPU releases the pending future
-and the machine together.
+for interactive I/O and display. A returned ISR budget or fault exit permits
+CPU/environment access while the interrupted service stays parked. Keep its
+service resume labels installed. `HostExit::Return` abandons parked
+services; dropping the CPU releases every future and the machine together.
 
 Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
 registers VGA with the runner and shares its timer. Mount filesystems and retain
@@ -125,7 +127,7 @@ requests pending. A controller device can own more detailed priority and masking
 
 Each nonzero `Cpu::run` checks the bus before starting its instruction quantum.
 Completing a host call also checks before continuing guest dispatch, using
-the remaining budget. Pending host calls finish before this check. The CPU checks IF
+the remaining budget. A pending host await checks as well. The CPU checks IF
 before polling, so masked requests remain with the device/controller.
 `Runner::run_cpu` supplies those
 quanta without another timer or scheduler. Entry uses the same generated
@@ -149,24 +151,65 @@ are separate capabilities.
 
 `Hook::new` gives every invocation a `CallContext`. Its `cpu` field uses the same
 `CpuView<A>` register implementation as borrowed CPU views. Each access validates
-the invocation and releases its backend borrow before returning. Its retained
-`Memory` and `IoBus` build guest views independently of the backend. `with` lends
-CPU, memory and mutable environment state for synchronous batches; references
-from that callback cannot escape into the future. Retained resources and
-ordinary Rust locals can cross awaits. Pending calls complete before guest
-execution resumes; dropping a run waiter preserves the same future.
+the invocation and releases its backend borrow before returning. Its `MemoryBus`
+retains storage and device routing; `call.memory.view()` borrows only that handle.
+`with` lends CPU, memory and mutable environment state for synchronous batches;
+references from that callback cannot escape into the future. Whenever the call future returns
+`Pending`, the runtime checks for IRQs. Live IF controls delivery. An await that
+is immediately ready continues synchronously within the same poll.
 
 ```rust,ignore
-Hook::new(address, async move |mut call| {
-    let value = input.read().await;
+real_mode_interrupt::hook(address, async move |mut call| {
+    let value = call.with_interrupts_enabled(input.read()).await;
     call.cpu.set_ax(value);
     real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 })
 ```
 
-Each invocation has a weak handle to the machine. CPU access is enabled only
-during its future poll and completion cleanup; escaped contexts cannot access
-a stopped or destroyed CPU. Resource views remain independent of that access.
+Use an ordinary `input.read().await` when IF is already set as required.
+`with_interrupts_enabled` only manages the flag: it enables live IF and restores
+its previous value when the wait completes or is cancelled. Other live flags and
+the caller's saved FLAGS stay intact. BIOS keyboard and DOS input reads use this
+helper because real-mode interrupt entry clears IF. It clears live IF again
+before their return path; the guest IRET restores the caller's saved flags.
+Nested or overlapping helpers use scoped guards; only the last scope restores IF.
+Clearing IF inside such a scope still masks IRQ delivery.
+
+Each service owns entry, resume and completion labels in its guest stub.
+`Hook::new(entry, resume, handler)` registers the pair. The real-mode helper
+`real_mode_interrupt::hook` uses `NOP; NOP; IRET`: entry starts an invocation,
+resume continues it, and completion selects IRET. BIOS/DOS own these existing
+service stubs; there is no separate reserved continuation address.
+Generated exits distinguish `HostExit::Call { address }` (a new invocation),
+`HostExit::Resume { address }` (resume that service's top suspended invocation),
+and `HostExit::Return` (session termination). Both address payloads identify the
+service entry. An unmatched resume returns to the embedding with frames intact.
+
+Entry automatically moves live EIP to the service's resume label before the
+first future poll. Pending handlers keep that position until completion. When
+an IRQ interrupts the future, the driver parks its frame and performs ordinary
+interrupt entry. The saved IRQ return CS:IP naturally names the service-local
+resume label. Guest IRET restores FLAGS and reaches it through ordinary dispatch.
+The driver resumes the matching top frame without restoring any CPU state.
+General registers, every segment, FLAGS, SS:SP and memory retain all guest effects.
+Neither stack equality nor an IRET counter decides resumption.
+A new call to the same service always creates a separate invocation, even if
+CS:IP and SS:SP match an older one. Invocations of the same service share its
+resume label; the execution stack identifies the invocation. Frames resume in
+strictly nested order.
+
+Each invocation has a weak handle to the shared machine, with CPU access enabled
+only during its future poll and completion cleanup. ISR execution and nested
+calls keep outer futures parked even when their awaited inputs become ready.
+ISR budget exits, waiter cancellation and later runs retain the frame stack.
+
+A guest that redirects return away from the resume entry leaves those frames
+parked. The embedding must explicitly abandon them with
+`Cpu::abandon_suspended_calls` when continuing after such a nonlocal transfer;
+`HostExit::Return` and CPU destruction also release all suspended work. Abandonment
+drops futures and resources without restoring their saved IF into the active
+frame or undoing guest effects. After abandonment, guest code must not return to
+the resume entry for those frames.
 
 ## Video and application rendering
 

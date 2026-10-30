@@ -84,7 +84,10 @@ pub(super) async fn read_character(call: &mut DosContext, echo: bool) -> HookRes
         Err(error) => return return_result(call, Err(error)),
     };
     let output = call.stdout();
-    let result = input::read_character(&handle, &call.dos.stdio().input).await;
+    let result = call
+        .execution
+        .with_interrupts_enabled(input::read_character(&handle, &call.dos.stdio().input))
+        .await;
     let byte = match result {
         Ok(byte) => byte,
         Err(error) => return return_result(call, Err(error)),
@@ -123,7 +126,15 @@ pub(super) async fn read_buffered(call: &mut DosContext) -> HookResult {
         Err(error) => return return_result(call, Err(error)),
     };
     let output = call.stdout();
-    let result = read_line(&call.dos.stdio().input, &input, capacity[0], &output).await;
+    let result = call
+        .execution
+        .with_interrupts_enabled(read_line(
+            &call.dos.stdio().input,
+            &input,
+            capacity[0],
+            &output,
+        ))
+        .await;
     let bytes = match result {
         Ok(bytes) => bytes,
         Err(error) => return return_result(call, Err(error)),

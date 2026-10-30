@@ -84,7 +84,7 @@ async fn check_devices() {
         .unwrap();
     assert_eq!(cpu.run(20).await, ExecutionExit::BudgetExhausted);
     let before = memory.view().read_u16(0x300).unwrap();
-    cpu.install_hooks([Hook::<ManualClock>::new(0x100, async |mut call| {
+    cpu.install_hooks([Hook::<ManualClock>::new(0x100, 0x101, async |mut call| {
         let clock = call.with(|context| context.state.clone());
         clock.sleep(Duration::from_millis(5)).await;
         call.cpu.set_eip(0x200);

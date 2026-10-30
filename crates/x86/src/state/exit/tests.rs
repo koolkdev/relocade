@@ -22,6 +22,7 @@ fn exit_module() -> Vec<u8> {
         "budget_exhausted",
         "host_return",
         "host_call",
+        "host_resume",
         "interrupt_inhibited",
     ] {
         Function::<fn(u32, u32) -> ExecutionExit>::new("test", name)
@@ -38,6 +39,10 @@ fn exit_module() -> Vec<u8> {
                     "page_fault" => ExceptionValues::page_fault(address, detail),
                     "host_return" => {
                         return body.return_(ExecutionExitValues::host(HostExit::Return))
+                    }
+                    "host_resume" => {
+                        return body
+                            .return_(ExecutionExitValues::host(HostExitValues::resume(address)))
                     }
                     "host_call" => {
                         return body
@@ -100,6 +105,10 @@ fn generated_exits_preserve_payloads() {
         ("budget_exhausted", ExecutionExit::BudgetExhausted),
         ("interrupt_inhibited", ExecutionExit::InterruptInhibited),
         ("host_return", ExecutionExit::Host(HostExit::Return)),
+        (
+            "host_resume",
+            ExecutionExit::Host(HostExit::Resume { address }),
+        ),
         ("host_call", ExecutionExit::Host(HostExit::Call { address })),
     ]);
     for (name, expected) in cases {
@@ -138,6 +147,10 @@ fn execution_exits_share_four_wasm_values() {
     let error_code = 0xf123_abcd;
     let cases = [
         (ExecutionExit::Host(HostExit::Return), (0, 0, 0, 0)),
+        (
+            ExecutionExit::Host(HostExit::Resume { address }),
+            (0, 2, address as i32, 0),
+        ),
         (
             ExecutionExit::Host(HostExit::Call { address }),
             (0, 1, address as i32, 0),

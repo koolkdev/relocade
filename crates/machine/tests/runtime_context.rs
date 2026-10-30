@@ -52,32 +52,36 @@ async fn check_context_lifetime() {
     let ready = Rc::new(Cell::new(false));
     let complete = ready.clone();
     runtime
-        .install_hooks([Hook::<Environment>::new(0x100, async move |mut call| {
-            call.with(|context| {
-                context.state.calls += 1;
-                assert!(context.state.calls > 0);
-            });
-            call.cpu.set_eax(0xabcd_1234);
-            call.cpu.set_ah(0x56);
-            assert_eq!(call.cpu.eax(), 0xabcd_5634);
-            // The retained view borrows resources, leaving the backend available.
-            let mut memory = call.memory.view();
-            memory.write_u32(0x200, 0x5678).unwrap();
-            call.with(|context| {
-                assert_eq!(context.cpu.ax(), 0x5634);
-            });
-            poll_fn(|_| {
-                if ready.get() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-            call.cpu.set_ax(0x1234);
-            assert_eq!(memory.read_u32(0x200).unwrap(), 0x5678);
-            HookResult::Exit(ExecutionExit::Host(HostExit::Return))
-        })])
+        .install_hooks([Hook::<Environment>::new(
+            0x100,
+            0x101,
+            async move |mut call| {
+                call.with(|context| {
+                    context.state.calls += 1;
+                    assert!(context.state.calls > 0);
+                });
+                call.cpu.set_eax(0xabcd_1234);
+                call.cpu.set_ah(0x56);
+                assert_eq!(call.cpu.eax(), 0xabcd_5634);
+                // The retained view borrows resources, leaving the backend available.
+                let mut memory = call.memory.view();
+                memory.write_u32(0x200, 0x5678).unwrap();
+                call.with(|context| {
+                    assert_eq!(context.cpu.ax(), 0x5634);
+                });
+                poll_fn(|_| {
+                    if ready.get() {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+                call.cpu.set_ax(0x1234);
+                assert_eq!(memory.read_u32(0x200).unwrap(), 0x5678);
+                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+            },
+        )])
         .await
         .unwrap();
     {
@@ -101,6 +105,7 @@ async fn check_context_lifetime() {
     assert!(!dropped.get());
     // Dropping the CPU while another invocation waits releases its owned machine.
     complete.set(false);
+    runtime.with(|call| call.cpu.set_eip(0x100));
     {
         let mut run = pin!(runtime.run(1));
         assert!(run
@@ -144,7 +149,7 @@ fn escaped_invocation_access_is_invalid_between_polls_and_after_release() {
         let capture = escaped.clone();
         let ready = Rc::new(Cell::new(false));
         let complete = ready.clone();
-        cpu.install_hooks([Hook::new(0x100, async move |call: CallContext| {
+        cpu.install_hooks([Hook::new(0x100, 0x101, async move |call: CallContext| {
             let call = Rc::new(RefCell::new(call));
             *capture.borrow_mut() = Some(call.clone());
             poll_fn(|_| {

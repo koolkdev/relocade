@@ -15,7 +15,8 @@
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
 //! eight-column stops. [`Cpu::run`] awaits an empty input source and resumes
-//! the pending read when input becomes available.
+//! the pending read when input becomes available. Input waits temporarily enable
+//! live IF so device IRQs can run; the guest IRET restores the caller's saved flags.
 //! AH=0Bh and IOCTL AX=4406h query input without consuming it; AX=4407h reports
 //! output readiness. Console status describes queued keys, not a buffered line.
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.

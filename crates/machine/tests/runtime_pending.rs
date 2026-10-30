@@ -113,7 +113,7 @@ async fn check_pending_calls() {
             .unwrap()
     });
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x200, async |mut call| {
+        .install_hooks([Hook::<Rc<State>>::new(0x200, 0x201, async |mut call| {
             let state = call.with(|context| context.state.clone());
             state.started.set(state.started.get() + 1);
             let operation = Operation(state.clone());
@@ -215,7 +215,7 @@ async fn check_pending_calls() {
             .unwrap()
     });
     runtime
-        .install_hooks([Hook::new(0x400, async |mut call| {
+        .install_hooks([Hook::new(0x400, 0x401, async |mut call| {
             // Completion returns directly even if the continuation names guest code.
             call.cpu.set_eip(0x500);
             let value = std::future::ready(99).await;
@@ -269,14 +269,18 @@ async fn check_completed_replacement() {
     let registration = Rc::new(());
     let released = Rc::downgrade(&registration);
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x400, async move |mut call| {
-            let registration = registration.clone();
-            let input = call.with(|context| context.state.clone());
-            let value = input.read().await;
-            call.cpu.set_ax(value);
-            drop(registration);
-            HookResult::Exit(ExecutionExit::Host(HostExit::Return))
-        })])
+        .install_hooks([Hook::<Rc<State>>::new(
+            0x400,
+            0x401,
+            async move |mut call| {
+                let registration = registration.clone();
+                let input = call.with(|context| context.state.clone());
+                let value = input.read().await;
+                call.cpu.set_ax(value);
+                drop(registration);
+                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+            },
+        )])
         .await
         .unwrap();
     assert_pending(runtime.run(1));
@@ -288,13 +292,14 @@ async fn check_completed_replacement() {
     // the final owner of its captures.
     assert!(released.upgrade().is_some());
     runtime
-        .install_hooks([Hook::new(0x400, async |mut call| {
+        .install_hooks([Hook::new(0x400, 0x401, async |mut call| {
             call.cpu.set_ax(99);
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         })])
         .await
         .unwrap();
     assert!(released.upgrade().is_none());
+    runtime.with(|call| call.cpu.set_eip(0x400));
     assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runtime.with(|call| call.cpu.ax()), 99);
 }
