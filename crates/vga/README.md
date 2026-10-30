@@ -45,7 +45,10 @@ Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
 physical map and device bus. The Graphics Controller selects the active aperture;
 reads outside it return FF and writes are ignored. BIOS mode 03h restores font
 memory and the shared text preset. Mode 13h programs the standard 320×200 layout
-and 256-color palette, then clears the 64-KiB A0000 aperture. Both use guest-visible
+and 256-color palette. Modes 0Dh (320×200) and 12h (640×480) program planar
+16-color state with their respective RGBI and EGA default palette mappings.
+Graphics mode setup clears the 64-KiB A0000 aperture through the selected memory
+routing; in planar modes this clears all four planes. All modes use guest-visible
 ports and memory accesses and honor AL bit 7 to preserve video memory. AH=0Fh
 reports the BIOS mode and geometry; rendering has no BIOS-mode-number dispatch.
 Graphics guests write pixels and DAC colors directly. BIOS pixel/glyph services
@@ -105,8 +108,7 @@ The shader interprets memory addresses, font banks, attributes and colors direct
 the scanline and physical-address logic in `addressing` and the DAC lookup in
 `palette`. Its vertex stage decodes frame-constant settings and the 16 attribute
 colors, passing them flat to fragments in the same draw. There is no preparation
-pass or intermediate GPU
-buffer. Further graphics decoders can read the same physical
+pass or intermediate GPU buffer. Further graphics decoders can read the same physical
 buffer without mode-specific upload tracking or application changes.
 The generic `relocade-renderer` owns image storage and attachment drawing and knows
 nothing about VGA, BIOS or DOS.
@@ -231,12 +233,13 @@ palette changes, skipped captures and retained text/graphics captures. Planar
 checks cover all 640×480 pixels, masked write-mode-two updates, attribute palette
 changes and shared scrolling/split behavior. Unsupported CGA shifter settings
 still blank the image. Mode X checks select all four planes, flip through the
-64-KiB address space, scroll a
-wider virtual display and apply sparse writes through the ordinary page uploads.
+64-KiB address space, scroll a wider virtual display and apply sparse writes
+through the ordinary page uploads.
 Native DOS checks exercise INT 10h mode setup, memory preservation and register
-restoration. A guest-to-GPU check runs COM programs that set mode 13h, write the
-graphics aperture and DAC, restore text mode, and replay the retained graphics
-capture after the session ends.
+restoration. Guest-to-GPU checks run COM programs that set modes 13h, 0Dh and
+12h, write pixels through the graphics aperture, change DAC colors and restore
+text. Mode X guests unchain the memory and flip pages without rewriting pixels.
+Retained captures still render after the DOS session ends.
 
 Recording checks combine decoding and drawing in one caller submission, discard
 and retry an update, and resize a retained GPU image after dropping its decoder.

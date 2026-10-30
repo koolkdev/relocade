@@ -3,6 +3,8 @@ mod common;
 mod graphics;
 #[path = "bios/keyboard.rs"]
 mod keyboard;
+#[path = "bios/planar.rs"]
+mod planar;
 #[path = "bios/screen.rs"]
 mod screen;
 #[path = "bios/video.rs"]

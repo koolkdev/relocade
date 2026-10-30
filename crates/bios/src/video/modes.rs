@@ -15,6 +15,8 @@ use relocade_vga::{
 
 // BIOS mode numbers accepted by INT 10h/AH=00h.
 pub(crate) const COLOR_TEXT_80X25: u8 = 0x03;
+const GRAPHICS_320X200_16: u8 = 0x0d;
+const GRAPHICS_640X480_16: u8 = 0x12;
 const GRAPHICS_320X200_256: u8 = 0x13;
 
 /// Returns the mode-set AL result, or leaves the device untouched if unsupported.
@@ -22,6 +24,8 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
     let mode = request & 0x7f;
     let preset = match mode {
         COLOR_TEXT_80X25 => &presets::TEXT,
+        GRAPHICS_320X200_16 => &presets::PLANAR_320X200,
+        GRAPHICS_640X480_16 => &presets::PLANAR_640X480,
         GRAPHICS_320X200_256 => &presets::INDEXED256,
         _ => return None,
     };
@@ -41,17 +45,10 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
 
     memory.write_u8(MODE, mode).expect("video mode");
     memory
-        .write_u16(COLUMNS, if text { 80 } else { 40 })
+        .write_u16(COLUMNS, preset.columns)
         .expect("video columns");
     memory
-        .write_u16(
-            PAGE_SIZE,
-            if text {
-                screen::PAGE_BYTES as u16
-            } else {
-                64000
-            },
-        )
+        .write_u16(PAGE_SIZE, preset.page_bytes)
         .expect("video page size");
     memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
     memory.write(CURSORS, &[0; 16]).expect("video cursors");
@@ -66,9 +63,11 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
     memory
         .write_u16(CRTC_PORT, CRTC_INDEX_PORT)
         .expect("CRTC port");
-    // Both supported presets use a 40/80-by-25 character grid with eight-row glyphs.
     memory
-        .write(LAST_ROW, &[24, 8, 0])
+        .write(
+            LAST_ROW,
+            &[preset.character_rows - 1, preset.character_height, 0],
+        )
         .expect("video font geometry");
     let control = memory.read_u8(VIDEO_CONTROL).expect("video control");
     memory

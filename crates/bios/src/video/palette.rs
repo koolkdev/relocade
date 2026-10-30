@@ -1,7 +1,8 @@
-//! BIOS mode-13h DAC defaults: sixteen PC colors, sixteen grays, then nine
-//! 24-hue rings at three intensities and saturations. Entries 248–255 are black.
+//! BIOS DAC defaults. Attribute palette indices remain part of each mode preset.
 use relocade_vga::registers::text_mode;
 
+// Sixteen PC colors, sixteen grays, then nine 24-hue rings.
+// Entries 248–255 are black.
 pub(super) const INDEXED256: [[u8; 3]; 256] = {
     let mut colors = [[0; 3]; 256];
     let mut index = 0;
@@ -45,6 +46,19 @@ pub(super) const INDEXED256: [[u8; 3]; 256] = {
             step += 1;
         }
         ring += 1;
+    }
+    colors
+};
+
+// The 200-line, 16-color modes use RGBI compatibility: bit 4 is intensity,
+// bits 3 and 5 are ignored. This differs from the 64-color EGA DAC table.
+pub(super) const RGBI: [[u8; 3]; 256] = {
+    let mut colors = [[0; 3]; 256];
+    let mut index = 0;
+    while index < 64 {
+        let pc_color = (index & 7) | ((index & 0x10) >> 1);
+        colors[index] = INDEXED256[pc_color];
+        index += 1;
     }
     colors
 };
