@@ -1,35 +1,32 @@
 //! BIOS text-page operations and firmware display data.
 
+use crate::video::{
+    write_crtc_word, ACTIVE_PAGE, COLOR_TEXT_80X25, CURSORS, CURSOR_SHAPE, MODE, PAGE_OFFSET,
+};
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
-    registers::{
-        attribute, crtc, graphics, sequencer, text_mode, ATTRIBUTE_ADDRESS_PORT,
-        COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
-        DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT, MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
-    },
+    registers::{crtc, text_mode},
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 
 pub(super) const PAGE_BYTES: u32 = 0x1000;
-pub(super) const MODE: u32 = 0x449;
-pub(super) const COLUMNS: u32 = 0x44a;
-pub(super) const PAGE_SIZE: u32 = 0x44c;
-pub(super) const PAGE_OFFSET: u32 = 0x44e;
-pub(super) const CURSORS: u32 = 0x450;
-pub(super) const CURSOR_SHAPE: u32 = 0x460;
-pub(super) const ACTIVE_PAGE: u32 = 0x462;
-const CRTC_PORT: u32 = 0x463;
-const LAST_ROW: u32 = 0x484;
-const DEFAULT_ATTRIBUTE: u8 = 7;
 
 /// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
 /// CR, LF and backspace move the cursor; other glyphs retain cell attributes.
 /// This updates guest video memory and BIOS cursor data without a host output stream.
+/// Output in graphics modes is currently ignored.
 pub fn write_text(memory: &mut MemoryView<'_>, io: &IoBus, bytes: &[u8]) {
+    if !is_text_mode(memory) {
+        return;
+    }
     let page = active_page(memory);
     for &byte in bytes {
         teletype(memory, io, page, byte);
     }
+}
+
+pub(super) fn is_text_mode(memory: &MemoryView<'_>) -> bool {
+    memory.read_u8(MODE).expect("video mode") == COLOR_TEXT_80X25
 }
 
 pub(super) fn active_page(memory: &MemoryView<'_>) -> u8 {
@@ -79,9 +76,7 @@ pub(super) fn set_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u
     memory
         .write_u16(CURSOR_SHAPE, shape)
         .expect("video cursor shape");
-    let [start, end] = shape.to_be_bytes();
-    write_indexed(io, CRTC_INDEX_PORT, crtc::CURSOR_START, start);
-    write_indexed(io, CRTC_INDEX_PORT, crtc::CURSOR_END, end);
+    write_crtc_word(io, crtc::CURSOR_START, shape);
 }
 
 fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
@@ -90,20 +85,6 @@ fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
         .wrapping_mul((PAGE_BYTES / 2) as u16)
         .wrapping_add(u16::from(row) * text_mode::COLUMNS as u16 + u16::from(column));
     write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, position);
-}
-
-fn write_indexed(io: &IoBus, index_port: u16, register: u8, value: u8) {
-    io.write_port(
-        index_port,
-        2,
-        u32::from(u16::from_le_bytes([register, value])),
-    );
-}
-
-fn write_crtc_word(io: &IoBus, register: u8, value: u16) {
-    let [high, low] = value.to_be_bytes();
-    write_indexed(io, CRTC_INDEX_PORT, register, high);
-    write_indexed(io, CRTC_INDEX_PORT, register + 1, low);
 }
 
 fn cell_address(page: u8, row: u8, column: u8) -> u32 {
@@ -247,120 +228,4 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
         );
     }
     set_cursor_position(memory, io, page, u16::from_le_bytes([column, row]));
-}
-
-fn load_text_font(memory: &mut MemoryView<'_>, io: &IoBus) {
-    io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(text_mode::MISC_OUTPUT));
-    write_indexed(io, SEQUENCER_INDEX_PORT, sequencer::MAP_MASK, 4);
-    write_indexed(io, SEQUENCER_INDEX_PORT, sequencer::MEMORY_MODE, 6);
-    for (register, value) in [
-        (graphics::ENABLE_SET_RESET, 0),
-        (graphics::DATA_ROTATE, 0),
-        (graphics::MODE, 0),
-        (graphics::MISCELLANEOUS, 5),
-        (graphics::BIT_MASK, 0xff),
-    ] {
-        write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
-    }
-    for (character, glyph) in text_mode::FONT
-        .as_chunks::<{ text_mode::CHARACTER_HEIGHT as usize }>()
-        .0
-        .iter()
-        .enumerate()
-    {
-        let mut slot = [0; 32];
-        slot[..glyph.len()].copy_from_slice(glyph);
-        memory
-            .write(0xa0000 + character as u32 * 32, &slot)
-            .expect("text font");
-    }
-}
-
-fn program_text_mode(io: &IoBus) {
-    io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(text_mode::MISC_OUTPUT));
-    for &(register, value) in text_mode::SEQUENCER_REGISTERS {
-        if register != sequencer::RESET {
-            write_indexed(io, SEQUENCER_INDEX_PORT, register, value);
-        }
-    }
-    for &(register, value) in text_mode::GRAPHICS_REGISTERS {
-        write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
-    }
-    write_indexed(
-        io,
-        CRTC_INDEX_PORT,
-        crtc::VERTICAL_RETRACE_END,
-        text_mode::VERTICAL_RETRACE_END & !crtc::PROTECT_TIMING_REGISTERS,
-    );
-    for &(register, value) in text_mode::CRTC_REGISTERS {
-        write_indexed(io, CRTC_INDEX_PORT, register, value);
-    }
-    io.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
-    for (index, value) in text_mode::ATTRIBUTE_PALETTE.into_iter().enumerate() {
-        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, index as u32);
-        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
-    }
-    for &(register, value) in text_mode::ATTRIBUTE_REGISTERS {
-        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(register));
-        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
-    }
-    io.write_port(
-        ATTRIBUTE_ADDRESS_PORT,
-        1,
-        u32::from(attribute::PALETTE_ADDRESS_SOURCE),
-    );
-    io.write_port(DAC_MASK_PORT, 1, 0xff);
-    io.write_port(DAC_WRITE_ADDRESS_PORT, 1, 0);
-    for color in text_mode::DAC_PALETTE {
-        for component in color {
-            io.write_port(DAC_DATA_PORT, 1, u32::from(component));
-        }
-    }
-}
-
-pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
-    // Hold the sequencer in reset while restoring the preset and text pages.
-    // CPU addressing and write masks must be restored before clearing memory.
-    write_indexed(
-        io,
-        SEQUENCER_INDEX_PORT,
-        sequencer::RESET,
-        sequencer::SYNCHRONOUS_RESET,
-    );
-    load_text_font(memory, io);
-    program_text_mode(io);
-    memory.write_u8(MODE, 3).expect("video mode");
-    memory
-        .write_u16(COLUMNS, text_mode::COLUMNS as u16)
-        .expect("video columns");
-    memory
-        .write_u16(PAGE_SIZE, PAGE_BYTES as u16)
-        .expect("video page size");
-    memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
-    memory.write(CURSORS, &[0; 16]).expect("video cursors");
-    set_cursor_shape(memory, io, 0x0607);
-    select_page(memory, io, 0);
-    // BIOS data: color CRTC port, last text row and character height.
-    memory
-        .write_u16(CRTC_PORT, CRTC_INDEX_PORT)
-        .expect("CRTC port");
-    let [height_lo, height_hi] = text_mode::CHARACTER_HEIGHT.to_le_bytes();
-    memory
-        .write(
-            LAST_ROW,
-            &[(text_mode::ROWS - 1) as u8, height_lo, height_hi],
-        )
-        .expect("video font geometry");
-    let blank_page = [b' ', DEFAULT_ATTRIBUTE].repeat(PAGE_BYTES as usize / 2);
-    for page in 0..TEXT_MEMORY_BYTES / PAGE_BYTES {
-        memory
-            .write(TEXT_MEMORY_START + page * PAGE_BYTES, &blank_page)
-            .expect("text page");
-    }
-    write_indexed(
-        io,
-        SEQUENCER_INDEX_PORT,
-        sequencer::RESET,
-        sequencer::RESET_RELEASED,
-    );
 }

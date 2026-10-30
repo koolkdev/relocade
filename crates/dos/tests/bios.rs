@@ -1,4 +1,6 @@
 mod common;
+#[path = "bios/graphics.rs"]
+mod graphics;
 #[path = "bios/keyboard.rs"]
 mod keyboard;
 #[path = "bios/screen.rs"]

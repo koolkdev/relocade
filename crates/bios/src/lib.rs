@@ -1,6 +1,11 @@
 //! BIOS services for a real-mode PC, reached through ordinary runtime hooks.
 //!
-//! INT 10h supplies basic mode-3 text output, cursors, pages and scrolling.
+//! INT 10h sets modes 03h and 13h, with text output, cursors, pages and scrolling
+//! in mode 03h. Mode 13h programs VGA for direct guest pixel and palette writes.
+//! Mode setting honors AL bit 7 to preserve video memory; AH=0Fh reports the
+//! mode, that flag, character columns and active page. Other video services in
+//! graphics mode return AH=86h with carry set. [`write_text`] ignores graphics
+//! output until BIOS glyph drawing in graphics modes is implemented.
 //! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared host keyboard.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. A machine timer must update these fields.
@@ -31,7 +36,7 @@ const MIDNIGHT_ROLLOVER: u32 = 0x470;
 /// range and [`relocade_vga::PORT_RANGES`] on the supplied bus. Font loading uses
 /// the A0000 aperture before mode setup restores the color text aperture.
 pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
-    screen::initialize(memory, io);
+    video::set_mode(memory, io, video::COLOR_TEXT_80X25).expect("initial text mode");
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
     for (vector, offset) in [
