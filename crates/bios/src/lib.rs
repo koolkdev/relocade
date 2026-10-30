@@ -6,6 +6,8 @@
 //! mode, that flag, character columns and active page. AH=0Ch/0Dh write/read
 //! graphics pixels, with XOR in planar modes and eight pages in mode 0Dh.
 //! AH=10h reads/writes attribute and DAC palettes, blink, paging and the DAC mask.
+//! AH=11h loads text fonts, selects font banks and reports ROM font pointers.
+//! AH=12h/BL=30h selects the next text mode set's scanline profile.
 //! Unsupported video services or pixel coordinates/pages return AH=86h with
 //! carry set. [`write_text`] ignores graphics output until BIOS glyph drawing
 //! in graphics modes is implemented.
@@ -33,13 +35,13 @@ const VIDEO_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + VIDEO_ENTRY as u32;
 const CLOCK_TICKS: u32 = 0x46c;
 const MIDNIGHT_ROLLOVER: u32 = 0x470;
 
-/// Initializes the clock data, BIOS vectors and their ROM return instructions.
+/// Initializes clock/video data, BIOS vectors, ROM fonts and hook instructions.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
 /// Map [`relocade_vga::MEMORY_RANGE`] as MMIO and connect VGA to that memory
 /// range and [`relocade_vga::PORT_RANGES`] on the supplied bus. Font loading uses
 /// the A0000 aperture before mode setup restores the color text aperture.
 pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
-    video::set_mode(memory, io, video::COLOR_TEXT_80X25).expect("initial text mode");
+    video::initialize(memory, io);
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
     for (vector, offset) in [

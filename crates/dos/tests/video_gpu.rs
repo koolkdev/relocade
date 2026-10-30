@@ -2,6 +2,8 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 mod common;
+#[path = "video_gpu/fonts.rs"]
+mod fonts;
 #[path = "video_gpu/indexed256.rs"]
 mod indexed256;
 #[path = "video_gpu/palette.rs"]

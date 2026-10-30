@@ -1,5 +1,6 @@
 //! INT 10h services. BIOS bookkeeping never selects rendering.
 
+mod fonts;
 mod modes;
 mod palette;
 mod pixels;
@@ -8,8 +9,8 @@ mod presets;
 pub(super) use modes::{set_mode, COLOR_TEXT_80X25};
 
 use crate::screen::{self, ScrollDirection, Window};
-use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus};
-use relocade_vga::registers::CRTC_INDEX_PORT;
+use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus, MemoryView};
+use relocade_vga::registers::{CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT, MONO_CRTC_INDEX_PORT};
 
 // Firmware video data in segment 0040h.
 pub(super) const MODE: u32 = 0x449;
@@ -21,7 +22,16 @@ pub(super) const CURSOR_SHAPE: u32 = 0x460;
 pub(super) const ACTIVE_PAGE: u32 = 0x462;
 const CRTC_PORT: u32 = 0x463;
 pub(super) const LAST_ROW: u32 = 0x484;
+const CHARACTER_HEIGHT: u32 = 0x485;
 const VIDEO_CONTROL: u32 = 0x487;
+const VIDEO_SWITCHES: u32 = 0x488;
+const MODESET_CONTROL: u32 = 0x489;
+
+pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
+    fonts::initialize(memory);
+    modes::select_scanlines(memory, 0); // Preserve the existing doubled 8-high startup.
+    set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");
+}
 
 pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     let cpu = &call.cpu;
@@ -59,6 +69,10 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             }
         }
         0x10 => return palette::interrupt(call),
+        0x11 => return fonts::interrupt(call),
+        0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
+            call.cpu.set_al(0x12);
+        }
         // The remaining services operate on text pages.
         _ if !screen::is_text_mode(&call.memory) => return unsupported(call),
         0x02 | 0x03 | 0x08..=0x0a if !screen::valid_page(&call.memory, page) => {
@@ -127,10 +141,25 @@ fn read_indexed(io: &IoBus, port: u16, register: u8) -> u8 {
     io.read_port(port + 1, 1) as u8
 }
 
+// BIOS transfer buffers advance a 16-bit ES offset, including within a glyph
+// or RGB triple. The next byte after ES:FFFF is ES:0000.
+fn buffer_addresses(base: u32, offset: u16, bytes: u32) -> impl Iterator<Item = u32> {
+    (0..bytes).map(move |index| base + u32::from(offset.wrapping_add(index as u16)))
+}
+
 pub(super) fn write_crtc_word(io: &IoBus, register: u8, value: u16) {
     let [high, low] = value.to_be_bytes();
-    write_indexed(io, CRTC_INDEX_PORT, register, high);
-    write_indexed(io, CRTC_INDEX_PORT, register + 1, low);
+    let port = crtc_port(io);
+    write_indexed(io, port, register, high);
+    write_indexed(io, port, register + 1, low);
+}
+
+fn crtc_port(io: &IoBus) -> u16 {
+    if io.read_port(MISC_OUTPUT_READ_PORT, 1) & 1 != 0 {
+        CRTC_INDEX_PORT
+    } else {
+        MONO_CRTC_INDEX_PORT
+    }
 }
 
 fn unsupported<T>(call: &mut CpuContext<'_, T>) -> HookResult {

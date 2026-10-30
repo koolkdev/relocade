@@ -105,6 +105,52 @@ share that geometry. Valid pages fit the 32-KiB text aperture and the eight BIOS
 cursor records. This firmware bookkeeping does not control rendering; VGA
 scanout still follows its captured registers and memory.
 
+BIOS AH=11h supports guest font loading (AL=00h/10h), built-in 8×14
+(01h/11h), 8×8 (02h/12h) and 8×16 (04h/14h) fonts, bank selection (03h), and
+font information (30h). Fonts are the CC0 [Modern DOS family](../bios/assets/README.md).
+Guest data uses ES:BP, BH bytes per glyph, CX glyphs starting at character DX,
+and bank BL. The source offset wraps at 64 KiB. Uploads write only supplied rows
+of each 32-byte plane-two slot, preserve other banks and restore VGA CPU access
+settings. Loading a bank does not select it; AL=03h separately programs SR03.
+
+AL=1xh also changes CRTC character height, clears double scanning, sets the
+cursor at the bottom of the glyph, and updates BIOS rows, height and page size.
+These calls require active page zero. Pages round up to 2-KiB blocks: 80×25 uses
+4 KiB and 80×43/50 uses 8 KiB. Vertical timing and display extent remain intact,
+so a 350-line display with an 8-high font has 43 complete rows plus six scanlines
+of the next row. Changing back to 14-high restores 25 complete rows. AL=0xh
+leaves geometry unchanged. A zero-count guest upload leaves font memory alone;
+AL=10h can still change geometry. Invalid banks, heights outside 1–32, ranges
+beyond 256 glyphs, and geometry that cannot fit BIOS row fields or text memory
+return AH=86h with carry set before changing state. These bounds and page
+allocation are firmware policy rather than a claim about every VGA BIOS.
+
+AH=12h/BL=30h selects the next mode-03h profile and returns AL=12h. AL=0 keeps
+the existing 200-line logical profile (8-high font, doubled on a 400-line raster);
+AL=1 selects 350 lines with a 14-high font; AL=2 selects 400 lines with a 16-high
+font. All start at 80×25 with eight-dot characters. The preference lives in the
+BIOS data area, does not change current scanout, and survives graphics mode sets.
+Loading an 8-high font with AL=12h then yields 43 or 50 rows on the 350/400-line
+rasters. Text mode setting still resets complete font slots even when AL bit 7
+preserves character and attribute memory.
+
+AL=30h returns ES:BP to guest-readable ROM font data or the current INT 1Fh/43h
+vector selected by BH. CX reports the current display's font height, independent
+of the requested ROM font, and DL reports the last BIOS row. BH=5/7 return
+terminated, empty ninth-column replacement tables. Initialization sets INT 1Fh
+to the upper half of the 8×8 font; later mode sets preserve that vector and
+update INT 43h to the mode's built-in font. Font uploads alone preserve both
+vectors. Font information also works in graphics modes; other AH=11h graphics
+services remain unsupported. These ABI details follow the
+[font services](https://www.ctyme.com/intr/rb-0136.htm),
+[font query](https://www.ctyme.com/intr/rb-0158.htm) and
+[scanline selection](https://www.ctyme.com/intr/rb-0167.htm) interfaces.
+
+BIOS font handling owns ROM data, temporary plane-two access and validated
+geometry transitions in separate modules. Mode setting reuses that same font
+writer. Font bytes and bank selection reach captures and GPU uploads through
+the existing VRAM/register path.
+
 BIOS AH=10h programs those same Attribute Controller and DAC registers. Supported
 subfunctions are 00h/07h (individual attribute register), 01h/08h (overscan),
 02h/09h (16 colors plus overscan), 03h (blink/intensity), 10h/15h (individual DAC

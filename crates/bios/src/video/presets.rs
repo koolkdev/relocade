@@ -2,15 +2,17 @@
 mod indexed256;
 mod palette;
 mod planar16;
+mod text;
 
 pub(super) use indexed256::INDEXED256;
 pub(super) use planar16::{PLANAR_320X200, PLANAR_640X480};
+pub(super) use text::{TEXT_200, TEXT_350, TEXT_400};
 
 use super::write_indexed;
 use relocade_machine::IoBus;
 use relocade_vga::registers::{
-    attribute, crtc, sequencer, text_mode, ATTRIBUTE_ADDRESS_PORT, COLOR_INPUT_STATUS_1_PORT,
-    CRTC_INDEX_PORT, DAC_DATA_PORT, DAC_MASK_PORT, DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT,
+    attribute, crtc, sequencer, ATTRIBUTE_ADDRESS_PORT, COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT,
+    DAC_DATA_PORT, DAC_MASK_PORT, DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT,
     MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
 };
 
@@ -67,17 +69,3 @@ impl Preset {
         }
     }
 }
-
-pub(super) const TEXT: Preset = Preset {
-    columns: 80,
-    character_rows: 25,
-    character_height: 8,
-    page_bytes: 0x1000,
-    miscellaneous: text_mode::MISC_OUTPUT,
-    sequencer: text_mode::SEQUENCER_REGISTERS,
-    graphics: text_mode::GRAPHICS_REGISTERS,
-    crtc: text_mode::CRTC_REGISTERS,
-    attribute: text_mode::ATTRIBUTE_REGISTERS,
-    attribute_palette: text_mode::ATTRIBUTE_PALETTE,
-    palette: &text_mode::DAC_PALETTE,
-};
