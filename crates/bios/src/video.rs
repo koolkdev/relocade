@@ -4,7 +4,7 @@ mod modes;
 mod palette;
 mod presets;
 
-pub(super) use modes::set_mode;
+pub(super) use modes::{set_mode, COLOR_TEXT_80X25};
 
 use crate::screen::{self, ScrollDirection, Window};
 use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus};
@@ -30,12 +30,6 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     let attribute = cpu.bl();
     let cx = cpu.cx();
     let dx = cpu.dx();
-    if !matches!(function, 0x00 | 0x0f) && !screen::is_text_mode(&call.memory) {
-        return unsupported(call);
-    }
-    if matches!(function, 0x02 | 0x03 | 0x08..=0x0a) && !screen::valid_page(page) {
-        return unsupported(call);
-    }
     match function {
         0x00 => {
             let Some(result) = set_mode(&mut call.memory, call.io, al) else {
@@ -43,6 +37,19 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             };
             call.cpu.set_al(result);
         }
+        0x0f => {
+            let memory = &call.memory;
+            let mode = memory.read_u8(MODE).expect("video mode");
+            let preserved = memory.read_u8(VIDEO_CONTROL).expect("video control") & 0x80;
+            let columns = memory.read_u16(COLUMNS).expect("video columns") as u8;
+            let active = screen::active_page(memory);
+            call.cpu
+                .set_ax(u16::from_le_bytes([mode | preserved, columns]));
+            call.cpu.set_bh(active);
+        }
+        // The remaining services operate on text pages.
+        _ if !screen::is_text_mode(&call.memory) => return unsupported(call),
+        0x02 | 0x03 | 0x08..=0x0a if !screen::valid_page(page) => return unsupported(call),
         0x01 => screen::set_cursor_shape(&mut call.memory, call.io, cx),
         0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
         0x03 => {
@@ -90,16 +97,6 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             cx,
         ),
         0x0e => screen::write_text(&mut call.memory, call.io, &[al]),
-        0x0f => {
-            let memory = &call.memory;
-            let mode = memory.read_u8(MODE).expect("video mode");
-            let preserved = memory.read_u8(VIDEO_CONTROL).expect("video control") & 0x80;
-            let columns = memory.read_u16(COLUMNS).expect("video columns") as u8;
-            let active = screen::active_page(memory);
-            call.cpu
-                .set_ax(u16::from_le_bytes([mode | preserved, columns]));
-            call.cpu.set_bh(active);
-        }
         _ => return unsupported(call),
     }
     real_mode_interrupt::return_from_interrupt(call)

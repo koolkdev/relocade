@@ -36,7 +36,7 @@ const MIDNIGHT_ROLLOVER: u32 = 0x470;
 /// range and [`relocade_vga::PORT_RANGES`] on the supplied bus. Font loading uses
 /// the A0000 aperture before mode setup restores the color text aperture.
 pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
-    video::set_mode(memory, io, 3).expect("initial text mode");
+    video::set_mode(memory, io, video::COLOR_TEXT_80X25).expect("initial text mode");
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
     for (vector, offset) in [

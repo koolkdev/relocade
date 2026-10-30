@@ -13,15 +13,19 @@ use relocade_vga::{
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 
+// BIOS mode numbers accepted by INT 10h/AH=00h.
+pub(crate) const COLOR_TEXT_80X25: u8 = 0x03;
+const GRAPHICS_320X200_256: u8 = 0x13;
+
 /// Returns the mode-set AL result, or leaves the device untouched if unsupported.
 pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
     let mode = request & 0x7f;
     let preset = match mode {
-        3 => &presets::TEXT,
-        0x13 => &presets::INDEXED256,
+        COLOR_TEXT_80X25 => &presets::TEXT,
+        GRAPHICS_320X200_256 => &presets::INDEXED256,
         _ => return None,
     };
-    let text = mode == 3;
+    let text = mode == COLOR_TEXT_80X25;
     // Restore routing and write masks before any clear. Font loading temporarily
     // selects plane two, then the preset restores the mode's normal aperture.
     write_indexed(
