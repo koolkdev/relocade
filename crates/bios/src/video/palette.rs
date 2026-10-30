@@ -1,5 +1,9 @@
-//! INT 10h/AH=10h palette services through the guest-visible VGA ports.
+//! BIOS palette services through the guest-visible VGA ports.
+mod compatibility;
 use super::{buffer_addresses, modes, unsupported, MODE};
+pub(super) use compatibility::{
+    initialize as initialize_compatibility, interrupt as compatibility,
+};
 use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus};
 use relocade_vga::registers::{
     attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT, COLOR_INPUT_STATUS_1_PORT,

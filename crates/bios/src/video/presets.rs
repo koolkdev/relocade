@@ -1,9 +1,11 @@
 //! Register presets for BIOS modes. Rendering interprets the resulting hardware state.
+mod cga;
 mod indexed256;
 mod palette;
 mod planar16;
 mod text;
 
+pub(super) use cga::{CGA_320X200, CGA_640X200};
 pub(super) use indexed256::INDEXED256;
 pub(super) use planar16::{PLANAR_320X200, PLANAR_640X480};
 pub(super) use text::{TEXT_200, TEXT_350, TEXT_400};

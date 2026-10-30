@@ -1,3 +1,6 @@
+#[path = "palette/compatibility.rs"]
+mod compatibility;
+
 use super::video::{video, PROGRAM};
 use crate::common;
 use relocade_x86::{Segment, SegmentRegister};

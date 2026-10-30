@@ -1,9 +1,10 @@
-use super::{access::PlanarAccess, Mode};
+use super::{access::GraphicsAccess, Layout, Mode};
 use relocade_machine::{IoBus, MemoryView};
 
-pub(in crate::video) enum Pixel {
-    Indexed { address: u32 },
-    Planar { address: u32, mask: u8 },
+pub(in crate::video) struct Pixel {
+    address: u32,
+    layout: Layout,
+    shift: u8,
 }
 
 impl Pixel {
@@ -15,32 +16,45 @@ impl Pixel {
         }
         let page_number = if mode.pages == 1 { 0 } else { page };
         let page = mode.page(page_number)?;
-        let address = page.address(x, y);
-        Some(if page.mode.planar {
-            Self::Planar {
-                address,
-                mask: 0x80 >> (x % 8),
-            }
-        } else {
-            Self::Indexed { address }
+        Some(Self {
+            address: page.address(x, y),
+            layout: page.mode.layout,
+            shift: page.mode.layout.shift(x),
         })
     }
 
     pub fn read(self, memory: &MemoryView<'_>, io: &IoBus) -> u8 {
-        match self {
-            Self::Indexed { address } => memory.read_u8(address).expect("graphics pixel"),
-            Self::Planar { address, mask } => {
-                PlanarAccess::new(io).read_pixel(memory, address, mask)
-            }
+        let access = GraphicsAccess::new(io, self.layout.write_planes());
+        if self.layout == Layout::Planar16 {
+            access.read_planar_pixel(memory, self.address, 1 << self.shift)
+        } else {
+            (memory.read_u8(self.address).expect("graphics pixel") >> self.shift)
+                & self.layout.pixel_mask()
         }
     }
 
     pub fn write(self, memory: &mut MemoryView<'_>, io: &IoBus, color: u8) {
-        match self {
+        let access = GraphicsAccess::new(io, self.layout.write_planes());
+        match self.layout {
+            Layout::Planar16 => {
+                access.write_planar_masked(memory, self.address, 1 << self.shift, color)
+            }
             // In 256-color modes bit seven is part of the color, not XOR.
-            Self::Indexed { address } => memory.write_u8(address, color).expect("graphics pixel"),
-            Self::Planar { address, mask } => {
-                PlanarAccess::new(io).write_masked(memory, address, mask, color)
+            Layout::Indexed256 => memory
+                .write_u8(self.address, color)
+                .expect("graphics pixel"),
+            Layout::Packed1 | Layout::Packed2 => {
+                let previous = memory.read_u8(self.address).expect("packed pixel byte");
+                let mask = self.layout.pixel_mask() << self.shift;
+                let value = (color & self.layout.pixel_mask()) << self.shift;
+                let byte = if color & 0x80 != 0 {
+                    previous ^ value
+                } else {
+                    (previous & !mask) | value
+                };
+                memory
+                    .write_u8(self.address, byte)
+                    .expect("packed pixel byte");
             }
         }
     }
