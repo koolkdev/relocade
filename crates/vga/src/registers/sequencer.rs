@@ -13,20 +13,22 @@ pub const SYNCHRONOUS_RESET: u8 = 0x01;
 /// Reset register value: release both active-low reset inputs.
 pub const RESET_RELEASED: u8 = 0x03;
 
-pub(crate) struct Sequencer {
+/// Sequencer values and the current CPU register index.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sequencer {
     index: u8,
-    registers: [u8; 5],
+    pub values: [u8; 5],
 }
 
 impl Default for Sequencer {
     fn default() -> Self {
-        let mut registers = [0; 5];
+        let mut values = [0; 5];
         for &(index, value) in text_mode::SEQUENCER_REGISTERS {
-            registers[usize::from(index)] = value;
+            values[usize::from(index)] = value;
         }
         Self {
             index: RESET,
-            registers,
+            values,
         }
     }
 }
@@ -36,22 +38,22 @@ impl Sequencer {
         self.index
     }
 
-    pub fn select(&mut self, index: u8) {
+    pub(crate) fn select(&mut self, index: u8) {
         self.index = index & 7;
     }
 
-    pub fn read(&self) -> u8 {
-        self.registers
+    pub(crate) fn read(&self) -> u8 {
+        self.values
             .get(usize::from(self.index))
             .copied()
             .unwrap_or(0xff)
     }
 
     fn register(&self, index: u8) -> u8 {
-        self.registers[usize::from(index)]
+        self.values[usize::from(index)]
     }
 
-    pub fn write(&mut self, value: u8) {
+    pub(crate) fn write(&mut self, value: u8) {
         let mask = match self.index {
             RESET => RESET_RELEASED,
             CLOCKING_MODE => 0x3d,
@@ -60,26 +62,26 @@ impl Sequencer {
             MEMORY_MODE => 0x0e,
             _ => return,
         };
-        self.registers[usize::from(self.index)] = value & mask;
+        self.values[usize::from(self.index)] = value & mask;
     }
 
-    pub fn screen_off(&self) -> bool {
+    pub(crate) fn screen_off(&self) -> bool {
         self.register(CLOCKING_MODE) & (1 << 5) != 0
     }
 
-    pub fn chain_four(&self) -> bool {
+    pub(crate) fn chain_four(&self) -> bool {
         self.register(MEMORY_MODE) & 8 != 0
     }
 
-    pub fn odd_even_writes(&self) -> bool {
+    pub(crate) fn odd_even_writes(&self) -> bool {
         self.register(MEMORY_MODE) & 4 == 0
     }
 
-    pub fn extended_memory(&self) -> bool {
+    pub(crate) fn extended_memory(&self) -> bool {
         self.register(MEMORY_MODE) & 2 != 0
     }
 
-    pub fn write_planes(&self, offset: u32) -> u8 {
+    pub(crate) fn write_planes(&self, offset: u32) -> u8 {
         let addressed = if self.chain_four() {
             1 << (offset & 3)
         } else if self.odd_even_writes() {

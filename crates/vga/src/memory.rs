@@ -1,24 +1,29 @@
 use crate::{registers::Registers, TextCell};
+use std::sync::Arc;
 
-const PLANE_BYTES: usize = 65536;
+pub(crate) const PLANE_BYTES: usize = 65536;
 
 /// Four independent VGA planes. CPU reads latch all planes; scanout reads do not
 /// disturb those latches. Plane addressing wraps at the hardware's 16-bit limit.
 pub(super) struct VideoMemory {
-    planes: [Box<[u8]>; 4],
+    planes: [Arc<[u8]>; 4],
     latches: [u8; 4],
 }
 
 impl Default for VideoMemory {
     fn default() -> Self {
         Self {
-            planes: std::array::from_fn(|_| vec![0; PLANE_BYTES].into_boxed_slice()),
+            planes: std::array::from_fn(|_| vec![0; PLANE_BYTES].into()),
             latches: [0; 4],
         }
     }
 }
 
 impl VideoMemory {
+    pub fn snapshot(&self) -> [Arc<[u8]>; 4] {
+        self.planes.clone()
+    }
+
     fn index(offset: u32, registers: &Registers) -> usize {
         let address_bits = if registers.sequencer.extended_memory() {
             16
@@ -65,8 +70,10 @@ impl VideoMemory {
         let planes = registers.sequencer.write_planes(offset);
         let values = registers.graphics.write_data(value, self.latches);
         for (plane, value) in values.into_iter().enumerate() {
-            if planes & (1 << plane) != 0 {
-                self.planes[plane][index] = value;
+            if planes & (1 << plane) != 0 && self.planes[plane][index] != value {
+                // Captures share unchanged planes. Only an actual change copies
+                // a plane still retained by a capture; later writes reuse it.
+                Arc::make_mut(&mut self.planes[plane])[index] = value;
             }
         }
     }

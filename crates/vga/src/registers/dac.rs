@@ -2,9 +2,12 @@
 
 use super::text_mode;
 
-pub(crate) struct Dac {
+/// DAC colors, pixel mask and CPU palette-transfer position.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dac {
     pub mask: u8,
-    colors: [[u8; 3]; 256],
+    /// Six-bit RGB components in DAC address order.
+    pub colors: [[u8; 3]; 256],
     address: u8,
     component: usize,
     reading: bool,
@@ -23,7 +26,7 @@ impl Default for Dac {
 }
 
 impl Dac {
-    pub fn select(&mut self, address: u8, reading: bool) {
+    pub(crate) fn select(&mut self, address: u8, reading: bool) {
         self.address = address;
         self.component = 0;
         self.reading = reading;
@@ -33,7 +36,7 @@ impl Dac {
         self.address
     }
 
-    pub fn state(&self) -> u8 {
+    pub(crate) fn state(&self) -> u8 {
         if self.reading {
             3
         } else {
@@ -49,13 +52,13 @@ impl Dac {
         }
     }
 
-    pub fn read(&mut self) -> u8 {
+    pub(crate) fn read(&mut self) -> u8 {
         let value = self.colors[usize::from(self.address)][self.component];
         self.step();
         value
     }
 
-    pub fn write(&mut self, value: u8) {
+    pub(crate) fn write(&mut self, value: u8) {
         self.colors[usize::from(self.address)][self.component] = value & 0x3f;
         self.step();
     }

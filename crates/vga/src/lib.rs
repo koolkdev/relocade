@@ -13,6 +13,7 @@ pub mod registers;
 #[cfg(feature = "renderer")]
 mod renderer;
 mod screen;
+mod snapshot;
 #[cfg(feature = "renderer")]
 mod text;
 mod timing;
@@ -20,12 +21,12 @@ mod timing;
 pub use capture::{CapturedFrame, FrameSource};
 use futures_lite::future::yield_now;
 use memory::VideoMemory;
-use registers::Registers;
-pub use registers::{CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
+pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, Device, TimerHandle};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
 pub use screen::{TextCell, TextCursor, TextScreen};
+pub use snapshot::DisplaySnapshot;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 use timing::Timing;
 
@@ -69,6 +70,18 @@ impl<C: Clock> Vga<C> {
         self.frames.clone()
     }
 
+    /// Captures current display inputs immediately on the execution owner, without
+    /// advancing time, publishing a frame, or changing CPU read/access latches.
+    /// Shares immutable VRAM planes and copies the small register state.
+    /// Unlike [`FrameSource`], this does not wait for a refresh boundary.
+    pub fn snapshot(&self) -> DisplaySnapshot {
+        DisplaySnapshot {
+            planes: self.memory.snapshot(),
+            registers: self.registers.clone(),
+            blink_on: self.timing.blink_on(),
+        }
+    }
+
     /// Copies an 80-by-25 text inspection window on the owning worker, using
     /// the CRTC display-address translation. The copy does not change CPU read
     /// latches or publish a capture, and stays stable across later device writes.
@@ -92,6 +105,7 @@ impl<C: Clock> Vga<C> {
     fn advance(&mut self) {
         if self.timing.advance_to(self.clock.now()) {
             self.frames.capture(CapturedFrame {
+                display: self.snapshot(),
                 screen: self.screen(),
                 blink_on: self.timing.blink_on(),
                 blanked: self.registers.sequencer.screen_off(),

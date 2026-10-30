@@ -1,4 +1,4 @@
-use crate::TextScreen;
+use crate::{DisplaySnapshot, TextScreen};
 use arc_swap::ArcSwapOption;
 use event_listener::Event;
 use std::{
@@ -9,10 +9,12 @@ use std::{
     time::Duration,
 };
 
-/// Immutable rasterizer input sampled at a completed text refresh boundary.
-/// It preserves coherent text state, not pixel history throughout the refresh.
+/// Immutable rasterizer input sampled at a completed refresh boundary.
+/// It preserves coherent display state, not pixel history throughout the refresh.
 /// Renderers can read this state directly without allocating a CPU pixel image.
 pub struct CapturedFrame {
+    /// Complete physical memory, palette and programmable display settings.
+    pub display: DisplaySnapshot,
     /// Visible cells, display start and cursor registers at the boundary.
     pub screen: TextScreen,
     /// Captured phase shared by blinking attributes and the text cursor.
