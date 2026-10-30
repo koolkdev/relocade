@@ -1,14 +1,12 @@
 //! Firmware mode transitions through the same ports and MMIO used by guests.
 use super::{
-    presets, write_crtc_word, write_indexed, ACTIVE_PAGE, COLUMNS, CRTC_PORT, CURSORS,
-    CURSOR_SHAPE, LAST_ROW, MODE, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
+    fonts, presets, write_crtc_word, write_indexed, ACTIVE_PAGE, COLUMNS, CRTC_PORT, CURSORS,
+    CURSOR_SHAPE, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
+    VIDEO_SWITCHES,
 };
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
-    registers::{
-        crtc, graphics, sequencer, text_mode, CRTC_INDEX_PORT, GRAPHICS_INDEX_PORT,
-        MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
-    },
+    registers::{crtc, sequencer, CRTC_INDEX_PORT, SEQUENCER_INDEX_PORT},
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 
@@ -22,7 +20,12 @@ pub(super) const GRAPHICS_320X200_256: u8 = 0x13;
 pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
     let mode = request & 0x7f;
     let preset = match mode {
-        COLOR_TEXT_80X25 => &presets::TEXT,
+        COLOR_TEXT_80X25 => match memory.read_u8(MODESET_CONTROL).expect("mode-set control") & 0x90
+        {
+            0 => &presets::TEXT_350,
+            0x10 => &presets::TEXT_400,
+            _ => &presets::TEXT_200,
+        },
         GRAPHICS_320X200_16 => &presets::PLANAR_320X200,
         GRAPHICS_640X480_16 => &presets::PLANAR_640X480,
         GRAPHICS_320X200_256 => &presets::INDEXED256,
@@ -37,9 +40,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         sequencer::RESET,
         sequencer::SYNCHRONOUS_RESET,
     );
-    if text {
-        load_text_font(memory, io);
-    }
+    fonts::set_mode(memory, io, preset.character_height, text);
     preset.program(io);
 
     memory.write_u8(MODE, mode).expect("video mode");
@@ -52,7 +53,11 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
     memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
     memory.write(CURSORS, &[0; 16]).expect("video cursors");
     memory.write_u8(ACTIVE_PAGE, 0).expect("active video page");
-    let shape = if text { 0x0607 } else { 0 };
+    let shape = if text {
+        u16::from_be_bytes([preset.character_height - 2, preset.character_height - 1])
+    } else {
+        0
+    };
     memory
         .write_u16(CURSOR_SHAPE, shape)
         .expect("video cursor shape");
@@ -98,29 +103,21 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
     Some(if text { 0x30 } else { 0x20 })
 }
 
-fn load_text_font(memory: &mut MemoryView<'_>, io: &IoBus) {
-    io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(text_mode::MISC_OUTPUT));
-    write_indexed(io, SEQUENCER_INDEX_PORT, sequencer::MAP_MASK, 4);
-    write_indexed(io, SEQUENCER_INDEX_PORT, sequencer::MEMORY_MODE, 6);
-    for (register, value) in [
-        (graphics::ENABLE_SET_RESET, 0),
-        (graphics::DATA_ROTATE, 0),
-        (graphics::MODE, 0),
-        (graphics::MISCELLANEOUS, 5),
-        (graphics::BIT_MASK, 0xff),
-    ] {
-        write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
-    }
-    for (character, glyph) in text_mode::FONT
-        .as_chunks::<{ text_mode::CHARACTER_HEIGHT as usize }>()
-        .0
-        .iter()
-        .enumerate()
-    {
-        let mut slot = [0; 32];
-        slot[..glyph.len()].copy_from_slice(glyph);
-        memory
-            .write(0xa0000 + character as u32 * 32, &slot)
-            .expect("text font");
-    }
+/// AH=12h/BL=30h selects a profile for a later mode set; it does not touch VGA.
+pub(super) fn select_scanlines(memory: &mut MemoryView<'_>, selection: u8) -> bool {
+    let (control_bits, switches) = match selection {
+        0 => (0x80, 8), // 200 logical lines, doubled on the VGA raster.
+        1 => (0, 9),    // 350 lines.
+        2 => (0x10, 9), // 400 lines.
+        _ => return false,
+    };
+    let control = memory.read_u8(MODESET_CONTROL).expect("mode-set control");
+    let previous_switches = memory.read_u8(VIDEO_SWITCHES).expect("video switches");
+    memory
+        .write_u8(MODESET_CONTROL, (control & !0x90) | control_bits)
+        .expect("mode-set control");
+    memory
+        .write_u8(VIDEO_SWITCHES, (previous_switches & !0x0f) | switches)
+        .expect("video switches");
+    true
 }

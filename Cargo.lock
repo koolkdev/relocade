@@ -2010,6 +2010,7 @@ version = "0.0.0"
 dependencies = [
  "relocade-machine",
  "relocade-vga",
+ "relocade-x86",
 ]
 
 [[package]]

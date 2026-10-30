@@ -1,5 +1,5 @@
 //! INT 10h/AH=10h palette services through the guest-visible VGA ports.
-use super::{modes, unsupported, MODE};
+use super::{buffer_addresses, modes, unsupported, MODE};
 use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus};
 use relocade_vga::registers::{
     attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT, COLOR_INPUT_STATUS_1_PORT,
@@ -115,12 +115,6 @@ pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
         _ => return unsupported(call),
     }
     real_mode_interrupt::return_from_interrupt(call)
-}
-
-// A BIOS block advances a 16-bit ES offset, including a wrap within an RGB
-// triple. The VGA ports independently handle palette-address wrap and masks.
-fn buffer_addresses(base: u32, offset: u16, bytes: u32) -> impl Iterator<Item = u32> {
-    (0..bytes).map(move |index| base + u32::from(offset.wrapping_add(index as u16)))
 }
 
 fn select_attribute(io: &IoBus, address: u8) {

@@ -1,4 +1,6 @@
 mod common;
+#[path = "bios/fonts.rs"]
+mod fonts;
 #[path = "bios/geometry.rs"]
 mod geometry;
 #[path = "bios/graphics.rs"]
