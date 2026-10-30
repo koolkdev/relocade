@@ -227,8 +227,6 @@ fn display_addressing_preserves_high_counter_bits_in_word_and_doubleword_modes()
     ] {
         seed(&mut vga, address, [character, 7, 0, 0]);
     }
-    set(&mut vga, 0x3d4, 0x0c, 0xd0);
-    set(&mut vga, 0x3d4, 0x0d, 1);
     // Counter D001: byte addressing, word rotation from bit 15 or 13,
     // doubleword rotation from bits 12–13, and row-scan substitution for bit 14.
     for (mode, underline, character) in [
@@ -240,8 +238,10 @@ fn display_addressing_preserves_high_counter_bits_in_word_and_doubleword_modes()
     ] {
         set(&mut vga, 0x3d4, 0x17, mode);
         set(&mut vga, 0x3d4, 0x14, underline);
+        let mut snapshot = vga.snapshot();
+        snapshot.registers.crtc.display_start = 0xd001;
         assert_eq!(
-            common::support::inspection::inspect(&vga.snapshot()).cells[0].character,
+            common::support::inspection::inspect(&snapshot).cells[0].character,
             character
         );
     }

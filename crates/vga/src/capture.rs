@@ -9,12 +9,14 @@ use std::{
     time::Duration,
 };
 
-/// Immutable rasterizer input sampled at a completed refresh boundary.
-/// It preserves coherent display state, not pixel history throughout the refresh.
+/// Immutable rasterizer input sampled at the start of vertical retrace, after
+/// latching the start address for the following active display. It preserves
+/// coherent display state, not pixel history throughout the preceding refresh.
 /// Renderers can read this state directly without allocating a CPU pixel image.
 pub struct CapturedFrame {
     /// Complete physical memory, palette and programmable display settings.
     pub display: DisplaySnapshot,
+    /// Sampling/latch boundary on the device's clock, not presentation time.
     pub time: Duration,
     pub sequence: u64,
 }

@@ -112,7 +112,7 @@ impl Text {
                 columns,
                 glyph_width,
                 glyph_height: u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 31) + 1,
-                start_address: u16::from_be_bytes([c[12], c[13]]),
+                start_address: snapshot.registers.crtc.display_start,
                 stride: u16::from(c[crtc::OFFSET as usize]) * 2,
                 preset_row: u32::from(c[crtc::PRESET_ROW_SCAN as usize] & 31),
                 byte_panning: u32::from((c[crtc::PRESET_ROW_SCAN as usize] >> 5) & 3),

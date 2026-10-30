@@ -99,8 +99,7 @@ fn cursor_shape_visibility_and_blink() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cursor_follows_display_start_address_wrap_and_skew() {
     let mut snapshot = text_device().snapshot();
-    snapshot.registers.crtc.values[12] = 255;
-    snapshot.registers.crtc.values[13] = 255;
+    snapshot.registers.crtc.display_start = 0xffff;
     snapshot.registers.crtc.values[10] = 6;
     snapshot.registers.crtc.values[11] = 7;
     let pixels = render(&snapshot);
@@ -110,8 +109,7 @@ fn cursor_follows_display_start_address_wrap_and_skew() {
     let pixels = render(&snapshot);
     assert_eq!(pixel(&pixels, 8, 6), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 16, 6), [170, 170, 170, 255]);
-    snapshot.registers.crtc.values[12] = 0;
-    snapshot.registers.crtc.values[13] = 0;
+    snapshot.registers.crtc.display_start = 0;
     for address in [79u16, 0xffff] {
         let [high, low] = address.to_be_bytes();
         snapshot.registers.crtc.values[14] = high;

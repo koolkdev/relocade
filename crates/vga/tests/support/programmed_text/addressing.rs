@@ -38,9 +38,11 @@ pub(super) fn append(cases: &mut Vec<Case>) {
     ] {
         indexed(&mut vga, 0x3d4, 0x17, mode);
         indexed(&mut vga, 0x3d4, 0x14, underline);
+        let mut display = vga.snapshot();
+        display.registers.crtc.display_start = 0xd001; // Already latched fixture input.
         cases.push(Case {
             name,
-            display: vga.snapshot(),
+            display,
             size: [8, 1],
             pixels: vec![(0, 0, color)],
         });
@@ -60,9 +62,11 @@ pub(super) fn append(cases: &mut Vec<Case>) {
     indexed(&mut vga, 0x3c4, 1, 0);
     attribute(&mut vga, 0x13, 2);
     attribute(&mut vga, 0x10, 0x2c);
+    let mut display = vga.snapshot();
+    display.registers.crtc.display_start = 0x1234;
     cases.push(Case {
         name: "byte panning and preset rows survive a stride and split",
-        display: vga.snapshot(),
+        display,
         size: [360, 8],
         pixels: vec![
             (0, 0, GRAY),
@@ -152,9 +156,11 @@ pub(super) fn append(cases: &mut Vec<Case>) {
     indexed(&mut vga, 0x3d4, 9, 0x81);
     indexed(&mut vga, 0x3d4, 0x0d, 1);
     indexed(&mut vga, 0x3d4, 0x18, 0);
+    let mut display = vga.snapshot();
+    display.registers.crtc.display_start = 1;
     cases.push(Case {
         name: "split between scan-doubled rows",
-        display: vga.snapshot(),
+        display,
         size: [8, 4],
         pixels: vec![
             (1, 0, [170, 0, 0, 255]),

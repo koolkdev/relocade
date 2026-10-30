@@ -109,3 +109,20 @@ pub use vga_support::inspection;
 pub fn screen(dos: &relocade_dos::Dos) -> inspection::Inspection {
     inspection::inspect(&dos.vga().borrow().snapshot())
 }
+
+/// Service VGA until a retrace samples the guest's latest display programming.
+/// These fixtures step the CPU directly, so they also own polling its devices.
+pub async fn next_capture(dos: &Dos) -> std::sync::Arc<relocade_vga::CapturedFrame> {
+    use relocade_machine::Device;
+    use std::future::Future;
+    let source = dos.frame_source();
+    let after = source.current_capture().map(|capture| capture.sequence);
+    let mut capture = std::pin::pin!(source.next_capture(after));
+    let mut video = std::pin::pin!(relocade_vga::Vga::run(dos.vga()));
+    std::future::poll_fn(|cx| {
+        assert!(video.as_mut().poll(cx).is_pending());
+        capture.as_mut().poll(cx)
+    })
+    .await
+    .unwrap()
+}

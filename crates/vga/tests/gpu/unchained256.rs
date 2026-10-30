@@ -46,6 +46,15 @@ async fn check_pages() {
     let mut retained = Vec::new();
     for (frame, base) in [0, 0x4000, 0x8000, 0xc000].into_iter().enumerate() {
         start(&mut vga, base);
+        // Programmed bytes already changed, but immediate snapshots still use
+        // the previous latch. The shader must not decode the raw start bytes.
+        let previous_base = frame.saturating_sub(1) as u16 * 0x4000;
+        gpu.expect(
+            &common::fixture::capture(&vga),
+            [320, 200],
+            &expected(previous_base, 0, 200),
+        )
+        .await;
         clock.set(common::boundary(frame as u64 + 1));
         vga.read_port(0x3da, 1);
         let capture = source.current_capture().unwrap();

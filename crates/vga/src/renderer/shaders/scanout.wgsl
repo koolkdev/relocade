@@ -70,7 +70,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     var output: DisplayVertex;
     output.position = vec4(positions[index], 0.0, 1.0);
     output.grid = vec4(crtc(1u) + 1u, glyph_width, (maximum_scan_line & 31u) + 1u, count_divisor);
-    output.addressing = vec4((crtc(12u) << 8u) | crtc(13u), crtc(0x13u) * 2u, address_mode, underline);
+    output.addressing = vec4(state.display_start, crtc(0x13u) * 2u, address_mode, underline);
     output.panning = vec4(preset_row_scan & 31u, (preset_row_scan >> 5u) & 3u, pel_pan, split_scanline);
     output.fonts = vec3(font_a, font_b, u32(extended_memory && font_a != font_b));
     output.cursor = vec3((crtc(14u) << 8u) | crtc(15u), crtc(10u), crtc(11u));

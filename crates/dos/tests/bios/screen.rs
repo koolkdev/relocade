@@ -139,6 +139,7 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
             context.cpu.set_eip(0x100);
         }
         assert_eq!(dos.cpu().run(30).await, ExecutionExit::BudgetExhausted);
+        common::next_capture(&dos).await;
         let page = common::inspection::inspect(&vga.borrow().snapshot());
         assert_eq!(page.start_address, 0x3800);
         assert_eq!(page.cursor.address, 0x3fcf);

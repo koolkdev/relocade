@@ -11,18 +11,17 @@ mod readback;
 #[path = "video_gpu/unchained256.rs"]
 mod unchained256;
 
-use common::vga_support::fixture;
 use relocade_dos::Dos;
 use relocade_vga::{CapturedFrame, VgaRenderer};
 use relocade_x86::{ExecutionExit, HostExit};
 
-async fn run(dos: &mut Dos, program: &[u8]) -> CapturedFrame {
+async fn run(dos: &mut Dos, program: &[u8]) -> std::sync::Arc<CapturedFrame> {
     dos.launch_com(program, Default::default()).unwrap();
     assert_eq!(
         dos.cpu().run(100_000).await,
         ExecutionExit::Host(HostExit::Return)
     );
-    fixture::capture(&dos.vga().borrow())
+    common::next_capture(dos).await
 }
 
 // The harness owns GPU resource setup and readback for each guest interaction.
