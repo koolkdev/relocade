@@ -1,7 +1,18 @@
 //! Owned display inputs. Capturing these values never performs a CPU memory or
 //! port access, so it leaves read latches and register access phases untouched.
+#[cfg(feature = "renderer")]
+use crate::memory::DirtyPages;
 use crate::Registers;
 use std::sync::Arc;
+
+/// Changes since a known immutable memory version. Retains plane references,
+/// not earlier captures, so the latest snapshot cannot keep a capture history.
+#[derive(Clone)]
+#[cfg(feature = "renderer")]
+pub(crate) struct MemoryChanges {
+    pub baseline: [Arc<[u8]>; 4],
+    pub pages: DirtyPages,
+}
 
 /// A complete display snapshot independent of the live device and other captures.
 /// The four planes retain physical addresses across changes in display layout;
@@ -16,6 +27,10 @@ pub struct DisplaySnapshot {
     pub registers: Registers,
     pub blink_on: bool,
     pub(crate) planes: [Arc<[u8]>; 4],
+    /// Optional transfer hints; complete planes remain authoritative. Keep these
+    /// with their memory even when a caller replaces CapturedFrame::display.
+    #[cfg(feature = "renderer")]
+    pub(crate) changes: Option<MemoryChanges>,
 }
 
 impl DisplaySnapshot {

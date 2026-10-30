@@ -231,3 +231,76 @@ fn programmable_text_and_retained_snapshots_match_literal_pixels() {
 async fn programmable_text_and_retained_snapshots_match_literal_pixels() {
     check_programmed_text().await;
 }
+
+async fn check_published_updates() {
+    let instance = wgpu::Instance::default();
+    let adapter = instance.request_adapter(&Default::default()).await.unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let mut renderer = VgaRenderer::new(&device).unwrap();
+    let clock = Rc::new(common::ManualClock::default());
+    let mut vga = common::text_vga(clock.clone());
+    let source = vga.frame_source();
+    common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
+    set_cell(&mut vga, 0, 0xdb, 4);
+    clock.set(common::boundary(1));
+    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    let first = source.current_capture().unwrap();
+    let pixels = compare(&mut renderer, &device, &queue, first.clone()).await;
+    assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
+
+    set_cell(&mut vga, 0, 0xdb, 1);
+    clock.set(common::boundary(2));
+    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    let pixels = compare(
+        &mut renderer,
+        &device,
+        &queue,
+        source.current_capture().unwrap(),
+    )
+    .await;
+    assert_eq!(pixel(&pixels, 0, 0), [0, 0, 170, 255]);
+
+    for (port, value) in [
+        (0x3c4, 0x0402),
+        (0x3c4, 0x0604),
+        (0x3ce, 0x0005),
+        (0x3ce, 0x0506),
+    ] {
+        vga.write_port(port, 2, value);
+    }
+    vga.write_mmio(0xa0000 + 0xdb * 32, 1, 0); // Clear the block glyph's first row.
+    for (port, value) in [
+        (0x3c4, 0x0302),
+        (0x3c4, 0x0204),
+        (0x3ce, 0x1005),
+        (0x3ce, 0x0e06),
+    ] {
+        vga.write_port(port, 2, value);
+    }
+    clock.set(common::boundary(3));
+    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1); // The renderer skips this font change.
+    set_cell(&mut vga, 1, 0xdb, 2);
+    clock.set(common::boundary(4));
+    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    let newest = source.current_capture().unwrap();
+    drop(vga);
+    let pixels = compare(&mut renderer, &device, &queue, newest).await;
+    assert_eq!(pixel(&pixels, 0, 0), [0, 0, 0, 255]);
+    assert_eq!(pixel(&pixels, 0, 1), [0, 0, 170, 255]);
+    assert_eq!(pixel(&pixels, 8, 0), [0, 0, 0, 255]);
+    assert_eq!(pixel(&pixels, 8, 1), [0, 170, 0, 255]);
+    let pixels = compare(&mut renderer, &device, &queue, first).await;
+    assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn published_text_and_font_updates_match_pixels_across_skipped_captures() {
+    pollster::block_on(check_published_updates());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn published_text_and_font_updates_match_pixels_across_skipped_captures() {
+    check_published_updates().await;
+}

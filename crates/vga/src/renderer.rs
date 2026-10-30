@@ -88,9 +88,10 @@ impl VgaRenderer {
         })
     }
 
-    /// Uploads complete captured inputs into persistent GPU resources without
-    /// decoding or presenting an image. Captures can be uploaded independently
-    /// of redraws. Call `queue.submit([])` when no drawing follows.
+    /// Synchronizes captured inputs into persistent GPU resources without
+    /// decoding or presenting an image. Uploads changed pages when their baseline
+    /// matches, otherwise complete planes. Call `queue.submit([])` when no drawing
+    /// follows. Captures can be uploaded independently of redraws.
     /// Complete retained captures can also restore older input state.
     pub fn upload(&mut self, queue: &wgpu::Queue, capture: &CapturedFrame) {
         let geometry = capture.display.geometry();

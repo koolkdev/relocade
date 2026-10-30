@@ -41,6 +41,12 @@ and sequence. Late service coalesces missed boundaries; guest mutations first
 preserve completed boundaries using the preceding state. The fidelity contract
 remains a coherent frame snapshot.
 
+The device and `DisplaySnapshot::registers` use the same `Registers` type.
+Capture creation clones the complete structure, including bank indices and
+palette-transfer phases. Raw bank values are available through fields such as
+`registers.crtc.values` and `registers.dac.colors`; port-access operations remain
+inside the device. There is no separate display-register projection to maintain.
+
 Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
 captures those same inputs immediately without publishing a frame or changing CPU
 latches and access phases. `DisplaySnapshot::geometry()` derives only image
@@ -70,15 +76,17 @@ or requiring the embedding's GPU resources to close.
 
 `geometry` owns output sizing. `VgaRenderer` owns the common VRAM buffer
 separately from captured registers and palette.
-`renderer/memory` uploads complete captured planes into that buffer.
+`memory/pages` tracks physical writes in a fixed 32-byte bitmap.
+`renderer/memory` uploads those pages when their captured baseline matches the
+queued GPU contents, otherwise it restores the affected plane.
 `renderer/state` copies raw register banks, captured blink phase, scanline spacing
-and the unchanged DAC palette into one uniform buffer. The shader interprets
-text addresses, font banks, attributes and colors directly. Its vertex stage
-decodes frame-constant settings and the 16 text colors, passing them flat to
-fragments in the same draw;
-there is no preparation pass or intermediate GPU buffer. Future packed and
-planar graphics decoders can read the same physical buffer without mode-specific
-upload tracking or application changes.
+and the unchanged DAC palette into one uniform buffer. The raw Attribute
+Controller address byte is preserved; the shader tests its display-enable bit.
+The shader interprets text addresses, font banks, attributes and colors directly.
+Its vertex stage decodes frame-constant settings and the 16 text colors, passing them flat to
+fragments in the same draw. There is no preparation pass or intermediate GPU
+buffer. Future packed and planar graphics decoders can read the same physical
+buffer without mode-specific upload tracking or application changes.
 The generic `relocade-renderer` owns image storage and attachment drawing and knows
 nothing about VGA, BIOS or DOS.
 
@@ -122,16 +130,36 @@ physical rows. Pixel aspect ratio targets nominal 4:3 display proportions rather
 than modeling a particular monitor. The default preset still produces 640×200.
 
 The renderer requires a 2D texture limit of at least 2304 pixels for the largest
-nine-dot text width and one 256-KiB fragment storage buffer. Every upload copies
-all four captured planes and 896 bytes of state into persistent buffers. State
-contains a 128-byte register/geometry header and the 768-byte DAC palette.
-The shader reads those bytes directly; no CPU pixel conversion, VRAM comparison,
-or change-tracking metadata is required.
+nine-dot text width, 11 flat inter-stage variables and one 256-KiB fragment
+storage buffer. The first upload fills all four physical planes and 896 bytes
+of state: a 128-byte register/geometry header and the 768-byte DAC palette. With
+the renderer feature enabled, actual memory changes mark fixed 1-KiB pages after
+VGA routing and write modes have produced the final byte. Consecutive dirty pages
+in each plane become one upload. Character,
+attribute and font planes update independently. Hidden memory is included, so
+changing the display start or font bank requires no residency bookkeeping.
 
-Complete uploads also support skipped captures, independent readers, another
-device or restoring older state. The device never waits for GPU mapping or
-completion. Capture storage still uses shared CPU planes with copy-on-write;
-GPU storage is a separate copy.
+Captures remain complete. Private transfer hints retain the preceding published
+plane versions and a copy of the dirty bitmap; they hold no references to older
+captures. Publication clears the device's bitmap, while immediate snapshots and
+independent readers leave it alone. The renderer compares plane identities and
+walks the bitmap, without scanning VRAM or maintaining a separate CPU shadow.
+The raw register header and palette are compared and uploaded independently
+when changed. Blink, cursor or geometry updates do not resend the palette;
+palette-only updates do not resend the header or font memory.
+
+If a captured plane already matches the last queued GPU version, no memory upload
+is needed. If its change baseline matches, the renderer uploads dirty pages.
+Otherwise it restores that entire 64-KiB plane, including when a skipped capture
+changed memory that the latest bitmap no longer marks. New renderers, other
+sources, immediate snapshots and reverse playback stay correct through this
+fallback. No capture acknowledgements or pending-update queues are required.
+
+The device never waits for GPU mapping or completion. Snapshot storage still
+uses shared CPU planes with copy-on-write, so a changed retained plane can copy
+64 KiB even for a one-byte guest write. Dirty pages limit GPU transfers; they do
+not change CPU copy-on-write granularity. Device-only builds omit transfer hints
+and dirty tracking along with the optional renderer.
 
 `upload(queue, capture)` synchronizes persistent input resources without decoding
 or presenting. The graphics owner can service captures independently of redraw

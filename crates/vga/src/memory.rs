@@ -1,6 +1,11 @@
 use crate::registers::Registers;
 use std::sync::Arc;
 
+#[cfg(feature = "renderer")]
+mod pages;
+#[cfg(feature = "renderer")]
+pub(crate) use pages::DirtyPages;
+
 pub(crate) const PLANE_BYTES: usize = 65536;
 
 /// Four independent VGA planes. CPU reads latch all planes; scanout reads do not
@@ -8,6 +13,8 @@ pub(crate) const PLANE_BYTES: usize = 65536;
 pub(super) struct VideoMemory {
     planes: [Arc<[u8]>; 4],
     latches: [u8; 4],
+    #[cfg(feature = "renderer")]
+    changed: DirtyPages,
 }
 
 impl Default for VideoMemory {
@@ -15,6 +22,8 @@ impl Default for VideoMemory {
         Self {
             planes: std::array::from_fn(|_| vec![0; PLANE_BYTES].into()),
             latches: [0; 4],
+            #[cfg(feature = "renderer")]
+            changed: DirtyPages::default(),
         }
     }
 }
@@ -22,6 +31,16 @@ impl Default for VideoMemory {
 impl VideoMemory {
     pub fn snapshot(&self) -> [Arc<[u8]>; 4] {
         self.planes.clone()
+    }
+
+    #[cfg(feature = "renderer")]
+    pub fn changed_pages(&self) -> DirtyPages {
+        self.changed
+    }
+
+    #[cfg(feature = "renderer")]
+    pub fn clear_changes(&mut self) {
+        self.changed = DirtyPages::default();
     }
 
     fn index(offset: u32, registers: &Registers) -> usize {
@@ -74,6 +93,8 @@ impl VideoMemory {
                 // Captures share unchanged planes. Only an actual change copies
                 // a plane still retained by a capture; later writes reuse it.
                 Arc::make_mut(&mut self.planes[plane])[index] = value;
+                #[cfg(feature = "renderer")]
+                self.changed.mark(plane, index);
             }
         }
     }

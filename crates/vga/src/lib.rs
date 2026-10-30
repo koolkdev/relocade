@@ -25,6 +25,8 @@ use relocade_machine::{Clock, Device, TimerHandle};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
 pub use snapshot::DisplaySnapshot;
+#[cfg(feature = "renderer")]
+use snapshot::MemoryChanges;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 use timing::Timing;
 
@@ -77,14 +79,24 @@ impl<C: Clock> Vga<C> {
             planes: self.memory.snapshot(),
             registers: self.registers.clone(),
             blink_on: self.timing.blink_on(),
+            #[cfg(feature = "renderer")]
+            changes: self.frames.current_capture().map(|previous| MemoryChanges {
+                baseline: previous.display.planes.clone(),
+                pages: self.memory.changed_pages(),
+            }),
         }
     }
 
     /// Capture any completed boundary before a later guest access changes its state.
     fn advance(&mut self) {
         if self.timing.advance_to(self.clock.now()) {
+            let display = self.snapshot();
+            // Only publication starts a new dirty interval. Immediate snapshots
+            // must leave writes visible to the next published capture.
+            #[cfg(feature = "renderer")]
+            self.memory.clear_changes();
             self.frames.capture(CapturedFrame {
-                display: self.snapshot(),
+                display,
                 time: self.timing.completed_at(),
                 sequence: self.timing.completed_frames,
             });
