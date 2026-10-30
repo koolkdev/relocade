@@ -55,7 +55,8 @@ An invocation independently retains `Memory` and `IoBus`. A guest view built wit
 an await. CPU, flags and stack edits remain live; memory does not cache a snapshot.
 `cpu.memory()` also returns an owned handle independent of execution.
 
-A pending run excludes `cpu.with(...)` access. Independent `Memory`
+A pending run excludes `cpu.with(...)` access. An ISR budget or fault exit
+permits access while its interrupted call stays suspended. Independent `Memory`
 handles remain usable during execution, while a service awaits input, and after
 CPU destruction.
 

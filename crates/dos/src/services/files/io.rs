@@ -27,7 +27,10 @@ pub(in crate::services) async fn read(call: &mut DosContext) -> HookResult {
         Err(error) => return return_result(call, Err(error)),
     };
     let console = call.console();
-    let result = read_bytes(&console, &source, count).await;
+    let result = call
+        .execution
+        .with_interrupts_enabled(read_bytes(&console, &source, count))
+        .await;
     let bytes = match result {
         Ok(bytes) => bytes,
         Err(error) => return return_result(call, Err(error)),

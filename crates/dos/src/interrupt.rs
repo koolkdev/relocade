@@ -47,7 +47,7 @@ pub(crate) fn hook<F>(address: u32, session: Rc<DosState>, handler: F) -> Hook
 where
     F: AsyncFn(&mut DosContext) -> HookResult + 'static,
 {
-    Hook::new(address, async move |execution| {
+    real_mode_interrupt::hook(address, async move |execution| {
         let process = session.process().expect("DOS hook requires a process");
         assert_eq!(
             process.status(),

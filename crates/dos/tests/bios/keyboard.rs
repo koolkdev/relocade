@@ -202,3 +202,109 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
     });
 }
+
+#[test]
+fn bios_key_wait_services_irqs_before_input_and_restores_caller_flags() {
+    use relocade_machine::{Cpu, CpuConfig, Device, IoBus, MachineConfig, Memory, Runner};
+    use relocade_x86::{Compiler, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
+    use std::{cell::RefCell, rc::Rc};
+
+    #[derive(Default)]
+    struct Request {
+        pending: bool,
+        waker: Option<Waker>,
+    }
+    impl Device for Request {
+        fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
+            if self.pending {
+                self.pending = false;
+                Poll::Ready(0x60)
+            } else {
+                self.waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
+        }
+    }
+    pollster::block_on(async {
+        let request = Rc::new(RefCell::new(Request::default()));
+        let (clock, _timers) = relocade_machine::timer_service();
+        let runner = Runner::with_clock(clock);
+        let vga = Rc::new(RefCell::new(relocade_vga::Vga::with_clock(Rc::new(
+            runner.clock().clone(),
+        ))));
+        let io = IoBus::new([
+            runner.connect(vga, [relocade_vga::MEMORY_RANGE], relocade_vga::PORT_RANGES),
+            runner.connect(request.clone(), [], []),
+        ]);
+        let map = PhysicalMemoryMap::new([
+            (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
+            (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
+            (
+                0xf0000..=0xfffff,
+                PhysicalMapping::Rom {
+                    backing_offset: 0xf0000,
+                },
+            ),
+        ])
+        .unwrap();
+        let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
+        let config = CpuConfig::new(
+            Compiler::new(ExecutionProfile::Real16).target(),
+            CpuState {
+                eip: 0x100,
+                segments: Segments::real_mode(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut cpu = Cpu::new(memory.clone(), config, io, ()).await.unwrap();
+        cpu.with(|call| {
+            relocade_bios::initialize(&mut call.memory, call.io);
+            call.cpu.set_sp(0xfffe);
+            call.cpu.set_eflags(0x443); // Caller IF=0; the BIOS wait enables live IF.
+        });
+        let keyboard = relocade_bios::Keyboard::default();
+        cpu.install_hooks(relocade_bios::hooks(keyboard.clone()))
+            .await
+            .unwrap();
+        memory.view().write(0x100, PROGRAM).unwrap();
+        memory.view().write(0x180, &[0, 5, 0, 0]).unwrap();
+        // MOV byte CS:[0600],1; IRET. CS override leaves the caller's DS intact.
+        memory
+            .view()
+            .write(0x500, &[0x2e, 0xc6, 0x06, 0, 6, 1, 0xcf])
+            .unwrap();
+        let wakes = Arc::new(WakeCount::default());
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
+        {
+            let mut run = pin!(cpu.run(20));
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            let irq_waker = {
+                let mut request = request.borrow_mut();
+                request.pending = true;
+                request.waker.take().expect("BIOS wait registered IRQ wake")
+            };
+            irq_waker.wake();
+            assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            assert_eq!(memory.view().read_u8(0x600).unwrap(), 1);
+            // Completing input closes the IRQ window before the guest IRET.
+            request.borrow_mut().pending = true;
+            keyboard.push(KeyStroke {
+                character: b'A',
+                scan_code: 0x1e,
+            });
+            assert!(matches!(
+                run.as_mut().poll(&mut cx),
+                Poll::Ready(ExecutionExit::BudgetExhausted)
+            ));
+        }
+        cpu.with(|call| {
+            assert_eq!(call.cpu.ax(), 0x1e41);
+            assert_eq!(call.cpu.eflags(), 0x443);
+            assert_eq!(call.cpu.sp(), 0xfffe);
+        });
+        assert!(request.borrow().pending, "IF is restored before dispatch");
+    });
+}

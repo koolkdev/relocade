@@ -79,7 +79,10 @@ async fn cpu(code: &[u8], device: &Rc<RefCell<InterruptDevice>>, flags: u32) -> 
         .view()
         .write(u32::from(VECTOR) * 4, &[0, 3, 0, 0])
         .unwrap();
-    memory.view().write(HANDLER, &[0x90, 0xcf]).unwrap();
+    memory
+        .view()
+        .write(HANDLER, &relocade_machine::real_mode_interrupt::HOOK_STUB)
+        .unwrap();
     Cpu::new(memory, config.cpu, io, ()).await.unwrap()
 }
 
@@ -119,12 +122,12 @@ async fn check_device_entry() {
         one_instruction(&mut cpu, &code, compiled).await;
         let observed = Rc::new(RefCell::new(None));
         let capture = observed.clone();
-        cpu.install_hooks([Hook::new(HANDLER, async move |call| {
+        cpu.install_hooks([Hook::new(HANDLER, HANDLER + 1, async move |call| {
             call.with(|call| {
                 let mut frame = [0; 6];
                 call.memory.read(0x27ffa, &mut frame).unwrap();
                 *capture.borrow_mut() = Some((call.cpu.snapshot(), frame));
-                call.cpu.set_eip(HANDLER + 1); // Let the guest execute IRET.
+                call.cpu.set_eip(HANDLER + 2); // Let the guest execute IRET.
                 HookResult::Continue
             })
         })])
@@ -138,7 +141,7 @@ async fn check_device_entry() {
         assert_eq!(entry.instruction_count, 1, "entry retires no instruction");
         assert_eq!(entry.registers.esp, 0xabcd_7ffa);
         assert_eq!(entry.segments.cs.selector, 0);
-        assert_eq!(entry.eip, HANDLER);
+        assert_eq!(entry.eip, HANDLER + 1);
         assert_eq!(entry.flags.eflags(), 0x897); // IF, TF and AC cleared.
         assert_eq!(frame, [2, 2, 0, 0x10, 0x97, 0x0b]);
         let restored = cpu.with(|call| call.cpu.snapshot());
@@ -179,7 +182,7 @@ fn bus_acknowledges_one_connected_device_per_poll() {
 async fn check_masks_and_zero_budget() {
     let device = Rc::new(RefCell::new(InterruptDevice::default()));
     let mut cpu = cpu(&[0xeb, 0xfe], &device, 0x202).await;
-    cpu.install_hooks([Hook::new(HANDLER, async |_| {
+    cpu.install_hooks([Hook::new(HANDLER, HANDLER + 1, async |_| {
         HookResult::Exit(ExecutionExit::Host(HostExit::Return))
     })])
     .await
@@ -213,7 +216,7 @@ async fn check_protected_steps() {
                 .write(0x800, &[0x61, 0, 0x60, 0])
                 .unwrap();
             one_instruction(&mut cpu, &code, compiled).await;
-            cpu.install_hooks([Hook::new(HANDLER, async |_| {
+            cpu.install_hooks([Hook::new(HANDLER, HANDLER + 1, async |_| {
                 HookResult::Exit(ExecutionExit::Host(HostExit::Return))
             })])
             .await
@@ -239,7 +242,7 @@ async fn check_protected_steps() {
         let code = [0x8e, 0xd0, 0x8e, 0xd0, 0xe6, 0x80, 0xeb, 0xfe];
         let mut cpu = cpu(&code, &device, 0x202).await;
         one_instruction(&mut cpu, &code, compiled).await;
-        cpu.install_hooks([Hook::new(HANDLER, async |_| {
+        cpu.install_hooks([Hook::new(HANDLER, HANDLER + 1, async |_| {
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         })])
         .await
@@ -253,13 +256,14 @@ async fn check_protected_steps() {
     }
 }
 
-async fn check_atomic_pending_call(replace_waiter: bool) {
+async fn check_masked_pending_call(replace_waiter: bool) {
     let device = Rc::new(RefCell::new(InterruptDevice::default()));
     let mut cpu = cpu(&[0x90, 0x90, 0xeb, 0xfe], &device, 0x202).await;
     let ready = Rc::new(Cell::new(false));
     let input = ready.clone();
     cpu.install_hooks([
-        Hook::new(CODE, async move |call| {
+        Hook::new(CODE, CODE + 1, async move |call| {
+            call.with(|context| context.cpu.set_interrupts_enabled(false));
             poll_fn(|_| {
                 if input.get() {
                     Poll::Ready(())
@@ -270,10 +274,11 @@ async fn check_atomic_pending_call(replace_waiter: bool) {
             .await;
             call.with(|context| {
                 context.cpu.set_eip(0x202);
+                context.cpu.set_interrupts_enabled(true);
             });
             HookResult::Continue
         }),
-        Hook::new(HANDLER, async |_| {
+        Hook::new(HANDLER, HANDLER + 1, async |_| {
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         }),
     ])
@@ -356,10 +361,10 @@ fn interrupt_entry_reports_guest_stack_faults() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn pending_calls_finish_before_irq_delivery() {
+fn masked_calls_defer_requests_until_if_is_enabled() {
     pollster::block_on(async {
-        check_atomic_pending_call(false).await;
-        check_atomic_pending_call(true).await;
+        check_masked_pending_call(false).await;
+        check_masked_pending_call(true).await;
     });
 }
 
@@ -394,9 +399,9 @@ async fn interrupt_entry_reports_guest_stack_faults() {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn pending_calls_finish_before_irq_delivery() {
-    check_atomic_pending_call(false).await;
-    check_atomic_pending_call(true).await;
+async fn masked_calls_defer_requests_until_if_is_enabled() {
+    check_masked_pending_call(false).await;
+    check_masked_pending_call(true).await;
 }
 
 #[cfg(target_arch = "wasm32")]

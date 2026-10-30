@@ -39,6 +39,8 @@ the task. `Thread::run_send` returns Send results through Rust memory;
 `Thread::run` posts its result and can return a shared allocation or module.
 
 `Hook::new` supplies `CallContext` with CPU access and retained memory/I/O resources.
+Every pending await
+permits [IRQ delivery according to live IF](worker-execution.md#asynchronous-host-calls).
 Handlers can await Rust channel input without holding CPU borrows. `Cpu::run`
 drives execution; dropping a run waiter preserves the pending call for a later
 run. The [CPU worker example](../../../tests/browser/src/cpus.rs) exercises this complete

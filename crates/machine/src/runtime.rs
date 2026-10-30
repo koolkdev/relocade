@@ -8,14 +8,17 @@
 //! between synchronous Wasm calls.
 //!
 //! The CPU keeps its machine in one allocation and retains each pending host call.
-//! [`CallContext`] owns short CPU access and independent memory/I/O resources.
-//! The same Rust future and local values remain alive across pending awaits.
-//! Environment state is independent of backend state.
+//! [`CallContext`] owns invocation access and retained memory/I/O resources. Every pending host await
+//! allows IRQ delivery according to live IF. The same Rust future and local values
+//! remain suspended while guest IRQ handlers execute, resuming only through
+//! the service's own guest resume label. Environment state is
+//! independent of backend state.
 //!
 //! A pending call survives dropping its run waiter. Dropping the CPU ends
 //! the call chain and destroys the machine without undoing completed effects.
 //! A pending host call excludes embedding access to CPU and environment state;
-//! independent input handles and shared guest memory remain accessible.
+//! independent input handles and shared guest memory remain accessible. A returned
+//! ISR budget or fault exit permits CPU access while keeping its call futures.
 //!
 //! ```
 //! use relocade_machine::{Cpu, CpuConfig, MachineConfig, Memory};
@@ -39,6 +42,7 @@ mod call;
 mod code;
 mod context;
 mod dispatch;
+mod entries;
 mod error;
 mod execution;
 mod hooks;
@@ -54,10 +58,10 @@ pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
+use execution::Frame;
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
-use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use std::{
     cell::{RefCell, RefMut},
     collections::HashMap,
@@ -69,7 +73,8 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 /// Executes one guest and owns its machine, registered hooks and suspended calls.
 pub struct Cpu<T: 'static = ()> {
     machine: Rc<RefCell<Machine<T>>>,
-    active_call: Option<Call<T>>,
+    active_call: Option<Frame<T>>,
+    suspended_calls: Vec<Frame<T>>,
     memory: Memory,
 }
 
@@ -94,43 +99,9 @@ impl<T: 'static> Cpu<T> {
         Ok(Self {
             machine: Rc::new(RefCell::new(machine)),
             active_call: None,
+            suspended_calls: Vec::new(),
             memory,
         })
-    }
-
-    /// Links a module to this runtime and publishes its callable exports.
-    /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
-    /// publication and continuation. Addresses are linear CS.base + EIP, before
-    /// paging/A20. Installing an existing address replaces its function.
-    ///
-    /// The caller must maintain the module's execution assumptions and invalidate
-    /// or replace captured code when guest bytes or mappings change.
-    /// Module start functions must not enter guest dispatch or host hooks;
-    /// execution belongs to `run`.
-    ///
-    /// # Panics
-    /// Panics while a host call is pending.
-    #[allow(
-        clippy::await_holding_refcell_ref,
-        reason = "Installation excludes guest execution and pending host calls."
-    )]
-    pub async fn install_module(
-        &mut self,
-        bytes: &[u8],
-        entries: &[DispatchEntry<'_>],
-    ) -> Result<()> {
-        let mut borrow = self.machine_mut();
-        let machine = &mut *borrow;
-        let compiler = machine.backend.compiler();
-        let module = compiler.compile(bytes).await?;
-        machine
-            .dispatch
-            .install(&mut machine.backend, &machine.bindings, &module, entries)
-            .await?;
-        for entry in entries {
-            machine.hooks.remove(&entry.address);
-        }
-        Ok(())
     }
 
     /// Borrows the stopped machine for a synchronous operation.
@@ -145,7 +116,8 @@ impl<T: 'static> Cpu<T> {
     /// ```
     ///
     /// # Panics
-    /// Panics while a host call is pending.
+    /// Panics while a host call is pending. Returned guest execution
+    /// exits permit access even when interrupted calls remain suspended.
     pub fn with<R>(&mut self, operation: impl FnOnce(&mut CpuContext<'_, T>) -> R) -> R {
         let mut machine = self.machine_mut();
         let mut context = machine.context();

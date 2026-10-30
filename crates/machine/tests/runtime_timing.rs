@@ -49,7 +49,7 @@ async fn check_timing() {
             .write(0x200, &real_mode_interrupt::HOOK_STUB)
             .unwrap()
     });
-    cpu.install_hooks([Hook::<Rc<Input>>::new(0x200, async |call| {
+    cpu.install_hooks([Hook::<Rc<Input>>::new(0x200, 0x201, async |call| {
         let input = call.with(|context| context.state.clone());
         input.calls.set(input.calls.get() + 1);
         let value = input.calls.get() as u16;

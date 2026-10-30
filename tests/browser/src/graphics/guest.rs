@@ -67,7 +67,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         let mut cpu = Cpu::new(memory, cpu_config, io, cpu_progress)
             .await
             .unwrap();
-        cpu.install_hooks([Hook::<Arc<AtomicUsize>>::new(0x200, async |call| {
+        cpu.install_hooks([Hook::<Arc<AtomicUsize>>::new(0x200, 0x201, async |call| {
             call.with(|call| {
                 assert_eq!(call.cpu.al() & !9, 0);
                 call.state.fetch_add(1, Ordering::Release);

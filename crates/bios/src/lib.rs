@@ -53,11 +53,11 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
 /// The keyboard is captured by the hooks and may be shared with console input.
 pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
     [
-        Hook::new(CLOCK_ADDRESS, async |call| call.with(clock)),
-        Hook::new(KEYBOARD_ADDRESS, async move |call| {
+        real_mode_interrupt::hook(CLOCK_ADDRESS, async |call| call.with(clock)),
+        real_mode_interrupt::hook(KEYBOARD_ADDRESS, async move |call| {
             keyboard::interrupt(call, &keyboard).await
         }),
-        Hook::new(VIDEO_ADDRESS, async |call| call.with(video::interrupt)),
+        real_mode_interrupt::hook(VIDEO_ADDRESS, async |call| call.with(video::interrupt)),
     ]
 }
 

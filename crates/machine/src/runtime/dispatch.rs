@@ -92,9 +92,10 @@ impl Dispatch {
         bindings: &RuntimeMemory,
         module: &Module,
         entries: &[DispatchEntry<'_>],
+        removed: &[u32],
     ) -> Result<()> {
         let instance = self.instantiate(backend, bindings, module).await?;
-        self.table.install(backend, &instance, entries)
+        self.table.install(backend, &instance, entries, removed)
     }
 
     async fn instantiate(

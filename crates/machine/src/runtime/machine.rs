@@ -1,14 +1,10 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{hooks::Handler, Backend, CpuContext, Dispatch, RuntimeMemory};
+use super::{hooks::Service, Backend, CpuContext, Dispatch, RuntimeMemory};
 use crate::{CpuView, IoBus};
 use relocade_wasm_runtime::WasmMemoryAccess;
 use relocade_x86::ExecutionExit;
-use std::{
-    collections::HashMap,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
+use std::collections::HashMap;
 
 pub(super) struct Machine<T> {
     pub backend: Backend,
@@ -16,7 +12,7 @@ pub(super) struct Machine<T> {
     pub io: IoBus,
     pub state: T,
     pub dispatch: Dispatch,
-    pub hooks: HashMap<u32, Rc<dyn Handler<T>>>,
+    pub hooks: HashMap<u32, Service<T>>,
 }
 
 impl<T> Machine<T> {
@@ -46,21 +42,20 @@ impl<T> Machine<T> {
 
     pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
         self.set_budget(budget);
-        // This call does not suspend; each return to guest dispatch polls again.
-        let mut exit = match self.poll_interrupt(&mut Context::from_waker(Waker::noop())) {
-            Poll::Ready(vector) => self.dispatch.interrupt(&mut self.backend, vector),
-            Poll::Pending => self.dispatch.run(&mut self.backend),
-        };
+        let exit = self.dispatch.run(&mut self.backend);
+        self.step_protected(exit)
+    }
+
+    fn step_protected(&mut self, mut exit: ExecutionExit) -> ExecutionExit {
         while exit == ExecutionExit::InterruptInhibited {
             exit = self.dispatch.step(&mut self.backend);
         }
         exit
     }
 
-    pub fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
-        if !self.context().cpu.interrupts_enabled() {
-            return Poll::Pending;
-        }
-        self.io.poll_interrupt(cx)
+    pub fn interrupt(&mut self, vector: u8, budget: Option<u64>) -> ExecutionExit {
+        self.set_budget(budget);
+        let exit = self.dispatch.interrupt(&mut self.backend, vector);
+        self.step_protected(exit)
     }
 }
