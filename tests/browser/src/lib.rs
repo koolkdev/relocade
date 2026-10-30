@@ -6,8 +6,9 @@ pub fn initialize() {
     console_error_panic_hook::set_once();
 }
 
-#[path = "../../../crates/vga/tests/support/software.rs"]
-mod software;
+#[path = "../../../crates/vga/tests/support/mod.rs"]
+mod vga_support;
+use vga_support::{fixture as vga_fixture, software};
 
 mod channels;
 mod clock;

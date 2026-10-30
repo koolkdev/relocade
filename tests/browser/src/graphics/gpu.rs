@@ -40,7 +40,7 @@ pub async fn gpu_workers() -> Result<(), String> {
             let instance = wgpu::Instance::default();
             let adapter = instance.request_adapter(&Default::default()).await.unwrap();
             let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-            let mut vga_renderer = VgaRenderer::new(&device, &queue).unwrap();
+            let mut vga_renderer = VgaRenderer::new(&device).unwrap();
             let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
             let mut barrier = Some((selected, allowed));
             while let Some(size) = incoming.next().await {

@@ -1,4 +1,4 @@
-use crate::{registers::Registers, TextCell};
+use crate::registers::Registers;
 use std::sync::Arc;
 
 pub(crate) const PLANE_BYTES: usize = 65536;
@@ -75,13 +75,6 @@ impl VideoMemory {
                 // a plane still retained by a capture; later writes reuse it.
                 Arc::make_mut(&mut self.planes[plane])[index] = value;
             }
-        }
-    }
-
-    pub fn cell(&self, address: u16) -> TextCell {
-        TextCell {
-            character: self.planes[0][usize::from(address)],
-            attribute: self.planes[1][usize::from(address)],
         }
     }
 }

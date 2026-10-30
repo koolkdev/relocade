@@ -1,6 +1,8 @@
 #[cfg(not(target_arch = "wasm32"))]
-#[path = "../../vga/tests/support/software.rs"]
-mod software;
+#[path = "../../vga/tests/support/mod.rs"]
+mod vga_support;
+#[cfg(not(target_arch = "wasm32"))]
+use vga_support::{fixture as vga_fixture, software};
 
 use relocade_renderer::{fit_image, FrameError, Image, Rect, Renderer};
 
@@ -306,6 +308,7 @@ async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
     }
     let clock = Rc::new(TestClock(Cell::new(Duration::ZERO)));
     let mut vga = Vga::with_clock(clock.clone());
+    vga_fixture::initialize_font(&mut vga);
     for cell in 0..2000 {
         vga.write_mmio(TEXT_MEMORY_START + cell * 2, 2, 0x0720);
     }
