@@ -1,9 +1,9 @@
 //! INT 10h services. BIOS bookkeeping never selects rendering.
 
 mod fonts;
+pub(super) mod graphics;
 mod modes;
 mod palette;
-mod pixels;
 mod presets;
 
 pub(super) use modes::{set_mode, COLOR_TEXT_80X25};
@@ -22,7 +22,7 @@ pub(super) const CURSOR_SHAPE: u32 = 0x460;
 pub(super) const ACTIVE_PAGE: u32 = 0x462;
 const CRTC_PORT: u32 = 0x463;
 pub(super) const LAST_ROW: u32 = 0x484;
-const CHARACTER_HEIGHT: u32 = 0x485;
+pub(super) const CHARACTER_HEIGHT: u32 = 0x485;
 const VIDEO_CONTROL: u32 = 0x487;
 const VIDEO_SWITCHES: u32 = 0x488;
 const MODESET_CONTROL: u32 = 0x489;
@@ -59,7 +59,7 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             call.cpu.set_bh(active);
         }
         0x0c | 0x0d => {
-            let Some(pixel) = pixels::Pixel::locate(&call.memory, page, cx, dx) else {
+            let Some(pixel) = graphics::Pixel::locate(&call.memory, page, cx, dx) else {
                 return unsupported(call);
             };
             if function == 0x0c {
@@ -73,12 +73,7 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
         0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
             call.cpu.set_al(0x12);
         }
-        // The remaining services operate on text pages.
-        _ if !screen::is_text_mode(&call.memory) => return unsupported(call),
-        0x02 | 0x03 | 0x08..=0x0a if !screen::valid_page(&call.memory, page) => {
-            return unsupported(call)
-        }
-        0x01 => screen::set_cursor_shape(&mut call.memory, call.io, cx),
+        0x02 | 0x03 if !screen::valid_page(&call.memory, page) => return unsupported(call),
         0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
         0x03 => {
             let position = screen::cursor_position(&call.memory, page);
@@ -96,10 +91,9 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             let [left, top] = cx.to_le_bytes();
             let [right, bottom] = dx.to_le_bytes();
             let memory = &mut call.memory;
-            let active = screen::active_page(memory);
             screen::scroll(
                 memory,
-                active,
+                call.io,
                 Window {
                     top,
                     left,
@@ -107,7 +101,7 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
                     right,
                 },
                 al,
-                page, // BH is the blank-cell attribute for scrolling.
+                page, // BH supplies the text attribute or graphics fill color.
                 if function == 0x06 {
                     ScrollDirection::Up
                 } else {
@@ -115,6 +109,10 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
                 },
             );
         }
+        // Character services still operate on text memory.
+        _ if !screen::is_text_mode(&call.memory) => return unsupported(call),
+        0x08..=0x0a if !screen::valid_page(&call.memory, page) => return unsupported(call),
+        0x01 => screen::set_cursor_shape(&mut call.memory, call.io, cx),
         0x08 => {
             let cell = screen::read_cell(&call.memory, page);
             call.cpu.set_ax(u16::from_le_bytes(cell));

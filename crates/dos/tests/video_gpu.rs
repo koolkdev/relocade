@@ -6,6 +6,8 @@ mod common;
 mod fonts;
 #[path = "video_gpu/indexed256.rs"]
 mod indexed256;
+#[path = "video_gpu/pages.rs"]
+mod pages;
 #[path = "video_gpu/palette.rs"]
 mod palette;
 #[path = "video_gpu/pixels.rs"]

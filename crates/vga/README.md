@@ -96,6 +96,19 @@ These BIOS services assume the layout established by mode setting; they do not
 infer arbitrary guest-reprogrammed layouts. Unsupported modes, out-of-range
 coordinates and invalid mode-0Dh pages return AH=86h with carry set. This bounds
 policy is local; the BIOS interface does not specify out-of-range results.
+AH=02h/03h keep per-page graphics cursors in BIOS memory without enabling a
+hardware text cursor. AH=05h selects pages 0–7 in mode 0Dh and page 0 in modes
+12h/13h. Mode-0Dh pages occupy 2000h bytes per plane; page selection programs
+the CRTC start address in the units of the mode preset.
+
+AH=06h/07h scroll or clear character-cell rectangles on the active page. Windows
+clip to the BIOS grid and graphics bounds, using the BIOS character height to
+move whole glyph rows. Newly exposed pixels take BH's low four bits in planar
+modes or all eight bits in mode 13h; bit 7 never requests XOR for a scroll fill.
+Planar copying uses write mode one, pairing each source read with its destination
+write before another read replaces the latches. Pixel and scroll operations
+share the BIOS layout and temporary VGA access-register handling. Other pages,
+pixels outside the window and the caller's access registers remain intact.
 Graphics-mode glyph services remain unsupported; DOS console bytes are still
 buffered but do not draw graphics-mode text.
 

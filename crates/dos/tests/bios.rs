@@ -5,6 +5,8 @@ mod fonts;
 mod geometry;
 #[path = "bios/graphics.rs"]
 mod graphics;
+#[path = "bios/graphics_pages.rs"]
+mod graphics_pages;
 #[path = "bios/keyboard.rs"]
 mod keyboard;
 #[path = "bios/palette.rs"]
