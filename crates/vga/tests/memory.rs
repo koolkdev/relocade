@@ -124,6 +124,33 @@ fn chain_four_and_odd_even_access_the_same_physical_planes() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn chain_four_routes_high_address_bits_to_the_plane_address() {
+    let mut vga = planar();
+    set(&mut vga, 0x3c4, 4, 14);
+    // CPU A14/A15 replace the plane address's two low bits. These are the
+    // same physical locations reached by the CRTC's doubleword rotation.
+    for (cpu, physical) in [
+        (0x3ffc, 0x3ffc),
+        (0x4000, 0x4001),
+        (0x7ffc, 0x7ffd),
+        (0x8000, 0x8002),
+        (0xbffc, 0xbffe),
+        (0xc000, 0xc003),
+        (0xfffc, 0xffff),
+    ] {
+        set(&mut vga, 0x3c4, 4, 14);
+        vga.write_mmio(0xa0000 + cpu, 4, 0x44332211);
+        assert_eq!(vga.read_mmio(0xa0000 + cpu, 4), 0x44332211);
+        set(&mut vga, 0x3c4, 4, 6);
+        assert_eq!(
+            planes(&mut vga, 0xa0000 + physical),
+            [0x11, 0x22, 0x33, 0x44]
+        );
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn aperture_selection_bounds_cpu_transfers_and_planar_addresses_wrap() {
     let mut vga = planar();
     vga.write_mmio(0xa0000, 1, 0x5a);

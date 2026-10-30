@@ -1,0 +1,65 @@
+//! Direct port programming for the standard 320-by-200, 256-color layout.
+//! Kept independent of BIOS mode tables so those tables are tested separately.
+use relocade_machine::Device;
+
+pub fn indexed(vga: &mut impl Device, port: u16, index: u8, value: u8) {
+    vga.write_port(port, 2, u32::from(u16::from_le_bytes([index, value])));
+}
+
+pub fn attribute(vga: &mut impl Device, index: u8, value: u8) {
+    vga.read_port(0x3da, 1);
+    vga.write_port(0x3c0, 1, u32::from(index));
+    vga.write_port(0x3c0, 1, u32::from(value));
+    vga.write_port(0x3c0, 1, 0x20);
+}
+
+pub fn program(vga: &mut impl Device) {
+    vga.write_port(0x3c2, 1, 0x63);
+    for (index, value) in [(0, 1), (1, 1), (2, 15), (3, 0), (4, 14)] {
+        indexed(vga, 0x3c4, index, value);
+    }
+    for (index, value) in [
+        (0, 0),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (4, 0),
+        (5, 0x40),
+        (6, 5),
+        (7, 15),
+        (8, 255),
+    ] {
+        indexed(vga, 0x3ce, index, value);
+    }
+    indexed(vga, 0x3d4, 0x11, 0);
+    for (index, value) in [
+        (1, 79),
+        (7, 0x1f),
+        (8, 0),
+        (9, 0x41),
+        (12, 0),
+        (13, 0),
+        (0x12, 0x8f),
+        (0x13, 40),
+        (0x14, 0x40),
+        (0x17, 0xa3),
+        (0x18, 0xff),
+    ] {
+        indexed(vga, 0x3d4, index, value);
+    }
+    for color in 0..16 {
+        attribute(vga, color, color);
+    }
+    for (index, value) in [(0x10, 0x41), (0x11, 0), (0x12, 15), (0x13, 0), (0x14, 0)] {
+        attribute(vga, index, value);
+    }
+    vga.write_port(0x3c6, 1, 0xff);
+    indexed(vga, 0x3c4, 0, 3);
+}
+
+pub fn palette(vga: &mut impl Device, index: u8, rgb: [u8; 3]) {
+    vga.write_port(0x3c8, 1, u32::from(index));
+    for component in rgb {
+        vga.write_port(0x3c9, 1, u32::from(component));
+    }
+}

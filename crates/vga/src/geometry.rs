@@ -1,6 +1,6 @@
 //! Output geometry needed to allocate an image from captured display state.
 use crate::{
-    registers::{crtc, sequencer},
+    registers::{attribute, crtc, graphics, sequencer},
     DisplaySnapshot,
 };
 
@@ -9,18 +9,20 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayGeometry {
     pub size: [u32; 2],
-    /// Physical scanlines represented by each image row. Identical doubled rows
-    /// share storage unless a line-compare split falls between the pair.
+    /// Physical scanlines represented by each image row. Identical repeated
+    /// rows share storage unless panning or a split breaks their alignment.
     pub scanline_step: u32,
 }
 
 impl DisplaySnapshot {
-    /// Output geometry for the supported text layout. Graphics layouts will
-    /// extend this calculation alongside their shader decoding.
+    /// Output geometry for text and the eight-bit graphics layout.
     pub fn geometry(&self) -> DisplayGeometry {
         let c = &self.registers.crtc.values;
         let clocking_mode = self.registers.sequencer.values[sequencer::CLOCKING_MODE as usize];
         let glyph_width = if clocking_mode & 1 != 0 { 8 } else { 9 };
+        let indexed256 = self.registers.attribute.values[attribute::MODE_CONTROL as usize] & 0x41
+            == 0x41
+            && self.registers.graphics.values[graphics::MODE as usize] & 0x40 != 0;
         let columns = u32::from(c[crtc::HORIZONTAL_DISPLAY_END as usize]) + 1;
         let last_line = u32::from(c[crtc::VERTICAL_DISPLAY_END as usize])
             | (u32::from(c[crtc::OVERFLOW as usize] & 2) << 7)
@@ -28,12 +30,28 @@ impl DisplaySnapshot {
         let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
             | (u32::from(c[crtc::OVERFLOW as usize] & 0x10) << 4)
             | (u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x40) << 3);
-        let doubled = c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x80 != 0;
-        let split_pair = line_compare < last_line && line_compare % 2 == 0;
-        let scanline_step = if doubled && !split_pair { 2 } else { 1 };
+        let maximum_scan_line = c[crtc::MAXIMUM_SCAN_LINE as usize];
+        let row_height = u32::from(maximum_scan_line & 31) + 1;
+        let mut repeat = 1 << (maximum_scan_line >> 7);
+        // Graphics repeats a memory row while the row-scan counter advances.
+        // Collapse it only when row-scan bits cannot change the memory address
+        // and the preset does not begin partway through that row.
+        if indexed256
+            && c[crtc::MODE_CONTROL as usize] & 3 == 3
+            && u32::from(c[crtc::PRESET_ROW_SCAN as usize] & 31) % row_height == 0
+        {
+            repeat *= row_height;
+        }
+        let split_repeat = line_compare < last_line && (line_compare + 1) % repeat != 0;
+        let partial_repeat = (last_line + 1) % repeat != 0;
+        let scanline_step = if split_repeat || partial_repeat {
+            1
+        } else {
+            repeat
+        };
         DisplayGeometry {
             size: [
-                columns * glyph_width,
+                (columns * glyph_width).div_ceil(if indexed256 { 2 } else { 1 }),
                 (last_line + 1).div_ceil(scanline_step),
             ],
             scanline_step,

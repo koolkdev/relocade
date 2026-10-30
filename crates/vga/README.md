@@ -6,13 +6,18 @@ uses captured geometry, row stride, physical address mapping, 8/9-dot characters
 font banks and heights, attribute/DAC colors, cursor shape/skew, underline,
 blinking, blanking, panning and split-display settings. The BIOS text preset
 loads an 8×8 CP437 font into plane two and initializes 80×25 cells.
+Eight-bit graphics decoding supports the standard mode-13h memory layout:
+linear guest writes, all 256 DAC colors, display start and stride, repeated rows,
+panning and split display. The decoder follows the captured registers, including
+when guest software changes CPU memory routing independently of display settings.
 
 The nominal raster is 25.175 MHz, 800 dots per line and 449 lines per frame,
 with 640×400 active dots and vertical retrace on lines 412–413 (about 70.086 Hz).
 Input Status 1 follows that raster, including during synchronous guest polling.
 Absolute oscillator arithmetic avoids accumulated timer rounding. Timing-register
-writes retain readback; arbitrary clock/retrace timing, display-state latching
-and graphics decoding remain later milestones. Static text settings apply to the
+writes retain readback; arbitrary clock/retrace timing, display-state latching,
+planar 16-color graphics and broader unchained layouts remain later milestones.
+Static display settings apply to the
 whole captured image. Historical scanout requires more precise device timing and
 captures that retain changes throughout the frame.
 
@@ -24,7 +29,9 @@ CPU reads load all four latches; writes preserve those latched bytes. Memory
 transfers apply VGA read modes 0–1, write modes 0–3, rotation, logical operations,
 plane masks and pixel masks.
 Chain-4 and odd/even routing select physical planes without repacking memory
-when guest software changes modes. CRTC byte, word and doubleword addressing
+when guest software changes modes. In chain-4, CPU A0/A1 select the plane and
+A14/A15 supply its low address bits, matching CRTC doubleword addressing across
+the full 64-KiB guest aperture. CRTC byte, word and doubleword addressing
 translates display counters to those same physical addresses. The IBM VGA
 target does not implement legacy EGA page-selection inputs or 64-KiB chaining.
 
@@ -82,10 +89,12 @@ queued GPU contents, otherwise it restores the affected plane.
 `renderer/state` copies raw register banks, captured blink phase, scanline spacing
 and the unchanged DAC palette into one uniform buffer. The raw Attribute
 Controller address byte is preserved; the shader tests its display-enable bit.
-The shader interprets text addresses, font banks, attributes and colors directly.
+The shader interprets memory addresses, font banks, attributes and colors directly.
+`shaders/scanout` dispatches pixels to `text` or `indexed256`; both use the shared
+scanline and physical-address logic in `addressing` and the DAC lookup in `palette`.
 Its vertex stage decodes frame-constant settings and the 16 text colors, passing them flat to
 fragments in the same draw. There is no preparation pass or intermediate GPU
-buffer. Future packed and planar graphics decoders can read the same physical
+buffer. Further graphics decoders can read the same physical
 buffer without mode-specific upload tracking or application changes.
 The generic `relocade-renderer` owns image storage and attachment drawing and knows
 nothing about VGA, BIOS or DOS.
@@ -124,10 +133,13 @@ if let Some(capture) = source.current_capture() {
 
 The text shader reads physical plane bytes at stable GPU addresses. Glyphs come
 from captured plane two, and colors follow the captured attribute palette, color
-select, plane enable and DAC mask. Output dimensions follow the CRTC. Identical
-scan-doubled rows share one image row; a split within a repeated pair retains the
-physical rows. Pixel aspect ratio targets nominal 4:3 display proportions rather
-than modeling a particular monitor. The default preset still produces 640×200.
+select, plane enable and DAC mask. Eight-bit graphics pixels index the DAC directly,
+using its mask. Output dimensions follow the CRTC and character clock. Identical
+repeated rows share one image row; a preset, split or partial group that breaks
+their alignment retains physical rows. Pixel aspect ratio targets nominal 4:3
+display proportions rather than modeling a particular monitor. The default text
+preset produces 640×200; standard mode-13h registers produce 320×200 with a 5:6
+pixel aspect ratio.
 
 The renderer requires a 2D texture limit of at least 2304 pixels for the largest
 nine-dot text width, 11 flat inter-stage variables and one 256-KiB fragment
@@ -200,6 +212,10 @@ with its owned CPU image type. It is not part of the VGA library API. Capture,
 DOS, CPU-upload and explicit worker fixtures use that reference. The GPU suite
 compares complete images against it and retains literal glyph, palette, cursor,
 blink, blanking and page-selection expectations.
+Graphics checks compare all 64,000 pixels against the guest's linear byte pattern,
+including CPU address-bit transitions. Focused fixtures cover display start and
+stride, panning across plane groups, split and partial repeated rows, address wrap,
+palette changes, skipped captures and retained text/graphics captures.
 
 Recording checks combine decoding and drawing in one caller submission, discard
 and retry an update, and resize a retained GPU image after dropping its decoder.
