@@ -2,6 +2,7 @@
 //! pages 2-55–2-76. This owner stores register state, not live raster counters.
 
 use super::text_mode;
+use std::ops::Range;
 
 pub const HORIZONTAL_TOTAL: u8 = 0x00;
 pub const HORIZONTAL_DISPLAY_END: u8 = 0x01;
@@ -136,6 +137,34 @@ impl Crtc {
             + (u64::from(overflow & 0x02) << 7)
             + (u64::from(overflow & 0x40) << 3)
             + 1
+    }
+
+    /// Blank output intervals in vertical-counter units, after the one-count
+    /// output delay. The second interval covers blanking across counter reset.
+    /// Original VGA compares seven end bits; see the compatibility README for
+    /// the edge convention and its limits. The shader uses the same convention.
+    pub(crate) fn vertical_blanking(&self) -> [Range<u32>; 2] {
+        let start = u32::from(self.register(VERTICAL_BLANK_START))
+            | (u32::from(self.register(OVERFLOW) & 8) << 5)
+            | (u32::from(self.register(MAXIMUM_SCAN_LINE) & 0x20) << 4);
+        let total = self.vertical_total() as u32;
+        if start >= total {
+            return [0..0, 0..0];
+        }
+        let end_low = u32::from(self.register(VERTICAL_BLANK_END) & 0x7f);
+        let end = start + ((end_low.wrapping_sub(start + 1) & 0x7f) + 1) + 1;
+        let head_end = if end > total {
+            (end_low + 1).min(total)
+        } else {
+            0
+        };
+        // An unreachable end, or coincident comparators with set priority,
+        // leaves blanking active throughout the steady-state frame.
+        if head_end > start {
+            [0..total, 0..0]
+        } else {
+            [start + 1..end.min(total), 0..head_end]
+        }
     }
 
     /// CRTC 10 plus Overflow bits 2/7 form the ten-bit retrace start count.

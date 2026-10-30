@@ -22,14 +22,23 @@ fn sequencer(vga: &mut impl Device, index: u8, value: u8) {
 fn guest_status_tracks_display_enable_and_retrace_without_a_video_future() {
     let clock = Rc::new(ManualClock::default());
     let mut vga = Vga::with_clock(clock.clone());
+    // CRTC blanking intersects active display but does not change the separate
+    // display-enable signal reported by Input Status 1 bit zero.
+    crtc(&mut vga, 0x11, 0x2e);
+    crtc(&mut vga, 2, 0);
+    crtc(&mut vga, 3, 0x82);
+    crtc(&mut vga, 0x15, 0);
+    crtc(&mut vga, 0x16, 2);
     // Counts are physical dots: character height and double scanning do not
     // multiply the already programmed 449-line total.
     for (count, status) in [
         (0, 0),
+        (8, 0), // Inside programmed horizontal blanking, with display enabled.
         (639, 0),
         (640, 1),
         (672, 1),
         (800, 0),
+        (257 * 800, 0), // Inside programmed vertical blanking.
         (399 * 800, 0),
         (400 * 800, 1),
         (412 * 800 - 1, 1),

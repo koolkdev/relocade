@@ -10,7 +10,7 @@ use crate::{
 pub struct DisplayGeometry {
     pub size: [u32; 2],
     /// Physical scanlines represented by each image row. Identical repeated
-    /// rows share storage unless panning or a split breaks their alignment.
+    /// rows share storage unless panning, a split or blanking separates them.
     pub scanline_step: u32,
 }
 
@@ -45,7 +45,14 @@ impl DisplaySnapshot {
         }
         let split_repeat = line_compare < last_line && !(line_compare + 1).is_multiple_of(repeat);
         let partial_repeat = !(last_line + 1).is_multiple_of(repeat);
-        let scanline_step = if split_repeat || partial_repeat {
+        let blanking_repeat = self.registers.crtc.vertical_blanking().iter().any(|range| {
+            !range.is_empty()
+                && [range.start, range.end].into_iter().any(|count| {
+                    let line = count * vertical_divisor;
+                    line <= last_line && !line.is_multiple_of(repeat)
+                })
+        });
+        let scanline_step = if split_repeat || partial_repeat || blanking_repeat {
             1
         } else {
             repeat
