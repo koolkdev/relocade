@@ -7,6 +7,8 @@
 #![forbid(unsafe_code)]
 
 mod capture;
+#[cfg(feature = "renderer")]
+mod display;
 mod geometry;
 mod memory;
 mod raster;
@@ -17,6 +19,8 @@ mod snapshot;
 mod timing;
 
 pub use capture::{CapturedFrame, FrameSource};
+#[cfg(feature = "renderer")]
+pub use display::VgaDisplay;
 use event_listener::Event;
 use futures_lite::future::{or, yield_now};
 pub use geometry::DisplayGeometry;

@@ -243,6 +243,38 @@ including its attachments, placement and load/clear policy, and submits the whol
 command batch. Neither renderer creates a surface, worker, timer or background
 task. Production rendering records commands without waiting for GPU completion.
 
+`VgaDisplay` connects a `FrameSource` to a host through
+`relocade_peripherals::display::DisplayRenderer`. It waits for new captures and
+uploads them in `update(queue)`, then records decoding in `encode_image(encoder)`
+only when the uploaded sequence has changed. Resize-only draws reuse its image.
+Closing the source preserves that image and its capture metadata, available from
+`current_frame()`.
+
+Construct the adapter inside the graphics host's factory so it shares the host's
+GPU environment and remains on the graphics owner:
+
+```rust,ignore
+let (graphics, finished) = relocade_app::graphics::Graphics::spawn(
+    surface_setup,
+    move |device, _queue| {
+        relocade_vga::VgaDisplay::new(device, frame_source).map_err(|e| e.to_string())
+    },
+    notify_redraw_needed,
+);
+```
+
+The adapter retains the `FrameSource`. `device_lost()` drops its GPU resources
+and cached output without changing guest VGA state. `attach_device(device, queue)`
+creates fresh resources and fully uploads the latest capture, including after the
+source closes. The same adapter and source survive; the next `encode_image` records
+decoding of the restored input. Automatic restoration is VGA's policy, not a
+requirement of other display backends.
+
+The host submits uploads even when presentation is idle, and submits each recorded
+batch before servicing the adapter again. `VgaDisplay` relies on that submission
+contract for its cache. Callers that need to discard and retry recorded commands
+can use `VgaRenderer` directly. The adapter adds no worker, surface or request loop.
+
 ## Rendering checks
 
 Independent CPU register decoding and pixel conversion live only in

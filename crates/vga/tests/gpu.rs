@@ -1,6 +1,8 @@
 #![cfg(feature = "renderer")]
 
 mod common;
+#[path = "gpu/display.rs"]
+mod display;
 #[path = "gpu/graphics.rs"]
 mod graphics;
 #[path = "gpu/readback.rs"]
