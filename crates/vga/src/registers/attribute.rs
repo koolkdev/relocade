@@ -9,23 +9,25 @@ pub const HORIZONTAL_PANNING: u8 = 0x13;
 pub const COLOR_SELECT: u8 = 0x14;
 pub const PALETTE_ADDRESS_SOURCE: u8 = 0x20;
 
-pub(crate) struct Attribute {
+/// Attribute Controller values, raw address byte and CPU access phase.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Attribute {
     address: u8,
     data_next: bool,
-    registers: [u8; 0x15],
+    pub values: [u8; 0x15],
 }
 
 impl Default for Attribute {
     fn default() -> Self {
-        let mut registers = [0; 0x15];
-        registers[..16].copy_from_slice(&text_mode::ATTRIBUTE_PALETTE);
+        let mut values = [0; 0x15];
+        values[..16].copy_from_slice(&text_mode::ATTRIBUTE_PALETTE);
         for &(index, value) in text_mode::ATTRIBUTE_REGISTERS {
-            registers[usize::from(index)] = value;
+            values[usize::from(index)] = value;
         }
         Self {
             address: PALETTE_ADDRESS_SOURCE,
             data_next: false,
-            registers,
+            values,
         }
     }
 }
@@ -36,10 +38,10 @@ impl Attribute {
     }
 
     fn register(&self, index: u8) -> u8 {
-        self.registers[usize::from(index)]
+        self.values[usize::from(index)]
     }
 
-    pub fn read(&self) -> u8 {
+    pub(crate) fn read(&self) -> u8 {
         let index = self.address & 0x1f;
         if index <= COLOR_SELECT {
             self.register(index)
@@ -49,11 +51,11 @@ impl Attribute {
     }
 
     /// An active Input Status 1 read explicitly selects the address phase.
-    pub fn reset_address(&mut self) {
+    pub(crate) fn reset_address(&mut self) {
         self.data_next = false;
     }
 
-    pub fn write(&mut self, value: u8) {
+    pub(crate) fn write(&mut self, value: u8) {
         // Every write advances the phase, including ignored register writes.
         let data_phase = self.data_next;
         self.data_next = !data_phase;
@@ -70,6 +72,6 @@ impl Attribute {
             COLOR_PLANE_ENABLE | HORIZONTAL_PANNING | COLOR_SELECT => 0x0f,
             _ => return,
         };
-        self.registers[usize::from(index)] = value & mask;
+        self.values[usize::from(index)] = value & mask;
     }
 }

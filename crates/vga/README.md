@@ -29,14 +29,27 @@ Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
 physical map and device bus. The Graphics Controller selects the active aperture;
 reads outside it return FF and writes are ignored. BIOS text-mode setup restores
 the shared preset through guest-visible ports before clearing text memory.
-Font and palette registers retain guest programming; programmable captured
-display state and graphics decoding follow in later stages.
+Font and palette registers retain guest programming; programmable text and
+graphics decoding follow in later stages.
 
 At each serviced refresh boundary the device captures cells, cursor, display
 start, blink phase, blanking, source time and sequence. Late service coalesces
 missed boundaries. Guest mutations first preserve any completed boundary using
 the preceding state. The fidelity contract is a coherent text-state snapshot at
 a completed refresh boundary, not reconstruction of pixel history during it.
+
+Each capture also owns a complete `DisplaySnapshot`: four physical memory planes
+(including font memory), sequencer/CRTC/graphics/attribute settings, DAC colors
+and mask, and blink phase. Skipping a capture loses no inputs required by a newer
+one. `Vga::snapshot()` captures those same inputs immediately without publishing a
+frame or changing CPU latches and access phases. The fixed text renderer continues
+to consume the cell view until programmable decoding replaces that representation.
+
+Snapshots share four immutable 64-KiB planes with the device. Capturing or cloning
+a snapshot copies references and register values, not VRAM bytes. A guest write
+copies a shared plane only when its final byte changes after VGA write modes and
+masks; subsequent writes reuse the device's private plane until the next capture.
+Retaining many distinct captures can therefore retain many versions of a plane.
 
 `FrameSource` retains just the latest immutable `CapturedFrame`. The capture has
 no RGBA image. It can cross workers and survive device destruction. Waiting for

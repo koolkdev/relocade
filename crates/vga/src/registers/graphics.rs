@@ -12,21 +12,20 @@ pub const MISCELLANEOUS: u8 = 0x06;
 pub const COLOR_DONT_CARE: u8 = 0x07;
 pub const BIT_MASK: u8 = 0x08;
 
-pub(crate) struct Graphics {
+/// Graphics Controller values and the current CPU register index.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Graphics {
     index: u8,
-    registers: [u8; 9],
+    pub values: [u8; 9],
 }
 
 impl Default for Graphics {
     fn default() -> Self {
-        let mut registers = [0; 9];
+        let mut values = [0; 9];
         for &(index, value) in text_mode::GRAPHICS_REGISTERS {
-            registers[usize::from(index)] = value;
+            values[usize::from(index)] = value;
         }
-        Self {
-            index: 0,
-            registers,
-        }
+        Self { index: 0, values }
     }
 }
 
@@ -35,15 +34,15 @@ impl Graphics {
         self.index
     }
 
-    pub fn select(&mut self, index: u8) {
+    pub(crate) fn select(&mut self, index: u8) {
         self.index = index & 0x0f;
     }
 
     fn register(&self, index: u8) -> u8 {
-        self.registers[usize::from(index)]
+        self.values[usize::from(index)]
     }
 
-    pub fn read(&self) -> u8 {
+    pub(crate) fn read(&self) -> u8 {
         if self.index <= BIT_MASK {
             self.register(self.index)
         } else {
@@ -51,7 +50,7 @@ impl Graphics {
         }
     }
 
-    pub fn write(&mut self, value: u8) {
+    pub(crate) fn write(&mut self, value: u8) {
         let mask = match self.index {
             SET_RESET | ENABLE_SET_RESET | COLOR_COMPARE | MISCELLANEOUS | COLOR_DONT_CARE => 0x0f,
             DATA_ROTATE => 0x1f,
@@ -60,10 +59,10 @@ impl Graphics {
             BIT_MASK => 0xff,
             _ => return,
         };
-        self.registers[usize::from(self.index)] = value & mask;
+        self.values[usize::from(self.index)] = value & mask;
     }
 
-    pub fn memory_offset(&self, address: u32) -> Option<u32> {
+    pub(crate) fn memory_offset(&self, address: u32) -> Option<u32> {
         let (start, size) = match (self.register(MISCELLANEOUS) >> 2) & 3 {
             0 => (0xa0000, 0x20000),
             1 => (0xa0000, 0x10000),
@@ -73,23 +72,23 @@ impl Graphics {
         address.checked_sub(start).filter(|offset| *offset < size)
     }
 
-    pub fn odd_even_reads(&self) -> bool {
+    pub(crate) fn odd_even_reads(&self) -> bool {
         self.register(MODE) & 0x10 != 0
     }
 
-    pub fn chain_odd_even(&self) -> bool {
+    pub(crate) fn chain_odd_even(&self) -> bool {
         self.register(MISCELLANEOUS) & 2 != 0
     }
 
-    pub fn read_plane(&self) -> usize {
+    pub(crate) fn read_plane(&self) -> usize {
         usize::from(self.register(READ_MAP_SELECT))
     }
 
-    pub fn compare_reads(&self) -> bool {
+    pub(crate) fn compare_reads(&self) -> bool {
         self.register(MODE) & 8 != 0
     }
 
-    pub fn compare(&self, latches: [u8; 4]) -> u8 {
+    pub(crate) fn compare(&self, latches: [u8; 4]) -> u8 {
         let mut matches = 0xff;
         for (plane, latch) in latches.into_iter().enumerate() {
             if self.register(COLOR_DONT_CARE) & (1 << plane) != 0 {
@@ -106,7 +105,7 @@ impl Graphics {
 
     /// The CPU read latches supply both logical-operation input and masked bits.
     /// A write never reloads them from the destination address.
-    pub fn write_data(&self, value: u8, latches: [u8; 4]) -> [u8; 4] {
+    pub(crate) fn write_data(&self, value: u8, latches: [u8; 4]) -> [u8; 4] {
         let mode = self.register(MODE) & 3;
         if mode == 1 {
             return latches;

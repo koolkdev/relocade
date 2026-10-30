@@ -1,10 +1,9 @@
-//! VGA port addresses, register definitions and the initial text-mode preset.
-//! Firmware programs these through the device bus; mutable register state and
-//! field decoding stay inside the VGA device.
+//! VGA register banks and port access. Each bank owns its raw values and CPU
+//! access state; display captures clone the same banks without reading ports.
 
 pub mod attribute;
 pub mod crtc;
-mod dac;
+pub mod dac;
 pub mod graphics;
 pub mod sequencer;
 pub mod text_mode;
@@ -46,14 +45,18 @@ pub const PORT_RANGES: [RangeInclusive<u16>; 5] = [
     COLOR_INPUT_STATUS_1_PORT..=COLOR_INPUT_STATUS_1_PORT,
 ];
 
-pub(super) struct Registers {
+/// Complete stored VGA register state, used by the device and its captures.
+/// Bank indices and transfer phases are retained alongside the raw values;
+/// cloning this state never advances a CPU access or evaluates display settings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Registers {
     pub crtc: Crtc,
     pub sequencer: Sequencer,
     pub graphics: Graphics,
     pub attribute: Attribute,
     pub dac: Dac,
-    miscellaneous: u8,
-    feature_control: u8,
+    pub miscellaneous: u8,
+    pub feature_control: u8,
 }
 
 impl Default for Registers {
@@ -71,7 +74,7 @@ impl Default for Registers {
 }
 
 impl Registers {
-    pub fn status_port(&self) -> u16 {
+    pub(crate) fn status_port(&self) -> u16 {
         if self.miscellaneous & 1 == 0 {
             MONO_INPUT_STATUS_1_PORT
         } else {
@@ -87,12 +90,12 @@ impl Registers {
         }
     }
 
-    pub fn video_memory_enabled(&self) -> bool {
+    pub(crate) fn video_memory_enabled(&self) -> bool {
         // Miscellaneous Output bit 1 enables CPU access to display RAM.
         self.miscellaneous & (1 << 1) != 0
     }
 
-    pub fn read_port(&mut self, port: u16, raster_status: u8) -> u8 {
+    pub(crate) fn read_port(&mut self, port: u16, raster_status: u8) -> u8 {
         let (crtc_index, crtc_data) = self.crtc_ports();
         match port {
             ATTRIBUTE_ADDRESS_PORT => self.attribute.address(),
@@ -118,7 +121,7 @@ impl Registers {
         }
     }
 
-    pub fn write_port(&mut self, port: u16, value: u8) {
+    pub(crate) fn write_port(&mut self, port: u16, value: u8) {
         let (crtc_index, crtc_data) = self.crtc_ports();
         match port {
             ATTRIBUTE_ADDRESS_PORT => self.attribute.write(value),
