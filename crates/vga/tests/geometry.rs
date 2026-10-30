@@ -52,14 +52,15 @@ fn doubled_rows_share_storage_unless_a_split_separates_them() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn graphics_geometry_preserves_partial_repeats_and_row_address_changes() {
-    for planar in [false, true] {
+    for shift in [0, 0x20, 0x40] {
         let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
-        if planar {
-            common::support::planar16::program(&mut vga);
-        } else {
+        if shift == 0x40 {
             common::support::indexed256::program(&mut vga);
+        } else {
+            common::support::planar16::program(&mut vga);
+            common::support::registers::indexed(&mut vga, 0x3ce, 5, shift);
         }
-        let width = if planar { 640 } else { 320 };
+        let width = if shift == 0x40 { 320 } else { 640 };
         // Four row scans per memory row, eight visible scanlines.
         crtc(&mut vga, 7, 0x10);
         crtc(&mut vga, 9, 0x43);

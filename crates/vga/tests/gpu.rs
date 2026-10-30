@@ -16,6 +16,8 @@ mod parity;
 mod planar16;
 #[path = "gpu/recording.rs"]
 mod recording;
+#[path = "gpu/shift_interleave.rs"]
+mod shift_interleave;
 #[path = "gpu/unchained256.rs"]
 mod unchained256;
 use common::support::software;

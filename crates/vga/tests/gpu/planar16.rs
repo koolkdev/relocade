@@ -139,7 +139,7 @@ async fn check_addressing() {
     .await;
 
     // Other shifter/attribute combinations must not be mistaken for planar16.
-    for (shift, mode) in [(0x20, 1), (0x40, 1), (0, 0x41)] {
+    for (shift, mode) in [(0x20, 0x41), (0x40, 1), (0, 0x41)] {
         indexed(&mut vga, 0x3ce, 5, shift);
         attribute(&mut vga, 0x10, mode);
         gpu.expect(

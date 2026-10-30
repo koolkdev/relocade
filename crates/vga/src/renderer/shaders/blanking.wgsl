@@ -37,7 +37,8 @@ fn in_blanking(count: u32, intervals: vec3<u32>) -> bool {
 }
 
 fn pixel_blanked(input: DisplayVertex, pixel: vec2<u32>) -> bool {
-    let horizontal_count = pixel.x * (1u + input.display.w) / input.grid.y;
+    let indexed256 = (input.display.x & 0x41u) == 0x41u && (input.display.w & 0x40u) != 0u;
+    let horizontal_count = pixel.x * select(1u, 2u, indexed256) / input.grid.y;
     let vertical_divisor = 1u << ((input.addressing.z >> 2u) & 1u);
     let vertical_count = pixel.y * input.scanlines.y / vertical_divisor;
     return in_blanking(horizontal_count, input.horizontal_blank)
