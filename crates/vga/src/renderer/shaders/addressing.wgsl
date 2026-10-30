@@ -30,17 +30,20 @@ fn display_scanline(input: DisplayVertex, y: u32) -> Scanline {
     let line_compare = input.panning.w;
     var row = physical_row / scan_repeat + input.panning.x;
     var start = input.addressing.x;
-    var pan = input.panning.z;
+    var byte_pan = input.panning.y;
+    var pel_pan = input.panning.z;
     if physical_row > line_compare {
         row = (physical_row - line_compare - 1u) / scan_repeat;
         start = 0u;
         if (input.display.x & 0x20u) != 0u {
-            pan = 0u;
+            // Pixel Panning Mode resets both shifts below the line compare.
+            byte_pan = 0u;
+            pel_pan = 0u;
         }
     }
     return Scanline(
-        start + (row / row_height) * input.addressing.y + input.panning.y,
+        start + (row / row_height) * input.addressing.y + byte_pan,
         row % row_height,
-        pan,
+        pel_pan,
     );
 }

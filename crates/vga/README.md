@@ -16,6 +16,11 @@ when guest software changes CPU memory routing independently of display settings
 Planar 16-color graphics combines one bit from each physical plane and uses the
 same Attribute Controller palette as text. Display start, stride, panning,
 repeated rows and split display share the common CRTC address calculation.
+After line compare, the lower region starts at address zero with row scan zero.
+Pixel Panning Mode resets both byte and pel shifts there, following the
+[FreeVGA programming reference](https://github.com/logiclrd/QBX/blob/main/References/VGA.md#L997-L998).
+With that bit clear, both regions retain the programmed shifts. This shared
+behavior applies to text, planar pixels and byte-addressed Mode X.
 
 The default raster is 25.175 MHz, 800 dots per line and 449 lines per frame
 (about 70.086 Hz). Guest clock selection, 8/9-dot width, clock division and CRTC
@@ -91,8 +96,8 @@ maintain.
 Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
 captures those same inputs immediately without publishing a frame, forcing a
 display-start latch, or changing CPU access phases. `DisplaySnapshot::geometry()`
-derives only image dimensions, scanline spacing and nominal pixel aspect ratio. All pixel
-interpretation uses captured registers and VRAM directly in the shader.
+derives only image dimensions, scanline spacing and nominal pixel aspect ratio.
+All pixel interpretation uses captured registers and VRAM directly in the shader.
 
 Snapshots share four immutable 64-KiB planes with the device. Capturing or cloning
 a snapshot copies references and register values, not VRAM bytes. A guest write
@@ -260,6 +265,10 @@ restoration. Guest-to-GPU checks run COM programs that set modes 13h, 0Dh and
 12h, write pixels through the graphics aperture, change DAC colors and restore
 text. Mode X guests unchain the memory and flip pages without rewriting pixels.
 Retained captures still render after the DOS session ends.
+Transition checks begin with a scrolled, split Mode X page, blank and unblank it
+without changing VRAM, then switch through planar BIOS modes and return to text.
+Replaying retained inputs after those switches verifies that each capture keeps
+its own layout, latch and memory.
 
 Recording checks combine decoding and drawing in one caller submission, discard
 and retry an update, and resize a retained GPU image after dropping its decoder.
