@@ -25,12 +25,12 @@ impl DisplaySnapshot {
         let indexed256 = attribute_mode & 0x41 == 0x41 && graphics_mode & 0x40 != 0;
         let planar16 = attribute_mode & 0x41 == 1 && graphics_mode & 0x60 == 0;
         let columns = u32::from(c[crtc::HORIZONTAL_DISPLAY_END as usize]) + 1;
-        let last_line = u32::from(c[crtc::VERTICAL_DISPLAY_END as usize])
-            | (u32::from(c[crtc::OVERFLOW as usize] & 2) << 7)
-            | (u32::from(c[crtc::OVERFLOW as usize] & 0x40) << 3);
+        let vertical_divisor = self.registers.crtc.scanlines_per_vertical_count() as u32;
+        let last_line = self.registers.crtc.vertical_display() as u32 * vertical_divisor - 1;
         let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
             | (u32::from(c[crtc::OVERFLOW as usize] & 0x10) << 4)
             | (u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x40) << 3);
+        let line_compare = (line_compare + 1) * vertical_divisor - 1;
         let maximum_scan_line = c[crtc::MAXIMUM_SCAN_LINE as usize];
         let row_height = u32::from(maximum_scan_line & 31) + 1;
         let mut repeat = 1 << (maximum_scan_line >> 7);
@@ -43,8 +43,8 @@ impl DisplaySnapshot {
         {
             repeat *= row_height;
         }
-        let split_repeat = line_compare < last_line && (line_compare + 1) % repeat != 0;
-        let partial_repeat = (last_line + 1) % repeat != 0;
+        let split_repeat = line_compare < last_line && !(line_compare + 1).is_multiple_of(repeat);
+        let partial_repeat = !(last_line + 1).is_multiple_of(repeat);
         let scanline_step = if split_repeat || partial_repeat {
             1
         } else {

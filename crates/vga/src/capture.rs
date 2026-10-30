@@ -65,7 +65,7 @@ impl FrameSource {
         }
     }
 
-    pub(crate) fn capture(&self, frame: CapturedFrame) {
+    pub(crate) fn publish(&self, frame: CapturedFrame) {
         self.captures.frame.store(Some(Arc::new(frame)));
         self.captures.changed.notify(usize::MAX);
     }

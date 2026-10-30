@@ -68,6 +68,8 @@ impl Text {
         let lines = u32::from(c[crtc::VERTICAL_DISPLAY_END as usize])
             | (u32::from(c[crtc::OVERFLOW as usize] & 2) << 7)
             | (u32::from(c[crtc::OVERFLOW as usize] & 0x40) << 3);
+        let vertical_divisor = 1 << ((c[crtc::MODE_CONTROL as usize] >> 2) & 1);
+        let lines = (lines + 1) * vertical_divisor - 1;
         let scan_repeat = 1 << (c[crtc::MAXIMUM_SCAN_LINE as usize] >> 7);
         let maps = s[sequencer::CHARACTER_MAP_SELECT as usize];
         let extended = s[sequencer::MEMORY_MODE as usize] & 2 != 0;
@@ -93,10 +95,11 @@ impl Text {
         let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
             | (u32::from(c[crtc::OVERFLOW as usize] & 0x10) << 4)
             | (u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x40) << 3);
+        let line_compare = (line_compare + 1) * vertical_divisor - 1;
         // Keep physical rows when a split interrupts a pair or the display ends
         // with half a pair. Only complete pairs have equal vertical weights.
         let output_step = if scan_repeat == 2
-            && (lines % 2 == 0 || (line_compare < lines && line_compare % 2 == 0))
+            && (lines.is_multiple_of(2) || (line_compare < lines && line_compare.is_multiple_of(2)))
         {
             1
         } else {

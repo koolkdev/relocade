@@ -53,8 +53,7 @@ async fn check_pages() {
             .await;
         retained.push(capture);
     }
-    // Program a 525-line raster with 480 visible, repeated scanlines. Geometry
-    // follows these registers; publication still uses the documented fixed clock.
+    // Program a 525-line raster with 480 visible, repeated scanlines.
     vga.write_port(0x3c2, 1, 0xe3);
     for (index, value) in [
         (6, 0x0b),
@@ -73,6 +72,7 @@ async fn check_pages() {
         &expected(0xc000, 0, 240),
     )
     .await;
+    let reset_at = common::boundary(4);
     program(&mut vga);
     unchain(&mut vga);
     indexed(&mut vga, 0x3d4, 0x13, 44);
@@ -80,7 +80,7 @@ async fn check_pages() {
     // crosses the plane group without changing which byte each plane stores.
     start(&mut vga, 0x8001);
     attribute(&mut vga, 0x13, 6);
-    clock.set(common::boundary(5));
+    clock.set(reset_at + common::boundary(1));
     vga.read_port(0x3da, 1);
     let panned = source.current_capture().unwrap();
     let mut changed = expected(0x8001, 3, 200);
@@ -95,7 +95,7 @@ async fn check_pages() {
         changed[((y * 320 + x) * 4) as usize..((y * 320 + x) * 4 + 4) as usize]
             .copy_from_slice(&super::graphics::color(0xf1).1);
     }
-    clock.set(common::boundary(6));
+    clock.set(reset_at + common::boundary(2));
     vga.read_port(0x3da, 1);
     gpu.expect(&source.current_capture().unwrap(), [320, 200], &changed)
         .await;
