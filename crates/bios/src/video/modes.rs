@@ -3,7 +3,6 @@ use super::{
     presets, write_crtc_word, write_indexed, ACTIVE_PAGE, COLUMNS, CRTC_PORT, CURSORS,
     CURSOR_SHAPE, LAST_ROW, MODE, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
 };
-use crate::screen;
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
     registers::{
@@ -75,8 +74,8 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         .expect("video control");
     if request & 0x80 == 0 {
         if text {
-            let blank = [b' ', 7].repeat(screen::PAGE_BYTES as usize / 2);
-            for offset in (0..TEXT_MEMORY_BYTES).step_by(screen::PAGE_BYTES as usize) {
+            let blank = [b' ', 7].repeat(2048);
+            for offset in (0..TEXT_MEMORY_BYTES).step_by(blank.len()) {
                 memory
                     .write(TEXT_MEMORY_START + offset, &blank)
                     .expect("text page");

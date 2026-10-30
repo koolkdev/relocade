@@ -1,15 +1,12 @@
 //! BIOS text-page operations and firmware display data.
+mod geometry;
+use geometry::Geometry;
 
 use crate::video::{
     write_crtc_word, ACTIVE_PAGE, COLOR_TEXT_80X25, CURSORS, CURSOR_SHAPE, MODE, PAGE_OFFSET,
 };
 use relocade_machine::{IoBus, MemoryView};
-use relocade_vga::{
-    registers::{crtc, text_mode},
-    TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
-};
-
-pub(super) const PAGE_BYTES: u32 = 0x1000;
+use relocade_vga::{registers::crtc, TEXT_MEMORY_START};
 
 /// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
 /// CR, LF and backspace move the cursor; other glyphs retain cell attributes.
@@ -33,22 +30,19 @@ pub(super) fn active_page(memory: &MemoryView<'_>) -> u8 {
     memory.read_u8(ACTIVE_PAGE).expect("active video page")
 }
 
-pub(super) fn valid_page(page: u8) -> bool {
-    u32::from(page) < TEXT_MEMORY_BYTES / PAGE_BYTES
+pub(super) fn valid_page(memory: &MemoryView<'_>, page: u8) -> bool {
+    Geometry::read(memory).valid_page(page)
 }
 
 pub(super) fn select_page(memory: &mut MemoryView<'_>, io: &IoBus, page: u8) {
+    let offset = Geometry::read(memory).page_offset(page);
     memory
         .write_u8(ACTIVE_PAGE, page)
         .expect("active video page");
     memory
-        .write_u16(PAGE_OFFSET, u16::from(page) * PAGE_BYTES as u16)
+        .write_u16(PAGE_OFFSET, offset)
         .expect("video page offset");
-    write_crtc_word(
-        io,
-        crtc::START_ADDRESS_HIGH,
-        u16::from(page) * (PAGE_BYTES / 2) as u16,
-    );
+    write_crtc_word(io, crtc::START_ADDRESS_HIGH, offset / 2);
     update_cursor(memory, io, page);
 }
 
@@ -81,24 +75,20 @@ pub(super) fn set_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u
 
 fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
     let [column, row] = cursor_position(memory, page).to_le_bytes();
-    let position = u16::from(page)
-        .wrapping_mul((PAGE_BYTES / 2) as u16)
-        .wrapping_add(u16::from(row) * text_mode::COLUMNS as u16 + u16::from(column));
+    let position = Geometry::read(memory).cursor_address(page, u16::from(row), u16::from(column));
     write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, position);
 }
 
-fn cell_address(page: u8, row: u8, column: u8) -> u32 {
-    TEXT_MEMORY_START
-        + u32::from(page) * PAGE_BYTES
-        + (u32::from(row) * text_mode::COLUMNS as u32 + u32::from(column)) * 2
-}
-
 pub(super) fn read_cell(memory: &MemoryView<'_>, page: u8) -> [u8; 2] {
+    let geometry = Geometry::read(memory);
     let [column, row] = cursor_position(memory, page).to_le_bytes();
     let mut cell = [0; 2];
-    if usize::from(row) < text_mode::ROWS && usize::from(column) < text_mode::COLUMNS {
+    if geometry.contains(u16::from(row), u16::from(column)) {
         memory
-            .read(cell_address(page, row, column), &mut cell)
+            .read(
+                geometry.cell_address(page, u16::from(row), u16::from(column)),
+                &mut cell,
+            )
             .expect("text cell");
     }
     cell
@@ -112,8 +102,7 @@ pub(super) fn write_repeated(
     count: u16,
 ) {
     let [column, row] = cursor_position(memory, page).to_le_bytes();
-    let start = (u16::from(page) * PAGE_BYTES as u16)
-        .wrapping_add((u16::from(row) * text_mode::COLUMNS as u16 + u16::from(column)) * 2);
+    let start = Geometry::read(memory).cell_offset(page, u16::from(row), u16::from(column));
     // BIOS repeat writes advance a 16-bit video offset; the visible page edge
     // does not stop them or move the cursor.
     for index in 0..count {
@@ -146,34 +135,41 @@ pub(super) fn scroll(
     attribute: u8,
     direction: ScrollDirection,
 ) {
-    let bottom = window.bottom.min((text_mode::ROWS - 1) as u8);
-    let right = window.right.min((text_mode::COLUMNS - 1) as u8);
-    if window.top > bottom || window.left > right {
+    let geometry = Geometry::read(memory);
+    if geometry.columns == 0 {
         return;
     }
-    let height = bottom - window.top + 1;
+    let bottom = u16::from(window.bottom).min(geometry.rows - 1);
+    let right = u16::from(window.right).min(geometry.columns - 1);
+    let top = u16::from(window.top);
+    let left = u16::from(window.left);
+    if top > bottom || left > right {
+        return;
+    }
+    let height = bottom - top + 1;
     let count = if lines == 0 {
         height
     } else {
-        lines.min(height)
+        u16::from(lines).min(height)
     };
-    let width_bytes = usize::from(right - window.left + 1) * 2;
-    let mut row_bytes = [0; text_mode::COLUMNS * 2];
+    let width_bytes = usize::from(right - left + 1) * 2;
+    // INT 10h window columns are bytes, so at most 256 cells can be selected.
+    let mut row_bytes = [0; 256 * 2];
     for index in 0..height {
         let (row, source) = match direction {
             ScrollDirection::Up => {
-                let row = window.top + index;
-                (row, i16::from(row) + i16::from(count))
+                let row = top + index;
+                (row, i32::from(row) + i32::from(count))
             }
             ScrollDirection::Down => {
                 let row = bottom - index;
-                (row, i16::from(row) - i16::from(count))
+                (row, i32::from(row) - i32::from(count))
             }
         };
         let bytes = &mut row_bytes[..width_bytes];
-        if source >= i16::from(window.top) && source <= i16::from(bottom) {
+        if source >= i32::from(top) && source <= i32::from(bottom) {
             memory
-                .read(cell_address(page, source as u8, window.left), bytes)
+                .read(geometry.cell_address(page, source as u16, left), bytes)
                 .expect("scroll source");
         } else {
             for cell in bytes.as_chunks_mut::<2>().0 {
@@ -181,14 +177,16 @@ pub(super) fn scroll(
             }
         }
         memory
-            .write(cell_address(page, row, window.left), bytes)
+            .write(geometry.cell_address(page, row, left), bytes)
             .expect("scroll destination");
     }
 }
 
 fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
-    let [mut column, mut row] = cursor_position(memory, page).to_le_bytes();
-    if usize::from(row) >= text_mode::ROWS || usize::from(column) >= text_mode::COLUMNS {
+    let geometry = Geometry::read(memory);
+    let [column, row] = cursor_position(memory, page).to_le_bytes();
+    let (mut column, mut row) = (u16::from(column), u16::from(row));
+    if !geometry.contains(row, column) {
         return;
     }
     match character {
@@ -198,20 +196,25 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
         b'\n' => row += 1,
         _ => {
             memory
-                .write_u8(cell_address(page, row, column), character)
+                .write_u8(geometry.cell_address(page, row, column), character)
                 .expect("text character");
             column += 1;
-            if usize::from(column) == text_mode::COLUMNS {
+            if column == geometry.columns {
                 column = 0;
                 row += 1;
             }
         }
     }
-    if usize::from(row) == text_mode::ROWS {
+    if row == geometry.rows {
         row -= 1;
         // BIOS reads the fill attribute after advancing the cursor. A wrapped
         // line uses column zero; a line feed retains its previous column.
-        set_cursor_position(memory, io, page, u16::from_le_bytes([column, row]));
+        set_cursor_position(
+            memory,
+            io,
+            page,
+            u16::from_le_bytes([column as u8, row as u8]),
+        );
         let attribute = read_cell(memory, page)[1];
         scroll(
             memory,
@@ -219,13 +222,18 @@ fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, page: u8, character: u8) {
             Window {
                 top: 0,
                 left: 0,
-                bottom: row,
-                right: (text_mode::COLUMNS - 1) as u8,
+                bottom: row as u8,
+                right: (geometry.columns - 1).min(255) as u8,
             },
             1,
             attribute,
             ScrollDirection::Up,
         );
     }
-    set_cursor_position(memory, io, page, u16::from_le_bytes([column, row]));
+    set_cursor_position(
+        memory,
+        io,
+        page,
+        u16::from_le_bytes([column as u8, row as u8]),
+    );
 }

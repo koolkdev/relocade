@@ -14,13 +14,13 @@ use relocade_vga::registers::CRTC_INDEX_PORT;
 // Firmware video data in segment 0040h.
 pub(super) const MODE: u32 = 0x449;
 pub(super) const COLUMNS: u32 = 0x44a;
-const PAGE_SIZE: u32 = 0x44c;
+pub(super) const PAGE_SIZE: u32 = 0x44c;
 pub(super) const PAGE_OFFSET: u32 = 0x44e;
 pub(super) const CURSORS: u32 = 0x450;
 pub(super) const CURSOR_SHAPE: u32 = 0x460;
 pub(super) const ACTIVE_PAGE: u32 = 0x462;
 const CRTC_PORT: u32 = 0x463;
-const LAST_ROW: u32 = 0x484;
+pub(super) const LAST_ROW: u32 = 0x484;
 const VIDEO_CONTROL: u32 = 0x487;
 
 pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
@@ -61,7 +61,9 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
         0x10 => return palette::interrupt(call),
         // The remaining services operate on text pages.
         _ if !screen::is_text_mode(&call.memory) => return unsupported(call),
-        0x02 | 0x03 | 0x08..=0x0a if !screen::valid_page(page) => return unsupported(call),
+        0x02 | 0x03 | 0x08..=0x0a if !screen::valid_page(&call.memory, page) => {
+            return unsupported(call)
+        }
         0x01 => screen::set_cursor_shape(&mut call.memory, call.io, cx),
         0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
         0x03 => {
@@ -73,7 +75,9 @@ pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             call.cpu.set_dx(position);
             call.cpu.set_cx(shape);
         }
-        0x05 if screen::valid_page(al) => screen::select_page(&mut call.memory, call.io, al),
+        0x05 if screen::valid_page(&call.memory, al) => {
+            screen::select_page(&mut call.memory, call.io, al)
+        }
         0x06 | 0x07 => {
             let [left, top] = cx.to_le_bytes();
             let [right, bottom] = dx.to_le_bytes();
