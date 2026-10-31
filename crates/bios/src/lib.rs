@@ -15,7 +15,7 @@
 //! AH=12h/BL=30h selects the next text mode set's scanline profile.
 //! Unsupported video services or pixel coordinates/pages return AH=86h with
 //! carry set.
-//! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared host keyboard.
+//! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared BIOS keyboard state.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. A machine timer must update these fields.
 #![forbid(unsafe_code)]

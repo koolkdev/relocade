@@ -5,7 +5,7 @@ use super::SurfaceSetup;
 use crate::worker::Thread;
 use futures_channel::oneshot;
 use futures_lite::future::or;
-use relocade_peripherals::display::DisplayRenderer;
+use relocade_frontend::display::DisplayRenderer;
 use std::{
     future::Future,
     sync::{

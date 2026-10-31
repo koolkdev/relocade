@@ -1,7 +1,7 @@
 use super::{common, pixel, read_pixels, set_cell};
 use futures_util::FutureExt;
+use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
-use relocade_peripherals::display::DisplayRenderer;
 use relocade_vga::{
     registers::{crtc::CURSOR_START, COLOR_INPUT_STATUS_1_PORT},
     VgaDisplay,
