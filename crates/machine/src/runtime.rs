@@ -79,10 +79,12 @@ impl<T: 'static> Cpu<T> {
         let bindings = RuntimeMemory::new(&mut backend, memory, cpu)?;
         let host_imports = io::imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
+        let memory = bindings.guest.clone().with_io(io.clone());
         let machine = Machine {
             backend,
             bindings,
             io,
+            memory,
             state,
             dispatch,
             hooks: HashMap::new(),

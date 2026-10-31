@@ -72,7 +72,7 @@ impl<T> CallContext<T> {
             Self {
                 cpu: CpuView::new(machine.bindings.config.execution_target(), access.cpu),
                 state: access.state,
-                memory: machine.bindings.guest.clone().with_io(machine.io.clone()),
+                memory: machine.memory.clone(),
                 io: machine.io.clone(),
             },
         )
