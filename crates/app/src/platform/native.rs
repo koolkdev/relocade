@@ -9,6 +9,10 @@ use winit::{
 #[path = "native/graphics.rs"]
 pub(crate) mod graphics;
 
+#[cfg(feature = "graphics")]
+#[path = "native/application.rs"]
+pub(crate) mod application;
+
 pub(super) fn run<T: 'static, A: ApplicationHandler<T> + 'static>(
     event_loop: EventLoop<T>,
     mut application: A,
