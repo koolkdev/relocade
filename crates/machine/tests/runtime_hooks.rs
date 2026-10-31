@@ -24,9 +24,9 @@ async fn check_interrupt_hooks() {
             .unwrap(),
     )
     .unwrap();
-    // Non-Send state belongs to the machine, while hooks may capture local metadata.
+    // Hooks capture local service state without requiring Send or Sync.
     let calls = Rc::new(Cell::new(0));
-    let mut runtime = support::create_cpu(calls, config).await.unwrap();
+    let mut runtime = support::create_cpu(config).await.unwrap();
     runtime.context().cpu.set_sp(0xff00);
     runtime.context().cpu.set_eflags(0x202);
     runtime
@@ -55,10 +55,11 @@ async fn check_interrupt_hooks() {
         .write(0x10020, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     let increment = Rc::new(Cell::new(1));
+    let observed = calls.clone();
     runtime
         .install_hooks([
-            Hook::<Rc<Cell<u32>>>::new(0x10020, async move |call| {
-                call.state.set(call.state.get() + increment.get());
+            Hook::new(0x10020, async move |call| {
+                observed.set(observed.get() + increment.get());
                 assert_eq!(call.cpu.segment(Segment::Cs).selector, 0x1000);
                 assert_eq!(call.cpu.eip(), 0x20);
                 assert_eq!(call.cpu.sp(), 0xfefa);
@@ -96,7 +97,7 @@ async fn check_interrupt_hooks() {
         .await
         .unwrap();
     assert_eq!(runtime.run(5).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.state().get(), 1);
+    assert_eq!(calls.get(), 1);
     assert_eq!(runtime.context().cpu.ax(), 11);
     assert_eq!(runtime.context().cpu.segment(Segment::Cs).selector, 0);
     assert_eq!(runtime.context().cpu.eip(), 0x10e);
@@ -115,7 +116,7 @@ async fn check_interrupt_hooks() {
         .write(0x500, &[0x43, 0xea, 0x20, 0, 0, 0x10])
         .unwrap();
     assert_eq!(runtime.run(7).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.state().get(), 2);
+    assert_eq!(calls.get(), 2);
     assert_eq!(runtime.context().cpu.bx(), 1);
     assert_eq!(runtime.context().cpu.eip(), 0x10e);
     assert_eq!(runtime.context().cpu.sp(), 0xff00);
@@ -178,7 +179,7 @@ async fn check_mapped_hook_access() {
         .unwrap(),
     )
     .unwrap();
-    let mut cpu = support::create_cpu(0_u32, config).await.unwrap();
+    let mut cpu = support::create_cpu(config).await.unwrap();
     cpu.context().cpu.set_eax(40);
     cpu.context()
         .memory
@@ -206,7 +207,9 @@ async fn check_mapped_hook_access() {
             ],
         )
         .unwrap();
-    cpu.install_hooks([Hook::new(0x200, async |call| {
+    let count = Rc::new(Cell::new(0));
+    let observed = count.clone();
+    cpu.install_hooks([Hook::new(0x200, async move |call| {
         let mut bytes = [0; 4];
         call.memory.read(0x1020, &mut bytes).unwrap();
         let value = call.cpu.eax() + u32::from_le_bytes(bytes);
@@ -214,18 +217,18 @@ async fn check_mapped_hook_access() {
         call.cpu.set_eip(0x300);
         call.memory.write(0x1024, &value.to_le_bytes()).unwrap();
         call.memory.write_u8(0x20, 0xff).unwrap();
-        *call.state += 1;
+        observed.set(observed.get() + 1);
         HookResult::Continue
     })])
     .await
     .unwrap();
 
-    assert_eq!(*cpu.state(), 0);
+    assert_eq!(count.get(), 0);
     assert_eq!(cpu.run(0).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(*cpu.state(), 0);
+    assert_eq!(count.get(), 0);
     for (calls, value) in [(1, 52), (2, 65)] {
         assert_eq!(cpu.run(5).await, ExecutionExit::BudgetExhausted);
-        assert_eq!(*cpu.state(), calls);
+        assert_eq!(count.get(), calls);
         assert_eq!(cpu.context().cpu.eax(), value);
         assert_eq!(cpu.context().cpu.ebx(), value);
         assert_eq!(cpu.context().cpu.eip(), 0x100);
@@ -260,7 +263,7 @@ async fn check_hook_replacement() {
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    let mut runtime = support::create_cpu((), config).await.unwrap();
+    let mut runtime = support::create_cpu(config).await.unwrap();
     runtime
         .context()
         .memory

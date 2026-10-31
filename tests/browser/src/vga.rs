@@ -1,9 +1,6 @@
 use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
-use futures_util::{
-    future::{join, poll_fn},
-    FutureExt,
-};
+use futures_util::future::join;
 use relocade_machine::{
     timer_service, worker::Thread, Cpu, CpuConfig, ExecutionWorker, Hook, HookResult, IoBus,
     MachineConfig, Memory,
@@ -78,34 +75,25 @@ pub async fn vga_workers() -> Result<(), String> {
             },
         )
         .unwrap();
-        let mut cpu = Cpu::new(
-            memory,
-            cpu_config,
-            io,
-            Input {
-                incoming,
-                waiting: Some(waiting),
-            },
-        )
-        .await
-        .unwrap();
+        let input = RefCell::new(Some((incoming, waiting)));
+        let mut cpu = Cpu::new(memory, cpu_config, io).await.unwrap();
         cpu.install_hooks([
-            Hook::<Input>::new(0x200, async |call| {
+            Hook::new(0x200, async move |call| {
                 // The local bus and mapped view remain usable across a service await.
                 let io = call.io;
                 let memory = &mut call.memory;
                 io.write_port(0x3d4, 2, 0x060b);
                 assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
-                call.state.waiting.take().unwrap().send(()).unwrap();
-                let input = &mut call.state.incoming;
-                let value = poll_fn(|context| input.poll_unpin(context)).await.unwrap();
+                let (input, waiting) = input.borrow_mut().take().unwrap();
+                waiting.send(()).unwrap();
+                let value = input.await.unwrap();
                 assert_eq!(io.read_port(0x3d4, 2), 0x060b);
                 memory.write_u8(0xb8022, b'C').unwrap();
                 call.cpu.set_al(value);
                 call.cpu.set_eip(0x300);
                 HookResult::Continue
             }),
-            Hook::<Input>::new(0x400, async |_call| {
+            Hook::new(0x400, async |_call| {
                 HookResult::Exit(ExecutionExit::Host(HostExit::Return))
             }),
         ])
@@ -168,11 +156,6 @@ pub async fn vga_workers() -> Result<(), String> {
     assert_eq!(result.map_err(|error| error.to_string())?, Some(()));
     display_task.await.map_err(|error| error.to_string())?;
     Ok(())
-}
-
-struct Input {
-    incoming: oneshot::Receiver<u8>,
-    waiting: Option<oneshot::Sender<()>>,
 }
 
 // Decode the top five rows for literal glyph assertions. Cursor blinking only

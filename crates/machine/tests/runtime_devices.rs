@@ -75,7 +75,7 @@ async fn check_devices() {
     )
     .unwrap();
     let memory = Memory::new(config.machine).unwrap();
-    let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone(), clock.clone())
+    let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone())
         .await
         .unwrap();
     memory
@@ -84,8 +84,9 @@ async fn check_devices() {
         .unwrap();
     assert_eq!(cpu.run(20).await, ExecutionExit::BudgetExhausted);
     let before = memory.view().read_u16(0x300).unwrap();
-    cpu.install_hooks([Hook::<ManualClock>::new(0x100, async |call| {
-        call.state.sleep(Duration::from_millis(5)).await;
+    let service_clock = clock.clone();
+    cpu.install_hooks([Hook::new(0x100, async move |call| {
+        service_clock.sleep(Duration::from_millis(5)).await;
         call.cpu.set_eip(0x200);
         HookResult::Continue
     })])

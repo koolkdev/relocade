@@ -66,7 +66,7 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
 
 /// Returns hooks for installation alongside another environment's hooks.
 /// The keyboard is captured by the hooks and may be shared with console input.
-pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
+pub fn hooks(keyboard: Keyboard) -> [Hook; 3] {
     [
         Hook::new(CLOCK_ADDRESS, clock),
         Hook::new(KEYBOARD_ADDRESS, async move |call| {
@@ -76,7 +76,7 @@ pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
     ]
 }
 
-async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+async fn clock(call: &mut CpuContext<'_>) -> HookResult {
     if call.cpu.ah() == 0 {
         let mut data = [0; 5];
         call.memory

@@ -47,7 +47,7 @@ remain in their native suites.
 
 The [execution-worker fixture](src/runner.rs) receives host timer notifications
 during busy CPU execution and suspended services, stops either case, and checks
-that local CPU state is destroyed before shutdown completes.
+that captured service and device resources are destroyed before shutdown completes.
 
 From this directory:
 

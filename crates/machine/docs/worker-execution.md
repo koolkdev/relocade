@@ -29,8 +29,8 @@ activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `wait_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
-The task owns one `Cpu<T>` for its lifetime. `T` is its guest environment state;
-BIOS/DOS service futures execute on the same worker. The CPU selects the native
+The task owns one `Cpu` for its lifetime. BIOS/DOS services capture their own
+application resources and execute on the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
 Hooks run in Rust after Wasm returns. A `CpuContext` borrows the executing machine;
 its CPU views bind storage directly and keep that backend borrow until they end.
@@ -75,7 +75,7 @@ Dropping a `Cpu::run` waiter preserves the pending future and its call chain; a 
 Zero-budget runs do not poll pending work.
 
 While a host service is pending, complete it before borrowing
-CPU/environment state or installing modules and hooks. Use owned input/output
+CPU state or installing modules and hooks. Use owned input/output
 handles and `cpu.memory()` for interactive I/O and display. Dropping the CPU
 releases the suspended call chain and its machine together.
 

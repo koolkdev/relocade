@@ -146,7 +146,7 @@ impl Dos {
         let memory = Memory::new(kernel::configuration())?;
         let state = Rc::new(DosState::new(memory.clone().with_io(io.clone())));
         let keyboard = state.stdio().input.clone();
-        let mut cpu = Cpu::new(memory, kernel::cpu(), io, ()).await?;
+        let mut cpu = Cpu::new(memory, kernel::cpu(), io).await?;
         kernel::initialize(&mut cpu.context().memory);
         {
             let mut context = cpu.context();

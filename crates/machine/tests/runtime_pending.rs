@@ -98,7 +98,7 @@ async fn check_pending_calls() {
     )
     .unwrap();
     let state = Rc::new(State::default());
-    let mut runtime = support::create_cpu(state.clone(), config).await.unwrap();
+    let mut runtime = support::create_cpu(config).await.unwrap();
     runtime.context().cpu.set_sp(0xff00);
     runtime.context().cpu.set_eflags(0x202);
     runtime
@@ -112,12 +112,13 @@ async fn check_pending_calls() {
         .memory
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
+    let captured = state.clone();
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x200, async |call| {
+        .install_hooks([Hook::new(0x200, async move |call| {
             // Distinct fields stay borrowed together through both awaits.
             let cpu = &mut call.cpu;
             let memory = &mut call.memory;
-            let state = &mut *call.state;
+            let state = &captured;
             state.started.set(state.started.get() + 1);
             let operation = Operation(state.clone());
             let first = operation.0.read().await;
@@ -275,13 +276,13 @@ async fn check_completed_replacement() {
     )
     .unwrap();
     let state = Rc::new(State::default());
-    let mut runtime = support::create_cpu(state.clone(), config).await.unwrap();
+    let mut runtime = support::create_cpu(config).await.unwrap();
     let registration = Rc::new(());
     let released = Rc::downgrade(&registration);
+    let input = state.clone();
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x400, async move |call| {
+        .install_hooks([Hook::new(0x400, async move |call| {
             let registration = registration.clone();
-            let input = call.state.clone();
             let value = input.read().await;
             call.cpu.set_ax(value);
             drop(registration);
