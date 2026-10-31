@@ -25,8 +25,8 @@ mod screen;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HookResult};
-use relocade_machine::{IoBus, MemoryView};
+use relocade_machine::{real_mode_interrupt, Hook, HookResult};
+use relocade_machine::{CpuStateAccess, IoBus, MemoryBus, MemoryView};
 pub use screen::write_text;
 
 const BIOS_SEGMENT: u16 = 0xf000;
@@ -66,23 +66,46 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
 
 /// Returns hooks for installation alongside another environment's hooks.
 /// The keyboard is captured by the hooks and may be shared with console input.
-pub fn hooks(keyboard: Keyboard) -> [Hook; 3] {
+pub fn hooks(cpu: CpuStateAccess, memory: MemoryBus, keyboard: Keyboard) -> [Hook; 3] {
     [
-        Hook::new(CLOCK_ADDRESS, clock),
-        Hook::new(KEYBOARD_ADDRESS, async move |call| {
-            keyboard::interrupt(call, &keyboard).await
-        }),
-        Hook::new(VIDEO_ADDRESS, video::interrupt),
+        hook(CLOCK_ADDRESS, cpu.clone(), memory.clone(), clock),
+        hook(
+            KEYBOARD_ADDRESS,
+            cpu.clone(),
+            memory.clone(),
+            async move |call| keyboard::interrupt(call, &keyboard).await,
+        ),
+        hook(VIDEO_ADDRESS, cpu, memory, video::interrupt),
     ]
 }
 
-async fn clock(call: &mut CpuContext<'_>) -> HookResult {
+struct BiosContext<'call> {
+    cpu: &'call CpuStateAccess,
+    memory: MemoryView<'call>,
+    io: &'call IoBus,
+}
+
+fn hook<F>(address: u32, cpu: CpuStateAccess, memory: MemoryBus, handler: F) -> Hook
+where
+    F: AsyncFn(&mut BiosContext<'_>) -> HookResult + 'static,
+{
+    Hook::new(address, async move || {
+        handler(&mut BiosContext {
+            cpu: &cpu,
+            memory: memory.view(),
+            io: memory.io(),
+        })
+        .await
+    })
+}
+
+async fn clock(call: &mut crate::BiosContext<'_>) -> HookResult {
     if call.cpu.ah() == 0 {
         let mut data = [0; 5];
         call.memory
             .read(CLOCK_TICKS, &mut data)
             .expect("BIOS clock data");
-        let cpu = &mut call.cpu;
+        let cpu = call.cpu;
         cpu.set_dx(u16::from_le_bytes([data[0], data[1]]));
         cpu.set_cx(u16::from_le_bytes([data[2], data[3]]));
         cpu.set_al(data[4]);
@@ -92,7 +115,7 @@ async fn clock(call: &mut CpuContext<'_>) -> HookResult {
     } else {
         // Unsupported BIOS function.
         call.cpu.set_ah(0x86);
-        real_mode_interrupt::set_carry(call, true);
+        real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(call.cpu)
 }

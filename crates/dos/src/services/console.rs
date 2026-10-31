@@ -13,12 +13,12 @@ mod input;
 pub(super) use input::{available as input_available, read_line};
 
 /// AH=0Ch: flush stdin, then complete AL's input service in the current interrupt frame.
-pub(super) async fn flush_input(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(super) async fn flush_input(call: &mut DosContext<'_>) -> HookResult {
     // A closed stdin skips the flush but still performs AL's requested service.
     if let Ok(handle) = call.process.files().handle(0) {
         input::flush(handle, &call.dos.stdio().input);
     }
-    match call.execution.cpu.al() {
+    match call.cpu.al() {
         super::READ_CHARACTER_ECHO => read_character(call, true).await,
         super::READ_CHARACTER | super::READ_CHARACTER_CHECK_BREAK => {
             read_character(call, false).await
@@ -26,14 +26,14 @@ pub(super) async fn flush_input(call: &mut DosContext<'_, '_>) -> HookResult {
         super::DIRECT_CONSOLE_IO => direct_io(call),
         super::READ_BUFFERED => read_buffered(call).await,
         _ => {
-            call.execution.cpu.set_al(0);
-            return_from_interrupt(call.execution)
+            call.cpu.set_al(0);
+            return_from_interrupt(call.cpu)
         }
     }
 }
 
 /// AH=0Bh: report stdin availability without consuming input or changing flags.
-pub(super) fn input_status(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(super) fn input_status(call: &mut DosContext<'_>) -> HookResult {
     // Closed stdin falls back to the console; AH=0Bh has no handle-error return.
     let available = call
         .process
@@ -41,13 +41,13 @@ pub(super) fn input_status(call: &mut DosContext<'_, '_>) -> HookResult {
         .handle(0)
         .map(|handle| input::available(handle, &call.dos.stdio().input));
     let available = available.unwrap_or_else(|_| call.dos.stdio().input.has_input());
-    call.execution.cpu.set_al(if available { 0xff } else { 0 });
-    return_from_interrupt(call.execution)
+    call.cpu.set_al(if available { 0xff } else { 0 });
+    return_from_interrupt(call.cpu)
 }
 
 /// AH=06h: DL=FFh polls stdin without echo; other values write a byte to stdout.
-pub(super) fn direct_io(call: &mut DosContext<'_, '_>) -> HookResult {
-    let byte = call.execution.cpu.dl();
+pub(super) fn direct_io(call: &mut DosContext<'_>) -> HookResult {
+    let byte = call.cpu.dl();
     if byte == 0xff {
         let result = call
             .process
@@ -58,18 +58,18 @@ pub(super) fn direct_io(call: &mut DosContext<'_, '_>) -> HookResult {
             Ok(character) => character,
             Err(error) => return return_result(call, Err(error)),
         };
-        call.execution.cpu.set_al(character.unwrap_or(0));
-        set_zero(call.execution, character.is_none());
+        call.cpu.set_al(character.unwrap_or(0));
+        set_zero(call.cpu, &mut call.memory, character.is_none());
     } else {
         // Like AH=09h, character output has no write-error return.
         let _ = call.stdout().write(&[byte]);
-        call.execution.cpu.set_al(byte);
+        call.cpu.set_al(byte);
     }
-    return_from_interrupt(call.execution)
+    return_from_interrupt(call.cpu)
 }
 
 /// AH=01h/07h/08h: wait for one character with the requested echo behavior.
-pub(super) async fn read_character(call: &mut DosContext<'_, '_>, echo: bool) -> HookResult {
+pub(super) async fn read_character(call: &mut DosContext<'_>, echo: bool) -> HookResult {
     let handle = match call.process.files().readable_handle(0) {
         Ok(input) => input,
         Err(error) => return return_result(call, Err(error)),
@@ -82,29 +82,28 @@ pub(super) async fn read_character(call: &mut DosContext<'_, '_>, echo: bool) ->
     if let Some(output) = output {
         output.write_cooked(byte);
     }
-    call.execution.cpu.set_al(byte);
-    return_from_interrupt(call.execution)
+    call.cpu.set_al(byte);
+    return_from_interrupt(call.cpu)
 }
 
 /// AH=02h: write DL through stdout; AL is the last output byte.
-pub(super) fn write_character(call: &mut DosContext<'_, '_>) -> HookResult {
-    let byte = call.execution.cpu.dl();
+pub(super) fn write_character(call: &mut DosContext<'_>) -> HookResult {
+    let byte = call.cpu.dl();
     let last = call.stdout().write_cooked(byte);
-    call.execution.cpu.set_al(last);
-    return_from_interrupt(call.execution)
+    call.cpu.set_al(last);
+    return_from_interrupt(call.cpu)
 }
 
 /// AH=0Ah: edit a line into DS:DX's buffer, whose capacity includes the final CR.
-pub(super) async fn read_buffered(call: &mut DosContext<'_, '_>) -> HookResult {
-    let segment = call.execution.cpu.segment(Segment::Ds);
-    let offset = call.execution.cpu.dx();
+pub(super) async fn read_buffered(call: &mut DosContext<'_>) -> HookResult {
+    let segment = call.cpu.segment(Segment::Ds);
+    let offset = call.cpu.dx();
     let mut capacity = [0];
-    let mut memory = call.dos.memory().view();
-    memory
+    call.memory
         .read_segment(&segment, u32::from(offset), &mut capacity)
         .expect("real-mode line buffer");
     if capacity[0] == 0 {
-        return return_from_interrupt(call.execution);
+        return return_from_interrupt(call.cpu);
     }
     let input = match call.process.files().readable_handle(0) {
         Ok(input) => input,
@@ -116,16 +115,16 @@ pub(super) async fn read_buffered(call: &mut DosContext<'_, '_>) -> HookResult {
         Err(error) => return return_result(call, Err(error)),
     };
     let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
-    write_wrapping(&mut memory, &segment, offset.wrapping_add(1), &[count]);
-    write_wrapping(&mut memory, &segment, offset.wrapping_add(2), &bytes);
-    return_from_interrupt(call.execution)
+    write_wrapping(&mut call.memory, &segment, offset.wrapping_add(1), &[count]);
+    write_wrapping(&mut call.memory, &segment, offset.wrapping_add(2), &bytes);
+    return_from_interrupt(call.cpu)
 }
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
-pub(super) fn write_string(call: &mut DosContext<'_, '_>) -> HookResult {
-    let segment = call.execution.cpu.segment(Segment::Ds);
-    let start = call.execution.cpu.dx();
-    let memory = call.dos.memory().view();
+pub(super) fn write_string(call: &mut DosContext<'_>) -> HookResult {
+    let segment = call.cpu.segment(Segment::Ds);
+    let start = call.cpu.dx();
+    let memory = &call.memory;
     let output = call.stdout();
     for index in 0..=u16::MAX {
         let mut byte = [0];
@@ -133,8 +132,8 @@ pub(super) fn write_string(call: &mut DosContext<'_, '_>) -> HookResult {
             .read_segment(&segment, u32::from(start.wrapping_add(index)), &mut byte)
             .expect("real-mode byte address");
         if byte[0] == b'$' {
-            call.execution.cpu.set_al(b'$');
-            return return_from_interrupt(call.execution);
+            call.cpu.set_al(b'$');
+            return return_from_interrupt(call.cpu);
         }
         output.write_cooked(byte[0]);
     }

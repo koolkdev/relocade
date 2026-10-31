@@ -32,11 +32,26 @@ main activity drops all device futures on their owner.
 The task owns one `Cpu` for its lifetime. BIOS/DOS services capture their own
 application resources and execute on the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
-Hooks run in Rust after Wasm returns. A `CpuContext` borrows the executing machine;
-its CPU field borrows an independently retained `CpuStateAccess`. Value accesses
-do not borrow the backend, and `cpu.cpu_state()` can retain the state resource.
-Services can hold ordinary views and local references across input awaits.
-Shared guest-memory handles support independent readers.
+Hooks run in Rust after Wasm returns. They capture a `CpuStateAccess` handle,
+memory, I/O and application resources when registered, and receive no temporary
+CPU capability. The driver owns the backend throughout execution. State operations
+copy values directly; no per-poll binding or dynamic borrow guard is needed.
+Services can keep ordinary resource views and local references across input awaits.
+
+```rust,ignore
+let state = cpu.cpu_state();
+cpu.install_hooks([Hook::new(entry, async move || {
+    let value = input.read().await;
+    state.set_ax(value);
+    real_mode_interrupt::return_from_interrupt(&state)
+})]).await?;
+```
+
+The driver first polls the concrete pinned future. Only Pending erases its type
+and retains another handler owner. Dropping a run waiter preserves that future;
+dropping the CPU abandons it. CPU restoration belongs after normal completion,
+not in destructors that also run when a parked invocation is abandoned. Destructors
+release ordinary resources. Captured CPU handles are not revoked on abandonment.
 
 ```text
 host input and timer tasks --Rust channels--> execution activity + devices
@@ -44,8 +59,8 @@ host input and timer tasks --Rust channels--> execution activity + devices
 
 For a blocking console read, the CPU activity awaits input after the guest
 returns. A local input activity receives bytes through a Rust channel and writes
-them through the existing stdin handle. Its queue is independent of the borrowed
-CPU context. Browser input and I/O callbacks stay on a responsive host and send
+them through the existing stdin handle. Its queue is independent of CPU state access. Browser input and I/O callbacks
+stay on a responsive host and send
 results through shared Rust channels. Local JavaScript message handlers are not
 a control path for a continuously running CPU.
 
@@ -74,19 +89,19 @@ execution thread, and waits for completion before releasing the thread.
 these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
 
-The CPU holds its machine directly between runs. Reaching a host service creates
-an execution future that owns the machine and call chain until execution stops.
-The future then returns the machine and exit result to the CPU and is released.
-Runs that finish without reaching a host service allocate no execution future.
+The CPU owns its machine directly throughout execution. Reaching a host service
+constructs and polls its pinned future. A pending call retains the future and its
+registered handler owner; a ready call finishes in the same poll. The driver
+resumes guest dispatch or returns the requested exit after completion.
 
 Dropping a `Cpu::run` waiter preserves the pending future and its call chain; a later
 `Cpu::run` resumes it and supplies a new budget for subsequent guest execution.
 Zero-budget runs do not poll pending work.
 
-While a host service is pending, complete it before borrowing
-CPU state or installing modules and hooks. Use owned input/output
-handles and `cpu.memory()` for interactive I/O and display. Dropping the CPU
-releases the suspended call chain and its machine together.
+While a host service is pending, complete it before using `cpu.context()` or
+installing modules and hooks. Retained `cpu.cpu_state()`, memory and input/output
+handles remain usable. Dropping the CPU releases the pending call and backend;
+independently retained resources can outlive it.
 
 Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
 registers VGA with the runner and shares its timer. Mount filesystems and retain

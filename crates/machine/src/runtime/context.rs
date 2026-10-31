@@ -1,14 +1,11 @@
-//! Borrowed access to the machine executing a host service.
+//! Convenience access for the embedding while the runner is stopped.
 
 use crate::{CpuStateAccess, IoBus, MemoryView};
 
-/// Exclusive access to a stopped machine.
-/// CPU and memory views borrow live storage and apply writes immediately.
-/// The fields borrow separate resources and can be used together.
-/// Application state is captured by services independently of this context.
-/// A view can cross an ordinary await, keeping its machine borrow until it ends.
-/// Contexts cannot escape their handler or the borrow of [`super::Cpu`].
-/// Drop the context before resuming guest execution or installing modules.
+/// Borrowed convenience access to a stopped runner's resources.
+/// The fields borrow separate handles and apply writes immediately. A context
+/// excludes another mutable borrow of the runner; retain `cpu_state()`, `memory()`
+/// and I/O handles instead when registering asynchronous services.
 ///
 /// A live view excludes another run:
 /// ```compile_fail

@@ -76,24 +76,29 @@ pub async fn vga_workers() -> Result<(), String> {
         )
         .unwrap();
         let input = RefCell::new(Some((incoming, waiting)));
-        let mut cpu = Cpu::new(memory, cpu_config, io).await.unwrap();
+        let mut cpu = Cpu::new(memory, cpu_config, io.clone()).await.unwrap();
         cpu.install_hooks([
-            Hook::new(0x200, async move |call| {
-                // The local bus and mapped view remain usable across a service await.
-                let io = call.io;
-                let memory = &mut call.memory;
-                io.write_port(0x3d4, 2, 0x060b);
-                assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
-                let (input, waiting) = input.borrow_mut().take().unwrap();
-                waiting.send(()).unwrap();
-                let value = input.await.unwrap();
-                assert_eq!(io.read_port(0x3d4, 2), 0x060b);
-                memory.write_u8(0xb8022, b'C').unwrap();
-                call.cpu.set_al(value);
-                call.cpu.set_eip(0x300);
-                HookResult::Continue
+            Hook::new(0x200, {
+                let resources = cpu.memory().with_io(io.clone());
+                let cpu = cpu.cpu_state();
+                async move || {
+                    let mut memory = resources.view();
+
+                    // The local bus and mapped view remain usable across a service await.
+                    let io = resources.io();
+                    io.write_port(0x3d4, 2, 0x060b);
+                    assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
+                    let (input, waiting) = input.borrow_mut().take().unwrap();
+                    waiting.send(()).unwrap();
+                    let value = input.await.unwrap();
+                    assert_eq!(io.read_port(0x3d4, 2), 0x060b);
+                    memory.write_u8(0xb8022, b'C').unwrap();
+                    cpu.set_al(value);
+                    cpu.set_eip(0x300);
+                    HookResult::Continue
+                }
             }),
-            Hook::new(0x400, async |_call| {
+            Hook::new(0x400, async move || {
                 HookResult::Exit(ExecutionExit::Host(HostExit::Return))
             }),
         ])

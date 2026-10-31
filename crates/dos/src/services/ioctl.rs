@@ -13,25 +13,25 @@ const GET_INPUT_STATUS: u8 = 0x06;
 const GET_OUTPUT_STATUS: u8 = 0x07;
 
 /// Query or set BX's device information, or query its input/output readiness.
-pub(super) fn ioctl(call: &mut DosContext<'_, '_>) -> HookResult {
-    let handle = call.execution.cpu.bx();
-    let result = match call.execution.cpu.al() {
+pub(super) fn ioctl(call: &mut DosContext<'_>) -> HookResult {
+    let handle = call.cpu.bx();
+    let result = match call.cpu.al() {
         GET_DEVICE_INFORMATION => call.process.files().device_information(handle).map(|info| {
-            call.execution.cpu.set_dx(info);
-            call.execution.cpu.set_ax(info);
+            call.cpu.set_dx(info);
+            call.cpu.set_ax(info);
         }),
         SET_DEVICE_INFORMATION => {
-            let info = call.execution.cpu.dx();
+            let info = call.cpu.dx();
             call.process
                 .files()
                 .set_device_information(handle, info)
                 .map(|previous| {
-                    call.execution.cpu.set_al(previous);
+                    call.cpu.set_al(previous);
                 })
         }
         GET_INPUT_STATUS => call.process.files().handle(handle).map(|handle| {
             let available = super::console::input_available(handle, &call.dos.stdio().input);
-            call.execution.cpu.set_al(if available { 0xff } else { 0 });
+            call.cpu.set_al(if available { 0xff } else { 0 });
         }),
         GET_OUTPUT_STATUS => call.process.files().handle(handle).map(|handle| {
             let ready = match handle {
@@ -40,7 +40,7 @@ pub(super) fn ioctl(call: &mut DosContext<'_, '_>) -> HookResult {
                     matches!(device.kind(), Device::Console(_) | Device::Null)
                 }
             };
-            call.execution.cpu.set_al(if ready { 0xff } else { 0 });
+            call.cpu.set_al(if ready { 0xff } else { 0 });
         }),
         _ => Err(DosError::InvalidFunction),
     };

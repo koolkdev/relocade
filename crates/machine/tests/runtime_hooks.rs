@@ -58,28 +58,34 @@ async fn check_interrupt_hooks() {
     let observed = calls.clone();
     runtime
         .install_hooks([
-            Hook::new(0x10020, async move |call| {
-                observed.set(observed.get() + increment.get());
-                assert_eq!(call.cpu.segment(Segment::Cs).selector, 0x1000);
-                assert_eq!(call.cpu.eip(), 0x20);
-                assert_eq!(call.cpu.sp(), 0xfefa);
-                assert_eq!(call.cpu.ax(), 1);
-                assert!(call.cpu.carry());
-                assert_eq!(call.cpu.eflags() & 0x200, 0);
-                let mut word = [0; 2];
-                call.memory.read(0x200, &mut word).unwrap();
-                call.cpu.set_ax(1 + u16::from_le_bytes(word));
-                let mut frame = [0; 6];
-                call.memory.read(0xfefa, &mut frame).unwrap();
-                assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
-                assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
-                real_mode_interrupt::set_carry(call, false);
-                real_mode_interrupt::return_from_interrupt(call)
+            Hook::new(0x10020, {
+                let resources = runtime.memory();
+                let cpu = runtime.cpu_state();
+                async move || {
+                    let mut memory = resources.view();
+
+                    observed.set(observed.get() + increment.get());
+                    assert_eq!(cpu.segment(Segment::Cs).selector, 0x1000);
+                    assert_eq!(cpu.eip(), 0x20);
+                    assert_eq!(cpu.sp(), 0xfefa);
+                    assert_eq!(cpu.ax(), 1);
+                    assert!(cpu.carry());
+                    assert_eq!(cpu.eflags() & 0x200, 0);
+                    let mut word = [0; 2];
+                    memory.read(0x200, &mut word).unwrap();
+                    cpu.set_ax(1 + u16::from_le_bytes(word));
+                    let mut frame = [0; 6];
+                    memory.read(0xfefa, &mut frame).unwrap();
+                    assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
+                    assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
+                    real_mode_interrupt::set_carry(&cpu, &mut memory, false);
+                    real_mode_interrupt::return_from_interrupt(&cpu)
+                }
             }),
-            Hook::new(0x400, async |_| {
+            Hook::new(0x400, async move || {
                 HookResult::Exit(ExecutionExit::Host(HostExit::Return))
             }),
-            Hook::new(0x401, async |_| {
+            Hook::new(0x401, async move || {
                 HookResult::Exit(ExecutionExit::Exception(
                     relocade_x86::Exception::PageFault {
                         linear_address: 0xfedc_ba98,
@@ -87,7 +93,7 @@ async fn check_interrupt_hooks() {
                     },
                 ))
             }),
-            Hook::new(0x402, async |_| {
+            Hook::new(0x402, async move || {
                 HookResult::Exit(ExecutionExit::UnsupportedInstruction {
                     eip: 0x89ab_cdef,
                     opcode: 0xf3,
@@ -209,16 +215,22 @@ async fn check_mapped_hook_access() {
         .unwrap();
     let count = Rc::new(Cell::new(0));
     let observed = count.clone();
-    cpu.install_hooks([Hook::new(0x200, async move |call| {
-        let mut bytes = [0; 4];
-        call.memory.read(0x1020, &mut bytes).unwrap();
-        let value = call.cpu.eax() + u32::from_le_bytes(bytes);
-        call.cpu.set_eax(value);
-        call.cpu.set_eip(0x300);
-        call.memory.write(0x1024, &value.to_le_bytes()).unwrap();
-        call.memory.write_u8(0x20, 0xff).unwrap();
-        observed.set(observed.get() + 1);
-        HookResult::Continue
+    cpu.install_hooks([Hook::new(0x200, {
+        let resources = cpu.memory();
+        let cpu = cpu.cpu_state();
+        async move || {
+            let mut memory = resources.view();
+
+            let mut bytes = [0; 4];
+            memory.read(0x1020, &mut bytes).unwrap();
+            let value = cpu.eax() + u32::from_le_bytes(bytes);
+            cpu.set_eax(value);
+            cpu.set_eip(0x300);
+            memory.write(0x1024, &value.to_le_bytes()).unwrap();
+            memory.write_u8(0x20, 0xff).unwrap();
+            observed.set(observed.get() + 1);
+            HookResult::Continue
+        }
     })])
     .await
     .unwrap();
@@ -275,16 +287,22 @@ async fn check_hook_replacement() {
     let calls = Rc::clone(&second);
     runtime
         .install_hooks([
-            Hook::new(0x400, async move |call| {
-                first.set(first.get() + 1);
-                call.cpu.set_ax(first.get());
-                call.cpu.set_eip(0x401);
-                HookResult::Continue
+            Hook::new(0x400, {
+                let cpu = runtime.cpu_state();
+                async move || {
+                    first.set(first.get() + 1);
+                    cpu.set_ax(first.get());
+                    cpu.set_eip(0x401);
+                    HookResult::Continue
+                }
             }),
-            Hook::new(0x401, async move |call| {
-                calls.set(calls.get() + 1);
-                call.cpu.set_eip(0x100);
-                HookResult::Continue
+            Hook::new(0x401, {
+                let cpu = runtime.cpu_state();
+                async move || {
+                    calls.set(calls.get() + 1);
+                    cpu.set_eip(0x100);
+                    HookResult::Continue
+                }
             }),
         ])
         .await
@@ -296,10 +314,13 @@ async fn check_hook_replacement() {
     assert_eq!(runtime.context().cpu.bx(), 2);
     assert_eq!(second.get(), 2);
     runtime
-        .install_hooks([Hook::new(0x400, async |call| {
-            call.cpu.set_ax(50);
-            call.cpu.set_eip(0x401);
-            HookResult::Continue
+        .install_hooks([Hook::new(0x400, {
+            let cpu = runtime.cpu_state();
+            async move || {
+                cpu.set_ax(50);
+                cpu.set_eip(0x401);
+                HookResult::Continue
+            }
         })])
         .await
         .unwrap();
