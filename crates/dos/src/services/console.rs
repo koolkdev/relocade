@@ -14,8 +14,7 @@ mod line;
 mod output;
 pub(super) use input::available as input_available;
 pub(super) use line::read_line;
-use output::write_characters;
-pub(super) use output::{write_console, write_cooked_character, CharacterOutput};
+pub(crate) use output::{CharacterOutput, Console};
 
 /// AH=0Ch: flush stdin, then complete AL's input service in the current interrupt frame.
 pub(super) async fn flush_input(call: &mut DosContext<'_, '_>) -> HookResult {
@@ -67,7 +66,7 @@ pub(super) fn direct_io(call: &mut DosContext<'_, '_>) -> HookResult {
         set_zero(call.execution, character.is_none());
     } else {
         // Like AH=09h, character output has no write-error return.
-        let _ = write_characters(call, 1, &[byte]);
+        let _ = call.stdout().write(&[byte]);
         call.execution.cpu.set_al(byte);
     }
     return_from_interrupt(call.execution)
@@ -79,12 +78,13 @@ pub(super) async fn read_character(call: &mut DosContext<'_, '_>, echo: bool) ->
         Ok(input) => input,
         Err(error) => return return_result(call, Err(error)),
     };
+    let output = echo.then(|| call.stdout());
     let byte = match input::read_character(&handle, &call.dos.stdio().input).await {
         Ok(byte) => byte,
         Err(error) => return return_result(call, Err(error)),
     };
-    if echo {
-        write_cooked_character(call, CharacterOutput::Stdout, byte);
+    if let Some(output) = output {
+        output.write_cooked(byte);
     }
     call.execution.cpu.set_al(byte);
     return_from_interrupt(call.execution)
@@ -93,7 +93,7 @@ pub(super) async fn read_character(call: &mut DosContext<'_, '_>, echo: bool) ->
 /// AH=02h: write DL through stdout; AL is the last output byte.
 pub(super) fn write_character(call: &mut DosContext<'_, '_>) -> HookResult {
     let byte = call.execution.cpu.dl();
-    let last = write_cooked_character(call, CharacterOutput::Stdout, byte);
+    let last = call.stdout().write_cooked(byte);
     call.execution.cpu.set_al(last);
     return_from_interrupt(call.execution)
 }
@@ -114,7 +114,8 @@ pub(super) async fn read_buffered(call: &mut DosContext<'_, '_>) -> HookResult {
         Ok(input) => input,
         Err(error) => return return_result(call, Err(error)),
     };
-    let bytes = match read_line(call, &input, capacity[0], CharacterOutput::Stdout).await {
+    let output = call.stdout();
+    let bytes = match read_line(&call.dos.stdio().input, &input, capacity[0], &output).await {
         Ok(bytes) => bytes,
         Err(error) => return return_result(call, Err(error)),
     };
@@ -139,7 +140,7 @@ pub(super) fn write_string(call: &mut DosContext<'_, '_>) -> HookResult {
             call.execution.cpu.set_al(b'$');
             return return_from_interrupt(call.execution);
         }
-        write_cooked_character(call, CharacterOutput::Stdout, byte[0]);
+        call.stdout().write_cooked(byte[0]);
     }
     call.exit(Err(ServiceError::UnterminatedString))
 }

@@ -135,8 +135,6 @@ impl Dos {
     /// Prepares the memory map and service hooks, and registers VGA with the runner.
     /// Launch a program before executing DOS services.
     pub async fn new(runner: &Runner) -> relocade_machine::Result<Self> {
-        let state = Rc::new(DosState::default());
-        let keyboard = state.stdio().input.clone();
         let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
             runner.clock().clone(),
         ))));
@@ -146,6 +144,8 @@ impl Dos {
             relocade_vga::PORT_RANGES,
         )]);
         let memory = Memory::new(kernel::configuration())?;
+        let state = Rc::new(DosState::new(memory.clone().with_io(io.clone())));
+        let keyboard = state.stdio().input.clone();
         let mut cpu = Cpu::new(memory, kernel::cpu(), io, ()).await?;
         kernel::initialize(&mut cpu.context().memory);
         {

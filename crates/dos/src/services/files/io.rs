@@ -4,10 +4,7 @@ use crate::{
     error::DosError,
     files::{Device, Handle},
     interrupt::{return_result, DosContext},
-    services::{
-        buffers::transfer_count,
-        console::{read_line, write_console, write_cooked_character, CharacterOutput},
-    },
+    services::{buffers::transfer_count, console::read_line},
 };
 use relocade_machine::HookResult;
 use relocade_x86::Segment;
@@ -72,16 +69,14 @@ async fn read_bytes(
                     return Ok(bytes);
                 }
                 if count != 0 && !call.dos.stdio().has_buffered_line() {
-                    let mut bytes = read_line(
-                        call,
-                        source,
-                        CONSOLE_LINE_CAPACITY,
-                        CharacterOutput::Console(stream),
-                    )
-                    .await?;
+                    let console = call.console();
+                    let output = console.stream(stream);
+                    let mut bytes =
+                        read_line(&console.stdio.input, source, CONSOLE_LINE_CAPACITY, &output)
+                            .await?;
                     let eof = bytes.first() == Some(&0x1a);
                     device.set_eof(eof);
-                    write_console(call, stream, b"\n");
+                    console.write(stream, b"\n");
                     if !eof {
                         bytes.push(b'\n');
                         call.dos.stdio().buffer_line(bytes);
@@ -131,7 +126,7 @@ fn write_bytes(
             Device::Console(stream) => {
                 device.set_eof(false);
                 if device.raw() {
-                    write_console(call, stream, bytes);
+                    call.console().write(stream, bytes);
                     return Ok(bytes.len());
                 }
                 // Cooked writes stop before Ctrl-Z and count source bytes, including tabs.
@@ -140,7 +135,7 @@ fn write_bytes(
                     .position(|&byte| byte == 0x1a)
                     .unwrap_or(bytes.len());
                 for &byte in &bytes[..count] {
-                    write_cooked_character(call, CharacterOutput::Console(stream), byte);
+                    call.console().stream(stream).write_cooked(byte);
                 }
                 Ok(count)
             }
