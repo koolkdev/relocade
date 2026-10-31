@@ -35,8 +35,7 @@ local bus. Accessing MMIO without one is a programming error and panics.
 Borrowing the local handle does not exclude access through other shared handles.
 
 `CpuContext` lends separate `cpu`, `memory`, `io` and `state` fields during stopped
-access and host services. The CPU-register and guest-memory views can be borrowed
-together:
+embedding access. Its CPU-register and guest-memory views can be borrowed together:
 
 ```rust
 let registers = &mut call.cpu;
@@ -49,9 +48,21 @@ Those views and the context borrow the stopped CPU. Drop the context before
 resuming execution or installing modules. `cpu.memory()` returns an owned
 handle whose lifetime is independent of execution.
 
-A suspended service keeps its machine borrow; complete it before calling
-`cpu.context()` again. Independent `Memory` handles remain usable during
-execution, while a service awaits input, and after CPU destruction.
+Host services receive an owned `CallContext`. Its CPU access is valid only during
+that invocation's future poll and completion cleanup. Its memory and I/O handles
+are independent resources, so this view can cross an await:
+
+```rust
+let mut memory = call.memory.view();
+let value = input.read().await;
+memory.write_u16(0x200, value)?;
+call.cpu.set_ax(value);
+```
+
+A pending service excludes embedding CPU access until it completes, while lending
+no backend borrow between polls. Independent `Memory` and `MemoryBus` handles
+remain usable during execution, while a service awaits input, and after CPU
+destruction.
 
 Pass `memory.backing().clone()` directly as a worker task's context.
 The worker transport moves native handles and preserves browser shared-memory
@@ -90,7 +101,7 @@ let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone(), ()).await?;
 The board's physical map must mark that memory range `PhysicalMapping::Mmio`.
 The device owns its storage; it does not use guest RAM backing. CPU-context memory
 transfers and guest instructions route to the same device, after A20 translation.
-BIOS services use `CpuContext.io` for port operations. Unconnected ranges retain
+BIOS services retain the same `IoBus` for port operations. Unconnected ranges retain
 the open-bus behavior: FF reads and ignored writes. A host operation on the same
 worker can retain memory and device routing together:
 

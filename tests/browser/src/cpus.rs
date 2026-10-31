@@ -8,7 +8,7 @@ use relocade_x86::{
 use std::{cell::Cell, rc::Rc};
 
 struct Input {
-    incoming: mpsc::UnboundedReceiver<u16>,
+    incoming: Option<mpsc::UnboundedReceiver<u16>>,
     waiting: Option<oneshot::Sender<()>>,
     completed: Rc<Cell<u32>>,
 }
@@ -45,23 +45,29 @@ pub async fn cpu_worker() -> Result<(), String> {
     let task = worker.run_send(memory.backing().clone(), move |backing| async move {
         let memory = Memory::with_backing(config, backing).unwrap();
         let input = Input {
-            incoming,
+            incoming: Some(incoming),
             waiting: Some(waiting),
             completed: Rc::new(Cell::new(0)),
         };
         let mut cpu = Cpu::new(memory, cpu_config, Default::default(), input)
             .await
             .unwrap();
-        cpu.install_hooks([Hook::<Input>::new(0x100, async |call| {
+        cpu.install_hooks([Hook::<Input>::new(0x100, async |mut call| {
+            let (mut incoming, mut waiting, completed) = call.state.with_mut(|state| {
+                (
+                    state.incoming.take().unwrap(),
+                    state.waiting.take(),
+                    state.completed.clone(),
+                )
+            });
             let cpu = &mut call.cpu;
-            let memory = &mut call.memory;
-            let input = &mut *call.state;
+            let mut memory = call.memory.view();
             memory.write_u8(0x200, 0x11).unwrap();
             let value = poll_fn(|context| {
-                let poll = input.incoming.poll_next_unpin(context);
+                let poll = incoming.poll_next_unpin(context);
                 if poll.is_pending() {
                     // The caller sends only after this task registers its waker.
-                    if let Some(waiting) = input.waiting.take() {
+                    if let Some(waiting) = waiting.take() {
                         waiting.send(()).unwrap();
                     }
                 }
@@ -71,7 +77,7 @@ pub async fn cpu_worker() -> Result<(), String> {
             .unwrap();
             cpu.set_ax(value + memory.read_u16(0x202).unwrap());
             cpu.set_eip(0x300);
-            input.completed.set(input.completed.get() + 1);
+            completed.set(completed.get() + 1);
             HookResult::Continue
         })])
         .await

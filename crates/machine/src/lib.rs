@@ -3,7 +3,9 @@
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
 //! size and the fixed physical map. [`CpuContext`] borrows the machine and exposes
 //! live CPU state and [`MemoryView`] with the machine's access policy. Views can
-//! cross ordinary awaits while keeping the machine borrowed.
+//! cross awaits in embedding code while keeping the machine borrowed. Host
+//! services instead receive an owned [`CallContext`] with CPU access lent for
+//! each future poll and independently retained memory and I/O resources.
 //!
 //! ```
 //! use relocade_machine::{CpuConfig, MachineConfig};
@@ -33,7 +35,7 @@
 //! # Ok(())
 //! # }
 //! ```
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod clock;
 mod config;
@@ -56,5 +58,6 @@ pub use runner::{yield_now, Runner};
 #[cfg(feature = "worker")]
 pub use relocade_wasm_runtime::worker;
 pub use runtime::{
-    real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, Hook, HookResult, Result,
+    real_mode_interrupt, CallContext, Cpu, CpuContext, DispatchEntry, EnvironmentAccess, Error,
+    Hook, HookResult, InvocationAccess, Result,
 };

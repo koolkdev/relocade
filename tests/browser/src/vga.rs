@@ -1,9 +1,6 @@
 use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
-use futures_util::{
-    future::{join, poll_fn},
-    FutureExt,
-};
+use futures_util::future::join;
 use relocade_machine::{
     timer_service, worker::Thread, Cpu, CpuConfig, ExecutionWorker, Hook, HookResult, IoBus,
     MachineConfig, Memory,
@@ -83,22 +80,27 @@ pub async fn vga_workers() -> Result<(), String> {
             cpu_config,
             io,
             Input {
-                incoming,
+                incoming: Some(incoming),
                 waiting: Some(waiting),
             },
         )
         .await
         .unwrap();
         cpu.install_hooks([
-            Hook::<Input>::new(0x200, async |call| {
+            Hook::<Input>::new(0x200, async |mut call| {
                 // The local bus and mapped view remain usable across a service await.
-                let io = call.io;
-                let memory = &mut call.memory;
+                let io = &call.io;
+                let mut memory = call.memory.view();
                 io.write_port(0x3d4, 2, 0x060b);
                 assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
-                call.state.waiting.take().unwrap().send(()).unwrap();
-                let input = &mut call.state.incoming;
-                let value = poll_fn(|context| input.poll_unpin(context)).await.unwrap();
+                let (input, waiting) = call.state.with_mut(|state| {
+                    (
+                        state.incoming.take().unwrap(),
+                        state.waiting.take().unwrap(),
+                    )
+                });
+                waiting.send(()).unwrap();
+                let value = input.await.unwrap();
                 assert_eq!(io.read_port(0x3d4, 2), 0x060b);
                 memory.write_u8(0xb8022, b'C').unwrap();
                 call.cpu.set_al(value);
@@ -171,7 +173,7 @@ pub async fn vga_workers() -> Result<(), String> {
 }
 
 struct Input {
-    incoming: oneshot::Receiver<u8>,
+    incoming: Option<oneshot::Receiver<u8>>,
     waiting: Option<oneshot::Sender<()>>,
 }
 

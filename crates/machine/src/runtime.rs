@@ -7,11 +7,12 @@
 //! for native and web engines. [`Cpu::run`] awaits host operations
 //! between synchronous Wasm calls.
 //!
-//! A retained execution future owns the machine from its first host service until
-//! execution stops. Services borrow it through ordinary async calls and keep local
-//! values across waits. CPU views borrow the backend directly; their accesses need
-//! no handle lookup or invocation check. Environment state is independent of the
-//! backend's callback state.
+//! The execution driver owns the machine and retains each pending invocation.
+//! [`CallContext`] owns CPU access and independently retained memory/I/O resources.
+//! The driver binds live CPU storage only for each future poll and completion
+//! cleanup. Ordinary awaits preserve the future and its locals. Mutable environment
+//! access uses synchronous [`EnvironmentAccess`] callbacks; asynchronous services
+//! capture their own resources.
 //!
 //! A pending service survives dropping its run waiter. Dropping the CPU ends
 //! the call chain and destroys the machine without undoing completed effects.
@@ -33,8 +34,10 @@
 //!     Ok(())
 //! }
 //! ```
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
+mod access;
+mod call;
 mod code;
 mod context;
 mod dispatch;
@@ -47,6 +50,7 @@ mod memory;
 pub mod real_mode_interrupt;
 
 use crate::{CpuConfig, IoBus, Memory};
+pub use access::{CallContext, EnvironmentAccess, InvocationAccess};
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
@@ -63,7 +67,6 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu<T: 'static = ()> {
     execution: Execution<T>,
-    memory: Memory,
 }
 
 impl<T: 'static> Cpu<T> {
@@ -73,7 +76,7 @@ impl<T: 'static> Cpu<T> {
     /// Port and MMIO accesses use the supplied execution-local device bus.
     pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus, state: T) -> Result<Self> {
         let mut backend = Backend::with_state(io.clone())?;
-        let bindings = RuntimeMemory::new(&mut backend, memory.clone(), cpu)?;
+        let bindings = RuntimeMemory::new(&mut backend, memory, cpu)?;
         let host_imports = io::imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         let machine = Machine {
@@ -86,7 +89,6 @@ impl<T: 'static> Cpu<T> {
         };
         Ok(Self {
             execution: Execution::new(machine),
-            memory,
         })
     }
 
@@ -132,7 +134,7 @@ impl<T: 'static> Cpu<T> {
     /// Retains guest memory independently of this CPU and its execution borrow.
     /// Clones share guest bytes; CPU and dispatch storage remain private.
     pub fn memory(&self) -> Memory {
-        self.memory.clone()
+        self.execution.machine.bindings.guest.clone()
     }
 
     /// Borrows the environment state between guest calls. Drop the borrow before running.

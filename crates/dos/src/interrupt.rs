@@ -6,19 +6,23 @@ use crate::{
     state::DosState,
     ServiceError,
 };
-use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HookResult};
+use relocade_machine::{
+    real_mode_interrupt, CpuView, Hook, HookResult, InvocationAccess, MemoryView,
+};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::rc::Rc;
 
 /// One CPU invocation bound to its process and shared DOS resources.
-/// Resource borrows last for each operation, not the whole invocation.
-pub(crate) struct DosContext<'call, 'cpu> {
-    pub(crate) execution: &'call mut CpuContext<'cpu>,
+/// The memory view borrows retained session resources; CPU and mutable DOS state
+/// are borrowed only for each operation.
+pub(crate) struct DosContext<'call> {
+    pub(crate) cpu: CpuView<InvocationAccess>,
+    pub(crate) memory: MemoryView<'call>,
     pub(crate) dos: &'call DosState,
     pub(crate) process: &'call Process,
 }
 
-impl DosContext<'_, '_> {
+impl DosContext<'_> {
     pub(crate) fn console(&self) -> crate::services::console::Console<'_> {
         crate::services::console::Console {
             stdio: self.dos.stdio(),
@@ -33,11 +37,8 @@ impl DosContext<'_, '_> {
 
     /// Terminates the process and returns from DOS execution.
     pub(crate) fn exit(&mut self, status: Result<u8, ServiceError>) -> HookResult {
-        self.process.terminate(
-            status,
-            &mut self.execution.memory,
-            &mut self.dos.filesystem(),
-        );
+        self.process
+            .terminate(status, &mut self.memory, &mut self.dos.filesystem());
         HookResult::Exit(ExecutionExit::Host(HostExit::Return))
     }
 }
@@ -45,7 +46,7 @@ impl DosContext<'_, '_> {
 /// Captures the session and resolves its active process at each hook entry.
 pub(crate) fn hook<F>(address: u32, session: Rc<DosState>, handler: F) -> Hook
 where
-    F: AsyncFn(&mut DosContext<'_, '_>) -> HookResult + 'static,
+    F: AsyncFn(&mut DosContext<'_>) -> HookResult + 'static,
 {
     Hook::new(address, async move |execution| {
         let process = session.process().expect("DOS hook requires a process");
@@ -55,7 +56,8 @@ where
             "DOS hook requires an active process"
         );
         let mut call = DosContext {
-            execution,
+            cpu: execution.cpu,
+            memory: session.memory().view(),
             dos: &session,
             process: &process,
         };
@@ -64,18 +66,15 @@ where
 }
 
 /// Returns a DOS result through the interrupt frame, preserving other flags.
-pub(crate) fn return_result(
-    call: &mut DosContext<'_, '_>,
-    result: Result<(), DosError>,
-) -> HookResult {
+pub(crate) fn return_result(call: &mut DosContext<'_>, result: Result<(), DosError>) -> HookResult {
     if let Err(error) = result {
-        call.execution.cpu.set_ax(error.code());
+        call.cpu.set_ax(error.code());
         if let DosError::InsufficientMemory { available } = error {
-            call.execution.cpu.set_bx(available);
+            call.cpu.set_bx(available);
         }
     }
-    real_mode_interrupt::set_carry(call.execution, result.is_err());
-    real_mode_interrupt::return_from_interrupt(call.execution)
+    real_mode_interrupt::set_carry(&call.cpu, &mut call.memory, result.is_err());
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

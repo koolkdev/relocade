@@ -113,11 +113,12 @@ async fn check_pending_calls() {
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x200, async |call| {
-            // Distinct fields stay borrowed together through both awaits.
+        .install_hooks([Hook::<Rc<State>>::new(0x200, async |mut call| {
+            // CPU handles and resource views stay usable across both awaits;
+            // each CPU operation borrows only within the current poll.
+            let state = call.state.with(Clone::clone);
             let cpu = &mut call.cpu;
-            let memory = &mut call.memory;
-            let state = &mut *call.state;
+            let mut memory = call.memory.view();
             state.started.set(state.started.get() + 1);
             let operation = Operation(state.clone());
             let first = operation.0.read().await;
@@ -136,7 +137,7 @@ async fn check_pending_calls() {
             drop(operation);
             state.completed.set(state.completed.get() + 1);
             memory.write(0x300, &sum.to_le_bytes()).unwrap();
-            real_mode_interrupt::return_from_interrupt(call)
+            real_mode_interrupt::return_from_interrupt(&mut call.cpu)
         })])
         .await
         .unwrap();
@@ -191,7 +192,8 @@ async fn check_pending_calls() {
     assert_eq!(bytes, [70, 0]);
 
     // Dropping a waiter leaves the future, its local references and partial
-    // effects intact. The service retains exclusive access until it returns.
+    // effects intact. The retained service excludes embedding CPU/state access
+    // until it returns, without keeping a backend borrow between polls.
     {
         let mut run = pin!(runtime.run(10));
         assert!(run.as_mut().poll(&mut cx).is_pending());
@@ -225,7 +227,7 @@ async fn check_pending_calls() {
         .write(0x500, &[0x0f, 0x0b]) // UD2: completing must not enter the guest.
         .unwrap();
     runtime
-        .install_hooks([Hook::new(0x400, async |call| {
+        .install_hooks([Hook::new(0x400, async |mut call| {
             // Completion returns directly even if the continuation names guest code.
             call.cpu.set_eip(0x500);
             let value = std::future::ready(99).await;
@@ -279,9 +281,9 @@ async fn check_completed_replacement() {
     let registration = Rc::new(());
     let released = Rc::downgrade(&registration);
     runtime
-        .install_hooks([Hook::<Rc<State>>::new(0x400, async move |call| {
+        .install_hooks([Hook::<Rc<State>>::new(0x400, async move |mut call| {
             let registration = registration.clone();
-            let input = call.state.clone();
+            let input = call.state.with(Clone::clone);
             let value = input.read().await;
             call.cpu.set_ax(value);
             drop(registration);
@@ -298,7 +300,7 @@ async fn check_completed_replacement() {
     // the final owner of its captures.
     assert!(released.upgrade().is_some());
     runtime
-        .install_hooks([Hook::new(0x400, async |call| {
+        .install_hooks([Hook::new(0x400, async |mut call| {
             call.cpu.set_ax(99);
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         })])

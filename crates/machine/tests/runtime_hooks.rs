@@ -57,8 +57,9 @@ async fn check_interrupt_hooks() {
     let increment = Rc::new(Cell::new(1));
     runtime
         .install_hooks([
-            Hook::<Rc<Cell<u32>>>::new(0x10020, async move |call| {
-                call.state.set(call.state.get() + increment.get());
+            Hook::<Rc<Cell<u32>>>::new(0x10020, async move |mut call| {
+                call.state
+                    .with(|state| state.set(state.get() + increment.get()));
                 assert_eq!(call.cpu.segment(Segment::Cs).selector, 0x1000);
                 assert_eq!(call.cpu.eip(), 0x20);
                 assert_eq!(call.cpu.sp(), 0xfefa);
@@ -66,14 +67,14 @@ async fn check_interrupt_hooks() {
                 assert!(call.cpu.carry());
                 assert_eq!(call.cpu.eflags() & 0x200, 0);
                 let mut word = [0; 2];
-                call.memory.read(0x200, &mut word).unwrap();
+                call.memory.view().read(0x200, &mut word).unwrap();
                 call.cpu.set_ax(1 + u16::from_le_bytes(word));
                 let mut frame = [0; 6];
-                call.memory.read(0xfefa, &mut frame).unwrap();
+                call.memory.view().read(0xfefa, &mut frame).unwrap();
                 assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
                 assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
-                real_mode_interrupt::set_carry(call, false);
-                real_mode_interrupt::return_from_interrupt(call)
+                real_mode_interrupt::set_carry(&call.cpu, &mut call.memory.view(), false);
+                real_mode_interrupt::return_from_interrupt(&mut call.cpu)
             }),
             Hook::new(0x400, async |_| {
                 HookResult::Exit(ExecutionExit::Host(HostExit::Return))
@@ -206,15 +207,18 @@ async fn check_mapped_hook_access() {
             ],
         )
         .unwrap();
-    cpu.install_hooks([Hook::new(0x200, async |call| {
+    cpu.install_hooks([Hook::new(0x200, async |mut call| {
         let mut bytes = [0; 4];
-        call.memory.read(0x1020, &mut bytes).unwrap();
+        call.memory.view().read(0x1020, &mut bytes).unwrap();
         let value = call.cpu.eax() + u32::from_le_bytes(bytes);
         call.cpu.set_eax(value);
         call.cpu.set_eip(0x300);
-        call.memory.write(0x1024, &value.to_le_bytes()).unwrap();
-        call.memory.write_u8(0x20, 0xff).unwrap();
-        *call.state += 1;
+        call.memory
+            .view()
+            .write(0x1024, &value.to_le_bytes())
+            .unwrap();
+        call.memory.view().write_u8(0x20, 0xff).unwrap();
+        call.state.with_mut(|state| *state += 1);
         HookResult::Continue
     })])
     .await
@@ -272,13 +276,13 @@ async fn check_hook_replacement() {
     let calls = Rc::clone(&second);
     runtime
         .install_hooks([
-            Hook::new(0x400, async move |call| {
+            Hook::new(0x400, async move |mut call| {
                 first.set(first.get() + 1);
                 call.cpu.set_ax(first.get());
                 call.cpu.set_eip(0x401);
                 HookResult::Continue
             }),
-            Hook::new(0x401, async move |call| {
+            Hook::new(0x401, async move |mut call| {
                 calls.set(calls.get() + 1);
                 call.cpu.set_eip(0x100);
                 HookResult::Continue
@@ -293,7 +297,7 @@ async fn check_hook_replacement() {
     assert_eq!(runtime.context().cpu.bx(), 2);
     assert_eq!(second.get(), 2);
     runtime
-        .install_hooks([Hook::new(0x400, async |call| {
+        .install_hooks([Hook::new(0x400, async |mut call| {
             call.cpu.set_ax(50);
             call.cpu.set_eip(0x401);
             HookResult::Continue

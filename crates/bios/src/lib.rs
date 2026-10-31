@@ -25,7 +25,7 @@ mod screen;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::{real_mode_interrupt, CpuContext, Hook, HookResult};
+use relocade_machine::{real_mode_interrupt, CallContext, CpuView, Hook, HookResult, MemoryAccess};
 use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;
 
@@ -68,15 +68,35 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
 /// The keyboard is captured by the hooks and may be shared with console input.
 pub fn hooks<T: 'static>(keyboard: Keyboard) -> [Hook<T>; 3] {
     [
-        Hook::new(CLOCK_ADDRESS, clock),
+        Hook::new(CLOCK_ADDRESS, async |call| dispatch(call, clock)),
         Hook::new(KEYBOARD_ADDRESS, async move |call| {
             keyboard::interrupt(call, &keyboard).await
         }),
-        Hook::new(VIDEO_ADDRESS, video::interrupt),
+        Hook::new(VIDEO_ADDRESS, async |call| dispatch(call, video::interrupt)),
     ]
 }
 
-async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+/// Synchronous BIOS services borrow CPU storage once and use retained resources.
+struct BiosContext<'a> {
+    cpu: CpuView<MemoryAccess<'a>>,
+    memory: MemoryView<'a>,
+    io: &'a IoBus,
+}
+
+fn dispatch<T>(
+    mut call: CallContext<T>,
+    handler: impl FnOnce(&mut BiosContext<'_>) -> HookResult,
+) -> HookResult {
+    call.cpu.with(|cpu| {
+        handler(&mut BiosContext {
+            cpu,
+            memory: call.memory.view(),
+            io: &call.io,
+        })
+    })
+}
+
+fn clock(call: &mut BiosContext<'_>) -> HookResult {
     if call.cpu.ah() == 0 {
         let mut data = [0; 5];
         call.memory
@@ -92,7 +112,7 @@ async fn clock<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     } else {
         // Unsupported BIOS function.
         call.cpu.set_ah(0x86);
-        real_mode_interrupt::set_carry(call, true);
+        real_mode_interrupt::set_carry(&call.cpu, &mut call.memory, true);
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }

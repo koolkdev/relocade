@@ -32,10 +32,15 @@ main activity drops all device futures on their owner.
 The task owns one `Cpu<T>` for its lifetime. `T` is its guest environment state;
 BIOS/DOS service futures execute on the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
-Hooks run in Rust after Wasm returns. A `CpuContext` borrows the executing machine;
-its CPU views bind storage directly and keep that backend borrow until they end.
-Services can hold ordinary views and local references across input awaits.
-Shared guest-memory handles support independent readers.
+Hooks run in Rust after Wasm returns. Each receives an owned `CallContext` with
+CPU access and retained memory/I/O handles. The driver acquires CPU storage once
+per future poll, then revokes access before returning Pending or entering guest
+code. Register operations share the borrowed `CpuView` implementation.
+Unique CPU and environment handles use Rust borrows to exclude overlapping
+mutation. `call.cpu.with(...)` lends a CPU view for a synchronous batch;
+`call.state.with(...)` and `with_mut(...)` borrow only environment state.
+Asynchronous services capture their resources before awaiting. Resource views
+and ordinary local references can remain in the retained future across waits.
 
 ```text
 host input and timer tasks --Rust channels--> execution activity + devices
@@ -65,12 +70,14 @@ execution thread, and waits for completion before releasing the thread.
 these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
 
-The CPU holds its machine directly between runs. Reaching a host service creates
-an execution future that owns the machine and call chain until execution stops.
-The future then returns the machine and exit result to the CPU and is released.
-Runs that finish without reaching a host service allocate no execution future.
+The execution driver owns its machine directly throughout the session. Reaching a
+host service creates one retained future and a fresh invocation identity. One
+access scope per CPU binds storage to the invocation being polled; escaped handles
+cannot use another invocation's binding. Completion drops the future with its own
+access still bound. Cancellation drops it without granting CPU access. Guest-only
+runs allocate no invocation future.
 
-Dropping a `Cpu::run` waiter preserves the pending future and its call chain; a later
+Dropping a `Cpu::run` waiter preserves the pending invocation; a later
 `Cpu::run` resumes it and supplies a new budget for subsequent guest execution.
 Zero-budget runs do not poll pending work.
 

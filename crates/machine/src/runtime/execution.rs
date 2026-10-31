@@ -1,101 +1,74 @@
-//! Idle machine ownership and retained execution across pending host services.
+//! Driver-owned machine and retained host invocations.
 
-use super::{machine::Machine, Cpu, HookResult};
-use futures_util::future::LocalBoxFuture;
+use super::{access::Scope, call::Call, machine::Machine, Cpu, HookResult};
 use relocade_x86::{ExecutionExit, HostExit};
-use std::{cell::Cell, future::poll_fn, rc::Rc, task::Poll};
+use std::{future::poll_fn, rc::Rc, task::Poll};
 
-pub(super) enum Execution<T> {
-    // Taken only while synchronously transferring ownership into Pending.
-    Idle(Option<Machine<T>>),
-    Pending {
-        future: LocalBoxFuture<'static, (Machine<T>, ExecutionExit)>,
-        replacement_budget: Rc<Cell<Option<u64>>>,
-    },
+pub(super) struct Execution<T> {
+    // Cancellation drops the future without granting access, before its machine.
+    call: Option<Call>,
+    pub(super) machine: Machine<T>,
+    access: Rc<Scope<T>>,
 }
 
 impl<T: 'static> Execution<T> {
     pub fn new(machine: Machine<T>) -> Self {
-        Self::Idle(Some(machine))
+        Self {
+            call: None,
+            machine,
+            access: Rc::new(Scope::new()),
+        }
     }
 
     pub fn machine(&self) -> &Machine<T> {
-        match self {
-            Self::Idle(machine) => machine.as_ref().expect("idle machine"),
-            Self::Pending { .. } => {
-                panic!("host service is suspended; complete it before accessing the machine")
-            }
-        }
+        self.assert_idle();
+        &self.machine
     }
 
     pub fn machine_mut(&mut self) -> &mut Machine<T> {
-        match self {
-            Self::Idle(machine) => machine.as_mut().expect("idle machine"),
-            Self::Pending { .. } => {
-                panic!("host service is suspended; complete it before accessing the machine")
-            }
-        }
+        self.assert_idle();
+        &mut self.machine
+    }
+
+    fn assert_idle(&self) {
+        assert!(
+            self.call.is_none(),
+            "host service is suspended; complete it before accessing the machine"
+        );
     }
 
     async fn run(&mut self, budget: u64) -> ExecutionExit {
         if budget == 0 {
             return ExecutionExit::BudgetExhausted;
         }
-        match self {
-            Self::Idle(machine) => {
-                // Guest-only runs leave the machine here and allocate no future.
-                let exit = machine
-                    .as_mut()
-                    .expect("idle machine")
-                    .dispatch(Some(budget));
-                let ExecutionExit::Host(HostExit::Call { address }) = exit else {
-                    return exit;
+        // A replacement waiter applies its budget after the pending call returns.
+        // Further polls of the same waiter do not replenish the target.
+        let mut budget = Some(budget);
+        poll_fn(|cx| loop {
+            if let Some(call) = &mut self.call {
+                let Poll::Ready(result) = call.poll(&mut self.machine, &self.access, cx) else {
+                    return Poll::Pending;
                 };
-                let machine = machine.take().expect("idle machine");
-                let replacement_budget = Rc::new(Cell::new(None));
-                *self = Self::Pending {
-                    future: Box::pin(execute(machine, address, Rc::clone(&replacement_budget))),
-                    replacement_budget,
-                };
-            }
-            Self::Pending {
-                replacement_budget, ..
-            } => replacement_budget.set(Some(budget)),
-        }
-        poll_fn(|cx| {
-            let Self::Pending { future, .. } = self else {
-                unreachable!("running host services");
-            };
-            match future.as_mut().poll(cx) {
-                Poll::Ready((machine, exit)) => {
-                    *self = Self::Idle(Some(machine));
-                    Poll::Ready(exit)
+                self.call = None;
+                if let HookResult::Exit(exit) = result {
+                    return Poll::Ready(exit);
                 }
-                Poll::Pending => Poll::Pending,
+            }
+            match self.machine.dispatch(budget.take()) {
+                ExecutionExit::Host(HostExit::Call { address }) => {
+                    let handler = Rc::clone(
+                        self.machine
+                            .hooks
+                            .get(&address)
+                            .expect("registered host entry"),
+                    );
+                    self.call = Some(Call::start(&self.machine, &self.access, handler));
+                }
+                exit => return Poll::Ready(exit),
             }
         })
         .await
     }
-}
-
-async fn execute<T>(
-    mut machine: Machine<T>,
-    mut address: u32,
-    replacement_budget: Rc<Cell<Option<u64>>>,
-) -> (Machine<T>, ExecutionExit) {
-    let exit = loop {
-        match machine.call_host(address).await {
-            HookResult::Continue => {}
-            HookResult::Exit(exit) => break exit,
-        }
-        // A replacement waiter supplies one budget, applied after the
-        // pending service returns. Ordinary waits do not replenish it.
-        match machine.dispatch(replacement_budget.take()) {
-            ExecutionExit::Host(HostExit::Call { address: next }) => address = next,
-            exit => break exit,
-        }
-    };
-    (machine, exit)
 }
 
 impl<T: 'static> Cpu<T> {
@@ -105,10 +78,11 @@ impl<T: 'static> Cpu<T> {
     /// fixed overshoot or elapsed-time bound. The target saturates at u64::MAX.
     ///
     /// Waits do not replenish this run's budget. Dropping its waiter preserves
-    /// the pending service and its locals. A subsequent run resumes that service
+    /// the pending invocation and its locals. A subsequent run resumes that call
     /// and supplies a new budget for continued guest execution. A zero budget
     /// returns `BudgetExhausted` without entering Wasm or polling pending work.
-    /// Dropping the CPU drops the suspended call chain and its machine together.
+    /// CPU access is bound only during each poll and completion cleanup. Dropping
+    /// the CPU cancels its pending future without granting it CPU access.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         self.execution.run(instruction_budget).await
     }

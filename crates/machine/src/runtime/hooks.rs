@@ -2,20 +2,22 @@ use relocade_compiler::Program;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionExitValues, HostExitValues};
 
-use super::{Cpu, CpuContext, DispatchEntry, Result};
+use super::{CallContext, Cpu, DispatchEntry, Result};
 use futures_util::future::LocalBoxFuture;
 use std::rc::Rc;
 
 pub(super) trait Handler<T> {
-    fn call<'a>(&'a self, context: &'a mut CpuContext<'_, T>) -> LocalBoxFuture<'a, HookResult>;
+    fn call(self: Rc<Self>, context: CallContext<T>) -> LocalBoxFuture<'static, HookResult>;
 }
 
-impl<T, F> Handler<T> for F
+impl<T: 'static, F> Handler<T> for F
 where
-    F: AsyncFn(&mut CpuContext<'_, T>) -> HookResult,
+    F: AsyncFn(CallContext<T>) -> HookResult + 'static,
 {
-    fn call<'a>(&'a self, context: &'a mut CpuContext<'_, T>) -> LocalBoxFuture<'a, HookResult> {
-        Box::pin(self(context))
+    fn call(self: Rc<Self>, context: CallContext<T>) -> LocalBoxFuture<'static, HookResult> {
+        // User callback construction, polling and completion destruction occur while
+        // the driver binds this invocation's access, including ordinary Fn bodies.
+        Box::pin(async move { self(context).await })
     }
 }
 
@@ -33,12 +35,12 @@ pub enum HookResult {
 /// `T` is the machine's environment state, borrowed through the context.
 ///
 /// ```
-/// use relocade_machine::{Hook, HookResult, CpuContext};
+/// use relocade_machine::{Hook, HookResult, CallContext};
 /// use relocade_x86::{ExecutionExit, HostExit};
 ///
-/// async fn terminate(call: &mut CpuContext<'_, Option<u8>>) -> HookResult {
+/// async fn terminate(mut call: CallContext<Option<u8>>) -> HookResult {
 ///     let code = call.cpu.al();
-///     *call.state = Some(code);
+///     call.state.with_mut(|state| *state = Some(code));
 ///     HookResult::Exit(ExecutionExit::Host(HostExit::Return))
 /// }
 /// let hook = Hook::new(0xf0100, terminate);
@@ -56,7 +58,7 @@ impl<T: 'static> Hook<T> {
     /// data stay on the CPU's thread and do not need Send or Sync.
     pub fn new<F>(address: u32, handler: F) -> Self
     where
-        F: AsyncFn(&mut CpuContext<'_, T>) -> HookResult + 'static,
+        F: AsyncFn(CallContext<T>) -> HookResult + 'static,
     {
         Self {
             address,
@@ -72,8 +74,9 @@ impl<T: 'static> Cpu<T> {
     /// Entries begin with CPU state already published by the predecessor. They
     /// cache no CPU values across the host call. Hooks do not retire guest
     /// instructions; continuing execution retains the current instruction target.
-    /// Handlers borrow the machine across ordinary awaits and complete in Rust
-    /// before guest execution resumes. Dropping a run waiter preserves that call.
+    /// Handlers own their invocation resources across ordinary awaits. CPU access
+    /// is lent only while their retained future is polled. Dropping a run waiter
+    /// preserves that future; ready awaits complete before guest execution resumes.
     ///
     /// # Panics
     /// Panics if a service is suspended. Complete it before installing.

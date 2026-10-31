@@ -38,9 +38,10 @@ such as `Rc`, the CPU and browser engine objects. Construct those values inside
 the task. `Thread::run_send` returns Send results through Rust memory;
 `Thread::run` posts its result and can return a shared allocation or module.
 
-Host services are ordinary async functions that borrow `CpuContext` and can await
-Rust channel input. `Cpu::run` drives execution; dropping a run waiter preserves
-the pending service for a later run. The
+Host services are ordinary async functions that own `CallContext` and can await
+Rust channel input. CPU access is lent during each future poll; memory, I/O and
+captured service resources remain available across awaits. `Cpu::run` drives
+execution; dropping a run waiter preserves the pending service for a later run. The
 [CPU worker example](../../../tests/browser/src/cpus.rs) exercises this complete
 flow on native and browser workers: it captures configuration and channels,
 constructs local state, waits for input while the caller accesses mapped memory,

@@ -1,4 +1,4 @@
-//! Borrowed access to the machine executing a host service.
+//! Borrowed access to a stopped machine.
 
 use crate::{CpuView, IoBus, MemoryAccess, MemoryView};
 
@@ -6,8 +6,9 @@ use crate::{CpuView, IoBus, MemoryAccess, MemoryView};
 /// CPU and memory views borrow live storage and apply writes immediately.
 /// The fields borrow separate resources and can be used together, including
 /// while borrowing environment state. Borrow a field instead of the whole context.
-/// A view can cross an ordinary await, keeping its machine borrow until it ends.
-/// Contexts cannot escape their handler or the borrow of [`super::Cpu`].
+/// A context from [`super::Cpu::context`] can cross an ordinary await, keeping
+/// its machine borrow until it ends. Host invocations instead own a
+/// [`super::CallContext`] whose CPU and environment access is lent per poll.
 /// Drop the context before resuming guest execution or installing modules.
 ///
 /// A live view excludes another run:

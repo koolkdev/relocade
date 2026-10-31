@@ -1,6 +1,6 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{hooks::Handler, Backend, CpuContext, Dispatch, HookResult, RuntimeMemory};
+use super::{hooks::Handler, Backend, CpuContext, Dispatch, RuntimeMemory};
 use crate::{CpuView, IoBus};
 use relocade_wasm_runtime::WasmMemoryAccess;
 use relocade_x86::ExecutionExit;
@@ -39,11 +39,5 @@ impl<T> Machine<T> {
                 .set_instruction_target(&mut self.backend, target);
         }
         self.dispatch.run(&mut self.backend)
-    }
-
-    pub async fn call_host(&mut self, address: u32) -> HookResult {
-        // The registration stays alive while its future borrows the machine.
-        let handler = Rc::clone(self.hooks.get(&address).expect("registered host entry"));
-        handler.call(&mut self.context()).await
     }
 }
