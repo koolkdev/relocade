@@ -4,5 +4,9 @@ fn indexed256_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let pixel = x + line.pel_pan;
     let counter = (line.counter + (pixel / 4u) / input.grid.w) & 0xffffu;
     let address = display_address(counter, line.row_scan, input.addressing.z, input.addressing.w);
+    if !vram_changed(pixel & 3u, address) {
+        discard;
+        return 0u;
+    }
     return dac_color(vram_byte(pixel & 3u, address));
 }

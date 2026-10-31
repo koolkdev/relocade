@@ -8,7 +8,7 @@ use memory::GpuMemory;
 use relocade_renderer::{FrameError, Image};
 use state::GpuState;
 use std::time::Duration;
-use updates::PixelRect;
+use updates::GpuUpdates;
 
 /// Reusable GPU output with metadata for the capture recorded by `encode`.
 /// The caller must submit the recorded work before consuming the updated pixels.
@@ -29,7 +29,7 @@ pub struct VgaRenderer {
     memory: GpuMemory,
     state: GpuState,
     image: Image,
-    pending: Option<PixelRect>,
+    updates: GpuUpdates,
     frame: Option<FrameMetadata>,
 }
 
@@ -40,13 +40,15 @@ struct FrameMetadata {
 
 impl VgaRenderer {
     /// Requires a 2D texture limit of at least 2304 pixels, covering every VGA
-    /// text width, 13 flat inter-stage variables, and one 256-KiB fragment storage
-    /// buffer for physical VRAM.
+    /// text width, 13 flat inter-stage variables, two bind groups, two fragment
+    /// uniform buffers, and one 256-KiB fragment storage buffer for physical VRAM.
     pub fn new(device: &wgpu::Device) -> Result<Self, FrameError> {
         // The CRTC can select 256 nine-dot columns and 2048 physical scanlines.
         let limits = device.limits();
         if limits.max_texture_dimension_2d < 256 * 9
             || limits.max_inter_stage_shader_variables < 13
+            || limits.max_bind_groups < 2
+            || limits.max_uniform_buffers_per_shader_stage < 2
             || limits.max_storage_buffers_per_shader_stage < 1
             || limits.max_storage_buffer_binding_size < memory::BUFFER_BYTES
             || limits.max_buffer_size < memory::BUFFER_BYTES
@@ -81,13 +83,14 @@ impl VgaRenderer {
         });
         let memory = GpuMemory::new(device);
         let state = GpuState::new(device, &pipeline.get_bind_group_layout(0), &memory.buffer);
+        let updates = GpuUpdates::new(device, &pipeline.get_bind_group_layout(1));
         Ok(Self {
             device: device.clone(),
             pipeline,
             memory,
             state,
             image,
-            pending: None,
+            updates,
             frame: None,
         })
     }
@@ -111,17 +114,16 @@ impl VgaRenderer {
         let bounds = self.memory.upload(queue, &capture.display);
         let memory_changed = bounds.iter().any(|range| !range.is_empty());
         let state_changed = self.state.upload(queue, &capture.display, geometry);
-        if geometry_changed || state_changed {
-            // Also replaces pending coordinates when the image was resized.
-            self.pending = Some(PixelRect::full(geometry.size));
-        } else if let Some(region) = updates::memory_region(&capture.display, bounds) {
-            PixelRect::include(&mut self.pending, region);
+        let changed = geometry_changed || memory_changed || state_changed;
+        if changed {
+            self.updates
+                .upload(queue, bounds, geometry_changed || state_changed);
         }
         self.frame = Some(FrameMetadata {
             time: capture.time,
             sequence: capture.sequence,
         });
-        geometry_changed || memory_changed || state_changed
+        changed
     }
 
     /// Records decoding of the latest uploaded inputs. Returns `None` before the
@@ -131,23 +133,30 @@ impl VgaRenderer {
     /// writes run before submitted commands and the input buffers hold one version.
     /// Retain the returned image for resize-only draws without another decode.
     pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) -> Option<VgaImage> {
-        self.encode_region(encoder, PixelRect::full(self.image.size()))
+        self.encode_pass(
+            encoder,
+            &self.updates.full_binding,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+        )
     }
 
     /// The display host submits each encoded image before the next operation,
-    /// so its pending region can be consumed here. Public encoding stays retry-safe.
+    /// so its pending bounds can be consumed here. Public encoding stays retry-safe.
     pub(crate) fn encode_changed(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
     ) -> Option<VgaImage> {
-        let region = self.pending.take()?;
-        self.encode_region(encoder, region)
+        if !self.updates.take_pending() {
+            return None;
+        }
+        self.encode_pass(encoder, &self.updates.binding, wgpu::LoadOp::Load)
     }
 
-    fn encode_region(
-        &mut self,
+    fn encode_pass(
+        &self,
         encoder: &mut wgpu::CommandEncoder,
-        region: PixelRect,
+        updates: &wgpu::BindGroup,
+        load: wgpu::LoadOp<wgpu::Color>,
     ) -> Option<VgaImage> {
         let frame = self.frame.as_ref()?;
         {
@@ -158,11 +167,7 @@ impl VgaRenderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: if region == PixelRect::full(self.image.size()) {
-                            wgpu::LoadOp::Clear(wgpu::Color::BLACK)
-                        } else {
-                            wgpu::LoadOp::Load
-                        },
+                        load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -170,12 +175,7 @@ impl VgaRenderer {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.state.binding, &[]);
-            pass.set_scissor_rect(
-                region.left,
-                region.top,
-                region.right - region.left,
-                region.bottom - region.top,
-            );
+            pass.set_bind_group(1, updates, &[]);
             pass.draw(0..3, 0..1);
         }
         Some(VgaImage {

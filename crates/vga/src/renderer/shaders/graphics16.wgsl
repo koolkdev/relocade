@@ -3,6 +3,11 @@ fn graphics16_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let pixel = x + line.pel_pan;
     let counter = (line.counter + (pixel / 8u) / input.grid.w) & 0xffffu;
     let address = display_address(counter, line.row_scan, input.addressing.z, input.addressing.w);
+    if !vram_changed(0u, address) && !vram_changed(1u, address)
+        && !vram_changed(2u, address) && !vram_changed(3u, address) {
+        discard;
+        return 0u;
+    }
     var color = 0u;
     if (input.display.w & 0x20u) != 0u {
         // Four pairs from maps 0/2, then four from maps 1/3. Maps 2/3

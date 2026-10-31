@@ -422,24 +422,30 @@ VGA timing and capture publication continue independently. Closing the source
 preserves the image and its last decoded capture metadata, available from
 `current_frame()`.
 
-For VRAM-only changes in linear text, the renderer accumulates one rectangle and
-uses a GPU scissor, preserving pixels outside it in the retained image. MMIO writes
-record per-plane byte bounds alongside the unchanged 1-KiB dirty-page bitmap.
-Bounds add 32 bytes to the tracker and let a character or attribute write redraw
-one cell without comparing VRAM contents. Scattered writes widen the rectangle.
+For VRAM-only changes, the renderer unions physical byte bounds in each plane
+until drawing. MMIO records those bounds alongside the unchanged 1-KiB dirty-page
+bitmap, adding 32 bytes to the tracker. The uploader validates capture baselines;
+when hints do not match, it restores a whole plane and supplies whole-plane bounds.
+No CPU code maps memory addresses back to screen coordinates.
+
+A 32-byte uniform supplies the pending bounds to the existing text and graphics
+shaders. After calculating a pixel's source address, they discard and return early
+when its source bytes are unchanged, preserving the retained pixel. The same
+addressing handles panning, splits, wrapping and repeated fetches. A text font
+write redraws all text; graphics treat every plane as pixel data. Bounds may include
+unchanged bytes between scattered writes, so the filter is conservative.
 
 Any uploaded display-state change redraws the whole image, including cursor
-movement, blink phase, palette and geometry. The existing uploader checks decide
-this; there is no separate snapshot comparison or search for blinking cells.
-The uploader also validates memory baselines and returns whole-plane bounds when
-it cannot use a capture's write hints. Font changes, graphics and text with
-panning, splits, overlapping rows or address wrap use full decoding as well.
+movement, blink phase, palette and geometry. New textures also receive full bounds.
+The adapter calls private `encode_changed` under its submit-before-next-operation
+contract. Public `VgaRenderer::encode` uses an immutable full-bounds binding and
+always records a complete decode, including retries. Window/canvas presentation
+continues to sample the retained image normally on redraw, resize or exposure.
 
-Image replacement initializes the entire new texture. The shaders still own all
-pixel interpretation. Public `VgaRenderer::encode` always records a full decode,
-including retries; the adapter uses the private `encode_changed` under its
-submit-before-next-operation contract. Window/canvas draws still sample the
-retained image normally on redraw, resize or exposure.
+Filtering still runs fragment address calculations across the image; it avoids
+later VRAM/font/color work and pixel writes, rather than all work outside a screen
+rectangle. This keeps layout interpretation in the shaders but can cost more than
+a scissor for simple text. Performance depends on the GPU and workload.
 
 Construct the adapter inside the graphics host's factory so it shares the host's
 GPU environment and remains on the graphics owner:

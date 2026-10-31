@@ -19,6 +19,18 @@ struct State {
 @group(0) @binding(0) var<uniform> state: State;
 @group(0) @binding(1) var<storage, read> memory: array<u32>;
 
+struct UpdateBounds {
+    starts: vec4<u32>,
+    ends: vec4<u32>,
+}
+@group(1) @binding(0) var<uniform> updates: UpdateBounds;
+
+// Decoders discard and return on unchanged fetches: discard suppresses pixel
+// writes, while the explicit return avoids the remaining decoding calculations.
+fn vram_changed(plane: u32, address: u32) -> bool {
+    return address >= updates.starts[plane] && address < updates.ends[plane];
+}
+
 fn packed_byte(packed: u32, index: u32) -> u32 {
     return (packed >> ((index & 3u) * 8u)) & 255u;
 }

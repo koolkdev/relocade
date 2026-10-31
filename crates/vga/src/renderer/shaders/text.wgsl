@@ -12,6 +12,12 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let line_start = line.counter;
     let counter = (line_start + column / count_divisor) & 0xffffu;
     let address = display_address(counter, glyph_row, input.addressing.z, underline);
+    // Font writes can affect every cell. Otherwise reuse unchanged output pixels.
+    if updates.starts.z == updates.ends.z
+        && !vram_changed(0u, address) && !vram_changed(1u, address) {
+        discard;
+        return 0u;
+    }
     let character = vram_byte(0u, address);
     let cell_attribute = vram_byte(1u, address);
 

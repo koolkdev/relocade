@@ -1,4 +1,4 @@
-//! The display adapter preserves pixels outside each submitted update rectangle.
+//! The retained image preserves pixels not addressed by pending VRAM writes.
 use super::{common, read_pixels, set_cell};
 use common::support::registers::{attribute, indexed, palette};
 use relocade_frontend::display::DisplayRenderer;
@@ -44,7 +44,8 @@ impl Display {
 
     fn publish(&mut self) {
         self.frame += 1;
-        self.clock.set(common::boundary(self.frame));
+        self.clock
+            .set(std::time::Duration::from_millis(self.frame * 20));
         self.vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     }
 
@@ -161,6 +162,48 @@ async fn check_programmed_text_regions() {
     assert_eq!(at(26, 16), MARKER);
     assert_eq!(at(27, 15), MARKER);
     assert_eq!(at(100, 100), MARKER);
+
+    // Reuse the shader's nine-dot panning: value 3 shifts the image by four dots.
+    attribute(&mut gpu.vga, 0x13, 3);
+    gpu.clock.set(std::time::Duration::from_millis(60));
+    gpu.vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    assert_eq!(gpu.display.update(&gpu.queue).await, Some(true));
+    gpu.draw();
+    gpu.mark(&image, 22, 16);
+    gpu.mark(&image, 100, 100);
+    set_cell(&mut gpu.vga, 183, 0xdb, 4);
+    gpu.clock.set(std::time::Duration::from_millis(80));
+    gpu.vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    assert_eq!(gpu.display.update(&gpu.queue).await, Some(true));
+    gpu.draw();
+    let pixels = gpu.pixels(&image).await;
+    let at = |x: usize, y: usize| &pixels[(y * 720 + x) * 4..(y * 720 + x + 1) * 4];
+    assert_eq!(at(23, 16), [170, 0, 0, 255]);
+    assert_eq!(at(22, 16), MARKER);
+    assert_eq!(at(100, 100), MARKER);
+
+    // The lower display restarts at address zero after scanline fifteen.
+    attribute(&mut gpu.vga, 0x13, 8);
+    let overflow = gpu.vga.snapshot().registers.crtc.values[crtc::OVERFLOW as usize];
+    common::crtc(&mut gpu.vga, crtc::OVERFLOW, overflow & !0x10);
+    common::crtc(&mut gpu.vga, crtc::MAXIMUM_SCAN_LINE, 0x0f);
+    common::crtc(&mut gpu.vga, crtc::LINE_COMPARE, 15);
+    gpu.clock.set(std::time::Duration::from_millis(100));
+    gpu.vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    assert_eq!(gpu.display.update(&gpu.queue).await, Some(true));
+    gpu.draw();
+    gpu.mark(&image, 27, 0);
+    gpu.mark(&image, 100, 100);
+    set_cell(&mut gpu.vga, 3, 0xdb, 2);
+    gpu.clock.set(std::time::Duration::from_millis(120));
+    gpu.vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    assert_eq!(gpu.display.update(&gpu.queue).await, Some(true));
+    gpu.draw();
+    let pixels = gpu.pixels(&image).await;
+    let at = |x: usize, y: usize| &pixels[(y * 720 + x) * 4..(y * 720 + x + 1) * 4];
+    assert_eq!(at(27, 16), [0, 170, 0, 255]);
+    assert_eq!(at(27, 0), MARKER);
+    assert_eq!(at(100, 100), MARKER);
 }
 
 async fn check_full_fallbacks() {
@@ -206,15 +249,7 @@ async fn check_full_fallbacks() {
     assert!(gpu.update().await);
     gpu.expect_full().await;
 
-    attribute(&mut gpu.vga, 0x13, 1); // Panned text uses the full decoder.
-    assert!(gpu.update().await);
-    gpu.expect_full().await;
-    gpu.mark(&image, 100, 100);
-    set_cell(&mut gpu.vga, 0, 0xdb, 2);
-    assert!(gpu.update().await);
-    gpu.expect_full().await;
-
-    // An image replacement drops rectangles accumulated for the larger image.
+    // An image replacement forces all pixels to be initialized.
     attribute(&mut gpu.vga, 0x13, 0);
     set_cell(&mut gpu.vga, 79, 0xdb, 4);
     assert!(gpu.update().await);
@@ -228,11 +263,53 @@ async fn check_full_fallbacks() {
     common::support::indexed256::program(&mut gpu.vga);
     assert!(gpu.update().await);
     gpu.expect_full().await;
-    let graphics = gpu.draw();
-    gpu.mark(&graphics, 100, 100);
-    gpu.vga.write_mmio(0xa0000, 1, 4);
-    assert!(gpu.update().await);
-    gpu.expect_full().await;
+}
+
+async fn check_graphics_regions() {
+    let mut gpu = Display::new().await;
+    for unchained in [false, true] {
+        common::support::indexed256::program(&mut gpu.vga);
+        if unchained {
+            common::support::indexed256::unchain(&mut gpu.vga);
+            indexed(&mut gpu.vga, 0x3c4, 2, 2);
+        }
+        palette(&mut gpu.vga, 4, [63, 0, 0]);
+        let address = if unchained { 0xa0000 } else { 0xa0001 };
+        gpu.vga.write_mmio(address, 1, 0);
+        assert!(gpu.update().await);
+        let image = gpu.draw();
+        assert_eq!(image.size(), [320, 200]);
+        // Pixels zero and two fetch the same address from other planes.
+        gpu.mark(&image, 0, 0);
+        gpu.mark(&image, 2, 0);
+        gpu.vga.write_mmio(address, 1, 4);
+        assert!(gpu.update().await);
+        gpu.draw();
+        let pixels = gpu.pixels(&image).await;
+        assert_eq!(&pixels[4..8], [255, 0, 0, 255]);
+        assert_eq!(&pixels[..4], MARKER);
+        assert_eq!(&pixels[8..12], MARKER);
+    }
+
+    for interleaved in [false, true] {
+        common::support::planar16::program(&mut gpu.vga);
+        gpu.vga.write_mmio(0xa0000, 1, 0); // Clear this address in every plane.
+        indexed(&mut gpu.vga, 0x3c4, 2, 4);
+        if interleaved {
+            indexed(&mut gpu.vga, 0x3ce, 5, 0x20);
+        }
+        palette(&mut gpu.vga, if interleaved { 8 } else { 4 }, [63, 0, 0]);
+        assert!(gpu.update().await);
+        let image = gpu.draw();
+        gpu.mark(&image, 8, 0);
+        // Plane two is pixel data here; unrelated graphics pixels stay intact.
+        gpu.vga.write_mmio(0xa0000, 1, 0x80);
+        assert!(gpu.update().await);
+        gpu.draw();
+        let pixels = gpu.pixels(&image).await;
+        assert_eq!(&pixels[..4], [255, 0, 0, 255]);
+        assert_eq!(&pixels[32..36], MARKER);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -248,22 +325,33 @@ async fn retained_text_updates_changed_cells() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn retained_text_regions_follow_programmed_start_stride_and_cell_size() {
+fn retained_text_updates_follow_programmed_geometry_panning_and_split() {
     pollster::block_on(check_programmed_text_regions());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn retained_text_regions_follow_programmed_start_stride_and_cell_size() {
+async fn retained_text_updates_follow_programmed_geometry_panning_and_split() {
     check_programmed_text_regions().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn retained_text_restores_full_image_for_uncertain_or_global_changes() {
+fn retained_image_redraws_for_state_fonts_and_unknown_baselines() {
     pollster::block_on(check_full_fallbacks());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn retained_text_restores_full_image_for_uncertain_or_global_changes() {
+async fn retained_image_redraws_for_state_fonts_and_unknown_baselines() {
     check_full_fallbacks().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn retained_graphics_updates_filter_physical_plane_addresses() {
+    pollster::block_on(check_graphics_regions());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn retained_graphics_updates_filter_physical_plane_addresses() {
+    check_graphics_regions().await;
 }
