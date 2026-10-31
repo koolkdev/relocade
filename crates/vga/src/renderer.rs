@@ -3,13 +3,12 @@ mod shaders;
 mod state;
 mod updates;
 
-pub(crate) use updates::{ImageUpdates, PixelRect};
-
 use crate::CapturedFrame;
 use memory::GpuMemory;
 use relocade_renderer::{FrameError, Image};
 use state::GpuState;
 use std::time::Duration;
+use updates::PixelRect;
 
 /// Reusable GPU output with metadata for the capture recorded by `encode`.
 /// The caller must submit the recorded work before consuming the updated pixels.
@@ -30,6 +29,7 @@ pub struct VgaRenderer {
     memory: GpuMemory,
     state: GpuState,
     image: Image,
+    pending: Option<PixelRect>,
     frame: Option<FrameMetadata>,
 }
 
@@ -87,6 +87,7 @@ impl VgaRenderer {
             memory,
             state,
             image,
+            pending: None,
             frame: None,
         })
     }
@@ -107,8 +108,15 @@ impl VgaRenderer {
             self.image = Image::new(&self.device, geometry.size, aspect)
                 .expect("VGA dimensions fit the validated device limits");
         }
-        let memory_changed = self.memory.upload(queue, &capture.display);
+        let bounds = self.memory.upload(queue, &capture.display);
+        let memory_changed = bounds.iter().any(|range| !range.is_empty());
         let state_changed = self.state.upload(queue, &capture.display, geometry);
+        if geometry_changed || state_changed {
+            // Also replaces pending coordinates when the image was resized.
+            self.pending = Some(PixelRect::full(geometry.size));
+        } else if let Some(region) = updates::memory_region(&capture.display, bounds) {
+            PixelRect::include(&mut self.pending, region);
+        }
         self.frame = Some(FrameMetadata {
             time: capture.time,
             sequence: capture.sequence,
@@ -126,9 +134,17 @@ impl VgaRenderer {
         self.encode_region(encoder, PixelRect::full(self.image.size()))
     }
 
-    /// Used only by the display adapter, whose host submits each encoded image
-    /// before the next operation. Public encoding remains full and retry-safe.
-    pub(crate) fn encode_region(
+    /// The display host submits each encoded image before the next operation,
+    /// so its pending region can be consumed here. Public encoding stays retry-safe.
+    pub(crate) fn encode_changed(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Option<VgaImage> {
+        let region = self.pending.take()?;
+        self.encode_region(encoder, region)
+    }
+
+    fn encode_region(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         region: PixelRect,

@@ -1,4 +1,3 @@
-use crate::renderer::ImageUpdates;
 use crate::{FrameSource, VgaImage, VgaRenderer};
 use relocade_frontend::display::DisplayRenderer;
 use relocade_renderer::{FrameError, Image};
@@ -11,7 +10,6 @@ pub struct VgaDisplay {
     source: FrameSource,
     renderer: Option<VgaRenderer>,
     uploaded_sequence: Option<u64>,
-    updates: ImageUpdates,
     frame: Option<VgaImage>,
 }
 
@@ -23,7 +21,6 @@ impl VgaDisplay {
             source,
             renderer: Some(VgaRenderer::new(device)?),
             uploaded_sequence: None,
-            updates: ImageUpdates::default(),
             frame: None,
         })
     }
@@ -41,21 +38,17 @@ impl DisplayRenderer for VgaDisplay {
         self.frame = None;
         self.renderer = None;
         self.uploaded_sequence = None;
-        self.updates = ImageUpdates::default();
     }
 
     fn attach_device(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<(), String> {
         let mut renderer = VgaRenderer::new(device).map_err(|error| error.to_string())?;
-        let mut updates = ImageUpdates::default();
         let capture = self.source.current_capture();
         if let Some(capture) = &capture {
             // Fresh GPU storage requires a full upload, even when the source
             // sequence did not change or capture production has already ended.
             renderer.upload(queue, capture);
-            updates.include(&capture.display);
         }
         self.uploaded_sequence = capture.map(|capture| capture.sequence);
-        self.updates = updates;
         self.frame = None;
         self.renderer = Some(renderer);
         Ok(())
@@ -69,12 +62,12 @@ impl DisplayRenderer for VgaDisplay {
             .expect("host attaches a device before updating")
             .upload(queue, &capture);
         self.uploaded_sequence = Some(capture.sequence);
-        Some(changed && self.updates.include(&capture.display))
+        Some(changed)
     }
 
     fn encode_image(&mut self, encoder: &mut wgpu::CommandEncoder) -> Option<&Image> {
-        if let Some(region) = self.updates.take() {
-            self.frame = self.renderer.as_mut()?.encode_region(encoder, region);
+        if let Some(frame) = self.renderer.as_mut()?.encode_changed(encoder) {
+            self.frame = Some(frame);
         }
         self.frame.as_ref().map(|frame| &frame.image)
     }

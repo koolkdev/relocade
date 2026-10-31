@@ -99,7 +99,7 @@ fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
     &pixels[(y * 640 + x) * 4..(y * 640 + x + 1) * 4]
 }
 
-async fn check_cells_and_cursor() {
+async fn check_cell_regions() {
     let mut gpu = Display::new().await;
     set_cell(&mut gpu.vga, 0, 0xdb, 4);
     set_cell(&mut gpu.vga, 1, b' ', 2);
@@ -128,57 +128,6 @@ async fn check_cells_and_cursor() {
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
     assert_eq!(pixel(&pixels, 8, 0), [170, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 100, 100), MARKER);
-
-    // A cursor move erases its old bar and draws the new one, without touching
-    // other scanlines in those cells or the rest of the image.
-    set_cell(&mut gpu.vga, 0, b' ', 2);
-    set_cell(&mut gpu.vga, 1, b' ', 4);
-    common::crtc(&mut gpu.vga, crtc::CURSOR_START, 6);
-    common::crtc(&mut gpu.vga, crtc::CURSOR_END, 7);
-    assert!(gpu.update().await);
-    gpu.draw();
-    gpu.mark(&image, 4, 4);
-    common::crtc(&mut gpu.vga, crtc::CURSOR_ADDRESS_LOW, 1);
-    assert!(gpu.update().await);
-    gpu.draw();
-    let pixels = gpu.pixels(&image).await;
-    assert_eq!(pixel(&pixels, 0, 6), [0, 0, 0, 255]);
-    assert_eq!(pixel(&pixels, 8, 6), [170, 0, 0, 255]);
-    assert_eq!(pixel(&pixels, 4, 4), MARKER);
-    assert_eq!(pixel(&pixels, 100, 100), MARKER);
-
-    common::crtc(&mut gpu.vga, crtc::CURSOR_START, 0x20);
-    assert!(gpu.update().await);
-    gpu.draw();
-    let pixels = gpu.pixels(&image).await;
-    assert_eq!(pixel(&pixels, 8, 6), [0, 0, 0, 255]);
-    assert_eq!(pixel(&pixels, 100, 100), MARKER);
-    gpu.frame = 15;
-    assert!(
-        !gpu.update().await,
-        "a hidden cursor and steady text do not blink"
-    );
-}
-
-async fn check_blink_regions() {
-    let mut gpu = Display::new().await;
-    set_cell(&mut gpu.vga, 10, 0xdb, 0x84);
-    assert!(gpu.update().await);
-    let image = gpu.draw();
-    gpu.mark(&image, 0, 0);
-    // Jump across unchanged captures to the first invisible blink phase.
-    gpu.frame = 15;
-    assert!(gpu.update().await);
-    gpu.draw();
-    let pixels = gpu.pixels(&image).await;
-    assert_eq!(pixel(&pixels, 80, 0), [0, 0, 0, 255]);
-    assert_eq!(pixel(&pixels, 0, 0), MARKER);
-    gpu.frame = 31;
-    assert!(gpu.update().await);
-    gpu.draw();
-    let pixels = gpu.pixels(&image).await;
-    assert_eq!(pixel(&pixels, 80, 0), [170, 0, 0, 255]);
-    assert_eq!(pixel(&pixels, 0, 0), MARKER);
 }
 
 async fn check_programmed_text_regions() {
@@ -212,20 +161,6 @@ async fn check_programmed_text_regions() {
     assert_eq!(at(26, 16), MARKER);
     assert_eq!(at(27, 15), MARKER);
     assert_eq!(at(100, 100), MARKER);
-
-    gpu.mark(&image, 28, 17);
-    common::crtc(&mut gpu.vga, crtc::CURSOR_ADDRESS_LOW, 183);
-    common::crtc(&mut gpu.vga, crtc::CURSOR_START, 14);
-    common::crtc(&mut gpu.vga, crtc::CURSOR_END, 15);
-    gpu.clock.set(std::time::Duration::from_millis(60));
-    gpu.vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
-    assert_eq!(gpu.display.update(&gpu.queue).await, Some(true));
-    gpu.draw();
-    let pixels = gpu.pixels(&image).await;
-    let at = |x: usize, y: usize| &pixels[(y * 720 + x) * 4..(y * 720 + x + 1) * 4];
-    assert_eq!(at(27, 30), [0, 0, 170, 255]);
-    assert_eq!(at(28, 17), MARKER);
-    assert_eq!(at(100, 100), MARKER);
 }
 
 async fn check_full_fallbacks() {
@@ -233,6 +168,19 @@ async fn check_full_fallbacks() {
     set_cell(&mut gpu.vga, 0, 0xdb, 4);
     assert!(gpu.update().await);
     let image = gpu.draw();
+
+    // Any state change redraws fully, even if ordinary writes arrive before drawing.
+    gpu.mark(&image, 100, 100);
+    common::crtc(&mut gpu.vga, crtc::CURSOR_START, 6);
+    assert!(gpu.update().await);
+    set_cell(&mut gpu.vga, 2, 0xdb, 2);
+    assert!(gpu.update().await);
+    gpu.expect_full().await;
+
+    gpu.mark(&image, 100, 100);
+    gpu.frame = 15;
+    assert!(gpu.update().await); // Blink phase, with no guest writes.
+    gpu.expect_full().await;
 
     gpu.mark(&image, 100, 100);
     set_cell(&mut gpu.vga, 1, 0xdb, 2);
@@ -289,24 +237,13 @@ async fn check_full_fallbacks() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn retained_text_updates_cells_and_cursor_regions() {
-    pollster::block_on(check_cells_and_cursor());
+fn retained_text_updates_changed_cells() {
+    pollster::block_on(check_cell_regions());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn retained_text_updates_cells_and_cursor_regions() {
-    check_cells_and_cursor().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn retained_text_updates_only_blinking_cells() {
-    pollster::block_on(check_blink_regions());
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn retained_text_updates_only_blinking_cells() {
-    check_blink_regions().await;
+async fn retained_text_updates_changed_cells() {
+    check_cell_regions().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
