@@ -278,15 +278,16 @@ async fn check_completed_replacement() {
     .unwrap();
     let state = Rc::new(State::default());
     let mut runtime = support::create_cpu(state.clone(), config).await.unwrap();
-    let registration = Rc::new(());
+    let registration = Rc::new(String::from("registered service"));
     let released = Rc::downgrade(&registration);
     runtime
         .install_hooks([Hook::<Rc<State>>::new(0x400, async move |mut call| {
-            let registration = registration.clone();
+            // The retained future borrows the callback's capture across Pending.
+            let name = registration.as_str();
             let input = call.state.with(Clone::clone);
             let value = input.read().await;
             call.cpu.set_ax(value);
-            drop(registration);
+            assert_eq!(name, "registered service");
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         })])
         .await

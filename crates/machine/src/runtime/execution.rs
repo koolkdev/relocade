@@ -1,12 +1,17 @@
 //! Driver-owned machine and retained host invocations.
 
-use super::{access::Scope, call::Call, machine::Machine, Cpu, HookResult};
+use super::{
+    access::Scope,
+    call::{Call, CallPoll},
+    machine::Machine,
+    Cpu, HookResult,
+};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::{future::poll_fn, rc::Rc, task::Poll};
 
-pub(super) struct Execution<T> {
+pub(super) struct Execution<T: 'static> {
     // Cancellation drops the future without granting access, before its machine.
-    call: Option<Call>,
+    call: Option<Call<T>>,
     pub(super) machine: Machine<T>,
     access: Rc<Scope<T>>,
 }
@@ -45,26 +50,29 @@ impl<T: 'static> Execution<T> {
         // Further polls of the same waiter do not replenish the target.
         let mut budget = Some(budget);
         poll_fn(|cx| loop {
-            if let Some(call) = &mut self.call {
-                let Poll::Ready(result) = call.poll(&mut self.machine, &self.access, cx) else {
+            let result = if let Some(call) = self.call.take() {
+                call.resume(&mut self.machine, &self.access, cx)
+            } else {
+                match self.machine.dispatch(budget.take()) {
+                    ExecutionExit::Host(HostExit::Call { address }) => {
+                        let handler = Rc::clone(
+                            self.machine
+                                .hooks
+                                .get(&address)
+                                .expect("registered host entry"),
+                        );
+                        Call::start(&mut self.machine, &self.access, handler, cx)
+                    }
+                    exit => return Poll::Ready(exit),
+                }
+            };
+            match result {
+                CallPoll::Ready(HookResult::Continue) => {}
+                CallPoll::Ready(HookResult::Exit(exit)) => return Poll::Ready(exit),
+                CallPoll::Pending(call) => {
+                    self.call = Some(call);
                     return Poll::Pending;
-                };
-                self.call = None;
-                if let HookResult::Exit(exit) = result {
-                    return Poll::Ready(exit);
                 }
-            }
-            match self.machine.dispatch(budget.take()) {
-                ExecutionExit::Host(HostExit::Call { address }) => {
-                    let handler = Rc::clone(
-                        self.machine
-                            .hooks
-                            .get(&address)
-                            .expect("registered host entry"),
-                    );
-                    self.call = Some(Call::start(&self.machine, &self.access, handler));
-                }
-                exit => return Poll::Ready(exit),
             }
         })
         .await
