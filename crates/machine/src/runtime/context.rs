@@ -1,4 +1,4 @@
-//! Borrowed access to the machine executing a host service.
+//! Borrowed access for embedding code while the CPU is stopped.
 
 use crate::{CpuStorage, CpuView, IoBus, MemoryView};
 
@@ -7,7 +7,8 @@ use crate::{CpuStorage, CpuView, IoBus, MemoryView};
 /// The fields borrow separate resources and can be used together.
 /// Application state is captured by services independently of this context.
 /// A view can cross an ordinary await, keeping its machine borrow until it ends.
-/// Contexts cannot escape their handler or the borrow of [`super::Cpu`].
+/// Contexts cannot escape the borrow of [`super::Cpu`]. Host services receive
+/// [`super::HookCpu`] and capture their memory and I/O handles separately.
 /// Drop the context before resuming guest execution or installing modules.
 ///
 /// A live view excludes another run:

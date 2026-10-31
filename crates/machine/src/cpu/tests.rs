@@ -13,6 +13,10 @@ struct ScopedStorage<'a> {
 }
 
 impl CpuAccess for ScopedStorage<'_> {
+    fn is_bound(&self) -> bool {
+        self.active.get()
+    }
+
     fn with<R>(&self, operation: impl FnOnce(&CpuStorage<'_>) -> R) -> R {
         assert!(self.active.get(), "inactive storage");
         operation(&self.storage.borrow())

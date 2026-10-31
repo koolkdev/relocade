@@ -28,6 +28,12 @@ pub type CpuStorage<'a> = FixedMemoryAccess<'a, { size_of::<ExecutionContext>() 
 /// }
 /// ```
 pub trait CpuAccess {
+    /// Whether storage is currently available. Directly borrowed providers are
+    /// always bound; scoped providers can revoke access between future polls.
+    fn is_bound(&self) -> bool {
+        true
+    }
+
     fn with<R>(&self, operation: impl FnOnce(&CpuStorage<'_>) -> R) -> R;
     fn with_mut<R>(&mut self, operation: impl FnOnce(&mut CpuStorage<'_>) -> R) -> R;
 }
@@ -85,6 +91,21 @@ impl<A: CpuAccess> CpuView<A> {
             #[cfg(test)]
             reads: Default::default(),
         }
+    }
+
+    /// Whether this view currently has CPU access. Cancellation drops a retained
+    /// future without a binding; destructors must skip CPU cleanup then.
+    #[inline]
+    pub fn is_bound(&self) -> bool {
+        self.storage.is_bound()
+    }
+
+    /// Runs a synchronous batch with one access validation. The borrowed view
+    /// cannot escape this callback or overlap another access through `self`.
+    pub fn with<R>(&mut self, operation: impl FnOnce(&mut CpuView<CpuStorage<'_>>) -> R) -> R {
+        let target = self.target;
+        self.storage
+            .with_mut(|storage| operation(&mut CpuView::new(target, storage.reborrow())))
     }
 
     register!(eax, set_eax, u32, eax, 0);

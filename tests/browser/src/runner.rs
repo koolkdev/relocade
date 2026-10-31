@@ -113,13 +113,17 @@ pub async fn runner_workers() -> Result<(), String> {
             let mut cpu = Cpu::new(memory.clone(), config, io).await.unwrap();
             if pending_service {
                 let probe = probe.clone();
-                cpu.install_hooks([Hook::new(0x100, async move |call| {
-                    let _keep_alive = &probe;
-                    let memory = &mut call.memory;
-                    memory.write_u16(0x300, 2).unwrap();
-                    pending::<()>().await;
-                    memory.write_u16(0x300, 3).unwrap();
-                    HookResult::Continue
+                cpu.install_hooks([Hook::new(0x100, {
+                    let resources = cpu.memory();
+                    async move |_cpu| {
+                        let mut memory = resources.view();
+
+                        let _keep_alive = &probe;
+                        memory.write_u16(0x300, 2).unwrap();
+                        pending::<()>().await;
+                        memory.write_u16(0x300, 3).unwrap();
+                        HookResult::Continue
+                    }
                 })])
                 .await
                 .unwrap();

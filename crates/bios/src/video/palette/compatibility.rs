@@ -1,7 +1,7 @@
 //! The legacy BIOS color service programs VGA Attribute Controller registers.
 use super::{modes, unsupported, write_attribute};
 use crate::screen;
-use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus, MemoryView};
+use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
 use relocade_vga::registers::attribute;
 
 // CGA register shadows in the BIOS data area, not emulated CGA I/O ports.
@@ -21,7 +21,7 @@ pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>, mode: u8) {
         .expect("video compatibility shadows");
 }
 
-pub(in crate::video) fn interrupt(call: &mut CpuContext<'_>) -> HookResult {
+pub(in crate::video) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
     let value = call.cpu.bl();
     let previous = call
         .memory
@@ -51,7 +51,7 @@ pub(in crate::video) fn interrupt(call: &mut CpuContext<'_>) -> HookResult {
         }
         _ => return unsupported(call),
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }
 
 fn foreground_palette(io: &IoBus, shadow: u8) {

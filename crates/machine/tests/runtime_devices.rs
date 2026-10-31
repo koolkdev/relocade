@@ -85,9 +85,9 @@ async fn check_devices() {
     assert_eq!(cpu.run(20).await, ExecutionExit::BudgetExhausted);
     let before = memory.view().read_u16(0x300).unwrap();
     let service_clock = clock.clone();
-    cpu.install_hooks([Hook::new(0x100, async move |call| {
+    cpu.install_hooks([Hook::new(0x100, async move |mut cpu| {
         service_clock.sleep(Duration::from_millis(5)).await;
-        call.cpu.set_eip(0x200);
+        cpu.set_eip(0x200);
         HookResult::Continue
     })])
     .await

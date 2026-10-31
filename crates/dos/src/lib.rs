@@ -155,7 +155,7 @@ impl Dos {
         cpu.install_hooks(
             kernel::hooks(Rc::clone(&state))
                 .into_iter()
-                .chain(relocade_bios::hooks(keyboard)),
+                .chain(relocade_bios::hooks(state.memory().clone(), keyboard)),
         )
         .await?;
         Ok(Self { state, cpu, vga })

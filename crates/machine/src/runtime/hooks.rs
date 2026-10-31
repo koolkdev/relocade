@@ -2,20 +2,35 @@ use relocade_compiler::Program;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionExitValues, HostExitValues};
 
-use super::{Cpu, CpuContext, DispatchEntry, Result};
+use super::{Cpu, DispatchEntry, HookCpu, Result};
 use futures_util::future::LocalBoxFuture;
-use std::rc::Rc;
+use std::{
+    future::Future,
+    rc::Rc,
+    task::{Context, Poll},
+};
+
+pub(super) enum Started<'call> {
+    Ready(HookResult),
+    Pending(LocalBoxFuture<'call, HookResult>),
+}
 
 pub(super) trait Handler {
-    fn call<'a>(&'a self, context: &'a mut CpuContext<'_>) -> LocalBoxFuture<'a, HookResult>;
+    fn start<'call>(&'call self, cpu: HookCpu<'call>, cx: &mut Context<'_>) -> Started<'call>;
 }
 
 impl<F> Handler for F
 where
-    F: AsyncFn(&mut CpuContext<'_>) -> HookResult,
+    F: for<'call> AsyncFn(HookCpu<'call>) -> HookResult,
 {
-    fn call<'a>(&'a self, context: &'a mut CpuContext<'_>) -> LocalBoxFuture<'a, HookResult> {
-        Box::pin(self(context))
+    fn start<'call>(&'call self, cpu: HookCpu<'call>, cx: &mut Context<'_>) -> Started<'call> {
+        // Pin before the first poll: locals may already borrow one another when
+        // this future first suspends. Erase its type only if it remains pending.
+        let mut future = Box::pin(self(cpu));
+        match future.as_mut().poll(cx) {
+            Poll::Ready(result) => Started::Ready(result),
+            Poll::Pending => Started::Pending(future),
+        }
     }
 }
 
@@ -29,18 +44,53 @@ pub enum HookResult {
     Exit(ExecutionExit),
 }
 
-/// A host function reached at a guest linear address through ordinary dispatch.
-/// Application state belongs to the service's captures.
+/// A host service reached at a guest entry. Its ordinary async handler receives
+/// a unique CPU capability; it captures memory, I/O and application resources.
+/// No backend borrow or application-state guard is held across a pending await.
 ///
 /// ```
-/// use relocade_machine::{Hook, HookResult};
+/// use relocade_machine::{Hook, HookResult, Memory};
 /// use relocade_x86::{ExecutionExit, HostExit};
+/// fn service(memory: Memory) -> Hook {
+///     Hook::new(0xf0100, async move |mut cpu| {
+///         let value = std::future::ready(42).await;
+///         cpu.set_ax(value);
+///         memory.view().write_u16(0x200, value).unwrap();
+///         HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+///     })
+/// }
+/// ```
 ///
-/// let exit_code = std::rc::Rc::new(std::cell::Cell::new(None));
-/// let hook = Hook::new(0xf0100, async move |call| {
-///     exit_code.set(Some(call.cpu.al()));
-///     HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+/// A capability cannot escape into handler captures or another task:
+/// ```compile_fail
+/// use relocade_machine::{Hook, HookCpu, HookResult};
+/// use std::{cell::RefCell, rc::Rc};
+/// let saved: Rc<RefCell<Option<HookCpu<'static>>>> = Rc::default();
+/// let hook = Hook::new(0x100, async move |cpu| {
+///     *saved.borrow_mut() = Some(cpu);
+///     HookResult::Continue
 /// });
+/// ```
+/// CPU capabilities cannot be cloned:
+/// ```compile_fail
+/// use relocade_machine::HookCpu;
+/// fn duplicate(cpu: HookCpu<'_>) { let _other = cpu.clone(); }
+/// ```
+/// A borrowed synchronous batch excludes another CPU access:
+/// ```compile_fail
+/// use relocade_machine::{Hook, HookResult};
+/// let hook = Hook::new(0x100, async |mut cpu| {
+///     cpu.with(|view| { cpu.set_ax(1); view.set_bx(2); });
+///     HookResult::Continue
+/// });
+/// ```
+/// The borrowed storage cannot escape a batch:
+/// ```compile_fail
+/// use relocade_machine::HookCpu;
+/// fn escape(cpu: &mut HookCpu<'_>) {
+///     let escaped = cpu.with(|view| view);
+///     escaped.set_ax(1);
+/// }
 /// ```
 pub struct Hook {
     address: u32,
@@ -55,7 +105,7 @@ impl Hook {
     /// data stay on the CPU's thread and do not need Send or Sync.
     pub fn new<F>(address: u32, handler: F) -> Self
     where
-        F: AsyncFn(&mut CpuContext<'_>) -> HookResult + 'static,
+        F: for<'call> AsyncFn(HookCpu<'call>) -> HookResult + 'static,
     {
         Self {
             address,
@@ -71,13 +121,14 @@ impl Cpu {
     /// Entries begin with CPU state already published by the predecessor. They
     /// cache no CPU values across the host call. Hooks do not retire guest
     /// instructions; continuing execution retains the current instruction target.
-    /// Handlers borrow the machine across ordinary awaits and complete in Rust
-    /// before guest execution resumes. Dropping a run waiter preserves that call.
+    /// The driver binds CPU storage only while polling a handler. Pending calls
+    /// retain their locals and captured resources; ready awaits continue in the
+    /// same poll. Dropping a run waiter preserves that call.
     ///
     /// # Panics
     /// Panics if a service is suspended. Complete it before installing.
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
-        let machine = self.execution.machine_mut();
+        let machine = self.machine_mut();
         let hooks: Vec<_> = hooks.into_iter().collect();
         let names: Vec<_> = (0..hooks.len())
             .map(|index| format!("hook_{index}"))

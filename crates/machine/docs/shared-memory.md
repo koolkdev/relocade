@@ -35,7 +35,8 @@ local bus. Accessing MMIO without one is a programming error and panics.
 Borrowing the local handle does not exclude access through other shared handles.
 
 `CpuContext` lends separate `cpu`, `memory` and `io` fields during stopped
-access and host services. The CPU-register and guest-memory views can be borrowed
+embedding access. Host services receive `HookCpu` and capture `Memory` or
+`MemoryBus` for guest memory and I/O. The CPU-register and guest-memory views can be borrowed
 together:
 
 ```rust
@@ -49,8 +50,8 @@ Those views and the context borrow the stopped CPU. Drop the context before
 resuming execution or installing modules. `cpu.memory()` returns an owned
 handle whose lifetime is independent of execution.
 
-A suspended service keeps its machine borrow; complete it before calling
-`cpu.context()` again. Independent `Memory` handles remain usable during
+A suspended service retains its CPU capability without a backend borrow.
+Complete it before calling `cpu.context()` again. Independent `Memory` handles remain usable during
 execution, while a service awaits input, and after CPU destruction.
 
 Pass `memory.backing().clone()` directly as a worker task's context.
@@ -90,7 +91,7 @@ let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone()).await?;
 The board's physical map must mark that memory range `PhysicalMapping::Mmio`.
 The device owns its storage; it does not use guest RAM backing. CPU-context memory
 transfers and guest instructions route to the same device, after A20 translation.
-BIOS services use `CpuContext.io` for port operations. Unconnected ranges retain
+BIOS services use the captured `MemoryBus::io()` for port operations. Unconnected ranges retain
 the open-bus behavior: FF reads and ignored writes. A host operation on the same
 worker can retain memory and device routing together:
 

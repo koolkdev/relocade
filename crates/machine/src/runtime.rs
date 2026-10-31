@@ -7,11 +7,11 @@
 //! for native and web engines. [`Cpu::run`] awaits host operations
 //! between synchronous Wasm calls.
 //!
-//! A retained execution future owns the machine from its first host service until
-//! execution stops. Services borrow it through ordinary async calls and keep local
-//! values across waits. CPU views borrow the backend directly; their accesses need
-//! no handle lookup or invocation check. Application resources belong to the
-//! registered services that capture them.
+//! The CPU owns its backend directly. A service receives a unique [`HookCpu`]
+//! capability, whose storage is bound only for the duration of each future poll.
+//! Register operations use that binding without reacquiring the backend. Services
+//! capture their application resources and memory handles, and keep ordinary
+//! local values and references across waits.
 //!
 //! A pending service survives dropping its run waiter. Dropping the CPU ends
 //! the call chain and destroys the machine without undoing completed effects.
@@ -33,8 +33,10 @@
 //!     Ok(())
 //! }
 //! ```
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
+#[allow(unsafe_code)]
+mod call;
 mod code;
 mod context;
 mod dispatch;
@@ -47,23 +49,25 @@ mod memory;
 pub mod real_mode_interrupt;
 
 use crate::{CpuConfig, IoBus, Memory};
+use call::{AccessScope, Call};
+pub use call::{HookCpu, ScopedAccess};
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-use execution::Execution;
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu {
-    execution: Execution,
-    memory: Memory,
+    pending: Option<Call>,
+    machine: Machine,
+    access: Rc<AccessScope>,
 }
 
 impl Cpu {
@@ -83,8 +87,9 @@ impl Cpu {
             hooks: HashMap::new(),
         };
         Ok(Self {
-            execution: Execution::new(machine),
-            memory,
+            pending: None,
+            machine,
+            access: Rc::default(),
         })
     }
 
@@ -105,7 +110,7 @@ impl Cpu {
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let machine = self.execution.machine_mut();
+        let machine = self.machine_mut();
         let compiler = machine.backend.compiler();
         let module = compiler.compile(bytes).await?;
         machine
@@ -124,12 +129,20 @@ impl Cpu {
     /// # Panics
     /// Panics if a service is suspended. Complete it to regain access.
     pub fn context(&mut self) -> CpuContext<'_> {
-        self.execution.machine_mut().context()
+        self.machine_mut().context()
+    }
+
+    fn machine_mut(&mut self) -> &mut Machine {
+        assert!(
+            self.pending.is_none(),
+            "host service is suspended; complete it before accessing the machine"
+        );
+        &mut self.machine
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.
     /// Clones share guest bytes; CPU and dispatch storage remain private.
     pub fn memory(&self) -> Memory {
-        self.memory.clone()
+        self.machine.bindings.guest.clone()
     }
 }

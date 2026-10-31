@@ -48,22 +48,26 @@ async fn check_timing() {
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     let captured = input.clone();
-    cpu.install_hooks([Hook::new(0x200, async move |call| {
-        let memory = &mut call.memory;
-        let input = &captured;
-        input.calls.set(input.calls.get() + 1);
-        let value = input.calls.get() as u16;
-        let saved = &value;
-        poll_fn(|_| {
-            if input.ready.replace(false) {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-        memory.write_u16(0x300, *saved).unwrap();
-        real_mode_interrupt::return_from_interrupt(call)
+    cpu.install_hooks([Hook::new(0x200, {
+        let resources = cpu.memory();
+        async move |mut cpu| {
+            let mut memory = resources.view();
+
+            let input = &captured;
+            input.calls.set(input.calls.get() + 1);
+            let value = input.calls.get() as u16;
+            let saved = &value;
+            poll_fn(|_| {
+                if input.ready.replace(false) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+            memory.write_u16(0x300, *saved).unwrap();
+            real_mode_interrupt::return_from_interrupt(&mut cpu)
+        }
     })])
     .await
     .unwrap();

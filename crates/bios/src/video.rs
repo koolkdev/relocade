@@ -10,7 +10,7 @@ pub(super) use fonts::Glyph;
 pub(super) use modes::{set_mode, COLOR_TEXT_80X25};
 
 use crate::screen::{self, ScrollDirection, Window};
-use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus, MemoryView};
+use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
 use relocade_vga::registers::{CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT, MONO_CRTC_INDEX_PORT};
 
 // Firmware video data in segment 0040h.
@@ -34,7 +34,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");
 }
 
-pub(super) async fn interrupt(call: &mut CpuContext<'_>) -> HookResult {
+pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
     let cpu = &call.cpu;
     let function = cpu.ah();
     let al = cpu.al();
@@ -132,7 +132,7 @@ pub(super) async fn interrupt(call: &mut CpuContext<'_>) -> HookResult {
         }
         _ => return unsupported(call),
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }
 
 fn write_indexed(io: &IoBus, port: u16, register: u8, value: u8) {
@@ -165,8 +165,8 @@ fn crtc_port(io: &IoBus) -> u16 {
     }
 }
 
-fn unsupported(call: &mut CpuContext<'_>) -> HookResult {
+fn unsupported(call: &mut crate::BiosContext<'_>) -> HookResult {
     call.cpu.set_ah(0x86);
-    real_mode_interrupt::set_carry(call, true);
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::set_carry(&call.cpu, &mut call.memory, true);
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }

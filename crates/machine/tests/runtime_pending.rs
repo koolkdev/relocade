@@ -114,30 +114,33 @@ async fn check_pending_calls() {
         .unwrap();
     let captured = state.clone();
     runtime
-        .install_hooks([Hook::new(0x200, async move |call| {
-            // Distinct fields stay borrowed together through both awaits.
-            let cpu = &mut call.cpu;
-            let memory = &mut call.memory;
-            let state = &captured;
-            state.started.set(state.started.get() + 1);
-            let operation = Operation(state.clone());
-            let first = operation.0.read().await;
-            cpu.set_bx(first);
-            operation
-                .0
-                .first_awaits
-                .set(operation.0.first_awaits.get() + 1);
-            // This reference to a local remains valid while the future is pinned.
-            let values = [first];
-            let saved = &values[0];
-            let second = operation.0.read().await;
-            assert_eq!(cpu.bx(), *saved);
-            let sum = *saved + second;
-            cpu.set_bx(sum);
-            drop(operation);
-            state.completed.set(state.completed.get() + 1);
-            memory.write(0x300, &sum.to_le_bytes()).unwrap();
-            real_mode_interrupt::return_from_interrupt(call)
+        .install_hooks([Hook::new(0x200, {
+            let resources = runtime.memory();
+            async move |mut cpu| {
+                let mut memory = resources.view();
+
+                // Distinct fields stay borrowed together through both awaits.
+                let state = &captured;
+                state.started.set(state.started.get() + 1);
+                let operation = Operation(state.clone());
+                let first = operation.0.read().await;
+                cpu.set_bx(first);
+                operation
+                    .0
+                    .first_awaits
+                    .set(operation.0.first_awaits.get() + 1);
+                // This reference to a local remains valid while the future is pinned.
+                let values = [first];
+                let saved = &values[0];
+                let second = operation.0.read().await;
+                assert_eq!(cpu.bx(), *saved);
+                let sum = *saved + second;
+                cpu.set_bx(sum);
+                drop(operation);
+                state.completed.set(state.completed.get() + 1);
+                memory.write(0x300, &sum.to_le_bytes()).unwrap();
+                real_mode_interrupt::return_from_interrupt(&mut cpu)
+            }
         })])
         .await
         .unwrap();
@@ -226,14 +229,14 @@ async fn check_pending_calls() {
         .write(0x500, &[0x0f, 0x0b]) // UD2: completing must not enter the guest.
         .unwrap();
     runtime
-        .install_hooks([Hook::new(0x400, async |call| {
+        .install_hooks([Hook::new(0x400, async move |mut cpu| {
             // Completion returns directly even if the continuation names guest code.
-            call.cpu.set_eip(0x500);
+            cpu.set_eip(0x500);
             let value = std::future::ready(99).await;
-            call.cpu.set_bx(value);
+            cpu.set_bx(value);
             let value = std::future::ready(value + 1).await;
-            assert_eq!(call.cpu.bx(), 99);
-            call.cpu.set_cx(value);
+            assert_eq!(cpu.bx(), 99);
+            cpu.set_cx(value);
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         })])
         .await
@@ -281,10 +284,10 @@ async fn check_completed_replacement() {
     let released = Rc::downgrade(&registration);
     let input = state.clone();
     runtime
-        .install_hooks([Hook::new(0x400, async move |call| {
+        .install_hooks([Hook::new(0x400, async move |mut cpu| {
             let registration = registration.clone();
             let value = input.read().await;
-            call.cpu.set_ax(value);
+            cpu.set_ax(value);
             drop(registration);
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         })])
@@ -299,8 +302,8 @@ async fn check_completed_replacement() {
     // the final owner of its captures.
     assert!(released.upgrade().is_some());
     runtime
-        .install_hooks([Hook::new(0x400, async |call| {
-            call.cpu.set_ax(99);
+        .install_hooks([Hook::new(0x400, async move |mut cpu| {
+            cpu.set_ax(99);
             HookResult::Exit(ExecutionExit::Host(HostExit::Return))
         })])
         .await
@@ -320,4 +323,72 @@ fn completion_allows_replacement_and_releases_the_old_registration() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn completion_allows_replacement_and_releases_the_old_registration() {
     check_completed_replacement().await;
+}
+
+struct Completion<'a> {
+    cpu: relocade_machine::HookCpu<'a>,
+    first: bool,
+}
+
+impl Future for Completion<'_> {
+    type Output = HookResult;
+    fn poll(mut self: std::pin::Pin<&mut Self>, _: &mut Context<'_>) -> Poll<HookResult> {
+        if std::mem::replace(&mut self.first, false) {
+            Poll::Pending
+        } else {
+            Poll::Ready(HookResult::Exit(ExecutionExit::Host(HostExit::Return)))
+        }
+    }
+}
+
+impl Drop for Completion<'_> {
+    fn drop(&mut self) {
+        if self.cpu.is_bound() {
+            self.cpu.set_ax(55);
+        }
+    }
+}
+
+fn custom_completion(mut cpu: relocade_machine::HookCpu<'_>) -> Completion<'_> {
+    cpu.set_bx(99);
+    Completion { cpu, first: true }
+}
+
+async fn check_custom_completion() {
+    let config = support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x400,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+        0x10000,
+        PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
+    )
+    .unwrap();
+    let mut cpu = support::create_cpu(config).await.unwrap();
+    cpu.install_hooks([Hook::new(0x400, custom_completion)])
+        .await
+        .unwrap();
+    assert_pending(cpu.run(1));
+    // The binding allocation stays stable when its owning CPU moves.
+    let mut moved = Box::new(cpu);
+    assert_eq!(moved.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(moved.context().cpu.ax(), 55);
+    assert_eq!(moved.context().cpu.bx(), 99);
+    assert_pending(moved.run(1));
+    // Cancellation runs the custom destructor with CPU access revoked.
+    drop(moved);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn custom_future_keeps_access_through_completion_after_the_cpu_moves() {
+    pollster::block_on(check_custom_completion());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn custom_future_keeps_access_through_completion_after_the_cpu_moves() {
+    check_custom_completion().await;
 }
