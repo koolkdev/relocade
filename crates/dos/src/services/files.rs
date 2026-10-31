@@ -9,6 +9,7 @@ use relocade_machine::HookResult;
 use relocade_x86::Segment;
 
 mod io;
+mod transfer;
 pub(super) use io::{read, write};
 
 /// AH=71h: report that long-filename services are absent so callers can use 8.3.

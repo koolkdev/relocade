@@ -103,8 +103,8 @@ pub(super) async fn read_buffered(call: &mut DosContext<'_, '_>) -> HookResult {
     let segment = call.execution.cpu.segment(Segment::Ds);
     let offset = call.execution.cpu.dx();
     let mut capacity = [0];
-    call.execution
-        .memory
+    let mut memory = call.dos.memory().view();
+    memory
         .read_segment(&segment, u32::from(offset), &mut capacity)
         .expect("real-mode line buffer");
     if capacity[0] == 0 {
@@ -115,14 +115,13 @@ pub(super) async fn read_buffered(call: &mut DosContext<'_, '_>) -> HookResult {
         Err(error) => return return_result(call, Err(error)),
     };
     let output = call.stdout();
-    let bytes = match read_line(&call.dos.stdio().input, &input, capacity[0], &output).await {
+    let bytes = match read_line(&call.dos.stdio().input, &input, capacity[0], output).await {
         Ok(bytes) => bytes,
         Err(error) => return return_result(call, Err(error)),
     };
     let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
-    let memory = &mut call.execution.memory;
-    write_wrapping(memory, &segment, offset.wrapping_add(1), &[count]);
-    write_wrapping(memory, &segment, offset.wrapping_add(2), &bytes);
+    write_wrapping(&mut memory, &segment, offset.wrapping_add(1), &[count]);
+    write_wrapping(&mut memory, &segment, offset.wrapping_add(2), &bytes);
     return_from_interrupt(call.execution)
 }
 
@@ -130,17 +129,18 @@ pub(super) async fn read_buffered(call: &mut DosContext<'_, '_>) -> HookResult {
 pub(super) fn write_string(call: &mut DosContext<'_, '_>) -> HookResult {
     let segment = call.execution.cpu.segment(Segment::Ds);
     let start = call.execution.cpu.dx();
+    let memory = call.dos.memory().view();
+    let output = call.stdout();
     for index in 0..=u16::MAX {
         let mut byte = [0];
-        call.execution
-            .memory
+        memory
             .read_segment(&segment, u32::from(start.wrapping_add(index)), &mut byte)
             .expect("real-mode byte address");
         if byte[0] == b'$' {
             call.execution.cpu.set_al(b'$');
             return return_from_interrupt(call.execution);
         }
-        call.stdout().write_cooked(byte[0]);
+        output.write_cooked(byte[0]);
     }
     call.exit(Err(ServiceError::UnterminatedString))
 }
