@@ -2061,6 +2061,7 @@ name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
  "relocade-machine",
+ "relocade-peripherals",
  "relocade-vga",
  "relocade-x86",
 ]
@@ -2118,6 +2119,7 @@ dependencies = [
  "pollster",
  "relocade-bios",
  "relocade-machine",
+ "relocade-peripherals",
  "relocade-vfs",
  "relocade-vga",
  "relocade-x86",
@@ -2152,6 +2154,7 @@ dependencies = [
 name = "relocade-peripherals"
 version = "0.0.0"
 dependencies = [
+ "futures-channel",
  "relocade-renderer",
  "wgpu",
 ]

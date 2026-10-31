@@ -5,3 +5,6 @@
 
 #[cfg(feature = "display")]
 pub mod display;
+
+#[cfg(feature = "keyboard")]
+pub mod keyboard;

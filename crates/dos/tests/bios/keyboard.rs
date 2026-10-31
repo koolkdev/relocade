@@ -206,3 +206,48 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
     });
 }
+
+#[test]
+fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
+    use relocade_machine::{timer_service, Runner};
+    use relocade_peripherals::keyboard::{KeyCode, KeyboardEvent};
+    pollster::block_on(async {
+        let (clock, timers) = timer_service();
+        let timer_thread = std::thread::spawn(|| pollster::block_on(timers.run()));
+        let runner = Runner::with_clock(clock);
+        let mut dos = Dos::new(&runner).await.unwrap();
+        // BIOS reads AX into memory; DOS then reads another character and exits with it.
+        dos.launch_com(
+            &[
+                0xb4, 0, 0xcd, 0x16, 0xa3, 0, 3, 0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21,
+            ],
+            Default::default(),
+        )
+        .unwrap();
+        let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
+        let memory = dos.cpu().memory();
+        let input = dos.keyboard_input();
+        {
+            let mut running = pin!(runner.run(async |runner| dos.run(runner).await));
+            common::assert_pending(running.as_mut());
+            std::thread::spawn(move || {
+                for (code, text) in [(KeyCode::KeyA, "A"), (KeyCode::KeyB, "b")] {
+                    input
+                        .unbounded_send(KeyboardEvent::Key {
+                            code,
+                            text: Some(text.into()),
+                            pressed: true,
+                            repeat: false,
+                        })
+                        .unwrap();
+                }
+            })
+            .join()
+            .unwrap();
+            assert_eq!(running.await, Ok(b'b'));
+        }
+        assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 0x1e41);
+        drop(dos);
+        timer_thread.join().unwrap();
+    });
+}
