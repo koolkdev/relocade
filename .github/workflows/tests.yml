@@ -58,6 +58,7 @@ jobs:
           xvfb-run -a cargo test -p relocade-app --test window --locked -- --ignored
           xvfb-run -a cargo test -p relocade-app --features graphics --test surface --locked -- --ignored
           xvfb-run -a cargo test -p relocade-app --features graphics --test graphics --locked -- --ignored
+          xvfb-run -a cargo test -p relocade-app --features graphics --test recovery --locked -- --ignored
 
   web:
     name: Browser tests

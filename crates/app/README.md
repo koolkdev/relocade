@@ -120,8 +120,30 @@ graphics connection stops the worker's activity. The separate completion future
 reports startup and GPU errors and retains the worker until its Rust resources
 have been released. Keep polling it through shutdown. Browser work yields to the
 event loop so continuously ready updates cannot starve WebGPU callbacks; this does
-not generate redraw demand. Surface loss is reported, without automatic recreation.
+not generate redraw demand.
 
 The worker handles source updates, redraw requests and GPU failures in one loop.
 Drawing one frame reports whether presentation was requested, skipped or should
 be retried.
+
+On GPU-device loss, graphics releases its drawing resources and calls the existing
+display's `device_lost()` hook before requesting a replacement device. It then
+calls `attach_device(device, queue)` on that same display. The worker, connection,
+source and logical backend state stay alive; the initial factory is not rerun.
+
+Successful rebinding means the host can service the connection again. The backend
+may return no image while processing a guest reset through `update`. It decides
+when to resume output. VGA restores its latest capture automatically; the host
+does not impose that policy on other display implementations.
+
+Pending requests still coalesce to the newest size during recovery. Rebinding
+failure, or another loss before the replacement requests presentation, ends the
+connection with an error. Issuing a presentation request permits recovery from a
+later loss; this does not wait for GPU completion. Normal shutdown cancels recovery
+and releases its state.
+
+Acquisition can report `Lost` before the asynchronous device-loss callback arrives,
+so it also permits one replacement device against the existing target. If the
+replacement still cannot present, graphics reports the loss. This does not recreate
+the platform surface: doing that can require main-thread participation, which
+remains application lifecycle work. Validation failures are terminal.

@@ -35,6 +35,8 @@ impl Graphics {
     /// `notify_redraw_needed` runs on graphics and asks the app to schedule
     /// a redraw opportunity. Notifications coalesce until `request_redraw`
     /// is called.
+    /// Device loss replaces the host GPU on this same worker. Replacement failure
+    /// or a replacement lost before presentation ends the connection with an error.
     /// Poll the completion future alongside the application to observe startup
     /// and runtime failures. It retains the worker through owner-local cleanup.
     pub fn spawn<D: DisplayRenderer + 'static>(
