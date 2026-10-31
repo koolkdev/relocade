@@ -1,6 +1,7 @@
 //! DOS character reads, readiness, and flushing over a resolved handle.
 
 use crate::{
+    console::CharacterOutput,
     error::DosError,
     files::{Device, Handle},
 };
@@ -53,4 +54,19 @@ pub(super) async fn read_character(input: &Handle, keyboard: &Keyboard) -> Resul
         // source yet, and a redirected read must not consume console input.
         None => pending().await,
     }
+}
+
+/// Edits a line with capacity for its final carriage return.
+pub(in crate::services) async fn read_line(
+    input: &Keyboard,
+    source: &Handle,
+    capacity: u8,
+    output: CharacterOutput<'_>,
+) -> Result<Vec<u8>, DosError> {
+    crate::console::edit_line(
+        async || read_character(source, input).await,
+        capacity,
+        output,
+    )
+    .await
 }

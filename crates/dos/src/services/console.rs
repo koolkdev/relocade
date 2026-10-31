@@ -10,11 +10,7 @@ use relocade_machine::{
 use relocade_x86::Segment;
 
 mod input;
-mod line;
-mod output;
-pub(super) use input::available as input_available;
-pub(super) use line::read_line;
-pub(crate) use output::{CharacterOutput, Console};
+pub(super) use input::{available as input_available, read_line};
 
 /// AH=0Ch: flush stdin, then complete AL's input service in the current interrupt frame.
 pub(super) async fn flush_input(call: &mut DosContext<'_, '_>) -> HookResult {
