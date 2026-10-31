@@ -55,6 +55,14 @@ synchronous; the execution task awaits services after those calls return.
 
 ## Task lifetime
 
+For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, session)`
+creates the timer service and drives it on the caller while the session runs on
+execution. It returns the session result on completion, or `None` after the stop
+signal and worker cleanup. The stop signal's value is ignored. Await the whole
+operation; dropping it early is not orderly shutdown. The timer service ends with
+the session. Use `spawn` with an externally driven clock when clock handles must
+remain usable afterward or the embedding needs separate control.
+
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
 `ExecutionWorker` wraps the runner in `Abortable`; the runner owns CPU/device

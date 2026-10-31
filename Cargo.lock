@@ -2130,10 +2130,15 @@ dependencies = [
 name = "relocade-dos-app"
 version = "0.0.0"
 dependencies = [
+ "futures-channel",
  "futures-lite",
  "pollster",
+ "relocade-app",
  "relocade-dos",
  "relocade-machine",
+ "relocade-vga",
+ "wasm-bindgen",
+ "x11rb",
 ]
 
 [[package]]
