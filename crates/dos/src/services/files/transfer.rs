@@ -3,7 +3,8 @@
 use crate::{
     error::DosError,
     files::{Device, Handle},
-    services::console::{read_line, Console},
+    services::console::read_line,
+    Console,
 };
 
 // DOS's console handle buffer allows 127 input bytes plus CR; reads also return LF.
@@ -47,7 +48,7 @@ pub(super) async fn read(
                             .await?;
                     let eof = bytes.first() == Some(&0x1a);
                     device.set_eof(eof);
-                    console.write(stream, b"\n");
+                    console.write_stream(stream, b"\n");
                     if !eof {
                         bytes.push(b'\n');
                         console.stdio.buffer_line(bytes);
@@ -76,7 +77,7 @@ pub(super) fn write(
             Device::Console(stream) => {
                 device.set_eof(false);
                 if device.raw() {
-                    console.write(stream, bytes);
+                    console.write_stream(stream, bytes);
                     return Ok(bytes.len());
                 }
                 // Cooked writes stop before Ctrl-Z and count source bytes, including tabs.

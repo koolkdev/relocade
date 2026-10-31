@@ -3,21 +3,14 @@
 use crate::{
     error::DosError,
     files::{Device, Handle},
-    stdio::{OutputStream, Stdio},
+    stdio::OutputStream,
+    Console,
 };
-use relocade_machine::MemoryBus;
-
-/// Console services need memory and devices, without any CPU access.
-#[derive(Clone, Copy)]
-pub(crate) struct Console<'a> {
-    pub(crate) stdio: &'a Stdio,
-    pub(crate) memory: &'a MemoryBus,
-}
 
 impl<'a> Console<'a> {
-    pub(crate) fn write(&self, stream: OutputStream, bytes: &[u8]) {
+    pub(crate) fn write_stream(&self, stream: OutputStream, bytes: &[u8]) {
         self.stdio.output(stream).extend(bytes);
-        relocade_bios::write_text(&mut self.memory.view(), self.memory.io(), bytes);
+        self.write_video(bytes);
     }
 
     pub(crate) fn output(self, destination: Result<Handle, DosError>) -> CharacterOutput<'a> {
@@ -33,9 +26,17 @@ impl<'a> Console<'a> {
             destination: Destination::Console(stream),
         }
     }
+
+    pub(crate) fn screen(self) -> CharacterOutput<'a> {
+        CharacterOutput {
+            console: self,
+            destination: Destination::Screen,
+        }
+    }
 }
 
 enum Destination {
+    Screen,
     Handle(Result<Handle, DosError>),
     Console(OutputStream),
 }
@@ -59,7 +60,8 @@ impl CharacterOutput<'_> {
     /// Character output preserves console EOF; only handle writes clear it.
     pub(crate) fn write(&self, bytes: &[u8]) -> Result<(), DosError> {
         match &self.destination {
-            Destination::Console(stream) => self.console.write(*stream, bytes),
+            Destination::Screen => self.console.write_video(bytes),
+            Destination::Console(stream) => self.console.write_stream(*stream, bytes),
             Destination::Handle(Err(error)) => return Err(*error),
             Destination::Handle(Ok(Handle::File(file))) => {
                 if !bytes.is_empty() {
@@ -67,7 +69,7 @@ impl CharacterOutput<'_> {
                 }
             }
             Destination::Handle(Ok(Handle::Device(device))) => match device.kind() {
-                Device::Console(stream) => self.console.write(stream, bytes),
+                Device::Console(stream) => self.console.write_stream(stream, bytes),
                 Device::Null => {}
                 Device::Auxiliary | Device::Printer => return Err(DosError::AccessDenied),
             },
