@@ -1,5 +1,5 @@
 use crate::{FrameSource, VgaImage, VgaRenderer};
-use relocade_peripherals::display::DisplayRenderer;
+use relocade_frontend::display::DisplayRenderer;
 use relocade_renderer::{FrameError, Image};
 
 /// Connects captured VGA output to a graphics host. Construct this on the graphics

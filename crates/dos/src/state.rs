@@ -15,10 +15,10 @@ pub(crate) struct DosState {
 }
 
 impl DosState {
-    pub(crate) fn new(memory: MemoryBus) -> Self {
+    pub(crate) fn new(memory: MemoryBus, keyboard: relocade_bios::Keyboard) -> Self {
         Self {
             filesystem: RefCell::default(),
-            stdio: Stdio::default(),
+            stdio: Stdio::new(keyboard),
             process: RefCell::default(),
             memory,
         }

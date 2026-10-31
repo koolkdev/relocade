@@ -2,7 +2,7 @@ use super::render::{self, DrawOutcome};
 use crate::graphics::{Surface, SurfaceSetup};
 use futures_channel::oneshot;
 use futures_lite::future::{or, race};
-use relocade_peripherals::display::DisplayRenderer;
+use relocade_frontend::display::DisplayRenderer;
 use relocade_renderer::Renderer;
 use std::{
     future::pending,

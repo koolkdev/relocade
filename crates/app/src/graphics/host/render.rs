@@ -1,6 +1,6 @@
 use super::worker::Failure;
 use crate::graphics::Surface;
-use relocade_peripherals::display::DisplayRenderer;
+use relocade_frontend::display::DisplayRenderer;
 use relocade_renderer::{fit_image, Rect, Renderer};
 use winit::dpi::PhysicalSize;
 

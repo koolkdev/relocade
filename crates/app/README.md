@@ -70,9 +70,9 @@ replacing the GPU device does not repair a lost platform surface.
 `graphics::Graphics` supplies the complete graphics owner when the application
 wants to connect a display to this surface. Its factory creates the display on
 the graphics worker using the same device and queue as the surface. The display
-implements `relocade_peripherals::display::DisplayRenderer`; an existing `Image`
+implements `relocade_frontend::display::DisplayRenderer`; an existing `Image`
 also works directly. Shared drawing tools remain in `relocade-renderer`, while
-peripheral contracts have their own crate.
+frontend contracts have their own crate.
 The app crate has no VGA, DOS or machine dependency. The factory runs once and
 can move its source into the display. The connection keeps its logical state
 across GPU replacement and owns any guest-visible loss/reset behavior through
