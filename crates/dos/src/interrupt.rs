@@ -19,6 +19,18 @@ pub(crate) struct DosContext<'call, 'cpu> {
 }
 
 impl DosContext<'_, '_> {
+    pub(crate) fn console(&self) -> crate::services::console::Console<'_> {
+        crate::services::console::Console {
+            stdio: self.dos.stdio(),
+            memory: self.dos.memory(),
+        }
+    }
+
+    pub(crate) fn stdout(&self) -> crate::services::console::CharacterOutput<'_> {
+        self.console()
+            .output(self.process.files().writable_handle(1))
+    }
+
     /// Terminates the process and returns from DOS execution.
     pub(crate) fn exit(&mut self, status: Result<u8, ServiceError>) -> HookResult {
         self.process.terminate(
@@ -65,3 +77,6 @@ pub(crate) fn return_result(
     real_mode_interrupt::set_carry(call.execution, result.is_err());
     real_mode_interrupt::return_from_interrupt(call.execution)
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests;

@@ -1,7 +1,7 @@
 //! DOS interrupt dispatch and service handlers.
 
 mod buffers;
-mod console;
+pub(crate) mod console;
 mod directories;
 mod files;
 mod ioctl;
