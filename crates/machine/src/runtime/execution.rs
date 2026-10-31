@@ -31,13 +31,10 @@ impl Cpu {
                 call.poll(cx)
             } else {
                 let exit = machine.dispatch(budget.take());
-                let ExecutionExit::Host(HostExit::Call { address }) = exit else {
+                let ExecutionExit::Host(HostExit::Call { service_id }) = exit else {
                     return Poll::Ready(exit);
                 };
-                Call::start(
-                    machine.hooks.get(&address).expect("registered host entry"),
-                    cx,
-                )
+                Call::start(machine.services.handler(service_id), cx)
             };
             match polled {
                 CallPoll::Ready(HookResult::Continue) => {}

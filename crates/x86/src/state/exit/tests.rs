@@ -95,7 +95,12 @@ fn generated_exits_preserve_payloads() {
         ),
         ("budget_exhausted", ExecutionExit::BudgetExhausted),
         ("host_return", ExecutionExit::Host(HostExit::Return)),
-        ("host_call", ExecutionExit::Host(HostExit::Call { address })),
+        (
+            "host_call",
+            ExecutionExit::Host(HostExit::Call {
+                service_id: address,
+            }),
+        ),
     ]);
     for (name, expected) in cases {
         let module = TestModule::new(&CompiledModule {
@@ -134,7 +139,9 @@ fn execution_exits_share_four_wasm_values() {
     let cases = [
         (ExecutionExit::Host(HostExit::Return), (0, 0, 0, 0)),
         (
-            ExecutionExit::Host(HostExit::Call { address }),
+            ExecutionExit::Host(HostExit::Call {
+                service_id: address,
+            }),
             (0, 1, address as i32, 0),
         ),
         (ExecutionExit::BudgetExhausted, (1, 0, 0, 0)),

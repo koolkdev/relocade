@@ -40,10 +40,11 @@ pub enum HostExit {
     /// A host-call function requested a return to the embedding.
     /// The embedding owns the reason, such as process termination or a service error.
     Return,
-    /// A generated entry requests the handler at this guest linear address.
+    /// A generated entry requests a runtime-owned host service by ID.
+    /// The ID is independent of the guest entry address.
     /// CPU state is published; the runtime consumes this exit before resuming.
     /// Reserved for execution entries, not handler results.
-    Call { address: u32 },
+    Call { service_id: u32 },
 }
 
 /// CPU state must already describe the completed block.
