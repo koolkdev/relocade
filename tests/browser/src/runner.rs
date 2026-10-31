@@ -1,8 +1,7 @@
 use futures_channel::oneshot;
-use futures_util::future::join;
 use relocade_machine::{
-    timer_service, Clock, Cpu, CpuConfig, Device, ExecutionWorker, Hook, HookResult, IoBus,
-    MachineConfig, Memory, TimerHandle,
+    Clock, Cpu, CpuConfig, Device, ExecutionWorker, Hook, HookResult, IoBus, MachineConfig, Memory,
+    TimerHandle,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -64,11 +63,13 @@ impl Drop for ProgressDevice {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn runner_workers() -> Result<(), String> {
     for pending_service in [false, true] {
-        let (clock, timers) = timer_service();
         let (progressed, ticks) = oneshot::channel();
         let (dropped, mut destroyed) = oneshot::channel();
         let (device_dropped, mut device_destroyed) = oneshot::channel();
-        let worker = ExecutionWorker::spawn(clock, async move |runner| {
+        let stop = async {
+            assert_eq!(ticks.await.unwrap(), if pending_service { 2 } else { 1 });
+        };
+        let worker = ExecutionWorker::run_until(stop, async move |runner| {
             EXECUTION_OWNER.set(true);
             let memory = Memory::new(
                 MachineConfig::new(
@@ -131,23 +132,16 @@ pub async fn runner_workers() -> Result<(), String> {
             runner.run_cpu(&mut cpu).await;
             panic!("busy or suspended execution must stop only through cancellation");
         });
-        let control = async {
-            assert_eq!(ticks.await.unwrap(), if pending_service { 2 } else { 1 });
-            assert_eq!(
-                worker.stop().await.map_err(|error| error.to_string())?,
-                None::<()>
-            );
-            // Completion includes destruction of the CPU's suspended service state.
-            assert_eq!(destroyed.try_recv().unwrap(), Some(()));
-            assert_eq!(device_destroyed.try_recv().unwrap(), Some(()));
-            Ok::<(), String>(())
-        };
-        let ((), result) = join(timers.run(), control).await;
-        result?;
+        assert_eq!(worker.await.map_err(|error| error.to_string())?, None::<()>);
+        // Completion includes destruction of the CPU's suspended service state.
+        assert_eq!(destroyed.try_recv().unwrap(), Some(()));
+        assert_eq!(device_destroyed.try_recv().unwrap(), Some(()));
     }
-    let (clock, timers) = timer_service();
-    let worker = ExecutionWorker::spawn(clock, async |_| 42);
-    let ((), result) = join(timers.run(), worker.join()).await;
+    let result = ExecutionWorker::run_until(pending::<()>(), async |runner| {
+        runner.clock().sleep(Duration::from_millis(1)).await;
+        42
+    })
+    .await;
     assert_eq!(result.map_err(|error| error.to_string())?, Some(42));
     Ok(())
 }
