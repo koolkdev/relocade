@@ -3,7 +3,7 @@ use futures_util::FutureExt;
 use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
 use relocade_vga::{
-    registers::{crtc::CURSOR_START, COLOR_INPUT_STATUS_1_PORT},
+    registers::{attribute, crtc, COLOR_INPUT_STATUS_1_PORT},
     VgaDisplay,
 };
 use std::rc::Rc;
@@ -14,7 +14,7 @@ async fn check_display() {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let clock = Rc::new(common::ManualClock::default());
     let mut vga = common::text_vga(clock.clone());
-    common::crtc(&mut vga, CURSOR_START, 0x20);
+    common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
     set_cell(&mut vga, 0, 0xdb, 4);
     let source = vga.frame_source();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
@@ -54,6 +54,13 @@ async fn check_display() {
         },
     );
     queue.submit([]);
+    for frame in 2..=8 {
+        clock.set(common::boundary(frame));
+        vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        assert_eq!(display.update(&queue).await, Some(false));
+        queue.submit([]);
+    }
+    assert_eq!(source.current_capture().unwrap().sequence, 8);
     let mut encoder = device.create_command_encoder(&Default::default());
     assert_eq!(
         display.encode_image(&mut encoder).unwrap().texture(),
@@ -64,13 +71,19 @@ async fn check_display() {
     assert_eq!(
         pixel(&pixels, 0, 0),
         [0, 255, 255, 255],
-        "another redraw must reuse decoded pixels"
+        "unchanged captures and another redraw must reuse decoded pixels"
     );
+    assert_eq!(display.current_frame().unwrap().sequence, first.sequence);
 
     set_cell(&mut vga, 0, 0xdb, 1);
-    clock.set(common::boundary(2));
+    clock.set(common::boundary(9));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     assert_eq!(display.update(&queue).await, Some(true));
+    queue.submit([]);
+    // An unchanged capture must not cancel decoding that is still pending.
+    clock.set(common::boundary(10));
+    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    assert_eq!(display.update(&queue).await, Some(false));
     queue.submit([]);
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(
@@ -131,4 +144,76 @@ fn display_connection_uploads_on_update_and_reuses_decoded_pixels() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn display_connection_uploads_on_update_and_reuses_decoded_pixels() {
     check_display().await;
+}
+
+async fn check_display_state_changes() {
+    let instance = wgpu::Instance::default();
+    let adapter = instance.request_adapter(&Default::default()).await.unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let clock = Rc::new(common::ManualClock::default());
+    let mut vga = common::text_vga(clock.clone());
+    common::support::registers::attribute(&mut vga, attribute::MODE_CONTROL, 0x08);
+    set_cell(&mut vga, 0, 0xdb, 0x84); // Blinking red glyph.
+    set_cell(&mut vga, 1, b' ', 2); // Green cursor over a blank cell.
+    common::crtc(&mut vga, crtc::CURSOR_ADDRESS_LOW, 1);
+    common::crtc(&mut vga, crtc::CURSOR_START, 6);
+    common::crtc(&mut vga, crtc::CURSOR_END, 7);
+    let mut display = VgaDisplay::new(&device, vga.frame_source()).unwrap();
+
+    // Only the blink phase changes; no guest writes occur between captures.
+    for (frame, changed, glyph, cursor) in [
+        (1, true, [170, 0, 0, 255], [0, 170, 0, 255]),
+        (2, false, [170, 0, 0, 255], [0, 170, 0, 255]),
+        (16, true, [0, 0, 0, 255], [0, 0, 0, 255]),
+        (17, false, [0, 0, 0, 255], [0, 0, 0, 255]),
+        (32, true, [170, 0, 0, 255], [0, 170, 0, 255]),
+    ] {
+        clock.set(common::boundary(frame));
+        vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        assert_eq!(display.update(&queue).await, Some(changed));
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let image = display.encode_image(&mut encoder).unwrap().clone();
+        queue.submit([encoder.finish()]);
+        let pixels = read_pixels(&device, &queue, image.texture()).await;
+        assert_eq!(pixel(&pixels, 0, 0), glyph);
+        assert_eq!(pixel(&pixels, 8, 6), cursor);
+    }
+
+    // Palette and geometry changes must also redraw with unchanged VRAM.
+    common::support::registers::palette(&mut vga, 4, [0, 0, 63]);
+    clock.set(common::boundary(33));
+    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    assert_eq!(display.update(&queue).await, Some(true));
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let image = display.encode_image(&mut encoder).unwrap().clone();
+    queue.submit([encoder.finish()]);
+    let pixels = read_pixels(&device, &queue, image.texture()).await;
+    assert_eq!(pixel(&pixels, 0, 0), [0, 0, 255, 255]);
+
+    let retrace_end = vga.snapshot().registers.crtc.values[crtc::VERTICAL_RETRACE_END as usize];
+    common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end & 0x7f);
+    common::crtc(&mut vga, crtc::HORIZONTAL_DISPLAY_END, 39);
+    common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end);
+    clock.set(common::boundary(34));
+    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    assert_eq!(display.update(&queue).await, Some(true));
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let resized = display.encode_image(&mut encoder).unwrap().clone();
+    queue.submit([encoder.finish()]);
+    assert_eq!(resized.size(), [320, 200]);
+    assert_ne!(resized.texture(), image.texture());
+    let pixels = read_pixels(&device, &queue, resized.texture()).await;
+    assert_eq!(&pixels[..4], [0, 0, 255, 255]);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn display_connection_redraws_for_blink_palette_and_geometry_changes() {
+    pollster::block_on(check_display_state_changes());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn display_connection_redraws_for_blink_palette_and_geometry_changes() {
+    check_display_state_changes().await;
 }

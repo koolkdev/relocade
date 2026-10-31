@@ -23,11 +23,14 @@ impl GpuMemory {
         }
     }
 
-    pub fn upload(&mut self, queue: &wgpu::Queue, snapshot: &DisplaySnapshot) {
+    pub fn upload(&mut self, queue: &wgpu::Queue, snapshot: &DisplaySnapshot) -> bool {
+        let mut changed = false;
         write_planes(self.previous.as_ref(), snapshot, |offset, bytes| {
             queue.write_buffer(&self.buffer, offset as u64, bytes);
+            changed = true;
         });
         self.previous = Some(snapshot.planes.clone());
+        changed
     }
 }
 

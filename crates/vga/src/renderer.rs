@@ -93,19 +93,24 @@ impl VgaRenderer {
     /// matches, otherwise complete planes. Call `queue.submit([])` when no drawing
     /// follows. Captures can be uploaded independently of redraws.
     /// Complete retained captures can also restore older input state.
-    pub fn upload(&mut self, queue: &wgpu::Queue, capture: &CapturedFrame) {
+    /// Returns whether rendering inputs or output geometry changed. Capture time
+    /// and sequence alone do not require decoding another image.
+    pub fn upload(&mut self, queue: &wgpu::Queue, capture: &CapturedFrame) -> bool {
         let geometry = capture.display.geometry();
         let aspect = geometry.pixel_aspect_ratio();
-        if self.image.size() != geometry.size || self.image.pixel_aspect_ratio() != aspect {
+        let geometry_changed =
+            self.image.size() != geometry.size || self.image.pixel_aspect_ratio() != aspect;
+        if geometry_changed {
             self.image = Image::new(&self.device, geometry.size, aspect)
                 .expect("VGA dimensions fit the validated device limits");
         }
-        self.memory.upload(queue, &capture.display);
-        self.state.upload(queue, &capture.display, geometry);
+        let memory_changed = self.memory.upload(queue, &capture.display);
+        let state_changed = self.state.upload(queue, &capture.display, geometry);
         self.frame = Some(FrameMetadata {
             time: capture.time,
             sequence: capture.sequence,
         });
+        geometry_changed || memory_changed || state_changed
     }
 
     /// Records decoding of the latest uploaded inputs. Returns `None` before the
