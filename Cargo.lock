@@ -2002,10 +2002,17 @@ name = "relocade-app"
 version = "0.0.0"
 dependencies = [
  "futures-channel",
+ "js-sys",
+ "pollster",
+ "raw-window-handle",
+ "relocade-renderer",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+ "web-thread-select",
+ "wgpu",
  "winit",
+ "x11rb",
 ]
 
 [[package]]

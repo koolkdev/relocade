@@ -6,6 +6,11 @@ pub use winit;
 mod window;
 pub use window::{Window, WindowState};
 
+#[cfg(feature = "graphics")]
+pub mod graphics;
+#[cfg(feature = "graphics")]
+pub use web_thread as worker;
+
 #[cfg_attr(not(target_arch = "wasm32"), path = "platform/native.rs")]
 #[cfg_attr(target_arch = "wasm32", path = "platform/web.rs")]
 mod platform;
