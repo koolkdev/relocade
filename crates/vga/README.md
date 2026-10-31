@@ -422,6 +422,24 @@ VGA timing and capture publication continue independently. Closing the source
 preserves the image and its last decoded capture metadata, available from
 `current_frame()`.
 
+For linear text, the adapter accumulates one rectangle and decodes it with a GPU
+scissor, loading the retained image so pixels outside the rectangle survive.
+MMIO writes record per-plane byte bounds alongside the unchanged 1-KiB dirty-page
+bitmap. A single character or attribute write can therefore redraw one cell
+without comparing VRAM contents. Bounds add 32 bytes to the write tracker; scattered
+writes conservatively widen the rectangle. Cursor movement includes both old and
+new cursor bars. A blink-phase transition looks up the visible attributes to
+include blinking cells, and does no image work when no cursor or text is blinking.
+
+This fast path supports linear word-addressed text with unpanned, nonoverlapping
+rows and no visible split or address wrap. Palette, font and other display-setting
+changes, graphics layouts, complex text layouts and unmatched capture baselines
+use full decoding. Image replacement discards old coordinates and initializes the
+entire new texture. The shaders still own all pixel interpretation. The public
+`VgaRenderer::encode` keeps its full-image retry behavior; partial decoding stays
+inside the adapter's submit-before-next-operation contract. Window/canvas draws
+still sample the retained image normally on redraw, resize or exposure.
+
 Construct the adapter inside the graphics host's factory so it shares the host's
 GPU environment and remains on the graphics owner:
 

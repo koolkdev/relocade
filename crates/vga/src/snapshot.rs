@@ -1,7 +1,7 @@
 //! Owned display inputs. Capturing these values never performs a CPU memory or
 //! port access, so it leaves read latches and register access phases untouched.
 #[cfg(feature = "renderer")]
-use crate::memory::DirtyPages;
+use crate::memory::MemoryWrites;
 use crate::Registers;
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use std::sync::Arc;
 #[cfg(feature = "renderer")]
 pub(crate) struct MemoryChanges {
     pub baseline: [Arc<[u8]>; 4],
-    pub pages: DirtyPages,
+    pub writes: MemoryWrites,
 }
 
 /// A complete display snapshot independent of the live device and other captures.

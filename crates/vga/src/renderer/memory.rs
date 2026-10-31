@@ -49,7 +49,7 @@ fn write_planes(
         });
         let base = plane * PLANE_BYTES;
         if let Some(changes) = changes {
-            for range in changes.pages.ranges(plane) {
+            for range in changes.writes.ranges(plane) {
                 write(base + range.start, &bytes[range]);
             }
         } else {

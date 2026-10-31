@@ -93,7 +93,7 @@ impl<C: Clock> Vga<C> {
             #[cfg(feature = "renderer")]
             changes: self.frames.current_capture().map(|previous| MemoryChanges {
                 baseline: previous.display.planes.clone(),
-                pages: self.memory.changed_pages(),
+                writes: self.memory.writes(),
             }),
         }
     }

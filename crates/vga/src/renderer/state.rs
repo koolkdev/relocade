@@ -1,4 +1,5 @@
 //! Captured register bytes, palette and geometry shared with the shader.
+use crate::registers::crtc;
 use crate::{DisplayGeometry, DisplaySnapshot};
 
 // The shader's State layout: padded raw banks, controls, geometry, then DAC RGB.
@@ -90,4 +91,25 @@ fn header(snapshot: &DisplaySnapshot, geometry: DisplayGeometry) -> [u8; HEADER_
         slot.copy_from_slice(&word.to_le_bytes());
     }
     bytes
+}
+
+/// Cursor and blink changes have bounded text regions. Every other uploaded
+/// setting can affect the entire image; CPU access indices are not uploaded.
+pub(super) fn same_layout(previous: &DisplaySnapshot, current: &DisplaySnapshot) -> bool {
+    let mut headers = [
+        header(previous, previous.geometry()),
+        header(current, current.geometry()),
+    ];
+    for bytes in &mut headers {
+        for register in [
+            crtc::CURSOR_START,
+            crtc::CURSOR_END,
+            crtc::CURSOR_ADDRESS_HIGH,
+            crtc::CURSOR_ADDRESS_LOW,
+        ] {
+            bytes[16 + register as usize] = 0;
+        }
+        bytes[108..112].fill(0); // Blink word in the captured header.
+    }
+    headers[0] == headers[1]
 }

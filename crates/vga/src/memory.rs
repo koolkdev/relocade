@@ -2,9 +2,9 @@ use crate::registers::Registers;
 use std::sync::Arc;
 
 #[cfg(feature = "renderer")]
-mod pages;
+mod writes;
 #[cfg(feature = "renderer")]
-pub(crate) use pages::DirtyPages;
+pub(crate) use writes::MemoryWrites;
 
 pub(crate) const PLANE_BYTES: usize = 65536;
 
@@ -14,7 +14,7 @@ pub(super) struct VideoMemory {
     planes: [Arc<[u8]>; 4],
     latches: [u8; 4],
     #[cfg(feature = "renderer")]
-    changed: DirtyPages,
+    changed: MemoryWrites,
 }
 
 impl Default for VideoMemory {
@@ -23,7 +23,7 @@ impl Default for VideoMemory {
             planes: std::array::from_fn(|_| vec![0; PLANE_BYTES].into()),
             latches: [0; 4],
             #[cfg(feature = "renderer")]
-            changed: DirtyPages::default(),
+            changed: MemoryWrites::default(),
         }
     }
 }
@@ -34,13 +34,13 @@ impl VideoMemory {
     }
 
     #[cfg(feature = "renderer")]
-    pub fn changed_pages(&self) -> DirtyPages {
-        self.changed
+    pub fn writes(&self) -> MemoryWrites {
+        self.changed.clone()
     }
 
     #[cfg(feature = "renderer")]
     pub fn clear_changes(&mut self) {
-        self.changed = DirtyPages::default();
+        self.changed = MemoryWrites::default();
     }
 
     fn index(offset: u32, registers: &Registers) -> usize {

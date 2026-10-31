@@ -89,22 +89,27 @@ fn consecutive_captures_keep_character_attribute_and_font_uploads_independent() 
     assert!(uploads.update(&first.display).is_empty());
 
     vga.write_mmio(0xb8000, 1, u64::from(b'A'));
+    let character = publish(&mut vga, &clock);
     assert_eq!(
-        uploads.update(&publish(&mut vga, &clock).display),
-        [(0, 1024)]
+        character.display.changes.as_ref().unwrap().writes.bounds(0),
+        0..1
     );
+    assert_eq!(uploads.update(&character.display), [(0, 1024)]);
     vga.write_mmio(0xb8001, 1, 7);
-    assert_eq!(
-        uploads.update(&publish(&mut vga, &clock).display),
-        [(65536, 1024)]
-    );
+    let attribute = publish(&mut vga, &clock);
+    let writes = &attribute.display.changes.as_ref().unwrap().writes;
+    assert_eq!(writes.bounds(0), 0..0);
+    assert_eq!(writes.bounds(1), 0..1);
+    assert_eq!(uploads.update(&attribute.display), [(65536, 1024)]);
     planar(&mut vga, 4);
     vga.write_mmio(0xa0820, 1, 0x80);
     text(&mut vga);
+    let font = publish(&mut vga, &clock);
     assert_eq!(
-        uploads.update(&publish(&mut vga, &clock).display),
-        [(133120, 1024)]
+        font.display.changes.as_ref().unwrap().writes.bounds(2),
+        0x820..0x821
     );
+    assert_eq!(uploads.update(&font.display), [(133120, 1024)]);
     vga.write_port(0x3c4, 2, 0x0503); // Bank selection changes settings, not font bytes.
     vga.write_port(0x3d4, 2, 0x080c); // Select previously hidden text memory.
     assert!(uploads

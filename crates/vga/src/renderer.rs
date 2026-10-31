@@ -1,6 +1,9 @@
 mod memory;
 mod shaders;
 mod state;
+mod updates;
+
+pub(crate) use updates::{ImageUpdates, PixelRect};
 
 use crate::CapturedFrame;
 use memory::GpuMemory;
@@ -120,6 +123,16 @@ impl VgaRenderer {
     /// writes run before submitted commands and the input buffers hold one version.
     /// Retain the returned image for resize-only draws without another decode.
     pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) -> Option<VgaImage> {
+        self.encode_region(encoder, PixelRect::full(self.image.size()))
+    }
+
+    /// Used only by the display adapter, whose host submits each encoded image
+    /// before the next operation. Public encoding remains full and retry-safe.
+    pub(crate) fn encode_region(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        region: PixelRect,
+    ) -> Option<VgaImage> {
         let frame = self.frame.as_ref()?;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -129,7 +142,11 @@ impl VgaRenderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: if region == PixelRect::full(self.image.size()) {
+                            wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                        } else {
+                            wgpu::LoadOp::Load
+                        },
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -137,6 +154,12 @@ impl VgaRenderer {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.state.binding, &[]);
+            pass.set_scissor_rect(
+                region.left,
+                region.top,
+                region.right - region.left,
+                region.bottom - region.top,
+            );
             pass.draw(0..3, 0..1);
         }
         Some(VgaImage {
