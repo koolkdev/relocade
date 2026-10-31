@@ -13,20 +13,20 @@ mod transfer;
 pub(super) use io::{read, write};
 
 /// AH=71h: report that long-filename services are absent so callers can use 8.3.
-pub(super) fn long_filename(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(super) fn long_filename(call: &mut DosContext<'_>) -> HookResult {
     return_result(call, Err(DosError::LongFilenameNotSupported))
 }
 
 /// AH=43h: query (AL=0) or set (AL=1) DS:DX's attributes through CX.
-pub(super) fn attributes(call: &mut DosContext<'_, '_>) -> HookResult {
-    let operation = call.execution.cpu.al();
+pub(super) fn attributes(call: &mut DosContext<'_>) -> HookResult {
+    let operation = call.cpu.al();
     if operation > 1 {
         return return_result(call, Err(DosError::InvalidFunction));
     }
-    let attributes = call.execution.cpu.cx();
+    let attributes = call.cpu.cx();
     let result = read_path(call).and_then(|path| match operation {
         0 => call.dos.filesystem().attributes(&path).map(|attributes| {
-            call.execution.cpu.set_cx(attributes);
+            call.cpu.set_cx(attributes);
         }),
         _ => call.dos.filesystem().set_attributes(&path, attributes),
     });
@@ -34,7 +34,7 @@ pub(super) fn attributes(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 /// AH=41h: delete the file at DS:DX, subject to DOS attributes and sharing.
-pub(super) fn delete(call: &mut DosContext<'_, '_>) -> HookResult {
+pub(super) fn delete(call: &mut DosContext<'_>) -> HookResult {
     let result = read_path(call).and_then(|path| {
         call.process
             .files()
@@ -44,8 +44,8 @@ pub(super) fn delete(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 /// AH=56h: rename DS:DX's file to ES:DI's path on the same drive.
-pub(super) fn rename(call: &mut DosContext<'_, '_>) -> HookResult {
-    let offset = call.execution.cpu.di();
+pub(super) fn rename(call: &mut DosContext<'_>) -> HookResult {
+    let offset = call.cpu.di();
     let result = read_path(call).and_then(|from| {
         let to = read_path_at(call, Segment::Es, offset)?;
         call.process
@@ -56,52 +56,52 @@ pub(super) fn rename(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 /// AH=3Ch/5Bh: create DS:DX with CX's attributes using the requested mode; return AX.
-pub(super) fn create(call: &mut DosContext<'_, '_>, mode: CreateMode) -> HookResult {
-    let attributes = call.execution.cpu.cx();
+pub(super) fn create(call: &mut DosContext<'_>, mode: CreateMode) -> HookResult {
+    let attributes = call.cpu.cx();
     let result = read_path(call).and_then(|path| {
         call.process
             .files()
             .create(&mut call.dos.filesystem(), &path, attributes, mode)
     });
-    let result = result.map(|handle| call.execution.cpu.set_ax(handle));
+    let result = result.map(|handle| call.cpu.set_ax(handle));
     return_result(call, result)
 }
 
 /// AH=5Ah: create a temporary file in DS:DX's directory and return its path and AX.
-pub(super) fn create_temporary(call: &mut DosContext<'_, '_>) -> HookResult {
-    let attributes = call.execution.cpu.cx();
+pub(super) fn create_temporary(call: &mut DosContext<'_>) -> HookResult {
+    let attributes = call.cpu.cx();
     let result = read_path(call).and_then(|mut path| {
         let handle = call.process.files().create_temporary(
             &mut call.dos.filesystem(),
             &mut path,
             attributes,
         )?;
-        let cpu = &call.execution.cpu;
+        let cpu = &call.cpu;
         let segment = cpu.segment(Segment::Ds);
         let offset = cpu.dx();
         path.push(0);
-        write_wrapping(&mut call.execution.memory, &segment, offset, &path);
-        call.execution.cpu.set_ax(handle);
+        write_wrapping(&mut call.memory, &segment, offset, &path);
+        call.cpu.set_ax(handle);
         Ok(())
     });
     return_result(call, result)
 }
 
 /// AH=3Dh: open the NUL-terminated path at DS:DX using AL's access mode.
-pub(super) fn open(call: &mut DosContext<'_, '_>) -> HookResult {
-    let mode = call.execution.cpu.al();
+pub(super) fn open(call: &mut DosContext<'_>) -> HookResult {
+    let mode = call.cpu.al();
     let result = read_path(call).and_then(|path| {
         call.process
             .files()
             .open(&call.dos.filesystem(), &path, mode)
     });
-    let result = result.map(|handle| call.execution.cpu.set_ax(handle));
+    let result = result.map(|handle| call.cpu.set_ax(handle));
     return_result(call, result)
 }
 
 /// AH=3Eh: close BX's file handle.
-pub(super) fn close(call: &mut DosContext<'_, '_>) -> HookResult {
-    let handle = call.execution.cpu.bx();
+pub(super) fn close(call: &mut DosContext<'_>) -> HookResult {
+    let handle = call.cpu.bx();
     let result = call
         .process
         .files()
@@ -110,31 +110,31 @@ pub(super) fn close(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 /// AH=68h/6Ah: commit BX's handle without closing it or moving its cursor.
-pub(super) fn commit(call: &mut DosContext<'_, '_>) -> HookResult {
-    let handle = call.execution.cpu.bx();
+pub(super) fn commit(call: &mut DosContext<'_>) -> HookResult {
+    let handle = call.cpu.bx();
     let result = call
         .process
         .files()
         .commit(&mut call.dos.filesystem(), handle)
-        .map(|()| call.execution.cpu.set_ah(super::COMMIT_HANDLE));
+        .map(|()| call.cpu.set_ah(super::COMMIT_HANDLE));
     return_result(call, result)
 }
 
 /// AH=45h: duplicate BX's open handle into the lowest free slot; return AX.
-pub(super) fn duplicate(call: &mut DosContext<'_, '_>) -> HookResult {
-    let source = call.execution.cpu.bx();
+pub(super) fn duplicate(call: &mut DosContext<'_>) -> HookResult {
+    let source = call.cpu.bx();
     let result = call
         .process
         .files()
         .duplicate(source)
-        .map(|handle| call.execution.cpu.set_ax(handle));
+        .map(|handle| call.cpu.set_ax(handle));
     return_result(call, result)
 }
 
 /// AH=46h: replace CX's handle with a duplicate of BX, sharing its file position.
-pub(super) fn force_duplicate(call: &mut DosContext<'_, '_>) -> HookResult {
-    let source = call.execution.cpu.bx();
-    let destination = call.execution.cpu.cx();
+pub(super) fn force_duplicate(call: &mut DosContext<'_>) -> HookResult {
+    let source = call.cpu.bx();
+    let destination = call.cpu.cx();
     let result =
         call.process
             .files()
@@ -143,8 +143,8 @@ pub(super) fn force_duplicate(call: &mut DosContext<'_, '_>) -> HookResult {
 }
 
 /// AH=42h: seek BX by CX:DX from AL's origin; return DX:AX.
-pub(super) fn seek(call: &mut DosContext<'_, '_>) -> HookResult {
-    let cpu = &call.execution.cpu;
+pub(super) fn seek(call: &mut DosContext<'_>) -> HookResult {
+    let cpu = &call.cpu;
     let handle = cpu.bx();
     let origin = cpu.al();
     let offset = (u32::from(cpu.cx()) << 16) | u32::from(cpu.dx());
@@ -153,28 +153,27 @@ pub(super) fn seek(call: &mut DosContext<'_, '_>) -> HookResult {
         .files()
         .seek(handle, origin, offset)
         .map(|position| {
-            call.execution.cpu.set_ax(position as u16);
-            call.execution.cpu.set_dx((position >> 16) as u16);
+            call.cpu.set_ax(position as u16);
+            call.cpu.set_dx((position >> 16) as u16);
         });
     return_result(call, result)
 }
 
-pub(super) fn read_path(call: &mut DosContext<'_, '_>) -> Result<Vec<u8>, DosError> {
-    let offset = call.execution.cpu.dx();
+pub(super) fn read_path(call: &mut DosContext<'_>) -> Result<Vec<u8>, DosError> {
+    let offset = call.cpu.dx();
     read_path_at(call, Segment::Ds, offset)
 }
 
 fn read_path_at(
-    call: &mut DosContext<'_, '_>,
+    call: &mut DosContext<'_>,
     segment: Segment,
     offset: u16,
 ) -> Result<Vec<u8>, DosError> {
-    let segment = call.execution.cpu.segment(segment);
+    let segment = call.cpu.segment(segment);
     let mut path = Vec::new();
     for index in 0..MAX_PATH_BYTES as u16 {
         let mut byte = [0];
-        call.execution
-            .memory
+        call.memory
             .read_segment(&segment, u32::from(offset.wrapping_add(index)), &mut byte)
             .expect("real-mode path address");
         if byte[0] == 0 {

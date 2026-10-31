@@ -68,6 +68,32 @@ macro_rules! register {
 }
 
 impl<A: CpuAccess> CpuView<A> {
+    /// Lends a borrowed CPU view for a synchronous batch. The exclusive borrow
+    /// of this view prevents overlapping access through its original handle.
+    ///
+    /// ```compile_fail
+    /// # use relocade_machine::CallContext;
+    /// fn overlap(mut call: CallContext) {
+    ///     call.cpu.with(|mut cpu| {
+    ///         cpu.set_ax(call.cpu.ax());
+    ///     });
+    /// }
+    /// ```
+    ///
+    /// The borrowed view cannot escape or be retained across an await:
+    /// ```compile_fail
+    /// # use relocade_machine::CallContext;
+    /// async fn retain_view(mut call: CallContext) {
+    ///     call.cpu.with(|mut cpu| async move { cpu.set_ax(1) }).await;
+    /// }
+    /// ```
+    #[inline]
+    pub fn with<R>(&mut self, operation: impl FnOnce(CpuView<MemoryAccess<'_>>) -> R) -> R {
+        let target = self.target;
+        self.storage
+            .with_mut(|storage| operation(CpuView::new(target, storage.reborrow())))
+    }
+
     /// The execution profile and CPU model represented by these registers.
     pub fn execution_target(&self) -> ExecutionTarget {
         self.storage.with(|_| self.target)

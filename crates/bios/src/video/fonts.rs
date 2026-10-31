@@ -6,13 +6,14 @@ mod upload;
 
 use super::{buffer_addresses, unsupported, write_indexed, CHARACTER_HEIGHT, LAST_ROW};
 use crate::screen;
+use crate::BiosContext;
 pub(crate) use glyph::Glyph;
-use relocade_machine::{real_mode_interrupt, CpuContext, HookResult, IoBus, MemoryView};
+use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
 use relocade_vga::registers::{sequencer, SEQUENCER_INDEX_PORT};
 use relocade_x86::{Segment, SegmentRegister};
 pub(super) use rom::initialize;
 
-pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+pub(super) fn interrupt(call: &mut BiosContext<'_>) -> HookResult {
     let function = call.cpu.al();
     if function == 0x30 {
         return information(call);
@@ -27,7 +28,7 @@ pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
             sequencer::CHARACTER_MAP_SELECT,
             call.cpu.bl(),
         );
-        return real_mode_interrupt::return_from_interrupt(call);
+        return real_mode_interrupt::return_from_interrupt(&mut call.cpu);
     }
     let builtin = match function {
         0x00 | 0x10 => None,
@@ -80,10 +81,10 @@ pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     if let Some(layout) = layout {
         layout.apply(&mut call.memory, call.io);
     }
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }
 
-fn information<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+fn information(call: &mut BiosContext<'_>) -> HookResult {
     let Some(pointer) = rom::query(&call.memory, call.cpu.bh()) else {
         return unsupported(call);
     };
@@ -97,7 +98,7 @@ fn information<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     // CX describes the current display even when BH asks for another ROM font.
     call.cpu.set_cx(height);
     call.cpu.set_dl(last_row);
-    real_mode_interrupt::return_from_interrupt(call)
+    real_mode_interrupt::return_from_interrupt(&mut call.cpu)
 }
 
 pub(super) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, height: u8, text: bool) {

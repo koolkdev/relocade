@@ -15,7 +15,7 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-// Deliberately not Clone. A borrowed handler edits the machine's actual state.
+// Deliberately not Clone. A scoped handler edits the machine's actual state.
 struct Environment {
     calls: u32,
     dropped: Rc<Cell<bool>>,
@@ -52,10 +52,10 @@ async fn check_context_lifetime() {
     let ready = Rc::new(Cell::new(false));
     let complete = ready.clone();
     runtime
-        .install_hooks([Hook::<Environment>::new(0x100, async move |call| {
-            call.state.calls += 1;
+        .install_hooks([Hook::<Environment>::new(0x100, async move |mut call| {
+            call.state.with_mut(|state| state.calls += 1);
             call.cpu.set_eax(0x1234);
-            call.memory.write_u32(0x200, 0x5678).unwrap();
+            call.memory.view().write_u32(0x200, 0x5678).unwrap();
             poll_fn(|_| {
                 if ready.get() {
                     Poll::Ready(())
@@ -112,12 +112,12 @@ fn rejects(operation: impl FnOnce()) {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn completion_returns_borrowed_state_and_cpu_drop_releases_pending_work() {
+fn completion_preserves_environment_and_cpu_drop_releases_pending_work() {
     pollster::block_on(check_context_lifetime());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn completion_returns_borrowed_state_and_cpu_drop_releases_pending_work() {
+async fn completion_preserves_environment_and_cpu_drop_releases_pending_work() {
     check_context_lifetime().await;
 }

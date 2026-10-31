@@ -47,9 +47,9 @@ async fn check_timing() {
         .memory
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
-    cpu.install_hooks([Hook::<Rc<Input>>::new(0x200, async |call| {
-        let memory = &mut call.memory;
-        let input = &call.state;
+    cpu.install_hooks([Hook::<Rc<Input>>::new(0x200, async |mut call| {
+        let mut memory = call.memory.view();
+        let input = call.state.with(Clone::clone);
         input.calls.set(input.calls.get() + 1);
         let value = input.calls.get() as u16;
         let saved = &value;
@@ -62,7 +62,7 @@ async fn check_timing() {
         })
         .await;
         memory.write_u16(0x300, *saved).unwrap();
-        real_mode_interrupt::return_from_interrupt(call)
+        real_mode_interrupt::return_from_interrupt(&mut call.cpu)
     })])
     .await
     .unwrap();
