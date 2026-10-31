@@ -106,19 +106,15 @@ pub async fn runner_workers() -> Result<(), String> {
                 [],
                 [],
             )]);
-            let mut cpu = Cpu::new(
-                memory.clone(),
-                config,
-                io,
-                DropProbe {
-                    local: Rc::new(()),
-                    dropped: Some(dropped),
-                },
-            )
-            .await
-            .unwrap();
+            let probe = Rc::new(DropProbe {
+                local: Rc::new(()),
+                dropped: Some(dropped),
+            });
+            let mut cpu = Cpu::new(memory.clone(), config, io).await.unwrap();
             if pending_service {
-                cpu.install_hooks([Hook::<DropProbe>::new(0x100, async |call| {
+                let probe = probe.clone();
+                cpu.install_hooks([Hook::new(0x100, async move |call| {
+                    let _keep_alive = &probe;
                     let memory = &mut call.memory;
                     memory.write_u16(0x300, 2).unwrap();
                     pending::<()>().await;

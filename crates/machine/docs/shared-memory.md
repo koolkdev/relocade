@@ -9,12 +9,12 @@ Allocate and initialize guest memory before constructing a CPU:
 ```rust
 let memory = Memory::new(machine_config)?;
 memory.view().write(0x100, &program)?;
-let mut runtime = Cpu::new(memory.clone(), cpu_config, Default::default(), state).await?;
+let mut runtime = Cpu::new(memory.clone(), cpu_config, Default::default()).await?;
 ```
 
 Each CPU imports the supplied allocation and creates private registers, mapping
 storage and dispatch. CPU construction preserves the existing guest bytes.
-Use `()` when no environment state is needed.
+Registered hooks capture their own application state and service handles.
 
 Retain memory access while the CPU executes:
 
@@ -34,7 +34,7 @@ local bus. Accessing MMIO without one is a programming error and panics.
 `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
-`CpuContext` lends separate `cpu`, `memory`, `io` and `state` fields during stopped
+`CpuContext` lends separate `cpu`, `memory` and `io` fields during stopped
 access and host services. The CPU-register and guest-memory views can be borrowed
 together:
 
@@ -84,7 +84,7 @@ let io = IoBus::new([DeviceConnection {
     ports: vec![0x3d4..=0x3d5],
 }]);
 let memory = Memory::new(machine_config)?;
-let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone(), ()).await?;
+let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone()).await?;
 ```
 
 The board's physical map must mark that memory range `PhysicalMapping::Mmio`.

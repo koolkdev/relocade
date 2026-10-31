@@ -137,7 +137,7 @@ async fn check_device_access() {
                 0xeb, 0, // JMP to the next entry boundary.
             ];
             view.write(0x100, &code).unwrap();
-            let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone(), ())
+            let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone())
                 .await
                 .unwrap();
             if compiled {
@@ -233,7 +233,7 @@ async fn check_retained_memory_bus() {
     .unwrap();
     let memory = Memory::new(config.machine).unwrap();
     memory.view().write(0x100, &[0x40, 0xeb, 0]).unwrap(); // INC AX; JMP +0.
-    let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone(), ())
+    let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone())
         .await
         .unwrap();
     let resources = memory.with_io(io);

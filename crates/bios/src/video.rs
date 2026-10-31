@@ -34,7 +34,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");
 }
 
-pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+pub(super) async fn interrupt(call: &mut CpuContext<'_>) -> HookResult {
     let cpu = &call.cpu;
     let function = cpu.ah();
     let al = cpu.al();
@@ -165,7 +165,7 @@ fn crtc_port(io: &IoBus) -> u16 {
     }
 }
 
-fn unsupported<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+fn unsupported(call: &mut CpuContext<'_>) -> HookResult {
     call.cpu.set_ah(0x86);
     real_mode_interrupt::set_carry(call, true);
     real_mode_interrupt::return_from_interrupt(call)

@@ -6,17 +6,16 @@ use relocade_wasm_runtime::WasmMemoryAccess;
 use relocade_x86::ExecutionExit;
 use std::{collections::HashMap, rc::Rc};
 
-pub(super) struct Machine<T> {
+pub(super) struct Machine {
     pub backend: Backend,
     pub bindings: RuntimeMemory,
     pub io: IoBus,
-    pub state: T,
     pub dispatch: Dispatch,
-    pub hooks: HashMap<u32, Rc<dyn Handler<T>>>,
+    pub hooks: HashMap<u32, Rc<dyn Handler>>,
 }
 
-impl<T> Machine<T> {
-    pub fn context(&mut self) -> CpuContext<'_, T> {
+impl Machine {
+    pub fn context(&mut self) -> CpuContext<'_> {
         CpuContext {
             cpu: CpuView::new(
                 &self.bindings.config,
@@ -24,7 +23,6 @@ impl<T> Machine<T> {
             ),
             memory: self.bindings.guest.view().with_io(&self.io),
             io: &self.io,
-            state: &mut self.state,
         }
     }
 

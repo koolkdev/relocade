@@ -2,10 +2,10 @@
 
 use crate::{CpuView, IoBus, MemoryView};
 
-/// Exclusive access to a stopped machine and its environment.
+/// Exclusive access to a stopped machine.
 /// CPU and memory views borrow live storage and apply writes immediately.
-/// The fields borrow separate resources and can be used together, including
-/// while borrowing environment state. Borrow a field instead of the whole context.
+/// The fields borrow separate resources and can be used together.
+/// Application state is captured by services independently of this context.
 /// A view can cross an ordinary await, keeping its machine borrow until it ends.
 /// Contexts cannot escape their handler or the borrow of [`super::Cpu`].
 /// Drop the context before resuming guest execution or installing modules.
@@ -20,13 +20,11 @@ use crate::{CpuView, IoBus, MemoryView};
 ///     let _ = view.ax();
 /// }
 /// ```
-pub struct CpuContext<'a, T = ()> {
+pub struct CpuContext<'a> {
     /// Live CPU registers, independent of guest memory and environment state.
     pub cpu: CpuView<'a>,
     /// Guest memory through the machine's physical map.
     pub memory: MemoryView<'a>,
     /// The same device bus used by guest port and MMIO instructions.
     pub io: &'a IoBus,
-    /// The environment state owned by this machine.
-    pub state: &'a mut T,
 }

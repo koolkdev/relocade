@@ -21,7 +21,7 @@ pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>, mode: u8) {
         .expect("video compatibility shadows");
 }
 
-pub(in crate::video) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+pub(in crate::video) fn interrupt(call: &mut CpuContext<'_>) -> HookResult {
     let value = call.cpu.bl();
     let previous = call
         .memory
