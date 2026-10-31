@@ -379,8 +379,10 @@ not change CPU copy-on-write granularity. Device-only builds omit transfer hints
 and dirty tracking along with the optional renderer.
 
 `upload(queue, capture)` synchronizes persistent input resources without decoding
-or presenting. The graphics owner can service captures independently of redraw
-requests and submit uploads with `queue.submit([])`. `encode(encoder)` decodes the
+or presenting, and returns whether rendering inputs or output geometry changed.
+Capture time and sequence alone do not count as changes. The graphics owner can
+service captures independently of redraw requests and submit uploads with
+`queue.submit([])`. `encode(encoder)` decodes the
 latest uploaded inputs and returns `None` before the first upload. It always records
 a decode, including retries after an encoder was discarded. Uploading inputs does
 not imply that image pixels have been generated.
@@ -411,9 +413,13 @@ task. Production rendering records commands without waiting for GPU completion.
 
 `VgaDisplay` connects a `FrameSource` to a host through
 `relocade_frontend::display::DisplayRenderer`. It waits for new captures and
-uploads them in `update(queue)`, then records decoding in `encode_image(encoder)`
-only when the uploaded sequence has changed. Resize-only draws reuse its image.
-Closing the source preserves that image and its capture metadata, available from
+uploads them in `update(queue)`, requesting a redraw only when rendering inputs
+change. VRAM, fonts, palette, registers, geometry and the cursor/text blink phase
+use the existing upload checks; no VRAM comparison scan is needed. Changes remain
+pending until `encode_image(encoder)` records decoding, even when unchanged captures
+arrive in between. Unchanged captures and resize-only draws reuse the image.
+VGA timing and capture publication continue independently. Closing the source
+preserves the image and its last decoded capture metadata, available from
 `current_frame()`.
 
 Construct the adapter inside the graphics host's factory so it shares the host's

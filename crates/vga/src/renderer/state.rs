@@ -51,17 +51,20 @@ impl GpuState {
         queue: &wgpu::Queue,
         snapshot: &DisplaySnapshot,
         geometry: DisplayGeometry,
-    ) {
+    ) -> bool {
         let header = header(snapshot, geometry);
-        if self.previous_header.as_ref() != Some(&header) {
+        let header_changed = self.previous_header.as_ref() != Some(&header);
+        if header_changed {
             queue.write_buffer(&self.buffer, 0, &header);
             self.previous_header = Some(header);
         }
         let palette = &snapshot.registers.dac.colors;
-        if self.previous_palette.as_ref() != Some(palette) {
+        let palette_changed = self.previous_palette.as_ref() != Some(palette);
+        if palette_changed {
             queue.write_buffer(&self.buffer, HEADER_BYTES as u64, palette.as_flattened());
             self.previous_palette = Some(*palette);
         }
+        header_changed || palette_changed
     }
 }
 
