@@ -109,6 +109,10 @@ impl<T: 'static> Cpu<T> {
     /// and supplies a new budget for continued guest execution. A zero budget
     /// returns `BudgetExhausted` without entering Wasm or polling pending work.
     /// Dropping the CPU drops the suspended call chain and its machine together.
+    ///
+    /// Connected devices are polled at the start of each nonzero run
+    /// and when a host service completes and continues guest dispatch, subject
+    /// to IF. Pending borrowed host services finish before that interrupt check.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         self.execution.run(instruction_budget).await
     }

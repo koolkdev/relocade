@@ -12,7 +12,8 @@
 //! The instruction set covers 16/32-bit protected-mode and ordinary real-mode
 //! integer execution, x87 floating point, MMX, SSE and SSE2. [`CpuFeature`] lists
 //! the configurable capabilities, all enabled by default.
-//! Privilege transitions and external interrupt delivery are outside the current scope.
+//! Real16 supports externally requested interrupt entry. Privilege transitions and
+//! protected-mode interrupt delivery are outside the current scope.
 //!
 //! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
 //! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into

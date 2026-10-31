@@ -22,6 +22,7 @@ fn exit_module() -> Vec<u8> {
         "budget_exhausted",
         "host_return",
         "host_call",
+        "interrupt_inhibited",
     ] {
         Function::<fn(u32, u32) -> ExecutionExit>::new("test", name)
             .define(&mut program, move |body, (detail, address)| {
@@ -43,6 +44,9 @@ fn exit_module() -> Vec<u8> {
                             .return_(ExecutionExitValues::host(HostExitValues::call(address)))
                     }
                     "budget_exhausted" => return budget_exhausted(body),
+                    "interrupt_inhibited" => {
+                        return body.return_(ExecutionExitValues::interrupt_inhibited())
+                    }
                     "unsupported" => return unsupported(body, &address, detail.truncate::<I8>()),
                     _ => unreachable!(),
                 };
@@ -94,6 +98,7 @@ fn generated_exits_preserve_payloads() {
             },
         ),
         ("budget_exhausted", ExecutionExit::BudgetExhausted),
+        ("interrupt_inhibited", ExecutionExit::InterruptInhibited),
         ("host_return", ExecutionExit::Host(HostExit::Return)),
         ("host_call", ExecutionExit::Host(HostExit::Call { address })),
     ]);
@@ -138,6 +143,7 @@ fn execution_exits_share_four_wasm_values() {
             (0, 1, address as i32, 0),
         ),
         (ExecutionExit::BudgetExhausted, (1, 0, 0, 0)),
+        (ExecutionExit::InterruptInhibited, (4, 0, 0, 0)),
         (
             ExecutionExit::Exception(Exception::PageFault {
                 linear_address: address,

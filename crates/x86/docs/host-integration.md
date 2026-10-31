@@ -526,8 +526,8 @@ Protected-mode architectural flag transfers use a fixed CPL3/IOPL0 model with IF
 VM/RF/VIF/VIP clear. Word stack images restore the represented low flags;
 dword images also restore AC and ID. IRETD restores RF on hardware, but RF is
 unrepresented here along with debug delivery. Real16 transfers also read and write
-IF and IOPL. TF, IF and AC are stored without enabling debug traps, interrupt
-delivery or alignment checks.
+IF and IOPL. TF and AC are stored without enabling debug traps or alignment
+checks. Real16 external interrupt acceptance checks IF at safe runtime boundaries.
 
 ```rust
 use relocade_x86::CpuState;
@@ -893,9 +893,17 @@ and IOPL regardless of their entry values; only dword transfers change AC and ID
 Reserved and unrepresented image bits are ignored.
 
 CLI/STI clear or set IF in Real16 and raise #GP(0) in protected profiles, which
-fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. External interrupt
-delivery and STI's one-instruction inhibition are not modeled; IF alone must not
-be used by the host to decide when to inject interrupts.
+fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. STI from IF=0 and
+MOV/POP SS end their block by returning `ExecutionExit::InterruptInhibited` after
+publishing their effects and retiring. The embedding must immediately call the
+interpreter's existing `step` export before checking interrupts or the budget.
+This executes the protected successor, then resumes ordinary dispatch. Repeated
+inhibiting exits use the same synchronous loop. LSS and STI from IF=1 do not
+request protection. A faulting inhibitor does not request a step; a faulting
+successor leaves the inhibitor's completed effects visible.
+
+The interruptibility rules follow Intel SDM Volume 3A, sections 6.8.1 and 6.8.3
+([manual](https://cdrdv2-public.intel.com/774490/253668-sdm-vol-3a.pdf)).
 
 IRET/IRETD check all three stack slots before restoring IP/EIP, CS and FLAGS.
 IRETD rejects an EIP above `0xffff` before reading the CS and FLAGS fields. The
@@ -916,8 +924,14 @@ without touching the stack or vector table.
 
 Protected INT/INT3/INTO delivery returns the unsupported-instruction exit before
 effects. The forms are decoded before that exit, so INT requires its immediate
-byte in both modes. This stage does not add protected interrupt gates or host
-interrupt injection.
+byte in both modes. Protected interrupt gates are not implemented.
+
+The Real16 interpreter exports `interrupt(vector: u8) -> ExecutionExit`. The
+embedding checks IF and completes any required protected step before acknowledging
+an external request. This entry shares software-INT frame creation, saves the
+current IP, publishes state without retiring an instruction, and dispatches the
+handler using the existing instruction target. Acknowledged entry faults use the
+ordinary guest-exception return. No IRQ polling occurs inside generated code.
 
 ARPL/LAR/LSL/VERR/VERW raise #UD before operand access and terminate snapshot
 compilation. Both decoders read the selected form's physical encoding before
@@ -1037,7 +1051,8 @@ against SS and, in protected mode, paging in order, including the discarded SP/E
 is not read. This models observed partial progress; Intel documents incomplete
 register restoration on POPAD faults without specifying every CPU's exact pattern.
 
-All execution entries use `abi::ExecutionSignature`, or `fn() -> ExecutionExit`.
+Ordinary address-dispatched entries use `abi::ExecutionSignature`, or
+`fn() -> ExecutionExit`. The external `interrupt` entry additionally takes a vector.
 `ExecutionExit` and its nested `HostExit` and `Exception` types derive the
 compiler's shared ABI. The runtime binds this signature and returns the ordinary
 Rust enum directly:
@@ -1076,8 +1091,8 @@ programming error.
 service's future after the guest call returns; pending work has no guest
 execution exit. Hook continuation is a separate `HookResult::Continue` variant;
 `HookResult::Exit` carries an execution outcome. Async handlers use this
-Rust-only type and must not return `HostExit::Call`, which is reserved for
-generated entries. The runner owns pinned futures until completion or CPU drop,
+Rust-only type and must not return `HostExit::Call` or `InterruptInhibited`, which
+are reserved for generated entries. The runner owns pinned futures until completion or CPU drop,
 even when a run waiter is dropped. Handler captures and futures may be local to
 the CPU's thread and need not be `Send` or `Sync`.
 
@@ -1110,8 +1125,8 @@ unsupported paths remain
 runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
 Faults are reported to the host. Automatic delivery of guest faults, protected
-interrupt gates, privilege transitions, external interrupt/debug delivery, mode
-transitions and SS-load inhibition are not modeled. Native Wasm traps from broken
+interrupt gates, privilege transitions, nonmaskable interrupts, debug delivery
+and mode transitions are not modeled. Native Wasm traps from broken
 backing or internal arithmetic invariants are implementation errors, outside this
 guest-fault protocol.
 

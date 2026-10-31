@@ -4,7 +4,11 @@ use super::{hooks::Handler, Backend, CpuContext, Dispatch, HookResult, RuntimeMe
 use crate::{CpuView, IoBus};
 use relocade_wasm_runtime::WasmMemoryAccess;
 use relocade_x86::ExecutionExit;
-use std::{collections::HashMap, rc::Rc};
+use std::{
+    collections::HashMap,
+    rc::Rc,
+    task::{Context, Poll, Waker},
+};
 
 pub(super) struct Machine<T> {
     pub backend: Backend,
@@ -28,7 +32,7 @@ impl<T> Machine<T> {
         }
     }
 
-    pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
+    fn set_budget(&mut self, budget: Option<u64>) {
         if let Some(budget) = budget {
             let target = self
                 .context()
@@ -38,7 +42,26 @@ impl<T> Machine<T> {
             self.bindings
                 .set_instruction_target(&mut self.backend, target);
         }
-        self.dispatch.run(&mut self.backend)
+    }
+
+    pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
+        self.set_budget(budget);
+        // This call does not suspend; each return to guest dispatch polls again.
+        let mut exit = match self.poll_interrupt(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(vector) => self.dispatch.interrupt(&mut self.backend, vector),
+            Poll::Pending => self.dispatch.run(&mut self.backend),
+        };
+        while exit == ExecutionExit::InterruptInhibited {
+            exit = self.dispatch.step(&mut self.backend);
+        }
+        exit
+    }
+
+    pub fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
+        if !self.context().cpu.interrupts_enabled() {
+            return Poll::Pending;
+        }
+        self.io.poll_interrupt(cx)
     }
 
     pub async fn call_host(&mut self, address: u32) -> HookResult {

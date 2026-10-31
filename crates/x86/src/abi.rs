@@ -28,6 +28,10 @@ pub const DISPATCH: Function<ExecutionSignature> = Function::new("relocade", "di
 pub const INTERPRET: Function<ExecutionSignature> = Function::new("relocade", "interpret");
 pub const RUN: Function<ExecutionSignature> = Function::new("relocade", "run");
 pub const STEP: Function<ExecutionSignature> = Function::new("relocade", "step");
+/// Real16 interpreter export. The embedding checks interruptibility and supplies
+/// an acknowledged vector; entry saves current IP without retiring an instruction.
+pub const INTERRUPT: Function<fn(u8) -> crate::ExecutionExit> =
+    Function::new("relocade", "interrupt");
 
 pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "readPort");
 pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");

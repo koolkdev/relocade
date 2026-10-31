@@ -5,6 +5,7 @@ use std::{
     future::{ready, Future},
     ops::RangeInclusive,
     rc::Rc,
+    task::{Context, Poll},
 };
 
 /// A synchronous device on the machine's memory and port buses.
@@ -38,10 +39,19 @@ pub trait Device {
     }
 
     fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {}
+
+    /// Supplies and acknowledges one pending maskable interrupt vector.
+    /// Devices retain pending requests until polled. Return `Pending` and register
+    /// the waker when a future request should wake a suspended CPU.
+    /// The default never raises interrupts. Polling must not reenter guest execution.
+    fn poll_interrupt(&mut self, _cx: &mut Context<'_>) -> Poll<u8> {
+        Poll::Pending
+    }
 }
 
 /// The addresses decoded by one device. Memory ranges must also be marked
 /// [`relocade_x86::PhysicalMapping::Mmio`] in the machine's physical map.
+/// The same connection carries interrupt requests; address ranges may be empty.
 pub struct DeviceConnection {
     pub device: Rc<RefCell<dyn Device>>,
     pub mmio: Vec<RangeInclusive<u32>>,
@@ -62,7 +72,7 @@ pub struct IoBus {
 }
 
 impl IoBus {
-    /// Connects each device's memory and port ranges together.
+    /// Connects each device's memory, ports and interrupt requests together.
     ///
     /// # Panics
     /// Panics if a range is empty or two ranges on the same bus overlap.
@@ -73,6 +83,18 @@ impl IoBus {
         Self {
             connections: connections.into(),
         }
+    }
+
+    /// Acknowledges the first ready interrupt in connection order.
+    /// Later requests remain with their devices until the next poll. If no device
+    /// is ready, every device gets an opportunity to register the CPU's waker.
+    pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
+        for connection in &*self.connections {
+            if let Poll::Ready(vector) = connection.device.borrow_mut().poll_interrupt(cx) {
+                return Poll::Ready(vector);
+            }
+        }
+        Poll::Pending
     }
 
     /// Reads one through eight bytes, splitting only at device boundaries.
