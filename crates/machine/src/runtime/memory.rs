@@ -1,17 +1,19 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
 use super::Result;
-use crate::{CpuConfig, Memory as GuestMemory};
+use crate::{CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
-use relocade_wasm_runtime::{Import, Memory, WasmBackend, WasmMemoryAccess};
+use relocade_wasm_runtime::{
+    Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess, WasmSharedMemory,
+};
 use relocade_x86::{abi, ExecutionContext};
-use std::mem::offset_of;
 
-/// Private CPU and mapping storage, plus an import of the supplied guest memory.
+/// Retained CPU and guest storage, plus private mapping storage.
 /// Retaining the guest handle lets the context borrow it independently of the backend.
 pub(super) struct RuntimeMemory {
     pub(crate) config: CpuConfig,
     pub(crate) context: Memory,
+    pub(crate) cpu: CpuStateAccess,
     pub(crate) guest: GuestMemory,
     guest_import: Memory,
     pub(crate) mapping: Memory,
@@ -26,11 +28,8 @@ impl RuntimeMemory {
         guest
             .configuration()
             .validate_for(config.execution_target().profile)?;
-        let context = backend.create_memory(MemoryDeclaration {
-            maximum: Some(1),
-            ..abi::EXECUTION_CONTEXT
-        })?;
-        backend.memory(&context).write(
+        let storage = SharedMemory::new(1, 1)?;
+        storage.write(
             0,
             &ExecutionContext {
                 cpu: *config.cpu(),
@@ -39,6 +38,8 @@ impl RuntimeMemory {
             }
             .to_bytes(),
         );
+        let context = backend.import_shared_memory(&storage);
+        let cpu = CpuStateAccess::new(&config, storage);
         let guest_import = backend.import_shared_memory(guest.backing());
         let mapping_bytes = guest.configuration().memory_map().to_bytes();
         let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
@@ -51,6 +52,7 @@ impl RuntimeMemory {
         Ok(Self {
             config,
             context,
+            cpu,
             guest,
             guest_import,
             mapping,
@@ -70,16 +72,5 @@ impl RuntimeMemory {
             backend.bind(abi::GUEST, &self.guest_import),
             backend.bind(abi::PHYSICAL_MAP, &self.mapping),
         ]
-    }
-
-    pub(crate) fn set_instruction_target(
-        &self,
-        access: &mut impl WasmMemoryAccess<Memory = Memory>,
-        target: u64,
-    ) {
-        access.memory(&self.context).store(
-            offset_of!(ExecutionContext, instruction_target) as u32,
-            target,
-        );
     }
 }

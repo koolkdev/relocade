@@ -2,18 +2,30 @@ use relocade_x86::{
     CpuState, DescriptorTableRegister, ExecutionContext, ExecutionTarget, FlagsState, Segment,
     SegmentRegister, Segments, SystemSegmentRegister,
 };
-use std::mem::offset_of;
+use std::{marker::PhantomData, mem::offset_of, rc::Rc};
 
 use crate::{ConfigurationError, CpuConfig};
-use relocade_wasm_runtime::{Load, MemoryAccess, MemoryValue, Store};
+use relocade_wasm_runtime::{Load, MemoryValue, SharedMemory, Store, WasmSharedMemory};
 
-/// A live view of published CPU state. Each register access transfers only its
-/// own bytes; there is no cached snapshot or deferred writeback.
-/// Register operations require a stopped CPU. Views from a CPU context retain
-/// its backend borrow, excluding guest execution until the view ends.
-pub struct CpuView<'a> {
-    config: &'a CpuConfig,
-    storage: MemoryAccess<'a>,
+/// Retained access to the complete live CPU state, independent of the backend.
+/// Operations copy values and apply writes immediately; no references into Wasm
+/// storage escape. The execution driver serializes guest execution and service
+/// polling. Generated entries may cache fields until they publish state on exit;
+/// use this resource at stopped host boundaries, not from synchronous guest
+/// device callbacks. Clones share state and remain usable after the runner is dropped.
+/// The handle stays on the execution thread even when its backing supports sharing.
+///
+/// ```compile_fail
+/// use relocade_machine::CpuStateAccess;
+/// fn send_state(cpu: CpuStateAccess) {
+///     std::thread::spawn(move || cpu.set_ax(1));
+/// }
+/// ```
+#[derive(Clone)]
+pub struct CpuStateAccess {
+    target: ExecutionTarget,
+    storage: SharedMemory,
+    execution_thread: PhantomData<Rc<()>>,
     #[cfg(test)]
     reads: std::cell::RefCell<Vec<(u32, usize)>>,
 }
@@ -26,27 +38,35 @@ macro_rules! register {
         }
 
         #[inline]
-        pub fn $set(&mut self, value: $type) {
+        pub fn $set(&self, value: $type) {
             self.store(offset_of!(CpuState, registers.$field) + $byte, value);
         }
     };
 }
 
-impl<'a> CpuView<'a> {
+impl CpuStateAccess {
     /// The execution profile and CPU model represented by these registers.
     pub fn execution_target(&self) -> ExecutionTarget {
-        self.config.execution_target()
+        self.target
     }
 
-    /// Borrows an initialized `ExecutionContext` image compatible with the execution target.
+    /// Retains an initialized image compatible with the execution target.
     #[inline]
-    pub(crate) fn new(config: &'a CpuConfig, storage: MemoryAccess<'a>) -> Self {
+    pub(crate) fn new(config: &CpuConfig, storage: SharedMemory) -> Self {
         Self {
-            config,
+            target: config.execution_target(),
             storage,
+            execution_thread: PhantomData,
             #[cfg(test)]
             reads: Default::default(),
         }
+    }
+
+    pub(crate) fn set_instruction_target(&self, target: u64) {
+        self.storage.store(
+            offset_of!(ExecutionContext, instruction_target) as u32,
+            target,
+        );
     }
 
     register!(eax, set_eax, u32, eax, 0);
@@ -80,7 +100,7 @@ impl<'a> CpuView<'a> {
     }
 
     #[inline]
-    pub fn set_eip(&mut self, value: u32) {
+    pub fn set_eip(&self, value: u32) {
         self.store(offset_of!(CpuState, eip), value);
     }
 
@@ -90,7 +110,7 @@ impl<'a> CpuView<'a> {
     }
 
     #[inline]
-    pub fn set_instruction_count(&mut self, value: u64) {
+    pub fn set_instruction_count(&self, value: u64) {
         self.store(offset_of!(CpuState, instruction_count), value);
     }
 
@@ -101,7 +121,7 @@ impl<'a> CpuView<'a> {
 
     /// Replaces represented flags. This is host editing, not a privilege-checked
     /// POPFD operation; fixed and unrepresented bits are ignored.
-    pub fn set_eflags(&mut self, value: u32) {
+    pub fn set_eflags(&self, value: u32) {
         let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
         flags.set_eflags(value);
         self.write(offset_of!(CpuState, flags) as u32, &flags.to_bytes());
@@ -112,7 +132,7 @@ impl<'a> CpuView<'a> {
     }
 
     /// Preserves the other flags, including those held in a lazy source.
-    pub fn set_carry(&mut self, value: bool) {
+    pub fn set_carry(&self, value: bool) {
         self.set_eflags((self.eflags() & !1) | u32::from(value));
     }
 
@@ -125,8 +145,8 @@ impl<'a> CpuView<'a> {
     /// # Panics
     /// Panics before writing if the cache violates this CPU's execution profile.
     #[track_caller]
-    pub fn set_segment(&mut self, segment: Segment, value: SegmentRegister) {
-        let profile = self.config.execution_target().profile;
+    pub fn set_segment(&self, segment: Segment, value: SegmentRegister) {
+        let profile = self.target.profile;
         assert!(
             profile.is_segment_compatible(segment, &value),
             "segment {segment:?} violates execution profile {profile:?}"
@@ -142,7 +162,7 @@ impl<'a> CpuView<'a> {
         DescriptorTableRegister::from_bytes(self.read(offset_of!(CpuState, gdtr)))
     }
 
-    pub fn set_gdtr(&mut self, value: DescriptorTableRegister) {
+    pub fn set_gdtr(&self, value: DescriptorTableRegister) {
         self.write(offset_of!(CpuState, gdtr) as u32, &value.to_bytes());
     }
 
@@ -150,8 +170,8 @@ impl<'a> CpuView<'a> {
         DescriptorTableRegister::from_bytes(self.read(offset_of!(CpuState, idtr)))
     }
 
-    pub fn set_idtr(&mut self, value: DescriptorTableRegister) -> Result<(), ConfigurationError> {
-        crate::config::validate_idtr(self.config.execution_target().profile, value)?;
+    pub fn set_idtr(&self, value: DescriptorTableRegister) -> Result<(), ConfigurationError> {
+        crate::config::validate_idtr(self.target.profile, value)?;
         self.write(offset_of!(CpuState, idtr) as u32, &value.to_bytes());
         Ok(())
     }
@@ -160,7 +180,7 @@ impl<'a> CpuView<'a> {
         SystemSegmentRegister::from_bytes(self.read(offset_of!(CpuState, ldtr)))
     }
 
-    pub fn set_ldtr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
+    pub fn set_ldtr(&self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
         crate::config::validate_system_segment(value, true)?;
         self.write(offset_of!(CpuState, ldtr) as u32, &value.to_bytes());
         Ok(())
@@ -170,7 +190,7 @@ impl<'a> CpuView<'a> {
         SystemSegmentRegister::from_bytes(self.read(offset_of!(CpuState, tr)))
     }
 
-    pub fn set_tr(&mut self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
+    pub fn set_tr(&self, value: SystemSegmentRegister) -> Result<(), ConfigurationError> {
         crate::config::validate_system_segment(value, false)?;
         self.write(offset_of!(CpuState, tr) as u32, &value.to_bytes());
         Ok(())
@@ -186,8 +206,8 @@ impl<'a> CpuView<'a> {
     /// # Errors
     /// Returns an error without writing if the snapshot violates this CPU's
     /// execution target.
-    pub fn restore(&mut self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
-        crate::config::validate_cpu(self.config.execution_target(), snapshot)?;
+    pub fn restore(&self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
+        crate::config::validate_cpu(self.target, snapshot)?;
         self.write(0, &snapshot.to_bytes());
         Ok(())
     }
@@ -195,7 +215,7 @@ impl<'a> CpuView<'a> {
     #[inline]
     fn load<V: MemoryValue>(&self, offset: usize) -> V
     where
-        MemoryAccess<'a>: Load<V>,
+        SharedMemory: Load<V>,
     {
         let address = (offset_of!(ExecutionContext, cpu) + offset) as u32;
         #[cfg(test)]
@@ -204,9 +224,9 @@ impl<'a> CpuView<'a> {
     }
 
     #[inline]
-    fn store<V: MemoryValue>(&mut self, offset: usize, value: V)
+    fn store<V: MemoryValue>(&self, offset: usize, value: V)
     where
-        MemoryAccess<'a>: Store<V>,
+        for<'a> &'a SharedMemory: Store<V>,
     {
         self.storage
             .store((offset_of!(ExecutionContext, cpu) + offset) as u32, value);
@@ -223,7 +243,7 @@ impl<'a> CpuView<'a> {
     }
 
     #[inline]
-    fn write(&mut self, offset: u32, bytes: &[u8]) {
+    fn write(&self, offset: u32, bytes: &[u8]) {
         self.storage
             .write(offset_of!(ExecutionContext, cpu) as u32 + offset, bytes);
     }

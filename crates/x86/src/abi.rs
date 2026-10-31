@@ -5,7 +5,11 @@ use relocade_compiler::{
     I1, I16, I32, I64,
 };
 
-pub const EXECUTION_CONTEXT: Memory = Memory::new("relocade", "executionContext", 1);
+pub const EXECUTION_CONTEXT: Memory = Memory {
+    shared: true,
+    maximum: Some(1),
+    ..Memory::new("relocade", "executionContext", 1)
+};
 /// Guest backing is shared with host devices. The maximum is the Wasm32 address
 /// space; each machine still chooses its initial allocation.
 pub const GUEST: Memory = Memory {

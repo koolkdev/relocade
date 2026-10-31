@@ -133,3 +133,23 @@ pub(super) fn allocate(
     WebAssembly::Memory::new(&descriptor)
         .map_err(|error| super::js_error("create Wasm memory", error))
 }
+
+impl<V: crate::MemoryValue> crate::Load<V> for SharedMemory
+where
+    for<'a> &'a Transfers: crate::Load<V>,
+{
+    #[inline]
+    fn load(&self, offset: u32) -> V {
+        (&self.allocation.transfers).load(offset)
+    }
+}
+
+impl<V: crate::MemoryValue> crate::Store<V> for &SharedMemory
+where
+    for<'a> &'a Transfers: crate::Store<V>,
+{
+    #[inline]
+    fn store(&mut self, offset: u32, value: V) {
+        (&self.allocation.transfers).store(offset, value);
+    }
+}

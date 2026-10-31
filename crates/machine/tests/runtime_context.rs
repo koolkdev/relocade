@@ -117,3 +117,52 @@ fn captured_state_outlives_pending_work_and_is_released_with_the_cpu() {
 async fn captured_state_outlives_pending_work_and_is_released_with_the_cpu() {
     check_context_lifetime().await;
 }
+
+async fn check_retained_cpu_state() {
+    let config = support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+        0x10000,
+        PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
+    )
+    .unwrap();
+    let mut runner = support::create_cpu(config).await.unwrap();
+    runner
+        .memory()
+        .view()
+        .write(0x100, &[0x40, 0xeb, 0xfd])
+        .unwrap(); // INC AX; JMP 0100
+    let cpu = runner.cpu_state();
+    cpu.set_eax(0xaabb_1234);
+    cpu.set_carry(true);
+    let clone = cpu.clone();
+    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(clone.eax(), 0xaabb_1235);
+    assert_eq!(clone.eip(), 0x100);
+    assert_eq!(clone.instruction_count(), 2);
+    assert!(clone.carry());
+    drop(runner);
+    clone.set_ah(0x56);
+    assert_eq!(cpu.eax(), 0xaabb_5635);
+    let mut snapshot = cpu.snapshot();
+    snapshot.x87 = CpuState::filled(0xa5).x87;
+    snapshot.simd = CpuState::filled(0x5a).simd;
+    cpu.restore(&snapshot).unwrap();
+    assert_eq!(clone.snapshot(), snapshot);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn retained_cpu_state_is_live_and_outlives_the_runner() {
+    pollster::block_on(check_retained_cpu_state());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn retained_cpu_state_is_live_and_outlives_the_runner() {
+    check_retained_cpu_state().await;
+}

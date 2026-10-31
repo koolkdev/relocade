@@ -1,8 +1,8 @@
 # Shared guest memory
 
-Guest backing is a shared Wasm memory on both backends. The CPU execution context,
-Wasm physical-map table and dispatch bookkeeping stay private to the runtime. Compiled
-RAM instructions still use ordinary Wasm loads and stores. MMIO uses device callbacks.
+Guest backing and the CPU execution context use distinct shared Wasm memories
+on both backends. The Wasm physical-map table and dispatch bookkeeping stay private
+to the runtime. Compiled RAM instructions still use ordinary Wasm loads and stores. MMIO uses device callbacks.
 
 Allocate and initialize guest memory before constructing a CPU:
 
@@ -12,7 +12,7 @@ memory.view().write(0x100, &program)?;
 let mut runtime = Cpu::new(memory.clone(), cpu_config, Default::default()).await?;
 ```
 
-Each CPU imports the supplied allocation and creates private registers, mapping
+Each CPU imports the supplied allocation and creates its own CPU state, mapping
 storage and dispatch. CPU construction preserves the existing guest bytes.
 Registered hooks capture their own application state and service handles.
 
@@ -34,8 +34,18 @@ local bus. Accessing MMIO without one is a programming error and panics.
 `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
 
+`cpu.cpu_state()` returns a retained `CpuStateAccess` resource. It copies values
+without borrowing the backend or lending references into CPU storage. Clones share
+the complete state, including flags, segments and floating-point snapshots, and
+remain usable after CPU destruction. Setters take `&self`; no poll-time binding
+or dynamic borrow guard is needed. The driver serializes guest execution and
+service polling. Use CPU state at those stopped boundaries: generated entries
+may cache fields internally until they publish state on exit. Synchronous guest
+device callbacks must not edit this backing. Memory safety does not make such
+mid-entry architectural edits valid.
+
 `CpuContext` lends separate `cpu`, `memory` and `io` fields during stopped
-access and host services. The CPU-register and guest-memory views can be borrowed
+access and host services. The CPU-state and guest-memory views can be borrowed
 together:
 
 ```rust

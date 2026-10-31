@@ -1,7 +1,7 @@
 //! Execution of one guest, independent of the host Wasm engine.
 //!
 //! [`Cpu::new`] prepares an interpreter and dispatcher over supplied [`Memory`]
-//! and initializes private CPU storage. [`Cpu::context`] lends access to
+//! and initializes independently retained CPU storage. [`Cpu::context`] lends access to
 //! the stopped CPU and mapped memory, both backed directly by Wasm storage.
 //! CPU edits take effect immediately. Preparation is asynchronous
 //! for native and web engines. [`Cpu::run`] awaits host operations
@@ -9,13 +9,13 @@
 //!
 //! A retained execution future owns the machine from its first host service until
 //! execution stops. Services borrow it through ordinary async calls and keep local
-//! values across waits. CPU views borrow the backend directly; their accesses need
-//! no handle lookup or invocation check. Application resources belong to the
+//! values across waits. CPU state is independently retained; its value accesses need
+//! no backend borrow or invocation check. Application resources belong to the
 //! registered services that capture them.
 //!
 //! A pending service survives dropping its run waiter. Dropping the CPU ends
 //! the call chain and destroys the machine without undoing completed effects.
-//! A suspended service excludes embedding access to the CPU. Captured input
+//! A suspended service excludes borrowing the runtime context. Captured input
 //! handles, application state and shared guest memory remain independently accessible.
 //!
 //! ```
@@ -46,7 +46,7 @@ mod machine;
 mod memory;
 pub mod real_mode_interrupt;
 
-use crate::{CpuConfig, IoBus, Memory};
+use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
@@ -63,11 +63,12 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu {
     execution: Execution,
+    cpu: CpuStateAccess,
     memory: Memory,
 }
 
 impl Cpu {
-    /// Creates private CPU state and dispatch over existing guest memory.
+    /// Creates CPU state and dispatch over existing guest memory.
     /// Guest bytes are preserved. Host services capture their application resources.
     /// Port and MMIO accesses use the supplied execution-local device bus.
     pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus) -> Result<Self> {
@@ -82,8 +83,10 @@ impl Cpu {
             dispatch,
             hooks: HashMap::new(),
         };
+        let cpu = machine.bindings.cpu.clone();
         Ok(Self {
             execution: Execution::new(machine),
+            cpu,
             memory,
         })
     }
@@ -127,8 +130,14 @@ impl Cpu {
         self.execution.machine_mut().context()
     }
 
+    /// Retains live CPU state independently of the runner and its backend.
+    /// Capture this once when registering a service, like memory and I/O handles.
+    pub fn cpu_state(&self) -> CpuStateAccess {
+        self.cpu.clone()
+    }
+
     /// Retains guest memory independently of this CPU and its execution borrow.
-    /// Clones share guest bytes; CPU and dispatch storage remain private.
+    /// Clones share guest bytes; dispatch storage remains private.
     pub fn memory(&self) -> Memory {
         self.memory.clone()
     }

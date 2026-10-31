@@ -357,7 +357,9 @@ or asynchronous interrupt polling within the repetition.
 ## Imported memories
 
 All imports belong to the `relocade` module. Memories are distinct Wasm objects;
-only `guest` is shared. Sizes below are minimum counts of 64-KiB Wasm pages.
+`executionContext` and `guest` are shared. Sizes below are minimum counts of
+64-KiB Wasm pages. `executionContext` requires exactly one page with a maximum
+of one page, allowing the host to retain CPU state independently of the engine.
 The `guest` import declares a maximum of 65536 pages. Its supplied memory must
 have a maximum no larger than that and enough initial capacity for all backing.
 
@@ -810,8 +812,8 @@ dynamic indices load the selected backing field. Known permissions and full limi
 skip range-check construction, including ordinary Flat32 accesses.
 The runtime owns profile compatibility and must preserve it when changing segment
 caches. `ExecutionProfile::is_segment_compatible` checks a proposed cache without
-reading the other segments. Host edits through `CpuView::set_segment` panic if the new
-cache violates the configured profile. `CpuView::restore` validates the complete
+reading the other segments. Host edits through `CpuStateAccess::set_segment` panic if the new
+cache violates the configured profile. `CpuStateAccess::restore` validates the complete
 snapshot and returns a `ConfigurationError` without writing if it is incompatible.
 Descriptor callbacks must likewise enforce the profile before returning a cache
 for a guest segment load. The dispatcher and interpreter gateway rely on this

@@ -124,7 +124,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
     assert_eq!(functions, [0]);
     assert_eq!(exports, [("block_1000".to_owned(), ExternalKind::Func, 1)]);
     assert_eq!(imports.len(), 2);
-    assert!(imports.iter().any(|(name, ty)| name == "executionContext" && matches!(ty, TypeRef::Memory(memory) if memory.initial == 1 && !memory.memory64 && !memory.shared)));
+    assert!(imports.iter().any(|(name, ty)| name == "executionContext" && matches!(ty, TypeRef::Memory(memory) if memory.initial == 1 && memory.maximum == Some(1) && !memory.memory64 && memory.shared)));
     assert!(imports
         .iter()
         .any(|(name, ty)| name == "dispatch" && matches!(ty, TypeRef::Func(0))));
