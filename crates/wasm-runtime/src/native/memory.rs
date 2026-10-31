@@ -35,6 +35,7 @@ pub(crate) enum MemoryRegion<'a> {
 }
 
 impl MemoryRegion<'_> {
+    #[inline]
     pub(crate) fn reborrow(&mut self) -> MemoryRegion<'_> {
         match self {
             Self::Private(bytes) => MemoryRegion::Private(bytes),
@@ -42,6 +43,7 @@ impl MemoryRegion<'_> {
         }
     }
 
+    #[inline]
     pub(crate) fn read(&self, offset: u32, bytes: &mut [u8]) {
         match self {
             Self::Private(data) => bytes.copy_from_slice(&data[offset as usize..][..bytes.len()]),
@@ -49,6 +51,7 @@ impl MemoryRegion<'_> {
         }
     }
 
+    #[inline]
     pub(crate) fn write(&mut self, offset: u32, bytes: &[u8]) {
         match self {
             Self::Private(data) => data[offset as usize..][..bytes.len()].copy_from_slice(bytes),
