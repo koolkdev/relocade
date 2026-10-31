@@ -410,7 +410,7 @@ command batch. Neither renderer creates a surface, worker, timer or background
 task. Production rendering records commands without waiting for GPU completion.
 
 `VgaDisplay` connects a `FrameSource` to a host through
-`relocade_peripherals::display::DisplayRenderer`. It waits for new captures and
+`relocade_frontend::display::DisplayRenderer`. It waits for new captures and
 uploads them in `update(queue)`, then records decoding in `encode_image(encoder)`
 only when the uploaded sequence has changed. Resize-only draws reuse its image.
 Closing the source preserves that image and its capture metadata, available from

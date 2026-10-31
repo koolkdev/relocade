@@ -26,6 +26,13 @@ pub(crate) struct Stdio {
 }
 
 impl Stdio {
+    pub(crate) fn new(input: Keyboard) -> Self {
+        Self {
+            input,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn has_buffered_line(&self) -> bool {
         !self.console_line.borrow().is_empty()
     }

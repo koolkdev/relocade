@@ -2045,7 +2045,7 @@ dependencies = [
  "js-sys",
  "pollster",
  "raw-window-handle",
- "relocade-peripherals",
+ "relocade-frontend",
  "relocade-renderer",
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -2060,6 +2060,7 @@ dependencies = [
 name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
+ "relocade-frontend",
  "relocade-machine",
  "relocade-vga",
  "relocade-x86",
@@ -2117,11 +2118,22 @@ dependencies = [
  "futures-channel",
  "pollster",
  "relocade-bios",
+ "relocade-frontend",
  "relocade-machine",
  "relocade-vfs",
  "relocade-vga",
  "relocade-x86",
  "wgpu",
+]
+
+[[package]]
+name = "relocade-frontend"
+version = "0.0.0"
+dependencies = [
+ "futures-channel",
+ "relocade-renderer",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]
@@ -2146,14 +2158,6 @@ dependencies = [
  "relocade-x86",
  "wasm-bindgen-test",
  "web-time",
-]
-
-[[package]]
-name = "relocade-peripherals"
-version = "0.0.0"
-dependencies = [
- "relocade-renderer",
- "wgpu",
 ]
 
 [[package]]
@@ -2190,8 +2194,8 @@ dependencies = [
  "futures-lite",
  "futures-util",
  "pollster",
+ "relocade-frontend",
  "relocade-machine",
- "relocade-peripherals",
  "relocade-renderer",
  "wasm-bindgen-test",
  "wgpu",

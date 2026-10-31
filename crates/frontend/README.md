@@ -1,8 +1,16 @@
-# Peripheral connections
+# Frontend integration
 
-Shared contracts connect device implementations to an application host without
-requiring either to depend on the other. Implementations remain in their device
-crates; the host owns its windows, workers and output lifecycle.
+Shared contracts connect execution and graphics adapters to the application.
+Input uses winit value types; graphics uses the application's wgpu resources.
+The application owns its windows, workers and presentation. Each adapter owns
+translation into the guest's behavior. The crate creates no workers or windows.
+
+The `keyboard` feature provides owned `KeyboardEvent` messages and ordinary Rust
+channel endpoints. Events preserve physical and logical keys, location, text,
+press/release state, repeat and modifiers using winit's types. Focus loss releases
+transient input state. A BIOS adapter consumes these events on execution and
+chooses its supported scan codes and text encoding; other environments can use
+the same events with their own input semantics.
 
 The `display` feature provides `display::DisplayRenderer`, the graphics-side
 implementation of a display connection. `update(queue)` waits for source updates

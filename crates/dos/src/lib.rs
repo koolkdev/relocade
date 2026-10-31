@@ -129,6 +129,7 @@ pub struct Dos {
     state: Rc<DosState>,
     cpu: Cpu,
     vga: Rc<RefCell<Vga>>,
+    keyboard_input: relocade_frontend::keyboard::KeyboardInput,
 }
 
 impl Dos {
@@ -138,13 +139,18 @@ impl Dos {
         let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
             runner.clock().clone(),
         ))));
-        let io = IoBus::new([runner.connect(
-            vga.clone(),
-            [relocade_vga::MEMORY_RANGE],
-            relocade_vga::PORT_RANGES,
-        )]);
+        let keyboard = relocade_bios::Keyboard::default();
+        let (keyboard_input, keyboard_device) = keyboard.connect(runner);
+        let io = IoBus::new([
+            runner.connect(
+                vga.clone(),
+                [relocade_vga::MEMORY_RANGE],
+                relocade_vga::PORT_RANGES,
+            ),
+            keyboard_device,
+        ]);
         let memory = Memory::new(kernel::configuration())?;
-        let state = Rc::new(DosState::new(memory.clone().with_io(io.clone())));
+        let state = Rc::new(DosState::new(memory.clone().with_io(io.clone()), keyboard));
         let keyboard = state.stdio().input.clone();
         let mut cpu = Cpu::new(memory, kernel::cpu(), io, ()).await?;
         kernel::initialize(&mut cpu.context().memory);
@@ -158,7 +164,12 @@ impl Dos {
                 .chain(relocade_bios::hooks(keyboard)),
         )
         .await?;
-        Ok(Self { state, cpu, vga })
+        Ok(Self {
+            state,
+            cpu,
+            vga,
+            keyboard_input,
+        })
     }
 
     /// Launches a COM image of 1..=65,278 bytes when no process is active.
@@ -301,6 +312,12 @@ impl Dos {
     /// ```
     pub fn keyboard(&self) -> relocade_bios::Keyboard {
         self.state.stdio().input.clone()
+    }
+
+    /// Thread-safe keyboard event input. The runner translates these events on the
+    /// execution owner into the queue shared by BIOS, DOS and the Rust console.
+    pub fn keyboard_input(&self) -> relocade_frontend::keyboard::KeyboardInput {
+        self.keyboard_input.clone()
     }
 
     /// Immutable captured inputs, reusable across program launches. Rendering is

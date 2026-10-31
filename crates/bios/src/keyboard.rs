@@ -1,4 +1,6 @@
-//! Host-fed keyboard input shared by BIOS keystrokes and DOS character reads.
+//! Keyboard state shared by BIOS keystrokes and DOS character reads.
+
+mod input;
 
 use relocade_machine::{real_mode_interrupt, CpuContext, HookResult};
 use std::{
@@ -63,9 +65,10 @@ struct Input {
 
 /// An owned input handle usable while guest execution awaits a key.
 ///
-/// The host translates keyboard events before calling [`Self::push`], and updates
-/// modifiers with [`Self::set_shift_state`]. Clones share one queue. There may be
-/// only one pending guest read, whether it is a BIOS or DOS read.
+/// Local callers can inject translated keys through [`Self::push`] and update
+/// modifiers with [`Self::set_shift_state`]. [`Self::connect`] accepts keyboard
+/// events across threads and translates them on execution. Clones share one queue.
+/// There may be only one pending guest read, whether it is a BIOS or DOS read.
 ///
 /// `std::io::Write` injects character bytes with scan code zero, preserving the
 /// existing DOS stdin interface. Use `push` when BIOS scan codes are required.
@@ -73,6 +76,21 @@ struct Input {
 pub struct Keyboard(Rc<RefCell<Input>>);
 
 impl Keyboard {
+    /// Registers keyboard input translation as a device activity on the execution
+    /// owner. Add the returned connection to the CPU's bus, even though this
+    /// BIOS-level adapter does not yet expose keyboard-controller I/O ports.
+    /// It accepts ASCII text and base navigation/function scan codes. AltGr and
+    /// the enhanced modifier-specific navigation/function codes are not modeled.
+    pub fn connect<C: relocade_machine::Clock>(
+        &self,
+        runner: &relocade_machine::Runner<C>,
+    ) -> (
+        relocade_frontend::keyboard::KeyboardInput,
+        relocade_machine::DeviceConnection,
+    ) {
+        input::connect(self.clone(), runner)
+    }
+
     /// Queues a translated keystroke and wakes a pending guest read.
     pub fn push(&self, key: KeyStroke) {
         let waker = {

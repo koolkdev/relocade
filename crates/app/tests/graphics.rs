@@ -2,7 +2,7 @@
 
 use futures_channel::{mpsc, oneshot};
 use relocade_app::{graphics::Graphics, winit::dpi::PhysicalSize};
-use relocade_peripherals::display::DisplayRenderer;
+use relocade_frontend::display::DisplayRenderer;
 use relocade_renderer::Image;
 use std::{
     sync::{
