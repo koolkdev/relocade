@@ -19,14 +19,14 @@ pub(crate) struct DosContext<'call, 'cpu> {
 }
 
 impl DosContext<'_, '_> {
-    pub(crate) fn console(&self) -> crate::services::console::Console<'_> {
-        crate::services::console::Console {
+    pub(crate) fn console(&self) -> crate::Console<'_> {
+        crate::Console {
             stdio: self.dos.stdio(),
             memory: self.dos.memory(),
         }
     }
 
-    pub(crate) fn stdout(&self) -> crate::services::console::CharacterOutput<'_> {
+    pub(crate) fn stdout(&self) -> crate::console::CharacterOutput<'_> {
         self.console()
             .output(self.process.files().writable_handle(1))
     }

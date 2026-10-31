@@ -100,6 +100,7 @@
 #![forbid(unsafe_code)]
 
 mod com;
+mod console;
 mod error;
 mod execution;
 mod files;
@@ -114,6 +115,7 @@ mod services;
 mod state;
 mod stdio;
 
+pub use console::Console;
 pub use error::{LaunchError, LoadError, MountError, ServiceError};
 pub use execution::RunError;
 pub use files::FileAccess;
@@ -318,6 +320,15 @@ impl Dos {
     /// execution owner into the queue shared by BIOS, DOS and the Rust console.
     pub fn keyboard_input(&self) -> relocade_peripherals::keyboard::KeyboardInput {
         self.keyboard_input.clone()
+    }
+
+    /// Execution-local console access for Rust code, including between programs.
+    /// Uses the same keyboard, video memory and cursor as BIOS/DOS console services.
+    pub fn console(&self) -> Console<'_> {
+        Console {
+            stdio: self.state.stdio(),
+            memory: self.state.memory(),
+        }
     }
 
     /// Immutable captured inputs, reusable across program launches. Rendering is

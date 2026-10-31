@@ -8,6 +8,52 @@ use relocade_x86::{ExecutionExit, HostExit};
 use std::io::{Read, Write};
 
 #[test]
+fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.console().write(b"> ");
+        dos.stdin().write_all(b"abx\x08c\r").unwrap();
+        assert_eq!(dos.console().read_line().await, b"abc");
+        let com = [0xb4, 2, 0xb2, b'C', 0xcd, 0x21, 0xb8, 7, 0x4c, 0xcd, 0x21];
+        dos.launch_com(&com, Default::default()).unwrap();
+        assert_eq!(
+            dos.cpu().run(100).await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        let mut exe = com;
+        exe[3] = b'E';
+        dos.launch_mz(&common::mz_image(&exe), Default::default())
+            .unwrap();
+        assert_eq!(
+            dos.cpu().run(100).await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        dos.console().write(b"> ");
+        let screen = common::screen(&dos);
+        assert_eq!(
+            screen.cells[..5]
+                .iter()
+                .map(|cell| cell.character)
+                .collect::<Vec<_>>(),
+            b"> abc"
+        );
+        assert_eq!(
+            screen.cells[80..84]
+                .iter()
+                .map(|cell| cell.character)
+                .collect::<Vec<_>>(),
+            b"CE> "
+        );
+        assert_eq!(screen.cursor.address, 84);
+        assert_eq!(
+            common::output(dos.stdout()),
+            b"CE",
+            "guest streams retain their existing semantics"
+        );
+    });
+}
+
+#[test]
 fn console_queues_survive_com_and_mz_launches() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
