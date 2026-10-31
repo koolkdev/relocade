@@ -7,17 +7,15 @@ use futures_util::future::LocalBoxFuture;
 use std::rc::Rc;
 
 pub(super) trait Handler<T> {
-    fn call(self: Rc<Self>, context: CallContext<T>) -> LocalBoxFuture<'static, HookResult>;
+    fn call(&self, context: CallContext<T>) -> LocalBoxFuture<'_, HookResult>;
 }
 
 impl<T: 'static, F> Handler<T> for F
 where
     F: AsyncFn(CallContext<T>) -> HookResult + 'static,
 {
-    fn call(self: Rc<Self>, context: CallContext<T>) -> LocalBoxFuture<'static, HookResult> {
-        // User callback construction, polling and completion destruction occur while
-        // the driver binds this invocation's access, including ordinary Fn bodies.
-        Box::pin(async move { self(context).await })
+    fn call(&self, context: CallContext<T>) -> LocalBoxFuture<'_, HookResult> {
+        Box::pin(self(context))
     }
 }
 

@@ -6,52 +6,62 @@ use super::{
     machine::Machine,
     CallContext, HookResult,
 };
-use futures_util::future::LocalBoxFuture;
+mod future;
+use future::OwnerFuture;
 use relocade_wasm_runtime::WasmMemoryAccess;
 use std::{
     rc::Rc,
     task::{Context, Poll},
 };
 
-pub(super) struct Call {
-    future: Option<LocalBoxFuture<'static, HookResult>>,
+pub(super) struct Call<T: 'static> {
+    future: OwnerFuture<dyn Handler<T>, HookResult>,
     invocation: InvocationId,
 }
 
-impl Call {
-    pub fn start<T: 'static>(
-        machine: &Machine<T>,
+pub(super) enum CallPoll<T: 'static> {
+    Ready(HookResult),
+    Pending(Call<T>),
+}
+
+impl<T: 'static> Call<T> {
+    pub fn start(
+        machine: &mut Machine<T>,
         scope: &Rc<Scope<T>>,
         handler: Rc<dyn Handler<T>>,
-    ) -> Self {
+        cx: &mut Context<'_>,
+    ) -> CallPoll<T> {
         let (invocation, context) = CallContext::new(scope, machine);
-        let future = handler.call(context);
-        Self {
-            future: Some(future),
-            invocation,
-        }
+        let memory = machine.backend.memory(&machine.bindings.context);
+        scope.bind(invocation, memory, &mut machine.state, || {
+            // Ordinary Fn bodies may use CPU access while constructing a future.
+            // Construction and the first poll share this one backend borrow.
+            let future = OwnerFuture::new(handler, |handler| handler.call(context));
+            Self { future, invocation }.poll_bound(cx)
+        })
     }
 
-    pub fn poll<T>(
-        &mut self,
+    pub fn resume(
+        self,
         machine: &mut Machine<T>,
         scope: &Scope<T>,
         cx: &mut Context<'_>,
-    ) -> Poll<HookResult> {
+    ) -> CallPoll<T> {
         let memory = machine.backend.memory(&machine.bindings.context);
         scope.bind(self.invocation, memory, &mut machine.state, || {
-            let result = self
-                .future
-                .as_mut()
-                .expect("call is still running")
-                .as_mut()
-                .poll(cx);
-            if result.is_ready() {
-                // Completion cleanup runs with this invocation's access still bound.
-                drop(self.future.take());
-            }
-            result
+            self.poll_bound(cx)
         })
+    }
+
+    fn poll_bound(mut self, cx: &mut Context<'_>) -> CallPoll<T> {
+        match self.future.poll(cx) {
+            Poll::Pending => CallPoll::Pending(self),
+            Poll::Ready(result) => {
+                // Completion destruction uses this invocation's live binding.
+                drop(self);
+                CallPoll::Ready(result)
+            }
+        }
     }
 }
 
@@ -59,6 +69,7 @@ impl Call {
 mod tests {
     use super::*;
     use crate::{Cpu, CpuConfig, MachineConfig, Memory};
+    use futures_util::future::LocalBoxFuture;
     use relocade_x86::{
         Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
         PhysicalMemoryMap, Segments,
@@ -84,7 +95,7 @@ mod tests {
     struct DirectHandler;
 
     impl Handler<()> for DirectHandler {
-        fn call(self: Rc<Self>, context: CallContext) -> LocalBoxFuture<'static, HookResult> {
+        fn call(&self, context: CallContext) -> LocalBoxFuture<'_, HookResult> {
             // Return the custom future itself so its destructor runs only when
             // Call releases it, after poll returns Ready.
             Box::pin(Complete(context))
@@ -111,15 +122,15 @@ mod tests {
                 .await
                 .unwrap();
             let scope = Rc::new(Scope::new());
-            let mut call = Call::start(&cpu.execution.machine, &scope, Rc::new(DirectHandler));
-            assert_eq!(
-                call.poll(
+            assert!(matches!(
+                Call::start(
                     &mut cpu.execution.machine,
                     &scope,
+                    Rc::new(DirectHandler),
                     &mut Context::from_waker(Waker::noop())
                 ),
-                Poll::Ready(HookResult::Exit(ExecutionExit::Host(HostExit::Return)))
-            );
+                CallPoll::Ready(HookResult::Exit(ExecutionExit::Host(HostExit::Return)))
+            ));
             assert_eq!(cpu.context().cpu.ax(), 0x1234);
         });
     }
