@@ -1,10 +1,64 @@
-use super::CpuView;
+use super::{CpuAccess, CpuView};
 use crate::{ConfigurationError, CpuConfig};
-use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
+use relocade_wasm_runtime::{MemoryAccess, SharedMemory, WasmSharedMemory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionContext, ExecutionProfile, Segment, SegmentRegister, Segments,
     StatusSourceState,
 };
+use std::cell::{Cell, RefCell};
+
+struct ScopedStorage<'a> {
+    storage: RefCell<MemoryAccess<'a>>,
+    active: &'a Cell<bool>,
+}
+
+impl CpuAccess for ScopedStorage<'_> {
+    fn with<R>(&self, operation: impl FnOnce(&MemoryAccess<'_>) -> R) -> R {
+        assert!(self.active.get(), "inactive storage");
+        operation(&self.storage.borrow())
+    }
+
+    fn with_mut<R>(&mut self, operation: impl FnOnce(&mut MemoryAccess<'_>) -> R) -> R {
+        assert!(self.active.get(), "inactive storage");
+        operation(&mut self.storage.borrow_mut())
+    }
+}
+
+#[test]
+fn scoped_storage_releases_access_and_validates_rejected_edits() {
+    let config = configuration();
+    let memory = cpu_memory(&config);
+    let active = Cell::new(true);
+    let mut cpu = CpuView::new(
+        config.execution_target(),
+        ScopedStorage {
+            storage: RefCell::new(memory.view()),
+            active: &active,
+        },
+    );
+    cpu.set_eax(0x1234_5678);
+    cpu.set_ah(0x9a);
+    assert_eq!(cpu.ax(), 0x9a78);
+    // The provider is available between operations, without dropping the view.
+    cpu.storage.storage.borrow_mut().store(28, 0xbc_u8);
+    assert_eq!(cpu.eax(), 0x1234_9abc);
+    active.set(false);
+    let rejects = |operation: &mut dyn FnMut()| {
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)).is_err());
+    };
+    rejects(&mut || {
+        cpu.execution_target();
+    });
+    rejects(&mut || {
+        let _ = cpu.set_idtr(relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff));
+    });
+    rejects(&mut || {
+        let _ = cpu.set_tr(relocade_x86::SystemSegmentRegister {
+            usable: 1,
+            ..Default::default()
+        });
+    });
+}
 
 fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
     let memory = SharedMemory::new(1, 1).unwrap();
@@ -47,7 +101,7 @@ fn register_access_is_live_and_preserves_aliases() {
     let storage = cpu_memory(&config);
     let context = storage.clone();
     {
-        let mut cpu = CpuView::new(&config, storage.view());
+        let mut cpu = CpuView::new(config.execution_target(), storage.view());
         cpu.set_eax(0x1234_5678);
         cpu.set_ax(0xabcd);
         cpu.set_al(0xef);
@@ -71,7 +125,7 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     let config = configuration();
     let storage = cpu_memory(&config);
     let context = storage.clone();
-    let mut cpu = CpuView::new(&config, storage.view());
+    let mut cpu = CpuView::new(config.execution_target(), storage.view());
     let snapshot = CpuState {
         segments: Segments::real_mode(),
         idtr: relocade_x86::DescriptorTableRegister::REAL_MODE_IDTR,
@@ -89,7 +143,7 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
 fn restore_rejects_incompatible_segments_without_writing() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let mut cpu = CpuView::new(config.execution_target(), storage.view());
     let before = cpu.snapshot();
     let mut snapshot = before;
     snapshot.registers.eax = 0x1234_5678;
@@ -105,7 +159,7 @@ fn restore_rejects_incompatible_segments_without_writing() {
 fn segment_edits_preserve_the_execution_profile() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let mut cpu = CpuView::new(config.execution_target(), storage.view());
     let ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     cpu.set_segment(Segment::Ds, ds);
     assert_eq!(cpu.segment(Segment::Ds), ds);
@@ -116,7 +170,7 @@ fn segment_edits_preserve_the_execution_profile() {
 fn incompatible_segment_edits_panic() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let mut cpu = CpuView::new(config.execution_target(), storage.view());
     let mut ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     ds.base = 0;
     cpu.set_segment(Segment::Ds, ds);
@@ -126,7 +180,7 @@ fn incompatible_segment_edits_panic() {
 fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let mut cpu = CpuView::new(config.execution_target(), storage.view());
     let mut snapshot = *config.cpu();
     snapshot.flags.status_source = StatusSourceState {
         kind: 2, // ADD byte: ff + 1 => CF, PF, AF, ZF.
@@ -153,7 +207,7 @@ fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
 fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let mut cpu = CpuView::new(config.execution_target(), storage.view());
     let before = cpu.snapshot();
     let changed = relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff);
     assert_eq!(
@@ -167,7 +221,7 @@ fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
 fn restore_rejects_incompatible_idtr_without_writing() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let mut cpu = CpuView::new(config.execution_target(), storage.view());
     let before = cpu.snapshot();
     let mut snapshot = before;
     snapshot.idtr = relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff);
