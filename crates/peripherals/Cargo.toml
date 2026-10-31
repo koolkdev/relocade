@@ -1,0 +1,13 @@
+[package]
+name = "relocade-peripherals"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+display = ["dep:relocade-renderer", "dep:wgpu"]
+
+[dependencies]
+relocade-renderer = { path = "../renderer", optional = true }
+wgpu = { workspace = true, optional = true }

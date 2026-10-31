@@ -1,6 +1,9 @@
 //! Surface initialization, acquisition and presentation on the graphics owner.
-//! Transfer `Window::surface_setup` using the existing `worker::Thread`, then
-//! create `Surface` there. Command recording and image drawing remain with the caller.
+//! `Graphics` connects a display to a prepared surface. `Surface` is also
+//! available for callers that record and submit their own drawing operations.
+mod host;
+pub use host::Graphics;
+
 use crate::platform::graphics::SurfaceOwner;
 pub use crate::platform::graphics::SurfaceSetup;
 use std::{marker::PhantomData, rc::Rc};
