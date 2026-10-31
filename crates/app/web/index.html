@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Relocade</title>
+    <style>
+        :root { color-scheme: dark; font: 16px system-ui, sans-serif; }
+        body { margin: 0; background: #151515; }
+        header { display: flex; align-items: center; justify-content: space-between; padding: .5rem 1rem; }
+        #title { font-size: 1rem; margin: 0; }
+        #error { color: #ff9696; margin: 0; }
+        canvas { display: block; width: 100%; height: calc(100vh - 3rem); background: black; }
+        button { padding: .4rem .8rem; }
+    </style>
+</head>
+<body>
+    <header><h1 id="title">Relocade</h1><button id="close" type="button" disabled>Close</button></header>
+    <p id="error" role="alert"></p>
+    <canvas id="screen" aria-label="Application display"></canvas>
+    <script type="module" src="./main.mjs"></script>
+</body>
+</html>

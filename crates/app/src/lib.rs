@@ -7,7 +7,11 @@ mod window;
 pub use window::{Window, WindowState};
 
 #[cfg(feature = "graphics")]
+mod application;
+#[cfg(feature = "graphics")]
 pub mod graphics;
+#[cfg(feature = "graphics")]
+pub use application::{run_app, AppHost, PeripheralConnections};
 #[cfg(feature = "graphics")]
 pub use web_thread as worker;
 

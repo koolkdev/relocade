@@ -20,6 +20,49 @@ by winit until exit. An `Ok` return on the browser does not indicate completion.
 The launcher itself creates no workers. CPU/device execution and application
 policy stay with its consumer; the optional graphics host owns one graphics worker.
 
+With the `graphics` feature, `run_app` hosts one window and drives an application
+lifecycle future on main. `AppHost::peripherals()` supplies a connection handle
+that can move to execution; it accepts one display factory and one keyboard input.
+The application, its lifecycle and the window stay on main. Display factories run
+on graphics; keyboard interpretation belongs to the connected device.
+
+```rust,ignore
+relocade_app::run_app("My application", |mut app| async move {
+    let mut peripherals = app.peripherals();
+    peripherals.attach_display(create_display)?;
+    peripherals.attach_keyboard(keyboard_input)?;
+    let closing = app.closing().await;
+    // Await application-owned worker cleanup, even when closing reports an error.
+    closing
+})?;
+```
+
+`closing().await` reports a window close or startup/graphics error. Keep host
+services responsive through worker cleanup, then return from the lifecycle.
+The host waits for lifecycle and graphics completion before releasing the window.
+Native execution returns that result. Browser startup returns immediately and
+reports later errors through the shared shell. Main futures wake through coalesced
+winit events; there is no additional application worker or polling timer.
+
+Winit redraw opportunities forward the current physical size to graphics. Hidden
+or suspended output suppresses pending drawing without stopping emulation. Keyboard
+press/release, text, modifier and focus events cross the ordinary peripheral input
+channel. They are independent of display updates and redraw demand.
+
+Native/web startup defaults, browser controls and error reporting live in the
+app's platform modules. The shared browser shell and threaded Wasm tooling can host
+any application exporting `run` through wasm-bindgen:
+
+```sh
+npm --prefix tools ci
+node tools/web.mjs package-name          # build and serve
+node tools/web.mjs package-name --build  # write target/web/package-name/dist
+```
+
+A production server must supply `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`. The shell owns no executable loading,
+program selection or guest-specific status protocol.
+
 `Window` owns one native window or attached browser canvas on main. Create it in
 `resumed` using winit's `WindowAttributes`. Feed `window_event` arguments to
 `handle_event`; it ignores other window IDs and updates physical size, scale,
