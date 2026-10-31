@@ -3,7 +3,7 @@ pub use view::{MemoryError, MemoryView};
 
 use crate::{ConfigurationError, IoBus, MachineConfig, Result};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 /// Owned guest memory and its address policy, independent of CPU execution.
 /// Clones share backing bytes. Reads can overlap guest writes and do not provide
@@ -46,7 +46,9 @@ impl Memory {
     /// Retains this memory and its execution worker's device bus together.
     /// Keep raw [`Memory`] handles for sharing backing storage between workers.
     pub fn with_io(self, io: IoBus) -> MemoryBus {
-        MemoryBus { memory: self, io }
+        MemoryBus {
+            resources: Rc::new(MemoryResources { memory: self, io }),
+        }
     }
 
     /// Borrows a read/write view of this handle without borrowing a CPU.
@@ -65,6 +67,10 @@ impl Memory {
 /// move device state between workers.
 #[derive(Clone)]
 pub struct MemoryBus {
+    resources: Rc<MemoryResources>,
+}
+
+struct MemoryResources {
     memory: Memory,
     io: IoBus,
 }
@@ -72,11 +78,11 @@ pub struct MemoryBus {
 impl MemoryBus {
     /// Borrows a live memory view with its device routing already attached.
     pub fn view(&self) -> MemoryView<'_> {
-        self.memory.view().with_io(&self.io)
+        self.resources.memory.view().with_io(&self.resources.io)
     }
 
     /// The same device connections used by this handle's memory views.
     pub fn io(&self) -> &IoBus {
-        &self.io
+        &self.resources.io
     }
 }
