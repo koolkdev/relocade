@@ -20,6 +20,52 @@ by winit until exit. An `Ok` return on the browser does not indicate completion.
 The launcher itself creates no workers. CPU/device execution and application
 policy stay with its consumer; the optional graphics host owns one graphics worker.
 
+With the `graphics` feature, `run_app` hosts one window and drives an application
+lifecycle future on main. `AppHost` stays on main and accepts one display factory
+and one keyboard input for its window. Execution returns ordinary endpoints over
+a channel; the application attaches them. Display factories run on graphics;
+keyboard interpretation belongs to the execution-side adapter.
+
+```rust,ignore
+relocade_app::run_app("My application", |mut app| async move {
+    app.attach_display(create_display)?;
+    app.attach_keyboard(keyboard_input)?;
+    let closing = app.closing().await;
+    // Await application-owned worker cleanup, even when closing reports an error.
+    closing
+})?;
+```
+
+`closing().await` reports a window close or startup/graphics error. Keep host
+services responsive through worker cleanup, then return from the lifecycle.
+The host waits for lifecycle and graphics completion before releasing the window.
+Native execution returns that result. Browser startup returns immediately and
+reports later errors in the browser console. Main futures wake through coalesced
+winit events; there is no additional application worker or polling timer.
+
+Winit redraw opportunities forward the current physical size to graphics. Hidden
+or suspended output suppresses pending drawing without stopping emulation. Keyboard
+press/release, text, modifier and focus events cross the ordinary frontend input
+channel. They are independent of display updates and redraw demand.
+
+Native/web startup defaults and error reporting live in the
+app's platform modules. The shared browser shell and threaded Wasm tooling can host
+any application exporting `run` through wasm-bindgen:
+
+```sh
+npm --prefix tools ci
+node tools/web.mjs package-name          # build and serve
+node tools/web.mjs package-name --build  # write target/web/package-name/dist
+```
+
+Production builds gzip every emitted `.wasm` asset, keeping its URL. The generated
+`_headers` file declares `Content-Encoding: gzip`, `Content-Type: application/wasm`
+and the required `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` headers. Use a host that honors this
+file, or configure the same headers explicitly. Development serves ordinary Wasm;
+Vite preview serves the compressed production output. The shell owns no executable
+loading, program selection or guest-specific status protocol.
+
 `Window` owns one native window or attached browser canvas on main. Create it in
 `resumed` using winit's `WindowAttributes`. Feed `window_event` arguments to
 `handle_event`; it ignores other window IDs and updates physical size, scale,
@@ -80,7 +126,7 @@ across GPU replacement and owns any guest-visible loss/reset behavior through
 default; a GPU-only static image needs a source to regenerate its contents.
 
 ```rust,ignore
-let (mut graphics, finished) = relocade_app::graphics::Graphics::spawn(
+let mut graphics = relocade_app::graphics::Graphics::spawn(
     window.surface_setup(event_loop)?,
     move |device, queue| create_display(device, queue),
     move || { let _ = events.send_event(MyEvent::RedrawNeeded); },
@@ -90,10 +136,11 @@ let (mut graphics, finished) = relocade_app::graphics::Graphics::spawn(
 // On winit's RedrawRequested, when the output is drawable:
 graphics.request_redraw(window.state().size);
 
-// Poll `finished` alongside the main event loop to observe errors as they occur.
+// Poll `graphics.finished()` alongside the main event loop to observe errors.
 // When closing, request shutdown and await completion before releasing the window:
-graphics.close();
-finished.await?;
+graphics.request_close();
+graphics.finished().await?;
+drop(graphics);
 ```
 
 `notify_redraw_needed` runs on the graphics worker and asks the app to schedule
@@ -115,12 +162,14 @@ image later in the same command batch, then submits before another input update 
 encode. The image uses reusable GPU storage; recording does not wait for GPU
 completion. Guest execution stays independent of these host redraws.
 
-Source closure preserves the display and its last image. Closing or dropping the
-graphics connection stops the worker's activity. The separate completion future
-reports startup and GPU errors and retains the worker until its Rust resources
-have been released. Keep polling it through shutdown. Browser work yields to the
-event loop so continuously ready updates cannot starve WebGPU callbacks; this does
-not generate redraw demand.
+Source closure preserves the display and its last image. `Graphics` owns both
+redraw control and the worker lifetime. `request_close()` signals shutdown;
+`finished()` reports startup or runtime errors after cleanup on the graphics worker.
+The wait can be cancelled and resumed without releasing the worker. Keep the owner
+alive and poll completion through shutdown before dropping it and the window.
+Dropping it early can terminate a browser worker before Rust destructors run.
+Browser work yields to the event loop so continuously ready updates cannot starve
+WebGPU callbacks; this does not generate redraw demand.
 
 The worker handles source updates, redraw requests and GPU failures in one loop.
 Drawing one frame reports whether presentation was requested, skipped or should

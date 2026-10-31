@@ -119,7 +119,7 @@ async fn exercise_graphics() {
     let counts = Arc::new(Counts::default());
     let display_counts = counts.clone();
     let notifications = counts.clone();
-    let (mut graphics, finished) = Graphics::spawn(
+    let mut graphics = Graphics::spawn(
         ready.setup,
         move |device, _queue| {
             Ok(TestDisplay {
@@ -138,99 +138,99 @@ async fn exercise_graphics() {
             notifications.notifications.fetch_add(1, SeqCst);
         },
     );
-    let exercise = async {
-        for _ in 0..20 {
-            input.unbounded_send(true).unwrap();
-        }
-        wait_until(|| counts.updates.load(SeqCst) == 20).await;
-        assert_eq!(counts.draws.load(SeqCst), 0, "updates alone must not draw");
-        assert_eq!(
-            counts.notifications.load(SeqCst),
-            1,
-            "notifications must coalesce too"
-        );
-
-        graphics.request_redraw(ready.size);
-        stalled.await.unwrap();
-        for width in 1..=1000 {
-            graphics.request_redraw(PhysicalSize::new(width, 200));
-        }
-        graphics.request_redraw(PhysicalSize::new(0, 0));
-        assert_eq!(
-            counts.draws.load(SeqCst),
-            1,
-            "main progresses while graphics is stalled"
-        );
-        counts.released.store(true, SeqCst);
-        futures_timer::Delay::new(Duration::from_millis(40)).await;
-        assert_eq!(
-            counts.draws.load(SeqCst),
-            1,
-            "the latest pending size suppresses drawing"
-        );
-        graphics.request_redraw(ready.size);
-        wait_until(|| counts.draws.load(SeqCst) == 2).await;
-        futures_timer::Delay::new(Duration::from_millis(40)).await;
-        assert_eq!(counts.draws.load(SeqCst), 2, "no queued resize backlog");
-        assert_eq!(counts.decodes.load(SeqCst), 1, "same input is encoded once");
-
-        // Synchronizing non-visible data must not schedule presentation.
-        let notifications = counts.notifications.load(SeqCst);
-        input.unbounded_send(false).unwrap();
-        wait_until(|| counts.updates.load(SeqCst) == 21).await;
-        futures_timer::Delay::new(Duration::from_millis(40)).await;
-        assert_eq!(counts.notifications.load(SeqCst), notifications);
-        assert_eq!(counts.draws.load(SeqCst), 2);
-
-        graphics.request_redraw(PhysicalSize::new(0, 0));
-        futures_timer::Delay::new(Duration::from_millis(40)).await;
-        assert_eq!(
-            counts.draws.load(SeqCst),
-            2,
-            "zero-size output must not draw"
-        );
-
-        graphics.request_redraw(PhysicalSize::new(320, 240));
-        wait_until(|| counts.draws.load(SeqCst) == 3).await;
-        assert_eq!(
-            counts.decodes.load(SeqCst),
-            1,
-            "resize must reuse the image"
-        );
+    for _ in 0..20 {
         input.unbounded_send(true).unwrap();
-        wait_until(|| counts.updates.load(SeqCst) == 22).await;
-        futures_timer::Delay::new(Duration::from_millis(40)).await;
-        assert_eq!(
-            counts.draws.load(SeqCst),
-            3,
-            "no demand means no more drawing"
-        );
+    }
+    wait_until(|| counts.updates.load(SeqCst) == 20).await;
+    assert_eq!(counts.draws.load(SeqCst), 0, "updates alone must not draw");
+    assert_eq!(
+        counts.notifications.load(SeqCst),
+        1,
+        "notifications must coalesce too"
+    );
 
-        // Continuously ready source work must still allow redraw and browser tasks.
-        counts.flooding.store(true, SeqCst);
-        input.unbounded_send(false).unwrap();
-        wait_until(|| counts.updates.load(SeqCst) >= 50).await;
-        wait_until(|| counts.callback_completed.load(SeqCst)).await;
-        graphics.request_redraw(ready.size);
-        wait_until(|| counts.draws.load(SeqCst) == 4).await;
-        counts.flooding.store(false, SeqCst);
-
-        drop(input);
-        wait_until(|| counts.source_closed.load(SeqCst)).await;
-        graphics.request_redraw(ready.size);
-        wait_until(|| counts.draws.load(SeqCst) == 5).await;
-        #[cfg(target_os = "linux")]
-        assert!(window::native::presented_pixels_match(
-            ready.window_id,
-            ready.size
-        ));
-        graphics.close();
-        Ok::<(), String>(())
-    };
-    // Observe failures throughout operation, including worker startup failures.
-    futures_lite::future::try_zip(exercise, finished)
+    graphics.request_redraw(ready.size);
+    stalled.await.unwrap();
+    // Cancelling a completion wait keeps the worker and its controls usable.
+    assert!(futures_lite::future::poll_once(graphics.finished())
         .await
-        .unwrap();
+        .is_none());
+    for width in 1..=1000 {
+        graphics.request_redraw(PhysicalSize::new(width, 200));
+    }
+    graphics.request_redraw(PhysicalSize::new(0, 0));
+    assert_eq!(
+        counts.draws.load(SeqCst),
+        1,
+        "main progresses while graphics is stalled"
+    );
+    counts.released.store(true, SeqCst);
+    futures_timer::Delay::new(Duration::from_millis(40)).await;
+    assert_eq!(
+        counts.draws.load(SeqCst),
+        1,
+        "the latest pending size suppresses drawing"
+    );
+    graphics.request_redraw(ready.size);
+    wait_until(|| counts.draws.load(SeqCst) == 2).await;
+    futures_timer::Delay::new(Duration::from_millis(40)).await;
+    assert_eq!(counts.draws.load(SeqCst), 2, "no queued resize backlog");
+    assert_eq!(counts.decodes.load(SeqCst), 1, "same input is encoded once");
+
+    // Synchronizing non-visible data must not schedule presentation.
+    let notifications = counts.notifications.load(SeqCst);
+    input.unbounded_send(false).unwrap();
+    wait_until(|| counts.updates.load(SeqCst) == 21).await;
+    futures_timer::Delay::new(Duration::from_millis(40)).await;
+    assert_eq!(counts.notifications.load(SeqCst), notifications);
+    assert_eq!(counts.draws.load(SeqCst), 2);
+
+    graphics.request_redraw(PhysicalSize::new(0, 0));
+    futures_timer::Delay::new(Duration::from_millis(40)).await;
+    assert_eq!(
+        counts.draws.load(SeqCst),
+        2,
+        "zero-size output must not draw"
+    );
+
+    graphics.request_redraw(PhysicalSize::new(320, 240));
+    wait_until(|| counts.draws.load(SeqCst) == 3).await;
+    assert_eq!(
+        counts.decodes.load(SeqCst),
+        1,
+        "resize must reuse the image"
+    );
+    input.unbounded_send(true).unwrap();
+    wait_until(|| counts.updates.load(SeqCst) == 22).await;
+    futures_timer::Delay::new(Duration::from_millis(40)).await;
+    assert_eq!(
+        counts.draws.load(SeqCst),
+        3,
+        "no demand means no more drawing"
+    );
+
+    // Continuously ready source work must still allow redraw and browser tasks.
+    counts.flooding.store(true, SeqCst);
+    input.unbounded_send(false).unwrap();
+    wait_until(|| counts.updates.load(SeqCst) >= 50).await;
+    wait_until(|| counts.callback_completed.load(SeqCst)).await;
+    graphics.request_redraw(ready.size);
+    wait_until(|| counts.draws.load(SeqCst) == 4).await;
+    counts.flooding.store(false, SeqCst);
+
+    drop(input);
+    wait_until(|| counts.source_closed.load(SeqCst)).await;
+    graphics.request_redraw(ready.size);
+    wait_until(|| counts.draws.load(SeqCst) == 5).await;
+    #[cfg(target_os = "linux")]
+    assert!(window::native::presented_pixels_match(
+        ready.window_id,
+        ready.size
+    ));
+    graphics.request_close();
+    graphics.request_close();
+    graphics.finished().await.unwrap();
+    drop(graphics);
     assert!(
         counts.dropped.load(SeqCst),
         "display must be released on graphics before shutdown completes"

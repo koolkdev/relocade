@@ -192,7 +192,7 @@ async fn exercise_recovery() {
     let source = Arc::new(Source::default());
     let retained = source.clone();
     let (commands, incoming) = mpsc::unbounded();
-    let (mut graphics, finished) = Graphics::spawn(
+    let mut graphics = Graphics::spawn(
         ready.setup,
         move |device, queue| {
             *retained.owner.lock().unwrap() = Some(std::thread::current().id());
@@ -212,77 +212,68 @@ async fn exercise_recovery() {
         },
         || {},
     );
-    let exercise = async {
-        wait_until(|| source.bindings.load(SeqCst) == 1).await;
-        graphics.request_redraw(ready.size);
-        wait_until(|| source.draws.load(SeqCst) == 1).await;
-        commands.unbounded_send(Command::LoseDevice).unwrap();
-        wait_until(|| source.bindings.load(SeqCst) == 2).await;
-        source.colored.store(true, SeqCst);
-        for width in 1..=1000 {
-            graphics.request_redraw(PhysicalSize::new(width, 200));
-        }
-        graphics.request_redraw(ready.size);
-        source.release_rebuild.store(true, SeqCst);
-        wait_until(|| source.draws.load(SeqCst) == 2).await;
-        futures_timer::Delay::new(Duration::from_millis(40)).await;
-        assert_eq!(
-            source.draws.load(SeqCst),
-            2,
-            "rebuild retains one pending draw"
-        );
-        assert_eq!(
-            source.images.load(SeqCst),
-            1,
-            "replacement must not restore guest output"
-        );
-        assert_eq!(source.losses.load(SeqCst), 1);
-        assert_eq!(source.guest_resets.load(SeqCst), 0);
-        commands.unbounded_send(Command::Reset).unwrap();
-        wait_until(|| source.guest_resets.load(SeqCst) == 1).await;
-        graphics.request_redraw(ready.size);
-        wait_until(|| source.images.load(SeqCst) == 2).await;
-        #[cfg(target_os = "linux")]
-        assert!(window::native::presented_pixels_match(
-            ready.window_id,
-            ready.size
-        ));
+    wait_until(|| source.bindings.load(SeqCst) == 1).await;
+    graphics.request_redraw(ready.size);
+    wait_until(|| source.draws.load(SeqCst) == 1).await;
+    commands.unbounded_send(Command::LoseDevice).unwrap();
+    wait_until(|| source.bindings.load(SeqCst) == 2).await;
+    source.colored.store(true, SeqCst);
+    for width in 1..=1000 {
+        graphics.request_redraw(PhysicalSize::new(width, 200));
+    }
+    graphics.request_redraw(ready.size);
+    source.release_rebuild.store(true, SeqCst);
+    wait_until(|| source.draws.load(SeqCst) == 2).await;
+    futures_timer::Delay::new(Duration::from_millis(40)).await;
+    assert_eq!(
+        source.draws.load(SeqCst),
+        2,
+        "rebuild retains one pending draw"
+    );
+    assert_eq!(
+        source.images.load(SeqCst),
+        1,
+        "replacement must not restore guest output"
+    );
+    assert_eq!(source.losses.load(SeqCst), 1);
+    assert_eq!(source.guest_resets.load(SeqCst), 0);
+    commands.unbounded_send(Command::Reset).unwrap();
+    wait_until(|| source.guest_resets.load(SeqCst) == 1).await;
+    graphics.request_redraw(ready.size);
+    wait_until(|| source.images.load(SeqCst) == 2).await;
+    #[cfg(target_os = "linux")]
+    assert!(window::native::presented_pixels_match(
+        ready.window_id,
+        ready.size
+    ));
 
-        // A later loss can recover again. Native checks rebinding failure; web
-        // checks acquisition loss before any callback and an unusable replacement.
-        // Neither path should restart the worker or spin through more retries.
-        #[cfg(target_os = "linux")]
-        commands.unbounded_send(Command::LoseDevice).unwrap();
-        #[cfg(target_arch = "wasm32")]
-        {
-            commands.unbounded_send(Command::Acquisition).unwrap();
-            wait_until(|| source.acquisition_failed.load(SeqCst)).await;
-            graphics.request_redraw(ready.size);
-        }
-        wait_until(|| source.bindings.load(SeqCst) == 3).await;
-        #[cfg(target_arch = "wasm32")]
-        {
-            // Leave no redraw ready: reopening updates after replacement must
-            // reach the terminal-source assertion instead of racing another loss.
-            futures_timer::Delay::new(Duration::from_millis(40)).await;
-            graphics.request_redraw(ready.size);
-        }
-        Ok::<(), String>(())
-    };
-    let completion = async {
-        let error = finished.await.unwrap_err();
-        #[cfg(target_os = "linux")]
-        assert_eq!(error, "fixture cannot attach replacement device");
-        #[cfg(target_arch = "wasm32")]
-        assert_eq!(
-            error,
-            "Graphics recovery failed before presentation: Window surface was lost"
-        );
-        Ok::<(), String>(())
-    };
-    futures_lite::future::try_zip(exercise, completion)
-        .await
-        .unwrap();
+    // A later loss can recover again. Native checks rebinding failure; web
+    // checks acquisition loss before any callback and an unusable replacement.
+    // Neither path should restart the worker or spin through more retries.
+    #[cfg(target_os = "linux")]
+    commands.unbounded_send(Command::LoseDevice).unwrap();
+    #[cfg(target_arch = "wasm32")]
+    {
+        commands.unbounded_send(Command::Acquisition).unwrap();
+        wait_until(|| source.acquisition_failed.load(SeqCst)).await;
+        graphics.request_redraw(ready.size);
+    }
+    wait_until(|| source.bindings.load(SeqCst) == 3).await;
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Leave no redraw ready: reopening updates after replacement must
+        // reach the terminal-source assertion instead of racing another loss.
+        futures_timer::Delay::new(Duration::from_millis(40)).await;
+        graphics.request_redraw(ready.size);
+    }
+    let error = graphics.finished().await.unwrap_err();
+    #[cfg(target_os = "linux")]
+    assert_eq!(error, "fixture cannot attach replacement device");
+    #[cfg(target_arch = "wasm32")]
+    assert_eq!(
+        error,
+        "Graphics recovery failed before presentation: Window surface was lost"
+    );
     assert_eq!(source.connections.load(SeqCst), 1);
     assert_eq!(source.drops.load(SeqCst), 1);
     #[cfg(target_os = "linux")]

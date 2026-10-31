@@ -2,29 +2,27 @@ mod render;
 mod worker;
 
 use super::SurfaceSetup;
-use crate::worker::Thread;
+use crate::worker::{SendTask, Thread};
 use futures_channel::oneshot;
 use futures_lite::future::or;
 use relocade_frontend::display::DisplayRenderer;
-use std::{
-    future::Future,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use winit::dpi::PhysicalSize;
 
 /// Main-thread connection to a display hosted on one graphics worker.
 /// The worker owns the display, surface, GPU resources and submissions.
 ///
-/// Closing or dropping the connection stops graphics. Await the completion future
-/// returned by `spawn` before releasing the window. Dropping that future early can
-/// terminate a browser worker before Rust destructors run.
+/// Request closure and await `finished()` before releasing the window. Dropping
+/// this owner early can terminate a browser worker before Rust destructors run.
 pub struct Graphics {
     redraws: async_channel::Sender<PhysicalSize<u32>>,
     notified: Arc<AtomicBool>,
-    stop: oneshot::Sender<()>,
+    stop: Option<oneshot::Sender<()>>,
+    task: SendTask<Result<(), String>>,
+    _thread: Thread,
 }
 
 impl Graphics {
@@ -37,13 +35,13 @@ impl Graphics {
     /// is called.
     /// Device loss replaces the host GPU on this same worker. Replacement failure
     /// or a replacement lost before presentation ends the connection with an error.
-    /// Poll the completion future alongside the application to observe startup
-    /// and runtime failures. It retains the worker through owner-local cleanup.
+    /// Poll `finished()` alongside the application to observe startup and runtime
+    /// failures. This owner retains the worker through its resource cleanup.
     pub fn spawn<D: DisplayRenderer + 'static>(
         setup: SurfaceSetup,
         create: impl FnOnce(&wgpu::Device, &wgpu::Queue) -> Result<D, String> + Send + 'static,
         notify_redraw_needed: impl Fn() + Send + Sync + 'static,
-    ) -> (Self, impl Future<Output = Result<(), String>>) {
+    ) -> Self {
         let (redraws, requests) = async_channel::bounded(1);
         let notified = Arc::new(AtomicBool::new(false));
         let changed = notified.clone();
@@ -64,21 +62,13 @@ impl Graphics {
             )
             .await
         });
-        (
-            Self {
-                redraws,
-                notified,
-                stop,
-            },
-            async move {
-                let result = task
-                    .await
-                    .map_err(|e| e.to_string())
-                    .and_then(|result| result);
-                drop(thread);
-                result
-            },
-        )
+        Self {
+            redraws,
+            notified,
+            stop: Some(stop),
+            task,
+            _thread: thread,
+        }
     }
 
     /// Queues a redraw of the latest available image at this physical size.
@@ -91,8 +81,23 @@ impl Graphics {
         let _ = self.redraws.force_send(size);
     }
 
-    /// Requests shutdown. Await the completion future to finish releasing resources.
-    pub fn close(self) {
-        let _ = self.stop.send(());
+    /// Requests shutdown without releasing the worker. Repeated requests are harmless.
+    pub fn request_close(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+    }
+
+    /// Waits for startup failure, runtime failure or requested shutdown, including
+    /// resource cleanup on the graphics worker. This wait may be cancelled and
+    /// resumed until it completes; await its result only once.
+    pub async fn finished(&mut self) -> Result<(), String> {
+        (&mut self.task).await.map_err(|error| error.to_string())?
+    }
+}
+
+impl Drop for Graphics {
+    fn drop(&mut self) {
+        self.request_close();
     }
 }
