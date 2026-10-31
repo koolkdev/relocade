@@ -420,7 +420,7 @@ Construct the adapter inside the graphics host's factory so it shares the host's
 GPU environment and remains on the graphics owner:
 
 ```rust,ignore
-let (graphics, finished) = relocade_app::graphics::Graphics::spawn(
+let mut graphics = relocade_app::graphics::Graphics::spawn(
     surface_setup,
     move |device, _queue| {
         relocade_vga::VgaDisplay::new(device, frame_source).map_err(|e| e.to_string())

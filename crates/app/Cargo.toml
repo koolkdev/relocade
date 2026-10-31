@@ -16,13 +16,13 @@ futures-channel = { version = "=0.3.34", optional = true }
 async-channel = { version = "=2.5.0", default-features = false, optional = true }
 futures-lite = { version = "=2.6.1", optional = true }
 relocade-renderer = { path = "../renderer", optional = true }
-relocade-frontend = { path = "../frontend", features = ["display"], optional = true }
+relocade-frontend = { path = "../frontend", features = ["display", "keyboard"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"], optional = true }
 wasm-bindgen = { version = "=0.2.129", optional = true }
 js-sys = { version = "=0.3.106", optional = true }
-web-sys = { version = "=0.3.106", features = ["OffscreenCanvas"], optional = true }
+web-sys = { version = "=0.3.106", features = ["OffscreenCanvas", "Window", "Document", "HtmlCanvasElement", "console"], optional = true }
 
 [dev-dependencies]
 futures-channel = "=0.3.34"
