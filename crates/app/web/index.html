@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Relocade</title>
+    <style>
+        :root { color-scheme: dark; font: 16px system-ui, sans-serif; }
+        body { margin: 0; background: #151515; }
+        header { height: 3rem; box-sizing: border-box; display: flex; align-items: center; padding: .5rem 1rem; }
+        #title { font-size: 1rem; margin: 0; }
+        canvas { display: block; width: 100%; height: calc(100vh - 3rem); background: black; outline-offset: 2px; }
+    </style>
+</head>
+<body>
+    <header><h1 id="title">Relocade</h1></header>
+    <canvas id="screen" aria-label="Application display"></canvas>
+    <script type="module" src="./main.mjs"></script>
+</body>
+</html>

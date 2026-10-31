@@ -1,0 +1,6 @@
+{
+  "name": "relocade-web-tools",
+  "private": true,
+  "type": "module",
+  "devDependencies": { "vite": "8.3.5" }
+}

@@ -55,6 +55,7 @@ jobs:
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
           cargo test --workspace --locked
           cargo test -p relocade-app --features graphics --lib --locked
+          xvfb-run -a cargo test -p relocade-app --features graphics --lib --locked -- --ignored
           xvfb-run -a cargo test -p relocade-app --test window --locked -- --ignored
           xvfb-run -a cargo test -p relocade-app --features graphics --test surface --locked -- --ignored
           xvfb-run -a cargo test -p relocade-app --features graphics --test graphics --locked -- --ignored
@@ -82,7 +83,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: tests/browser/package-lock.json
+          cache-dependency-path: |
+            tests/browser/package-lock.json
+            tools/package-lock.json
 
       - name: Install Chrome
         id: chrome
@@ -101,4 +104,5 @@ jobs:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
           npm --prefix tests/browser ci
+          npm --prefix tools ci
           npm --prefix tests/browser test
