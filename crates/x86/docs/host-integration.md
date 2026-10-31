@@ -1064,12 +1064,13 @@ host agree on the layout; enum tags are independent of architectural vector numb
 There is no manually packed exit word or restriction to a 16-bit error code.
 
 Host control flow is grouped under `ExecutionExit::Host(HostExit)`. Generated
-host entries return `ExecutionExit::Host(HostExit::Call { address })` with the
-handler's guest linear address and CPU state already published. The CPU owns the
+host entries return `ExecutionExit::Host(HostExit::Call { service_id })` with a
+runtime-owned service ID and CPU state already published. IDs identify handler
+slots independently of guest entry addresses. The CPU owns the
 handler registry and consumes this exit internally: Wasm returns before Rust
 invokes the handler. Entries have no service callback import. Reentering
 dispatch after a hook retains the original instruction target; hooks do not
-retire guest instructions. An address without a registered handler is a
+retire guest instructions. An ID without a registered handler is a
 programming error.
 
 `HostExit::Return` requests a return to the embedding. The runtime awaits a

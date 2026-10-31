@@ -359,6 +359,32 @@ async fn check_hook_replacement() {
     runtime.context().cpu.set_eip(0x401);
     assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(second.get(), 4);
+    // Reinstalling after a module replacement routes to the new service.
+    // Duplicate addresses in one batch publish the last registration and release
+    // the unused capture, without disturbing any other service.
+    for address in [0x401, 0x700] {
+        let unused = Rc::new(());
+        let released = Rc::downgrade(&unused);
+        runtime
+            .install_hooks([
+                Hook::new(address, async move |mut cpu| {
+                    let _borrow = &unused;
+                    cpu.set_ax(100);
+                    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+                }),
+                Hook::new(address, async |mut cpu| {
+                    cpu.set_ax(75);
+                    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+                }),
+            ])
+            .await
+            .unwrap();
+        assert!(released.upgrade().is_none());
+        runtime.context().cpu.set_eip(address);
+        assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(runtime.context().cpu.ax(), 75);
+        assert_eq!(second.get(), 4);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -320,7 +320,7 @@ fn cpu_only_block_abi_publishes_before_dispatch_and_returns_the_callback_value()
             18,
             4101,
             relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Call {
-                address: 0x89ab_cdef,
+                service_id: 0x89ab_cdef,
             }),
         ),
     ] {

@@ -11,7 +11,8 @@ pub(super) struct Machine {
     pub bindings: RuntimeMemory,
     pub io: IoBus,
     pub dispatch: Dispatch,
-    pub hooks: HashMap<u32, Rc<dyn Handler>>,
+    pub hooks: Vec<Option<Rc<dyn Handler>>>,
+    pub hook_ids: HashMap<u32, u32>,
 }
 
 impl Machine {

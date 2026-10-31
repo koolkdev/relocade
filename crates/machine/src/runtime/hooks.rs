@@ -115,7 +115,7 @@ impl Hook {
 }
 
 impl Cpu {
-    /// Installs callable entries that return their address to the Rust run loop.
+    /// Installs guest entries carrying a stable service ID to the Rust run loop.
     /// The CPU owns the handlers and invokes them after the guest call returns.
     ///
     /// Entries begin with CPU state already published by the predecessor. They
@@ -135,14 +135,23 @@ impl Cpu {
             .collect();
         let mut program = Program::new();
         let mut handlers = Vec::new();
+        // Registration owns address-to-ID lookup; executing a service indexes
+        // its slot directly. Plan replacements before publishing any changes.
+        let mut hook_ids = machine.hook_ids.clone();
+        let mut next_id = machine.hooks.len();
         let mut entries = Vec::new();
         for (hook, name) in hooks.into_iter().zip(&names) {
             let address = hook.address;
+            let service_id = *hook_ids.entry(address).or_insert_with(|| {
+                let id = u32::try_from(next_id).expect("host service ID capacity");
+                next_id += 1;
+                id
+            });
             let function = program.function::<abi::ExecutionSignature>(move |body, ()| {
-                body.return_(ExecutionExitValues::host(HostExitValues::call(address)))
+                body.return_(ExecutionExitValues::host(HostExitValues::call(service_id)))
             });
             program.export(name, function)?;
-            handlers.push((address, hook.handler));
+            handlers.push((service_id, hook.handler));
             entries.push(DispatchEntry {
                 address,
                 export: name,
@@ -155,9 +164,13 @@ impl Cpu {
             .dispatch
             .install(&mut machine.backend, &machine.bindings, &module, &entries)
             .await?;
-        // Entry addresses also identify their handlers, including replacements.
-        // Publish only after the module and its callable entries are installed.
-        machine.hooks.extend(handlers);
+        // Publish after all exports are installed. Removed entries retain their
+        // ID for later reinstallation; obsolete handler captures are released.
+        machine.hooks.resize_with(next_id, || None);
+        for (id, handler) in handlers {
+            machine.hooks[id as usize] = Some(handler);
+        }
+        machine.hook_ids = hook_ids;
         Ok(())
     }
 }

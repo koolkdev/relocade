@@ -84,7 +84,8 @@ impl Cpu {
             bindings,
             io,
             dispatch,
-            hooks: HashMap::new(),
+            hooks: Vec::new(),
+            hook_ids: HashMap::new(),
         };
         Ok(Self {
             pending: None,
@@ -118,7 +119,9 @@ impl Cpu {
             .install(&mut machine.backend, &machine.bindings, &module, entries)
             .await?;
         for entry in entries {
-            machine.hooks.remove(&entry.address);
+            if let Some(&id) = machine.hook_ids.get(&entry.address) {
+                machine.hooks[id as usize] = None;
+            }
         }
         Ok(())
     }

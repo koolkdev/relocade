@@ -38,11 +38,15 @@ impl Cpu {
                 )
             } else {
                 let exit = machine.dispatch(budget.take());
-                let ExecutionExit::Host(HostExit::Call { address }) = exit else {
+                let ExecutionExit::Host(HostExit::Call { service_id }) = exit else {
                     return Poll::Ready(exit);
                 };
                 Call::start(
-                    machine.hooks.get(&address).expect("registered host entry"),
+                    machine
+                        .hooks
+                        .get(service_id as usize)
+                        .and_then(Option::as_ref)
+                        .expect("registered host service"),
                     &self.access,
                     machine.bindings.config.execution_target(),
                     machine
