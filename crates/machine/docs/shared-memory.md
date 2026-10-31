@@ -84,7 +84,7 @@ let io = IoBus::new([DeviceConnection {
     ports: vec![0x3d4..=0x3d5],
 }]);
 let memory = Memory::new(machine_config)?;
-let mut cpu = Cpu::new(memory, cpu_config, io, ()).await?;
+let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone(), ()).await?;
 ```
 
 The board's physical map must mark that memory range `PhysicalMapping::Mmio`.
@@ -92,8 +92,20 @@ The device owns its storage; it does not use guest RAM backing. CPU-context memo
 transfers and guest instructions route to the same device, after A20 translation.
 BIOS services use `CpuContext.io` for port operations. Unconnected ranges retain
 the open-bus behavior: FF reads and ignored writes. A host operation on the same
-worker can attach its retained bus explicitly with `memory.view().with_io(&io)`.
-This also distinguishes an attached empty bus from a view without device access.
+worker can retain memory and device routing together:
+
+```rust
+let resources = memory.with_io(io);
+let mut view = resources.view();
+view.write_u16(0xb8000, 0x0741)?;
+resources.io().write_port(0x3d4, 1, 0x0f);
+```
+
+This `MemoryBus` owns both handles. Its views can cross awaits and outlive the
+CPU without retaining a backend or a device borrow. Clones share the same backing
+bytes and device connections; the last connection owner releases the devices.
+Use raw `Memory` for sharing backing between workers. An attached empty bus still
+differs from a raw view without device access.
 
 MMIO callbacks receive one through eight little-endian bytes, including partial
 widths at boundaries. Port callbacks retain a complete one-, two- or four-byte
@@ -101,7 +113,8 @@ operation; the device interprets it. Each transfer borrows its device only for t
 synchronous call. The bus can be cloned within a worker, but cannot cross threads.
 The machine and its backend share the local bus. Wasm callbacks access it through
 their backend context. Asynchronous host services use the machine's bus without
-holding a device borrow. Dropping the machine releases both bus handles.
+holding a device borrow. Dropping the machine releases its bus handles; retained
+`MemoryBus` or `IoBus` handles can keep the devices alive.
 
 Create devices on the execution worker. Publish owned observations to other
 workers instead of sending the live bus or device. VGA publishes immutable
