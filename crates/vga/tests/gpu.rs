@@ -3,6 +3,8 @@
 #[path = "gpu/blanking.rs"]
 mod blanking;
 mod common;
+#[path = "gpu/display.rs"]
+mod display;
 #[path = "gpu/graphics.rs"]
 mod graphics;
 #[path = "gpu/readback.rs"]
