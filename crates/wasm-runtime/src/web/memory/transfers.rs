@@ -12,6 +12,9 @@ use std::{cell::RefCell, collections::HashMap};
 use wasm_bindgen::JsCast;
 
 pub(crate) struct Transfers {
+    // Wasm memories only grow. Prefixes within this initial extent need no
+    // engine call to establish that their storage remains allocated.
+    initial_bytes: u64,
     read_u8: Binding<(u32,), u8>,
     write_u8: Binding<(u32, u8), ()>,
     read_u16: Binding<(u32,), u16>,
@@ -65,6 +68,7 @@ impl Transfers {
             };
         }
         Ok(Self {
+            initial_bytes: super::size(memory)? * 65536,
             read: entry!("read"),
             write: entry!("write"),
             read_u8: entry!("read_u8"),
@@ -76,6 +80,15 @@ impl Transfers {
             read_u64: entry!("read_u64"),
             write_u64: entry!("write_u64"),
         })
+    }
+
+    #[inline]
+    pub(crate) fn check_prefix(&self, len: usize) {
+        if len as u64 > self.initial_bytes {
+            // An empty copy validates its end address, including after growth,
+            // without reading or modifying guest bytes.
+            self.read(len as u32, &mut []);
+        }
     }
 
     pub(crate) fn read(&self, offset: u32, bytes: &mut [u8]) {

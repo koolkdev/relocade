@@ -175,6 +175,32 @@ fn scalar_and_bulk_transfers_follow_memory_growth() {
     }
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn fixed_prefixes_preserve_scalar_aliases_and_can_bind_after_growth() {
+    for shared in [false, true] {
+        let mut backend = Backend::new().unwrap();
+        let memory = backend.create_memory(Memory { shared, ..SHARED }).unwrap();
+        {
+            let mut prefix = backend.memory(&memory).into_prefix::<64>();
+            prefix.store(3, 0x8877_6655_4433_2211_u64);
+            prefix.reborrow().store(5, 0xaabb_u16);
+            assert_eq!(prefix.load::<u32>(3), 0xaabb_2211);
+            assert_eq!(prefix.load::<u8>(7), 0x55);
+            let mut bytes = [0; 8];
+            prefix.read(3, &mut bytes);
+            assert_eq!(bytes, [0x11, 0x22, 0xbb, 0xaa, 0x55, 0x66, 0x77, 0x88]);
+            prefix.write(63, &[0xcc]);
+        }
+        assert_eq!(backend.memory(&memory).load::<u16>(63), 0xcc);
+        backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
+        let mut prefix = backend.memory(&memory).into_prefix::<131072>();
+        prefix.store(65537, 0xfedc_u16);
+        assert_eq!(prefix.reborrow().load::<u16>(65537), 0xfedc);
+        prefix.read(131072, &mut []);
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 fn transfers_follow_rust_memory_growth() {

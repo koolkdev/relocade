@@ -1,7 +1,9 @@
 //! Borrowed access to one allocation, independent of store lookup and host state.
 
+mod fixed;
 mod scalar;
 mod value;
+pub use fixed::FixedMemoryAccess;
 pub use scalar::{Load, Store};
 pub use value::MemoryValue;
 

@@ -8,6 +8,16 @@ pub(crate) enum MemoryRegion<'a> {
     Stored(Ref<'a, Transfers>),
 }
 
+pub(crate) type FixedMemoryRegion<'a, const N: usize> = MemoryRegion<'a>;
+
+impl<'a> MemoryRegion<'a> {
+    #[inline]
+    pub(crate) fn into_prefix<const N: usize>(self) -> FixedMemoryRegion<'a, N> {
+        self.transfers().check_prefix(N);
+        self
+    }
+}
+
 impl MemoryRegion<'_> {
     fn transfers(&self) -> &Transfers {
         match self {

@@ -17,7 +17,7 @@ mod context;
 mod host;
 pub(crate) mod memory;
 pub use context::Context;
-pub(crate) use memory::MemoryRegion;
+pub(crate) use memory::{FixedMemoryRegion, MemoryRegion};
 pub use memory::{Memory, SharedMemory};
 
 /// One guest's instances, callbacks and host state.

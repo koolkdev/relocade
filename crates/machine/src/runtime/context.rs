@@ -1,6 +1,6 @@
 //! Borrowed access to the machine executing a host service.
 
-use crate::{CpuView, IoBus, MemoryView};
+use crate::{CpuStorage, CpuView, IoBus, MemoryView};
 
 /// Exclusive access to a stopped machine.
 /// CPU and memory views borrow live storage and apply writes immediately.
@@ -22,7 +22,7 @@ use crate::{CpuView, IoBus, MemoryView};
 /// ```
 pub struct CpuContext<'a> {
     /// Live CPU registers, independent of guest memory and environment state.
-    pub cpu: CpuView<'a>,
+    pub cpu: CpuView<CpuStorage<'a>>,
     /// Guest memory through the machine's physical map.
     pub memory: MemoryView<'a>,
     /// The same device bus used by guest port and MMIO instructions.

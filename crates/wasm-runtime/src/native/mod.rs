@@ -14,7 +14,7 @@ mod host;
 mod memory;
 pub use compilation::Compiler;
 pub use context::Context;
-pub(crate) use memory::MemoryRegion;
+pub(crate) use memory::{FixedMemoryRegion, MemoryRegion};
 pub use memory::{Memory, SharedMemory};
 
 /// One store for guest instances and their imports. Runtime owns execution policy.

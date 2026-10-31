@@ -29,29 +29,53 @@ impl SharedMemory {
     }
 }
 
-pub(crate) enum MemoryRegion<'a> {
-    Private(&'a mut [u8]),
+pub(crate) enum MemoryRegion<'a, B: ?Sized = [u8]> {
+    Private(&'a mut B),
     Shared(&'a SharedMemory),
 }
 
-impl MemoryRegion<'_> {
-    pub(crate) fn reborrow(&mut self) -> MemoryRegion<'_> {
+pub(crate) type FixedMemoryRegion<'a, const N: usize> = MemoryRegion<'a, [u8; N]>;
+
+impl<'a> MemoryRegion<'a> {
+    #[inline]
+    pub(crate) fn into_prefix<const N: usize>(self) -> FixedMemoryRegion<'a, N> {
+        match self {
+            Self::Private(bytes) => {
+                FixedMemoryRegion::Private((&mut bytes[..N]).try_into().unwrap())
+            }
+            Self::Shared(memory) => {
+                assert!(N as u64 <= memory.byte_len(), "fixed memory prefix");
+                FixedMemoryRegion::Shared(memory)
+            }
+        }
+    }
+}
+
+impl<B: AsRef<[u8]> + AsMut<[u8]> + ?Sized> MemoryRegion<'_, B> {
+    #[inline]
+    pub(crate) fn reborrow(&mut self) -> MemoryRegion<'_, B> {
         match self {
             Self::Private(bytes) => MemoryRegion::Private(bytes),
             Self::Shared(memory) => MemoryRegion::Shared(memory),
         }
     }
 
+    #[inline]
     pub(crate) fn read(&self, offset: u32, bytes: &mut [u8]) {
         match self {
-            Self::Private(data) => bytes.copy_from_slice(&data[offset as usize..][..bytes.len()]),
+            Self::Private(data) => {
+                bytes.copy_from_slice(&data.as_ref()[offset as usize..][..bytes.len()])
+            }
             Self::Shared(memory) => memory.read(offset, bytes),
         }
     }
 
+    #[inline]
     pub(crate) fn write(&mut self, offset: u32, bytes: &[u8]) {
         match self {
-            Self::Private(data) => data[offset as usize..][..bytes.len()].copy_from_slice(bytes),
+            Self::Private(data) => {
+                data.as_mut()[offset as usize..][..bytes.len()].copy_from_slice(bytes)
+            }
             Self::Shared(memory) => memory.write(offset, bytes),
         }
     }
@@ -157,7 +181,7 @@ impl SharedMemory {
     }
 }
 
-impl<V: MemoryValue> Load<V> for MemoryRegion<'_> {
+impl<V: MemoryValue, B: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Load<V> for MemoryRegion<'_, B> {
     #[inline]
     fn load(&self, offset: u32) -> V {
         let mut bytes = V::Bytes::default();
@@ -166,7 +190,7 @@ impl<V: MemoryValue> Load<V> for MemoryRegion<'_> {
     }
 }
 
-impl<V: MemoryValue> Store<V> for MemoryRegion<'_> {
+impl<V: MemoryValue, B: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Store<V> for MemoryRegion<'_, B> {
     #[inline]
     fn store(&mut self, offset: u32, value: V) {
         self.write(offset, value.to_le_bytes().as_ref());

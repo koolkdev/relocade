@@ -18,8 +18,8 @@ impl Machine {
     pub fn context(&mut self) -> CpuContext<'_> {
         CpuContext {
             cpu: CpuView::new(
-                &self.bindings.config,
-                self.backend.memory(&self.bindings.context),
+                self.bindings.config.execution_target(),
+                self.backend.memory(&self.bindings.context).into_prefix(),
             ),
             memory: self.bindings.guest.view().with_io(&self.io),
             io: &self.io,

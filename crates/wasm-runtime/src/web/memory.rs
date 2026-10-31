@@ -1,6 +1,6 @@
 mod access;
 mod transfers;
-pub(crate) use access::MemoryRegion;
+pub(crate) use access::{FixedMemoryRegion, MemoryRegion};
 use transfers::Transfers;
 
 use crate::{Error, MemoryAccess, Result, WasmSharedMemory};
