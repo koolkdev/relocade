@@ -2127,6 +2127,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-dos-app"
+version = "0.0.0"
+dependencies = [
+ "futures-lite",
+ "pollster",
+ "relocade-dos",
+ "relocade-machine",
+]
+
+[[package]]
 name = "relocade-frontend"
 version = "0.0.0"
 dependencies = [

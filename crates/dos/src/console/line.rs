@@ -1,11 +1,8 @@
-use super::{input, output::CharacterOutput};
-use crate::{error::DosError, files::Handle};
-use relocade_bios::Keyboard;
+use super::CharacterOutput;
+use crate::error::DosError;
 
-/// Edits a line with capacity for its final carriage return.
-pub(in crate::services) async fn read_line(
-    input: &Keyboard,
-    source: &Handle,
+pub(crate) async fn edit_line(
+    mut read: impl AsyncFnMut() -> Result<u8, DosError>,
     capacity: u8,
     output: CharacterOutput<'_>,
 ) -> Result<Vec<u8>, DosError> {
@@ -17,7 +14,7 @@ pub(in crate::services) async fn read_line(
         first: true,
     };
     loop {
-        let byte = input::read_character(source, input).await?;
+        let byte = read().await?;
         if editor.accept(byte) {
             return Ok(editor.bytes);
         }
