@@ -1,8 +1,23 @@
 use relocade_dos::Dos;
 
+const BANNER: &str = r"  ____       _                     _
+ |  _ \ ___ | | ___   ___ __ _  __| | ___
+ | |_) / _ \| |/ _ \ / __/ _` |/ _` |/ _ \
+ |  _ <  __/| | (_) | (_| (_| | (_| |  __/
+ |_| \_\___||_|\___/ \___\__,_|\__,_|\___|
+
+  Rust DOS console
+  Type ECHO <text> to print a line.
+
+";
+
 /// Runs the Rust console on the DOS execution owner. Executable lookup is left
 /// to future application policy; supplied images can use DOS's launch APIs.
 pub async fn run_console(dos: &mut Dos) {
+    for line in BANNER.lines() {
+        dos.console().write(line.as_bytes());
+        dos.console().write(b"\r\n");
+    }
     loop {
         let console = dos.console();
         console.write(b"> ");

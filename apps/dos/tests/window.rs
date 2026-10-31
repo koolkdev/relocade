@@ -64,6 +64,7 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
     };
 
     // Literal eight-row firmware glyphs, sampled from the displayed window.
+    let prompt_row = 9;
     let prompt = [96, 48, 24, 12, 24, 48, 96, 0];
     let x_glyph = [0, 0, 198, 108, 56, 108, 198, 0];
     let displayed_glyph = |row: usize, expected: [u8; 8]| -> Result<(), Box<dyn Error>> {
@@ -111,7 +112,7 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
             sleep(Duration::from_millis(30));
         }
     };
-    displayed_glyph(0, prompt)?;
+    displayed_glyph(prompt_row, prompt)?;
     x.set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
     let first = x.setup().min_keycode;
     let keys = x
@@ -137,18 +138,18 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
         Ok(())
     };
     type_keys(b"echo xy\x08\r")?;
-    displayed_glyph(1, x_glyph)?;
-    displayed_glyph(2, prompt)?;
+    displayed_glyph(prompt_row + 1, x_glyph)?;
+    displayed_glyph(prompt_row + 2, prompt)?;
     x.configure_window(window, &ConfigureWindowAux::new().width(960).height(720))?;
     x.flush()?;
     while x.get_geometry(window)?.reply()?.width != 960 {
         assert!(Instant::now() < deadline, "resize did not arrive");
         sleep(Duration::from_millis(20));
     }
-    displayed_glyph(1, x_glyph)?;
+    displayed_glyph(prompt_row + 1, x_glyph)?;
     type_keys(b"echo x\r")?;
-    displayed_glyph(3, x_glyph)?;
-    displayed_glyph(4, prompt)?;
+    displayed_glyph(prompt_row + 3, x_glyph)?;
+    displayed_glyph(prompt_row + 4, prompt)?;
     x.send_event(
         false,
         window,

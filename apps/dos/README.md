@@ -24,7 +24,8 @@ window waits for execution and graphics cleanup, including a pending input read.
 
 ## Console
 
-`run_console(&mut dos).await` runs on the execution owner. It prints a `> ` prompt,
+`run_console(&mut dos).await` runs on the execution owner. It prints the Relocade
+banner once through the same VGA console, then presents a `> ` prompt,
 reads an edited line through the shared DOS console, and implements `echo` with
 case-insensitive command matching. Enter, Backspace, blank lines and unknown
 commands return to the next prompt. This is a small Rust command loop, not a

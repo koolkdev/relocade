@@ -6,6 +6,7 @@ import { build } from "../../tools/web.mjs";
 
 // Literal firmware glyphs: verify the displayed pixels, without a test-only
 // text/status API or a software rasterizer interpreting the same capture.
+const promptRow = 9;
 const prompt = [96, 48, 24, 12, 24, 48, 96, 0];
 const xGlyph = [0, 0, 198, 108, 56, 108, 198, 0];
 
@@ -23,19 +24,19 @@ try {
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(server.resolvedUrls.local[0]);
-    await displayedGlyph(page, 0, 0, prompt);
+    await displayedGlyph(page, 0, promptRow, prompt);
     await page.locator("#screen").click();
     await page.keyboard.type("echo xy");
     await page.keyboard.press("Backspace");
     await page.keyboard.press("Enter");
-    await displayedGlyph(page, 0, 1, xGlyph);
-    await displayedGlyph(page, 0, 2, prompt);
+    await displayedGlyph(page, 0, promptRow + 1, xGlyph);
+    await displayedGlyph(page, 0, promptRow + 2, prompt);
     await page.setViewportSize({ width: 960, height: 768 });
-    await displayedGlyph(page, 0, 1, xGlyph);
+    await displayedGlyph(page, 0, promptRow + 1, xGlyph);
     await page.keyboard.type("echo x");
     await page.keyboard.press("Enter");
-    await displayedGlyph(page, 0, 3, xGlyph);
-    await displayedGlyph(page, 0, 4, prompt);
+    await displayedGlyph(page, 0, promptRow + 3, xGlyph);
+    await displayedGlyph(page, 0, promptRow + 4, prompt);
     await page.locator("#close").click();
     await page.waitForFunction(() => !document.querySelector("#screen"));
     assert.equal(await page.locator("#error").textContent(), "");

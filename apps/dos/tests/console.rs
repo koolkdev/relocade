@@ -10,6 +10,7 @@ use std::{
 
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
+    let prompt_row = 9;
     let (clock, timers) = timer_service();
     let console = Runner::with_clock(clock).run(async |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
@@ -20,7 +21,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
         let inspect = async {
             for _ in 0..1000 {
                 // Startup text addressing retains even physical plane addresses.
-                if video.borrow().snapshot().plane(0)[5 * 80 * 2] == b'>' {
+                if video.borrow().snapshot().plane(0)[(prompt_row + 5) * 80 * 2] == b'>' {
                     return;
                 }
                 runner.clock().sleep(Duration::from_millis(1)).await;
@@ -40,7 +41,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
         .into_iter()
         .enumerate()
         {
-            let start = row * 80 * 2;
+            let start = (prompt_row + row) * 80 * 2;
             assert_eq!(
                 screen.plane(0)[start..start + text.len() * 2]
                     .iter()
