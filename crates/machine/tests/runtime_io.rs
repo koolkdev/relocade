@@ -212,6 +212,68 @@ async fn host_and_guest_access_the_same_devices() {
     check_device_access().await;
 }
 
+async fn check_retained_memory_bus() {
+    let device = RecordingDevice::new(0x3000);
+    let lifetime = Rc::downgrade(&device);
+    let io = IoBus::new([DeviceConnection {
+        device,
+        mmio: vec![0x3000..=0x4fff],
+        ports: vec![0x3d4..=0x3d4],
+    }]);
+    let config = support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..Default::default()
+        },
+        0x5000,
+        map(),
+    )
+    .unwrap();
+    let memory = Memory::new(config.machine).unwrap();
+    memory.view().write(0x100, &[0x40, 0xeb, 0]).unwrap(); // INC AX; JMP +0.
+    let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone(), ())
+        .await
+        .unwrap();
+    let resources = memory.with_io(io);
+    let retained = resources.clone();
+    drop(resources);
+    {
+        let mut view = retained.view();
+        view.write_u16(0x200, 0x1234).unwrap();
+        view.write_u16(0x3000, 0x5678).unwrap();
+        // Neither the view nor the retained bus borrows CPU storage or a device.
+        cpu.context().cpu.set_ax(41);
+        assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(cpu.context().cpu.ax(), 42);
+        assert_eq!(cpu.context().memory.read_u16(0x200).unwrap(), 0x1234);
+        assert_eq!(cpu.context().memory.read_u16(0x3000).unwrap(), 0x5678);
+        retained.io().write_port(0x3d4, 2, 0xabcd);
+        assert_eq!(cpu.context().io.read_port(0x3d4, 2), 0xabcd);
+        drop(cpu);
+        assert_eq!(view.read_u16(0x200).unwrap(), 0x1234);
+        view.write_u16(0x3000, 0x9abc).unwrap();
+        assert_eq!(view.read_u16(0x3000).unwrap(), 0x9abc);
+        assert_eq!(retained.io().read_port(0x3d4, 2), 0xabcd);
+    }
+    assert!(lifetime.upgrade().is_some());
+    drop(retained);
+    assert!(lifetime.upgrade().is_none());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn retained_memory_bus_survives_cpu_and_releases_devices() {
+    pollster::block_on(check_retained_memory_bus());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn retained_memory_bus_survives_cpu_and_releases_devices() {
+    check_retained_memory_bus().await;
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn mmio_crosses_device_boundaries_and_open_bus() {
