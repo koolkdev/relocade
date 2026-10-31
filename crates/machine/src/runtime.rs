@@ -10,13 +10,13 @@
 //! A retained execution future owns the machine from its first host service until
 //! execution stops. Services borrow it through ordinary async calls and keep local
 //! values across waits. CPU views borrow the backend directly; their accesses need
-//! no handle lookup or invocation check. Environment state is independent of the
-//! backend's callback state.
+//! no handle lookup or invocation check. Application resources belong to the
+//! registered services that capture them.
 //!
 //! A pending service survives dropping its run waiter. Dropping the CPU ends
 //! the call chain and destroys the machine without undoing completed effects.
-//! A suspended service excludes embedding access to CPU and environment state;
-//! independent input handles and shared guest memory remain accessible.
+//! A suspended service excludes embedding access to the CPU. Captured input
+//! handles, application state and shared guest memory remain independently accessible.
 //!
 //! ```
 //! use relocade_machine::{Cpu, CpuConfig, MachineConfig, Memory};
@@ -26,7 +26,7 @@
 //! {
 //!     let memory = Memory::new(config)?;
 //!     memory.view().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
-//!     let mut cpu = Cpu::new(memory, cpu_config, Default::default(), ()).await?;
+//!     let mut cpu = Cpu::new(memory, cpu_config, Default::default()).await?;
 //!     let exit = cpu.run(100).await;
 //!     let ax = cpu.context().cpu.ax();
 //!     # let _ = (exit, ax);
@@ -61,17 +61,16 @@ use std::collections::HashMap;
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
 /// Executes one guest and owns its machine, registered services and suspended calls.
-pub struct Cpu<T: 'static = ()> {
-    execution: Execution<T>,
+pub struct Cpu {
+    execution: Execution,
     memory: Memory,
 }
 
-impl<T: 'static> Cpu<T> {
+impl Cpu {
     /// Creates private CPU state and dispatch over existing guest memory.
-    /// Guest bytes are preserved. Use `()` when no environment state is needed.
-    /// The environment state stays with this CPU, including during host calls.
+    /// Guest bytes are preserved. Host services capture their application resources.
     /// Port and MMIO accesses use the supplied execution-local device bus.
-    pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus, state: T) -> Result<Self> {
+    pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus) -> Result<Self> {
         let mut backend = Backend::with_state(io.clone())?;
         let bindings = RuntimeMemory::new(&mut backend, memory.clone(), cpu)?;
         let host_imports = io::imports(&mut backend);
@@ -80,7 +79,6 @@ impl<T: 'static> Cpu<T> {
             backend,
             bindings,
             io,
-            state,
             dispatch,
             hooks: HashMap::new(),
         };
@@ -125,7 +123,7 @@ impl<T: 'static> Cpu<T> {
     ///
     /// # Panics
     /// Panics if a service is suspended. Complete it to regain access.
-    pub fn context(&mut self) -> CpuContext<'_, T> {
+    pub fn context(&mut self) -> CpuContext<'_> {
         self.execution.machine_mut().context()
     }
 
@@ -133,21 +131,5 @@ impl<T: 'static> Cpu<T> {
     /// Clones share guest bytes; CPU and dispatch storage remain private.
     pub fn memory(&self) -> Memory {
         self.memory.clone()
-    }
-
-    /// Borrows the environment state between guest calls. Drop the borrow before running.
-    ///
-    /// # Panics
-    /// Panics if a service is suspended. Complete it to regain access.
-    pub fn state(&self) -> &T {
-        &self.execution.machine().state
-    }
-
-    /// Borrows mutable environment state between guest calls.
-    ///
-    /// # Panics
-    /// Panics if a service is suspended. Complete it to regain access.
-    pub fn state_mut(&mut self) -> &mut T {
-        &mut self.execution.machine_mut().state
     }
 }

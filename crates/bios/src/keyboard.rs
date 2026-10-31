@@ -206,7 +206,7 @@ impl Drop for WaitForKey<'_> {
     }
 }
 
-pub(super) async fn interrupt<T>(call: &mut CpuContext<'_, T>, keyboard: &Keyboard) -> HookResult {
+pub(super) async fn interrupt(call: &mut CpuContext<'_>, keyboard: &Keyboard) -> HookResult {
     match call.cpu.ah() {
         0x00 => {
             let key = keyboard.read().await;

@@ -5,30 +5,21 @@ use futures_util::future::LocalBoxFuture;
 use relocade_x86::{ExecutionExit, HostExit};
 use std::{cell::Cell, future::poll_fn, rc::Rc, task::Poll};
 
-pub(super) enum Execution<T> {
+pub(super) enum Execution {
     // Taken only while synchronously transferring ownership into Pending.
-    Idle(Option<Machine<T>>),
+    Idle(Option<Machine>),
     Pending {
-        future: LocalBoxFuture<'static, (Machine<T>, ExecutionExit)>,
+        future: LocalBoxFuture<'static, (Machine, ExecutionExit)>,
         replacement_budget: Rc<Cell<Option<u64>>>,
     },
 }
 
-impl<T: 'static> Execution<T> {
-    pub fn new(machine: Machine<T>) -> Self {
+impl Execution {
+    pub fn new(machine: Machine) -> Self {
         Self::Idle(Some(machine))
     }
 
-    pub fn machine(&self) -> &Machine<T> {
-        match self {
-            Self::Idle(machine) => machine.as_ref().expect("idle machine"),
-            Self::Pending { .. } => {
-                panic!("host service is suspended; complete it before accessing the machine")
-            }
-        }
-    }
-
-    pub fn machine_mut(&mut self) -> &mut Machine<T> {
+    pub fn machine_mut(&mut self) -> &mut Machine {
         match self {
             Self::Idle(machine) => machine.as_mut().expect("idle machine"),
             Self::Pending { .. } => {
@@ -78,11 +69,11 @@ impl<T: 'static> Execution<T> {
     }
 }
 
-async fn execute<T>(
-    mut machine: Machine<T>,
+async fn execute(
+    mut machine: Machine,
     mut address: u32,
     replacement_budget: Rc<Cell<Option<u64>>>,
-) -> (Machine<T>, ExecutionExit) {
+) -> (Machine, ExecutionExit) {
     let exit = loop {
         match machine.call_host(address).await {
             HookResult::Continue => {}
@@ -98,7 +89,7 @@ async fn execute<T>(
     (machine, exit)
 }
 
-impl<T: 'static> Cpu<T> {
+impl Cpu {
     /// Runs until the instruction budget is consumed or the guest exits,
     /// awaiting host services as needed. Ready services complete in the same poll.
     /// Whole blocks can exceed the budget; straight-line code and REP have no

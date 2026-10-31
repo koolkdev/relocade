@@ -12,7 +12,7 @@ use relocade_vga::registers::{sequencer, SEQUENCER_INDEX_PORT};
 use relocade_x86::{Segment, SegmentRegister};
 pub(super) use rom::initialize;
 
-pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+pub(super) fn interrupt(call: &mut CpuContext<'_>) -> HookResult {
     let function = call.cpu.al();
     if function == 0x30 {
         return information(call);
@@ -83,7 +83,7 @@ pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
     real_mode_interrupt::return_from_interrupt(call)
 }
 
-fn information<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+fn information(call: &mut CpuContext<'_>) -> HookResult {
     let Some(pointer) = rom::query(&call.memory, call.cpu.bh()) else {
         return unsupported(call);
     };

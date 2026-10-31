@@ -23,7 +23,7 @@ async fn check_dispatch_table() {
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    let mut runtime = support::create_cpu((), config).await.unwrap();
+    let mut runtime = support::create_cpu(config).await.unwrap();
     // JMP 0200. An uninstalled destination faults; only our callable writes the marker.
     runtime
         .context()

@@ -16,7 +16,7 @@ memory.view().write(0x100, &program)?;
 let worker = Thread::new();
 let task = worker.run_send(memory.backing().clone(), move |backing| async move {
     let memory = Memory::with_backing(machine_config, backing)?;
-    let mut cpu = Cpu::new(memory, cpu_config, Default::default(), ()).await?;
+    let mut cpu = Cpu::new(memory, cpu_config, Default::default()).await?;
     Ok::<_, relocade_machine::Error>(cpu.run(budget).await)
 });
 

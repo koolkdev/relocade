@@ -11,7 +11,7 @@ use relocade_vga::registers::{
     MISC_OUTPUT_READ_PORT, MONO_INPUT_STATUS_1_PORT,
 };
 
-pub(super) fn interrupt<T>(call: &mut CpuContext<'_, T>) -> HookResult {
+pub(super) fn interrupt(call: &mut CpuContext<'_>) -> HookResult {
     let function = call.cpu.al();
     let bl = call.cpu.bl();
     let bh = call.cpu.bh();

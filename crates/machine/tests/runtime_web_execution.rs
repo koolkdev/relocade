@@ -21,7 +21,7 @@ async fn runtime_executes_with_live_cpu_and_memory() {
     let map =
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
     let config = support::configuration(target, cpu, 0x10000, map).unwrap();
-    let mut runtime = support::create_cpu((), config).await.unwrap();
+    let mut runtime = support::create_cpu(config).await.unwrap();
     runtime
         .context()
         .memory
