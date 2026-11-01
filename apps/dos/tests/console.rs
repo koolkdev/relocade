@@ -22,13 +22,15 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
             for _ in 0..1000 {
                 // Startup text addressing retains even physical plane addresses.
                 if video.borrow().snapshot().plane(0)[(prompt_row + 5) * 80 * 2] == b'>' {
-                    return;
+                    return Ok::<(), relocade_dos::DosError>(());
                 }
                 runner.clock().sleep(Duration::from_millis(1)).await;
             }
             panic!("console did not return to its prompt");
         };
-        or(relocade_dos_app::run_console(&mut dos), inspect).await;
+        or(relocade_dos_app::run_console(&mut dos), inspect)
+            .await
+            .unwrap();
         let screen = video.borrow().snapshot();
         for (row, text) in [
             b"> eChO hello".as_slice(),

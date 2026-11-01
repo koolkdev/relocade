@@ -1,3 +1,5 @@
+mod device_requests;
+
 use crate::Dos;
 use relocade_machine::{timer_service, Runner};
 use relocade_x86::ExecutionExit;

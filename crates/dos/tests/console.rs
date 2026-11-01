@@ -11,9 +11,9 @@ use std::io::{Read, Write};
 fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.console().write(b"> ");
+        dos.console().write(b"> ").await.unwrap();
         dos.stdin().write_all(b"abx\x08c\r").unwrap();
-        assert_eq!(dos.console().read_line().await, b"abc");
+        assert_eq!(dos.console().read_line().await.unwrap(), b"abc");
         let com = [0xb4, 2, 0xb2, b'C', 0xcd, 0x21, 0xb8, 7, 0x4c, 0xcd, 0x21];
         dos.launch_com(&com, Default::default()).unwrap();
         assert_eq!(
@@ -28,7 +28,7 @@ fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
             dos.cpu().run(100).await,
             ExecutionExit::Host(HostExit::Return)
         );
-        dos.console().write(b"> ");
+        dos.console().write(b"> ").await.unwrap();
         let screen = common::screen(&dos);
         assert_eq!(
             screen.cells[..5]
