@@ -34,7 +34,7 @@
 #![forbid(unsafe_code)]
 
 mod keyboard;
-mod screen;
+pub mod screen;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
