@@ -1,7 +1,7 @@
 //! BIOS-backed console and the built-in DOS sink/unavailable drivers.
 
 use super::{attributes, CharacterDriver, ReadFuture};
-use crate::error::DosError;
+use crate::DosError;
 use relocade_bios::Keyboard;
 use relocade_machine::MemoryBus;
 

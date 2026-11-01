@@ -52,8 +52,9 @@ pub fn run() -> Result<(), String> {
                 {
                     return Ok(());
                 }
-                run_console(&mut dos).await;
-                Ok(())
+                run_console(&mut dos)
+                    .await
+                    .map_err(|error| error.to_string())
             },
         )
         .await

@@ -9,7 +9,7 @@ pub(crate) struct DeviceChain(Rc<RefCell<Option<Rc<CharacterDevice>>>>);
 
 /// A named DOS character device with a fixed driver binding. Retaining this
 /// device keeps its I/O connected after another driver is installed for its name.
-pub(crate) struct CharacterDevice {
+pub struct CharacterDevice {
     name: [u8; 8],
     attributes: u16,
     driver: Box<dyn CharacterDriver>,

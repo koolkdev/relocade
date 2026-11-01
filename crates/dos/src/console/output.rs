@@ -40,18 +40,17 @@ pub(crate) struct CharacterOutput<'a> {
 }
 
 impl CharacterOutput<'_> {
-    /// Cooked output expands tabs, tracks its column and ignores write errors.
-    /// Returns the last output byte (a space for a tab).
-    pub(crate) fn write_cooked(&self, byte: u8) -> u8 {
+    /// Expands tabs, tracks the resulting column, and returns device errors.
+    pub(crate) fn write_cooked(&self, byte: u8) -> Result<(), DosError> {
         let column = || self.device().and_then(|device| device.output_column());
         let (byte, count) = self.console.stdio.cook_character(byte, column());
         let bytes = [byte; 8];
-        let _ = self.write(&bytes[..usize::from(count)]);
+        let result = self.write(&bytes[..usize::from(count)]);
         // Cursor controls can move by a different amount than their byte length.
         if let Some(column) = column() {
             self.console.stdio.set_output_column(column);
         }
-        byte
+        result
     }
 
     fn device(&self) -> Option<&CharacterDevice> {

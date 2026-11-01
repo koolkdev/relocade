@@ -46,5 +46,14 @@ pub(in crate::services) async fn read_line(
     capacity: u8,
     output: CharacterOutput<'_>,
 ) -> Result<Vec<u8>, DosError> {
-    crate::console::edit_line(async || read_character(source).await, capacity, output).await
+    crate::console::edit_line(
+        async || read_character(source).await,
+        capacity,
+        |byte| {
+            // DOS character services ignore echo failures, including redirected output.
+            let _ = output.write_cooked(byte);
+            Ok(())
+        },
+    )
+    .await
 }
