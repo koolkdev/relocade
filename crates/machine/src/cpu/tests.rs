@@ -1,4 +1,4 @@
-use super::CpuView;
+use super::CpuStateAccess;
 use crate::{ConfigurationError, CpuConfig};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use relocade_x86::{
@@ -47,12 +47,12 @@ fn register_access_is_live_and_preserves_aliases() {
     let storage = cpu_memory(&config);
     let context = storage.clone();
     {
-        let mut cpu = CpuView::new(&config, storage.view());
+        let cpu = CpuStateAccess::new(&config, storage);
         cpu.set_eax(0x1234_5678);
         cpu.set_ax(0xabcd);
         cpu.set_al(0xef);
         cpu.set_ah(0x98);
-        // Observe writes while the view is still borrowed: no drop/flush is needed.
+        // Observe writes through another owner: no drop or flush is needed.
         assert_eq!(read::<4>(&context, 28), [0xef, 0x98, 0x34, 0x12]);
         assert_eq!(cpu.eax(), 0x1234_98ef);
         context.view().store(28, 0x42_u8);
@@ -71,7 +71,7 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     let config = configuration();
     let storage = cpu_memory(&config);
     let context = storage.clone();
-    let mut cpu = CpuView::new(&config, storage.view());
+    let cpu = CpuStateAccess::new(&config, storage);
     let snapshot = CpuState {
         segments: Segments::real_mode(),
         idtr: relocade_x86::DescriptorTableRegister::REAL_MODE_IDTR,
@@ -89,7 +89,7 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
 fn restore_rejects_incompatible_segments_without_writing() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let cpu = CpuStateAccess::new(&config, storage);
     let before = cpu.snapshot();
     let mut snapshot = before;
     snapshot.registers.eax = 0x1234_5678;
@@ -105,7 +105,7 @@ fn restore_rejects_incompatible_segments_without_writing() {
 fn segment_edits_preserve_the_execution_profile() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let cpu = CpuStateAccess::new(&config, storage);
     let ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     cpu.set_segment(Segment::Ds, ds);
     assert_eq!(cpu.segment(Segment::Ds), ds);
@@ -116,7 +116,7 @@ fn segment_edits_preserve_the_execution_profile() {
 fn incompatible_segment_edits_panic() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let cpu = CpuStateAccess::new(&config, storage);
     let mut ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     ds.base = 0;
     cpu.set_segment(Segment::Ds, ds);
@@ -126,7 +126,7 @@ fn incompatible_segment_edits_panic() {
 fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let cpu = CpuStateAccess::new(&config, storage);
     let mut snapshot = *config.cpu();
     snapshot.flags.status_source = StatusSourceState {
         kind: 2, // ADD byte: ff + 1 => CF, PF, AF, ZF.
@@ -153,7 +153,7 @@ fn carry_edits_preserve_other_lazy_flags_and_unrelated_cpu_state() {
 fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let cpu = CpuStateAccess::new(&config, storage);
     let before = cpu.snapshot();
     let changed = relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff);
     assert_eq!(
@@ -167,7 +167,7 @@ fn real_mode_idtr_edits_preserve_the_runtime_vector_table() {
 fn restore_rejects_incompatible_idtr_without_writing() {
     let config = configuration();
     let storage = cpu_memory(&config);
-    let mut cpu = CpuView::new(&config, storage.view());
+    let cpu = CpuStateAccess::new(&config, storage);
     let before = cpu.snapshot();
     let mut snapshot = before;
     snapshot.idtr = relocade_x86::DescriptorTableRegister::new(0x1000, 0x3ff);

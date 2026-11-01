@@ -40,7 +40,7 @@ impl TestModule {
                 port_reads: input.port_reads.clone().into_iter(),
             },
         );
-        let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+        let cpu = SharedBytes::new(1, 1);
         let guest = SharedBytes::new(1, 1);
         let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
         let context = crate::ExecutionContext {
@@ -50,8 +50,8 @@ impl TestModule {
                 .unwrap_or_default(),
             ..crate::ExecutionContext::default()
         };
-        cpu.write(&mut store, 0, &context.to_bytes()).unwrap();
-        cpu.write(&mut store, 0, &input.cpu).unwrap();
+        cpu.write(0, &context.to_bytes());
+        cpu.write(0, &input.cpu);
         for (offset, bytes) in &input.guest {
             guest.write(*offset, bytes);
         }
@@ -72,9 +72,12 @@ impl TestModule {
         let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
         ports::register(&mut linker);
-        for (name, memory) in [("executionContext", cpu), ("machine", machine)] {
-            linker.define(&store, "relocade", name, memory).unwrap();
-        }
+        linker
+            .define(&store, "relocade", "executionContext", cpu.memory().clone())
+            .unwrap();
+        linker
+            .define(&store, "relocade", "machine", machine)
+            .unwrap();
         linker
             .define(&store, "relocade", "guest", guest.memory().clone())
             .unwrap();
@@ -86,13 +89,14 @@ impl TestModule {
         let dispatch_guest_before = guest_before.clone();
         let dispatch_machine_before = machine_before.clone();
         let dispatch_guest = guest.clone();
+        let dispatch_cpu = cpu.clone();
         linker
             .func_wrap(
                 "relocade",
                 "dispatch",
                 move |mut caller: Caller<'_, ExecutionEvents>| {
                     let snapshot = Snapshot {
-                        cpu: cpu.data(&caller)[..cpu_len].to_vec(),
+                        cpu: dispatch_cpu.read(0, cpu_len),
                         guest: observe_guest.then(|| {
                             changes(&dispatch_guest_before, &dispatch_guest.read(0, 65536))
                         }),
@@ -189,13 +193,14 @@ impl TestModule {
             let handoff_guest_before = guest_before.clone();
             let handoff_machine_before = machine_before.clone();
             let handoff_guest = guest.clone();
+            let handoff_cpu = cpu.clone();
             linker
                 .func_wrap(
                     "relocade",
                     "interpret",
                     move |mut caller: Caller<'_, ExecutionEvents>| {
                         let snapshot = Snapshot {
-                            cpu: cpu.data(&caller)[..cpu_len].to_vec(),
+                            cpu: handoff_cpu.read(0, cpu_len),
                             guest: observe_guest.then(|| {
                                 changes(&handoff_guest_before, &handoff_guest.read(0, 65536))
                             }),
@@ -224,23 +229,24 @@ impl TestModule {
         let mut results = vec![::wasmtime::Val::I32(0); entry.ty(&store).results().len()];
         for call in 0..invocations {
             if let Some(patches) = input.patches_before_calls.get(call) {
-                for (memory, edits) in [(cpu, &patches.cpu), (machine, &patches.machine)] {
-                    for (offset, bytes) in edits {
-                        memory.write(&mut store, *offset as usize, bytes).unwrap();
-                    }
+                for (offset, bytes) in &patches.cpu {
+                    cpu.write(*offset, bytes);
+                }
+                for (offset, bytes) in &patches.machine {
+                    machine.write(&mut store, *offset as usize, bytes).unwrap();
                 }
                 for (offset, bytes) in &patches.guest {
                     guest.write(*offset, bytes);
                 }
             }
-            self.check_profile(cpu.data(&store));
+            self.check_profile(&cpu.read(0, cpu_len));
             let outcome = match entry.call(&mut store, &arguments, &mut results) {
                 Ok(()) => Outcome::Returned(results.iter().map(Argument::from_wasm).collect()),
                 Err(error) if error.downcast_ref::<Trap>().is_some() => Outcome::Trap,
                 Err(error) => panic!("calling test entry {} failed: {error:#}", self.entry),
             };
             let snapshot = Snapshot {
-                cpu: cpu.data(&store)[..cpu_len].to_vec(),
+                cpu: cpu.read(0, cpu_len),
                 guest: observe_guest.then(|| changes(&guest_before, &guest.read(0, 65536))),
             };
             let unchanged = machine_before

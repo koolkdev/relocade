@@ -1,8 +1,7 @@
 //! The resources borrowed by guest execution and its host services.
 
 use super::{hooks::Handler, Backend, CpuContext, Dispatch, HookResult, RuntimeMemory};
-use crate::{CpuView, IoBus};
-use relocade_wasm_runtime::WasmMemoryAccess;
+use crate::IoBus;
 use relocade_x86::ExecutionExit;
 use std::{collections::HashMap, rc::Rc};
 
@@ -17,10 +16,7 @@ pub(super) struct Machine {
 impl Machine {
     pub fn context(&mut self) -> CpuContext<'_> {
         CpuContext {
-            cpu: CpuView::new(
-                &self.bindings.config,
-                self.backend.memory(&self.bindings.context),
-            ),
+            cpu: &self.bindings.cpu,
             memory: self.bindings.guest.view().with_io(&self.io),
             io: &self.io,
         }
@@ -28,13 +24,8 @@ impl Machine {
 
     pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
         if let Some(budget) = budget {
-            let target = self
-                .context()
-                .cpu
-                .instruction_count()
-                .saturating_add(budget);
-            self.bindings
-                .set_instruction_target(&mut self.backend, target);
+            let target = self.bindings.cpu.instruction_count().saturating_add(budget);
+            self.bindings.cpu.set_instruction_target(target);
         }
         self.dispatch.run(&mut self.backend)
     }

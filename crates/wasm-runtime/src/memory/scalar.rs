@@ -1,4 +1,5 @@
 use super::{MemoryAccess, MemoryValue};
+use crate::SharedMemory;
 
 /// Loads one little-endian scalar from an allocated, in-bounds range.
 /// Shared access does not promise an atomic snapshot of the value.
@@ -27,6 +28,28 @@ impl MemoryAccess<'_> {
         Self: Store<V>,
     {
         Store::store(self, offset, value);
+    }
+}
+
+impl SharedMemory {
+    /// Loads one little-endian scalar without borrowing a backend.
+    /// Shared transfers do not promise an atomic snapshot of the value.
+    #[inline]
+    pub fn load<V: MemoryValue>(&self, offset: u32) -> V
+    where
+        Self: Load<V>,
+    {
+        Load::load(self, offset)
+    }
+
+    /// Stores one little-endian scalar without borrowing a backend.
+    /// Shared transfers do not promise an atomic update of the value.
+    #[inline]
+    pub fn store<V: MemoryValue>(&self, offset: u32, value: V)
+    where
+        for<'a> &'a Self: Store<V>,
+    {
+        Store::store(&mut &*self, offset, value);
     }
 }
 

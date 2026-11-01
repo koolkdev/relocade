@@ -1,4 +1,4 @@
-//! Borrowed access to one allocation, independent of store lookup and host state.
+//! Value access to retained or borrowed memory, independent of store lookup.
 
 mod scalar;
 mod value;

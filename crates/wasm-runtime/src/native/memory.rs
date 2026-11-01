@@ -128,12 +128,14 @@ impl WasmSharedMemory for SharedMemory {
         self.0.size() * 65536
     }
 
+    #[inline]
     fn write(&self, offset: u32, bytes: &[u8]) {
         for (cell, byte) in self.range(offset, bytes.len()).iter().zip(bytes) {
             cell.store(*byte, Ordering::Relaxed);
         }
     }
 
+    #[inline]
     fn read(&self, offset: u32, bytes: &mut [u8]) {
         for (cell, byte) in self.range(offset, bytes.len()).iter().zip(bytes) {
             *byte = cell.load(Ordering::Relaxed);
@@ -142,17 +144,17 @@ impl WasmSharedMemory for SharedMemory {
 }
 
 impl SharedMemory {
+    #[inline]
     #[allow(unsafe_code)]
     fn range(&self, offset: u32, len: usize) -> &[AtomicU8] {
         let data = self.0.data();
         let start = offset as usize;
         let end = start.checked_add(len).expect("Wasm memory range overflow");
         let cells = &data[start..end];
-        // SAFETY: Wasmtime owns this allocation and keeps it stable, including
-        // across growth, while this SharedMemory exists. AtomicU8 has byte size
-        // and alignment. The checked range is initialized and remains allocated.
-        // All Rust accesses to shared contents use byte atomics; guest Wasm
-        // accesses obey Wasmtime's shared-memory contract.
+        // SAFETY: Wasmtime reports the live initialized extent and retains this
+        // stable allocation for self's lifetime, including across growth. The
+        // checked range has AtomicU8's byte size and alignment. All Rust accesses
+        // use byte atomics; no mutable or non-atomic reference is created.
         unsafe { std::slice::from_raw_parts(cells.as_ptr().cast::<AtomicU8>(), cells.len()) }
     }
 }
@@ -168,6 +170,20 @@ impl<V: MemoryValue> Load<V> for MemoryRegion<'_> {
 
 impl<V: MemoryValue> Store<V> for MemoryRegion<'_> {
     #[inline]
+    fn store(&mut self, offset: u32, value: V) {
+        self.write(offset, value.to_le_bytes().as_ref());
+    }
+}
+
+impl<V: MemoryValue> Load<V> for SharedMemory {
+    fn load(&self, offset: u32) -> V {
+        let mut bytes = V::Bytes::default();
+        self.read(offset, bytes.as_mut());
+        V::from_le_bytes(bytes)
+    }
+}
+
+impl<V: MemoryValue> Store<V> for &SharedMemory {
     fn store(&mut self, offset: u32, value: V) {
         self.write(offset, value.to_le_bytes().as_ref());
     }

@@ -101,7 +101,7 @@ pub async fn cpu_worker() -> Result<(), String> {
     drop(worker);
     assert_eq!(view.read_u16(0x204).unwrap(), 0x42);
 
-    // A later worker imports the same allocation and starts with private CPU state.
+    // A later worker imports the same allocation and starts with independent CPU state.
     let config = memory.configuration().clone();
     let worker = Thread::new();
     let task = worker.run_send(memory.backing().clone(), move |backing| async move {

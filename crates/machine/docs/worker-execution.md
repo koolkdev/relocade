@@ -33,7 +33,8 @@ The task owns one `Cpu` for its lifetime. BIOS/DOS services capture their own
 application resources and execute on the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
 Hooks run in Rust after Wasm returns. A `CpuContext` borrows the executing machine;
-its CPU views bind storage directly and keep that backend borrow until they end.
+its CPU field borrows an independently retained `CpuStateAccess`. Value accesses
+do not borrow the backend, and `cpu.cpu_state()` can retain the state resource.
 Services can hold ordinary views and local references across input awaits.
 Shared guest-memory handles support independent readers.
 

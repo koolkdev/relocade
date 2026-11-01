@@ -193,3 +193,59 @@ fn transfers_follow_rust_memory_growth() {
         .grow(1);
     check_scalars(&mut access, 1);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn shared_scalars_track_growth_and_owner_drop() {
+    for minimum in [0, 1] {
+        let memory = SharedMemory::new(minimum, 2).unwrap();
+        let retained = memory.clone();
+        let mut backend = Backend::new().unwrap();
+        let imported = backend.import_shared_memory(&memory);
+        memory.write(minimum * 65536, &[]);
+        backend.ensure_memory_size(&imported, 2 * 65536).unwrap();
+        // One value straddles the original allocation's page boundary. Existing
+        // handles and views must observe the newly grown bytes too.
+        retained.store(65533, 0xfedc_ba98_7654_3210_u64);
+        assert_eq!(memory.view().load::<u64>(65533), 0xfedc_ba98_7654_3210);
+        memory.write(0, &[0x81]);
+        assert_eq!(retained.load::<u8>(0), 0x81);
+        drop(backend);
+        drop(imported);
+        drop(memory);
+        let clone = retained.clone();
+        clone.store(1, 0xfedc_ba98_7654_3210_u64);
+        clone.store(3, 0x1234_u16);
+        clone.store(20, 0xaabb_ccdd_u32);
+        let mut bytes = [0; 4];
+        retained.read(20, &mut bytes);
+        assert_eq!(bytes, [0xdd, 0xcc, 0xbb, 0xaa]);
+        assert_eq!(retained.load::<u16>(3), 0x1234);
+        assert_eq!(retained.load::<u32>(5), 0xfedc_ba98);
+        assert_eq!(retained.load::<u64>(1), 0xfedc_ba98_1234_3210);
+        assert_eq!(retained.load::<u64>(65533), 0xfedc_ba98_7654_3210);
+        retained.store(2 * 65536 - 1, 0x42_u8);
+        assert_eq!(clone.load::<u8>(2 * 65536 - 1), 0x42);
+        retained.write(2 * 65536, &[]);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn shared_memory_can_be_accessed_and_grown_on_another_thread() {
+    let memory = std::sync::Arc::new(SharedMemory::new(1, 2).unwrap());
+    memory.store(1, 0x1234_u16);
+    let writer = memory.clone();
+    std::thread::spawn(move || {
+        assert_eq!(writer.load::<u16>(1), 0x1234);
+        let mut backend = Backend::new().unwrap();
+        let imported = backend.import_shared_memory(&writer);
+        backend.ensure_memory_size(&imported, 2 * 65536).unwrap();
+        writer.store(65535, 0xfedc_ba98_u32);
+        writer.store(1, 0x5678_u16);
+    })
+    .join()
+    .unwrap();
+    assert_eq!(memory.load::<u32>(65535), 0xfedc_ba98);
+    assert_eq!(memory.load::<u16>(1), 0x5678);
+}

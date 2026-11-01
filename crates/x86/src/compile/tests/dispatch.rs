@@ -186,11 +186,14 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
     let engine = relocade_test_support::engine();
     let mut store = Store::new(engine, ());
     let mut linker = Linker::new(engine);
-    let cpu = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+    let cpu = relocade_test_support::SharedBytes::new(1, 1);
     let entries = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
-    for (name, memory) in [("executionContext", cpu), ("executionEntries", entries)] {
-        linker.define(&store, "relocade", name, memory).unwrap();
-    }
+    linker
+        .define(&store, "relocade", "executionContext", cpu.memory().clone())
+        .unwrap();
+    linker
+        .define(&store, "relocade", "executionEntries", entries)
+        .unwrap();
     let functions = Table::new(
         &mut store,
         TableType::new(RefType::FUNCREF, targets.len() as u32 + 1, None),
@@ -222,7 +225,7 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
             if pages > current {
                 entries.grow(&mut store, pages - current).unwrap();
             }
-            cpu.write(&mut store, 0, &case.cpu).unwrap();
+            cpu.write(0, &case.cpu);
             entries.write(&mut store, 0, &case.entries).unwrap();
             let values = instance
                 .get_typed_func::<(), <Layout<crate::ExecutionExit> as Tuple>::Tuple>(
@@ -237,7 +240,7 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
                     values,
                 ))
                 .unwrap(),
-                cpu: cpu.data(&store)[..case.cpu.len()].to_vec(),
+                cpu: cpu.read(0, case.cpu.len()),
             }
         })
         .collect()
