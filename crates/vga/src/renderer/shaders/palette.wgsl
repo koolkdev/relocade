@@ -6,9 +6,18 @@ fn palette_color(input: DisplayVertex, index: u32) -> u32 {
 
 // The attribute controller maps four-bit colors to entries in the DAC palette.
 fn attribute_color(color: u32) -> u32 {
+    let mode = attribute_reg(0x10u);
+    var palette_index = color & attribute_reg(0x12u);
+    if (mode & 9u) == 9u {
+        // Graphics blink replaces palette address bit 3 after plane masking.
+        // Monochrome toggles it for every pixel; color graphics only when bit 3
+        // was set. Other color-graphics pixels always use the upper palette half.
+        let blinking = (mode & 2u) != 0u || (palette_index & 8u) != 0u;
+        palette_index = (palette_index & 7u) | select(8u, 0u, blinking && state.blink_on != 0u);
+    }
     let select_bits = attribute_reg(0x14u);
-    var index = attribute_reg(color & attribute_reg(0x12u));
-    if (attribute_reg(0x10u) & 0x80u) != 0u {
+    var index = attribute_reg(palette_index);
+    if (mode & 0x80u) != 0u {
         index = (index & 15u) | ((select_bits & 3u) << 4u);
     }
     return dac_color(index | ((select_bits & 12u) << 4u));

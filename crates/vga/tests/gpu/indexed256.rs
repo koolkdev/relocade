@@ -77,6 +77,12 @@ async fn check_full_frame() {
     let masked = common::fixture::capture(&vga);
     let expected = pixels(indices.iter().map(|index| index & 0x7f));
     gpu.expect(&masked, [320, 200], &expected).await;
+    // Eight-bit pixels bypass the attribute palette, including graphics blink.
+    for mode in [0x49, 0x4b] {
+        attribute(&mut vga, 0x10, mode);
+        gpu.expect(&common::fixture::capture(&vga), [320, 200], &expected)
+            .await;
+    }
     drop(vga);
     gpu.expect(&first, [320, 200], &original).await;
     gpu.expect(&text, [640, 200], &text_pixels).await;
