@@ -13,6 +13,8 @@ mod graphics;
 mod graphics_characters;
 #[path = "bios/graphics_pages.rs"]
 mod graphics_pages;
+#[path = "bios/information.rs"]
+mod information;
 #[path = "bios/keyboard.rs"]
 mod keyboard;
 #[path = "bios/monochrome.rs"]

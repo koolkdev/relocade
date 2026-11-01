@@ -125,7 +125,7 @@ fn select_attribute(io: &IoBus, address: u8) {
     io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(address));
 }
 
-fn read_attribute(io: &IoBus, index: u8) -> u8 {
+pub(super) fn read_attribute(io: &IoBus, index: u8) -> u8 {
     let saved_address = io.read_port(ATTRIBUTE_ADDRESS_PORT, 1) as u8;
     select_attribute(io, index);
     let value = io.read_port(ATTRIBUTE_DATA_READ_PORT, 1) as u8;

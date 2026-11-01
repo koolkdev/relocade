@@ -289,6 +289,23 @@ not create one. Mode changes preserve this metadata, including monochrome modes
 [IBM VGA ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
 (x870 and xA2D–xAD2).
 
+AH=1Bh/BX=0000h writes IBM's 64-byte functionality/state report to ES:DI and
+returns AL=1Bh. It includes the BIOS mode, geometry, pages and cursors, the same
+active/alternate display codes as AX=1A00h, and live font-bank and blink settings.
+Text page counts follow the current font allocation. As in IBM's ROM
+(xAFC–xC52), the scanline field describes the BIOS profile rather than custom
+CRTC timing; the row field is a count, not BDA 484h's last-row index. The buffer
+wraps at ES:FFFF. Unsupported BX values return AL=0 without changing the buffer.
+
+The report points to a guest-readable ROM capability table advertising only
+implemented modes and services. It reports two simultaneously visible font
+banks and eight total banks. Miscellaneous capability bits cover font loading,
+EGA/DAC palettes, palette paging, blink and display combination; unsupported
+grayscale, cursor-emulation and palette-load toggles, light-pen, save/restore,
+and save-pointer override services are not advertised. Reserved state fields
+remain zero. The BIOS information module owns this ABI encoding and reuses
+adapter metadata and page validation; it adds no device or renderer state.
+
 At the start of vertical retrace the device latches the programmed display start,
 then captures a complete `DisplaySnapshot` for the following active display:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
