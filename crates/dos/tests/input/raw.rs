@@ -111,3 +111,25 @@ fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
         assert!(common::output(dos.stdout()).is_empty());
     });
 }
+
+#[test]
+fn peeking_console_input_preserves_both_bytes_of_an_extended_key() {
+    pollster::block_on(async {
+        let dos = common::dos().await;
+        let device = dos.device(b"CON").unwrap();
+        dos.keyboard().push(relocade_bios::KeyStroke {
+            character: 0,
+            scan_code: 0x4b,
+        });
+        for expected in [0, 0x4b] {
+            for _ in 0..2 {
+                assert_eq!(device.peek_character().await.unwrap(), Some(expected));
+            }
+            let mut byte = [0xcc];
+            assert_eq!(device.read(&mut byte).await.unwrap(), 1);
+            assert_eq!(byte, [expected]);
+        }
+        assert_eq!(device.peek_character().await.unwrap(), None);
+        assert!(!device.input_available().await.unwrap());
+    });
+}
