@@ -13,7 +13,7 @@ pub(super) use fonts::Glyph;
 pub(super) use modes::{set_mode, text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
 
 use crate::screen::{self, ScrollDirection, Window};
-use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
+use relocade_machine::{real_mode_interrupt, IoBus, MemoryView};
 use relocade_vga::registers::{
     COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT, MONO_CRTC_INDEX_PORT,
     MONO_INPUT_STATUS_1_PORT,
@@ -42,7 +42,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");
 }
 
-pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
+pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
     let cpu = call.cpu;
     let function = cpu.ah();
     let al = cpu.al();
@@ -77,17 +77,17 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
                 call.cpu.set_al(pixel.read(&call.memory, call.io));
             }
         }
-        0x0b => return palette::compatibility(call),
-        0x10 => return palette::interrupt(call),
-        0x11 => return fonts::interrupt(call),
-        0x12 if attribute == 0x10 => return adapter::configuration(call),
+        0x0b => palette::compatibility(call),
+        0x10 => palette::interrupt(call),
+        0x11 => fonts::interrupt(call),
+        0x12 if attribute == 0x10 => adapter::configuration(call),
         0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
             call.cpu.set_al(0x12);
         }
-        0x13 => return strings::interrupt(call),
-        0x1a => return adapter::display_combination(call),
-        0x1b => return information::interrupt(call),
-        0x02 | 0x03 if !screen::valid_page(&call.memory, page) => return unsupported(call),
+        0x13 => strings::interrupt(call),
+        0x1a => adapter::display_combination(call),
+        0x1b => information::interrupt(call),
+        0x02 | 0x03 if !screen::valid_page(&call.memory, page) => unsupported(call),
         0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
         0x03 => {
             let position = screen::cursor_position(&call.memory, page);
@@ -146,9 +146,8 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
             output.teletype(al, attribute);
             output.commit_cursor();
         }
-        _ => return unsupported(call),
+        _ => unsupported(call),
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }
 
 fn write_indexed(io: &IoBus, port: u16, register: u8, value: u8) {
@@ -189,8 +188,7 @@ fn input_status_1_port(io: &IoBus) -> u16 {
     }
 }
 
-fn unsupported(call: &mut crate::BiosContext<'_>) -> HookResult {
+fn unsupported(call: &mut crate::BiosContext<'_>) {
     call.cpu.set_ah(0x86);
     real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }

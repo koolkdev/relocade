@@ -1,6 +1,6 @@
 //! BIOS adapter metadata. Identification never changes VGA registers or memory.
 use super::{unsupported, MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES};
-use relocade_machine::{real_mode_interrupt, HookResult, MemoryView};
+use relocade_machine::MemoryView;
 
 const EQUIPMENT: u32 = 0x410;
 const DISPLAY_COMBINATION: u32 = 0x48a;
@@ -46,7 +46,7 @@ pub(super) fn memory_size(memory: &MemoryView<'_>) -> u8 {
     (memory.read_u8(VIDEO_CONTROL).expect("video control") >> 5) & 3
 }
 
-pub(super) fn configuration(call: &mut crate::BiosContext<'_>) -> HookResult {
+pub(super) fn configuration(call: &mut crate::BiosContext<'_>) {
     let control = call.memory.read_u8(VIDEO_CONTROL).expect("video control");
     let switches = call.memory.read_u8(VIDEO_SWITCHES).expect("video switches");
     let size = memory_size(&call.memory);
@@ -55,7 +55,6 @@ pub(super) fn configuration(call: &mut crate::BiosContext<'_>) -> HookResult {
     call.cpu.set_ch(switches >> 4);
     call.cpu.set_cl(switches & 15);
     call.cpu.set_al(size); // IBM VGA's AH=12h/BL=10h also leaves this value in AL.
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }
 
 /// Active and alternate display codes, independent of the current BIOS mode.
@@ -78,7 +77,7 @@ pub(super) fn display_codes(memory: &MemoryView<'_>) -> [u8; 2] {
     codes
 }
 
-pub(super) fn display_combination(call: &mut crate::BiosContext<'_>) -> HookResult {
+pub(super) fn display_combination(call: &mut crate::BiosContext<'_>) {
     match call.cpu.al() {
         0 => call
             .cpu
@@ -96,5 +95,4 @@ pub(super) fn display_combination(call: &mut crate::BiosContext<'_>) -> HookResu
         _ => return unsupported(call),
     }
     call.cpu.set_al(0x1a);
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }
