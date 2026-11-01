@@ -45,10 +45,10 @@ async fn check_guest_memory() {
         .view()
         .write(0x100, &[0xc7, 0x06, 0xfe, 0x0f, 0x41, 0x07, 0xeb, 0])
         .unwrap();
-    let mut runtime = Cpu::new(shared.clone(), config.cpu, Default::default(), ())
+    let mut runtime = Cpu::new(shared.clone(), config.cpu, Default::default())
         .await
         .unwrap();
-    let mut other = Cpu::new(shared.clone(), config.cpu, Default::default(), ())
+    let mut other = Cpu::new(shared.clone(), config.cpu, Default::default())
         .await
         .unwrap();
     runtime.context().cpu.set_ax(0x1234);

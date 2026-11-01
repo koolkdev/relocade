@@ -10,7 +10,7 @@ use relocade_x86::{
 };
 
 fn create(config: Configuration) -> Cpu {
-    pollster::block_on(support::create_cpu((), config)).unwrap()
+    pollster::block_on(support::create_cpu(config)).unwrap()
 }
 
 fn configuration() -> Configuration {

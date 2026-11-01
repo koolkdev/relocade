@@ -75,7 +75,7 @@ impl<C: Clock> Runner<C> {
 
     /// Runs finite CPU quanta until the first non-budget exit.
     /// A pending service retains its CPU future and original instruction budget.
-    pub async fn run_cpu<T: 'static>(&self, cpu: &mut Cpu<T>) -> ExecutionExit {
+    pub async fn run_cpu(&self, cpu: &mut Cpu) -> ExecutionExit {
         loop {
             let exit = cpu.run(self.instruction_quantum.get()).await;
             if exit != ExecutionExit::BudgetExhausted {

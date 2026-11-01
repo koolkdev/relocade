@@ -6,15 +6,15 @@ use super::{Cpu, CpuContext, DispatchEntry, Result};
 use futures_util::future::LocalBoxFuture;
 use std::rc::Rc;
 
-pub(super) trait Handler<T> {
-    fn call<'a>(&'a self, context: &'a mut CpuContext<'_, T>) -> LocalBoxFuture<'a, HookResult>;
+pub(super) trait Handler {
+    fn call<'a>(&'a self, context: &'a mut CpuContext<'_>) -> LocalBoxFuture<'a, HookResult>;
 }
 
-impl<T, F> Handler<T> for F
+impl<F> Handler for F
 where
-    F: AsyncFn(&mut CpuContext<'_, T>) -> HookResult,
+    F: AsyncFn(&mut CpuContext<'_>) -> HookResult,
 {
-    fn call<'a>(&'a self, context: &'a mut CpuContext<'_, T>) -> LocalBoxFuture<'a, HookResult> {
+    fn call<'a>(&'a self, context: &'a mut CpuContext<'_>) -> LocalBoxFuture<'a, HookResult> {
         Box::pin(self(context))
     }
 }
@@ -30,25 +30,24 @@ pub enum HookResult {
 }
 
 /// A host function reached at a guest linear address through ordinary dispatch.
-/// `T` is the machine's environment state, borrowed through the context.
+/// Application state belongs to the service's captures.
 ///
 /// ```
-/// use relocade_machine::{Hook, HookResult, CpuContext};
+/// use relocade_machine::{Hook, HookResult};
 /// use relocade_x86::{ExecutionExit, HostExit};
 ///
-/// async fn terminate(call: &mut CpuContext<'_, Option<u8>>) -> HookResult {
-///     let code = call.cpu.al();
-///     *call.state = Some(code);
+/// let exit_code = std::rc::Rc::new(std::cell::Cell::new(None));
+/// let hook = Hook::new(0xf0100, async move |call| {
+///     exit_code.set(Some(call.cpu.al()));
 ///     HookResult::Exit(ExecutionExit::Host(HostExit::Return))
-/// }
-/// let hook = Hook::new(0xf0100, terminate);
+/// });
 /// ```
-pub struct Hook<T = ()> {
+pub struct Hook {
     address: u32,
-    handler: Rc<dyn Handler<T>>,
+    handler: Rc<dyn Handler>,
 }
 
-impl<T: 'static> Hook<T> {
+impl Hook {
     /// On Continue, the handler must set the guest continuation in CPU state.
     /// Exit returns its execution exit without changing that state.
     /// Interrupt/ABI return conventions belong to the handler's environment.
@@ -56,7 +55,7 @@ impl<T: 'static> Hook<T> {
     /// data stay on the CPU's thread and do not need Send or Sync.
     pub fn new<F>(address: u32, handler: F) -> Self
     where
-        F: AsyncFn(&mut CpuContext<'_, T>) -> HookResult + 'static,
+        F: AsyncFn(&mut CpuContext<'_>) -> HookResult + 'static,
     {
         Self {
             address,
@@ -65,7 +64,7 @@ impl<T: 'static> Hook<T> {
     }
 }
 
-impl<T: 'static> Cpu<T> {
+impl Cpu {
     /// Installs callable entries that return their address to the Rust run loop.
     /// The CPU owns the handlers and invokes them after the guest call returns.
     ///
@@ -77,7 +76,7 @@ impl<T: 'static> Cpu<T> {
     ///
     /// # Panics
     /// Panics if a service is suspended. Complete it before installing.
-    pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook<T>>) -> Result<()> {
+    pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
         let machine = self.execution.machine_mut();
         let hooks: Vec<_> = hooks.into_iter().collect();
         let names: Vec<_> = (0..hooks.len())

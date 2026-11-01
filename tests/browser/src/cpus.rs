@@ -5,10 +5,13 @@ use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
 };
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 struct Input {
-    incoming: mpsc::UnboundedReceiver<u16>,
+    incoming: Option<mpsc::UnboundedReceiver<u16>>,
     waiting: Option<oneshot::Sender<()>>,
     completed: Rc<Cell<u32>>,
 }
@@ -44,24 +47,32 @@ pub async fn cpu_worker() -> Result<(), String> {
     let (waiting, started) = oneshot::channel();
     let task = worker.run_send(memory.backing().clone(), move |backing| async move {
         let memory = Memory::with_backing(config, backing).unwrap();
-        let input = Input {
-            incoming,
+        let input = RefCell::new(Input {
+            incoming: Some(incoming),
             waiting: Some(waiting),
             completed: Rc::new(Cell::new(0)),
-        };
-        let mut cpu = Cpu::new(memory, cpu_config, Default::default(), input)
+        });
+        let completed = input.borrow().completed.clone();
+        let mut cpu = Cpu::new(memory, cpu_config, Default::default())
             .await
             .unwrap();
-        cpu.install_hooks([Hook::<Input>::new(0x100, async |call| {
+        cpu.install_hooks([Hook::new(0x100, async move |call| {
             let cpu = &mut call.cpu;
             let memory = &mut call.memory;
-            let input = &mut *call.state;
+            let (mut incoming, mut waiting, completed) = {
+                let mut input = input.borrow_mut();
+                (
+                    input.incoming.take().unwrap(),
+                    input.waiting.take(),
+                    input.completed.clone(),
+                )
+            };
             memory.write_u8(0x200, 0x11).unwrap();
             let value = poll_fn(|context| {
-                let poll = input.incoming.poll_next_unpin(context);
+                let poll = incoming.poll_next_unpin(context);
                 if poll.is_pending() {
                     // The caller sends only after this task registers its waker.
-                    if let Some(waiting) = input.waiting.take() {
+                    if let Some(waiting) = waiting.take() {
                         waiting.send(()).unwrap();
                     }
                 }
@@ -71,14 +82,14 @@ pub async fn cpu_worker() -> Result<(), String> {
             .unwrap();
             cpu.set_ax(value + memory.read_u16(0x202).unwrap());
             cpu.set_eip(0x300);
-            input.completed.set(input.completed.get() + 1);
+            completed.set(completed.get() + 1);
             HookResult::Continue
         })])
         .await
         .unwrap();
         assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
         let ax = cpu.context().cpu.ax();
-        (ax, cpu.state().completed.get())
+        (ax, completed.get())
     });
 
     started.await.map_err(|error| error.to_string())?;
@@ -95,7 +106,7 @@ pub async fn cpu_worker() -> Result<(), String> {
     let worker = Thread::new();
     let task = worker.run_send(memory.backing().clone(), move |backing| async move {
         let memory = Memory::with_backing(config, backing).unwrap();
-        let mut cpu = Cpu::new(memory, cpu_config, Default::default(), ())
+        let mut cpu = Cpu::new(memory, cpu_config, Default::default())
             .await
             .unwrap();
         let context = cpu.context();

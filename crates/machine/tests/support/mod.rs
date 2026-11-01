@@ -20,13 +20,12 @@ pub fn configuration(
     })
 }
 
-pub async fn create_cpu<T: 'static>(
-    state: T,
+pub async fn create_cpu(
     Configuration {
         cpu,
         machine: config,
     }: Configuration,
-) -> relocade_machine::Result<relocade_machine::Cpu<T>> {
+) -> relocade_machine::Result<relocade_machine::Cpu> {
     let memory = relocade_machine::Memory::new(config)?;
-    relocade_machine::Cpu::new(memory, cpu, Default::default(), state).await
+    relocade_machine::Cpu::new(memory, cpu, Default::default()).await
 }

@@ -36,7 +36,7 @@ async fn check_timing() {
     )
     .unwrap();
     let input = Rc::new(Input::default());
-    let mut cpu = support::create_cpu(input.clone(), config).await.unwrap();
+    let mut cpu = support::create_cpu(config).await.unwrap();
     cpu.context().cpu.set_sp(0xff00);
     cpu.context()
         .memory
@@ -47,9 +47,10 @@ async fn check_timing() {
         .memory
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
-    cpu.install_hooks([Hook::<Rc<Input>>::new(0x200, async |call| {
+    let captured = input.clone();
+    cpu.install_hooks([Hook::new(0x200, async move |call| {
         let memory = &mut call.memory;
-        let input = &call.state;
+        let input = &captured;
         input.calls.set(input.calls.get() + 1);
         let value = input.calls.get() as u16;
         let saved = &value;
@@ -128,7 +129,7 @@ async fn check_cooperation() {
         PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    let mut cpu = support::create_cpu((), config).await.unwrap();
+    let mut cpu = support::create_cpu(config).await.unwrap();
     let memory = cpu.memory();
     // INC word [0300]; JMP 0100. Warm compilation before polling synchronously.
     memory
