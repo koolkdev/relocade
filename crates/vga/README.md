@@ -90,8 +90,10 @@ Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
 physical map and device bus. The Graphics Controller selects the active aperture;
 reads outside it return FF and writes are ignored. BIOS mode 03h restores font
 memory and the shared text preset. Mode 13h programs the standard 320×200 layout
-and 256-color palette. Modes 0Dh (320×200) and 12h (640×480) program planar
-16-color state with their respective RGBI and EGA default palette mappings.
+and 256-color palette. Planar 16-color modes 0Dh (320×200) and 0Eh (640×200)
+use the RGBI default palette; modes 10h (640×350) and 12h (640×480) use EGA
+palette mappings. Modes 0Eh and 10h expose an 80×25 character grid with 8-high
+and 14-high fonts respectively for BIOS graphics character services.
 Modes 04h/05h (320×200, four colors) and 06h (640×200, two colors) use packed
 B8000 storage with alternating 8-KiB scanline banks. Modes 04h/05h use the
 interleaved shifter; mode 06h uses the serial shifter with plane zero enabled.
@@ -110,15 +112,16 @@ write/read individual pixels through the same memory aperture. Planar writes
 use VGA write mode two and its latches to preserve neighboring pixels; AL bit 7
 requests XOR in planar and packed modes, while mode 13h keeps all eight color
 bits. Packed writes preserve other bit fields in the same byte. BH selects
-one of eight mode-0Dh pages and is ignored for pixel calls in single-page modes.
+the requested graphics page and is ignored for pixel calls in single-page modes.
 These BIOS services assume the layout established by mode setting; they do not
 infer arbitrary guest-reprogrammed layouts. Unsupported modes, out-of-range
-coordinates and invalid mode-0Dh pages return AH=86h with carry set. This bounds
+coordinates and invalid graphics pages return AH=86h with carry set. This bounds
 policy is local; the BIOS interface does not specify out-of-range results.
 AH=02h/03h keep per-page graphics cursors in BIOS memory without enabling a
-hardware text cursor. AH=05h selects pages 0–7 in mode 0Dh and page 0 in other
-graphics modes. Mode-0Dh pages occupy 2000h bytes per plane; page selection
-programs the CRTC start address in the units of the mode preset.
+hardware text cursor. AH=05h selects pages 0–7 in mode 0Dh, 0–3 in mode 0Eh,
+0–1 in mode 10h, and page 0 in other graphics modes. Those planar pages occupy
+2000h, 4000h and 8000h bytes per plane respectively; page selection programs
+the CRTC start address in the units of the mode preset.
 
 AH=06h/07h scroll or clear character-cell rectangles on the active page. Windows
 clip to the BIOS grid and graphics bounds, using the BIOS character height to
@@ -480,7 +483,7 @@ Mode X checks select all four planes, flip through the
 through the ordinary page uploads.
 Native DOS checks exercise INT 10h mode setup, memory preservation and register
 restoration. Guest-to-GPU checks run COM programs that set modes 04h–06h, 0Dh,
-12h and 13h, write pixels through their memory apertures, change palette colors
+0Eh, 10h, 12h and 13h, write pixels through their memory apertures, change palette colors
 and restore text. Packed checks compare complete images against CPU-visible
 banked byte patterns and retain palette-only updates without VRAM writes.
 Mode X guests unchain the memory and flip pages without rewriting pixels.

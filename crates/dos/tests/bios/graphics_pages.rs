@@ -27,7 +27,7 @@ fn graphics_pages_use_plane_offsets_and_keep_cursors_in_bios_memory() {
             );
             assert_eq!(&registers[14..16], &before.registers.crtc.values[14..16]);
         }
-        for (mode, invalid_page) in [(0x0d, 8), (0x12, 1), (0x13, 1)] {
+        for (mode, invalid_page) in [(0x0d, 8), (0x0e, 4), (0x10, 2), (0x12, 1), (0x13, 1)] {
             video(&mut dos, mode, 0, 0, 0);
             let before = dos.vga().borrow().snapshot();
             for ax in [0x0200, 0x0300, 0x0500 | invalid_page] {
@@ -49,10 +49,20 @@ fn planar_scrolls_copy_each_latched_byte_and_fill_without_xor() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        for (mode, page, stride, height, rows) in [(0x0d, 7, 40, 8, 25), (0x12, 0, 80, 16, 30)] {
+        for (mode, page, offset, stride, height, rows) in [
+            (0x0d, 7, 0xe000, 40, 8, 25),
+            (0x0e, 3, 0xc000, 80, 8, 25),
+            (0x10, 1, 0x8000, 80, 14, 25),
+            (0x12, 0, 0, 80, 16, 30),
+        ] {
             video(&mut dos, mode, 0, 0, 0);
             video(&mut dos, 0x0500 | page, 0, 0, 0);
-            let offset = usize::from(page) * 0x2000;
+            assert_eq!(
+                dos.cpu().context().memory.read_u16(0x44e).unwrap(),
+                offset as u16
+            );
+            let crtc = dos.vga().borrow().snapshot().registers.crtc.values;
+            assert_eq!([crtc[12], crtc[13]], (offset as u16).to_be_bytes());
             {
                 let mut context = dos.cpu().context();
                 for plane in 0..4 {

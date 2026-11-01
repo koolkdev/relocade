@@ -83,6 +83,8 @@ impl Mode {
                 }
                 modes::GRAPHICS_640X200_2 => (640, 200, 0x4000, 1, Layout::Packed1),
                 modes::GRAPHICS_320X200_16 => (320, 200, 0x2000, 8, Layout::Planar16),
+                modes::GRAPHICS_640X200_16 => (640, 200, 0x4000, 4, Layout::Planar16),
+                modes::GRAPHICS_640X350_16 => (640, 350, 0x8000, 2, Layout::Planar16),
                 modes::GRAPHICS_640X480_16 => (640, 480, 0xa000, 1, Layout::Planar16),
                 modes::GRAPHICS_320X200_256 => (320, 200, 64000, 1, Layout::Indexed256),
                 _ => return None,
