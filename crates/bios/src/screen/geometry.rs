@@ -23,6 +23,7 @@ impl Geometry {
             text_base: text_memory_start(memory.read_u8(MODE).expect("video mode")),
         };
         if let Some(page) = Page::locate(memory, 0) {
+            geometry.font_height = page.character_height(geometry.font_height);
             geometry.columns = geometry.columns.min(page.columns());
             geometry.rows = geometry.rows.min(page.rows(geometry.font_height));
         }

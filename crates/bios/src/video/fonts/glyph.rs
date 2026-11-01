@@ -1,5 +1,5 @@
 //! Read a graphics glyph through the guest's live BIOS font vectors.
-use super::super::buffer_addresses;
+use super::super::{buffer_addresses, modes, MODE};
 use super::rom;
 use relocade_machine::MemoryView;
 
@@ -13,9 +13,11 @@ impl Glyph {
         if !(1..=32).contains(&height) {
             return None;
         }
-        // Eight-high fonts split at character 80h: INT 1Fh supplies the upper
-        // half. Taller fonts use INT 43h for all 256 glyphs.
-        let (selector, index) = if height == 8 && character >= 128 {
+        // Only CGA-compatible modes split at character 80h. Planar and indexed
+        // VGA modes use INT 43h for all 256 glyphs, including eight-high fonts.
+        let mode = memory.read_u8(MODE).expect("video mode");
+        let packed = matches!(mode, modes::GRAPHICS_320X200_4..=modes::GRAPHICS_640X200_2);
+        let (selector, index) = if packed && character >= 128 {
             (0, character - 128)
         } else {
             (1, character)

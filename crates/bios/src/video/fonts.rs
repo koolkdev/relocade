@@ -1,5 +1,6 @@
-//! INT 10h/AH=11h loads fonts through VGA memory and programs text geometry.
+//! INT 10h/AH=11h: text font memory, graphics font vectors and font information.
 mod glyph;
+mod graphics;
 mod layout;
 mod rom;
 mod upload;
@@ -14,8 +15,10 @@ pub(super) use rom::initialize;
 
 pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
     let function = call.cpu.al();
-    if function == 0x30 {
-        return information(call);
+    match function {
+        0x20..=0x24 => return graphics::select(call),
+        0x30 => return information(call),
+        _ => {}
     }
     if !screen::is_text_mode(&call.memory) {
         return unsupported(call);
