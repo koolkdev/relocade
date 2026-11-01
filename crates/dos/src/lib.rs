@@ -102,7 +102,7 @@
 
 mod com;
 mod console;
-mod devices;
+pub mod devices;
 mod error;
 mod execution;
 mod files;
@@ -339,6 +339,24 @@ impl Dos {
             stdio: self.state.stdio(),
             devices: self.state.devices(),
         }
+    }
+
+    /// Installs a driver as a named character device at the front of DOS's chain.
+    /// New lookups and process launches resolve the new device; retained devices
+    /// and open handles keep their original driver binding. Each call installs
+    /// a distinct device, even for the same name.
+    ///
+    /// # Panics
+    /// Panics if the driver attributes do not identify a character device.
+    pub fn install_driver(&self, driver: impl devices::CharacterDriver + 'static) {
+        self.state.devices().install(driver);
+    }
+
+    /// Resolves a character device by its unpadded DOS name, ignoring ASCII case.
+    /// The returned device keeps its driver binding after another installation.
+    /// Its I/O bypasses DOS editing and cooked output; use [`Dos::console`] for those.
+    pub fn device(&self, name: &[u8]) -> Option<Rc<devices::CharacterDevice>> {
+        self.state.devices().find(name)
     }
 
     /// Immutable captured inputs, reusable across program launches. Rendering is
