@@ -88,8 +88,12 @@ target does not implement legacy EGA page-selection inputs or 64-KiB chaining.
 
 Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
 physical map and device bus. The Graphics Controller selects the active aperture;
-reads outside it return FF and writes are ignored. BIOS mode 03h restores font
-memory and the shared text preset. Mode 13h programs the standard 320×200 layout
+reads outside it return FF and writes are ignored. BIOS modes 00h/01h use 40
+text columns and modes 02h/03h use 80, all with 25 rows and restored font memory.
+The even/odd pairs produce identical VGA color output. Their eight pages occupy
+0800h or 1000h bytes each. Color text retains the project's eight-dot cells at
+all scanline profiles; IBM's 400-line color preset uses nine-dot cells instead.
+Mode 13h programs the standard 320×200 layout
 and 256-color palette. Planar 16-color modes 0Dh (320×200) and 0Eh (640×200)
 use the RGBI default palette; modes 10h (640×350) and 12h (640×480) use EGA
 palette mappings. Modes 0Eh and 10h expose an 80×25 character grid with 8-high
@@ -193,11 +197,12 @@ beyond 256 glyphs, and geometry that cannot fit BIOS row fields or text memory
 return AH=86h with carry set before changing state. These bounds and page
 allocation are firmware policy rather than a claim about every VGA BIOS.
 
-AH=12h/BL=30h selects the next mode-03h profile and returns AL=12h. AL=0 keeps
+AH=12h/BL=30h selects the next color-text profile and returns AL=12h. AL=0 keeps
 the existing 200-line logical profile (8-high font, doubled on a 400-line raster);
 AL=1 selects 350 lines with a 14-high font; AL=2 selects 400 lines with a 16-high
-font. All start at 80×25 with eight-dot characters. The preference lives in the
-BIOS data area, does not change current scanout, and survives graphics mode sets.
+font. All start at 40×25 or 80×25 according to the mode, with eight-dot characters.
+The preference lives in the BIOS data area, does not change current scanout,
+and survives graphics mode sets.
 Loading an 8-high font with AL=12h then yields 43 or 50 rows on the 350/400-line
 rasters. Text mode setting still resets complete font slots even when AL bit 7
 preserves character and attribute memory.

@@ -7,7 +7,7 @@ mod palette;
 mod presets;
 
 pub(super) use fonts::Glyph;
-pub(super) use modes::{set_mode, COLOR_TEXT_80X25};
+pub(super) use modes::{is_text, set_mode, COLOR_TEXT_80X25};
 
 use crate::screen::{self, ScrollDirection, Window};
 use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
