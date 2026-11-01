@@ -12,6 +12,8 @@ mod fonts;
 mod indexed256;
 #[path = "video_gpu/monochrome.rs"]
 mod monochrome;
+#[path = "video_gpu/monochrome_graphics.rs"]
+mod monochrome_graphics;
 #[path = "video_gpu/pages.rs"]
 mod pages;
 #[path = "video_gpu/palette.rs"]

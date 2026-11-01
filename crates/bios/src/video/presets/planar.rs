@@ -5,17 +5,19 @@ use super::{
 };
 use relocade_vga::registers::{attribute, crtc, graphics, sequencer, text_mode};
 
-const GRAPHICS: &[(u8, u8)] = &[
-    (graphics::SET_RESET, 0),
-    (graphics::ENABLE_SET_RESET, 0),
-    (graphics::COLOR_COMPARE, 0),
-    (graphics::DATA_ROTATE, 0),
-    (graphics::READ_MAP_SELECT, 0),
-    (graphics::MODE, 0),          // Serial shift, CPU read/write mode zero.
-    (graphics::MISCELLANEOUS, 5), // A0000–AFFFF, independent planes.
-    (graphics::COLOR_DONT_CARE, 15),
-    (graphics::BIT_MASK, 255),
-];
+const fn graphics_registers(compare_planes: u8) -> [(u8, u8); 9] {
+    [
+        (graphics::SET_RESET, 0),
+        (graphics::ENABLE_SET_RESET, 0),
+        (graphics::COLOR_COMPARE, 0),
+        (graphics::DATA_ROTATE, 0),
+        (graphics::READ_MAP_SELECT, 0),
+        (graphics::MODE, 0),          // Serial shift, CPU read/write mode zero.
+        (graphics::MISCELLANEOUS, 5), // A0000–AFFFF, independent planes.
+        (graphics::COLOR_DONT_CARE, compare_planes),
+        (graphics::BIT_MASK, 255),
+    ]
+}
 const ATTRIBUTE: &[(u8, u8)] = &[
     (attribute::MODE_CONTROL, 1),
     (attribute::OVERSCAN_COLOR, 0),
@@ -37,7 +39,7 @@ pub(in crate::video) const PLANAR_320X200: Preset = Preset {
         (sequencer::CHARACTER_MAP_SELECT, 0),
         (sequencer::MEMORY_MODE, 6),
     ],
-    graphics: GRAPHICS,
+    graphics: &graphics_registers(15),
     crtc: CrtcPreset::COLOR_TEXT_200.with(HORIZONTAL_40).with(&[
         (crtc::MAXIMUM_SCAN_LINE, 0xc0),
         (crtc::OFFSET, 20), // Forty plane bytes per row.
@@ -89,7 +91,7 @@ pub(in crate::video) const PLANAR_640X480: Preset = Preset {
         (sequencer::CHARACTER_MAP_SELECT, 0),
         (sequencer::MEMORY_MODE, 6),
     ],
-    graphics: GRAPHICS,
+    graphics: &graphics_registers(15),
     crtc: CrtcPreset::COLOR_TEXT_200.with(VERTICAL_480).with(&[
         (crtc::MAXIMUM_SCAN_LINE, 0x40),
         (crtc::UNDERLINE_LOCATION, 0),
@@ -98,4 +100,15 @@ pub(in crate::video) const PLANAR_640X480: Preset = Preset {
     attribute: ATTRIBUTE,
     attribute_palette: text_mode::ATTRIBUTE_PALETTE,
     palette: &text_mode::DAC_PALETTE,
+};
+
+// Mode 11h uses the same four-plane access as mode 12h. Its palette maps
+// every nonzero color to white; read-mode-one comparisons use only plane zero.
+pub(in crate::video) const MONO_640X480: Preset = Preset {
+    graphics: &graphics_registers(1),
+    crtc: PLANAR_640X480.crtc.with(&[(crtc::MODE_CONTROL, 0xc3)]),
+    attribute_palette: [
+        0, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63,
+    ],
+    ..PLANAR_640X480
 };

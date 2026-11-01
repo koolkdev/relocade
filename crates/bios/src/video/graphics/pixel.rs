@@ -25,7 +25,7 @@ impl Pixel {
 
     pub fn read(self, memory: &MemoryView<'_>, io: &IoBus) -> u8 {
         let access = GraphicsAccess::new(io, self.layout.write_planes());
-        if self.layout == Layout::Planar16 {
+        if self.layout == Layout::Planar {
             access.read_planar_pixel(memory, self.address, 1 << self.shift)
         } else {
             (memory.read_u8(self.address).expect("graphics pixel") >> self.shift)
@@ -36,7 +36,7 @@ impl Pixel {
     pub fn write(self, memory: &mut MemoryView<'_>, io: &IoBus, color: u8) {
         let access = GraphicsAccess::new(io, self.layout.write_planes());
         match self.layout {
-            Layout::Planar16 => {
+            Layout::Planar => {
                 access.write_planar_masked(memory, self.address, 1 << self.shift, color)
             }
             // In 256-color modes bit seven is part of the color, not XOR.

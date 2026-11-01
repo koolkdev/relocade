@@ -10,6 +10,7 @@ fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
             (0x0d, [320, 200], 40, 25, 8, 0x2000, 9),
             (0x0e, [640, 200], 80, 25, 8, 0x4000, 1),
             (0x10, [640, 350], 80, 25, 14, 0x8000, 1),
+            (0x11, [640, 480], 80, 30, 16, 0xa000, 1),
             (0x12, [640, 480], 80, 30, 16, 0xa000, 1),
         ] {
             video(&mut dos, 0x0013, 0, 0, 0);
@@ -46,9 +47,10 @@ fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
                 (0x3ce, 1, 0),
                 (0x3ce, 5, 0),
                 (0x3ce, 6, 5),
+                (0x3ce, 7, if mode == 0x11 { 1 } else { 15 }),
                 (0x3ce, 8, 255),
                 (0x3d4, 0x14, 0),
-                (0x3d4, 0x17, 0xe3),
+                (0x3d4, 0x17, if mode == 0x11 { 0xc3 } else { 0xe3 }),
             ] {
                 context.io.write_port(port, 1, index);
                 assert_eq!(context.io.read_port(port + 1, 1), expected);

@@ -27,7 +27,14 @@ fn graphics_pages_use_plane_offsets_and_keep_cursors_in_bios_memory() {
             );
             assert_eq!(&registers[14..16], &before.registers.crtc.values[14..16]);
         }
-        for (mode, invalid_page) in [(0x0d, 8), (0x0e, 4), (0x10, 2), (0x12, 1), (0x13, 1)] {
+        for (mode, invalid_page) in [
+            (0x0d, 8),
+            (0x0e, 4),
+            (0x10, 2),
+            (0x11, 1),
+            (0x12, 1),
+            (0x13, 1),
+        ] {
             video(&mut dos, mode, 0, 0, 0);
             let before = dos.vga().borrow().snapshot();
             for ax in [0x0200, 0x0300, 0x0500 | invalid_page] {
@@ -53,6 +60,7 @@ fn planar_scrolls_copy_each_latched_byte_and_fill_without_xor() {
             (0x0d, 7, 0xe000, 40, 8, 25),
             (0x0e, 3, 0xc000, 80, 8, 25),
             (0x10, 1, 0x8000, 80, 14, 25),
+            (0x11, 0, 0, 80, 16, 30),
             (0x12, 0, 0, 80, 16, 30),
         ] {
             video(&mut dos, mode, 0, 0, 0);

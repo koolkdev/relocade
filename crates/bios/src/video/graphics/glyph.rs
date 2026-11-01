@@ -18,7 +18,7 @@ impl Page {
         for (row, column) in positions {
             for (scanline, &bits) in glyph.iter().enumerate() {
                 let address = self.address(column * 8, row * glyph.len() as u16 + scanline as u16);
-                if layout == Layout::Planar16 {
+                if layout == Layout::Planar {
                     // Replacement draws black behind the glyph; XOR leaves its
                     // zero bits alone. Both operations preserve adjacent cells.
                     if color & 0x80 == 0 {

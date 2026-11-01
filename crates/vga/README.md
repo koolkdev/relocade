@@ -105,6 +105,15 @@ and 256-color palette. Planar 16-color modes 0Dh (320×200) and 0Eh (640×200)
 use the RGBI default palette; modes 10h (640×350) and 12h (640×480) use EGA
 palette mappings. Modes 0Eh and 10h expose an 80×25 character grid with 8-high
 and 14-high fonts respectively for BIOS graphics character services.
+Mode 11h uses the 640×480 raster with an 80×30 BIOS grid and a 16-high font.
+Plane zero holds the conventional one-bit bitmap, but the IBM preset retains
+four-plane CPU access and maps every nonzero attribute color to DAC entry 63 (white).
+Read-mode-one comparisons use plane zero only. The shared planar pixel and
+scroll services retain four-bit colors, so guest palette programming can expose
+the other planes. AH=09h forces white glyphs in this mode, retaining XOR;
+AH=0Ah and teletype use the supplied color. These details follow the
+[IBM VGA ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
+(mode table and routine x272B).
 Modes 04h/05h (320×200, four colors) and 06h (640×200, two colors) use packed
 B8000 storage with alternating 8-KiB scanline banks. Modes 04h/05h use the
 interleaved shifter; mode 06h uses the serial shifter with plane zero enabled.
@@ -500,7 +509,7 @@ Mode X checks select all four planes, flip through the
 through the ordinary page uploads.
 Native DOS checks exercise INT 10h mode setup, memory preservation and register
 restoration. Guest-to-GPU checks run COM programs that set modes 04h–06h, 0Dh,
-0Eh, 10h, 12h and 13h, write pixels through their memory apertures, change palette colors
+0Eh, 10h, 11h, 12h and 13h, write pixels through their memory apertures, change palette colors
 and restore text. Packed checks compare complete images against CPU-visible
 banked byte patterns and retain palette-only updates without VRAM writes.
 Mode X guests unchain the memory and flip pages without rewriting pixels.

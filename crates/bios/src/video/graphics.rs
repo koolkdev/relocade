@@ -71,7 +71,7 @@ impl Page {
                 let destination = self.address(scroll.left * 8, row * font_height + scanline);
                 let source =
                     source.map(|row| self.address(scroll.left * 8, row * font_height + scanline));
-                if layout == Layout::Planar16 {
+                if layout == Layout::Planar {
                     match source {
                         Some(source) => access.copy_planar(memory, source, destination, width),
                         None => access.fill_planar(memory, destination, width, color),

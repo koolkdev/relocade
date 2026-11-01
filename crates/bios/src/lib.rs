@@ -2,7 +2,7 @@
 //!
 //! INT 10h sets text modes 00h–03h and 07h with output, cursors, pages and scrolling.
 //! Mode 07h uses the VGA monochrome palette, nine-dot cells and B0000 aperture.
-//! Graphics modes 04h–06h, 0Dh, 0Eh, 10h, 12h and 13h program VGA for direct guest pixel
+//! Graphics modes 04h–06h, 0Dh, 0Eh, 10h, 11h, 12h and 13h program VGA for direct guest pixel
 //! and palette writes, including CGA-compatible packed storage at B8000.
 //! Mode setting honors AL bit 7 to preserve video memory; AH=0Fh reports the
 //! mode, that flag, character columns and active page. AH=0Ch/0Dh write/read
