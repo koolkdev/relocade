@@ -43,10 +43,11 @@ fn read_cell_at(
     cell
 }
 
-#[derive(Clone, Copy)]
-struct CursorPosition {
-    row: u16,
-    column: u16,
+/// Zero-based row and column in a BIOS character grid.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct CursorPosition {
+    pub row: u16,
+    pub column: u16,
 }
 
 impl CursorPosition {
@@ -65,7 +66,7 @@ impl CursorPosition {
 
 /// Writes to one BIOS page using a local cursor. Only `commit_cursor` publishes
 /// that position; drawing and scrolling never switch the active display page.
-pub(crate) struct Output<'a, 'memory> {
+pub struct Output<'a, 'memory> {
     memory: &'a mut MemoryView<'memory>,
     io: &'a IoBus,
     page: u8,
@@ -75,6 +76,18 @@ pub(crate) struct Output<'a, 'memory> {
 }
 
 impl<'a, 'memory> Output<'a, 'memory> {
+    /// Borrows the active text page. Returns None in graphics modes or when the
+    /// BIOS page or character grid is unavailable.
+    pub fn active_text(memory: &'a mut MemoryView<'memory>, io: &'a IoBus) -> Option<Self> {
+        if !is_text_mode(memory) {
+            return None;
+        }
+        let page = active_page(memory);
+        let output = Self::new(memory, io, page)?;
+        (output.rows() != 0 && output.columns() != 0).then_some(output)
+    }
+
+    /// Returns None when the page is unavailable in the current BIOS mode.
     pub fn new(memory: &'a mut MemoryView<'memory>, io: &'a IoBus, page: u8) -> Option<Self> {
         if !valid_page(memory, page) {
             return None;
@@ -89,7 +102,7 @@ impl<'a, 'memory> Output<'a, 'memory> {
         })
     }
 
-    pub fn set_position(&mut self, position: u16) {
+    pub(crate) fn set_position(&mut self, position: u16) {
         self.cursor = Some(CursorPosition::from_bios(position));
     }
 
@@ -99,12 +112,65 @@ impl<'a, 'memory> Output<'a, 'memory> {
         }
     }
 
-    fn position(&self) -> CursorPosition {
+    pub fn position(&self) -> CursorPosition {
         self.cursor
             .unwrap_or_else(|| CursorPosition::from_bios(cursor_position(self.memory, self.page)))
     }
 
-    pub fn write_repeated(&mut self, character: u8, color: u8, count: u16, with_attribute: bool) {
+    pub fn rows(&self) -> u16 {
+        self.geometry.rows
+    }
+
+    pub fn columns(&self) -> u16 {
+        self.geometry.columns
+    }
+
+    /// Moves the local cursor, clamping to the visible character grid.
+    pub fn move_to(&mut self, position: CursorPosition) {
+        self.cursor = Some(CursorPosition {
+            row: position.row.min(self.rows().saturating_sub(1)),
+            column: position.column.min(self.columns().saturating_sub(1)),
+        });
+    }
+
+    /// Writes with an explicit text attribute (or graphics foreground color).
+    /// Controls and wrapping follow BIOS teletype behavior. Newly exposed text
+    /// rows use this attribute when a write scrolls the page.
+    pub fn write(&mut self, bytes: &[u8], color: u8) {
+        for &byte in bytes {
+            self.write_character(byte, color, true, Some(color));
+        }
+    }
+
+    /// Clears an inclusive rectangle without moving the cursor. In graphics
+    /// modes the color is the background palette index, as for BIOS scrolling.
+    pub fn clear(&mut self, start: CursorPosition, end: CursorPosition, color: u8) {
+        if start.row > 255 || start.column > 255 {
+            return;
+        }
+        scroll(
+            self.memory,
+            self.io,
+            self.page,
+            Window {
+                top: start.row as u8,
+                left: start.column as u8,
+                bottom: end.row.min(255) as u8,
+                right: end.column.min(255) as u8,
+            },
+            0,
+            color,
+            ScrollDirection::Up,
+        );
+    }
+
+    pub(crate) fn write_repeated(
+        &mut self,
+        character: u8,
+        color: u8,
+        count: u16,
+        with_attribute: bool,
+    ) {
         let position = self.position();
         if is_text_mode(self.memory) {
             let start = self
@@ -150,13 +216,19 @@ impl<'a, 'memory> Output<'a, 'memory> {
         }
     }
 
-    pub fn teletype(&mut self, character: u8, color: u8) {
-        self.write_character(character, color, false);
+    pub(crate) fn teletype(&mut self, character: u8, color: u8) {
+        self.write_character(character, color, false, None);
     }
 
     /// `None` reads a character/attribute pair for every character, including
     /// control characters. Reads stay live when the source aliases video memory.
-    pub fn write_string(&mut self, base: u32, offset: u16, count: u16, attribute: Option<u8>) {
+    pub(crate) fn write_string(
+        &mut self,
+        base: u32,
+        offset: u16,
+        count: u16,
+        attribute: Option<u8>,
+    ) {
         let bytes_per_character = if attribute.is_some() { 1 } else { 2 };
         let mut addresses = buffer_addresses(base, offset, u32::from(count) * bytes_per_character);
         for _ in 0..count {
@@ -169,11 +241,17 @@ impl<'a, 'memory> Output<'a, 'memory> {
                     .read_u8(addresses.next().expect("string attribute address"))
                     .expect("string attribute")
             });
-            self.write_character(character, color, true);
+            self.write_character(character, color, true, None);
         }
     }
 
-    fn write_character(&mut self, character: u8, color: u8, with_attribute: bool) {
+    fn write_character(
+        &mut self,
+        character: u8,
+        color: u8,
+        with_attribute: bool,
+        scroll_attribute: Option<u8>,
+    ) {
         let mut position = self.position();
         if !self.geometry.contains(position.row, position.column) {
             return;
@@ -194,10 +272,12 @@ impl<'a, 'memory> Output<'a, 'memory> {
         }
         if position.row == self.geometry.rows {
             position.row -= 1;
-            // Text scrolling takes the attribute after cursor advance; graphics
-            // scrolling always exposes black pixels, regardless of the foreground.
+            // BIOS calls take the text attribute after cursor advance unless a
+            // caller supplies the fill. Graphics scrolling always exposes black.
             let fill = if is_text_mode(self.memory) {
-                read_cell_at(self.memory, &self.geometry, self.page, position)[1]
+                scroll_attribute.unwrap_or_else(|| {
+                    read_cell_at(self.memory, &self.geometry, self.page, position)[1]
+                })
             } else {
                 0
             };

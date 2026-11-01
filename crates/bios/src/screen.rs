@@ -4,8 +4,8 @@ mod geometry;
 mod scroll;
 
 use crate::video::graphics::Page as GraphicsPage;
-pub use characters::write_text;
-pub(super) use characters::{read_cell, Output};
+pub(super) use characters::read_cell;
+pub use characters::{write_text, CursorPosition, Output};
 use geometry::Geometry;
 pub(super) use scroll::{Scroll, ScrollDirection, Window};
 
