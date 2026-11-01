@@ -13,15 +13,19 @@ impl Cpu {
     /// Runs until the instruction budget is consumed or the guest exits,
     /// awaiting host services as needed. Ready services complete in the same poll.
     /// Whole blocks can exceed the budget; straight-line code and REP have no
-    /// fixed overshoot or elapsed-time bound. The target saturates at u64::MAX.
+    /// fixed overshoot or elapsed-time bound. Protected successors execute before
+    /// budget exits. The target saturates at u64::MAX.
     ///
     /// Waits do not replenish this run's budget. Dropping its waiter preserves
     /// the pending service and its locals. A subsequent run resumes that service
     /// and supplies a new budget for continued guest execution. A zero budget
     /// returns `BudgetExhausted` without entering Wasm, polling pending work or
     /// consuming a stop request. Stop requests are observed at poll entry and
-    /// after guest/host execution, before selecting another continuation.
+    /// after guest execution, host polls and IRQ polling, before continuing.
     /// Dropping the CPU drops the suspended call chain and its machine together.
+    /// Device IRQs are acknowledged at guest dispatch boundaries, subject to live
+    /// IF and Real16 inhibition. Guest Wasm still runs to its existing exits;
+    /// this does not add attention checkpoints or an elapsed-time bound.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         if instruction_budget == 0 {
             return ExecutionExit::BudgetExhausted;
@@ -40,17 +44,39 @@ impl Cpu {
                 let (service_id, polled) = if let Some(frame) = self.pending.take() {
                     (frame.service_id, frame.call.poll(cx))
                 } else {
-                    let exit = machine.dispatch(budget.take());
+                    let interrupt = machine.poll_interrupt(cx);
                     if stop.requested() {
                         return Poll::Ready(ExecutionExit::Host(HostExit::Return));
                     }
-                    let ExecutionExit::Host(HostExit::Call { service_id }) = exit else {
-                        return Poll::Ready(exit);
-                    };
-                    (
-                        service_id,
-                        Call::start(&machine.services.get(service_id).handler, cx),
-                    )
+                    if let Poll::Ready(vector) = interrupt {
+                        let entered = machine.enter_interrupt(vector);
+                        if stop.requested() {
+                            return Poll::Ready(ExecutionExit::Host(HostExit::Return));
+                        }
+                        if let Err(exit) = entered {
+                            return Poll::Ready(exit);
+                        }
+                    }
+                    let mut exit = machine.dispatch(budget.take());
+                    loop {
+                        if stop.requested() {
+                            return Poll::Ready(ExecutionExit::Host(HostExit::Return));
+                        }
+                        match exit {
+                            ExecutionExit::Host(HostExit::Call { service_id }) => {
+                                break (
+                                    service_id,
+                                    Call::start(&machine.services.get(service_id).handler, cx),
+                                );
+                            }
+                            ExecutionExit::InterruptInhibited => {
+                                // Execute the successor before IRQ polling or a budget exit.
+                                // INT/CALL then dispatch their target with normal eligibility.
+                                exit = machine.dispatch.step(&mut machine.backend);
+                            }
+                            exit => return Poll::Ready(exit),
+                        }
+                    }
                 };
                 if stop.requested() {
                     // A newly pending call is still local. Drop it before the

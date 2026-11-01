@@ -17,6 +17,8 @@ use super::Compiler;
 /// This entry fetches and executes instructions until a branch, segment load,
 /// port I/O or serializing instruction completes, then
 /// tail-calls host dispatch.
+/// Real16 STI from IF=0 and MOV/POP SS instead return `InterruptInhibited`;
+/// the embedding must execute their protected successor through `step`.
 /// Conditional branches dispatch on both outcomes without fetching the successor.
 /// Guest faults and unsupported forms return directly with earlier work published.
 ///
@@ -45,6 +47,8 @@ pub fn compile_interpreter(
 /// This entry fetches and executes one supported instruction at the current
 /// CS-relative EIP under the selected execution profile.
 /// Success publishes state, retires the instruction and tail-calls host dispatch.
+/// An inhibiting Real16 STI/MOV SS/POP SS instead returns `InterruptInhibited`,
+/// requesting another protected step before IRQ polling or a budget exit.
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before dispatch and retains completed elements on a fault.
 /// This entry checks the instruction target after retiring the instruction.
@@ -105,6 +109,15 @@ impl Compiler {
         let memory = Rc::new(Memory::declare(&mut program, profile));
         let runtime = Runtime::declare(&mut program);
         let target = self.target;
+        if profile == ExecutionProfile::Real16 {
+            let cpu = cpu.clone();
+            let memory = memory.clone();
+            crate::abi::INTERRUPT.define(&mut program, move |mut body, (vector,)| {
+                let eip = cpu.read_eip(&mut body)?;
+                ExecutionBuilder::new(body, &cpu, &memory, runtime, eip, target)?
+                    .deliver_interrupt(vector)
+            })?;
+        }
         let before_cpu = cpu.clone();
         let decoder = RuntimeDecoder::new(
             &mut program,

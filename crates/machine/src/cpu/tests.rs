@@ -86,6 +86,24 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
 }
 
 #[test]
+fn interrupt_control_preserves_lazy_flags() {
+    let config = configuration();
+    let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+    let mut state = cpu.snapshot();
+    state.flags.status_source = StatusSourceState {
+        kind: 9,
+        left: 7,
+        right: 8,
+        reserved: [0; 3],
+    };
+    cpu.restore(&state).unwrap();
+    cpu.set_interrupts_enabled(true);
+    state.flags.bytes.if_ = 1;
+    assert!(cpu.interrupts_enabled());
+    assert_eq!(cpu.snapshot(), state);
+}
+
+#[test]
 fn restore_rejects_incompatible_segments_without_writing() {
     let config = configuration();
     let storage = cpu_memory(&config);
