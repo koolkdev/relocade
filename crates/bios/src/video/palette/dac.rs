@@ -7,9 +7,13 @@ pub(super) fn read(io: &IoBus, index: u8) -> [u8; 3] {
     std::array::from_fn(|_| io.read_port(DAC_DATA_PORT, 1) as u8)
 }
 
-pub(super) fn write(io: &IoBus, index: u8, color: [u8; 3]) {
+pub(super) fn write(io: &IoBus, index: u8, colors: impl IntoIterator<Item = [u8; 3]>) {
+    let mut colors = colors.into_iter().peekable();
+    if colors.peek().is_none() {
+        return;
+    }
     io.write_port(DAC_WRITE_ADDRESS_PORT, 1, u32::from(index));
-    for component in color {
+    for component in colors.flatten() {
         io.write_port(DAC_DATA_PORT, 1, u32::from(component));
     }
 }
@@ -28,6 +32,6 @@ pub(super) fn grayscale_range(io: &IoBus, first: u8, count: u16) {
     for offset in 0..count {
         let index = first.wrapping_add(offset as u8);
         let color = read(io, index);
-        write(io, index, grayscale(color));
+        write(io, index, [grayscale(color)]);
     }
 }

@@ -314,6 +314,25 @@ it deliberately does not reproduce the ROM's zero-count LOOP underflow.
 Palette changes use the ordinary captured register upload; they do not rewrite
 VRAM or select another rendering path.
 
+AH=12h/BL=31h controls default palette loading: AL=0 enables it and AL=1
+disables it. With loading disabled, mode setting preserves Attribute Controller
+entries 00h–0Fh and overscan 11h, plus DAC colors, mask and transfer position.
+Mode control, plane enable, panning, color select and display enable still follow
+the new preset. Explicit palette services remain effective.
+
+AH=12h/BL=33h enables grayscale summing with AL=0 and disables it with AL=1.
+It changes future mode-palette loads and explicit BIOS DAC writes (AX=1010h/1012h),
+without recoloring the current palette. Direct guest port writes remain raw.
+The controls persist in BDA 489h across mode and scanline-profile changes.
+Bit 3 disables defaults and bit 1 enables summing; IBM's independent monochrome
+display bit 2 also enables summing. Preserving a mode palette takes precedence
+over conversion. Valid calls return AL=12h; other AL values return AL=0 without
+changing state or flags. These details follow the same IBM ROM (x955–x994,
+x1C2B–x1C77 and x2CC2–x2CF4).
+
+`PaletteLoad` owns the preserve/color/grayscale policy. Presets and explicit BIOS
+color writes share its DAC transfer path and the same fixed-point conversion.
+
 BIOS adapter identification is separate from the current video mode.
 AH=12h/BL=10h reports the configuration in BDA 487h/488h: adapter color/mono
 assignment, memory-size code, feature bits and compatibility switch settings.
@@ -338,8 +357,8 @@ wraps at ES:FFFF. Unsupported BX values return AL=0 without changing the buffer.
 The report points to a guest-readable ROM capability table advertising only
 implemented modes and services. It reports two simultaneously visible font
 banks and eight total banks. Miscellaneous capability bits cover font loading,
-EGA/DAC palettes, palette paging, blink and display combination; unsupported
-grayscale, cursor-emulation and palette-load toggles, light-pen, save/restore,
+EGA/DAC palettes, grayscale summing, default palette loading, palette paging,
+blink and display combination; unsupported cursor emulation, light-pen, save/restore,
 and save-pointer override services are not advertised. Reserved state fields
 remain zero. The BIOS information module owns this ABI encoding and reuses
 adapter metadata and page validation; it adds no device or renderer state.

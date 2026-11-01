@@ -78,7 +78,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         sequencer::SYNCHRONOUS_RESET,
     );
     fonts::set_mode(memory, io, preset.character_height, text_memory.is_some());
-    preset.program(io);
+    preset.program(io, palette::PaletteLoad::for_mode_set(memory));
 
     memory.write_u8(MODE, mode).expect("video mode");
     palette::initialize_compatibility(memory, mode);

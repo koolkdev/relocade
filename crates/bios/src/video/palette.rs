@@ -1,14 +1,16 @@
 //! BIOS palette services through the guest-visible VGA ports.
 mod compatibility;
 mod dac;
+mod load;
 use super::{buffer_addresses, input_status_1_port, modes, unsupported, MODE};
 pub(super) use compatibility::{
     initialize as initialize_compatibility, interrupt as compatibility,
 };
+pub(super) use load::{configure_load, PaletteLoad};
 use relocade_machine::IoBus;
 use relocade_vga::registers::{
     attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
-    DAC_READ_ADDRESS_PORT, DAC_WRITE_ADDRESS_PORT,
+    DAC_READ_ADDRESS_PORT,
 };
 
 pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
@@ -54,7 +56,11 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
             write_attribute(io, attribute::MODE_CONTROL, (mode & !8) | (bl << 3));
         }
         0x10 => {
-            dac::write(io, bl, [call.cpu.dh(), call.cpu.ch(), call.cpu.cl()]);
+            PaletteLoad::for_color_write(&call.memory).write(
+                io,
+                bl,
+                [[call.cpu.dh(), call.cpu.ch(), call.cpu.cl()]],
+            );
         }
         0x15 => {
             let [red, green, blue] = dac::read(io, bl);
@@ -62,28 +68,32 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
             call.cpu.set_ch(green);
             call.cpu.set_cl(blue);
         }
-        0x12 | 0x17 if call.cpu.cx() != 0 => {
-            let reading = function == 0x17;
-            let port = if reading {
-                DAC_READ_ADDRESS_PORT
-            } else {
-                DAC_WRITE_ADDRESS_PORT
-            };
-            io.write_port(port, 1, u32::from(bl));
+        0x12 => {
+            let mut addresses = buffer_addresses(
+                call.cpu.segments().es.base,
+                call.cpu.dx(),
+                u32::from(call.cpu.cx()) * 3,
+            );
+            let colors = (0..call.cpu.cx()).map(|_| {
+                std::array::from_fn(|_| {
+                    call.memory
+                        .read_u8(addresses.next().expect("DAC component address"))
+                        .expect("DAC palette buffer")
+                })
+            });
+            PaletteLoad::for_color_write(&call.memory).write(io, bl, colors);
+        }
+        0x17 if call.cpu.cx() != 0 => {
+            io.write_port(DAC_READ_ADDRESS_PORT, 1, u32::from(bl));
             let base = call.cpu.segments().es.base;
             let bytes = u32::from(call.cpu.cx()) * 3;
             for address in buffer_addresses(base, call.cpu.dx(), bytes) {
-                if reading {
-                    call.memory
-                        .write_u8(address, io.read_port(DAC_DATA_PORT, 1) as u8)
-                        .expect("DAC palette buffer");
-                } else {
-                    let component = call.memory.read_u8(address).expect("DAC palette buffer");
-                    io.write_port(DAC_DATA_PORT, 1, u32::from(component));
-                }
+                call.memory
+                    .write_u8(address, io.read_port(DAC_DATA_PORT, 1) as u8)
+                    .expect("DAC palette buffer");
             }
         }
-        0x12 | 0x17 => {} // Zero-length transfers do not disturb DAC access state.
+        0x17 => {} // Zero-length transfers do not disturb DAC access state.
         0x13 => {
             if call.memory.read_u8(MODE).expect("video mode") == modes::GRAPHICS_320X200_256 {
                 return unsupported(call);
