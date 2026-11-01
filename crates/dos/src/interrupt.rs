@@ -19,16 +19,11 @@ pub(crate) struct DosContext<'call> {
 }
 
 impl<'call> DosContext<'call> {
-    pub(crate) fn console(&self) -> crate::Console<'call> {
-        crate::Console {
-            stdio: self.dos.stdio(),
-            memory: self.dos.memory(),
-        }
-    }
-
     pub(crate) fn stdout(&self) -> crate::console::CharacterOutput<'call> {
-        self.console()
-            .output(self.process.files().writable_handle(1))
+        crate::console::CharacterOutput::handle(
+            self.dos.stdio(),
+            self.process.files().writable_handle(1),
+        )
     }
 
     /// Records process termination and returns to the embedding after this host poll.

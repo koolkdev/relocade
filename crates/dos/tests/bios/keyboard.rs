@@ -43,12 +43,14 @@ fn bios_peeks_reads_and_reports_shift_state_without_echo() {
         let keyboard = dos.keyboard();
         let cpu = invoke(&mut dos, 0x100, 0x017b);
         assert_eq!(cpu.flags.eflags(), 0x643);
-        keyboard.push(KeyStroke {
+        let key = KeyStroke {
             character: b'A',
             scan_code: 0x1e,
-        });
+        };
+        keyboard.push(key);
         // Repeated peeks leave the key available and change only ZF.
         for _ in 0..2 {
+            assert_eq!(keyboard.peek_key(), Some(key));
             let cpu = invoke(&mut dos, 0x100, 0x0100);
             assert_eq!(cpu.registers.eax as u16, 0x1e41);
             assert_eq!(cpu.flags.eflags(), 0x603);
@@ -56,6 +58,7 @@ fn bios_peeks_reads_and_reports_shift_state_without_echo() {
         let cpu = invoke(&mut dos, 0x100, 0);
         assert_eq!(cpu.registers.eax as u16, 0x1e41);
         assert_eq!(cpu.flags.eflags(), 0x643);
+        assert_eq!(keyboard.peek_key(), None);
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
         keyboard.set_shift_state(ShiftState {
             left_shift: true,
@@ -186,7 +189,17 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
         });
         assert_eq!(invoke(&mut dos, 0x104, 0x0700).registers.eax as u8, 0);
         // BIOS sees the next key; DOS retained the first key's second byte.
+        assert_eq!(
+            keyboard.peek_key(),
+            Some(KeyStroke {
+                character: b'B',
+                scan_code: 0x30,
+            })
+        );
+        assert_eq!(invoke(&mut dos, 0x100, 0x0100).registers.eax as u16, 0x3042);
         assert_eq!(invoke(&mut dos, 0x100, 0).registers.eax as u16, 0x3042);
+        assert_eq!(keyboard.peek_key(), None);
+        assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
         assert_eq!(invoke(&mut dos, 0x104, 0x0700).registers.eax as u8, 0x4b);
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
 

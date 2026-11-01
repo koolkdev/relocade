@@ -17,12 +17,18 @@ fn device_names_open_and_create_without_creating_vfs_files() {
             (b"NuL", 0x80c4),
             (b"NUL:", 0x80c4),
             (b"C:/DIR/NUL.TXT", 0x80c4),
+            (b"aux", 0x80c0),
+            (b"PRN:", 0x80c0),
         ] {
             // Create-new also opens devices, regardless of an existing filesystem name.
             for function in [0x3d02, 0x3c00, 0x5b00] {
                 let handle = success(&path_service(&mut dos, path, function, 0));
                 assert_eq!(handle, 5);
                 assert_eq!(success(&service(&mut dos, 0x4400, handle, 0, 0)), info);
+                if info == 0x80c0 {
+                    assert_eq!(success(&service(&mut dos, 0x4407, handle, 0, 0)) as u8, 0);
+                    error(&service(&mut dos, 0x4000, handle, 1, 0x300), 5);
+                }
                 success(&service(&mut dos, 0x3e00, handle, 0, 0));
             }
         }

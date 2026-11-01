@@ -169,7 +169,7 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
         dos.cpu().context().cpu.set_dx(0x400);
         dos.stdin().write_all(b"K").unwrap();
         common::assert_pending(dos.cpu().run(10));
-        assert!(dos.keyboard().has_input());
+        assert!(dos.keyboard().peek_key().is_some());
     });
 }
 

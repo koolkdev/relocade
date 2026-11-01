@@ -1,4 +1,4 @@
-//! Keyboard state shared by BIOS keystrokes and DOS character reads.
+//! BIOS keystrokes shared by interrupt services and console drivers.
 
 mod input;
 
@@ -56,9 +56,6 @@ impl ShiftState {
 #[derive(Default)]
 struct Input {
     keys: VecDeque<KeyStroke>,
-    // DOS returns a function key in two character reads. BIOS already consumed
-    // that keystroke when DOS took its zero prefix.
-    pending_scan_code: Option<u8>,
     shifts: ShiftState,
     waker: Option<Waker>,
 }
@@ -107,54 +104,25 @@ impl Keyboard {
         self.0.borrow_mut().shifts = shifts;
     }
 
-    /// Discards queued keys and the remainder of a DOS extended-key read.
-    /// Modifier states are independent of queued input.
+    /// Discards queued keystrokes without changing modifier states.
     pub fn discard_queued(&self) {
-        let mut input = self.0.borrow_mut();
-        input.keys.clear();
-        input.pending_scan_code = None;
+        self.0.borrow_mut().keys.clear();
     }
 
-    /// Reports whether a DOS character read can complete immediately.
-    pub fn has_input(&self) -> bool {
-        let input = self.0.borrow();
-        input.pending_scan_code.is_some() || !input.keys.is_empty()
-    }
-
-    /// Takes one DOS character, splitting function keys into zero and scan code.
-    pub fn try_read_character(&self) -> Option<u8> {
-        let mut input = self.0.borrow_mut();
-        if let Some(scan_code) = input.pending_scan_code.take() {
-            return Some(scan_code);
-        }
-        let key = input.keys.pop_front()?;
-        if key.character == 0 && key.scan_code != 0 {
-            input.pending_scan_code = Some(key.scan_code);
-        }
-        Some(key.character)
-    }
-
-    /// Waits for a DOS character without polling the host or entering guest code.
-    pub async fn read_character(&self) -> u8 {
-        loop {
-            if let Some(character) = self.try_read_character() {
-                return character;
-            }
-            self.wait_for_key().await;
-        }
-    }
-
-    fn peek(&self) -> Option<KeyStroke> {
+    /// Reports the next whole keystroke without consuming it, as for INT 16h/AH=01h.
+    pub fn peek_key(&self) -> Option<KeyStroke> {
         self.0.borrow().keys.front().copied()
     }
 
-    fn try_read(&self) -> Option<KeyStroke> {
+    /// Consumes the next whole keystroke, or returns None without waiting.
+    pub fn try_read_key(&self) -> Option<KeyStroke> {
         self.0.borrow_mut().keys.pop_front()
     }
 
-    async fn read(&self) -> KeyStroke {
+    /// Waits for and consumes one whole keystroke, as for INT 16h/AH=00h.
+    pub async fn read_key(&self) -> KeyStroke {
         loop {
-            if let Some(key) = self.try_read() {
+            if let Some(key) = self.try_read_key() {
                 return key;
             }
             self.wait_for_key().await;
@@ -209,11 +177,11 @@ impl Drop for WaitForKey<'_> {
 pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>, keyboard: &Keyboard) {
     match call.cpu.ah() {
         0x00 => {
-            let key = keyboard.read().await;
+            let key = keyboard.read_key().await;
             call.cpu.set_ax(key.word());
         }
         0x01 => {
-            let key = keyboard.peek();
+            let key = keyboard.peek_key();
             if let Some(key) = key {
                 call.cpu.set_ax(key.word());
             }
