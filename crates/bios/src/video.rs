@@ -30,7 +30,7 @@ pub(super) const ACTIVE_PAGE: u32 = 0x462;
 const CRTC_PORT: u32 = 0x463;
 pub(super) const LAST_ROW: u32 = 0x484;
 pub(super) const CHARACTER_HEIGHT: u32 = 0x485;
-const VIDEO_CONTROL: u32 = 0x487;
+pub(super) const VIDEO_CONTROL: u32 = 0x487;
 const VIDEO_SWITCHES: u32 = 0x488;
 const MODESET_CONTROL: u32 = 0x489;
 
@@ -84,6 +84,10 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
         0x12 if matches!(attribute, 0x31 | 0x33) => palette::configure_load(call),
         0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
             call.cpu.set_al(0x12);
+        }
+        0x12 if attribute == 0x34 => {
+            let accepted = screen::set_cursor_emulation(&mut call.memory, al);
+            call.cpu.set_al(if accepted { 0x12 } else { 0 });
         }
         0x12 if attribute == 0x36 => {
             if al <= 1 {

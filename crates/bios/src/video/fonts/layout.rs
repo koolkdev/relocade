@@ -72,6 +72,6 @@ impl Layout {
             .write_u16(PAGE_SIZE, self.page_bytes)
             .expect("video page size");
         let shape = u16::from_be_bytes([self.height.saturating_sub(2), self.height - 1]);
-        screen::set_cursor_shape(memory, io, shape);
+        screen::set_native_cursor_shape(memory, io, shape);
     }
 }
