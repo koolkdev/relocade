@@ -1,13 +1,16 @@
 //! BIOS character grids and text addressing use firmware bookkeeping.
-use crate::video::{graphics::Page, CHARACTER_HEIGHT, COLUMNS, LAST_ROW, PAGE_SIZE};
+use crate::video::{
+    graphics::Page, text_memory_start, CHARACTER_HEIGHT, COLUMNS, LAST_ROW, MODE, PAGE_SIZE,
+};
 use relocade_machine::MemoryView;
-use relocade_vga::{TEXT_MEMORY_BYTES, TEXT_MEMORY_START};
+use relocade_vga::TEXT_MEMORY_BYTES;
 
 pub(super) struct Geometry {
     pub columns: u16,
     pub rows: u16,
     pub font_height: u16,
     page_bytes: u16,
+    text_base: Option<u32>,
 }
 
 impl Geometry {
@@ -17,6 +20,7 @@ impl Geometry {
             rows: u16::from(memory.read_u8(LAST_ROW).expect("video rows")) + 1,
             font_height: memory.read_u16(CHARACTER_HEIGHT).expect("font height"),
             page_bytes: memory.read_u16(PAGE_SIZE).expect("video page size"),
+            text_base: text_memory_start(memory.read_u8(MODE).expect("video mode")),
         };
         if let Some(page) = Page::locate(memory, 0) {
             geometry.columns = geometry.columns.min(page.columns());
@@ -50,7 +54,11 @@ impl Geometry {
     }
 
     pub fn cell_address(&self, page: u8, row: u16, column: u16) -> u32 {
-        TEXT_MEMORY_START + u32::from(self.cell_offset(page, row, column))
+        self.text_address(self.cell_offset(page, row, column))
+    }
+
+    pub fn text_address(&self, offset: u16) -> u32 {
+        self.text_base.expect("text video mode") + u32::from(offset)
     }
 
     fn cell_index(&self, row: u16, column: u16) -> u16 {

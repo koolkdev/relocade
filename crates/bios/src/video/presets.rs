@@ -2,22 +2,23 @@
 mod cga;
 mod crtc;
 mod indexed256;
+mod monochrome;
 mod palette;
 mod planar16;
 mod text;
 
 pub(super) use cga::{CGA_320X200, CGA_640X200};
 pub(super) use indexed256::INDEXED256;
+pub(super) use monochrome::{MONO_TEXT_350, MONO_TEXT_400};
 pub(super) use planar16::{PLANAR_320X200, PLANAR_640X200, PLANAR_640X350, PLANAR_640X480};
 pub(super) use text::{TEXT_200, TEXT_350, TEXT_400, TEXT_40_200, TEXT_40_350, TEXT_40_400};
 
-use super::write_indexed;
+use super::{crtc_port, input_status_1_port, write_indexed};
 use crtc::CrtcPreset;
 use relocade_machine::IoBus;
 use relocade_vga::registers::{
-    attribute, sequencer, ATTRIBUTE_ADDRESS_PORT, COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT,
-    DAC_DATA_PORT, DAC_MASK_PORT, DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT,
-    MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
+    attribute, sequencer, ATTRIBUTE_ADDRESS_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
+    DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT, MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
 };
 
 pub(super) struct Preset {
@@ -46,8 +47,8 @@ impl Preset {
         for &(register, value) in self.graphics {
             write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
         }
-        self.crtc.program(io, CRTC_INDEX_PORT);
-        io.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        self.crtc.program(io, crtc_port(io));
+        io.read_port(input_status_1_port(io), 1);
         for (index, value) in self.attribute_palette.into_iter().enumerate() {
             io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, index as u32);
             io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));

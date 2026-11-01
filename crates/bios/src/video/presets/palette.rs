@@ -1,6 +1,22 @@
 //! BIOS DAC defaults. Attribute palette indices remain part of each mode preset.
 use relocade_vga::registers::text_mode;
 
+// Monochrome VGA uses the two intensity inputs at DAC address bits 3 and 4.
+pub(super) const MONOCHROME: [[u8; 3]; 256] = {
+    let mut colors = [[0; 3]; 256];
+    let mut index = 0;
+    while index < 64 {
+        let level = match index & 0x18 {
+            0 => 0,
+            0x18 => 63,
+            _ => 42,
+        };
+        colors[index] = [level; 3];
+        index += 1;
+    }
+    colors
+};
+
 // Sixteen PC colors, sixteen grays, then nine 24-hue rings.
 // Entries 248–255 are black.
 pub(super) const INDEXED256: [[u8; 3]; 256] = {

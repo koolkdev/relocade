@@ -1,12 +1,12 @@
 //! Firmware mode transitions through the same ports and MMIO used by guests.
 use super::{
-    fonts, graphics, palette, presets, write_crtc_word, write_indexed, ACTIVE_PAGE, COLUMNS,
-    CRTC_PORT, CURSORS, CURSOR_SHAPE, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET, PAGE_SIZE,
-    VIDEO_CONTROL, VIDEO_SWITCHES,
+    crtc_port, fonts, graphics, palette, presets, write_crtc_word, write_indexed, ACTIVE_PAGE,
+    COLUMNS, CRTC_PORT, CURSORS, CURSOR_SHAPE, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET,
+    PAGE_SIZE, VIDEO_CONTROL, VIDEO_SWITCHES,
 };
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
-    registers::{crtc, sequencer, CRTC_INDEX_PORT, SEQUENCER_INDEX_PORT},
+    registers::{crtc, sequencer, SEQUENCER_INDEX_PORT},
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 
@@ -20,14 +20,20 @@ pub(super) const GRAPHICS_320X200_4: u8 = 0x04;
 // VGA has identical output for the original CGA color/burst-disabled pair.
 pub(super) const GRAPHICS_320X200_4_ALT: u8 = 0x05;
 pub(super) const GRAPHICS_640X200_2: u8 = 0x06;
+pub(super) const MONO_TEXT_80X25: u8 = 0x07;
 pub(super) const GRAPHICS_320X200_16: u8 = 0x0d;
 pub(super) const GRAPHICS_640X200_16: u8 = 0x0e;
 pub(super) const GRAPHICS_640X350_16: u8 = 0x10;
 pub(super) const GRAPHICS_640X480_16: u8 = 0x12;
 pub(super) const GRAPHICS_320X200_256: u8 = 0x13;
 
-pub(crate) fn is_text(mode: u8) -> bool {
-    matches!(mode, TEXT_40X25..=COLOR_TEXT_80X25)
+/// BIOS text modes share the same planes, exposed through different CPU apertures.
+pub(crate) fn text_memory_start(mode: u8) -> Option<u32> {
+    match mode {
+        TEXT_40X25..=COLOR_TEXT_80X25 => Some(TEXT_MEMORY_START),
+        MONO_TEXT_80X25 => Some(0xb0000),
+        _ => None,
+    }
 }
 
 /// Returns the mode-set AL result, or leaves the device untouched if unsupported.
@@ -45,6 +51,10 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
             0x10 => &presets::TEXT_400,
             _ => &presets::TEXT_200,
         },
+        MONO_TEXT_80X25 => match profile {
+            0x10 => &presets::MONO_TEXT_400,
+            _ => &presets::MONO_TEXT_350, // Mono has no 200-line text profile.
+        },
         GRAPHICS_320X200_4 | GRAPHICS_320X200_4_ALT => &presets::CGA_320X200,
         GRAPHICS_640X200_2 => &presets::CGA_640X200,
         GRAPHICS_320X200_16 => &presets::PLANAR_320X200,
@@ -54,7 +64,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         GRAPHICS_320X200_256 => &presets::INDEXED256,
         _ => return None,
     };
-    let text = is_text(mode);
+    let text_memory = text_memory_start(mode);
     // Restore routing and write masks before any clear. Font loading temporarily
     // selects plane two, then the preset restores the mode's normal aperture.
     write_indexed(
@@ -63,7 +73,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         sequencer::RESET,
         sequencer::SYNCHRONOUS_RESET,
     );
-    fonts::set_mode(memory, io, preset.character_height, text);
+    fonts::set_mode(memory, io, preset.character_height, text_memory.is_some());
     preset.program(io);
 
     memory.write_u8(MODE, mode).expect("video mode");
@@ -77,7 +87,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
     memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
     memory.write(CURSORS, &[0; 16]).expect("video cursors");
     memory.write_u8(ACTIVE_PAGE, 0).expect("active video page");
-    let shape = if text {
+    let shape = if text_memory.is_some() {
         u16::from_be_bytes([preset.character_height - 2, preset.character_height - 1])
     } else {
         0
@@ -89,7 +99,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
     write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, 0);
     write_crtc_word(io, crtc::START_ADDRESS_HIGH, 0);
     memory
-        .write_u16(CRTC_PORT, CRTC_INDEX_PORT)
+        .write_u16(CRTC_PORT, crtc_port(io))
         .expect("CRTC port");
     memory
         .write(
@@ -102,12 +112,10 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         .write_u8(VIDEO_CONTROL, (control & 0x7f) | (request & 0x80))
         .expect("video control");
     if request & 0x80 == 0 {
-        if text {
+        if let Some(base) = text_memory {
             let blank = [b' ', 7].repeat(2048);
             for offset in (0..TEXT_MEMORY_BYTES).step_by(blank.len()) {
-                memory
-                    .write(TEXT_MEMORY_START + offset, &blank)
-                    .expect("text page");
+                memory.write(base + offset, &blank).expect("text page");
             }
         } else {
             graphics::clear(memory);
@@ -120,7 +128,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         sequencer::RESET_RELEASED,
     );
     Some(match mode {
-        TEXT_40X25..=GRAPHICS_320X200_4_ALT => 0x30,
+        TEXT_40X25..=GRAPHICS_320X200_4_ALT | MONO_TEXT_80X25 => 0x30,
         GRAPHICS_640X200_2 => 0x3f,
         _ => 0x20,
     })

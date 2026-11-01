@@ -5,7 +5,6 @@ use super::{
 };
 use crate::video::{graphics::Page, Glyph};
 use relocade_machine::{IoBus, MemoryView};
-use relocade_vga::TEXT_MEMORY_START;
 
 /// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
 /// Text cells retain their attributes; graphics glyphs use foreground color 7.
@@ -52,7 +51,7 @@ pub(crate) fn write_repeated(
             let cell = [character, color];
             memory
                 .write(
-                    TEXT_MEMORY_START + u32::from(offset),
+                    geometry.text_address(offset),
                     &cell[..if with_attribute { 2 } else { 1 }],
                 )
                 .expect("text cell");

@@ -1,6 +1,7 @@
 //! Validates font-height transitions before either font memory or geometry changes.
 use super::super::{
-    crtc_port, read_indexed, write_indexed, CHARACTER_HEIGHT, COLUMNS, LAST_ROW, PAGE_SIZE,
+    crtc_port, modes, read_indexed, write_indexed, CHARACTER_HEIGHT, COLUMNS, LAST_ROW, MODE,
+    PAGE_SIZE,
 };
 use crate::screen;
 use relocade_machine::{IoBus, MemoryView};
@@ -44,6 +45,14 @@ impl Layout {
     }
 
     pub fn apply(self, memory: &mut MemoryView<'_>, io: &IoBus) {
+        if memory.read_u8(MODE).expect("video mode") == modes::MONO_TEXT_80X25 {
+            write_indexed(
+                io,
+                self.crtc_port,
+                crtc::UNDERLINE_LOCATION,
+                self.height - 1,
+            );
+        }
         let scan_line = read_indexed(io, self.crtc_port, crtc::MAXIMUM_SCAN_LINE);
         // Keep overflow bits; clear double scanning so each font row gets one
         // scanline. Timing and VDE stay intact, including any partial final row.
