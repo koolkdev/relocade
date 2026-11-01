@@ -3,6 +3,7 @@
 mod adapter;
 mod fonts;
 pub(super) mod graphics;
+mod information;
 mod modes;
 mod palette;
 mod presets;
@@ -35,6 +36,7 @@ const MODESET_CONTROL: u32 = 0x489;
 pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     adapter::initialize(memory);
     fonts::initialize(memory);
+    information::initialize(memory);
     modes::select_scanlines(memory, 0); // Preserve the existing doubled 8-high startup.
     set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");
 }
@@ -82,6 +84,7 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
             call.cpu.set_al(0x12);
         }
         0x1a => return adapter::display_combination(call),
+        0x1b => return information::interrupt(call),
         0x02 | 0x03 if !screen::valid_page(&call.memory, page) => return unsupported(call),
         0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
         0x03 => {
