@@ -10,7 +10,6 @@ mod search;
 mod system;
 
 use crate::{files::CreateMode, interrupt::DosContext, ServiceError};
-use relocade_machine::HookResult;
 
 const READ_CHARACTER_ECHO: u8 = 0x01;
 const WRITE_CHARACTER: u8 = 0x02;
@@ -57,7 +56,7 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
-pub(crate) async fn int21(call: &mut DosContext<'_>) -> HookResult {
+pub(crate) async fn int21(call: &mut DosContext<'_>) {
     match call.cpu.ah() {
         DIRECT_CONSOLE_IO => console::direct_io(call),
         READ_CHARACTER_ECHO => console::read_character(call, true).await,
@@ -105,12 +104,12 @@ pub(crate) async fn int21(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
-fn terminate_process(call: &mut DosContext<'_>) -> HookResult {
+fn terminate_process(call: &mut DosContext<'_>) {
     let code = call.cpu.al();
     call.exit(Ok(code))
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) async fn int20(call: &mut DosContext<'_>) -> HookResult {
+pub(crate) async fn int20(call: &mut DosContext<'_>) {
     call.exit(Ok(0))
 }

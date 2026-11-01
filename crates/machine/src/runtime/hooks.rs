@@ -1,6 +1,6 @@
 use relocade_compiler::Program;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
-use relocade_x86::{abi, ExecutionExit, ExecutionExitValues, HostExitValues};
+use relocade_x86::{abi, ExecutionExitValues, HostExitValues};
 
 use super::{Backend, Cpu, Dispatch, DispatchEntry, Result, RuntimeMemory};
 use futures_util::future::LocalBoxFuture;
@@ -11,38 +11,23 @@ use std::{
     task::{Context, Poll},
 };
 
-pub(super) enum Started<'call> {
-    Ready(HookResult),
-    Pending(LocalBoxFuture<'call, HookResult>),
-}
-
 pub(super) trait Handler {
-    fn start(&self, cx: &mut Context<'_>) -> Started<'_>;
+    fn start(&self, cx: &mut Context<'_>) -> Option<LocalBoxFuture<'_, ()>>;
 }
 
 impl<F> Handler for F
 where
-    F: AsyncFn() -> HookResult,
+    F: AsyncFn(),
 {
-    fn start(&self, cx: &mut Context<'_>) -> Started<'_> {
+    fn start(&self, cx: &mut Context<'_>) -> Option<LocalBoxFuture<'_, ()>> {
         // Pin before the first poll: locals may already borrow one another when
         // this future first suspends. Erase its type only if it remains pending.
         let mut future = Box::pin(self());
         match future.as_mut().poll(cx) {
-            Poll::Ready(result) => Started::Ready(result),
-            Poll::Pending => Started::Pending(future),
+            Poll::Ready(()) => None,
+            Poll::Pending => Some(future),
         }
     }
-}
-
-/// Result of a completed host service.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum HookResult {
-    /// Resume guest dispatch at the continuation set by the handler.
-    Continue,
-    /// Return an execution exit to the run loop. `HostExit::Call` is
-    /// reserved for generated entries and must not be returned by a handler.
-    Exit(ExecutionExit),
 }
 
 /// A host service reached at a guest entry. Its ordinary async handler captures
@@ -53,14 +38,13 @@ pub enum HookResult {
 /// invocation's CPU state into the currently executing guest or another call.
 ///
 /// ```
-/// use relocade_machine::{CpuStateAccess, Hook, HookResult, Memory};
-/// use relocade_x86::{ExecutionExit, HostExit};
-/// fn service(cpu: CpuStateAccess, memory: Memory) -> Hook {
+/// use relocade_machine::{CpuStateAccess, Hook, Memory, StopHandle};
+/// fn service(cpu: CpuStateAccess, memory: Memory, stop: StopHandle) -> Hook {
 ///     Hook::new(0xf0100, async move || {
 ///         let value = std::future::ready(42).await;
 ///         cpu.set_ax(value);
 ///         memory.view().write_u16(0x200, value).unwrap();
-///         HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+///         stop.stop();
 ///     })
 /// }
 /// ```
@@ -71,14 +55,15 @@ pub struct Hook {
 }
 
 impl Hook {
-    /// On Continue, the handler must set the guest continuation in CPU state.
-    /// Exit returns its execution exit without changing that state.
-    /// Interrupt/ABI return conventions belong to the handler's environment.
+    /// Normal completion continues guest execution at the live CPU position.
+    /// Interrupt/ABI return conventions belong to the handler's environment;
+    /// [`super::real_mode_interrupt::hook`] applies the interrupt return convention.
+    /// A captured [`super::StopHandle`] can request that the current run end.
     /// Handlers run in Rust after guest Wasm returns. Captures and environment
     /// data stay on the CPU's thread and do not need Send or Sync.
     pub fn new<F>(address: u32, handler: F) -> Self
     where
-        F: AsyncFn() -> HookResult + 'static,
+        F: AsyncFn() + 'static,
     {
         Self {
             address,

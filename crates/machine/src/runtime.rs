@@ -48,6 +48,7 @@ mod io;
 mod machine;
 mod memory;
 pub mod real_mode_interrupt;
+mod stop;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
@@ -55,11 +56,12 @@ pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
+pub use hooks::Hook;
 use hooks::Services;
-pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
+pub use stop::StopHandle;
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
@@ -67,6 +69,7 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 pub struct Cpu {
     pending: Option<Call>,
     machine: Machine,
+    stop: StopHandle,
 }
 
 impl Cpu {
@@ -88,6 +91,7 @@ impl Cpu {
         Ok(Self {
             pending: None,
             machine,
+            stop: StopHandle::new(),
         })
     }
 
@@ -142,6 +146,12 @@ impl Cpu {
     /// Capture this once when registering a service, like memory and I/O handles.
     pub fn cpu_state(&self) -> CpuStateAccess {
         self.machine.bindings.cpu.clone()
+    }
+
+    /// Captures a stop endpoint for whichever run is currently active.
+    /// Requests outside a polled, nonzero-budget run have no effect.
+    pub fn stop_handle(&self) -> StopHandle {
+        self.stop.clone()
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.

@@ -40,10 +40,9 @@ Services can keep ordinary resource views and local references across input awai
 
 ```rust,ignore
 let state = cpu.cpu_state();
-cpu.install_hooks([Hook::new(entry, async move || {
+cpu.install_hooks([real_mode_interrupt::hook(entry, state.clone(), async move || {
     let value = input.read().await;
     state.set_ax(value);
-    real_mode_interrupt::return_from_interrupt(&state)
 })]).await?;
 ```
 
@@ -65,7 +64,12 @@ results through shared Rust channels. Local JavaScript message handlers are not
 a control path for a continuously running CPU.
 
 The embedding supplies host input and controls when execution stops.
-The runtime owns execution and service completion; the web and
+Services return `()`; their adapters apply guest calling conventions.
+Capture `cpu.stop_handle()` to request `HostExit::Return` at the next driver
+boundary. It wakes a pending run and applies only while that run is active.
+Returning from or dropping the run clears its stop request and waker. An
+observed stop drops the pending call; dropping only the waiter preserves it.
+The runtime owns execution and retained futures; the web and
 Wasmtime backends supply Wasm engine access. Generated guest calls remain
 synchronous; the execution task awaits services after those calls return.
 

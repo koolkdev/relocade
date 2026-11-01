@@ -1077,12 +1077,14 @@ programming error.
 
 `HostExit::Return` requests a return to the embedding. The runtime awaits a
 service's future after the guest call returns; pending work has no guest
-execution exit. Hook continuation is a separate `HookResult::Continue` variant;
-`HookResult::Exit` carries an execution outcome. Async handlers use this
-Rust-only type and must not return `HostExit::Call`, which is reserved for
-generated entries. The runner owns pinned futures until completion or CPU drop,
-even when a run waiter is dropped. Handler captures and futures may be local to
-the CPU's thread and need not be `Send` or `Sync`.
+execution exit. Async handlers return `()` and continue at the live guest
+position; environment adapters apply guest calling conventions. A captured
+`StopHandle` can request `HostExit::Return` at the next driver boundary and wake
+a pending run. Its request and waker belong to the active run; an observed stop
+releases pending work, while dropping and replacing the waiter preserves it.
+`HostExit::Call` remains reserved for generated entries. The runner owns pinned
+futures until completion, an observed stop or CPU drop. Handler captures and
+futures may be local to the CPU's thread and need not be `Send` or `Sync`.
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

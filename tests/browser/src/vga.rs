@@ -2,8 +2,8 @@ use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, worker::Thread, Cpu, CpuConfig, ExecutionWorker, Hook, HookResult, IoBus,
-    MachineConfig, Memory,
+    timer_service, worker::Thread, Cpu, CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig,
+    Memory,
 };
 use relocade_vga::{Vga, MEMORY_RANGE, PORT_RANGES};
 use relocade_x86::{
@@ -95,11 +95,11 @@ pub async fn vga_workers() -> Result<(), String> {
                     memory.write_u8(0xb8022, b'C').unwrap();
                     cpu.set_al(value);
                     cpu.set_eip(0x300);
-                    HookResult::Continue
                 }
             }),
-            Hook::new(0x400, async move || {
-                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+            Hook::new(0x400, {
+                let stop = cpu.stop_handle();
+                async move || stop.stop()
             }),
         ])
         .await

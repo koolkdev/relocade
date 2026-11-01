@@ -64,11 +64,10 @@ Host services capture these resources once at registration:
 ```rust
 let cpu = runtime.cpu_state();
 let resources = runtime.memory().with_io(io.clone());
-let hook = Hook::new(entry, async move || {
+let hook = real_mode_interrupt::hook(entry, cpu.clone(), async move || {
     let value = input.read().await;
     cpu.set_ax(value);
     resources.view().write_u16(buffer, value).unwrap();
-    real_mode_interrupt::return_from_interrupt(&cpu)
 });
 ```
 

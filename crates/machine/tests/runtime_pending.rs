@@ -1,5 +1,7 @@
+#[path = "runtime_pending/stop.rs"]
+mod stop;
 mod support;
-use relocade_machine::{real_mode_interrupt, Hook, HookResult};
+use relocade_machine::{real_mode_interrupt, Hook};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -233,15 +235,16 @@ async fn check_pending_calls() {
     runtime
         .install_hooks([Hook::new(0x400, {
             let cpu = runtime.cpu_state();
+            let stop = runtime.stop_handle();
             async move || {
-                // Completion returns directly even if the continuation names guest code.
+                // An explicit stop returns before the guest continuation executes.
                 cpu.set_eip(0x500);
                 let value = std::future::ready(99).await;
                 cpu.set_bx(value);
                 let value = std::future::ready(value + 1).await;
                 assert_eq!(cpu.bx(), 99);
                 cpu.set_cx(value);
-                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+                stop.stop()
             }
         })])
         .await
@@ -294,12 +297,13 @@ async fn check_completed_replacement() {
     runtime
         .install_hooks([Hook::new(0x400, {
             let cpu = runtime.cpu_state();
+            let stop = runtime.stop_handle();
             async move || {
                 let registration = registration.clone();
                 let value = input.read().await;
                 cpu.set_ax(value);
                 drop(registration);
-                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+                stop.stop()
             }
         })])
         .await
@@ -315,9 +319,10 @@ async fn check_completed_replacement() {
     runtime
         .install_hooks([Hook::new(0x400, {
             let cpu = runtime.cpu_state();
+            let stop = runtime.stop_handle();
             async move || {
                 cpu.set_ax(99);
-                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+                stop.stop()
             }
         })])
         .await
@@ -341,24 +346,33 @@ async fn completion_allows_replacement_and_releases_the_old_registration() {
 
 struct Completion {
     cpu: relocade_machine::CpuStateAccess,
+    stop: relocade_machine::StopHandle,
     first: bool,
 }
 
 impl Future for Completion {
-    type Output = HookResult;
-    fn poll(mut self: std::pin::Pin<&mut Self>, _: &mut Context<'_>) -> Poll<HookResult> {
+    type Output = ();
+    fn poll(mut self: std::pin::Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
         if std::mem::replace(&mut self.first, false) {
             Poll::Pending
         } else {
             self.cpu.set_ax(55);
-            Poll::Ready(HookResult::Exit(ExecutionExit::Host(HostExit::Return)))
+            self.stop.stop();
+            Poll::Ready(())
         }
     }
 }
 
-fn custom_completion(cpu: relocade_machine::CpuStateAccess) -> Completion {
+fn custom_completion(
+    cpu: relocade_machine::CpuStateAccess,
+    stop: relocade_machine::StopHandle,
+) -> Completion {
     cpu.set_bx(99);
-    Completion { cpu, first: true }
+    Completion {
+        cpu,
+        stop,
+        first: true,
+    }
 }
 
 async fn check_custom_completion() {
@@ -376,7 +390,8 @@ async fn check_custom_completion() {
     let mut cpu = support::create_cpu(config).await.unwrap();
     cpu.install_hooks([Hook::new(0x400, {
         let state = cpu.cpu_state();
-        move || custom_completion(state.clone())
+        let stop = cpu.stop_handle();
+        move || custom_completion(state.clone(), stop.clone())
     })])
     .await
     .unwrap();
@@ -427,6 +442,7 @@ async fn check_completion_and_abandonment() {
         runner
             .install_hooks([Hook::new(0x400, {
                 let cpu = state.clone();
+                let stop = runner.stop_handle();
                 let input = input.clone();
                 async move || {
                     let _operation = Operation(input.clone());
@@ -437,7 +453,7 @@ async fn check_completion_and_abandonment() {
                     // Abandonment destroys its future without executing this code.
                     cpu.set_eflags((cpu.eflags() & !0x200) | saved_if);
                     input.completed.set(input.completed.get() + 1);
-                    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+                    stop.stop()
                 }
             })])
             .await
