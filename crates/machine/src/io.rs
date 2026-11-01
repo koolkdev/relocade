@@ -5,6 +5,7 @@ use std::{
     future::{ready, Future},
     ops::RangeInclusive,
     rc::Rc,
+    task::{Context, Poll},
 };
 
 /// A synchronous device on the machine's memory and port buses.
@@ -38,10 +39,19 @@ pub trait Device {
     }
 
     fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {}
+
+    /// Supplies and acknowledges one pending maskable interrupt vector.
+    /// Retain requests until polled. Return Pending and register the waker when a
+    /// future request should wake a waiting CPU. This callback must not reenter
+    /// guest execution. The default never raises interrupts.
+    fn poll_interrupt(&mut self, _cx: &mut Context<'_>) -> Poll<u8> {
+        Poll::Pending
+    }
 }
 
 /// The addresses decoded by one device. Memory ranges must also be marked
 /// [`relocade_x86::PhysicalMapping::Mmio`] in the machine's physical map.
+/// The same connection carries interrupt requests; address ranges may be empty.
 pub struct DeviceConnection {
     pub device: Rc<RefCell<dyn Device>>,
     pub mmio: Vec<RangeInclusive<u32>>,
@@ -62,6 +72,21 @@ pub struct IoBus {
 }
 
 impl IoBus {
+    pub fn is_empty(&self) -> bool {
+        self.connections.is_empty()
+    }
+
+    /// Acknowledges the first ready request in connection order. Later requests
+    /// remain with their devices; if none is ready every device sees the waker.
+    pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
+        for connection in &*self.connections {
+            if let Poll::Ready(vector) = connection.device.borrow_mut().poll_interrupt(cx) {
+                return Poll::Ready(vector);
+            }
+        }
+        Poll::Pending
+    }
+
     /// Connects each device's memory and port ranges together.
     ///
     /// # Panics
