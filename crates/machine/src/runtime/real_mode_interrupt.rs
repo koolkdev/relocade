@@ -8,6 +8,7 @@
 use super::{Hook, HookResult};
 use crate::{CpuStateAccess, MemoryView};
 use relocade_x86::Segment;
+use std::future::Future;
 
 /// Entry NOP, completion IRET, then resume NOP in an existing service stub.
 /// Only entry and resume are intercepted; completion executes the guest IRET.
@@ -23,6 +24,19 @@ where
         address.checked_add(2).expect("stub address"),
         address.checked_add(1).expect("stub address"),
     )
+}
+
+/// Enables live IF for an ordinary composed operation, restoring the previous
+/// IF only after normal completion. Wrap the whole operation, including any
+/// selection or cancellation of its inner futures. Dropping this wrapper leaves
+/// live CPU state untouched; abandonment must not restore an old call's IF into
+/// guest ISR execution or a nested invocation. No backend borrow is retained.
+pub async fn with_interrupts_enabled<F: Future>(cpu: &CpuStateAccess, future: F) -> F::Output {
+    let saved = cpu.interrupts_enabled();
+    cpu.set_interrupts_enabled(true);
+    let result = future.await;
+    cpu.set_interrupts_enabled(saved);
+    result
 }
 
 /// Changes carry in the saved FLAGS, preserving every other flag.

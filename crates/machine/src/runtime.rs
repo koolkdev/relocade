@@ -13,8 +13,12 @@
 //! the backend or binding a temporary view. Pending futures retain their locals
 //! and may borrow their handler captures; completion drops the future first.
 //!
-//! A pending service survives dropping its run waiter. Dropping the CPU abandons
-//! that future and destroys the backend without undoing completed effects. Restore
+//! Pending and IRQ-suspended services survive dropping their run waiter. Only a
+//! service resume entry polls the top parked future. IRQ return CS:IP
+//! names that position in the environment's existing service stub. Redirecting
+//! guest execution elsewhere does not guess abandonment: the embedding calls
+//! [`Cpu::abandon_suspended_calls`], or session return/CPU destruction releases it.
+//! Dropping the CPU destroys futures before the backend without undoing effects. Restore
 //! temporary CPU changes explicitly on normal completion, not from a destructor
 //! that also runs on abandonment. Retained state and memory handles remain usable
 //! independently of the runner's lifetime.
@@ -55,7 +59,7 @@ pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-use execution::Frame;
+use execution::{Frame, Suspended};
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
@@ -67,6 +71,7 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu {
     pending: Option<Frame>,
+    suspended: Vec<Suspended>,
     machine: Machine,
 }
 
@@ -88,6 +93,7 @@ impl Cpu {
         };
         Ok(Self {
             pending: None,
+            suspended: Vec::new(),
             machine,
         })
     }
@@ -133,15 +139,17 @@ impl Cpu {
     /// running or installing modules.
     ///
     /// # Panics
-    /// Panics if a service is suspended. Complete it to regain access.
+    /// Panics if a host service is actively waiting. Guest execution stopped
+    /// inside an ISR remains accessible while its interrupted calls are parked.
     pub fn context(&mut self) -> CpuContext<'_> {
-        self.machine_mut().context()
+        assert!(self.pending.is_none(), "host service is actively waiting");
+        self.machine.context()
     }
 
     fn machine_mut(&mut self) -> &mut Machine {
         assert!(
-            self.pending.is_none(),
-            "host service is suspended; complete it before accessing the machine"
+            self.pending.is_none() && self.suspended.is_empty(),
+            "host services are suspended; complete or abandon them before installing code"
         );
         &mut self.machine
     }
