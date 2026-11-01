@@ -1,6 +1,6 @@
 mod support;
 use futures_util::future::join;
-use relocade_machine::{real_mode_interrupt, Clock, Hook, Runner};
+use relocade_machine::{real_mode_interrupt, Clock, HookResult, Runner};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -48,9 +48,8 @@ async fn check_timing() {
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     let captured = input.clone();
-    cpu.install_hooks([Hook::new(0x200, {
+    cpu.install_hooks([real_mode_interrupt::hook(0x200, {
         let resources = cpu.memory();
-        let cpu = cpu.cpu_state();
         async move || {
             let mut memory = resources.view();
 
@@ -67,7 +66,7 @@ async fn check_timing() {
             })
             .await;
             memory.write_u16(0x300, *saved).unwrap();
-            real_mode_interrupt::return_from_interrupt(&cpu)
+            HookResult::Complete
         }
     })])
     .await

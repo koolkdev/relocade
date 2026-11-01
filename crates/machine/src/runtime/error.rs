@@ -5,6 +5,7 @@ use std::fmt;
 /// Host setup/execution errors, separate from architectural guest exits.
 #[derive(Debug)]
 pub enum Error {
+    ServiceAddressConflict { address: u32 },
     Generate(BuildError),
     Configuration(ConfigurationError),
     Memory(MemoryError),
@@ -14,6 +15,9 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ServiceAddressConflict { address } => {
+                write!(f, "overlapping service entry or resume at {address:#x}")
+            }
             Self::Generate(error) => write!(f, "generate execution module: {error}"),
             Self::Configuration(error) => error.fmt(f),
             Self::Memory(error) => error.fmt(f),
@@ -25,6 +29,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::ServiceAddressConflict { .. } => None,
             Self::Generate(error) => Some(error),
             Self::Configuration(error) => Some(error),
             Self::Memory(error) => Some(error),

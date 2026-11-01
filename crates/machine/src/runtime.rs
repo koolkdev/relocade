@@ -48,24 +48,25 @@ mod io;
 mod machine;
 mod memory;
 pub mod real_mode_interrupt;
+mod services;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
-use call::Call;
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-use hooks::Services;
+use execution::Frame;
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
+use services::Services;
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu {
-    pending: Option<Call>,
+    pending: Option<Frame>,
     machine: Machine,
 }
 
@@ -111,13 +112,20 @@ impl Cpu {
         let machine = self.machine_mut();
         let compiler = machine.backend.compiler();
         let module = compiler.compile(bytes).await?;
+        let removed = machine
+            .services
+            .replaced_addresses(entries.iter().map(|entry| entry.address));
         machine
             .dispatch
-            .install(&mut machine.backend, &machine.bindings, &module, entries)
+            .install(
+                &mut machine.backend,
+                &machine.bindings,
+                &module,
+                entries,
+                &removed,
+            )
             .await?;
-        for entry in entries {
-            machine.services.remove(entry.address);
-        }
+        machine.services.remove(&removed);
         Ok(())
     }
 

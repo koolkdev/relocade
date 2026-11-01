@@ -114,7 +114,7 @@ async fn check_pending_calls() {
         .unwrap();
     let captured = state.clone();
     runtime
-        .install_hooks([Hook::new(0x200, {
+        .install_hooks([real_mode_interrupt::hook(0x200, {
             let resources = runtime.memory();
             let cpu = runtime.cpu_state();
             async move || {
@@ -140,7 +140,7 @@ async fn check_pending_calls() {
                 drop(operation);
                 state.completed.set(state.completed.get() + 1);
                 memory.write(0x300, &sum.to_le_bytes()).unwrap();
-                real_mode_interrupt::return_from_interrupt(&cpu)
+                HookResult::Complete
             }
         })])
         .await

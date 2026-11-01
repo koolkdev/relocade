@@ -4,7 +4,7 @@ use crate::{
     files::FIND_DATA_BYTES,
     interrupt::{return_result, DosContext},
 };
-use relocade_machine::{real_mode_interrupt::return_from_interrupt, HookResult};
+use relocade_machine::HookResult;
 use relocade_x86::{Segment, SegmentRegister};
 
 /// AH=1Ah: select the disk transfer area at DS:DX, preserving flags.
@@ -14,7 +14,7 @@ pub(super) fn set_dta(call: &mut DosContext<'_>) -> HookResult {
     let mut dta = call.process.dta();
     dta.segment = segment;
     dta.offset = offset;
-    return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 /// AH=2Fh: return the current DTA in ES:BX, preserving flags.
@@ -25,7 +25,7 @@ pub(super) fn get_dta(call: &mut DosContext<'_>) -> HookResult {
         SegmentRegister::real_mode(Segment::Es, dta.segment),
     );
     call.cpu.set_bx(dta.offset);
-    return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 /// AH=4Eh: find DS:DX's 8.3 pattern with CX's attributes; fill the current DTA.

@@ -40,10 +40,10 @@ Services can keep ordinary resource views and local references across input awai
 
 ```rust,ignore
 let state = cpu.cpu_state();
-cpu.install_hooks([Hook::new(entry, async move || {
+cpu.install_hooks([real_mode_interrupt::hook(entry, async move || {
     let value = input.read().await;
     state.set_ax(value);
-    real_mode_interrupt::return_from_interrupt(&state)
+    HookResult::Complete
 })]).await?;
 ```
 

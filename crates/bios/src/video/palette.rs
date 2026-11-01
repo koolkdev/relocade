@@ -4,7 +4,7 @@ use super::{buffer_addresses, input_status_1_port, modes, unsupported, MODE};
 pub(super) use compatibility::{
     initialize as initialize_compatibility, interrupt as compatibility,
 };
-use relocade_machine::{real_mode_interrupt, HookResult, IoBus};
+use relocade_machine::{HookResult, IoBus};
 use relocade_vga::registers::{
     attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
     DAC_READ_ADDRESS_PORT, DAC_WRITE_ADDRESS_PORT,
@@ -117,7 +117,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
         }
         _ => return unsupported(call),
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 fn select_attribute(io: &IoBus, address: u8) {

@@ -1,6 +1,6 @@
 use relocade_x86::{
-    CpuState, DescriptorTableRegister, ExecutionContext, ExecutionTarget, FlagsState, Segment,
-    SegmentRegister, Segments, SystemSegmentRegister,
+    CpuState, DescriptorTableRegister, Exception, ExecutionContext, ExecutionTarget, FlagsState,
+    Segment, SegmentRegister, Segments, SystemSegmentRegister,
 };
 use std::{marker::PhantomData, mem::offset_of, rc::Rc};
 
@@ -138,6 +138,26 @@ impl CpuStateAccess {
 
     pub fn segment(&self, segment: Segment) -> SegmentRegister {
         SegmentRegister::from_bytes(self.read(segment_offset(segment)))
+    }
+
+    #[inline]
+    pub fn segment_base(&self, segment: Segment) -> u32 {
+        self.load(segment_offset(segment) + offset_of!(SegmentRegister, base))
+    }
+
+    /// Publishes a linear code position through the live CS alias, including
+    /// an invalid offset when reporting #GP. Base and limit are consecutive
+    /// little-endian words; one transfer reads both for this state operation.
+    #[inline]
+    pub(crate) fn continue_at(&self, address: u32) -> Result<(), Exception> {
+        let bounds: u64 = self.load(offset_of!(CpuState, segments.cs.base));
+        let offset = address.wrapping_sub(bounds as u32);
+        self.set_eip(offset);
+        if offset > (bounds >> 32) as u32 {
+            Err(Exception::GeneralProtection { error_code: 0 })
+        } else {
+            Ok(())
+        }
     }
 
     /// Replaces a visible selector and its loaded cache without descriptor loading.

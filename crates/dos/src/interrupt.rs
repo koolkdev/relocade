@@ -45,7 +45,7 @@ pub(crate) fn hook<F>(address: u32, cpu: CpuStateAccess, session: Rc<DosState>, 
 where
     F: AsyncFn(&mut DosContext<'_>) -> HookResult + 'static,
 {
-    Hook::new(address, async move || {
+    real_mode_interrupt::hook(address, async move || {
         let process = session.process().expect("DOS hook requires a process");
         assert_eq!(
             process.status(),
@@ -71,7 +71,7 @@ pub(crate) fn return_result(call: &mut DosContext<'_>, result: Result<(), DosErr
         }
     }
     real_mode_interrupt::set_carry(call.cpu, &mut call.memory, result.is_err());
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
