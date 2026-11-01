@@ -1,3 +1,5 @@
+#[path = "bios/adapter.rs"]
+mod adapter;
 #[path = "bios/cga.rs"]
 mod cga;
 mod common;

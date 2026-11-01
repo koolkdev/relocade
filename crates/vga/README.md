@@ -276,6 +276,19 @@ and cannot be set in mode 13h. Grayscale conversion (1Bh) remains unsupported.
 Palette changes use the ordinary captured register upload; they do not rewrite
 VRAM or select another rendering path.
 
+BIOS adapter identification is separate from the current video mode.
+AH=12h/BL=10h reports the configuration in BDA 487h/488h: adapter color/mono
+assignment, memory-size code, feature bits and compatibility switch settings.
+Startup describes a 256-KiB color VGA with raw cursor shapes (cursor emulation
+disabled). AX=1A00h returns active/alternate display codes; AX=1A01h selects an
+entry in IBM's display-combination table through BDA 48Ah. With two descriptions,
+the equipment word chooses the active one. Unknown combinations return FFh codes.
+These calls preserve VGA registers and VRAM; describing another adapter does
+not create one. Mode changes preserve this metadata, including monochrome modes
+07h/0Fh, which still run on the same VGA. The behavior follows the
+[IBM VGA ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
+(x870 and xA2D–xAD2).
+
 At the start of vertical retrace the device latches the programmed display start,
 then captures a complete `DisplaySnapshot` for the following active display:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
