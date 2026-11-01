@@ -11,6 +11,8 @@
 //! Graphics page/cursor and scroll services use that same layout. AH=09h/0Ah
 //! draw characters from live BIOS font vectors; AH=0Eh and [`write_text`] share
 //! teletype wrapping and scrolling in text and graphics modes.
+//! AH=13h writes strings with fixed or inline attributes to a requested page,
+//! sharing those controls and optionally updating the stored cursor.
 //! AH=0Bh sets legacy colors through VGA attributes; AH=10h reads/writes
 //! attribute and DAC palettes, blink, paging and the DAC mask.
 //! AH=11h loads text fonts, selects font banks and reports ROM font pointers.

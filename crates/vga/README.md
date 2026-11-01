@@ -195,7 +195,25 @@ AH=0Eh uses the active page and BL foreground in graphics modes. It handles BEL
 (currently silent), backspace without erasure, CR and LF, wraps at the right edge
 and scrolls at the bottom with black fill. DOS console output shares this
 teletype implementation with foreground 7, alongside its existing byte stream.
-Graphics character recognition (AH=08h) and AH=13h string writes remain unsupported.
+
+AH=13h writes CX characters from ES:BP to BH's page, starting at DH:DL.
+AL=00h/01h use BL for every attribute; AL=02h/03h read alternating character and
+attribute bytes. Source offsets wrap within the segment and reads stay live if
+the source overlaps video memory. AL bit 0 publishes the final cursor; otherwise
+the stored cursor is unchanged. Zero characters is a complete no-op. Strings
+share teletype controls, wrapping and scrolling, but ordinary characters use
+AH=09h drawing, including mode 11h's white/XOR rule. Text scrolling takes its fill
+attribute from the cursor position after advance; graphics scrolling fills black.
+The local output cursor and explicit scroll page let inactive-page strings render
+without switching the visible page or moving its hardware cursor.
+
+These string formats follow the
+[documented BIOS interface](https://fd.lod.bz/rbil/interrup/video/1013.html):
+inline attributes accompany control characters too, and scrolling targets BH's
+page. This deliberately differs from early IBM ROM quirks that consume attributes
+only for printable characters or scroll the active page. AL values above three
+and invalid pages for nonempty strings return AH=86h with carry set.
+Graphics character recognition (AH=08h) remains unsupported.
 
 BIOS text operations read columns, rows and page allocation from the BIOS data
 area. Cursor addresses, character access, teletype wrapping and scroll windows

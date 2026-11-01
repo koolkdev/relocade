@@ -27,6 +27,8 @@ mod pixels;
 mod planar;
 #[path = "bios/screen.rs"]
 mod screen;
+#[path = "bios/strings.rs"]
+mod strings;
 #[path = "bios/text_modes.rs"]
 mod text_modes;
 #[path = "bios/video.rs"]

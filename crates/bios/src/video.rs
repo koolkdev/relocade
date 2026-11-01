@@ -7,9 +7,10 @@ mod information;
 mod modes;
 mod palette;
 mod presets;
+mod strings;
 
 pub(super) use fonts::Glyph;
-pub(super) use modes::{set_mode, text_memory_start, COLOR_TEXT_80X25};
+pub(super) use modes::{set_mode, text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
 
 use crate::screen::{self, ScrollDirection, Window};
 use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
@@ -83,6 +84,7 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
         0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
             call.cpu.set_al(0x12);
         }
+        0x13 => return strings::interrupt(call),
         0x1a => return adapter::display_combination(call),
         0x1b => return information::interrupt(call),
         0x02 | 0x03 if !screen::valid_page(&call.memory, page) => return unsupported(call),
@@ -103,9 +105,11 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
             let [left, top] = cx.to_le_bytes();
             let [right, bottom] = dx.to_le_bytes();
             let memory = &mut call.memory;
+            let active_page = screen::active_page(memory);
             screen::scroll(
                 memory,
                 call.io,
+                active_page,
                 Window {
                     top,
                     left,
@@ -128,28 +132,19 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
             let cell = screen::read_cell(&call.memory, page);
             call.cpu.set_ax(u16::from_le_bytes(cell));
         }
-        0x09 | 0x0a if screen::valid_page(&call.memory, page) => {
-            // IBM mode 11h AH=09h forces white while retaining the XOR flag.
-            // AH=0Ah and teletype still use the caller's color bits.
-            let attribute = if function == 0x09
-                && call.memory.read_u8(MODE).expect("video mode") == modes::GRAPHICS_640X480_2
-            {
-                attribute | 15
-            } else {
-                attribute
+        0x09 | 0x0a => {
+            let Some(mut output) = screen::Output::new(&mut call.memory, call.io, page) else {
+                return unsupported(call);
             };
-            screen::write_repeated(
-                &mut call.memory,
-                call.io,
-                page,
-                al,
-                attribute,
-                cx,
-                function == 0x09,
-            );
+            output.write_repeated(al, attribute, cx, function == 0x09);
         }
-        0x0e if screen::valid_page(&call.memory, screen::active_page(&call.memory)) => {
-            screen::teletype(&mut call.memory, call.io, al, attribute)
+        0x0e => {
+            let page = screen::active_page(&call.memory);
+            let Some(mut output) = screen::Output::new(&mut call.memory, call.io, page) else {
+                return unsupported(call);
+            };
+            output.teletype(al, attribute);
+            output.update_cursor();
         }
         _ => return unsupported(call),
     }
@@ -167,7 +162,7 @@ fn read_indexed(io: &IoBus, port: u16, register: u8) -> u8 {
 
 // BIOS transfer buffers advance a 16-bit ES offset, including within a glyph
 // or RGB triple. The next byte after ES:FFFF is ES:0000.
-fn buffer_addresses(base: u32, offset: u16, bytes: u32) -> impl Iterator<Item = u32> {
+pub(super) fn buffer_addresses(base: u32, offset: u16, bytes: u32) -> impl Iterator<Item = u32> {
     (0..bytes).map(move |index| base + u32::from(offset.wrapping_add(index as u16)))
 }
 
