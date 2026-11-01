@@ -21,6 +21,7 @@
 //! AH=12h/BL=30h selects the next text mode set's scanline profile.
 //! BL=31h controls default palette loading; BL=33h controls grayscale conversion
 //! for mode palettes and explicit BIOS DAC writes.
+//! BL=36h blanks or restores screen output through the VGA sequencer.
 //! AH=12h/BL=10h reports adapter configuration; AX=1A00h/1A01h get/set the
 //! BIOS display-combination description without changing hardware or rendering.
 //! AH=1Bh/BX=0 writes the functionality/state report to ES:DI; other BX values

@@ -15,8 +15,8 @@ pub(super) use modes::{set_mode, text_memory_start, COLOR_TEXT_80X25, GRAPHICS_6
 use crate::screen::{self, ScrollDirection, Window};
 use relocade_machine::{real_mode_interrupt, IoBus, MemoryView};
 use relocade_vga::registers::{
-    COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT, MONO_CRTC_INDEX_PORT,
-    MONO_INPUT_STATUS_1_PORT,
+    sequencer, COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT,
+    MONO_CRTC_INDEX_PORT, MONO_INPUT_STATUS_1_PORT, SEQUENCER_INDEX_PORT,
 };
 
 // Firmware video data in segment 0040h.
@@ -83,6 +83,21 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
         0x12 if attribute == 0x10 => adapter::configuration(call),
         0x12 if matches!(attribute, 0x31 | 0x33) => palette::configure_load(call),
         0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
+            call.cpu.set_al(0x12);
+        }
+        0x12 if attribute == 0x36 => {
+            if al <= 1 {
+                let clocking =
+                    read_indexed(call.io, SEQUENCER_INDEX_PORT, sequencer::CLOCKING_MODE);
+                let screen_off = if al == 1 { sequencer::SCREEN_OFF } else { 0 };
+                write_indexed(
+                    call.io,
+                    SEQUENCER_INDEX_PORT,
+                    sequencer::CLOCKING_MODE,
+                    (clocking & !sequencer::SCREEN_OFF) | screen_off,
+                );
+            }
+            // IBM acknowledges this service even when AL is not a valid selection.
             call.cpu.set_al(0x12);
         }
         0x13 => strings::interrupt(call),

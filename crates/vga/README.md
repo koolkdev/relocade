@@ -333,6 +333,15 @@ x1C2B–x1C77 and x2CC2–x2CF4).
 `PaletteLoad` owns the preserve/color/grayscale policy. Presets and explicit BIOS
 color writes share its DAC transfer path and the same fixed-point conversion.
 
+AH=12h/BL=36h enables screen output with AL=0 and disables it with AL=1.
+It changes only Sequencer Clocking Mode bit 5 and leaves the sequencer index at
+01h. CPU memory access, palette data and raster timing continue while output is
+blanked; captures retain guest writes for the next visible image. Mode setting
+restores the preset's enabled output. Other AL values leave device state alone.
+All selections return AL=12h and preserve flags, following the IBM VGA ROM
+(xA1B–xA2A and x127A–x128F). Screen output uses the existing register capture and
+blanking shader, with no additional BIOS display state.
+
 BIOS adapter identification is separate from the current video mode.
 AH=12h/BL=10h reports the configuration in BDA 487h/488h: adapter color/mono
 assignment, memory-size code, feature bits and compatibility switch settings.

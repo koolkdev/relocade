@@ -1,3 +1,6 @@
+#[path = "video/output.rs"]
+mod output;
+
 use crate::common;
 use crate::common::inspection::Cell;
 use relocade_dos::Dos;
