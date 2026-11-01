@@ -176,7 +176,7 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
         // Unlike the normal helper, enter with carry clear to observe failure
         // status being written into the interrupt return frame.
         {
-            let mut context = dos.cpu().context();
+            let context = dos.cpu().context();
             context.cpu.set_eip(0x100);
             context.cpu.set_ax(0x0c5a);
             context.cpu.set_cx(320); // Outside mode 13h.

@@ -161,9 +161,13 @@ impl Dos {
             relocade_bios::initialize(&mut context.memory, context.io);
         }
         cpu.install_hooks(
-            kernel::hooks(Rc::clone(&state))
+            kernel::hooks(cpu.cpu_state(), Rc::clone(&state))
                 .into_iter()
-                .chain(relocade_bios::hooks(keyboard)),
+                .chain(relocade_bios::hooks(
+                    cpu.cpu_state(),
+                    state.memory().clone(),
+                    keyboard,
+                )),
         )
         .await?;
         Ok(Self {

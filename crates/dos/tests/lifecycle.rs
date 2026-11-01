@@ -99,7 +99,7 @@ fn normal_and_error_termination_release_process_resources() {
                 .unwrap();
             assert_eq!(owner, [0, 0x10]); // Bound process PSP.
             {
-                let mut execution = dos.cpu().context();
+                let execution = dos.cpu().context();
                 execution.cpu.set_eip(0x100);
                 execution.cpu.set_ax(function);
             }

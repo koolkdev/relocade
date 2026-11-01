@@ -113,7 +113,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         }
         // Dropping a waiter preserves the input registration and the BIOS read.
         {
-            let mut machine = dos.cpu().context();
+            let machine = dos.cpu().context();
             machine.cpu.set_eip(0x100);
             machine.cpu.set_ax(0);
         }
@@ -138,7 +138,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             scan_code: 0x15,
         });
         {
-            let mut execution = dos.cpu().context();
+            let execution = dos.cpu().context();
             execution.cpu.set_eip(0x104); // PROGRAM's DOS INT 21h entry.
             execution.cpu.set_ax(0x4c00);
         }

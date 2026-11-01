@@ -66,11 +66,14 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         .unwrap();
         let io = IoBus::new([runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES)]);
         let mut cpu = Cpu::new(memory, cpu_config, io).await.unwrap();
-        cpu.install_hooks([Hook::new(0x200, async move |call| {
-            assert_eq!(call.cpu.al() & !9, 0);
-            cpu_progress.fetch_add(1, Ordering::Release);
-            call.cpu.set_eip(0x100);
-            HookResult::Continue
+        cpu.install_hooks([Hook::new(0x200, {
+            let cpu = cpu.cpu_state();
+            async move || {
+                assert_eq!(cpu.al() & !9, 0);
+                cpu_progress.fetch_add(1, Ordering::Release);
+                cpu.set_eip(0x100);
+                HookResult::Continue
+            }
         })])
         .await
         .unwrap();

@@ -7,16 +7,17 @@
 //! for native and web engines. [`Cpu::run`] awaits host operations
 //! between synchronous Wasm calls.
 //!
-//! A retained execution future owns the machine from its first host service until
-//! execution stops. Services borrow it through ordinary async calls and keep local
-//! values across waits. CPU state is independently retained; its value accesses need
-//! no backend borrow or invocation check. Application resources belong to the
-//! registered services that capture them.
+//! The driver owns the machine directly and alternates guest calls with polling
+//! ordinary Rust service futures. Handlers capture CPU state, memory, I/O and
+//! application resources at registration. Access copies values without acquiring
+//! the backend or binding a temporary view. Pending futures retain their locals
+//! and may borrow their handler captures; completion drops the future first.
 //!
-//! A pending service survives dropping its run waiter. Dropping the CPU ends
-//! the call chain and destroys the machine without undoing completed effects.
-//! A suspended service excludes borrowing the runtime context. Captured input
-//! handles, application state and shared guest memory remain independently accessible.
+//! A pending service survives dropping its run waiter. Dropping the CPU abandons
+//! that future and destroys the backend without undoing completed effects. Restore
+//! temporary CPU changes explicitly on normal completion, not from a destructor
+//! that also runs on abandonment. Retained state and memory handles remain usable
+//! independently of the runner's lifetime.
 //!
 //! ```
 //! use relocade_machine::{Cpu, CpuConfig, MachineConfig, Memory};
@@ -33,8 +34,10 @@
 //!     Ok(())
 //! }
 //! ```
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
+#[allow(unsafe_code)]
+mod call;
 mod code;
 mod context;
 mod dispatch;
@@ -47,11 +50,11 @@ mod memory;
 pub mod real_mode_interrupt;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
+use call::Call;
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-use execution::Execution;
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
@@ -62,9 +65,8 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu {
-    execution: Execution,
-    cpu: CpuStateAccess,
-    memory: Memory,
+    pending: Option<Call>,
+    machine: Machine,
 }
 
 impl Cpu {
@@ -73,7 +75,7 @@ impl Cpu {
     /// Port and MMIO accesses use the supplied execution-local device bus.
     pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus) -> Result<Self> {
         let mut backend = Backend::with_state(io.clone())?;
-        let bindings = RuntimeMemory::new(&mut backend, memory.clone(), cpu)?;
+        let bindings = RuntimeMemory::new(&mut backend, memory, cpu)?;
         let host_imports = io::imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         let machine = Machine {
@@ -83,11 +85,9 @@ impl Cpu {
             dispatch,
             hooks: HashMap::new(),
         };
-        let cpu = machine.bindings.cpu.clone();
         Ok(Self {
-            execution: Execution::new(machine),
-            cpu,
-            memory,
+            pending: None,
+            machine,
         })
     }
 
@@ -108,7 +108,7 @@ impl Cpu {
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let machine = self.execution.machine_mut();
+        let machine = self.machine_mut();
         let compiler = machine.backend.compiler();
         let module = compiler.compile(bytes).await?;
         machine
@@ -127,18 +127,26 @@ impl Cpu {
     /// # Panics
     /// Panics if a service is suspended. Complete it to regain access.
     pub fn context(&mut self) -> CpuContext<'_> {
-        self.execution.machine_mut().context()
+        self.machine_mut().context()
+    }
+
+    fn machine_mut(&mut self) -> &mut Machine {
+        assert!(
+            self.pending.is_none(),
+            "host service is suspended; complete it before accessing the machine"
+        );
+        &mut self.machine
     }
 
     /// Retains live CPU state independently of the runner and its backend.
     /// Capture this once when registering a service, like memory and I/O handles.
     pub fn cpu_state(&self) -> CpuStateAccess {
-        self.cpu.clone()
+        self.machine.bindings.cpu.clone()
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.
     /// Clones share guest bytes; dispatch storage remains private.
     pub fn memory(&self) -> Memory {
-        self.memory.clone()
+        self.machine.bindings.guest.clone()
     }
 }

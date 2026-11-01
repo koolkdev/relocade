@@ -44,8 +44,8 @@ may cache fields internally until they publish state on exit. Synchronous guest
 device callbacks must not edit this backing. Memory safety does not make such
 mid-entry architectural edits valid.
 
-`CpuContext` lends separate `cpu`, `memory` and `io` fields during stopped
-access and host services. The CPU-state and guest-memory views can be borrowed
+`CpuContext` lends separate `cpu`, `memory` and `io` fields for stopped embedding
+access. The CPU-state and guest-memory views can be borrowed
 together:
 
 ```rust
@@ -59,9 +59,24 @@ Those views and the context borrow the stopped CPU. Drop the context before
 resuming execution or installing modules. `cpu.memory()` returns an owned
 handle whose lifetime is independent of execution.
 
-A suspended service keeps its machine borrow; complete it before calling
-`cpu.context()` again. Independent `Memory` handles remain usable during
-execution, while a service awaits input, and after CPU destruction.
+Host services capture these resources once at registration:
+
+```rust
+let cpu = runtime.cpu_state();
+let resources = runtime.memory().with_io(io.clone());
+let hook = Hook::new(entry, async move || {
+    let value = input.read().await;
+    cpu.set_ax(value);
+    resources.view().write_u16(buffer, value).unwrap();
+    real_mode_interrupt::return_from_interrupt(&cpu)
+});
+```
+
+The service retains no backend borrow. A pending future may borrow its captured
+handles and keep ordinary references to local values across awaits. The driver
+retains the handler until after the future is destroyed. `cpu.context()` remains
+available when no service is suspended; independent state and memory handles
+also work while one waits and after runner destruction.
 
 Pass `memory.backing().clone()` directly as a worker task's context.
 The worker transport moves native handles and preserves browser shared-memory
@@ -100,7 +115,8 @@ let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone()).await?;
 The board's physical map must mark that memory range `PhysicalMapping::Mmio`.
 The device owns its storage; it does not use guest RAM backing. CPU-context memory
 transfers and guest instructions route to the same device, after A20 translation.
-BIOS services use `CpuContext.io` for port operations. Unconnected ranges retain
+BIOS services capture a `MemoryBus` for memory and port operations. Unconnected
+ranges retain
 the open-bus behavior: FF reads and ignored writes. A host operation on the same
 worker can retain memory and device routing together:
 

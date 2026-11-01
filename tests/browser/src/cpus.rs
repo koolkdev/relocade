@@ -56,34 +56,38 @@ pub async fn cpu_worker() -> Result<(), String> {
         let mut cpu = Cpu::new(memory, cpu_config, Default::default())
             .await
             .unwrap();
-        cpu.install_hooks([Hook::new(0x100, async move |call| {
-            let cpu = &mut call.cpu;
-            let memory = &mut call.memory;
-            let (mut incoming, mut waiting, completed) = {
-                let mut input = input.borrow_mut();
-                (
-                    input.incoming.take().unwrap(),
-                    input.waiting.take(),
-                    input.completed.clone(),
-                )
-            };
-            memory.write_u8(0x200, 0x11).unwrap();
-            let value = poll_fn(|context| {
-                let poll = incoming.poll_next_unpin(context);
-                if poll.is_pending() {
-                    // The caller sends only after this task registers its waker.
-                    if let Some(waiting) = waiting.take() {
-                        waiting.send(()).unwrap();
+        cpu.install_hooks([Hook::new(0x100, {
+            let resources = cpu.memory();
+            let cpu = cpu.cpu_state();
+            async move || {
+                let mut memory = resources.view();
+
+                let (mut incoming, mut waiting, completed) = {
+                    let mut input = input.borrow_mut();
+                    (
+                        input.incoming.take().unwrap(),
+                        input.waiting.take(),
+                        input.completed.clone(),
+                    )
+                };
+                memory.write_u8(0x200, 0x11).unwrap();
+                let value = poll_fn(|context| {
+                    let poll = incoming.poll_next_unpin(context);
+                    if poll.is_pending() {
+                        // The caller sends only after this task registers its waker.
+                        if let Some(waiting) = waiting.take() {
+                            waiting.send(()).unwrap();
+                        }
                     }
-                }
-                poll
-            })
-            .await
-            .unwrap();
-            cpu.set_ax(value + memory.read_u16(0x202).unwrap());
-            cpu.set_eip(0x300);
-            completed.set(completed.get() + 1);
-            HookResult::Continue
+                    poll
+                })
+                .await
+                .unwrap();
+                cpu.set_ax(value + memory.read_u16(0x202).unwrap());
+                cpu.set_eip(0x300);
+                completed.set(completed.get() + 1);
+                HookResult::Continue
+            }
         })])
         .await
         .unwrap();

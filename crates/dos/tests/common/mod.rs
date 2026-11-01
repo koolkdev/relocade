@@ -49,7 +49,7 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
 /// Terminates a process running SERVICE_PROGRAM through its DOS interrupt.
 pub fn terminate(dos: &mut Dos) {
     {
-        let mut execution = dos.cpu().context();
+        let execution = dos.cpu().context();
         execution.cpu.set_eip(0x100);
         execution.cpu.set_ax(0x4c00);
     }

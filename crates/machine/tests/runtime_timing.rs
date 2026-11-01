@@ -48,22 +48,27 @@ async fn check_timing() {
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     let captured = input.clone();
-    cpu.install_hooks([Hook::new(0x200, async move |call| {
-        let memory = &mut call.memory;
-        let input = &captured;
-        input.calls.set(input.calls.get() + 1);
-        let value = input.calls.get() as u16;
-        let saved = &value;
-        poll_fn(|_| {
-            if input.ready.replace(false) {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-        memory.write_u16(0x300, *saved).unwrap();
-        real_mode_interrupt::return_from_interrupt(call)
+    cpu.install_hooks([Hook::new(0x200, {
+        let resources = cpu.memory();
+        let cpu = cpu.cpu_state();
+        async move || {
+            let mut memory = resources.view();
+
+            let input = &captured;
+            input.calls.set(input.calls.get() + 1);
+            let value = input.calls.get() as u16;
+            let saved = &value;
+            poll_fn(|_| {
+                if input.ready.replace(false) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+            memory.write_u16(0x300, *saved).unwrap();
+            real_mode_interrupt::return_from_interrupt(&cpu)
+        }
     })])
     .await
     .unwrap();
@@ -106,14 +111,14 @@ async fn check_timing() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn deadlines_progress_during_borrowed_services_without_replenishing_the_cpu_budget() {
+fn deadlines_progress_during_pending_services_without_replenishing_the_cpu_budget() {
     pollster::block_on(check_timing());
 }
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn deadlines_progress_during_borrowed_services_without_replenishing_the_cpu_budget() {
+async fn deadlines_progress_during_pending_services_without_replenishing_the_cpu_budget() {
     check_timing().await;
 }
 

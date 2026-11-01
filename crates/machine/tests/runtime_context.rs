@@ -49,19 +49,25 @@ async fn check_context_lifetime() {
     let ready = Rc::new(Cell::new(false));
     let complete = ready.clone();
     runtime
-        .install_hooks([Hook::new(0x100, async move |call| {
-            environment.borrow_mut().calls += 1;
-            call.cpu.set_eax(0x1234);
-            call.memory.write_u32(0x200, 0x5678).unwrap();
-            poll_fn(|_| {
-                if ready.get() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-            HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+        .install_hooks([Hook::new(0x100, {
+            let resources = runtime.memory();
+            let cpu = runtime.cpu_state();
+            async move || {
+                let mut memory = resources.view();
+
+                environment.borrow_mut().calls += 1;
+                cpu.set_eax(0x1234);
+                memory.write_u32(0x200, 0x5678).unwrap();
+                poll_fn(|_| {
+                    if ready.get() {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+            }
         })])
         .await
         .unwrap();
