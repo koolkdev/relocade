@@ -2,7 +2,7 @@
 
 mod input;
 
-use relocade_machine::{real_mode_interrupt, HookResult};
+use relocade_machine::real_mode_interrupt;
 use std::{
     cell::RefCell,
     collections::VecDeque,
@@ -206,10 +206,7 @@ impl Drop for WaitForKey<'_> {
     }
 }
 
-pub(super) async fn interrupt(
-    call: &mut crate::BiosContext<'_>,
-    keyboard: &Keyboard,
-) -> HookResult {
+pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>, keyboard: &Keyboard) {
     match call.cpu.ah() {
         0x00 => {
             let key = keyboard.read().await;
@@ -228,5 +225,4 @@ pub(super) async fn interrupt(
             real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
         }
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }

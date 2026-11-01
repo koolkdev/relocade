@@ -4,7 +4,7 @@ use super::{
     MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES,
 };
 use crate::{screen, BIOS_SEGMENT};
-use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
+use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::registers::{attribute, sequencer, SEQUENCER_INDEX_PORT};
 
 // Follows the font ROM and ninth-column replacement tables.
@@ -28,11 +28,11 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>) {
         .expect("BIOS video functionality table");
 }
 
-pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
+pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
     if call.cpu.bx() != 0 {
         // This service reports an unsupported selector through AL, not carry.
         call.cpu.set_al(0);
-        return real_mode_interrupt::return_from_interrupt(call.cpu);
+        return;
     }
     // Collect the fields before writing: ES:DI may overlap BIOS data.
     let bytes = encode_state(&call.memory, call.io);
@@ -43,7 +43,6 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
             .expect("video state buffer");
     }
     call.cpu.set_al(0x1b);
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }
 
 fn encode_state(memory: &MemoryView<'_>, io: &IoBus) -> [u8; 64] {

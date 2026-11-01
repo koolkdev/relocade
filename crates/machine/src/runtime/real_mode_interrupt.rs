@@ -1,16 +1,31 @@
 //! Helpers for hooks entered through a 16-bit real-mode interrupt frame.
 //!
-//! Place [`HOOK_STUB`] in guest memory and install a hook at its first byte.
-//! A returning handler uses [`return_from_interrupt`] to resume at the guest
-//! IRET, which restores IP, CS and FLAGS. Handlers can update saved flags with
+//! Place [`HOOK_STUB`] in guest memory and register its first byte with [`hook`].
+//! When the async handler returns, the adapter advances to the guest IRET,
+//! which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
 
-use super::HookResult;
+use super::{Hook, HookResult};
 use crate::{CpuStateAccess, MemoryView};
 use relocade_x86::Segment;
 
 /// NOP reserves the hook entry; IRET performs the interrupt return in the guest.
 pub const HOOK_STUB: [u8; 2] = [0x90, 0xcf];
+
+/// Adapts an ordinary async handler to the real-mode interrupt return convention.
+/// The handler sees the hook's entry CS:IP until it returns. It must leave that
+/// position and the interrupt frame intact, apart from intended frame edits.
+/// Completion advances IP once; the guest executes IRET on the next dispatch.
+/// Pending handlers retain their future, and dropping one does not advance IP.
+pub fn hook<F>(address: u32, cpu: CpuStateAccess, handler: F) -> Hook
+where
+    F: AsyncFn() + 'static,
+{
+    Hook::new(address, async move || {
+        handler().await;
+        return_from_interrupt(&cpu)
+    })
+}
 
 /// Changes carry in the saved FLAGS, preserving every other flag.
 /// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.

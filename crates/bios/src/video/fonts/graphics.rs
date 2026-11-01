@@ -1,16 +1,15 @@
 //! Graphics font selection changes BIOS pointers and geometry, not VGA font memory.
 use super::rom;
 use crate::video::{unsupported, CHARACTER_HEIGHT, LAST_ROW};
-use relocade_machine::{real_mode_interrupt, HookResult};
 
-pub(super) fn select(call: &mut crate::BiosContext<'_>) -> HookResult {
+pub(super) fn select(call: &mut crate::BiosContext<'_>) {
     let guest_pointer =
         (u32::from(call.cpu.segments().es.selector) << 16) | u32::from(call.cpu.bp());
     if call.cpu.al() == 0x20 {
         call.memory
             .write_u32(0x1f * 4, guest_pointer)
             .expect("high character font vector");
-        return real_mode_interrupt::return_from_interrupt(call.cpu);
+        return;
     }
     let (pointer, height) = match call.cpu.al() {
         0x21 => (guest_pointer, call.cpu.cx()),
@@ -43,5 +42,4 @@ pub(super) fn select(call: &mut crate::BiosContext<'_>) -> HookResult {
     call.memory
         .write_u8(LAST_ROW, rows.wrapping_sub(1))
         .expect("video rows");
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }
