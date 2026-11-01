@@ -5,7 +5,7 @@ mod scroll;
 
 use crate::video::graphics::Page as GraphicsPage;
 pub use characters::write_text;
-pub(super) use characters::{read_cell, teletype, write_repeated};
+pub(super) use characters::{read_cell, Output};
 use geometry::Geometry;
 pub(super) use scroll::{Scroll, ScrollDirection, Window};
 
@@ -89,13 +89,13 @@ fn update_cursor(memory: &MemoryView<'_>, io: &IoBus, page: u8) {
 pub(super) fn scroll(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
+    page: u8,
     window: Window,
     lines: u8,
     color: u8,
     direction: ScrollDirection,
 ) {
     let geometry = Geometry::read(memory);
-    let page = active_page(memory);
     let Some(scroll) = Scroll::new(window, lines, direction, geometry.columns, geometry.rows)
     else {
         return;

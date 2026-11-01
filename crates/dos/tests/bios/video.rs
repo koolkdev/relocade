@@ -279,6 +279,36 @@ fn scrolling_moves_only_the_requested_window_and_fills_with_its_attribute() {
 }
 
 #[test]
+fn teletype_preserves_no_output_but_commits_an_unchanged_cursor_position() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        video(&mut dos, 0x0200, 0, 0, 0x0200); // BIOS cursor at row 2, column 0.
+        {
+            let context = dos.cpu().context();
+            // Direct CRTC programming can disagree with the stored BIOS cursor.
+            context.io.write_port(0x3d4, 2, 0x120e);
+            context.io.write_port(0x3d4, 2, 0x340f);
+        }
+        let before = dos.vga().borrow().snapshot();
+        video(&mut dos, 0x0e07, 0, 0, 0); // BEL has no cursor effect.
+        {
+            let mut context = dos.cpu().context();
+            for bytes in [b"".as_slice(), b"\x07"] {
+                relocade_bios::write_text(&mut context.memory, context.io, bytes);
+            }
+        }
+        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0x0200);
+
+        // Backspace at column zero still reapplies the BIOS cursor to hardware.
+        video(&mut dos, 0x0e08, 0, 0, 0);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0x0200);
+        assert_eq!(common::screen(&dos).cursor.address, 160);
+    });
+}
+
+#[test]
 fn teletype_handles_controls_wraps_and_scrolls_at_the_bottom() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

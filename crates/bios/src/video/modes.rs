@@ -25,7 +25,7 @@ pub(super) const GRAPHICS_320X200_16: u8 = 0x0d;
 pub(super) const GRAPHICS_640X200_16: u8 = 0x0e;
 pub(super) const GRAPHICS_640X350_MONO: u8 = 0x0f;
 pub(super) const GRAPHICS_640X350_16: u8 = 0x10;
-pub(super) const GRAPHICS_640X480_2: u8 = 0x11;
+pub(crate) const GRAPHICS_640X480_2: u8 = 0x11;
 pub(super) const GRAPHICS_640X480_16: u8 = 0x12;
 pub(super) const GRAPHICS_320X200_256: u8 = 0x13;
 
