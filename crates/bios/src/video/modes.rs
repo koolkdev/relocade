@@ -11,6 +11,10 @@ use relocade_vga::{
 };
 
 // BIOS mode numbers accepted by INT 10h/AH=00h.
+// VGA gives each legacy burst-disabled/color text pair identical color output.
+pub(super) const TEXT_40X25: u8 = 0x00;
+pub(super) const COLOR_TEXT_40X25: u8 = 0x01;
+pub(super) const TEXT_80X25: u8 = 0x02;
 pub(crate) const COLOR_TEXT_80X25: u8 = 0x03;
 pub(super) const GRAPHICS_320X200_4: u8 = 0x04;
 // VGA has identical output for the original CGA color/burst-disabled pair.
@@ -22,12 +26,21 @@ pub(super) const GRAPHICS_640X350_16: u8 = 0x10;
 pub(super) const GRAPHICS_640X480_16: u8 = 0x12;
 pub(super) const GRAPHICS_320X200_256: u8 = 0x13;
 
+pub(crate) fn is_text(mode: u8) -> bool {
+    matches!(mode, TEXT_40X25..=COLOR_TEXT_80X25)
+}
+
 /// Returns the mode-set AL result, or leaves the device untouched if unsupported.
 pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
     let mode = request & 0x7f;
+    let profile = memory.read_u8(MODESET_CONTROL).expect("mode-set control") & 0x90;
     let preset = match mode {
-        COLOR_TEXT_80X25 => match memory.read_u8(MODESET_CONTROL).expect("mode-set control") & 0x90
-        {
+        TEXT_40X25 | COLOR_TEXT_40X25 => match profile {
+            0 => &presets::TEXT_40_350,
+            0x10 => &presets::TEXT_40_400,
+            _ => &presets::TEXT_40_200,
+        },
+        TEXT_80X25 | COLOR_TEXT_80X25 => match profile {
             0 => &presets::TEXT_350,
             0x10 => &presets::TEXT_400,
             _ => &presets::TEXT_200,
@@ -41,7 +54,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         GRAPHICS_320X200_256 => &presets::INDEXED256,
         _ => return None,
     };
-    let text = mode == COLOR_TEXT_80X25;
+    let text = is_text(mode);
     // Restore routing and write masks before any clear. Font loading temporarily
     // selects plane two, then the preset restores the mode's normal aperture.
     write_indexed(
@@ -107,7 +120,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         sequencer::RESET_RELEASED,
     );
     Some(match mode {
-        COLOR_TEXT_80X25 | GRAPHICS_320X200_4 | GRAPHICS_320X200_4_ALT => 0x30,
+        TEXT_40X25..=GRAPHICS_320X200_4_ALT => 0x30,
         GRAPHICS_640X200_2 => 0x3f,
         _ => 0x20,
     })

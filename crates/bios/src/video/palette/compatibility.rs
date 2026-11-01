@@ -10,6 +10,9 @@ const COLOR_SHADOW: u32 = 0x466;
 
 pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>, mode: u8) {
     let (control, color) = match mode {
+        modes::TEXT_40X25 => (0x2c, 0x30),
+        modes::COLOR_TEXT_40X25 => (0x28, 0x30),
+        modes::TEXT_80X25 => (0x2d, 0x30),
         modes::COLOR_TEXT_80X25 => (0x29, 0x30),
         modes::GRAPHICS_320X200_4 => (0x2a, 0x30),
         modes::GRAPHICS_320X200_4_ALT => (0x2e, 0x30),

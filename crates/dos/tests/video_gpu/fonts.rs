@@ -70,54 +70,59 @@ fn assert_custom_font(image: &[u8], solid: bool) {
 }
 
 #[test]
-fn bios_builtin_fonts_render_the_350_and_400_line_profiles() {
+fn bios_color_text_profiles_render_both_widths() {
     pollster::block_on(async {
         let mut gpu = Gpu::new().await;
         let mut dos = common::dos().await;
-        for (selection, size, glyph) in [
+        for (selection, lines, glyph) in [
+            (0, 200, &[0x7c, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0][..]),
             (
                 1,
-                [640, 350],
+                350,
                 &[
                     0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0,
                 ][..],
             ),
             (
                 2,
-                [640, 400],
+                400,
                 &[
                     0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
                 ][..],
             ),
         ] {
-            let capture = run(
-                &mut dos,
-                &[
-                    // Select the scanline profile before setting mode 03h.
-                    0xb8, selection, 0x12, 0xbb, 0x30, 0, 0xcd, 0x10, 0xb8, 3, 0, 0xcd,
-                    0x10, // Set mode 03h with the profile's font.
-                    0xb8, 0, 1, 0xb9, 7, 0x20, 0xcd, 0x10, // Hide cursor.
-                    0xb8, 0, 0xb8, 0x8e, 0xc0, // ES = B800.
-                    0x26, 0xc7, 0x06, 0, 0, b'A', 4, // Native built-in glyph, red.
-                    0x26, 0xc7, 0x06, 0x9e, 0x0f, 0xdb, 4, // Last cell of the 25-row screen.
-                    0xc3,
-                ],
-            )
-            .await;
-            let image = gpu.render(&capture, size).await;
-            for (index, pixel) in image.as_chunks::<4>().0.iter().enumerate() {
-                let (x, y) = (index % 640, index / 640);
-                let red = (x < 8 && y < glyph.len() && glyph[y] & (0x80 >> x) != 0)
-                    || (x >= 632 && y >= size[1] as usize - glyph.len());
-                assert_eq!(
-                    *pixel,
-                    if red {
-                        [170, 0, 0, 255]
-                    } else {
-                        [0, 0, 0, 255]
-                    },
-                    "profile {selection}, pixel ({x}, {y})"
-                );
+            for (mode, width, last_cell) in [(1, 320, 0x07ceu16), (3, 640, 0x0f9e)] {
+                let [low, high] = last_cell.to_le_bytes();
+                let capture = run(
+                    &mut dos,
+                    &[
+                        0xb8, selection, 0x12, 0xbb, 0x30, 0, 0xcd,
+                        0x10, // Scanline preference.
+                        0xb8, mode, 0, 0xcd, 0x10, // Set text mode with the profile's font.
+                        0xb8, 0, 1, 0xb9, 7, 0x20, 0xcd, 0x10, // Hide cursor.
+                        0xb8, 0, 0xb8, 0x8e, 0xc0, // ES = B800.
+                        0x26, 0xc7, 0x06, 0, 0, b'A', 4, // Native built-in glyph, red.
+                        0x26, 0xc7, 0x06, low, high, 0xdb,
+                        4, // Last cell of the 25-row screen.
+                        0xc3,
+                    ],
+                )
+                .await;
+                let image = gpu.render(&capture, [width, lines]).await;
+                for (index, pixel) in image.as_chunks::<4>().0.iter().enumerate() {
+                    let (x, y) = (index % width as usize, index / width as usize);
+                    let red = (x < 8 && y < glyph.len() && glyph[y] & (0x80 >> x) != 0)
+                        || (x >= width as usize - 8 && y >= lines as usize - glyph.len());
+                    assert_eq!(
+                        *pixel,
+                        if red {
+                            [170, 0, 0, 255]
+                        } else {
+                            [0, 0, 0, 255]
+                        },
+                        "mode {mode}, profile {selection}, pixel ({x}, {y})"
+                    );
+                }
             }
         }
     });
