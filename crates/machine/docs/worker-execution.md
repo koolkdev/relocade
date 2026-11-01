@@ -40,10 +40,9 @@ Services can keep ordinary resource views and local references across input awai
 
 ```rust,ignore
 let state = cpu.cpu_state();
-cpu.install_hooks([Hook::new(entry, async move || {
+cpu.install_hooks([real_mode_interrupt::hook(entry, state.clone(), async move || {
     let value = input.read().await;
     state.set_ax(value);
-    real_mode_interrupt::return_from_interrupt(&state)
 })]).await?;
 ```
 
@@ -65,11 +64,23 @@ results through shared Rust channels. Local JavaScript message handlers are not
 a control path for a continuously running CPU.
 
 The embedding supplies host input and controls when execution stops.
-The runtime owns execution and service completion; the web and
+Services return `()`; their adapters apply guest calling conventions.
+Capture `cpu.exit_handle()` in a service to request `HostExit::Return` after
+its current poll. The driver drops pending work and consumes the request before
+returning to the embedding. Dropping only the run waiter preserves both the call
+and any unobserved request. The exit flag does not wake suspended execution;
+session cancellation uses the worker's existing `stop().await`.
+The runtime owns execution and retained futures; the web and
 Wasmtime backends supply Wasm engine access. Generated guest calls remain
 synchronous; the execution task awaits services after those calls return.
 
 ## Task lifetime
+
+The worker can outlive individual DOS programs. The Rust console and device
+activities run without driving guest instructions. `Dos::run` requires a launched
+process and returns an already completed process's result without running the CPU.
+DOS termination records that result and requests an execution exit before the
+driver resumes guest code. The environment remains alive for another launch.
 
 For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, session)`
 creates the timer service and drives it on the caller while the session runs on

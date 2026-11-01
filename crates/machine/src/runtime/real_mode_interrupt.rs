@@ -5,7 +5,7 @@
 //! which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
 
-use super::{Hook, HookResult};
+use super::Hook;
 use crate::{CpuStateAccess, MemoryView};
 use relocade_x86::Segment;
 
@@ -23,7 +23,8 @@ where
 {
     Hook::new(address, async move || {
         handler().await;
-        return_from_interrupt(&cpu)
+        let iret_ip = (cpu.eip() as u16).wrapping_add(1);
+        cpu.set_eip(u32::from(iret_ip));
     })
 }
 
@@ -50,13 +51,4 @@ fn set_flag(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, mask: u8, value: 
     memory
         .write(address, &flags)
         .expect("real-mode interrupt frame");
-}
-
-/// Resumes at the IRET in [`HOOK_STUB`], preserving the interrupt frame.
-/// The current CS:IP must point to the stub's hook entry.
-#[inline]
-pub fn return_from_interrupt(cpu: &CpuStateAccess) -> HookResult {
-    let iret_ip = (cpu.eip() as u16).wrapping_add(1);
-    cpu.set_eip(u32::from(iret_ip));
-    HookResult::Continue
 }

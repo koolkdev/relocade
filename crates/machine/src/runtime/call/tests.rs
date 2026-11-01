@@ -8,14 +8,14 @@ use std::{
 fn cx() -> Context<'static> {
     Context::from_waker(Waker::noop())
 }
-fn suspended(poll: CallPoll) -> Call {
+fn suspended(poll: Option<Call>) -> Call {
     match poll {
-        CallPoll::Pending(call) => call,
-        CallPoll::Ready(_) => panic!("expected a pending service"),
+        Some(call) => call,
+        None => panic!("expected a pending service"),
     }
 }
-fn completed(poll: CallPoll) {
-    assert!(matches!(poll, CallPoll::Ready(HookResult::Continue)));
+fn completed(poll: Option<Call>) {
+    assert!(poll.is_none());
 }
 
 #[test]
@@ -24,7 +24,6 @@ fn ready_awaits_finish_without_retaining_another_handler_owner() {
     let observed = value.clone();
     let handler: Rc<dyn Handler> = Rc::new(async move || {
         value.set(ready(12).await);
-        HookResult::Continue
     });
     completed(Call::start(&handler, &mut cx()));
     assert_eq!(observed.get(), 12);
@@ -54,7 +53,6 @@ fn nested_invocations_keep_locals_and_capture_borrows_until_selected() {
         .await;
         assert_eq!(capture, "retained capture");
         result.set(*saved);
-        HookResult::Continue
     });
     let outer = suspended(Call::start(&handler, &mut cx()));
     let inner = suspended(Call::start(&handler, &mut cx()));
@@ -126,7 +124,7 @@ fn unwinding_first_and_later_polls_destroys_borrows_before_captures() {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let poll = Call::start(&handler, &mut cx());
             drop(handler);
-            if let CallPoll::Pending(call) = poll {
+            if let Some(call) = poll {
                 call.poll(&mut cx());
             }
         }));
@@ -145,15 +143,15 @@ struct PinnedCompletion {
     _pin: std::marker::PhantomPinned,
 }
 impl std::future::Future for PinnedCompletion {
-    type Output = HookResult;
-    fn poll(self: std::pin::Pin<&mut Self>, _: &mut Context<'_>) -> Poll<HookResult> {
+    type Output = ();
+    fn poll(self: std::pin::Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
         let address = &*self as *const Self as usize;
         let previous = self.address.replace(address);
         assert!(previous == 0 || previous == address);
         if self.first.replace(false) {
             Poll::Pending
         } else {
-            Poll::Ready(HookResult::Continue)
+            Poll::Ready(())
         }
     }
 }
@@ -188,8 +186,8 @@ fn custom_future_stays_pinned_and_drops_before_its_owner_even_when_drop_panics()
                 let poll = Call::start(&handler, &mut cx());
                 drop(handler);
                 match poll {
-                    CallPoll::Ready(result) => assert_eq!(result, HookResult::Continue),
-                    CallPoll::Pending(call) => {
+                    None => {}
+                    Some(call) => {
                         let mut moved = vec![call];
                         completed(moved.pop().unwrap().poll(&mut cx()));
                     }

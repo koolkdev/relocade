@@ -1,6 +1,6 @@
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::poll_fn, StreamExt};
-use relocade_machine::{worker::Thread, Cpu, CpuConfig, Hook, HookResult, MachineConfig, Memory};
+use relocade_machine::{worker::Thread, Cpu, CpuConfig, Hook, MachineConfig, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -86,7 +86,6 @@ pub async fn cpu_worker() -> Result<(), String> {
                 cpu.set_ax(value + memory.read_u16(0x202).unwrap());
                 cpu.set_eip(0x300);
                 completed.set(completed.get() + 1);
-                HookResult::Continue
             }
         })])
         .await

@@ -57,5 +57,5 @@ pub use runner::{yield_now, Runner};
 #[cfg(feature = "worker")]
 pub use relocade_wasm_runtime::worker;
 pub use runtime::{
-    real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, Hook, HookResult, Result,
+    real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, ExitHandle, Hook, Result,
 };

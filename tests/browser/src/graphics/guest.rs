@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    Cpu, CpuConfig, ExecutionWorker, Hook, HookResult, IoBus, MachineConfig, Memory, TimerHandle,
+    Cpu, CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, Memory, TimerHandle,
 };
 use relocade_vga::{FrameSource, Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
 use relocade_x86::{
@@ -72,7 +72,6 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
                 assert_eq!(cpu.al() & !9, 0);
                 cpu_progress.fetch_add(1, Ordering::Release);
                 cpu.set_eip(0x100);
-                HookResult::Continue
             }
         })])
         .await

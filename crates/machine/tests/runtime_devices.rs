@@ -1,5 +1,5 @@
 mod support;
-use relocade_machine::{yield_now, Clock, Cpu, Device, Hook, HookResult, IoBus, Memory, Runner};
+use relocade_machine::{yield_now, Clock, Cpu, Device, Hook, IoBus, Memory, Runner};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -90,7 +90,6 @@ async fn check_devices() {
         async move || {
             service_clock.sleep(Duration::from_millis(5)).await;
             cpu.set_eip(0x200);
-            HookResult::Continue
         }
     })])
     .await

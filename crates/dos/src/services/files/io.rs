@@ -5,11 +5,10 @@ use crate::{
     interrupt::{return_result, DosContext},
     services::buffers::transfer_count,
 };
-use relocade_machine::HookResult;
 use relocade_x86::Segment;
 
 /// AH=3Fh: retain the source and DS:DX destination throughout a pending read.
-pub(in crate::services) async fn read(call: &mut DosContext<'_>) -> HookResult {
+pub(in crate::services) async fn read(call: &mut DosContext<'_>) {
     let cpu = call.cpu;
     let handle = cpu.bx();
     let offset = cpu.dx();
@@ -33,7 +32,7 @@ pub(in crate::services) async fn read(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
-pub(in crate::services) fn write(call: &mut DosContext<'_>) -> HookResult {
+pub(in crate::services) fn write(call: &mut DosContext<'_>) {
     let cpu = call.cpu;
     let handle = cpu.bx();
     let offset = cpu.dx();

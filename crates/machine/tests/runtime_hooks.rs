@@ -1,7 +1,7 @@
 mod support;
 
 use relocade_compiler::Program;
-use relocade_machine::{real_mode_interrupt, DispatchEntry, Hook, HookResult};
+use relocade_machine::{real_mode_interrupt, DispatchEntry, Hook};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
     PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
@@ -81,22 +81,9 @@ async fn check_interrupt_hooks() {
                     real_mode_interrupt::set_carry(&cpu, &mut memory, false);
                 }
             }),
-            Hook::new(0x400, async move || {
-                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
-            }),
-            Hook::new(0x401, async move || {
-                HookResult::Exit(ExecutionExit::Exception(
-                    relocade_x86::Exception::PageFault {
-                        linear_address: 0xfedc_ba98,
-                        error_code: 0xdead_beef,
-                    },
-                ))
-            }),
-            Hook::new(0x402, async move || {
-                HookResult::Exit(ExecutionExit::UnsupportedInstruction {
-                    eip: 0x89ab_cdef,
-                    opcode: 0xf3,
-                })
+            Hook::new(0x400, {
+                let exit = runtime.exit_handle();
+                async move || exit.request()
             }),
         ])
         .await
@@ -127,28 +114,10 @@ async fn check_interrupt_hooks() {
     assert_eq!(runtime.context().cpu.sp(), 0xff00);
     assert_eq!(runtime.context().cpu.instruction_count(), 14);
 
-    for (address, expected) in [
-        (0x400, ExecutionExit::Host(HostExit::Return)),
-        (
-            0x401,
-            ExecutionExit::Exception(relocade_x86::Exception::PageFault {
-                linear_address: 0xfedc_ba98,
-                error_code: 0xdead_beef,
-            }),
-        ),
-        (
-            0x402,
-            ExecutionExit::UnsupportedInstruction {
-                eip: 0x89ab_cdef,
-                opcode: 0xf3,
-            },
-        ),
-    ] {
-        runtime.context().cpu.set_eip(address);
-        assert_eq!(runtime.run(1).await, expected);
-        assert_eq!(runtime.context().cpu.instruction_count(), 14);
-        assert_eq!(runtime.context().cpu.eip(), address);
-    }
+    runtime.context().cpu.set_eip(0x400);
+    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runtime.context().cpu.instruction_count(), 14);
+    assert_eq!(runtime.context().cpu.eip(), 0x400);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -228,7 +197,6 @@ async fn check_mapped_hook_access() {
             memory.write(0x1024, &value.to_le_bytes()).unwrap();
             memory.write_u8(0x20, 0xff).unwrap();
             observed.set(observed.get() + 1);
-            HookResult::Continue
         }
     })])
     .await
@@ -292,7 +260,6 @@ async fn check_hook_replacement() {
                     first.set(first.get() + 1);
                     cpu.set_ax(first.get());
                     cpu.set_eip(0x401);
-                    HookResult::Continue
                 }
             }),
             Hook::new(0x401, {
@@ -300,7 +267,6 @@ async fn check_hook_replacement() {
                 async move || {
                     calls.set(calls.get() + 1);
                     cpu.set_eip(0x100);
-                    HookResult::Continue
                 }
             }),
         ])
@@ -318,7 +284,6 @@ async fn check_hook_replacement() {
             async move || {
                 cpu.set_ax(50);
                 cpu.set_eip(0x401);
-                HookResult::Continue
             }
         })])
         .await
@@ -376,17 +341,19 @@ async fn check_hook_replacement() {
         let unused = Rc::new(());
         let released = Rc::downgrade(&unused);
         let unused_cpu = runtime.cpu_state();
+        let unused_exit = runtime.exit_handle();
+        let exit = runtime.exit_handle();
         let cpu = runtime.cpu_state();
         runtime
             .install_hooks([
                 Hook::new(address, async move || {
                     let _borrow = &unused;
                     unused_cpu.set_ax(100);
-                    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+                    unused_exit.request();
                 }),
                 Hook::new(address, async move || {
                     cpu.set_ax(75);
-                    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+                    exit.request();
                 }),
             ])
             .await

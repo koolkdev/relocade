@@ -55,8 +55,9 @@ pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
+pub use execution::ExitHandle;
+pub use hooks::Hook;
 use hooks::Services;
-pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
@@ -67,6 +68,7 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 pub struct Cpu {
     pending: Option<Call>,
     machine: Machine,
+    exit: ExitHandle,
 }
 
 impl Cpu {
@@ -88,6 +90,7 @@ impl Cpu {
         Ok(Self {
             pending: None,
             machine,
+            exit: ExitHandle::new(),
         })
     }
 
