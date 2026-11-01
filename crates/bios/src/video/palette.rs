@@ -1,5 +1,6 @@
 //! BIOS palette services through the guest-visible VGA ports.
 mod compatibility;
+mod dac;
 use super::{buffer_addresses, input_status_1_port, modes, unsupported, MODE};
 pub(super) use compatibility::{
     initialize as initialize_compatibility, interrupt as compatibility,
@@ -53,16 +54,13 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
             write_attribute(io, attribute::MODE_CONTROL, (mode & !8) | (bl << 3));
         }
         0x10 => {
-            io.write_port(DAC_WRITE_ADDRESS_PORT, 1, u32::from(bl));
-            for component in [call.cpu.dh(), call.cpu.ch(), call.cpu.cl()] {
-                io.write_port(DAC_DATA_PORT, 1, u32::from(component));
-            }
+            dac::write(io, bl, [call.cpu.dh(), call.cpu.ch(), call.cpu.cl()]);
         }
         0x15 => {
-            io.write_port(DAC_READ_ADDRESS_PORT, 1, u32::from(bl));
-            call.cpu.set_dh(io.read_port(DAC_DATA_PORT, 1) as u8);
-            call.cpu.set_ch(io.read_port(DAC_DATA_PORT, 1) as u8);
-            call.cpu.set_cl(io.read_port(DAC_DATA_PORT, 1) as u8);
+            let [red, green, blue] = dac::read(io, bl);
+            call.cpu.set_dh(red);
+            call.cpu.set_ch(green);
+            call.cpu.set_cl(blue);
         }
         0x12 | 0x17 if call.cpu.cx() != 0 => {
             let reading = function == 0x17;
@@ -115,6 +113,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
             call.cpu.set_bl(mode);
             call.cpu.set_bh(if mode == 0 { page >> 2 } else { page });
         }
+        0x1b => dac::grayscale_range(io, bl, call.cpu.cx()),
         _ => unsupported(call),
     }
 }
