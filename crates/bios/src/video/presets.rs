@@ -4,13 +4,15 @@ mod crtc;
 mod indexed256;
 mod monochrome;
 mod palette;
-mod planar16;
+mod planar;
 mod text;
 
 pub(super) use cga::{CGA_320X200, CGA_640X200};
 pub(super) use indexed256::INDEXED256;
 pub(super) use monochrome::{MONO_TEXT_350, MONO_TEXT_400};
-pub(super) use planar16::{PLANAR_320X200, PLANAR_640X200, PLANAR_640X350, PLANAR_640X480};
+pub(super) use planar::{
+    MONO_640X480, PLANAR_320X200, PLANAR_640X200, PLANAR_640X350, PLANAR_640X480,
+};
 pub(super) use text::{TEXT_200, TEXT_350, TEXT_400, TEXT_40_200, TEXT_40_350, TEXT_40_400};
 
 use super::{crtc_port, input_status_1_port, write_indexed};

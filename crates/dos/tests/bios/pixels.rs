@@ -30,7 +30,7 @@ fn planar_pixel_calls_preserve_neighbors_and_restore_access_registers() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        for mode in [0x0d, 0x12] {
+        for mode in [0x0d, 0x11, 0x12] {
             video(&mut dos, mode, 0, 0, 0);
             {
                 let context = dos.cpu().context();
@@ -165,6 +165,7 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
             (0x0e, 0, 0, 200),
             (0x10, 2, 0, 0),
             (0x10, 0, 0, 350),
+            (0x11, 0, 0, 480),
             (0x12, 0, 0, 480),
             (0x13, 0, 320, 0),
             (0x13, 0, 0, 200),

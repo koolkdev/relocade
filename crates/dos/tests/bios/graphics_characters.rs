@@ -2,6 +2,45 @@ use super::video::{video, PROGRAM};
 use crate::common;
 
 #[test]
+fn two_color_planar_characters_force_white_only_for_write_with_attribute() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        video(&mut dos, 0x0011, 0, 0, 0);
+        {
+            let mut context = dos.cpu().context();
+            context.memory.write_u32(0x43 * 4, 0x2300_0000).unwrap();
+            context
+                .memory
+                .write(0x23000 + 65 * 16, &[0x81; 16])
+                .unwrap();
+        }
+        video(&mut dos, 0x0941, 0, 1, 0); // Even BL=0 draws white.
+        let white = dos.vga().borrow().snapshot();
+        video(&mut dos, 0x0941, 0x0080, 1, 0); // XOR toggles that same white.
+        let erased = dos.vga().borrow().snapshot();
+        video(&mut dos, 0x0a41, 4, 1, 0); // AH=0Ah retains the low color bits.
+        let red_plane = dos.vga().borrow().snapshot();
+        for plane in 0..4 {
+            for y in 0..16 {
+                assert_eq!(white.plane(plane)[y * 80], 0x81);
+                assert_eq!(erased.plane(plane)[y * 80], 0);
+                assert_eq!(
+                    red_plane.plane(plane)[y * 80],
+                    if plane == 2 { 0x81 } else { 0 }
+                );
+            }
+        }
+        assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0);
+        video(&mut dos, 0x0e41, 0, 0, 0); // Teletype also respects foreground zero.
+        for plane in 0..4 {
+            assert_eq!(dos.vga().borrow().snapshot().plane(plane)[0], 0);
+        }
+        assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 1);
+    });
+}
+
+#[test]
 fn planar_characters_replace_or_xor_glyph_bits_without_moving_the_cursor() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

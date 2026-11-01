@@ -121,15 +121,26 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
             let cell = screen::read_cell(&call.memory, page);
             call.cpu.set_ax(u16::from_le_bytes(cell));
         }
-        0x09 | 0x0a if screen::valid_page(&call.memory, page) => screen::write_repeated(
-            &mut call.memory,
-            call.io,
-            page,
-            al,
-            attribute,
-            cx,
-            function == 0x09,
-        ),
+        0x09 | 0x0a if screen::valid_page(&call.memory, page) => {
+            // IBM mode 11h AH=09h forces white while retaining the XOR flag.
+            // AH=0Ah and teletype still use the caller's color bits.
+            let attribute = if function == 0x09
+                && call.memory.read_u8(MODE).expect("video mode") == modes::GRAPHICS_640X480_2
+            {
+                attribute | 15
+            } else {
+                attribute
+            };
+            screen::write_repeated(
+                &mut call.memory,
+                call.io,
+                page,
+                al,
+                attribute,
+                cx,
+                function == 0x09,
+            );
+        }
         0x0e if screen::valid_page(&call.memory, screen::active_page(&call.memory)) => {
             screen::teletype(&mut call.memory, call.io, al, attribute)
         }
