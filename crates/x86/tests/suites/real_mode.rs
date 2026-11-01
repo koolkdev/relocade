@@ -23,7 +23,7 @@ mod string_io;
 
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
-    machine::{Exit, Image, Step},
+    machine::{retire, Exit, Image, Step},
 };
 use relocade_x86::{CpuState, ExecutionProfile, Segment, SegmentRegister, Segments};
 
@@ -40,13 +40,6 @@ fn cache(segment: Segment, value: u16) -> SegmentRegister {
         limit: 0xffff,
         ..SegmentRegister::real_mode(segment, value)
     }
-}
-
-fn retired(image: &Image, bytes: usize) -> CpuState {
-    let mut cpu = image.cpu;
-    cpu.eip += bytes as u32;
-    cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    cpu
 }
 
 fn sequences(frontend: Frontend) -> ImageSequences {

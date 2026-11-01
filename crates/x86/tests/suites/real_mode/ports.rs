@@ -31,7 +31,7 @@ fn scalar(frontend: Frontend) {
         };
         let mut input = image.input();
         let mask = u32::MAX >> (32 - width * 8);
-        let mut cpu = retired(&image, code.len());
+        let mut cpu = retire(image.cpu, code.len());
         let port = if immediate {
             *code.last().unwrap() as u32
         } else {
@@ -69,7 +69,7 @@ fn port_boundaries() {
     let image = image(&code);
     let mut input = image.input();
     input.port_reads = vec![0xff];
-    let mut cpu = retired(&image, 2);
+    let mut cpu = retire(image.cpu, 2);
     cpu.registers.eax = (cpu.registers.eax & !0xff) | 0xff;
     let mut wanted = expected(
         &image,
