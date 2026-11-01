@@ -1,12 +1,13 @@
 //! Links executable modules and owns dispatch for one CPU.
 
+mod registry;
 mod table;
 
-use super::{code, Backend, RuntimeMemory};
+use super::{code, Backend, Entry, Hook, RuntimeMemory};
 use crate::Result;
-use relocade_wasm_runtime::{Function, Import, Module, WasmBackend};
+use registry::{Batch, Registry};
+use relocade_wasm_runtime::{Function, Import, Module, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionProfile};
-use table::DispatchTable;
 
 /// An ordinary `() -> ExecutionExit` export to publish at a guest linear address.
 pub struct DispatchEntry<'a> {
@@ -22,7 +23,7 @@ pub(crate) struct Dispatch {
     interpret: Function<Backend, abi::ExecutionSignature>,
     step: Function<Backend, abi::ExecutionSignature>,
     interrupt: Option<Function<Backend, fn(u8) -> ExecutionExit>>,
-    table: DispatchTable<Backend>,
+    registry: Registry<Backend>,
     host_imports: Vec<Import<'static, Backend>>,
 }
 
@@ -35,9 +36,9 @@ impl Dispatch {
         let target = bindings.configuration().execution_target();
         let module = code::dispatcher(backend, target).await?;
         // Link the dispatcher first; the interpreter imports its entry points.
-        let table = DispatchTable::new(backend)?;
+        let registry = Registry::new(backend)?;
         let mut imports = bindings.imports(backend).to_vec();
-        imports.extend(table.imports(backend));
+        imports.extend(registry.table.imports(backend));
         let instance = backend.instantiate(&module, &imports).await?;
         let dispatch = backend.function(&instance, abi::DISPATCH)?;
         let interpret = backend.function(&instance, abi::INTERPRET)?;
@@ -49,7 +50,7 @@ impl Dispatch {
         imports.extend(host_imports.iter().cloned());
         let module = code::interpreter(backend, target).await?;
         let instance = backend.instantiate(&module, &imports).await?;
-        table.install_interpreter(backend, &instance)?;
+        registry.table.install_interpreter(backend, &instance)?;
         Ok(Self {
             dispatch,
             interpret,
@@ -59,7 +60,7 @@ impl Dispatch {
             } else {
                 None
             },
-            table,
+            registry,
             host_imports,
         })
     }
@@ -84,11 +85,40 @@ impl Dispatch {
         &mut self,
         backend: &mut Backend,
         bindings: &RuntimeMemory,
-        module: &Module,
+        entries: impl IntoIterator<Item = Entry>,
+    ) -> Result<()> {
+        let (program, batch) = self.registry.prepare(entries)?;
+        let bytes = program.compile()?;
+        let module = backend.compiler().compile(&bytes).await?;
+        self.publish(backend, bindings, &module, batch).await
+    }
+
+    pub(crate) async fn install_module(
+        &mut self,
+        backend: &mut Backend,
+        bindings: &RuntimeMemory,
+        bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
+        let batch = Batch::module(entries);
+        let module = backend.compiler().compile(bytes).await?;
+        self.publish(backend, bindings, &module, batch).await
+    }
+
+    #[inline]
+    pub(crate) fn hook(&self, id: u32) -> &Hook {
+        self.registry.hook(id)
+    }
+
+    async fn publish(
+        &mut self,
+        backend: &mut Backend,
+        bindings: &RuntimeMemory,
+        module: &Module,
+        batch: Batch,
+    ) -> Result<()> {
         let instance = self.instantiate(backend, bindings, module).await?;
-        self.table.install(backend, &instance, entries)
+        self.registry.publish(backend, &instance, batch)
     }
 
     async fn instantiate(
@@ -98,7 +128,7 @@ impl Dispatch {
         module: &Module,
     ) -> relocade_wasm_runtime::Result<<Backend as WasmBackend>::Instance> {
         let mut imports = bindings.imports(backend).to_vec();
-        imports.extend(self.table.imports(backend));
+        imports.extend(self.registry.table.imports(backend));
         imports.extend([
             backend.bind(abi::DISPATCH, &self.dispatch),
             backend.bind(abi::INTERPRET, &self.interpret),

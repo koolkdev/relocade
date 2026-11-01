@@ -1,11 +1,5 @@
-use relocade_compiler::Program;
-use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
-use relocade_x86::{abi, ExecutionExitValues, HostExitValues};
-
-use super::{Backend, Cpu, Dispatch, DispatchEntry, Result, RuntimeMemory};
 use futures_util::future::LocalBoxFuture;
 use std::{
-    collections::HashMap,
     future::Future,
     rc::Rc,
     task::{Context, Poll},
@@ -50,8 +44,8 @@ where
 /// ```
 ///
 pub struct Hook {
-    address: u32,
-    handler: Rc<dyn Handler>,
+    pub(super) address: u32,
+    pub(super) handler: Rc<dyn Handler>,
 }
 
 impl Hook {
@@ -69,114 +63,5 @@ impl Hook {
             address,
             handler: Rc::new(handler),
         }
-    }
-}
-
-/// Owns stable service IDs and their live handlers. Address lookup is confined
-/// to registration; execution indexes the handler directly by its generated ID.
-#[derive(Default)]
-pub(super) struct Services {
-    ids: HashMap<u32, u32>,
-    handlers: Vec<Option<Rc<dyn Handler>>>,
-}
-
-impl Services {
-    #[inline]
-    pub(super) fn handler(&self, id: u32) -> &Rc<dyn Handler> {
-        self.handlers
-            .get(id as usize)
-            .and_then(Option::as_ref)
-            .expect("registered host service")
-    }
-
-    /// Releases a replaced handler while retaining its ID for reinstallation.
-    pub(super) fn remove(&mut self, address: u32) {
-        if let Some(&id) = self.ids.get(&address) {
-            self.handlers[id as usize] = None;
-        }
-    }
-
-    async fn install(
-        &mut self,
-        backend: &mut Backend,
-        bindings: &RuntimeMemory,
-        dispatch: &mut Dispatch,
-        hooks: impl IntoIterator<Item = Hook>,
-    ) -> Result<()> {
-        let hooks: Vec<_> = hooks.into_iter().collect();
-        let names: Vec<_> = (0..hooks.len())
-            .map(|index| format!("hook_{index}"))
-            .collect();
-        let mut program = Program::new();
-        let mut handlers = Vec::new();
-        // Registration owns address-to-ID lookup; executing a service indexes
-        // its slot directly. Plan replacements before publishing any changes.
-        let mut ids = self.ids.clone();
-        let mut next_id = self.handlers.len();
-        let mut entries = Vec::new();
-        for (hook, name) in hooks.into_iter().zip(&names) {
-            let address = hook.address;
-            let service_id = *ids.entry(address).or_insert_with(|| {
-                let id = u32::try_from(next_id).expect("host service ID capacity");
-                next_id += 1;
-                id
-            });
-            let function = program.function::<abi::ExecutionSignature>(move |body, ()| {
-                body.return_(ExecutionExitValues::host(HostExitValues::call(service_id)))
-            });
-            program.export(name, function)?;
-            handlers.push((service_id, hook.handler));
-            entries.push(DispatchEntry {
-                address,
-                export: name,
-            });
-        }
-        let bytes = program.compile()?;
-        let compiler = backend.compiler();
-        let module = compiler.compile(&bytes).await?;
-        dispatch
-            .install(backend, bindings, &module, &entries)
-            .await?;
-        // Publish after all exports are installed. Removed entries retain their
-        // ID for later reinstallation; obsolete handler captures are released.
-        self.handlers.resize_with(next_id, || None);
-        for (id, handler) in handlers {
-            self.handlers[id as usize] = Some(handler);
-        }
-        self.ids = ids;
-        Ok(())
-    }
-}
-
-impl Cpu {
-    /// Installs guest entries carrying a stable service ID to the Rust run loop.
-    /// The CPU owns the handlers and invokes them after the guest call returns.
-    ///
-    /// Entries begin with CPU state already published by the predecessor. They
-    /// cache no CPU values across the host call. Hooks do not retire guest
-    /// instructions; continuing execution retains the current instruction target.
-    /// The driver polls handlers only after guest execution returns. Pending calls
-    /// retain their locals and captured resources; ready awaits continue in the
-    /// same poll. Dropping a run waiter preserves that call.
-    ///
-    /// Entries are intended for function and interrupt targets. A hook placed
-    /// directly at the instruction after STI, MOV SS or POP SS is unsupported:
-    /// that protected successor executes in the interpreter, bypassing its
-    /// dispatch-table entry. A CALL or INT there still dispatches its target
-    /// normally. See <https://github.com/koolkdev/relocade/issues/709>.
-    ///
-    /// # Panics
-    /// Panics if a service is suspended. Complete it before installing.
-    pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
-        let machine = self.machine_mut();
-        machine
-            .services
-            .install(
-                &mut machine.backend,
-                &machine.bindings,
-                &mut machine.dispatch,
-                hooks,
-            )
-            .await
     }
 }

@@ -1,6 +1,6 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{hooks::Services, Backend, CpuContext, Dispatch, RuntimeMemory};
+use super::{Backend, CpuContext, Dispatch, RuntimeMemory};
 use crate::IoBus;
 use relocade_x86::{ExecutionExit, ExecutionProfile};
 use std::task::{Context, Poll};
@@ -10,7 +10,6 @@ pub(super) struct Machine {
     pub bindings: RuntimeMemory,
     pub io: IoBus,
     pub dispatch: Dispatch,
-    pub services: Services,
 }
 
 impl Machine {

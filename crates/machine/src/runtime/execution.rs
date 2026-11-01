@@ -76,7 +76,7 @@ impl Cpu {
                 let ExecutionExit::Host(HostExit::Call { service_id }) = exit else {
                     return Poll::Ready(exit);
                 };
-                Call::start(self.machine.services.handler(service_id), cx)
+                Call::start(&self.machine.dispatch.hook(service_id).handler, cx)
             };
             if self.pending.is_some() && !self.exit.0.get() {
                 return Poll::Pending;

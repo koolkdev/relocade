@@ -56,7 +56,7 @@ pub async fn cpu_worker() -> Result<(), String> {
         let mut cpu = Cpu::new(memory, cpu_config, Default::default())
             .await
             .unwrap();
-        cpu.install_hooks([Hook::new(0x100, {
+        cpu.install([Hook::new(0x100, {
             let resources = cpu.memory();
             let cpu = cpu.cpu_state();
             async move || {

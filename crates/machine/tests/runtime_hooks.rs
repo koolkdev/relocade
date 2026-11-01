@@ -57,7 +57,7 @@ async fn check_interrupt_hooks() {
     let increment = Rc::new(Cell::new(1));
     let observed = calls.clone();
     runtime
-        .install_hooks([
+        .install(
             real_mode_interrupt::hook(0x10020, runtime.cpu_state(), {
                 let resources = runtime.memory();
                 let cpu = runtime.cpu_state();
@@ -66,7 +66,7 @@ async fn check_interrupt_hooks() {
 
                     observed.set(observed.get() + increment.get());
                     assert_eq!(cpu.segment(Segment::Cs).selector, 0x1000);
-                    assert_eq!(cpu.eip(), 0x20);
+                    assert_eq!(cpu.eip(), 0x21);
                     assert_eq!(cpu.sp(), 0xfefa);
                     assert_eq!(cpu.ax(), 1);
                     assert!(cpu.carry());
@@ -80,12 +80,14 @@ async fn check_interrupt_hooks() {
                     assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
                     real_mode_interrupt::set_carry(&cpu, &mut memory, false);
                 }
-            }),
-            Hook::new(0x400, {
+            })
+            .into_iter()
+            .chain([Hook::new(0x400, {
                 let exit = runtime.exit_handle();
                 async move || exit.request()
-            }),
-        ])
+            })
+            .into()]),
+        )
         .await
         .unwrap();
     assert_eq!(runtime.run(5).await, ExecutionExit::BudgetExhausted);
@@ -183,7 +185,7 @@ async fn check_mapped_hook_access() {
         .unwrap();
     let count = Rc::new(Cell::new(0));
     let observed = count.clone();
-    cpu.install_hooks([Hook::new(0x200, {
+    cpu.install([Hook::new(0x200, {
         let resources = cpu.memory();
         let cpu = cpu.cpu_state();
         async move || {
@@ -253,7 +255,7 @@ async fn check_hook_replacement() {
     let released = Rc::downgrade(&first);
     let calls = Rc::clone(&second);
     runtime
-        .install_hooks([
+        .install([
             Hook::new(0x400, {
                 let cpu = runtime.cpu_state();
                 async move || {
@@ -279,7 +281,7 @@ async fn check_hook_replacement() {
     assert_eq!(runtime.context().cpu.bx(), 2);
     assert_eq!(second.get(), 2);
     runtime
-        .install_hooks([Hook::new(0x400, {
+        .install([Hook::new(0x400, {
             let cpu = runtime.cpu_state();
             async move || {
                 cpu.set_ax(50);
@@ -345,7 +347,7 @@ async fn check_hook_replacement() {
         let exit = runtime.exit_handle();
         let cpu = runtime.cpu_state();
         runtime
-            .install_hooks([
+            .install([
                 Hook::new(address, async move || {
                     let _borrow = &unused;
                     unused_cpu.set_ax(100);
@@ -377,3 +379,6 @@ fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
 async fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
     check_hook_replacement().await;
 }
+
+#[path = "runtime_hooks/entries.rs"]
+mod entries;

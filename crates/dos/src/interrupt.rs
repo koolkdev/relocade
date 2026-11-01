@@ -6,7 +6,7 @@ use crate::{
     state::DosState,
     ServiceError,
 };
-use relocade_machine::{real_mode_interrupt, CpuStateAccess, Hook, MemoryView};
+use relocade_machine::{real_mode_interrupt, CpuStateAccess, Entry, MemoryView};
 use std::rc::Rc;
 
 /// One CPU invocation bound to its process and shared DOS resources.
@@ -40,7 +40,12 @@ impl<'call> DosContext<'call> {
 }
 
 /// Captures the session and resolves its active process at each hook entry.
-pub(crate) fn hook<F>(address: u32, cpu: CpuStateAccess, session: Rc<DosState>, handler: F) -> Hook
+pub(crate) fn hook<F>(
+    address: u32,
+    cpu: CpuStateAccess,
+    session: Rc<DosState>,
+    handler: F,
+) -> [Entry; 3]
 where
     F: AsyncFn(&mut DosContext<'_>) + 'static,
 {

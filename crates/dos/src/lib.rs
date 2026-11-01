@@ -164,14 +164,12 @@ impl Dos {
             let mut context = cpu.context();
             relocade_bios::initialize(&mut context.memory, context.io);
         }
-        cpu.install_hooks(
-            kernel::hooks(cpu.cpu_state(), Rc::clone(&state))
-                .into_iter()
-                .chain(relocade_bios::hooks(
-                    cpu.cpu_state(),
-                    state.memory().clone(),
-                    keyboard,
-                )),
+        cpu.install(
+            kernel::hooks(cpu.cpu_state(), Rc::clone(&state)).chain(relocade_bios::hooks(
+                cpu.cpu_state(),
+                state.memory().clone(),
+                keyboard,
+            )),
         )
         .await?;
         Ok(Self {
