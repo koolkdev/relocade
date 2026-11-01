@@ -91,7 +91,7 @@ fn hook<F>(address: u32, cpu: CpuStateAccess, memory: MemoryBus, handler: F) -> 
 where
     F: AsyncFn(&mut BiosContext<'_>) -> HookResult + 'static,
 {
-    Hook::new(address, async move || {
+    real_mode_interrupt::hook(address, async move || {
         handler(&mut BiosContext {
             cpu: &cpu,
             memory: memory.view(),
@@ -119,5 +119,5 @@ async fn clock(call: &mut crate::BiosContext<'_>) -> HookResult {
         call.cpu.set_ah(0x86);
         real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }

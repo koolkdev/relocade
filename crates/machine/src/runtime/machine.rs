@@ -1,6 +1,6 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{hooks::Services, Backend, CpuContext, Dispatch, RuntimeMemory};
+use super::{services::Services, Backend, CpuContext, Dispatch, RuntimeMemory};
 use crate::IoBus;
 use relocade_x86::ExecutionExit;
 

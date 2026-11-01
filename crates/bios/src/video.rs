@@ -135,7 +135,7 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
         }
         _ => return unsupported(call),
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 fn write_indexed(io: &IoBus, port: u16, register: u8, value: u8) {
@@ -179,5 +179,5 @@ fn input_status_1_port(io: &IoBus) -> u16 {
 fn unsupported(call: &mut crate::BiosContext<'_>) -> HookResult {
     call.cpu.set_ah(0x86);
     real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }

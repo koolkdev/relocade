@@ -228,5 +228,5 @@ pub(super) async fn interrupt(
             real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
         }
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }

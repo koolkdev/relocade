@@ -7,6 +7,11 @@ use super::{
 use relocade_x86::{ExecutionExit, HostExit};
 use std::{future::poll_fn, task::Poll};
 
+pub(super) struct Frame {
+    service_id: u32,
+    call: Call,
+}
+
 impl Cpu {
     /// Runs until the instruction budget is consumed or the guest exits,
     /// awaiting host services as needed. Ready services complete in the same poll.
@@ -27,20 +32,34 @@ impl Cpu {
         let mut budget = Some(instruction_budget);
         poll_fn(|cx| loop {
             let machine = &mut self.machine;
-            let polled = if let Some(call) = self.pending.take() {
-                call.poll(cx)
+            let (service_id, polled) = if let Some(frame) = self.pending.take() {
+                (frame.service_id, frame.call.poll(cx))
             } else {
                 let exit = machine.dispatch(budget.take());
                 let ExecutionExit::Host(HostExit::Call { service_id }) = exit else {
                     return Poll::Ready(exit);
                 };
-                Call::start(machine.services.handler(service_id), cx)
+                (
+                    service_id,
+                    Call::start(&machine.services.get(service_id).handler, cx),
+                )
             };
             match polled {
+                CallPoll::Ready(HookResult::Complete) => {
+                    let complete = machine
+                        .services
+                        .get(service_id)
+                        .continuations
+                        .expect("Complete requires service continuations")
+                        .complete;
+                    if let Err(exception) = machine.bindings.cpu.continue_at(complete) {
+                        return Poll::Ready(ExecutionExit::Exception(exception));
+                    }
+                }
                 CallPoll::Ready(HookResult::Continue) => {}
                 CallPoll::Ready(HookResult::Exit(exit)) => return Poll::Ready(exit),
                 CallPoll::Pending(call) => {
-                    self.pending = Some(call);
+                    self.pending = Some(Frame { service_id, call });
                     return Poll::Pending;
                 }
             }

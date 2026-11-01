@@ -22,6 +22,7 @@ fn exit_module() -> Vec<u8> {
         "budget_exhausted",
         "host_return",
         "host_call",
+        "host_resume",
     ] {
         Function::<fn(u32, u32) -> ExecutionExit>::new("test", name)
             .define(&mut program, move |body, (detail, address)| {
@@ -41,6 +42,9 @@ fn exit_module() -> Vec<u8> {
                     "host_call" => {
                         return body
                             .return_(ExecutionExitValues::host(HostExitValues::call(address)))
+                    }
+                    "host_resume" => {
+                        return body.return_(ExecutionExitValues::host(HostExitValues::resume()))
                     }
                     "budget_exhausted" => return budget_exhausted(body),
                     "unsupported" => return unsupported(body, &address, detail.truncate::<I8>()),
@@ -95,6 +99,7 @@ fn generated_exits_preserve_payloads() {
         ),
         ("budget_exhausted", ExecutionExit::BudgetExhausted),
         ("host_return", ExecutionExit::Host(HostExit::Return)),
+        ("host_resume", ExecutionExit::Host(HostExit::Resume)),
         (
             "host_call",
             ExecutionExit::Host(HostExit::Call {
@@ -144,6 +149,7 @@ fn execution_exits_share_four_wasm_values() {
             }),
             (0, 1, address as i32, 0),
         ),
+        (ExecutionExit::Host(HostExit::Resume), (0, 2, 0, 0)),
         (ExecutionExit::BudgetExhausted, (1, 0, 0, 0)),
         (
             ExecutionExit::Exception(Exception::PageFault {

@@ -1,6 +1,6 @@
 use super::{buffers::write_wrapping, files::read_path};
 use crate::interrupt::{return_result, DosContext};
-use relocade_machine::{real_mode_interrupt::return_from_interrupt, HookResult};
+use relocade_machine::HookResult;
 use relocade_x86::Segment;
 
 /// AH=0Eh: select DL's drive; report the drive-letter range in AL.
@@ -8,14 +8,14 @@ pub(super) fn select_drive(call: &mut DosContext<'_>) -> HookResult {
     let number = call.cpu.dl();
     let count = call.dos.filesystem().select_drive(number);
     call.cpu.set_al(count);
-    return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 /// AH=19h: return the current drive in AL.
 pub(super) fn get_drive(call: &mut DosContext<'_>) -> HookResult {
     let number = call.dos.filesystem().current_drive();
     call.cpu.set_al(number);
-    return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 /// AH=39h: create the directory at DS:DX; its parent must already exist.

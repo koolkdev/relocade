@@ -7,7 +7,7 @@ mod upload;
 use super::{buffer_addresses, unsupported, write_indexed, CHARACTER_HEIGHT, LAST_ROW};
 use crate::screen;
 pub(crate) use glyph::Glyph;
-use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
+use relocade_machine::{HookResult, IoBus, MemoryView};
 use relocade_vga::registers::{sequencer, SEQUENCER_INDEX_PORT};
 use relocade_x86::{Segment, SegmentRegister};
 pub(super) use rom::initialize;
@@ -27,7 +27,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
             sequencer::CHARACTER_MAP_SELECT,
             call.cpu.bl(),
         );
-        return real_mode_interrupt::return_from_interrupt(call.cpu);
+        return HookResult::Complete;
     }
     let builtin = match function {
         0x00 | 0x10 => None,
@@ -80,7 +80,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
     if let Some(layout) = layout {
         layout.apply(&mut call.memory, call.io);
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 fn information(call: &mut crate::BiosContext<'_>) -> HookResult {
@@ -97,7 +97,7 @@ fn information(call: &mut crate::BiosContext<'_>) -> HookResult {
     // CX describes the current display even when BH asks for another ROM font.
     call.cpu.set_cx(height);
     call.cpu.set_dl(last_row);
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 pub(super) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, height: u8, text: bool) {

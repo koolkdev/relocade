@@ -1,7 +1,7 @@
 //! DOS version and interrupt-vector services used during program startup.
 
 use crate::interrupt::DosContext;
-use relocade_machine::{real_mode_interrupt::return_from_interrupt, HookResult};
+use relocade_machine::HookResult;
 use relocade_x86::{Segment, SegmentRegister};
 
 /// AH=30h: report DOS 5.00, with no serial number or special version flags.
@@ -11,7 +11,7 @@ pub(super) fn version(call: &mut DosContext<'_>) -> HookResult {
     cpu.set_ax(5); // AL is the major version, AH the minor version.
     cpu.set_bx(if version_flags { 0 } else { 0xff00 }); // FFh is the Microsoft OEM ID.
     cpu.set_cx(0);
-    return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 /// AH=25h: set AL's interrupt vector to DS:DX.
@@ -23,7 +23,7 @@ pub(super) fn set_vector(call: &mut DosContext<'_>) -> HookResult {
     call.memory
         .write(address, &[offset_lo, offset_hi, segment_lo, segment_hi])
         .expect("interrupt vector table");
-    return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 /// AH=35h: return AL's current interrupt vector in ES:BX.
@@ -41,5 +41,5 @@ pub(super) fn get_vector(call: &mut DosContext<'_>) -> HookResult {
         Segment::Es,
         SegmentRegister::real_mode(Segment::Es, segment),
     );
-    return_from_interrupt(call.cpu)
+    HookResult::Complete
 }

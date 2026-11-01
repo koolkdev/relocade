@@ -2,7 +2,7 @@
 use super::{modes, unsupported, write_attribute};
 use crate::screen;
 use crate::video::CRTC_PORT;
-use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
+use relocade_machine::{HookResult, IoBus, MemoryView};
 use relocade_vga::registers::{attribute, MONO_CRTC_INDEX_PORT};
 
 // CGA register shadows in the BIOS data area, not emulated CGA I/O ports.
@@ -28,7 +28,7 @@ pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>, mode: u8) {
 pub(in crate::video) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
     // IBM's legacy CGA color service does nothing with monochrome CRTC routing.
     if call.memory.read_u16(CRTC_PORT).expect("CRTC port") == MONO_CRTC_INDEX_PORT {
-        return real_mode_interrupt::return_from_interrupt(call.cpu);
+        return HookResult::Complete;
     }
     let value = call.cpu.bl();
     let previous = call
@@ -59,7 +59,7 @@ pub(in crate::video) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResu
         }
         _ => return unsupported(call),
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
+    HookResult::Complete
 }
 
 fn foreground_palette(io: &IoBus, shadow: u8) {
