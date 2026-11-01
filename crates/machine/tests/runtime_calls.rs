@@ -300,3 +300,9 @@ test_backends!(
     pending_awaits_follow_live_if_and_ready_awaits_finish_synchronously,
     check_live_if_and_ready_awaits
 );
+
+#[path = "runtime_calls/resumption.rs"]
+mod resumption;
+
+#[path = "runtime_calls/lifecycle.rs"]
+mod lifecycle;
