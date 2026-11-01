@@ -938,10 +938,10 @@ and [Volume 3A, section 7.8](https://cdrdv2.intel.com/v1/dl/getContent/671190).
 
 The machine runtime polls device IRQs at stopped guest boundaries, before guest
 dispatch, when the Real16 CPU has live IF set. Polling acknowledges a ready vector;
-entry faults do not put it back in the device. Pending host calls currently keep
-guest execution parked and do not poll IRQs. Ready calls complete in their current
-poll, after which guest execution can deliver an IRQ. Device callbacks may request
-an execution exit while polling or constructing the frame; the driver observes
+entry faults do not put it back in the device. Pending host calls also permit IRQ
+delivery according to live IF and must establish a guest resume continuation before
+suspending with IF enabled. Ready calls complete in their current poll. Device
+callbacks may request an execution exit while polling or constructing the frame; the driver observes
 that request before entering more guest code.
 
 IRET/IRETD check all three stack slots before restoring IP/EIP, CS and FLAGS.
@@ -1150,9 +1150,40 @@ stub layout, which must fit in the entering code segment. Redirected resumes
 must provide a compatible IRET position immediately afterward; completion follows
 the live CS:IP. The runner reserves no global guest address.
 
-A resume entry returns payload-free `HostExit::Resume` to the embedding without
-invoking a handler. Registration does not change pending-call scheduling: a pending
-future keeps guest execution parked until it completes.
+Before suspending with live IF enabled, a hook must establish a guest continuation
+that emits `HostExit::Resume`. The interrupt adapter establishes that position
+before invoking the handler; raw hooks own their continuation or keep IF masked
+while pending. Ready awaits finish in their current poll without guest dispatch.
+There is no separate IRQ-return address or opt-in metadata on a Hook or Call.
+
+When a call returns Pending and an IRQ is eligible, IRQ entry saves the live
+CS:IP and flags normally. Successful entry moves the retained Call onto a stack
+of suspended calls; no CPU snapshot or original code position is retained.
+An entry fault keeps the active call and architectural partial effects; it does
+not requeue the acknowledged interrupt or restore CPU state.
+
+Guest resume entries return payload-free `HostExit::Resume`. Reaching any one
+reactivates the top parked Call in this strictly nested model without changing
+CPU state. Guest CS:IP, flags, registers, segments, stack and memory effects
+survive. The handler continues at the live resume position, and its wrapper owns
+normal completion. With no parked call, Resume returns to the embedding.
+Reentering the original hook always starts a new invocation; input readiness
+alone never polls a parked future.
+
+Budget exits, guest faults and replacement run waiters preserve parked work.
+Redirecting an IRQ return away from the resume entry leaves its call parked until
+explicit `Cpu::abandon_suspended_calls()`, execution return or CPU destruction.
+Abandonment drops parked calls innermost first without changing live CPU state;
+the embedding must ensure those abandoned returns will no longer be used.
+An active pending inner call survives explicit abandonment of parked outer calls.
+Execution return and CPU destruction release the active call before parked calls.
+
+`real_mode_interrupt::with_interrupts_enabled(&cpu, operation).await` enables
+live IF for ordinary async composition and restores its previous value only on
+normal completion. Wrap the entire operation, including selection/cancellation of
+inner futures. Dropping the wrapper must not restore an abandoned call's IF into
+guest ISR code or another invocation. This lifecycle rule adds no checks to CPU
+state access, and no IRET counter or saved CPU snapshot selects a continuation.
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the

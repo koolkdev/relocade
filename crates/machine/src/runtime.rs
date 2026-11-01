@@ -13,8 +13,8 @@
 //! the backend or binding a temporary view. Pending futures retain their locals
 //! and may borrow their handler captures; completion drops the future first.
 //!
-//! A pending service survives dropping its run waiter. Dropping the CPU abandons
-//! that future and destroys the backend without undoing completed effects. Restore
+//! Pending and IRQ-suspended services survive dropping their run waiter. Dropping
+//! the CPU abandons them innermost first without undoing completed effects. Restore
 //! temporary CPU changes explicitly on normal completion, not from a destructor
 //! that also runs on abandonment. Retained state and memory handles remain usable
 //! independently of the runner's lifetime.
@@ -67,6 +67,7 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu {
     pending: Option<Call>,
+    suspended: Vec<Call>,
     machine: Machine,
     exit: ExitHandle,
 }
@@ -88,6 +89,7 @@ impl Cpu {
         };
         Ok(Self {
             pending: None,
+            suspended: Vec::new(),
             machine,
             exit: ExitHandle::new(),
         })
@@ -106,12 +108,16 @@ impl Cpu {
     /// execution belongs to `run`.
     ///
     /// # Panics
-    /// Panics if a service is suspended. Complete it before installing.
+    /// Panics if a service is pending or parked. Complete or abandon it first.
     pub async fn install_module(
         &mut self,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before installing"
+        );
         let machine = self.machine_mut();
         machine
             .dispatch
@@ -133,11 +139,15 @@ impl Cpu {
     /// <https://github.com/koolkdev/relocade/issues/709>.
     ///
     /// # Panics
-    /// Panics if a host call is pending. Complete it before installing.
+    /// Panics if a host call is pending or parked. Complete or abandon it first.
     pub async fn install<E: Into<Entry>>(
         &mut self,
         entries: impl IntoIterator<Item = E>,
     ) -> Result<()> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before installing"
+        );
         let machine = self.machine_mut();
         machine
             .dispatch
@@ -150,10 +160,11 @@ impl Cpu {
     }
 
     /// Borrows the stopped machine. The context and its views must end before
-    /// running or installing modules.
+    /// running or installing modules. Available while guest ISR execution is
+    /// stopped with outer calls parked, but not while a host call is pending.
     ///
     /// # Panics
-    /// Panics if a service is suspended. Complete it to regain access.
+    /// Panics if a host call is pending. Complete it to regain access.
     pub fn context(&mut self) -> CpuContext<'_> {
         self.machine_mut().context()
     }
@@ -161,7 +172,7 @@ impl Cpu {
     fn machine_mut(&mut self) -> &mut Machine {
         assert!(
             self.pending.is_none(),
-            "host service is suspended; complete it before accessing the machine"
+            "host call is pending; complete it before accessing the machine"
         );
         &mut self.machine
     }

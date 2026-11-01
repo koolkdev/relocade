@@ -4,11 +4,12 @@
 //! When the async handler returns, the adapter advances to the guest IRET,
 //! which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
-//! The second byte supplies the service's explicit resume position.
+//! The second byte resumes the top suspended host call after guest IRQ execution.
 
 use super::{Entry, Hook};
 use crate::{CpuStateAccess, MemoryView};
 use relocade_x86::{abi, ExecutionExitValues, HostExit, Segment};
+use std::future::Future;
 
 /// Entry NOP, resume NOP, and completion IRET inside the environment's service code.
 /// The adapter supplies all three positions in a batch. The return
@@ -22,6 +23,8 @@ pub const HOOK_STUB: [u8; 3] = [0x90, 0x90, 0xcf];
 /// dropping a pending handler leaves the CPU untouched. The stub must fit in the
 /// entering code segment. Redirected resumes must also have IRET immediately after
 /// the live resume position; completion follows that position through the live CS.
+/// IRQ entry saves the live resume position; the driver resumes the retained
+/// future without restoring any CPU state.
 pub fn hook<F>(address: u32, cpu: CpuStateAccess, handler: F) -> [Entry; 3]
 where
     F: AsyncFn() + 'static,
@@ -45,6 +48,18 @@ where
         }),
         Entry::block(iret, |program| program.import_function(abi::INTERPRET)),
     ]
+}
+
+/// Enables live IF for an ordinary composed operation, restoring it only after
+/// normal completion. Wrap the whole operation, including selection/cancellation
+/// of inner futures. Abandoning this wrapper leaves the current CPU untouched;
+/// a destructor must not restore an outer call's IF into an ISR or nested call.
+pub async fn with_interrupts_enabled<F: Future>(cpu: &CpuStateAccess, future: F) -> F::Output {
+    let saved = cpu.interrupts_enabled();
+    cpu.set_interrupts_enabled(true);
+    let result = future.await;
+    cpu.set_interrupts_enabled(saved);
+    result
 }
 
 /// Changes carry in the saved FLAGS, preserving every other flag.
