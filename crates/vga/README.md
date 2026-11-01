@@ -302,7 +302,15 @@ handling either monochrome or color status ports. Block buffers use ES:DX with
 16-bit offset wrapping; DAC addresses wrap independently and components retain
 their low six bits. Zero-color transfers leave streaming state untouched.
 Palette paging follows the [BIOS interface](https://www.ctyme.com/intr/rb-0123.htm)
-and cannot be set in mode 13h. Grayscale conversion (1Bh) remains unsupported.
+and cannot be set in mode 13h. AX=101Bh converts CX colors starting at BL to
+grayscale through the DAC ports. The index wraps at 256; BH is ignored, as in
+IBM's port-based implementation. Conversion uses six-bit inputs and IBM's
+15-bit weights (9830 red, 19333 green, 3604 blue), rounded by adding 16384
+before shifting. This preserves the rounding of the
+[IBM VGA ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
+(x2DB9–x2E33), including boundary colors that differ from an eight-bit approximation.
+Zero colors is a complete no-op, matching this firmware's other block transfers;
+it deliberately does not reproduce the ROM's zero-count LOOP underflow.
 Palette changes use the ordinary captured register upload; they do not rewrite
 VRAM or select another rendering path.
 

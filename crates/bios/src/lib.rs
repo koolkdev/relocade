@@ -15,6 +15,7 @@
 //! sharing those controls and optionally updating the stored cursor.
 //! AH=0Bh sets legacy colors through VGA attributes; AH=10h reads/writes
 //! attribute and DAC palettes, blink, paging and the DAC mask.
+//! AX=101Bh converts a DAC range to grayscale using IBM VGA's fixed-point weights.
 //! AH=11h loads text fonts, selects font banks and reports ROM font pointers.
 //! Its AL=20h–24h services select graphics font vectors and BIOS character geometry.
 //! AH=12h/BL=30h selects the next text mode set's scanline profile.
