@@ -15,42 +15,63 @@ pub fn write_text(memory: &mut MemoryView<'_>, io: &IoBus, bytes: &[u8]) {
         for &byte in bytes {
             output.teletype(byte, 7);
         }
-        output.update_cursor();
+        output.commit_cursor();
     }
 }
 
 pub(crate) fn read_cell(memory: &MemoryView<'_>, page: u8) -> [u8; 2] {
     let geometry = Geometry::read(memory);
-    let [column, row] = cursor_position(memory, page).to_le_bytes();
-    read_cell_at(memory, &geometry, page, u16::from(row), u16::from(column))
+    let position = CursorPosition::from_bios(cursor_position(memory, page));
+    read_cell_at(memory, &geometry, page, position)
 }
 
 fn read_cell_at(
     memory: &MemoryView<'_>,
     geometry: &Geometry,
     page: u8,
-    row: u16,
-    column: u16,
+    position: CursorPosition,
 ) -> [u8; 2] {
     let mut cell = [0; 2];
-    if geometry.contains(row, column) {
+    if geometry.contains(position.row, position.column) {
         memory
-            .read(geometry.cell_address(page, row, column), &mut cell)
+            .read(
+                geometry.cell_address(page, position.row, position.column),
+                &mut cell,
+            )
             .expect("text cell");
     }
     cell
 }
 
-/// Writes to one BIOS page using a local cursor. Only `update_cursor` publishes
+#[derive(Clone, Copy)]
+struct CursorPosition {
+    row: u16,
+    column: u16,
+}
+
+impl CursorPosition {
+    fn from_bios(position: u16) -> Self {
+        let [column, row] = position.to_le_bytes();
+        Self {
+            row: u16::from(row),
+            column: u16::from(column),
+        }
+    }
+
+    fn to_bios(self) -> u16 {
+        u16::from_le_bytes([self.column as u8, self.row as u8])
+    }
+}
+
+/// Writes to one BIOS page using a local cursor. Only `commit_cursor` publishes
 /// that position; drawing and scrolling never switch the active display page.
 pub(crate) struct Output<'a, 'memory> {
     memory: &'a mut MemoryView<'memory>,
     io: &'a IoBus,
     page: u8,
     geometry: Geometry,
-    row: u16,
-    column: u16,
-    cursor_update_pending: bool,
+    // None uses the stored BIOS cursor and leaves it untouched on commit.
+    cursor: Option<CursorPosition>,
 }
 
 impl<'a, 'memory> Output<'a, 'memory> {
@@ -59,39 +80,36 @@ impl<'a, 'memory> Output<'a, 'memory> {
             return None;
         }
         let geometry = Geometry::read(memory);
-        let [column, row] = cursor_position(memory, page).to_le_bytes();
         Some(Self {
             memory,
             io,
             page,
             geometry,
-            row: u16::from(row),
-            column: u16::from(column),
-            cursor_update_pending: false,
+            cursor: None,
         })
     }
 
     pub fn set_position(&mut self, position: u16) {
-        let [column, row] = position.to_le_bytes();
-        self.row = u16::from(row);
-        self.column = u16::from(column);
-        self.cursor_update_pending = true;
+        self.cursor = Some(CursorPosition::from_bios(position));
     }
 
-    pub fn update_cursor(self) {
-        if self.cursor_update_pending {
-            set_cursor_position(
-                self.memory,
-                self.io,
-                self.page,
-                u16::from_le_bytes([self.column as u8, self.row as u8]),
-            );
+    pub fn commit_cursor(self) {
+        if let Some(position) = self.cursor {
+            set_cursor_position(self.memory, self.io, self.page, position.to_bios());
         }
     }
 
+    fn position(&self) -> CursorPosition {
+        self.cursor
+            .unwrap_or_else(|| CursorPosition::from_bios(cursor_position(self.memory, self.page)))
+    }
+
     pub fn write_repeated(&mut self, character: u8, color: u8, count: u16, with_attribute: bool) {
+        let position = self.position();
         if is_text_mode(self.memory) {
-            let start = self.geometry.cell_offset(self.page, self.row, self.column);
+            let start = self
+                .geometry
+                .cell_offset(self.page, position.row, position.column);
             // Text repeats advance a 16-bit video offset, including across
             // page padding. They never move the cursor.
             for index in 0..count {
@@ -104,7 +122,7 @@ impl<'a, 'memory> Output<'a, 'memory> {
                     )
                     .expect("text cell");
             }
-        } else if self.geometry.contains(self.row, self.column) && count != 0 {
+        } else if self.geometry.contains(position.row, position.column) && count != 0 {
             let Some(page) = Page::locate(self.memory, self.page) else {
                 return;
             };
@@ -122,7 +140,7 @@ impl<'a, 'memory> Output<'a, 'memory> {
             };
             // Cross-row repeats are unspecified by the BIOS ABI. Our graphics
             // policy wraps through visible cells and stops at the page bottom.
-            let start = self.row * self.geometry.columns + self.column;
+            let start = position.row * self.geometry.columns + position.column;
             let end = start
                 .saturating_add(count)
                 .min(self.geometry.columns * self.geometry.rows);
@@ -156,35 +174,30 @@ impl<'a, 'memory> Output<'a, 'memory> {
     }
 
     fn write_character(&mut self, character: u8, color: u8, with_attribute: bool) {
-        if !self.geometry.contains(self.row, self.column) {
+        let mut position = self.position();
+        if !self.geometry.contains(position.row, position.column) {
             return;
         }
         match character {
             7 => return, // Bell requires a future speaker device.
-            8 => self.column = self.column.saturating_sub(1),
-            b'\r' => self.column = 0,
-            b'\n' => self.row += 1,
+            8 => position.column = position.column.saturating_sub(1),
+            b'\r' => position.column = 0,
+            b'\n' => position.row += 1,
             _ => {
                 self.write_repeated(character, color, 1, with_attribute);
-                self.column += 1;
-                if self.column == self.geometry.columns {
-                    self.column = 0;
-                    self.row += 1;
+                position.column += 1;
+                if position.column == self.geometry.columns {
+                    position.column = 0;
+                    position.row += 1;
                 }
             }
         }
-        if self.row == self.geometry.rows {
-            self.row -= 1;
+        if position.row == self.geometry.rows {
+            position.row -= 1;
             // Text scrolling takes the attribute after cursor advance; graphics
             // scrolling always exposes black pixels, regardless of the foreground.
             let fill = if is_text_mode(self.memory) {
-                read_cell_at(
-                    self.memory,
-                    &self.geometry,
-                    self.page,
-                    self.row,
-                    self.column,
-                )[1]
+                read_cell_at(self.memory, &self.geometry, self.page, position)[1]
             } else {
                 0
             };
@@ -195,7 +208,7 @@ impl<'a, 'memory> Output<'a, 'memory> {
                 Window {
                     top: 0,
                     left: 0,
-                    bottom: self.row as u8,
+                    bottom: position.row as u8,
                     right: (self.geometry.columns - 1).min(255) as u8,
                 },
                 1,
@@ -203,6 +216,6 @@ impl<'a, 'memory> Output<'a, 'memory> {
                 ScrollDirection::Up,
             );
         }
-        self.cursor_update_pending = true;
+        self.cursor = Some(position);
     }
 }

@@ -144,7 +144,7 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
                 return unsupported(call);
             };
             output.teletype(al, attribute);
-            output.update_cursor();
+            output.commit_cursor();
         }
         _ => return unsupported(call),
     }

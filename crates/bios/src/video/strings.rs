@@ -23,7 +23,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
         (format & 2 == 0).then_some(call.cpu.bl()),
     );
     if format & 1 != 0 {
-        output.update_cursor();
+        output.commit_cursor();
     }
     real_mode_interrupt::return_from_interrupt(call.cpu)
 }
