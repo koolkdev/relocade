@@ -1,5 +1,7 @@
 //! The driver alternates guest execution with polling retained host services.
 
+mod suspended;
+
 use super::{call::Call, Cpu};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::{
@@ -43,27 +45,28 @@ impl Cpu {
     /// fixed overshoot or elapsed-time bound. The target saturates at u64::MAX.
     ///
     /// Waits do not replenish this run's budget. Dropping its waiter preserves
-    /// the pending service and its locals. A subsequent run resumes that service
-    /// and supplies a new budget for continued guest execution. A zero budget
+    /// active and parked calls and their locals. A subsequent run continues from
+    /// the same active call or guest position with a new budget. A zero budget
     /// returns `BudgetExhausted` without entering Wasm or polling pending work.
-    /// An observed exit request releases the pending call and returns
-    /// `HostExit::Return`. Dropping the waiter preserves both the call and any
+    /// An observed exit request releases active and parked calls and returns
+    /// `HostExit::Return`. Dropping the waiter preserves both the calls and any
     /// unobserved request; a zero budget consumes neither.
-    /// Dropping the CPU drops its retained call and machine together.
+    /// Dropping the CPU drops retained calls innermost first, before the machine.
     /// Real-mode device IRQs are delivered at stopped guest boundaries according
-    /// to live IF. Pending host services currently keep guest execution parked.
+    /// to live IF. Pending services establish their live guest resume position
+    /// before suspending with IF enabled. IRQ entry saves that CS:IP normally.
+    /// A suspended service stays parked until guest reaches a resume entry, even
+    /// when its input becomes ready. Reentry starts a separate invocation.
+    /// Budget/fault exits and replacement waiters preserve parked calls.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         if instruction_budget == 0 {
             return ExecutionExit::BudgetExhausted;
         }
-        // A replacement waiter supplies its budget after the retained call
-        // completes. Re-polling this same waiter never replenishes the budget.
+        // A replacement waiter supplies its budget at the next guest dispatch.
+        // Re-polling this same waiter never replenishes the budget.
         let mut budget = Some(instruction_budget);
-        poll_fn(|cx| loop {
+        let exit = poll_fn(|cx| loop {
             if self.exit.0.get() {
-                self.pending.take();
-                // Destruction may also request an exit; consume it with this one.
-                self.exit.0.set(false);
                 return Poll::Ready(ExecutionExit::Host(HostExit::Return));
             }
             self.pending = if let Some(call) = self.pending.take() {
@@ -73,16 +76,34 @@ impl Cpu {
                 if self.exit.0.get() {
                     continue;
                 }
-                let ExecutionExit::Host(HostExit::Call { service_id }) = exit else {
-                    return Poll::Ready(exit);
-                };
-                Call::start(&self.machine.dispatch.hook(service_id).handler, cx)
+                match exit {
+                    ExecutionExit::Host(HostExit::Call { service_id }) => {
+                        let hook = self.machine.dispatch.hook(service_id);
+                        Call::start(&hook.handler, cx)
+                    }
+                    ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
+                        Ok(call) => call,
+                        Err(exit) => return Poll::Ready(exit),
+                    },
+                    exit => return Poll::Ready(exit),
+                }
             };
             if self.pending.is_some() && !self.exit.0.get() {
-                return Poll::Pending;
+                match self.suspend_for_interrupt(cx) {
+                    Ok(false) if !self.exit.0.get() => return Poll::Pending,
+                    Ok(_) => {}
+                    Err(exit) => return Poll::Ready(exit),
+                }
             }
         })
-        .await
+        .await;
+        if exit == ExecutionExit::Host(HostExit::Return) {
+            self.pending.take();
+            self.abandon_suspended_calls();
+            // Coalesce any requests made while destroying the retained work.
+            self.exit.0.set(false);
+        }
+        exit
     }
 
     /// Runs from a stopped guest boundary to the next host entry or guest exit.

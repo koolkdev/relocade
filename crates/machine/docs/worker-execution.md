@@ -105,14 +105,18 @@ constructs and polls its pinned future. A pending call retains the future and it
 registered handler owner; a ready call finishes in the same poll. The driver
 resumes guest dispatch or returns the requested exit after completion.
 
-Dropping a `Cpu::run` waiter preserves the pending future and its call chain; a later
-`Cpu::run` resumes it and supplies a new budget for subsequent guest execution.
-Zero-budget runs do not poll pending work.
+Dropping a `Cpu::run` waiter preserves active and parked calls; a later run
+continues the active call or guest ISR and supplies a new budget for guest
+execution. An IRQ-suspended outer call stays parked until guest execution reaches
+a service resume entry, even when its input becomes ready. Zero-budget runs do
+not poll pending work.
 
-While a host service is pending, complete it before using `cpu.context()` or
-installing modules and hooks. Retained `cpu.cpu_state()`, memory and input/output
-handles remain usable. Dropping the CPU releases the pending call and backend;
-independently retained resources can outlive it.
+While a host call is actively pending, complete it before using `cpu.context()`.
+The context is available at stopped guest boundaries with outer calls parked.
+Installing modules and hooks requires all retained calls to have completed or
+been abandoned. Retained `cpu.cpu_state()`, memory and input/output handles remain
+usable. Dropping the CPU releases active and parked calls innermost first, then
+the backend; independently retained resources can outlive it.
 
 Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
 registers VGA with the runner and shares its timer. Mount filesystems and retain
