@@ -50,8 +50,8 @@ impl Stdio {
 
     /// Expands tabs and tracks the DOS cooked-output column.
     /// Returns the output byte and how many times it should be written.
-    pub(crate) fn cook_character(&self, byte: u8) -> (u8, u8) {
-        let column = self.output_column.get();
+    pub(crate) fn cook_character(&self, byte: u8, driver_column: Option<u8>) -> (u8, u8) {
+        let column = driver_column.unwrap_or_else(|| self.output_column.get());
         let (byte, count) = if byte == b'\t' {
             (b' ', 8 - (column & 7))
         } else {
@@ -64,6 +64,10 @@ impl Stdio {
             _ => column,
         });
         (byte, count)
+    }
+
+    pub(crate) fn set_output_column(&self, column: u8) {
+        self.output_column.set(column);
     }
 
     pub(crate) fn output(&self, stream: OutputStream) -> &Output {

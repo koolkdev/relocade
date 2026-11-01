@@ -13,7 +13,7 @@ pub(super) use input::{available as input_available, read_line};
 pub(super) async fn flush_input(call: &mut DosContext<'_>) {
     // A closed stdin skips the flush but still performs AL's requested service.
     if let Ok(handle) = call.process.files().handle(0) {
-        input::flush(handle, &call.dos.stdio().input);
+        input::flush(handle);
     }
     match call.cpu.al() {
         super::READ_CHARACTER_ECHO => read_character(call, true).await,
@@ -35,8 +35,8 @@ pub(super) fn input_status(call: &mut DosContext<'_>) {
         .process
         .files()
         .handle(0)
-        .map(|handle| input::available(handle, &call.dos.stdio().input));
-    let available = available.unwrap_or_else(|_| call.dos.stdio().input.has_input());
+        .map(|handle| input::available(handle));
+    let available = available.unwrap_or_else(|_| call.dos.devices().console().input_available());
     call.cpu.set_al(if available { 0xff } else { 0 });
 }
 
@@ -48,7 +48,7 @@ pub(super) fn direct_io(call: &mut DosContext<'_>) {
             .process
             .files()
             .readable_handle(0)
-            .and_then(|handle| input::try_read_character(&handle, &call.dos.stdio().input));
+            .and_then(|handle| input::try_read_character(&handle));
         let character = match result {
             Ok(character) => character,
             Err(error) => return return_result(call, Err(error)),
@@ -69,7 +69,7 @@ pub(super) async fn read_character(call: &mut DosContext<'_>, echo: bool) {
         Err(error) => return return_result(call, Err(error)),
     };
     let output = echo.then(|| call.stdout());
-    let byte = match input::read_character(&handle, &call.dos.stdio().input).await {
+    let byte = match input::read_character(&handle).await {
         Ok(byte) => byte,
         Err(error) => return return_result(call, Err(error)),
     };
@@ -102,7 +102,7 @@ pub(super) async fn read_buffered(call: &mut DosContext<'_>) {
         Err(error) => return return_result(call, Err(error)),
     };
     let output = call.stdout();
-    let bytes = match read_line(&call.dos.stdio().input, &input, capacity[0], output).await {
+    let bytes = match read_line(&input, capacity[0], output).await {
         Ok(bytes) => bytes,
         Err(error) => return return_result(call, Err(error)),
     };

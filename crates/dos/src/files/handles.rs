@@ -3,9 +3,9 @@
 use super::{
     devices::DeviceHandle,
     file_handle::{FileHandle, SeekOrigin},
-    AccessMode, Device, FileSystem, Files,
+    AccessMode, FileSystem, Files,
 };
-use crate::{error::DosError, stdio::OutputStream};
+use crate::{devices::DeviceChain, error::DosError, stdio::OutputStream};
 use relocade_vfs::File;
 use std::rc::Rc;
 
@@ -19,22 +19,24 @@ pub(crate) enum Handle {
     Device(Rc<DeviceHandle>),
 }
 
-impl Default for Files {
-    fn default() -> Self {
+impl Files {
+    pub(crate) fn new(devices: DeviceChain) -> Self {
         let mut handles: [Option<Handle>; HANDLE_COUNT] = Default::default();
-        for (slot, device) in handles.iter_mut().zip([
-            Device::Console(OutputStream::Stdout),
-            Device::Console(OutputStream::Stdout),
-            Device::Console(OutputStream::Stderr),
-            Device::Auxiliary,
-            Device::Printer,
+        for (slot, (name, stream)) in handles.iter_mut().zip([
+            (b"CON", OutputStream::Stdout),
+            (b"CON", OutputStream::Stdout),
+            (b"CON", OutputStream::Stderr),
+            (b"AUX", OutputStream::Stdout),
+            (b"PRN", OutputStream::Stdout),
         ]) {
             *slot = Some(Handle::Device(Rc::new(DeviceHandle::new(
-                device,
+                devices.find(name).expect("standard DOS device"),
+                stream,
                 AccessMode::ReadWrite,
             ))));
         }
         Self {
+            devices,
             handles,
             search_directories: Vec::new(),
         }

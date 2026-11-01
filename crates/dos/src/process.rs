@@ -4,6 +4,7 @@ mod startup;
 pub(crate) use startup::{allocate, initial_cpu, COMMAND_TAIL_OFFSET, PSP_BYTES, PSP_PARAGRAPHS};
 
 use crate::{
+    devices::DeviceChain,
     files::{FileSystem, Files},
     memory, ServiceError,
 };
@@ -51,11 +52,11 @@ impl DiskTransferAddress {
 }
 
 impl Process {
-    pub(crate) fn new(psp_segment: u16) -> Self {
+    pub(crate) fn new(psp_segment: u16, devices: DeviceChain) -> Self {
         Self {
             psp_segment,
             state: RefCell::new(State::Active(Resources {
-                files: Files::default(),
+                files: Files::new(devices),
                 dta: DiskTransferAddress {
                     segment: psp_segment,
                     offset: COMMAND_TAIL_OFFSET,
