@@ -221,6 +221,24 @@ share that geometry. Valid pages fit the 32-KiB text aperture and the eight BIOS
 cursor records. This firmware bookkeeping does not control rendering; VGA
 scanout still follows its captured registers and memory.
 
+AH=12h/BL=34h enables legacy cursor emulation with AL=0 or disables it with
+AL=1, returning AL=12h. Other selections return AL=0 without changing state.
+The policy lives in BDA 487h bit 0, survives mode changes and affects subsequent
+AH=01h calls; changing the policy does not rewrite the current hardware cursor.
+AH=01h always stores the requested CX for AH=03h. With emulation enabled it
+translates legacy shapes to the BIOS font height before programming the CRTC:
+for example, 06h/07h becomes 0Dh/0Eh with a 16-high font. The font loader's native
+bottom cursor remains intact. The cursor module owns this policy, translation
+and CRTC writes.
+
+The enabled translation follows the IBM VGA ROM (x1EA9–x1F2E), including its
+range checks, reversed ranges and hidden-cursor representation. BDA 487h bit 3
+bypasses translation for an inactive adapter. Emulation remains disabled at
+startup, preserving raw VGA shapes. Disabled emulation also preserves the raw
+hide bits; this deliberately differs from IBM's unconditional normalization of
+CH bits 6:5 = 01b to the empty range 1Eh/00h. Rendering uses only the resulting
+CRTC registers, with no BIOS cursor policy in the renderer.
+
 BIOS AH=11h supports guest font loading (AL=00h/10h), built-in 8×14
 (01h/11h), 8×8 (02h/12h) and 8×16 (04h/14h) fonts, bank selection (03h), and
 font information (30h). Fonts are the CC0 [Modern DOS family](../bios/assets/README.md).
@@ -366,8 +384,8 @@ wraps at ES:FFFF. Unsupported BX values return AL=0 without changing the buffer.
 The report points to a guest-readable ROM capability table advertising only
 implemented modes and services. It reports two simultaneously visible font
 banks and eight total banks. Miscellaneous capability bits cover font loading,
-EGA/DAC palettes, grayscale summing, default palette loading, palette paging,
-blink and display combination; unsupported cursor emulation, light-pen, save/restore,
+EGA/DAC palettes, grayscale summing, default palette loading, cursor emulation,
+palette paging, blink and display combination; unsupported light-pen, save/restore,
 and save-pointer override services are not advertised. Reserved state fields
 remain zero. The BIOS information module owns this ABI encoding and reuses
 adapter metadata and page validation; it adds no device or renderer state.

@@ -14,10 +14,10 @@ const CAPABILITIES_POINTER: u32 = ((BIOS_SEGMENT as u32) << 16) | CAPABILITIES_O
 // 07h: 200-, 350- and 400-line text profiles.
 // 08h–09h: two simultaneously visible font banks, eight total banks.
 // 0Ah–0Bh: fonts, EGA/DAC palettes, grayscale summing, default palette loading,
-// palette paging, blink and display combination.
+// cursor emulation, palette paging, blink and display combination.
 // 0Ch–0Fh: reserved bytes and unsupported save-pointer override tables.
 const CAPABILITIES: [u8; 16] = [
-    0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xee, 0x0c, 0, 0, 0, 0,
+    0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xfe, 0x0c, 0, 0, 0, 0,
 ];
 
 pub(super) fn initialize(memory: &mut MemoryView<'_>) {

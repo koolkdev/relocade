@@ -73,7 +73,7 @@ fn functionality_report_has_the_ibm_layout_and_rom_capabilities() {
         context.memory.read(address, &mut capabilities).unwrap();
         assert_eq!(
             capabilities,
-            [0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xee, 0x0c, 0, 0, 0, 0]
+            [0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xfe, 0x0c, 0, 0, 0, 0]
         );
         assert_eq!(context.memory.read_u8(0x501ff).unwrap(), 0xa5);
         assert_eq!(context.memory.read_u8(0x50240).unwrap(), 0xa5);

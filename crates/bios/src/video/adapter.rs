@@ -29,7 +29,7 @@ const DISPLAY_COMBINATIONS: [[u8; 2]; 16] = [
 ];
 
 pub(super) fn initialize(memory: &mut MemoryView<'_>) {
-    // 256 KiB, color adapter, and raw cursor shapes (no CGA cursor emulation).
+    // 256 KiB, color adapter, and cursor emulation disabled by default.
     memory.write_u8(VIDEO_CONTROL, 0x61).expect("video control");
     memory.write_u8(VIDEO_SWITCHES, 0).expect("video switches");
     // All VGA modes are available regardless of the display description.

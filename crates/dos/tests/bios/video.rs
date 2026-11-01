@@ -1,3 +1,5 @@
+#[path = "video/cursor.rs"]
+mod cursor;
 #[path = "video/output.rs"]
 mod output;
 
