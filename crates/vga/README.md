@@ -227,9 +227,9 @@ The policy lives in BDA 487h bit 0, survives mode changes and affects subsequent
 AH=01h calls; changing the policy does not rewrite the current hardware cursor.
 AH=01h always stores the requested CX for AH=03h. With emulation enabled it
 translates legacy shapes to the BIOS font height before programming the CRTC:
-for example, 06h/07h becomes 0Dh/0Eh with a 16-high font. The font loader's native
-bottom cursor remains intact. The cursor module owns this policy, translation
-and CRTC writes.
+for example, 06h/07h becomes 0Dh/0Eh with a 16-high font. Font layout and mode
+setup program native shapes directly, bypassing legacy emulation even for custom
+font heights. The cursor module owns this policy, translation and CRTC writes.
 
 The enabled translation follows the IBM VGA ROM (x1EA9–x1F2E), including its
 range checks, reversed ranges and hidden-cursor representation. BDA 487h bit 3

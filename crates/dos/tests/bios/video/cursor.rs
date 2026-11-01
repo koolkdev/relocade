@@ -143,5 +143,15 @@ fn font_layout_keeps_its_native_cursor_when_emulation_is_enabled() {
             );
             assert_shape(&mut dos, 0x0607, emulated);
         }
+        // A zero-glyph custom load still applies the requested fifteen-high layout.
+        video(&mut dos, 0x1110, 0x0f00, 0, 0);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 15);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x460).unwrap(), 0x0d0e);
+        assert_eq!(
+            &dos.vga().borrow().snapshot().registers.crtc.values[0x0a..0x0c],
+            &[13, 14]
+        );
+        // The same shape supplied through AH=01h must still use IBM's translation.
+        assert_shape(&mut dos, 0x0d0e, 0x0c0d);
     });
 }

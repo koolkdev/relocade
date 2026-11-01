@@ -1,9 +1,10 @@
 //! Firmware mode transitions through the same ports and MMIO used by guests.
 use super::{
     crtc_port, fonts, graphics, palette, presets, write_crtc_word, write_indexed, ACTIVE_PAGE,
-    COLUMNS, CRTC_PORT, CURSORS, CURSOR_SHAPE, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET,
-    PAGE_SIZE, VIDEO_CONTROL, VIDEO_SWITCHES,
+    COLUMNS, CRTC_PORT, CURSORS, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET, PAGE_SIZE,
+    VIDEO_CONTROL, VIDEO_SWITCHES,
 };
+use crate::screen;
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
     registers::{crtc, sequencer, SEQUENCER_INDEX_PORT},
@@ -96,10 +97,7 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
     } else {
         0
     };
-    memory
-        .write_u16(CURSOR_SHAPE, shape)
-        .expect("video cursor shape");
-    write_crtc_word(io, crtc::CURSOR_START, shape);
+    screen::set_native_cursor_shape(memory, io, shape);
     write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, 0);
     write_crtc_word(io, crtc::START_ADDRESS_HIGH, 0);
     memory

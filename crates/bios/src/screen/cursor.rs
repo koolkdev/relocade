@@ -39,11 +39,8 @@ pub(crate) fn set_cursor_emulation(memory: &mut MemoryView<'_>, selection: u8) -
     true
 }
 
+/// Applies the BIOS emulation policy to an AH=01h cursor-shape request.
 pub(crate) fn set_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u16) {
-    // AH=03h reports the requested shape, even when hardware needs a translation.
-    memory
-        .write_u16(CURSOR_SHAPE, shape)
-        .expect("video cursor shape");
     let control = memory.read_u8(VIDEO_CONTROL).expect("video control");
     let hardware_shape = if control & (EMULATION_DISABLED | ADAPTER_INACTIVE) == 0 {
         let height = memory.read_u8(CHARACTER_HEIGHT).expect("font height");
@@ -52,6 +49,24 @@ pub(crate) fn set_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u
         // Preserve raw shapes, including hide and skew bits, when emulation is off.
         shape
     };
+    write_cursor_shape(memory, io, shape, hardware_shape);
+}
+
+/// Font layouts and mode presets already supply native scanline positions.
+pub(crate) fn set_native_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u16) {
+    write_cursor_shape(memory, io, shape, shape);
+}
+
+fn write_cursor_shape(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    stored_shape: u16,
+    hardware_shape: u16,
+) {
+    // AH=03h reports the requested shape, even when hardware needs a translation.
+    memory
+        .write_u16(CURSOR_SHAPE, stored_shape)
+        .expect("video cursor shape");
     write_crtc_word(io, crtc::CURSOR_START, hardware_shape);
 }
 

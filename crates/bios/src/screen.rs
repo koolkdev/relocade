@@ -9,6 +9,7 @@ pub use characters::write_text;
 pub(super) use characters::{read_cell, Output};
 pub(super) use cursor::{
     cursor_position, set_cursor_emulation, set_cursor_position, set_cursor_shape,
+    set_native_cursor_shape,
 };
 use geometry::Geometry;
 pub(super) use scroll::{Scroll, ScrollDirection, Window};
