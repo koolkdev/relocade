@@ -1,5 +1,6 @@
 mod address;
 mod control;
+mod interrupt;
 mod memory;
 mod mmx;
 mod operands;

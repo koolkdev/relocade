@@ -21,7 +21,11 @@ fn loads(frontend: Frontend) {
             &[Step {
                 cpu,
                 ram: &[],
-                exit: Exit::Dispatch(cpu.eip),
+                exit: if segment == Segment::Ss {
+                    Exit::Other(crate::ExecutionExit::InterruptInhibited)
+                } else {
+                    Exit::Dispatch(cpu.eip)
+                },
             }],
         );
     }
@@ -64,7 +68,7 @@ fn stack_and_pointers(frontend: Frontend) {
         &[Step {
             cpu,
             ram: &[],
-            exit: Exit::Dispatch(cpu.eip),
+            exit: Exit::Other(crate::ExecutionExit::InterruptInhibited),
         }],
     );
 
