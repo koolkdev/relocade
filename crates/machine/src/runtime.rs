@@ -55,11 +55,11 @@ pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
+use hooks::Services;
 pub use hooks::{Hook, HookResult};
 use machine::Machine;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
-use std::collections::HashMap;
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
@@ -83,7 +83,7 @@ impl Cpu {
             bindings,
             io,
             dispatch,
-            hooks: HashMap::new(),
+            services: Services::default(),
         };
         Ok(Self {
             pending: None,
@@ -116,7 +116,7 @@ impl Cpu {
             .install(&mut machine.backend, &machine.bindings, &module, entries)
             .await?;
         for entry in entries {
-            machine.hooks.remove(&entry.address);
+            machine.services.remove(entry.address);
         }
         Ok(())
     }

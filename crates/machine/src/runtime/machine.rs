@@ -1,16 +1,15 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{hooks::Handler, Backend, CpuContext, Dispatch, RuntimeMemory};
+use super::{hooks::Services, Backend, CpuContext, Dispatch, RuntimeMemory};
 use crate::IoBus;
 use relocade_x86::ExecutionExit;
-use std::{collections::HashMap, rc::Rc};
 
 pub(super) struct Machine {
     pub backend: Backend,
     pub bindings: RuntimeMemory,
     pub io: IoBus,
     pub dispatch: Dispatch,
-    pub hooks: HashMap<u32, Rc<dyn Handler>>,
+    pub services: Services,
 }
 
 impl Machine {
