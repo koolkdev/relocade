@@ -59,6 +59,11 @@ impl Hook {
     /// on abandonment; they must not restore an old invocation's CPU state into the
     /// currently executing guest or another call.
     ///
+    /// Before suspending with live IF enabled, establish a guest continuation that
+    /// emits `HostExit::Resume`: IRQ entry saves the live CS:IP, and resumption polls
+    /// the retained future without restoring CPU state. Interrupt adapters establish
+    /// that position before invoking the handler. Raw hooks own their continuation.
+    ///
     /// Normal completion continues guest execution at the live CPU position.
     /// Interrupt/ABI return conventions belong to the handler's environment;
     /// [`super::real_mode_interrupt::hook`] applies the interrupt return convention.
