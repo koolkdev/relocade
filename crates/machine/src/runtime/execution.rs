@@ -1,11 +1,13 @@
 //! The driver alternates guest execution with polling retained host services.
 
-use super::{
-    call::{Call, CallPoll},
-    Cpu, HookResult,
-};
+use super::{call::Call, Cpu};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::{future::poll_fn, task::Poll};
+
+pub(super) struct Frame {
+    service_id: u32,
+    call: Call,
+}
 
 impl Cpu {
     /// Runs until the instruction budget is consumed or the guest exits,
@@ -16,35 +18,71 @@ impl Cpu {
     /// Waits do not replenish this run's budget. Dropping its waiter preserves
     /// the pending service and its locals. A subsequent run resumes that service
     /// and supplies a new budget for continued guest execution. A zero budget
-    /// returns `BudgetExhausted` without entering Wasm or polling pending work.
+    /// returns `BudgetExhausted` without entering Wasm, polling pending work or
+    /// consuming a stop request. Stop requests are observed at poll entry and
+    /// after guest/host execution, before selecting another continuation.
     /// Dropping the CPU drops the suspended call chain and its machine together.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         if instruction_budget == 0 {
             return ExecutionExit::BudgetExhausted;
         }
+        let stop = self.stop.clone();
+        let _waiter = stop.waiter();
         // A replacement waiter supplies its budget after the retained call
         // completes. Re-polling this same waiter never replenishes the budget.
         let mut budget = Some(instruction_budget);
-        poll_fn(|cx| loop {
-            let machine = &mut self.machine;
-            let polled = if let Some(call) = self.pending.take() {
-                call.poll(cx)
-            } else {
-                let exit = machine.dispatch(budget.take());
-                let ExecutionExit::Host(HostExit::Call { service_id }) = exit else {
-                    return Poll::Ready(exit);
+        let exit = poll_fn(|cx| {
+            if stop.requested() {
+                return Poll::Ready(ExecutionExit::Host(HostExit::Return));
+            }
+            loop {
+                let machine = &mut self.machine;
+                let (service_id, polled) = if let Some(frame) = self.pending.take() {
+                    (frame.service_id, frame.call.poll(cx))
+                } else {
+                    let exit = machine.dispatch(budget.take());
+                    if stop.requested() {
+                        return Poll::Ready(ExecutionExit::Host(HostExit::Return));
+                    }
+                    let ExecutionExit::Host(HostExit::Call { service_id }) = exit else {
+                        return Poll::Ready(exit);
+                    };
+                    (
+                        service_id,
+                        Call::start(&machine.services.get(service_id).handler, cx),
+                    )
                 };
-                Call::start(machine.services.handler(service_id), cx)
-            };
-            match polled {
-                CallPoll::Ready(HookResult::Continue) => {}
-                CallPoll::Ready(HookResult::Exit(exit)) => return Poll::Ready(exit),
-                CallPoll::Pending(call) => {
-                    self.pending = Some(call);
-                    return Poll::Pending;
+                if stop.requested() {
+                    // A newly pending call is still local. Drop it before the
+                    // driver releases any older suspended work.
+                    drop(polled);
+                    return Poll::Ready(ExecutionExit::Host(HostExit::Return));
+                }
+                match polled {
+                    None => {
+                        if let Some(code) = machine.services.get(service_id).continuations {
+                            if let Err(exception) = machine.bindings.cpu.continue_at(code.complete)
+                            {
+                                return Poll::Ready(ExecutionExit::Exception(exception));
+                            }
+                        }
+                    }
+                    Some(call) => {
+                        self.pending = Some(Frame { service_id, call });
+                        stop.register(cx.waker());
+                        if stop.requested() {
+                            return Poll::Ready(ExecutionExit::Host(HostExit::Return));
+                        }
+                        return Poll::Pending;
+                    }
                 }
             }
         })
-        .await
+        .await;
+        if exit == ExecutionExit::Host(HostExit::Return) {
+            self.pending.take();
+            stop.clear();
+        }
+        exit
     }
 }

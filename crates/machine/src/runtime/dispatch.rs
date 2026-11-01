@@ -33,7 +33,7 @@ impl Dispatch {
         let target = bindings.configuration().execution_target();
         let module = code::dispatcher(backend, target).await?;
         // Link the dispatcher first; the interpreter imports its entry points.
-        let dispatch = Self::link_dispatcher(backend, bindings, &module, host_imports).await?;
+        let mut dispatch = Self::link_dispatcher(backend, bindings, &module, host_imports).await?;
         let module = code::interpreter(backend, target).await?;
         let instance = dispatch.instantiate(backend, bindings, &module).await?;
         dispatch.table.install_interpreter(backend, &instance)?;
@@ -68,9 +68,10 @@ impl Dispatch {
         bindings: &RuntimeMemory,
         module: &Module,
         entries: &[DispatchEntry<'_>],
+        removed: &[u32],
     ) -> Result<()> {
         let instance = self.instantiate(backend, bindings, module).await?;
-        self.table.install(backend, &instance, entries)
+        self.table.install(backend, &instance, entries, removed)
     }
 
     async fn instantiate(

@@ -4,13 +4,13 @@ use super::{buffer_addresses, input_status_1_port, modes, unsupported, MODE};
 pub(super) use compatibility::{
     initialize as initialize_compatibility, interrupt as compatibility,
 };
-use relocade_machine::{real_mode_interrupt, HookResult, IoBus};
+use relocade_machine::IoBus;
 use relocade_vga::registers::{
     attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
     DAC_READ_ADDRESS_PORT, DAC_WRITE_ADDRESS_PORT,
 };
 
-pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
+pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
     let function = call.cpu.al();
     let bl = call.cpu.bl();
     let bh = call.cpu.bh();
@@ -104,7 +104,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
                     };
                     write_attribute(io, attribute::COLOR_SELECT, page);
                 }
-                _ => return unsupported(call),
+                _ => unsupported(call),
             }
         }
         0x18 => io.write_port(DAC_MASK_PORT, 1, u32::from(bl)),
@@ -115,9 +115,8 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
             call.cpu.set_bl(mode);
             call.cpu.set_bh(if mode == 0 { page >> 2 } else { page });
         }
-        _ => return unsupported(call),
+        _ => unsupported(call),
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }
 
 fn select_attribute(io: &IoBus, address: u8) {

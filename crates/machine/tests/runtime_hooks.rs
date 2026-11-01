@@ -1,10 +1,9 @@
 mod support;
 
-use relocade_compiler::Program;
-use relocade_machine::{real_mode_interrupt, DispatchEntry, Hook, HookResult};
+use relocade_machine::{real_mode_interrupt, Hook};
 use relocade_x86::{
-    abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
-    PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
+    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
+    PhysicalMemoryMap, Segment, Segments,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -58,7 +57,7 @@ async fn check_interrupt_hooks() {
     let observed = calls.clone();
     runtime
         .install_hooks([
-            Hook::new(0x10020, {
+            real_mode_interrupt::hook(0x10020, {
                 let resources = runtime.memory();
                 let cpu = runtime.cpu_state();
                 async move || {
@@ -79,25 +78,11 @@ async fn check_interrupt_hooks() {
                     assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
                     assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
                     real_mode_interrupt::set_carry(&cpu, &mut memory, false);
-                    real_mode_interrupt::return_from_interrupt(&cpu)
                 }
             }),
-            Hook::new(0x400, async move || {
-                HookResult::Exit(ExecutionExit::Host(HostExit::Return))
-            }),
-            Hook::new(0x401, async move || {
-                HookResult::Exit(ExecutionExit::Exception(
-                    relocade_x86::Exception::PageFault {
-                        linear_address: 0xfedc_ba98,
-                        error_code: 0xdead_beef,
-                    },
-                ))
-            }),
-            Hook::new(0x402, async move || {
-                HookResult::Exit(ExecutionExit::UnsupportedInstruction {
-                    eip: 0x89ab_cdef,
-                    opcode: 0xf3,
-                })
+            Hook::new(0x400, {
+                let stop = runtime.stop_handle();
+                async move || stop.stop()
             }),
         ])
         .await
@@ -128,28 +113,10 @@ async fn check_interrupt_hooks() {
     assert_eq!(runtime.context().cpu.sp(), 0xff00);
     assert_eq!(runtime.context().cpu.instruction_count(), 14);
 
-    for (address, expected) in [
-        (0x400, ExecutionExit::Host(HostExit::Return)),
-        (
-            0x401,
-            ExecutionExit::Exception(relocade_x86::Exception::PageFault {
-                linear_address: 0xfedc_ba98,
-                error_code: 0xdead_beef,
-            }),
-        ),
-        (
-            0x402,
-            ExecutionExit::UnsupportedInstruction {
-                eip: 0x89ab_cdef,
-                opcode: 0xf3,
-            },
-        ),
-    ] {
-        runtime.context().cpu.set_eip(address);
-        assert_eq!(runtime.run(1).await, expected);
-        assert_eq!(runtime.context().cpu.instruction_count(), 14);
-        assert_eq!(runtime.context().cpu.eip(), address);
-    }
+    runtime.context().cpu.set_eip(0x400);
+    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runtime.context().cpu.instruction_count(), 14);
+    assert_eq!(runtime.context().cpu.eip(), 0x400);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -229,7 +196,6 @@ async fn check_mapped_hook_access() {
             memory.write(0x1024, &value.to_le_bytes()).unwrap();
             memory.write_u8(0x20, 0xff).unwrap();
             observed.set(observed.get() + 1);
-            HookResult::Continue
         }
     })])
     .await
@@ -263,151 +229,5 @@ async fn hooks_edit_published_cpu_and_mapped_memory_during_runs() {
     check_mapped_hook_access().await;
 }
 
-async fn check_hook_replacement() {
-    let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
-        CpuState {
-            eip: 0x400,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
-        },
-        0x10000,
-        PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
-    )
-    .unwrap();
-    let mut runtime = support::create_cpu(config).await.unwrap();
-    runtime
-        .context()
-        .memory
-        .write(0x100, &[0x43, 0xe9, 0xfc, 2])
-        .unwrap(); // INC BX; JMP 0400
-    let first = Rc::new(Cell::new(0));
-    let second = Rc::new(Cell::new(0));
-    let released = Rc::downgrade(&first);
-    let calls = Rc::clone(&second);
-    runtime
-        .install_hooks([
-            Hook::new(0x400, {
-                let cpu = runtime.cpu_state();
-                async move || {
-                    first.set(first.get() + 1);
-                    cpu.set_ax(first.get());
-                    cpu.set_eip(0x401);
-                    HookResult::Continue
-                }
-            }),
-            Hook::new(0x401, {
-                let cpu = runtime.cpu_state();
-                async move || {
-                    calls.set(calls.get() + 1);
-                    cpu.set_eip(0x100);
-                    HookResult::Continue
-                }
-            }),
-        ])
-        .await
-        .unwrap();
-    // Both hooks consume no instructions. Reentering Wasm retains one target.
-    assert_eq!(runtime.run(3).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.context().cpu.instruction_count(), 4);
-    assert_eq!(runtime.context().cpu.ax(), 2);
-    assert_eq!(runtime.context().cpu.bx(), 2);
-    assert_eq!(second.get(), 2);
-    runtime
-        .install_hooks([Hook::new(0x400, {
-            let cpu = runtime.cpu_state();
-            async move || {
-                cpu.set_ax(50);
-                cpu.set_eip(0x401);
-                HookResult::Continue
-            }
-        })])
-        .await
-        .unwrap();
-    assert!(released.upgrade().is_none());
-    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(runtime.context().cpu.ax(), 50);
-    assert_eq!(second.get(), 3);
-
-    let mut program = Program::new();
-    let entry = program.function::<abi::ExecutionSignature>(|body, ()| {
-        body.return_(ExecutionExitValues::host(HostExit::Return))
-    });
-    program.export("entry", entry).unwrap();
-    let bytes = program.compile().unwrap();
-    // An unresolved later export preserves both the hook and its captured state.
-    assert!(runtime
-        .install_module(
-            &bytes,
-            &[
-                DispatchEntry {
-                    address: 0x401,
-                    export: "entry"
-                },
-                DispatchEntry {
-                    address: 0x402,
-                    export: "missing"
-                },
-            ]
-        )
-        .await
-        .is_err());
-    runtime.context().cpu.set_eip(0x401);
-    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(second.get(), 4);
-    assert_eq!(Rc::strong_count(&second), 2);
-    runtime
-        .install_module(
-            &bytes,
-            &[DispatchEntry {
-                address: 0x401,
-                export: "entry",
-            }],
-        )
-        .await
-        .unwrap();
-    assert_eq!(Rc::strong_count(&second), 1);
-    runtime.context().cpu.set_eip(0x401);
-    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
-    assert_eq!(second.get(), 4);
-    // Reinstalling after a module replacement routes to the new service.
-    // Duplicate addresses in one batch publish the last registration and release
-    // the unused capture, without disturbing any other service.
-    for address in [0x401, 0x700] {
-        let unused = Rc::new(());
-        let released = Rc::downgrade(&unused);
-        let unused_cpu = runtime.cpu_state();
-        let cpu = runtime.cpu_state();
-        runtime
-            .install_hooks([
-                Hook::new(address, async move || {
-                    let _borrow = &unused;
-                    unused_cpu.set_ax(100);
-                    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
-                }),
-                Hook::new(address, async move || {
-                    cpu.set_ax(75);
-                    HookResult::Exit(ExecutionExit::Host(HostExit::Return))
-                }),
-            ])
-            .await
-            .unwrap();
-        assert!(released.upgrade().is_none());
-        runtime.context().cpu.set_eip(address);
-        assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
-        assert_eq!(runtime.context().cpu.ax(), 75);
-        assert_eq!(second.get(), 4);
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
-    pollster::block_on(check_hook_replacement());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
-    check_hook_replacement().await;
-}
+#[path = "runtime_hooks/registration.rs"]
+mod registration;

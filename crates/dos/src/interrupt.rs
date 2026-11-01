@@ -6,8 +6,7 @@ use crate::{
     state::DosState,
     ServiceError,
 };
-use relocade_machine::{real_mode_interrupt, CpuStateAccess, Hook, HookResult, MemoryView};
-use relocade_x86::{ExecutionExit, HostExit};
+use relocade_machine::{real_mode_interrupt, CpuStateAccess, Hook, MemoryView};
 use std::rc::Rc;
 
 /// One CPU invocation bound to its process and shared DOS resources.
@@ -32,20 +31,20 @@ impl<'call> DosContext<'call> {
             .output(self.process.files().writable_handle(1))
     }
 
-    /// Terminates the process and returns from DOS execution.
-    pub(crate) fn exit(&mut self, status: Result<u8, ServiceError>) -> HookResult {
+    /// Records process termination and stops execution after this host poll.
+    pub(crate) fn exit(&mut self, status: Result<u8, ServiceError>) {
         self.process
             .terminate(status, &mut self.memory, &mut self.dos.filesystem());
-        HookResult::Exit(ExecutionExit::Host(HostExit::Return))
+        self.dos.stop();
     }
 }
 
 /// Captures the session and resolves its active process at each hook entry.
 pub(crate) fn hook<F>(address: u32, cpu: CpuStateAccess, session: Rc<DosState>, handler: F) -> Hook
 where
-    F: AsyncFn(&mut DosContext<'_>) -> HookResult + 'static,
+    F: AsyncFn(&mut DosContext<'_>) + 'static,
 {
-    Hook::new(address, async move || {
+    real_mode_interrupt::hook(address, async move || {
         let process = session.process().expect("DOS hook requires a process");
         assert_eq!(
             process.status(),
@@ -63,7 +62,7 @@ where
 }
 
 /// Returns a DOS result through the interrupt frame, preserving other flags.
-pub(crate) fn return_result(call: &mut DosContext<'_>, result: Result<(), DosError>) -> HookResult {
+pub(crate) fn return_result(call: &mut DosContext<'_>, result: Result<(), DosError>) {
     if let Err(error) = result {
         call.cpu.set_ax(error.code());
         if let DosError::InsufficientMemory { available } = error {
@@ -71,7 +70,6 @@ pub(crate) fn return_result(call: &mut DosContext<'_>, result: Result<(), DosErr
         }
     }
     real_mode_interrupt::set_carry(call.cpu, &mut call.memory, result.is_err());
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

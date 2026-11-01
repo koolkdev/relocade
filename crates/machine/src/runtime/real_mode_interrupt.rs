@@ -1,16 +1,29 @@
 //! Helpers for hooks entered through a 16-bit real-mode interrupt frame.
 //!
-//! Place [`HOOK_STUB`] in guest memory and install a hook at its first byte.
-//! A returning handler uses [`return_from_interrupt`] to resume at the guest
+//! Place [`HOOK_STUB`] in guest memory and register it with [`hook`].
+//! A returning handler automatically continues at the guest
 //! IRET, which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
 
-use super::HookResult;
+use super::Hook;
 use crate::{CpuStateAccess, MemoryView};
 use relocade_x86::Segment;
 
-/// NOP reserves the hook entry; IRET performs the interrupt return in the guest.
-pub const HOOK_STUB: [u8; 2] = [0x90, 0xcf];
+/// Entry NOP, completion IRET, then resume NOP in an existing service stub.
+/// Only entry and resume are intercepted; completion executes the guest IRET.
+pub const HOOK_STUB: [u8; 3] = [0x90, 0xcf, 0x90];
+
+/// Registers the service's positions in [`HOOK_STUB`]. Normal handler completion
+/// executes IRET; a [`super::StopHandle`] request returns from execution instead.
+pub fn hook<F>(address: u32, handler: F) -> Hook
+where
+    F: AsyncFn() + 'static,
+{
+    Hook::new(address, handler).with_continuations(
+        address.checked_add(2).expect("stub address"),
+        address.checked_add(1).expect("stub address"),
+    )
+}
 
 /// Changes carry in the saved FLAGS, preserving every other flag.
 /// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
@@ -35,13 +48,4 @@ fn set_flag(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, mask: u8, value: 
     memory
         .write(address, &flags)
         .expect("real-mode interrupt frame");
-}
-
-/// Resumes at the IRET in [`HOOK_STUB`], preserving the interrupt frame.
-/// The current CS:IP must point to the stub's hook entry.
-#[inline]
-pub fn return_from_interrupt(cpu: &CpuStateAccess) -> HookResult {
-    let iret_ip = (cpu.eip() as u16).wrapping_add(1);
-    cpu.set_eip(u32::from(iret_ip));
-    HookResult::Continue
 }

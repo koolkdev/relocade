@@ -48,25 +48,29 @@ mod io;
 mod machine;
 mod memory;
 pub mod real_mode_interrupt;
+mod services;
+mod stop;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
-use call::Call;
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
-use hooks::Services;
-pub use hooks::{Hook, HookResult};
+use execution::Frame;
+pub use hooks::Hook;
 use machine::Machine;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
+use services::Services;
+pub use stop::StopHandle;
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu {
-    pending: Option<Call>,
+    pending: Option<Frame>,
     machine: Machine,
+    stop: StopHandle,
 }
 
 impl Cpu {
@@ -88,6 +92,7 @@ impl Cpu {
         Ok(Self {
             pending: None,
             machine,
+            stop: StopHandle::new(),
         })
     }
 
@@ -111,13 +116,20 @@ impl Cpu {
         let machine = self.machine_mut();
         let compiler = machine.backend.compiler();
         let module = compiler.compile(bytes).await?;
+        let removed = machine
+            .services
+            .replaced_addresses(entries.iter().map(|entry| entry.address));
         machine
             .dispatch
-            .install(&mut machine.backend, &machine.bindings, &module, entries)
+            .install(
+                &mut machine.backend,
+                &machine.bindings,
+                &module,
+                entries,
+                &removed,
+            )
             .await?;
-        for entry in entries {
-            machine.services.remove(entry.address);
-        }
+        machine.services.remove(&removed);
         Ok(())
     }
 
@@ -142,6 +154,12 @@ impl Cpu {
     /// Capture this once when registering a service, like memory and I/O handles.
     pub fn cpu_state(&self) -> CpuStateAccess {
         self.machine.bindings.cpu.clone()
+    }
+
+    /// Retains a stop request independently of the CPU. Capture it in host
+    /// services that terminate execution, or use it to wake and stop a pending run.
+    pub fn stop_handle(&self) -> StopHandle {
+        self.stop.clone()
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.

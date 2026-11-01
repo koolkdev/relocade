@@ -1,7 +1,7 @@
 use super::DispatchEntry;
 use crate::Result;
 use relocade_compiler::abi::Function;
-use relocade_wasm_runtime::{ExportFunction, Import};
+use relocade_wasm_runtime::{ExportFunction, Function as BoundFunction, Import};
 use relocade_x86::{abi, EntryTable};
 
 /// Owns the guest-address map and Wasm function table for one CPU.
@@ -11,6 +11,8 @@ pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     addresses: EntryTable,
     next_slot: u32,
     capacity: u32,
+    free_slots: Vec<u32>,
+    interpreter: Option<BoundFunction<B, abi::ExecutionSignature>>,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
@@ -24,6 +26,8 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             addresses,
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
+            free_slots: Vec::new(),
+            interpreter: None,
         })
     }
 
@@ -38,12 +42,13 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     }
 
     pub(super) fn install_interpreter(
-        &self,
+        &mut self,
         backend: &mut B,
         instance: &B::Instance,
     ) -> Result<()> {
         let function = backend.function(instance, abi::RUN)?;
         backend.set_table_function(&self.functions, EntryTable::INTERPRETER_SLOT, &function)?;
+        self.interpreter = Some(function);
         Ok(())
     }
 
@@ -52,23 +57,41 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         backend: &mut B,
         instance: &B::Instance,
         entries: &[DispatchEntry<'_>],
+        removed: &[u32],
     ) -> Result<()> {
         // Resolve every export before changing existing callable slots.
         let mut addresses = self.addresses.clone();
+        for &address in removed {
+            addresses.remove(address);
+        }
         let mut next_slot = self.next_slot;
+        let mut free_slots = self.free_slots.clone();
+        for &address in removed {
+            if !entries.iter().any(|entry| entry.address == address) {
+                if let Some(slot) = self.addresses.get(address) {
+                    free_slots.push(slot);
+                }
+            }
+        }
         let mut functions = Vec::with_capacity(entries.len());
         for entry in entries {
             let function = backend.function(
                 instance,
                 Function::<abi::ExecutionSignature>::new("", entry.export),
             )?;
-            let slot = addresses.get(entry.address).unwrap_or_else(|| {
-                let slot = next_slot;
-                next_slot = next_slot
-                    .checked_add(1)
-                    .expect("Wasm function table capacity");
-                slot
-            });
+            let slot = addresses
+                .get(entry.address)
+                .or_else(|| self.addresses.get(entry.address))
+                .unwrap_or_else(|| {
+                    if let Some(slot) = free_slots.pop() {
+                        return slot;
+                    }
+                    let slot = next_slot;
+                    next_slot = next_slot
+                        .checked_add(1)
+                        .expect("Wasm function table capacity");
+                    slot
+                });
             addresses.insert(entry.address, slot);
             functions.push((slot, function));
         }
@@ -80,6 +103,15 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             self.capacity = capacity;
         }
         backend.ensure_memory_size(&self.memory, bytes.len() as u64)?;
+        // Removed positions must not retain unreachable Wasm functions/modules.
+        // Free slots are reused by subsequent registrations.
+        for &slot in &free_slots {
+            backend.set_table_function(
+                &self.functions,
+                slot,
+                self.interpreter.as_ref().expect("installed interpreter"),
+            )?;
+        }
         for (slot, function) in functions {
             backend.set_table_function(&self.functions, slot, &function)?;
         }
@@ -87,6 +119,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         backend.memory(&self.memory).write(0, &bytes);
         self.addresses = addresses;
         self.next_slot = next_slot;
+        self.free_slots = free_slots;
         Ok(())
     }
 }

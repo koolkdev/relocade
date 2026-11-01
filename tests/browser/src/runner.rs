@@ -1,7 +1,6 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    Clock, Cpu, CpuConfig, Device, ExecutionWorker, Hook, HookResult, IoBus, MachineConfig, Memory,
-    TimerHandle,
+    Clock, Cpu, CpuConfig, Device, ExecutionWorker, Hook, IoBus, MachineConfig, Memory, TimerHandle,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -123,7 +122,6 @@ pub async fn runner_workers() -> Result<(), String> {
                         memory.write_u16(0x300, 2).unwrap();
                         pending::<()>().await;
                         memory.write_u16(0x300, 3).unwrap();
-                        HookResult::Continue
                     }
                 })])
                 .await

@@ -27,7 +27,7 @@ mod screen;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::{real_mode_interrupt, Hook, HookResult};
+use relocade_machine::{real_mode_interrupt, Hook};
 use relocade_machine::{CpuStateAccess, IoBus, MemoryBus, MemoryView};
 pub use screen::write_text;
 
@@ -89,9 +89,9 @@ struct BiosContext<'call> {
 
 fn hook<F>(address: u32, cpu: CpuStateAccess, memory: MemoryBus, handler: F) -> Hook
 where
-    F: AsyncFn(&mut BiosContext<'_>) -> HookResult + 'static,
+    F: AsyncFn(&mut BiosContext<'_>) + 'static,
 {
-    Hook::new(address, async move || {
+    real_mode_interrupt::hook(address, async move || {
         handler(&mut BiosContext {
             cpu: &cpu,
             memory: memory.view(),
@@ -101,7 +101,7 @@ where
     })
 }
 
-async fn clock(call: &mut crate::BiosContext<'_>) -> HookResult {
+async fn clock(call: &mut crate::BiosContext<'_>) {
     if call.cpu.ah() == 0 {
         let mut data = [0; 5];
         call.memory
@@ -119,5 +119,4 @@ async fn clock(call: &mut crate::BiosContext<'_>) -> HookResult {
         call.cpu.set_ah(0x86);
         real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
     }
-    real_mode_interrupt::return_from_interrupt(call.cpu)
 }

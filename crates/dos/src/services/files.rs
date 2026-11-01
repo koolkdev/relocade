@@ -5,7 +5,6 @@ use crate::{
     interrupt::{return_result, DosContext},
     path::MAX_PATH_BYTES,
 };
-use relocade_machine::HookResult;
 use relocade_x86::Segment;
 
 mod io;
@@ -13,12 +12,12 @@ mod transfer;
 pub(super) use io::{read, write};
 
 /// AH=71h: report that long-filename services are absent so callers can use 8.3.
-pub(super) fn long_filename(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn long_filename(call: &mut DosContext<'_>) {
     return_result(call, Err(DosError::LongFilenameNotSupported))
 }
 
 /// AH=43h: query (AL=0) or set (AL=1) DS:DX's attributes through CX.
-pub(super) fn attributes(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn attributes(call: &mut DosContext<'_>) {
     let operation = call.cpu.al();
     if operation > 1 {
         return return_result(call, Err(DosError::InvalidFunction));
@@ -34,7 +33,7 @@ pub(super) fn attributes(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=41h: delete the file at DS:DX, subject to DOS attributes and sharing.
-pub(super) fn delete(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn delete(call: &mut DosContext<'_>) {
     let result = read_path(call).and_then(|path| {
         call.process
             .files()
@@ -44,7 +43,7 @@ pub(super) fn delete(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=56h: rename DS:DX's file to ES:DI's path on the same drive.
-pub(super) fn rename(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn rename(call: &mut DosContext<'_>) {
     let offset = call.cpu.di();
     let result = read_path(call).and_then(|from| {
         let to = read_path_at(call, Segment::Es, offset)?;
@@ -56,7 +55,7 @@ pub(super) fn rename(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=3Ch/5Bh: create DS:DX with CX's attributes using the requested mode; return AX.
-pub(super) fn create(call: &mut DosContext<'_>, mode: CreateMode) -> HookResult {
+pub(super) fn create(call: &mut DosContext<'_>, mode: CreateMode) {
     let attributes = call.cpu.cx();
     let result = read_path(call).and_then(|path| {
         call.process
@@ -68,7 +67,7 @@ pub(super) fn create(call: &mut DosContext<'_>, mode: CreateMode) -> HookResult 
 }
 
 /// AH=5Ah: create a temporary file in DS:DX's directory and return its path and AX.
-pub(super) fn create_temporary(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn create_temporary(call: &mut DosContext<'_>) {
     let attributes = call.cpu.cx();
     let result = read_path(call).and_then(|mut path| {
         let handle = call.process.files().create_temporary(
@@ -88,7 +87,7 @@ pub(super) fn create_temporary(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=3Dh: open the NUL-terminated path at DS:DX using AL's access mode.
-pub(super) fn open(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn open(call: &mut DosContext<'_>) {
     let mode = call.cpu.al();
     let result = read_path(call).and_then(|path| {
         call.process
@@ -100,7 +99,7 @@ pub(super) fn open(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=3Eh: close BX's file handle.
-pub(super) fn close(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn close(call: &mut DosContext<'_>) {
     let handle = call.cpu.bx();
     let result = call
         .process
@@ -110,7 +109,7 @@ pub(super) fn close(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=68h/6Ah: commit BX's handle without closing it or moving its cursor.
-pub(super) fn commit(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn commit(call: &mut DosContext<'_>) {
     let handle = call.cpu.bx();
     let result = call
         .process
@@ -121,7 +120,7 @@ pub(super) fn commit(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=45h: duplicate BX's open handle into the lowest free slot; return AX.
-pub(super) fn duplicate(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn duplicate(call: &mut DosContext<'_>) {
     let source = call.cpu.bx();
     let result = call
         .process
@@ -132,7 +131,7 @@ pub(super) fn duplicate(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=46h: replace CX's handle with a duplicate of BX, sharing its file position.
-pub(super) fn force_duplicate(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn force_duplicate(call: &mut DosContext<'_>) {
     let source = call.cpu.bx();
     let destination = call.cpu.cx();
     let result =
@@ -143,7 +142,7 @@ pub(super) fn force_duplicate(call: &mut DosContext<'_>) -> HookResult {
 }
 
 /// AH=42h: seek BX by CX:DX from AL's origin; return DX:AX.
-pub(super) fn seek(call: &mut DosContext<'_>) -> HookResult {
+pub(super) fn seek(call: &mut DosContext<'_>) {
     let cpu = call.cpu;
     let handle = cpu.bx();
     let origin = cpu.al();

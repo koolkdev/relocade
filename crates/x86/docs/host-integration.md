@@ -1075,12 +1075,24 @@ dispatch after a hook retains the original instruction target; hooks do not
 retire guest instructions. An ID without a registered handler is a
 programming error.
 
+Services may also register a distinct, payload-free `HostExit::Resume` entry
+inside their environment-owned guest stub. The execution stack identifies the
+suspended invocation; the entry does not create another call. The generic runtime
+reserves no guest address.
+Replacing either registered position removes the pair. Completion remains
+ordinary guest code, such as the IRET in a BIOS/DOS stub.
+
 `HostExit::Return` requests a return to the embedding. The runtime awaits a
 service's future after the guest call returns; pending work has no guest
-execution exit. Hook continuation is a separate `HookResult::Continue` variant;
-`HookResult::Exit` carries an execution outcome. Async handlers use this
-Rust-only type and must not return `HostExit::Call`, which is reserved for
-generated entries. The runner owns pinned futures until completion or CPU drop,
+execution exit. A returned host future selects the registered completion address
+through the live CS alias and validates its limit. A bare hook uses the live CPU
+continuation set by its handler. Handlers return `()`; a captured `StopHandle`
+requests a driver return before completion or further guest execution. DOS owns
+its process result separately. Stop wakes a pending run, survives waiter replacement
+and is consumed when the driver returns `HostExit::Return`. Zero-budget runs leave
+it pending. Synchronous guest and host code are not preempted. `HostExit::Call`
+and `HostExit::Resume` remain reserved for generated entries. Ready handlers require no resume-position
+preparation. The runner owns pinned futures until completion or CPU drop,
 even when a run waiter is dropped. Handler captures and futures may be local to
 the CPU's thread and need not be `Send` or `Sync`.
 
