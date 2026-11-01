@@ -15,12 +15,12 @@ pub(super) use planar::{
 };
 pub(super) use text::{TEXT_200, TEXT_350, TEXT_400, TEXT_40_200, TEXT_40_350, TEXT_40_400};
 
-use super::{crtc_port, input_status_1_port, write_indexed};
+use super::{crtc_port, input_status_1_port, palette::PaletteLoad, write_indexed};
 use crtc::CrtcPreset;
 use relocade_machine::IoBus;
 use relocade_vga::registers::{
-    attribute, sequencer, ATTRIBUTE_ADDRESS_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
-    DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT, MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
+    attribute, sequencer, ATTRIBUTE_ADDRESS_PORT, DAC_MASK_PORT, GRAPHICS_INDEX_PORT,
+    MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
 };
 
 pub(super) struct Preset {
@@ -39,7 +39,7 @@ pub(super) struct Preset {
 }
 
 impl Preset {
-    pub(super) fn program(&self, io: &IoBus) {
+    pub(super) fn program(&self, io: &IoBus, palette: PaletteLoad) {
         io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(self.miscellaneous));
         for &(register, value) in self.sequencer {
             if register != sequencer::RESET {
@@ -51,25 +51,26 @@ impl Preset {
         }
         self.crtc.program(io, crtc_port(io));
         io.read_port(input_status_1_port(io), 1);
-        for (index, value) in self.attribute_palette.into_iter().enumerate() {
-            io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, index as u32);
-            io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
+        if palette.loads_colors() {
+            for (index, value) in self.attribute_palette.into_iter().enumerate() {
+                io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, index as u32);
+                io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
+            }
         }
         for &(register, value) in self.attribute {
-            io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(register));
-            io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
+            if register != attribute::OVERSCAN_COLOR || palette.loads_colors() {
+                io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(register));
+                io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
+            }
         }
         io.write_port(
             ATTRIBUTE_ADDRESS_PORT,
             1,
             u32::from(attribute::PALETTE_ADDRESS_SOURCE),
         );
-        io.write_port(DAC_MASK_PORT, 1, 0xff);
-        io.write_port(DAC_WRITE_ADDRESS_PORT, 1, 0);
-        for color in self.palette {
-            for &component in color {
-                io.write_port(DAC_DATA_PORT, 1, u32::from(component));
-            }
+        if palette.loads_colors() {
+            io.write_port(DAC_MASK_PORT, 1, 0xff);
+            palette.write(io, 0, self.palette.iter().copied());
         }
     }
 }

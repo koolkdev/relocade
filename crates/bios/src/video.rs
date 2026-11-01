@@ -81,6 +81,7 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
         0x10 => palette::interrupt(call),
         0x11 => fonts::interrupt(call),
         0x12 if attribute == 0x10 => adapter::configuration(call),
+        0x12 if matches!(attribute, 0x31 | 0x33) => palette::configure_load(call),
         0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
             call.cpu.set_al(0x12);
         }

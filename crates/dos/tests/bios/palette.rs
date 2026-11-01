@@ -2,6 +2,8 @@
 mod compatibility;
 #[path = "palette/grayscale.rs"]
 mod grayscale;
+#[path = "palette/loading.rs"]
+mod loading;
 
 use super::video::{video, PROGRAM};
 use crate::common;
