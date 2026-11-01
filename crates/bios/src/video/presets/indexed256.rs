@@ -1,5 +1,5 @@
 //! BIOS 320×200, 256-color register and palette defaults.
-use super::{palette, Preset};
+use super::{crtc::CrtcPreset, palette, Preset};
 use relocade_vga::registers::{attribute, crtc, graphics, sequencer};
 
 // 25.175 MHz, 640 dots by 400 scanlines; the shifter consumes two dots per
@@ -27,27 +27,11 @@ pub(in crate::video) const INDEXED256: Preset = Preset {
         (graphics::COLOR_DONT_CARE, 15),
         (graphics::BIT_MASK, 255),
     ],
-    crtc: &[
-        (crtc::HORIZONTAL_TOTAL, 0x5f),
-        (crtc::HORIZONTAL_DISPLAY_END, 0x4f),
-        (crtc::HORIZONTAL_BLANK_START, 0x50),
-        (crtc::HORIZONTAL_BLANK_END, 0x82),
-        (crtc::HORIZONTAL_RETRACE_START, 0x54),
-        (crtc::HORIZONTAL_RETRACE_END, 0x80),
-        (crtc::VERTICAL_TOTAL, 0xbf),
-        (crtc::OVERFLOW, 0x1f),
-        (crtc::PRESET_ROW_SCAN, 0),
+    crtc: CrtcPreset::COLOR_TEXT_200.with(&[
         (crtc::MAXIMUM_SCAN_LINE, 0x41),
-        (crtc::VERTICAL_RETRACE_START, 0x9c),
-        (crtc::VERTICAL_DISPLAY_END, 0x8f),
-        (crtc::OFFSET, 40),               // 80 doublewords per memory row.
         (crtc::UNDERLINE_LOCATION, 0x40), // Doubleword addressing.
-        (crtc::VERTICAL_BLANK_START, 0x96),
-        (crtc::VERTICAL_BLANK_END, 0xb9),
-        (crtc::MODE_CONTROL, 0xa3),
-        (crtc::LINE_COMPARE, 0xff),
         (crtc::VERTICAL_RETRACE_END, 0x8e),
-    ],
+    ]),
     attribute: &[
         (attribute::MODE_CONTROL, 0x41), // Graphics, eight-bit color.
         (attribute::OVERSCAN_COLOR, 0),

@@ -37,7 +37,12 @@ fn assert_image(image: &[u8], brown: [u8; 4]) {
 fn guest_planar_modes_masked_pixels_palette_and_text_return() {
     pollster::block_on(async {
         let mut gpu = Gpu::new().await;
-        for (mode, size, brown_index) in [(0x0d, [320, 200], 6), (0x12, [640, 480], 0x14)] {
+        for (mode, size, brown_index) in [
+            (0x0d, [320, 200], 6),
+            (0x0e, [640, 200], 6),
+            (0x10, [640, 350], 0x14),
+            (0x12, [640, 480], 0x14),
+        ] {
             let mut dos = common::dos().await;
             let bytes = (size[0] * size[1] / 8) as u16;
             let [low, high] = bytes.to_le_bytes();
@@ -64,7 +69,7 @@ fn guest_planar_modes_masked_pixels_palette_and_text_return() {
             let original = gpu.render(&graphics, size).await;
             assert_image(&original, COLORS[6]);
 
-            // Each BIOS mode maps brown to a different DAC index.
+            // The 200-line and higher-resolution presets use different DAC indices.
             let mut recolor = vec![0xba, 0xc8, 3, 0xb0, brown_index, 0xee]; // DAC index.
             recolor.extend_from_slice(&[
                 0x42, 0xb0, 63, 0xee, // Red = 63.

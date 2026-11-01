@@ -96,23 +96,29 @@ fn pixel_pages_and_256_color_high_bits_follow_the_bios_abi() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        video(&mut dos, 0x000d, 0, 0, 0);
-        for page in 0..8 {
-            video(&mut dos, 0x0c00 | (page + 1), page << 8, 319, 199);
-        }
-        // Changing the display start does not change the page requested by BH.
-        dos.cpu().context().io.write_port(0x3d4, 2, 0x600c);
-        let snapshot = dos.vga().borrow().snapshot();
-        for page in 0..8 {
-            assert_eq!(
-                video(&mut dos, 0x0d00, page << 8, 319, 199).registers.eax as u8,
-                page as u8 + 1
-            );
-            for plane in 0..4 {
+        for (mode, pages, page_bytes, x, y, last_byte) in [
+            (0x0d, 8, 0x2000, 319, 199, 7999),
+            (0x0e, 4, 0x4000, 639, 199, 15999),
+            (0x10, 2, 0x8000, 639, 349, 27999),
+        ] {
+            video(&mut dos, mode, 0, 0, 0);
+            for page in 0..pages {
+                video(&mut dos, 0x0c00 | (page + 1), page << 8, x, y);
+            }
+            // Changing the display start does not change the page requested by BH.
+            dos.cpu().context().io.write_port(0x3d4, 2, 0x600c);
+            let snapshot = dos.vga().borrow().snapshot();
+            for page in 0..pages {
                 assert_eq!(
-                    snapshot.plane(plane)[usize::from(page) * 0x2000 + 7999],
-                    ((page + 1) >> plane) as u8 & 1
+                    video(&mut dos, 0x0d00, page << 8, x, y).registers.eax as u8,
+                    page as u8 + 1
                 );
+                for plane in 0..4 {
+                    assert_eq!(
+                        snapshot.plane(plane)[usize::from(page) * page_bytes + last_byte],
+                        ((page + 1) >> plane) as u8 & 1
+                    );
+                }
             }
         }
         for (mode, x, y, color, offset) in
@@ -155,6 +161,10 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
             (3, 0, 0, 0),
             (0x0d, 8, 0, 0),
             (0x0d, 0, 320, 0),
+            (0x0e, 4, 0, 0),
+            (0x0e, 0, 0, 200),
+            (0x10, 2, 0, 0),
+            (0x10, 0, 0, 350),
             (0x12, 0, 0, 480),
             (0x13, 0, 320, 0),
             (0x13, 0, 0, 200),

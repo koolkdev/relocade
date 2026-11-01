@@ -1,5 +1,6 @@
 //! Register presets for BIOS modes. Rendering interprets the resulting hardware state.
 mod cga;
+mod crtc;
 mod indexed256;
 mod palette;
 mod planar16;
@@ -7,13 +8,14 @@ mod text;
 
 pub(super) use cga::{CGA_320X200, CGA_640X200};
 pub(super) use indexed256::INDEXED256;
-pub(super) use planar16::{PLANAR_320X200, PLANAR_640X480};
+pub(super) use planar16::{PLANAR_320X200, PLANAR_640X200, PLANAR_640X350, PLANAR_640X480};
 pub(super) use text::{TEXT_200, TEXT_350, TEXT_400};
 
 use super::write_indexed;
+use crtc::CrtcPreset;
 use relocade_machine::IoBus;
 use relocade_vga::registers::{
-    attribute, crtc, sequencer, ATTRIBUTE_ADDRESS_PORT, COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT,
+    attribute, sequencer, ATTRIBUTE_ADDRESS_PORT, COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT,
     DAC_DATA_PORT, DAC_MASK_PORT, DAC_WRITE_ADDRESS_PORT, GRAPHICS_INDEX_PORT,
     MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
 };
@@ -27,7 +29,7 @@ pub(super) struct Preset {
     miscellaneous: u8,
     sequencer: &'static [(u8, u8)],
     graphics: &'static [(u8, u8)],
-    crtc: &'static [(u8, u8)],
+    crtc: CrtcPreset,
     attribute: &'static [(u8, u8)],
     attribute_palette: [u8; 16],
     palette: &'static [[u8; 3]; 256],
@@ -44,10 +46,7 @@ impl Preset {
         for &(register, value) in self.graphics {
             write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
         }
-        write_indexed(io, CRTC_INDEX_PORT, crtc::VERTICAL_RETRACE_END, 0);
-        for &(register, value) in self.crtc {
-            write_indexed(io, CRTC_INDEX_PORT, register, value);
-        }
+        self.crtc.program(io, CRTC_INDEX_PORT);
         io.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
         for (index, value) in self.attribute_palette.into_iter().enumerate() {
             io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, index as u32);

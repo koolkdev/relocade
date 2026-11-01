@@ -127,7 +127,7 @@ fn preserve_memory_flag_queries_and_text_return_follow_bios_bookkeeping() {
 
         // Unsupported modes, pages and text-only services cannot corrupt graphics state.
         let retained = dos.vga().borrow().snapshot();
-        for ax in [0x0010, 0x0507, 0x0800, 0x0100] {
+        for ax in [0x007f, 0x0507, 0x0800, 0x0100] {
             assert_eq!(video(&mut dos, ax, 0, 1, 0).registers.eax as u16 >> 8, 0x86);
         }
         let display = dos.vga().borrow().snapshot();

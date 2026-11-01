@@ -17,6 +17,8 @@ pub(super) const GRAPHICS_320X200_4: u8 = 0x04;
 pub(super) const GRAPHICS_320X200_4_ALT: u8 = 0x05;
 pub(super) const GRAPHICS_640X200_2: u8 = 0x06;
 pub(super) const GRAPHICS_320X200_16: u8 = 0x0d;
+pub(super) const GRAPHICS_640X200_16: u8 = 0x0e;
+pub(super) const GRAPHICS_640X350_16: u8 = 0x10;
 pub(super) const GRAPHICS_640X480_16: u8 = 0x12;
 pub(super) const GRAPHICS_320X200_256: u8 = 0x13;
 
@@ -33,6 +35,8 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
         GRAPHICS_320X200_4 | GRAPHICS_320X200_4_ALT => &presets::CGA_320X200,
         GRAPHICS_640X200_2 => &presets::CGA_640X200,
         GRAPHICS_320X200_16 => &presets::PLANAR_320X200,
+        GRAPHICS_640X200_16 => &presets::PLANAR_640X200,
+        GRAPHICS_640X350_16 => &presets::PLANAR_640X350,
         GRAPHICS_640X480_16 => &presets::PLANAR_640X480,
         GRAPHICS_320X200_256 => &presets::INDEXED256,
         _ => return None,

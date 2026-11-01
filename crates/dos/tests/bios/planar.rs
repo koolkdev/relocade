@@ -8,6 +8,8 @@ fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         for (mode, size, columns, rows, height, page_bytes, clocking) in [
             (0x0d, [320, 200], 40, 25, 8, 0x2000, 9),
+            (0x0e, [640, 200], 80, 25, 8, 0x4000, 1),
+            (0x10, [640, 350], 80, 25, 14, 0x8000, 1),
             (0x12, [640, 480], 80, 30, 16, 0xa000, 1),
         ] {
             video(&mut dos, 0x0013, 0, 0, 0);
@@ -77,6 +79,20 @@ fn planar_no_clear_preserves_each_plane_and_restores_mode_specific_palettes() {
                 ],
             ),
             (
+                0x0e,
+                80,
+                [
+                    0, 1, 2, 3, 4, 5, 6, 7, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+                ],
+            ),
+            (
+                0x10,
+                80,
+                [
+                    0, 1, 2, 3, 4, 5, 0x14, 7, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
+                ],
+            ),
+            (
                 0x12,
                 80,
                 [
@@ -125,7 +141,7 @@ fn planar_no_clear_preserves_each_plane_and_restores_mode_specific_palettes() {
             // These entries differ even though both default palettes show brown.
             assert_eq!(
                 preserved.registers.dac.colors[6],
-                if mode == 0x0d {
+                if matches!(mode, 0x0d | 0x0e) {
                     [42, 21, 0]
                 } else {
                     [42, 42, 0]
@@ -133,7 +149,7 @@ fn planar_no_clear_preserves_each_plane_and_restores_mode_specific_palettes() {
             );
             assert_eq!(
                 preserved.registers.dac.colors[0x14],
-                if mode == 0x0d {
+                if matches!(mode, 0x0d | 0x0e) {
                     [63, 21, 21]
                 } else {
                     [42, 21, 0]

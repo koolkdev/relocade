@@ -1,5 +1,8 @@
 //! VGA's banked B8000 compatibility modes; no separate CGA device is involved.
-use super::{palette, Preset};
+use super::{
+    crtc::{CrtcPreset, HORIZONTAL_40},
+    palette, Preset,
+};
 use relocade_vga::registers::{attribute, crtc, graphics, sequencer};
 
 pub(in crate::video) const CGA_320X200: Preset = Preset {
@@ -25,27 +28,13 @@ pub(in crate::video) const CGA_320X200: Preset = Preset {
         (graphics::COLOR_DONT_CARE, 15),
         (graphics::BIT_MASK, 255),
     ],
-    crtc: &[
-        (crtc::HORIZONTAL_TOTAL, 0x2d),
-        (crtc::HORIZONTAL_DISPLAY_END, 0x27),
-        (crtc::HORIZONTAL_BLANK_START, 0x28),
-        (crtc::HORIZONTAL_BLANK_END, 0x90),
-        (crtc::HORIZONTAL_RETRACE_START, 0x2b),
-        (crtc::HORIZONTAL_RETRACE_END, 0x80),
-        (crtc::VERTICAL_TOTAL, 0xbf),
-        (crtc::OVERFLOW, 0x1f),
-        (crtc::PRESET_ROW_SCAN, 0),
+    crtc: CrtcPreset::COLOR_TEXT_200.with(HORIZONTAL_40).with(&[
         (crtc::MAXIMUM_SCAN_LINE, 0xc1), // Two bank rows, each double scanned.
-        (crtc::VERTICAL_RETRACE_START, 0x9c),
-        (crtc::VERTICAL_DISPLAY_END, 0x8f),
         (crtc::OFFSET, 20),
         (crtc::UNDERLINE_LOCATION, 0),
-        (crtc::VERTICAL_BLANK_START, 0x96),
-        (crtc::VERTICAL_BLANK_END, 0xb9),
         (crtc::MODE_CONTROL, 0xa2), // Word addresses; RS0 selects the 8-KiB bank.
-        (crtc::LINE_COMPARE, 0xff),
         (crtc::VERTICAL_RETRACE_END, 0x8e),
-    ],
+    ]),
     attribute: &[
         (attribute::MODE_CONTROL, 1),
         (attribute::OVERSCAN_COLOR, 0),
@@ -78,27 +67,12 @@ pub(in crate::video) const CGA_640X200: Preset = Preset {
         (graphics::COLOR_DONT_CARE, 15),
         (graphics::BIT_MASK, 255),
     ],
-    crtc: &[
-        (crtc::HORIZONTAL_TOTAL, 0x5f),
-        (crtc::HORIZONTAL_DISPLAY_END, 0x4f),
-        (crtc::HORIZONTAL_BLANK_START, 0x50),
-        (crtc::HORIZONTAL_BLANK_END, 0x82),
-        (crtc::HORIZONTAL_RETRACE_START, 0x54),
-        (crtc::HORIZONTAL_RETRACE_END, 0x80),
-        (crtc::VERTICAL_TOTAL, 0xbf),
-        (crtc::OVERFLOW, 0x1f),
-        (crtc::PRESET_ROW_SCAN, 0),
+    crtc: CrtcPreset::COLOR_TEXT_200.with(&[
         (crtc::MAXIMUM_SCAN_LINE, 0xc1),
-        (crtc::VERTICAL_RETRACE_START, 0x9c),
-        (crtc::VERTICAL_DISPLAY_END, 0x8f),
-        (crtc::OFFSET, 40),
         (crtc::UNDERLINE_LOCATION, 0),
-        (crtc::VERTICAL_BLANK_START, 0x96),
-        (crtc::VERTICAL_BLANK_END, 0xb9),
         (crtc::MODE_CONTROL, 0xc2), // Byte addresses; RS0 selects the 8-KiB bank.
-        (crtc::LINE_COMPARE, 0xff),
         (crtc::VERTICAL_RETRACE_END, 0x8e),
-    ],
+    ]),
     attribute: &[
         (attribute::MODE_CONTROL, 1),
         (attribute::OVERSCAN_COLOR, 0),
