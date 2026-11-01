@@ -40,6 +40,14 @@ async fn check_colors() {
     )
     .await;
     attribute(&mut vga, 0x12, 15);
+    attribute(&mut vga, 0x10, 9);
+    gpu.expect(
+        &common::fixture::capture(&vga),
+        [16, 1],
+        &pixels([8, 9, 14, 15, 3, 2, 5, 4, 9, 9, 5, 5, 6, 6, 10, 10]),
+    )
+    .await;
+    attribute(&mut vga, 0x10, 1);
     // Interleaving retains eight pixels per blanking character clock.
     for (index, value) in [(2, 0), (3, 0x81), (5, 0)] {
         indexed(&mut vga, 0x3d4, index, value);

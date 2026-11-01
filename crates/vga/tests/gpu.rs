@@ -7,6 +7,8 @@ mod common;
 mod display;
 #[path = "gpu/graphics.rs"]
 mod graphics;
+#[path = "gpu/graphics_blink.rs"]
+mod graphics_blink;
 #[path = "gpu/readback.rs"]
 mod readback;
 use readback::read_pixels;

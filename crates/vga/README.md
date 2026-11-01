@@ -338,6 +338,17 @@ buffer without mode-specific upload tracking or application changes.
 The generic `relocade-renderer` owns image storage and attachment drawing and knows
 nothing about VGA, BIOS or DOS.
 
+Four-bit graphics blinking uses the same captured 16-retrace phase as text.
+After Color Plane Enable masks the pixel index, Attribute Mode Control bit 3
+enables replacement of palette address bit 3. Color graphics toggle that bit
+for pixels whose masked bit 3 was set; other pixels use the upper palette half.
+Monochrome graphics (Mode Control bit 1) toggle it for every pixel. The remaining
+three index bits, attribute palette, Color Select and DAC mask work normally.
+This follows the [V7 VGA Technical Reference](https://oummg.com/manual/700-0242_V7_VGA_Technical_Reference_Manual_Jun88.pdf),
+pages 3-78–3-79. Eight-bit graphics bypass this attribute palette operation;
+text keeps its foreground/background blink behavior. Phase changes update the
+sixteen vertex-decoded colors without copying VRAM or changing pixel addressing.
+
 DOS supplies this same capture source through `dos.frame_source()`. Construct
 `Dos::new(runner)` inside the execution session; its VGA registration persists
 through input waits, process exits and later launches. Keep the session alive
