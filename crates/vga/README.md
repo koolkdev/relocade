@@ -181,11 +181,13 @@ cells, stops at the page bottom and never scrolls. Text repeats retain their
 16-bit offset wrapping.
 
 Graphics font bytes come from the guest's live vectors, with 16-bit source-offset
-wrapping. Eight-high fonts use INT 43h for characters 00h–7Fh and INT 1Fh for
-80h–FFh; taller fonts use INT 43h for all characters. The BIOS reads a complete
+wrapping. CGA-compatible modes 04h–06h use INT 43h for characters 00h–7Fh and
+INT 1Fh for 80h–FFh, with fixed eight-high cells. Planar and indexed modes use
+INT 43h for all characters, including with eight-high fonts. The BIOS reads a complete
 glyph before changing VGA access, so a source in VRAM uses the caller's read
-settings. Font height and the character grid come from the BIOS data area,
-bounded by the graphics layout. Native planar masks, indexed rows or packed
+settings. The character grid comes from the BIOS data area and is bounded by
+the graphics layout. Font height also follows BIOS data except for the fixed
+eight-high packed modes. Native planar masks, indexed rows or packed
 bytes write the same MMIO memory as pixel services, with no renderer-side
 character path.
 
@@ -193,8 +195,7 @@ AH=0Eh uses the active page and BL foreground in graphics modes. It handles BEL
 (currently silent), backspace without erasure, CR and LF, wraps at the right edge
 and scrolls at the bottom with black fill. DOS console output shares this
 teletype implementation with foreground 7, alongside its existing byte stream.
-Graphics character recognition (AH=08h), AH=13h string writes and AH=11h graphics
-font-selection subfunctions remain unsupported.
+Graphics character recognition (AH=08h) and AH=13h string writes remain unsupported.
 
 BIOS text operations read columns, rows and page allocation from the BIOS data
 area. Cursor addresses, character access, teletype wrapping and scroll windows
@@ -241,11 +242,22 @@ of the requested ROM font, and DL reports the last BIOS row. BH=5/7 return
 terminated, empty ninth-column replacement tables. Initialization sets INT 1Fh
 to the upper half of the 8×8 font; later mode sets preserve that vector and
 update INT 43h to the mode's built-in font. Font uploads alone preserve both
-vectors. Font information also works in graphics modes; other AH=11h graphics
-services remain unsupported. These ABI details follow the
+vectors. Font information also works in graphics modes. These ABI details follow the
 [font services](https://www.ctyme.com/intr/rb-0136.htm),
 [font query](https://www.ctyme.com/intr/rb-0158.htm) and
 [scanline selection](https://www.ctyme.com/intr/rb-0167.htm) interfaces.
+
+AH=11h/AL=20h sets INT 1Fh to ES:BP. AL=21h sets INT 43h to ES:BP and the
+BIOS character height to CX; this firmware supports heights 1–32 and rejects
+other heights before modifying state. AL=22h/23h/24h select the ROM 8×14/8×8/8×16
+graphics fonts. For AL=21h–24h, BL selects 14, 25 or 43 rows (1, 2 or 3), or
+uses DL (BL=0). IBM's fallback for other BL values is 25 rows; DL=0 records
+last-row index FFh. These calls only change BIOS vectors and geometry, including
+when called in text mode. They preserve VRAM, VGA registers, pages and cursors.
+Subsequent graphics character operations read the live font source and clip the
+BIOS grid to the graphics layout. Packed modes keep eight-high drawing and
+scrolling even if the reported BIOS font height changes. These behaviors follow
+the IBM VGA ROM (x3639–x36A1, x27BE, x28CB and x294F).
 
 BIOS font handling owns ROM data, temporary plane-two access and validated
 geometry transitions in separate modules. Mode setting reuses that same font

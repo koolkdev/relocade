@@ -116,7 +116,7 @@ fn planar_characters_replace_or_xor_glyph_bits_without_moving_the_cursor() {
 }
 
 #[test]
-fn indexed_characters_use_both_live_font_vectors_and_keep_high_color_bits() {
+fn indexed_characters_use_the_full_int43_font_and_keep_high_color_bits() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
@@ -126,7 +126,8 @@ fn indexed_characters_use_both_live_font_vectors_and_keep_high_color_bits() {
             context.memory.write_u32(0x43 * 4, 0x2300_0000).unwrap();
             context.memory.write_u32(0x1f * 4, 0x2400_0000).unwrap();
             context.memory.write(0x23000 + 65 * 8, &[0x80; 8]).unwrap();
-            context.memory.write(0x24000, &[0x01; 8]).unwrap();
+            context.memory.write(0x23000 + 128 * 8, &[0x01; 8]).unwrap();
+            context.memory.write(0x24000, &[0xff; 8]).unwrap(); // CGA-only vector is ignored.
             context.memory.write(0xa0000, &[0x55; 65536]).unwrap();
         }
         video(&mut dos, 0x0200, 0, 0, 0x0102);

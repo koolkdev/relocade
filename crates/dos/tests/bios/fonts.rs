@@ -1,4 +1,6 @@
 //! Font services reach ordinary VGA memory and expose real ROM-backed data.
+#[path = "fonts/graphics.rs"]
+mod graphics;
 #[path = "fonts/layout.rs"]
 mod layout;
 
@@ -162,6 +164,13 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         let before = dos.vga().borrow().snapshot();
+        let font_pointer = dos.cpu().context().memory.read_u32(0x10c).unwrap();
+        let mut geometry = [0; 3];
+        dos.cpu()
+            .context()
+            .memory
+            .read(0x484, &mut geometry)
+            .unwrap();
         for (ax, bx, count, first) in [
             (0x1100, 0, 1, 0),        // Zero height.
             (0x1110, 0x2100, 1, 0),   // Height beyond a hardware slot.
@@ -169,6 +178,8 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
             (0x1100, 0x0800, 2, 255), // Glyph range crosses the bank.
             (0x1100, 0x0800, 0, 257),
             (0x1130, 0x0800, 0, 0), // Unknown ROM selector.
+            (0x1121, 0, 0, 25),     // Invalid graphics font heights are atomic, too.
+            (0x1121, 0, 33, 25),
             (0x11ff, 0, 0, 0),
             (0x1203, 0x30, 0, 0), // Unknown scanline preference.
         ] {
@@ -178,6 +189,13 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
             );
         }
         let after = dos.vga().borrow().snapshot();
+        assert_eq!(
+            dos.cpu().context().memory.read_u32(0x10c).unwrap(),
+            font_pointer
+        );
+        let mut actual = [0; 3];
+        dos.cpu().context().memory.read(0x484, &mut actual).unwrap();
+        assert_eq!(actual, geometry);
         assert_eq!(after.registers, before.registers);
         for plane in 0..4 {
             assert_eq!(after.plane(plane), before.plane(plane));

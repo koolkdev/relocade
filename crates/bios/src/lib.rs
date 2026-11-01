@@ -14,6 +14,7 @@
 //! AH=0Bh sets legacy colors through VGA attributes; AH=10h reads/writes
 //! attribute and DAC palettes, blink, paging and the DAC mask.
 //! AH=11h loads text fonts, selects font banks and reports ROM font pointers.
+//! Its AL=20h–24h services select graphics font vectors and BIOS character geometry.
 //! AH=12h/BL=30h selects the next text mode set's scanline profile.
 //! AH=12h/BL=10h reports adapter configuration; AX=1A00h/1A01h get/set the
 //! BIOS display-combination description without changing hardware or rendering.

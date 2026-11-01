@@ -41,6 +41,14 @@ impl Page {
         self.mode.width / 8
     }
 
+    pub fn character_height(&self, bios_height: u16) -> u16 {
+        match self.mode.layout {
+            // Legacy packed character operations always draw eight scanlines.
+            Layout::Packed1 | Layout::Packed2 => 8,
+            _ => bios_height,
+        }
+    }
+
     pub fn rows(&self, font_height: u16) -> u16 {
         self.mode.height.checked_div(font_height).unwrap_or(0)
     }

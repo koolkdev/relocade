@@ -197,6 +197,10 @@ fn packed_glyphs_scroll_as_bytes_and_mode_six_ignores_foreground_color() {
         let rows = [0, 0x2000, 80, 0x2050, 160, 0x20a0, 240, 0x20f0];
         for mode in [4, 6] {
             video(&mut dos, mode, 0, 0, 0);
+            // Graphics font selection changes the reported height, while packed
+            // character drawing and scrolling keep their fixed eight-scanline cells.
+            video(&mut dos, 0x1122, 2, 0, 0);
+            assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 14);
             {
                 let mut context = dos.cpu().context();
                 context.memory.write_u32(0x1f * 4, 0x2400_0000).unwrap();
