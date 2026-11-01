@@ -1,14 +1,13 @@
 //! BIOS palette services through the guest-visible VGA ports.
 mod compatibility;
-use super::{buffer_addresses, modes, unsupported, MODE};
+use super::{buffer_addresses, input_status_1_port, modes, unsupported, MODE};
 pub(super) use compatibility::{
     initialize as initialize_compatibility, interrupt as compatibility,
 };
 use relocade_machine::{real_mode_interrupt, HookResult, IoBus};
 use relocade_vga::registers::{
-    attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT, COLOR_INPUT_STATUS_1_PORT,
-    DAC_DATA_PORT, DAC_MASK_PORT, DAC_READ_ADDRESS_PORT, DAC_WRITE_ADDRESS_PORT,
-    MISC_OUTPUT_READ_PORT, MONO_INPUT_STATUS_1_PORT,
+    attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
+    DAC_READ_ADDRESS_PORT, DAC_WRITE_ADDRESS_PORT,
 };
 
 pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
@@ -122,12 +121,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
 }
 
 fn select_attribute(io: &IoBus, address: u8) {
-    let status = if io.read_port(MISC_OUTPUT_READ_PORT, 1) & 1 != 0 {
-        COLOR_INPUT_STATUS_1_PORT
-    } else {
-        MONO_INPUT_STATUS_1_PORT
-    };
-    io.read_port(status, 1); // Reset the address/data flip-flop.
+    io.read_port(input_status_1_port(io), 1); // Reset the address/data flip-flop.
     io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(address));
 }
 

@@ -4,7 +4,7 @@
 worker. BIOS and direct guest writes reach the same MMIO memory. Text decoding
 uses captured geometry, row stride, physical address mapping, 8/9-dot characters,
 font banks and heights, attribute/DAC colors, cursor shape/skew, underline,
-blinking, blanking, panning and split-display settings. The BIOS text preset
+blinking, blanking, panning and split-display settings. Startup BIOS mode 03h
 loads an 8×8 CP437 font into plane two and initializes 80×25 cells.
 Eight-bit graphics decoding supports chained mode 13h and byte-addressed
 unchained layouts (Mode X): linear or plane-masked guest writes, all 256 DAC
@@ -93,6 +93,13 @@ text columns and modes 02h/03h use 80, all with 25 rows and restored font memory
 The even/odd pairs produce identical VGA color output. Their eight pages occupy
 0800h or 1000h bytes each. Color text retains the project's eight-dot cells at
 all scanline profiles; IBM's 400-line color preset uses nine-dot cells instead.
+Mode 07h uses 80×25 nine-dot monochrome cells, B0000 memory and the 3B4/3BA
+CRTC/status ports. It selects 350 lines with a 14-high font, or 400 lines with
+a 16-high font when requested through AH=12h/BL=30h. Its eight 1000h-byte pages
+share the same character and attribute planes as color text: a no-clear mode
+change moves the CPU aperture without copying or replacing those planes.
+The ordinary text shader renders monochrome intensity, reverse video, underline
+and line graphics from the programmed palette and registers.
 Mode 13h programs the standard 320×200 layout
 and 256-color palette. Planar 16-color modes 0Dh (320×200) and 0Eh (640×200)
 use the RGBI default palette; modes 10h (640×350) and 12h (640×480) use EGA
@@ -187,6 +194,8 @@ settings. Loading a bank does not select it; AL=03h separately programs SR03.
 
 AL=1xh also changes CRTC character height, clears double scanning, sets the
 cursor at the bottom of the glyph, and updates BIOS rows, height and page size.
+In mode 07h it also moves the underline to the last glyph row; color-text
+underline settings remain unchanged.
 These calls require active page zero. Pages round up to 2-KiB blocks: 80×25 uses
 4 KiB and 80×43/50 uses 8 KiB. Vertical timing and display extent remain intact,
 so a 350-line display with an 8-high font has 43 complete rows plus six scanlines
@@ -197,10 +206,11 @@ beyond 256 glyphs, and geometry that cannot fit BIOS row fields or text memory
 return AH=86h with carry set before changing state. These bounds and page
 allocation are firmware policy rather than a claim about every VGA BIOS.
 
-AH=12h/BL=30h selects the next color-text profile and returns AL=12h. AL=0 keeps
-the existing 200-line logical profile (8-high font, doubled on a 400-line raster);
+AH=12h/BL=30h selects the next text profile and returns AL=12h. For color text,
+AL=0 keeps the existing 200-line logical profile (8-high font, doubled on a 400-line raster);
 AL=1 selects 350 lines with a 14-high font; AL=2 selects 400 lines with a 16-high
-font. All start at 40×25 or 80×25 according to the mode, with eight-dot characters.
+font. Color profiles start at 40×25 or 80×25 according to the mode, with eight-dot characters.
+Mode 07h uses 350 lines for AL=0/1 and 400 lines for AL=2, with nine-dot characters.
 The preference lives in the BIOS data area, does not change current scanout,
 and survives graphics mode sets.
 Loading an 8-high font with AL=12h then yields 43 or 50 rows on the 350/400-line
@@ -227,6 +237,8 @@ the existing VRAM/register path.
 BIOS AH=0Bh implements legacy background/intensity (BH=0) and palette selection
 (BH=1) through VGA Attribute Controller registers. The firmware retains mode
 and color shadows at BDA 465h/466h; graphics mode sets above 07h preserve them.
+With the monochrome CRTC port recorded in the BIOS data area, AH=0Bh is a
+complete no-op, including the shadows. VGA AH=10h palette services remain available.
 Background changes program overscan and, in graphics modes, palette entry zero.
 Graphics calls rebuild entries one through three from the color shadow's
 palette/intensity bits, including in mode 06h. Text palette selection is a

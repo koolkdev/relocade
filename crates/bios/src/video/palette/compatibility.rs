@@ -1,8 +1,9 @@
 //! The legacy BIOS color service programs VGA Attribute Controller registers.
 use super::{modes, unsupported, write_attribute};
 use crate::screen;
+use crate::video::CRTC_PORT;
 use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
-use relocade_vga::registers::attribute;
+use relocade_vga::registers::{attribute, MONO_CRTC_INDEX_PORT};
 
 // CGA register shadows in the BIOS data area, not emulated CGA I/O ports.
 const MODE_SHADOW: u32 = 0x465;
@@ -13,7 +14,7 @@ pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>, mode: u8) {
         modes::TEXT_40X25 => (0x2c, 0x30),
         modes::COLOR_TEXT_40X25 => (0x28, 0x30),
         modes::TEXT_80X25 => (0x2d, 0x30),
-        modes::COLOR_TEXT_80X25 => (0x29, 0x30),
+        modes::COLOR_TEXT_80X25 | modes::MONO_TEXT_80X25 => (0x29, 0x30),
         modes::GRAPHICS_320X200_4 => (0x2a, 0x30),
         modes::GRAPHICS_320X200_4_ALT => (0x2e, 0x30),
         modes::GRAPHICS_640X200_2 => (0x1e, 0x3f),
@@ -25,6 +26,10 @@ pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>, mode: u8) {
 }
 
 pub(in crate::video) fn interrupt(call: &mut crate::BiosContext<'_>) -> HookResult {
+    // IBM's legacy CGA color service does nothing with monochrome CRTC routing.
+    if call.memory.read_u16(CRTC_PORT).expect("CRTC port") == MONO_CRTC_INDEX_PORT {
+        return real_mode_interrupt::return_from_interrupt(call.cpu);
+    }
     let value = call.cpu.bl();
     let previous = call
         .memory

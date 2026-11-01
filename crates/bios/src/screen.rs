@@ -10,13 +10,13 @@ use geometry::Geometry;
 pub(super) use scroll::{Scroll, ScrollDirection, Window};
 
 use crate::video::{
-    is_text, write_crtc_word, ACTIVE_PAGE, CURSORS, CURSOR_SHAPE, MODE, PAGE_OFFSET,
+    text_memory_start, write_crtc_word, ACTIVE_PAGE, CURSORS, CURSOR_SHAPE, MODE, PAGE_OFFSET,
 };
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::registers::crtc;
 
 pub(super) fn is_text_mode(memory: &MemoryView<'_>) -> bool {
-    is_text(memory.read_u8(MODE).expect("video mode"))
+    text_memory_start(memory.read_u8(MODE).expect("video mode")).is_some()
 }
 
 pub(super) fn active_page(memory: &MemoryView<'_>) -> u8 {

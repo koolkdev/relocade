@@ -7,11 +7,14 @@ mod palette;
 mod presets;
 
 pub(super) use fonts::Glyph;
-pub(super) use modes::{is_text, set_mode, COLOR_TEXT_80X25};
+pub(super) use modes::{set_mode, text_memory_start, COLOR_TEXT_80X25};
 
 use crate::screen::{self, ScrollDirection, Window};
 use relocade_machine::{real_mode_interrupt, HookResult, IoBus, MemoryView};
-use relocade_vga::registers::{CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT, MONO_CRTC_INDEX_PORT};
+use relocade_vga::registers::{
+    COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT, MONO_CRTC_INDEX_PORT,
+    MONO_INPUT_STATUS_1_PORT,
+};
 
 // Firmware video data in segment 0040h.
 pub(super) const MODE: u32 = 0x449;
@@ -162,6 +165,14 @@ fn crtc_port(io: &IoBus) -> u16 {
         CRTC_INDEX_PORT
     } else {
         MONO_CRTC_INDEX_PORT
+    }
+}
+
+fn input_status_1_port(io: &IoBus) -> u16 {
+    if crtc_port(io) == CRTC_INDEX_PORT {
+        COLOR_INPUT_STATUS_1_PORT
+    } else {
+        MONO_INPUT_STATUS_1_PORT
     }
 }
 
