@@ -77,8 +77,8 @@ pub async fn vga_workers() -> Result<(), String> {
         .unwrap();
         let input = RefCell::new(Some((incoming, waiting)));
         let mut cpu = Cpu::new(memory, cpu_config, io.clone()).await.unwrap();
-        cpu.install_hooks([
-            Hook::new(0x200, {
+        cpu.install([
+            Hook::host(0x200, {
                 let resources = cpu.memory().with_io(io.clone());
                 let cpu = cpu.cpu_state();
                 async move || {
@@ -97,7 +97,7 @@ pub async fn vga_workers() -> Result<(), String> {
                     cpu.set_eip(0x300);
                 }
             }),
-            Hook::new(0x400, {
+            Hook::host(0x400, {
                 let exit = cpu.exit_handle();
                 async move || exit.request()
             }),

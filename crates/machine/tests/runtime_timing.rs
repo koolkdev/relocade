@@ -48,7 +48,7 @@ async fn check_timing() {
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
     let captured = input.clone();
-    cpu.install_hooks([real_mode_interrupt::hook(0x200, cpu.cpu_state(), {
+    cpu.install(real_mode_interrupt::hook(0x200, cpu.cpu_state(), {
         let resources = cpu.memory();
         async move || {
             let mut memory = resources.view();
@@ -67,7 +67,7 @@ async fn check_timing() {
             .await;
             memory.write_u16(0x300, *saved).unwrap();
         }
-    })])
+    }))
     .await
     .unwrap();
     let clock = ManualClock::default();

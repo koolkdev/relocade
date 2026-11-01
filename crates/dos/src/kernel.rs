@@ -56,7 +56,7 @@ pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
     }
 }
 
-pub(crate) fn hooks(cpu: CpuStateAccess, state: Rc<DosState>) -> [Hook; 2] {
+pub(crate) fn hooks(cpu: CpuStateAccess, state: Rc<DosState>) -> impl Iterator<Item = Hook> {
     [
         interrupt::hook(
             address(INT20_ENTRY),
@@ -66,6 +66,8 @@ pub(crate) fn hooks(cpu: CpuStateAccess, state: Rc<DosState>) -> [Hook; 2] {
         ),
         interrupt::hook(address(INT21_ENTRY), cpu, state, services::int21),
     ]
+    .into_iter()
+    .flatten()
 }
 
 const fn address(offset: u16) -> u32 {

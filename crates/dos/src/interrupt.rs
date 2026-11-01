@@ -40,7 +40,12 @@ impl<'call> DosContext<'call> {
 }
 
 /// Captures the session and resolves its active process at each hook entry.
-pub(crate) fn hook<F>(address: u32, cpu: CpuStateAccess, session: Rc<DosState>, handler: F) -> Hook
+pub(crate) fn hook<F>(
+    address: u32,
+    cpu: CpuStateAccess,
+    session: Rc<DosState>,
+    handler: F,
+) -> [Hook; 3]
 where
     F: AsyncFn(&mut DosContext<'_>) + 'static,
 {
