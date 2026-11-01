@@ -24,3 +24,15 @@ pub(super) fn save(memory: &MemoryView<'_>) -> [u8; SIZE] {
     }
     bytes
 }
+
+pub(super) fn restore(memory: &mut MemoryView<'_>, bytes: &[u8; SIZE]) {
+    let equipment = memory.read_u8(0x410).expect("equipment byte");
+    memory
+        .write_u8(0x410, (equipment & !0x30) | (bytes[0] & 0x30))
+        .expect("equipment byte");
+    for (address, offset, count) in FIELDS {
+        memory
+            .write(address, &bytes[offset..offset + count])
+            .expect("BIOS video data");
+    }
+}

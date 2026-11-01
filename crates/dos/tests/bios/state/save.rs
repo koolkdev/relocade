@@ -20,7 +20,7 @@ fn query_counts_selected_blocks_and_rejects_empty_or_unknown_requests() {
             .memory
             .write(0x50200, &[0xa5; 1024])
             .unwrap();
-        for (operation, mask) in [(0, 0), (0, 0x8000), (1, 0), (3, 7), (0xff, 7)] {
+        for (operation, mask) in [(0, 0), (0, 0x8000), (1, 0), (2, 0), (3, 7), (0xff, 7)] {
             let result = state(&mut dos, operation, mask, 0x5000, 0x200);
             assert_eq!(result.registers.eax as u16, 0x1c00);
             assert_eq!(result.registers.ebx as u16, 0x200);
