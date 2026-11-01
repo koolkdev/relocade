@@ -7,6 +7,7 @@ mod information;
 mod modes;
 mod palette;
 mod presets;
+mod state;
 mod strings;
 
 pub(super) use fonts::Glyph;
@@ -107,6 +108,7 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
         0x13 => strings::interrupt(call),
         0x1a => adapter::display_combination(call),
         0x1b => information::interrupt(call),
+        0x1c => state::interrupt(call),
         0x02 | 0x03 if !screen::valid_page(&call.memory, page) => unsupported(call),
         0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
         0x03 => {
