@@ -8,6 +8,9 @@ pub const MAP_MASK: u8 = 0x02;
 pub const CHARACTER_MAP_SELECT: u8 = 0x03;
 pub const MEMORY_MODE: u8 = 0x04;
 
+/// Clocking Mode bit 5 blanks output while leaving raster timing running.
+pub const SCREEN_OFF: u8 = 0x20;
+
 /// Reset register value: hold synchronous reset, release asynchronous reset.
 pub const SYNCHRONOUS_RESET: u8 = 0x01;
 /// Reset register value: release both active-low reset inputs.
