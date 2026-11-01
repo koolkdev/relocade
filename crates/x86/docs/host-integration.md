@@ -895,9 +895,54 @@ and IOPL regardless of their entry values; only dword transfers change AC and ID
 Reserved and unrepresented image bits are ignored.
 
 CLI/STI clear or set IF in Real16 and raise #GP(0) in protected profiles, which
-fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. External interrupt
-delivery and STI's one-instruction inhibition are not modeled; IF alone must not
-be used by the host to decide when to inject interrupts.
+fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. STI from IF=0 and
+MOV/POP SS publish their effects, retire and return
+`ExecutionExit::InterruptInhibited`. The embedding immediately executes the
+protected successor through the interpreter's existing `step` export before
+polling external IRQs or returning for the instruction budget. Repeated inhibiting
+exits use the same synchronous loop. Only the first consecutive SS load is
+architecturally guaranteed to inhibit; this runtime also protects later loads.
+STI from IF=1 and LSS do not request protection. The CPU snapshot layout is unchanged;
+there is no stored shadow or retirement-counter comparison.
+
+The driver handles `InterruptInhibited` in a synchronous loop calling STEP.
+STEP executes the successor before it tail-dispatches further guest code.
+A software INT or CALL executes normally as
+that successor, including its frame and flag effects. A host service reached
+through the transfer has completed the protected instruction.
+
+Host entries at the immediate protected successor are currently unsupported:
+STEP executes the guest bytes at that address without
+consulting service registrations. Reach host services through normal guest
+control transfers instead. Support for a direct entry that can await without
+retiring the successor is tracked in
+[#709](https://github.com/koolkdev/relocade/issues/709). The driver retains no
+inhibition flag or host-call continuation for that unsupported case.
+
+A faulting inhibitor requests no step. A faulting successor reports its usual
+exit with the inhibitor's effects retained. Reported exceptions hand control to
+the embedding for event delivery. Unsupported-instruction exits also end the
+current execution attempt; transparent protected retry after such an exit is
+not promised. No inhibition state survives a returned exit.
+
+The Real16 interpreter exports `abi::INTERRUPT`, `fn(u8) -> ExecutionExit`, for an
+acknowledged external vector. The embedding handles `InterruptInhibited` exits
+and checks live IF before calling it. This entry shares software INT's stack,
+IVT, flag and segment rules, but saves the current IP and retires no instruction. It returns
+`ExecutionExit::InterruptEntered` on success before running ISR code; faults
+retain their ordinary architectural exit. The embedding then calls dispatch.
+Protected-mode delivery, NMIs and debug delivery remain unsupported.
+
+These rules follow Intel SDM [Volume 2B, STI/MOV/POP](https://cdrdv2.intel.com/v1/dl/getContent/671241)
+and [Volume 3A, section 7.8](https://cdrdv2.intel.com/v1/dl/getContent/671190).
+
+The machine runtime polls device IRQs at stopped guest boundaries, before guest
+dispatch, when the Real16 CPU has live IF set. Polling acknowledges a ready vector;
+entry faults do not put it back in the device. Pending host calls currently keep
+guest execution parked and do not poll IRQs. Ready calls complete in their current
+poll, after which guest execution can deliver an IRQ. Device callbacks may request
+an execution exit while polling or constructing the frame; the driver observes
+that request before entering more guest code.
 
 IRET/IRETD check all three stack slots before restoring IP/EIP, CS and FLAGS.
 IRETD rejects an EIP above `0xffff` before reading the CS and FLAGS fields. The
@@ -918,8 +963,7 @@ without touching the stack or vector table.
 
 Protected INT/INT3/INTO delivery returns the unsupported-instruction exit before
 effects. The forms are decoded before that exit, so INT requires its immediate
-byte in both modes. This stage does not add protected interrupt gates or host
-interrupt injection.
+byte in both modes. Protected interrupt gates remain unsupported.
 
 ARPL/LAR/LSL/VERR/VERW raise #UD before operand access and terminate snapshot
 compilation. Both decoders read the selected form's physical encoding before
@@ -1116,8 +1160,8 @@ unsupported paths remain
 runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
 Faults are reported to the host. Automatic delivery of guest faults, protected
-interrupt gates, privilege transitions, external interrupt/debug delivery, mode
-transitions and SS-load inhibition are not modeled. Native Wasm traps from broken
+interrupt gates, privilege transitions, protected-mode external interrupts, debug
+delivery and mode transitions are not modeled. Native Wasm traps from broken
 backing or internal arithmetic invariants are implementation errors, outside this
 guest-fault protocol.
 

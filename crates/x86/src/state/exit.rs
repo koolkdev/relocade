@@ -24,6 +24,13 @@ pub enum ExecutionExit {
         eip: u32,
         opcode: u8,
     },
+    /// External interrupt entry completed without retiring an instruction.
+    /// CPU state identifies the ISR; the caller may now dispatch guest execution.
+    InterruptEntered,
+    /// STI or an SS load completed with interrupt delivery inhibited. Execute
+    /// the successor through interpreter STEP before polling IRQs or returning
+    /// for a consumed instruction budget.
+    InterruptInhibited,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

@@ -5,7 +5,7 @@ mod table;
 use super::{code, Backend, RuntimeMemory};
 use crate::Result;
 use relocade_wasm_runtime::{Function, Import, Module, WasmBackend};
-use relocade_x86::{abi, ExecutionExit};
+use relocade_x86::{abi, ExecutionExit, ExecutionProfile};
 use table::DispatchTable;
 
 /// An ordinary `() -> ExecutionExit` export to publish at a guest linear address.
@@ -20,6 +20,8 @@ pub struct DispatchEntry<'a> {
 pub(crate) struct Dispatch {
     dispatch: Function<Backend, abi::ExecutionSignature>,
     interpret: Function<Backend, abi::ExecutionSignature>,
+    step: Function<Backend, abi::ExecutionSignature>,
+    interrupt: Option<Function<Backend, fn(u8) -> ExecutionExit>>,
     table: DispatchTable<Backend>,
     host_imports: Vec<Import<'static, Backend>>,
 }
@@ -33,26 +35,30 @@ impl Dispatch {
         let target = bindings.configuration().execution_target();
         let module = code::dispatcher(backend, target).await?;
         // Link the dispatcher first; the interpreter imports its entry points.
-        let dispatch = Self::link_dispatcher(backend, bindings, &module, host_imports).await?;
-        let module = code::interpreter(backend, target).await?;
-        let instance = dispatch.instantiate(backend, bindings, &module).await?;
-        dispatch.table.install_interpreter(backend, &instance)?;
-        Ok(dispatch)
-    }
-
-    async fn link_dispatcher(
-        backend: &mut Backend,
-        bindings: &RuntimeMemory,
-        module: &Module,
-        host_imports: Vec<Import<'static, Backend>>,
-    ) -> Result<Self> {
         let table = DispatchTable::new(backend)?;
         let mut imports = bindings.imports(backend).to_vec();
         imports.extend(table.imports(backend));
-        let instance = backend.instantiate(module, &imports).await?;
+        let instance = backend.instantiate(&module, &imports).await?;
+        let dispatch = backend.function(&instance, abi::DISPATCH)?;
+        let interpret = backend.function(&instance, abi::INTERPRET)?;
+
+        imports.extend([
+            backend.bind(abi::DISPATCH, &dispatch),
+            backend.bind(abi::INTERPRET, &interpret),
+        ]);
+        imports.extend(host_imports.iter().cloned());
+        let module = code::interpreter(backend, target).await?;
+        let instance = backend.instantiate(&module, &imports).await?;
+        table.install_interpreter(backend, &instance)?;
         Ok(Self {
-            dispatch: backend.function(&instance, abi::DISPATCH)?,
-            interpret: backend.function(&instance, abi::INTERPRET)?,
+            dispatch,
+            interpret,
+            step: backend.function(&instance, abi::STEP)?,
+            interrupt: if target.profile == ExecutionProfile::Real16 {
+                Some(backend.function(&instance, abi::INTERRUPT)?)
+            } else {
+                None
+            },
             table,
             host_imports,
         })
@@ -60,6 +66,18 @@ impl Dispatch {
 
     pub(crate) fn run(&self, backend: &mut Backend) -> ExecutionExit {
         self.dispatch.call(backend, ())
+    }
+
+    pub(crate) fn enter_interrupt(&self, backend: &mut Backend, vector: u8) -> ExecutionExit {
+        self.interrupt
+            .as_ref()
+            .expect("real-mode interrupt entry")
+            .call(backend, (vector,))
+    }
+
+    #[cold]
+    pub(crate) fn step(&self, backend: &mut Backend) -> ExecutionExit {
+        self.step.call(backend, ())
     }
 
     pub(crate) async fn install(

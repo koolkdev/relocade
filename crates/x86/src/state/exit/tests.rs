@@ -20,6 +20,8 @@ fn exit_module() -> Vec<u8> {
         "simd_floating_point",
         "unsupported",
         "budget_exhausted",
+        "interrupt_entered",
+        "interrupt_inhibited",
         "host_return",
         "host_call",
     ] {
@@ -43,6 +45,12 @@ fn exit_module() -> Vec<u8> {
                             .return_(ExecutionExitValues::host(HostExitValues::call(address)))
                     }
                     "budget_exhausted" => return budget_exhausted(body),
+                    "interrupt_entered" => {
+                        return body.return_(ExecutionExitValues::interrupt_entered())
+                    }
+                    "interrupt_inhibited" => {
+                        return body.return_(ExecutionExitValues::interrupt_inhibited())
+                    }
                     "unsupported" => return unsupported(body, &address, detail.truncate::<I8>()),
                     _ => unreachable!(),
                 };
@@ -94,6 +102,8 @@ fn generated_exits_preserve_payloads() {
             },
         ),
         ("budget_exhausted", ExecutionExit::BudgetExhausted),
+        ("interrupt_entered", ExecutionExit::InterruptEntered),
+        ("interrupt_inhibited", ExecutionExit::InterruptInhibited),
         ("host_return", ExecutionExit::Host(HostExit::Return)),
         (
             "host_call",
@@ -145,6 +155,8 @@ fn execution_exits_share_four_wasm_values() {
             (0, 1, address as i32, 0),
         ),
         (ExecutionExit::BudgetExhausted, (1, 0, 0, 0)),
+        (ExecutionExit::InterruptEntered, (4, 0, 0, 0)),
+        (ExecutionExit::InterruptInhibited, (5, 0, 0, 0)),
         (
             ExecutionExit::Exception(Exception::PageFault {
                 linear_address: address,

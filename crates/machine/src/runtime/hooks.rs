@@ -159,6 +159,12 @@ impl Cpu {
     /// retain their locals and captured resources; ready awaits continue in the
     /// same poll. Dropping a run waiter preserves that call.
     ///
+    /// Entries are intended for function and interrupt targets. A hook placed
+    /// directly at the instruction after STI, MOV SS or POP SS is unsupported:
+    /// that protected successor executes in the interpreter, bypassing its
+    /// dispatch-table entry. A CALL or INT there still dispatches its target
+    /// normally. See <https://github.com/koolkdev/relocade/issues/709>.
+    ///
     /// # Panics
     /// Panics if a service is suspended. Complete it before installing.
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
