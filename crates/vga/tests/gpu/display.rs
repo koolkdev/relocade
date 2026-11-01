@@ -6,7 +6,7 @@ use relocade_vga::{
     registers::{attribute, crtc, COLOR_INPUT_STATUS_1_PORT},
     VgaDisplay,
 };
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 async fn check_display() {
     let instance = wgpu::Instance::default();
@@ -57,7 +57,7 @@ async fn check_display() {
         vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
         assert!(display.service(&queue).now_or_never().is_none());
     }
-    assert_eq!(source.current_capture().unwrap().sequence, 8);
+    assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
     let mut encoder = device.create_command_encoder(&Default::default());
     assert_eq!(
         display
@@ -98,6 +98,7 @@ async fn check_display() {
     let pixels = read_pixels(&device, &queue, latest.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
     let last = source.current_capture().unwrap();
+    assert_eq!((last.sequence, last.time), (10, common::boundary(10)));
     assert_eq!(display.current_frame().unwrap().sequence, last.sequence);
     assert_eq!(display.current_frame().unwrap().time, last.time);
     assert!(display.service(&queue).now_or_never().is_none());

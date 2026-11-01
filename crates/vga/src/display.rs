@@ -26,8 +26,9 @@ impl VgaDisplay {
         })
     }
 
-    /// Image and source metadata from the most recent decode. Unchanged captures
-    /// leave both intact. Submit recorded commands before consuming the pixels.
+    /// Image and source metadata from the most recent decode. Redraws with
+    /// unchanged rendering inputs leave both intact. Submit recorded commands
+    /// before consuming the pixels.
     /// Storage is reusable, not a historical frame.
     pub fn current_frame(&self) -> Option<&VgaImage> {
         self.frame.as_ref()
@@ -49,10 +50,7 @@ impl DisplayRenderer for VgaDisplay {
     }
 
     async fn service(&mut self, _queue: &wgpu::Queue) -> Option<bool> {
-        let capture = self
-            .source
-            .next_changed_capture(self.observed_sequence)
-            .await?;
+        let capture = self.source.next_capture(self.observed_sequence).await?;
         self.observed_sequence = Some(capture.sequence);
         Some(true)
     }

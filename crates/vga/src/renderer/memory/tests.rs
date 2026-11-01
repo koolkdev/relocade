@@ -89,10 +89,13 @@ fn consecutive_captures_keep_character_attribute_and_font_uploads_independent() 
     assert!(uploads.update(&first.display).is_empty());
 
     vga.write_mmio(0xb8000, 1, u64::from(b'A'));
-    assert_eq!(
-        uploads.update(&publish(&mut vga, &clock).display),
-        [(0, 1024)]
+    let changed = publish(&mut vga, &clock);
+    let latest = publish(&mut vga, &clock);
+    assert!(
+        Arc::ptr_eq(&changed, &latest),
+        "unchanged refresh keeps dirty hints"
     );
+    assert_eq!(uploads.update(&latest.display), [(0, 1024)]);
     vga.write_mmio(0xb8001, 1, 7);
     assert_eq!(
         uploads.update(&publish(&mut vga, &clock).display),

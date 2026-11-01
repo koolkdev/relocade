@@ -63,7 +63,7 @@ impl Timing {
     }
 
     /// Internal retrace boundary used to sample display inputs. Disabling the
-    /// external sync signals does not stop the counters or capture cadence.
+    /// external sync signals does not stop the counters or sampling boundaries.
     pub fn retrace_dot(self) -> Option<u64> {
         (self.clock_running() && self.vertical_retrace_start < self.vertical_total).then_some(
             self.vertical_retrace_start * self.scanlines_per_vertical_count * self.horizontal_total,

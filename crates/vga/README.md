@@ -242,7 +242,9 @@ At the start of vertical retrace the device latches the programmed display start
 then captures a complete `DisplaySnapshot` for the following active display:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
 settings, DAC colors and mask, the effective start address, and blink phase.
-`CapturedFrame` adds the sampling boundary's time and sequence. Late service
+When these inputs change, a `CapturedFrame` is published with that boundary's
+time and hardware retrace count. Unchanged refreshes retain the previous capture,
+including its timestamp; sequence numbers can have gaps. Late service
 coalesces missed boundaries; guest mutations first service elapsed time using
 the preceding state. A write exactly at a retrace edge applies after that latch.
 The capture describes selected inputs, not pixels scanned earlier in the frame.
@@ -274,10 +276,13 @@ Retaining many distinct captures can therefore retain many versions of a plane.
 `FrameSource` retains just the latest immutable `CapturedFrame`. Readers have no
 observation bookkeeping, and a slow reader can skip any number of captures. The
 capture has no RGBA image. It can cross workers and survive device destruction.
-Waiting for `next_capture` observes emulated refreshes, not pixel output or
-presentation. The registered VGA activity keeps capturing while the CPU waits
-for input and while the app is not drawing. Destroying VGA closes this source and
-wakes waiters without creating an extra frame.
+Waiting for `next_capture` observes changed inputs captured at a refresh boundary,
+not every hardware refresh, pixel output or presentation. Comparison uses plane
+identities, registers and blink phase without scanning VRAM. It is conservative:
+hidden memory and register access state can also cause a publication. Hardware
+timing and status-port behavior continue through unchanged refreshes, while the
+CPU waits for input and while the app is not drawing. Destroying VGA closes this
+source and wakes waiters without creating an extra frame.
 
 Captured memory and display settings are renderer inputs. An embedding can
 read them directly or use the optional GPU renderer below. Device-only users do
@@ -412,11 +417,8 @@ task. Production rendering records commands without waiting for GPU completion.
 
 `VgaDisplay` connects a `FrameSource` to a host through
 `relocade_frontend::display::DisplayRenderer`. Its `service(queue)` waits on
-`FrameSource::next_changed_capture(after)`, which does not wake for time/sequence
-changes alone. Publication compares plane identities, registers and blink phase
-without scanning VRAM. This is a conservative input comparison: hidden memory and
-register access state can cause a notification even when pixels would not change.
-The existing `next_capture(after)` still observes every published refresh.
+`FrameSource::next_capture(after)`. Unchanged refreshes leave this wait asleep;
+the adapter needs no separate change subscription or refresh counter.
 
 `encode_image(queue, encoder)` selects the newest capture at redraw time, uploads
 changed resources, and records decoding only when rendering inputs changed.
