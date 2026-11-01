@@ -5,7 +5,7 @@ use std::{cell::Cell, rc::Rc, task::Waker};
 /// Requests a CPU run to stop at a host boundary. Capture this once when
 /// registering a service; the handle does not retain the CPU or its backend.
 /// A pending run is woken, but synchronous guest or host code is not preempted.
-/// The driver consumes the request, releases pending calls, and returns
+/// The driver consumes the request, releases active and suspended calls, and returns
 /// `ExecutionExit::Host(HostExit::Return)` without executing service completion.
 /// DOS process results remain owned by DOS. This is separate from guest HLT
 /// and from shutting down the runner's device activities.

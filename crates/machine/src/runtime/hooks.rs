@@ -63,7 +63,8 @@ impl Hook {
     /// Handlers run in Rust after guest Wasm returns. Captures and environment
     /// data stay on the CPU's thread and do not need Send or Sync.
     /// Add [`Self::with_continuations`] to permit guest IRQ execution while a
-    /// future waits. A bare hook has no guest resume position.
+    /// future waits. A bare hook has no guest resume position and leaves device
+    /// IRQs unacknowledged until its future completes.
     pub fn new<F>(address: u32, handler: F) -> Self
     where
         F: AsyncFn() + 'static,
@@ -82,6 +83,12 @@ impl Hook {
     /// it never starts a handler. Complete selects guest code, such as IRET,
     /// when the handler returns. Registration does not change guest bytes.
     /// The three positions must be distinct.
+    /// An IRQ accepted while the call waits saves the resume position as its
+    /// guest return CS:IP. Any registered resume entry resumes the top parked call;
+    /// the execution stack identifies that invocation, independently of the entry.
+    /// Redirecting elsewhere leaves that call parked until explicit abandonment
+    /// or session termination. An unusable resume offset reports #GP after IRQ
+    /// acknowledgement, retaining the future and its original code position.
     ///
     /// [`super::real_mode_interrupt::hook`] supplies the BIOS/DOS convention.
     pub fn with_continuations(mut self, resume: u32, complete: u32) -> Self {

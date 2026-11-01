@@ -1114,13 +1114,14 @@ retire guest instructions. An ID without a registered handler is a
 programming error.
 
 Services may also register a distinct, payload-free `HostExit::Resume` entry
-inside their environment-owned guest stub. The execution stack identifies the
-suspended invocation; the entry does not create another call. The generic runtime
-reserves no guest address.
+inside their environment-owned guest stub. Any registered resume entry resumes
+the top parked frame; the stack identifies the invocation. It does not create
+another call. With no parked frame, resume returns to the embedding.
+The generic runtime reserves no guest address.
 Replacing either registered position removes the pair. Completion remains
 ordinary guest code, such as the IRET in a BIOS/DOS stub.
 
-`HostExit::Return` requests a return to the embedding. The runtime awaits a
+`HostExit::Return` terminates the session and releases parked calls. The runtime awaits a
 service's future after the guest call returns; pending work has no guest
 execution exit. A returned host future selects the registered completion address
 through the live CS alias and validates its limit. A bare hook uses the live CPU
@@ -1129,10 +1130,34 @@ requests a driver return before completion or further guest execution. DOS owns
 its process result separately. Stop wakes a pending run, survives waiter replacement
 and is consumed when the driver returns `HostExit::Return`. Zero-budget runs leave
 it pending. Synchronous guest and host code are not preempted. `HostExit::Call`
-and `HostExit::Resume` remain reserved for generated entries. Ready handlers require no resume-position
-preparation. The runner owns pinned futures until completion or CPU drop,
+and `HostExit::Resume` remain reserved for generated entries. Ready handlers
+require no resume-position preparation. The runner owns pinned futures until completion or abandonment,
 even when a run waiter is dropped. Handler captures and futures may be local to
 the CPU's thread and need not be `Send` or `Sync`.
+
+After a pending poll, live IF and real-mode inhibition determine IRQ eligibility.
+An accepted request saves the service's resume position in the guest IRQ frame's
+CS:IP. Successful entry parks the existing future before dispatching the ISR;
+readiness alone never polls it while guest execution or a nested call is active.
+Ready awaits continue synchronously in the same Rust poll. Bare hooks without
+continuations leave IRQ requests queued while pending.
+
+Resumption restores only the original linear code position through the live CS
+alias. Guest register, stack, memory, flags and CS changes survive. If that alias
+cannot represent the original position, resumption reports #GP and keeps the
+frame parked for repair. Preparing an unusable IRQ return position also reports
+#GP, but keeps the future active and restores its original EIP. A request has
+already been acknowledged before preparing that position or attempting entry;
+neither preparation nor architectural entry faults requeue it. Faults inside the
+ISR leave the interrupted call parked.
+
+Guest redirection away from a resume entry leaves its frame parked. The embedding
+explicitly calls `Cpu::abandon_suspended_calls` when those returns will no longer
+be used; session termination and CPU destruction also release work, innermost
+first. Abandonment never restores CPU state. Temporary IF changes belong around
+the whole composed service operation and are restored only after normal
+completion, as in `real_mode_interrupt::with_interrupts_enabled`. Dropping a wait
+or its enclosing call must not restore saved IF into another live frame.
 
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the
