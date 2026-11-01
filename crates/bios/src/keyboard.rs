@@ -121,6 +121,14 @@ impl Keyboard {
         input.pending_scan_code.is_some() || !input.keys.is_empty()
     }
 
+    /// Reports the next DOS byte without consuming a keystroke or its pending scan code.
+    pub fn peek_character(&self) -> Option<u8> {
+        let input = self.0.borrow();
+        input
+            .pending_scan_code
+            .or_else(|| input.keys.front().map(|key| key.character))
+    }
+
     /// Takes one DOS character, splitting function keys into zero and scan code.
     pub fn try_read_character(&self) -> Option<u8> {
         let mut input = self.0.borrow_mut();
@@ -141,6 +149,14 @@ impl Keyboard {
                 return character;
             }
             self.wait_for_key().await;
+        }
+    }
+
+    /// Fills a DOS byte buffer, waiting for additional keys until it is full.
+    /// Extended keys use the same zero-prefix/scan-code split as single-byte reads.
+    pub async fn read_characters(&self, bytes: &mut [u8]) {
+        for byte in bytes {
+            *byte = self.read_character().await;
         }
     }
 

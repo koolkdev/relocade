@@ -19,8 +19,9 @@ pub(crate) struct Stdio {
     pub(crate) input: Keyboard,
     // Unread bytes of a completed AH=3Fh line, shared by all console input handles.
     console_line: RefCell<VecDeque<u8>>,
-    // DOS's cooked-output column, independent of how the host drains its queues.
-    output_column: Cell<u8>,
+    // DOS's logical column for cooked output, not the BIOS screen cursor.
+    // Escape-sequence bytes count here even when a driver interprets them.
+    cooked_column: Cell<u8>,
     stdout: Output,
     stderr: Output,
 }
@@ -51,13 +52,13 @@ impl Stdio {
     /// Expands tabs and tracks the DOS cooked-output column.
     /// Returns the output byte and how many times it should be written.
     pub(crate) fn cook_character(&self, byte: u8) -> (u8, u8) {
-        let column = self.output_column.get();
+        let column = self.cooked_column.get();
         let (byte, count) = if byte == b'\t' {
             (b' ', 8 - (column & 7))
         } else {
             (byte, 1)
         };
-        self.output_column.set(match byte {
+        self.cooked_column.set(match byte {
             b'\r' => 0,
             b'\x08' => column.wrapping_sub(1),
             b' '..=b'~' | 0x80..=0xff => column.wrapping_add(count),

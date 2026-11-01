@@ -22,7 +22,7 @@ impl<'call> DosContext<'call> {
     pub(crate) fn console(&self) -> crate::Console<'call> {
         crate::Console {
             stdio: self.dos.stdio(),
-            memory: self.dos.memory(),
+            devices: self.dos.devices(),
         }
     }
 

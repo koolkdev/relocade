@@ -29,10 +29,11 @@
 //! the console even when stdout is redirected. A leading Ctrl-Z sets EOF on
 //! that open handle and its duplicates. Handle reads at EOF return zero until
 //! EOF is cleared through AH=40h or AX=4401h, or a program load replaces the handles.
-//! AX=4401h switches device handles between cooked and raw mode. Raw AH=3Fh reads
-//! await the requested byte count, limited by the segment boundary, without editing,
-//! echo, CRLF insertion or interpreting Ctrl-Z as EOF. Raw AH=40h writes preserve
-//! tabs and control bytes. Duplicates share mode and EOF changes; separate opens
+//! AX=4401h switches device handles between cooked and raw mode. Raw transfers
+//! report the driver's actual byte count. Built-in CON reads await the requested
+//! count, limited by the segment boundary, without editing, echo, CRLF insertion
+//! or interpreting Ctrl-Z as EOF. Raw writes preserve tabs and control bytes.
+//! Duplicates share mode and EOF changes; separate opens
 //! keep their own state. Switching modes preserves the buffered cooked-line remainder.
 //! Dropping a run waiter preserves an active read and its local state. A later
 //! [`Cpu::run`] resumes that read. Dropping the DOS session drops its pending call.
@@ -101,6 +102,7 @@
 
 mod com;
 mod console;
+mod devices;
 mod error;
 mod execution;
 mod files;
@@ -116,7 +118,7 @@ mod state;
 mod stdio;
 
 pub use console::Console;
-pub use error::{LaunchError, LoadError, MountError, ServiceError};
+pub use error::{DosError, LaunchError, LoadError, MountError, ServiceError};
 pub use execution::RunError;
 pub use files::FileAccess;
 pub use load::LoadOptions;
@@ -331,11 +333,11 @@ impl Dos {
     }
 
     /// Execution-local console access for Rust code, including between programs.
-    /// Uses the same keyboard, video memory and cursor as BIOS/DOS console services.
+    /// Resolves the current CON device, sharing BIOS keyboard and video state.
     pub fn console(&self) -> Console<'_> {
         Console {
             stdio: self.state.stdio(),
-            memory: self.state.memory(),
+            devices: self.state.devices(),
         }
     }
 

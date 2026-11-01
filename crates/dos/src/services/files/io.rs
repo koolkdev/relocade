@@ -32,7 +32,7 @@ pub(in crate::services) async fn read(call: &mut DosContext<'_>) {
 }
 
 /// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
-pub(in crate::services) fn write(call: &mut DosContext<'_>) {
+pub(in crate::services) async fn write(call: &mut DosContext<'_>) {
     let cpu = call.cpu;
     let handle = cpu.bx();
     let offset = cpu.dx();
@@ -45,8 +45,10 @@ pub(in crate::services) fn write(call: &mut DosContext<'_>) {
             .expect("real-mode write buffer");
     }
     let destination = call.process.files().writable_handle(handle);
-    let result = destination
-        .and_then(|destination| transfer::write(call.console(), &destination, &bytes))
-        .map(|count| call.cpu.set_ax(count as u16));
+    let result = match destination {
+        Ok(destination) => transfer::write(call.console(), &destination, &bytes).await,
+        Err(error) => Err(error),
+    };
+    let result = result.map(|count| call.cpu.set_ax(count as u16));
     return_result(call, result)
 }
