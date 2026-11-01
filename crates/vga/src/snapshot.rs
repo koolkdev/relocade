@@ -5,8 +5,9 @@ use crate::memory::DirtyPages;
 use crate::Registers;
 use std::sync::Arc;
 
-/// Changes since a known immutable memory version. Retains plane references,
-/// not earlier captures, so the latest snapshot cannot keep a capture history.
+/// Changes since a known immutable memory version. Published captures accumulate
+/// these until taken for upload. Retains plane references, not earlier captures,
+/// so the latest snapshot cannot keep a capture history.
 #[derive(Clone)]
 #[cfg(feature = "renderer")]
 pub(crate) struct MemoryChanges {

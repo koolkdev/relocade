@@ -7,6 +7,12 @@ const PAGE_BYTES: usize = 1024;
 pub(crate) struct DirtyPages([u64; 4]);
 
 impl DirtyPages {
+    pub fn merge(&mut self, other: Self) {
+        for (pages, pending) in self.0.iter_mut().zip(other.0) {
+            *pages |= pending;
+        }
+    }
+
     pub fn mark(&mut self, plane: usize, offset: usize) {
         self.0[plane] |= 1 << (offset / PAGE_BYTES);
     }

@@ -5,7 +5,8 @@ use relocade_renderer::{FrameError, Image};
 /// Connects captured VGA output to a graphics host. Construct this on the graphics
 /// owner using its device; the execution owner supplies only the frame source.
 /// `service` observes changed captures without GPU work. On a requested redraw,
-/// `encode_image` uploads the latest capture and records decoding if needed.
+/// `encode_image` takes the latest capture with its accumulated dirty pages,
+/// uploads it and records decoding if needed.
 /// The host submits uploads, decoding and drawing together, then presents.
 pub struct VgaDisplay {
     source: FrameSource,
@@ -60,8 +61,8 @@ impl DisplayRenderer for VgaDisplay {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
     ) -> Option<&Image> {
-        let capture = self.source.current_capture()?;
         let renderer = self.renderer.as_mut()?;
+        let capture = self.source.take_capture()?;
         let changed = renderer.upload(queue, &capture);
         self.observed_sequence = Some(capture.sequence);
         if changed || self.frame.is_none() {

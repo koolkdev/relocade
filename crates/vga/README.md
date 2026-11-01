@@ -328,7 +328,7 @@ command encoder:
 ```rust,ignore
 let mut vga_renderer = relocade_vga::VgaRenderer::new(&device)?;
 let mut renderer = relocade_renderer::Renderer::new(device.clone(), output_format)?;
-if let Some(capture) = source.current_capture() {
+if let Some(capture) = source.take_capture() {
     let mut encoder = device.create_command_encoder(&Default::default());
     vga_renderer.upload(&queue, &capture);
     let frame = vga_renderer.encode(&mut encoder).unwrap();
@@ -361,21 +361,27 @@ in each plane become one upload. Character,
 attribute and font planes update independently. Hidden memory is included, so
 changing the display start or font bank requires no residency bookkeeping.
 
-Captures remain complete. Private transfer hints retain the preceding published
-plane versions and a copy of the dirty bitmap; they hold no references to older
-captures. Publication clears the device's bitmap, while immediate snapshots and
-independent readers leave it alone. The renderer compares plane identities and
-walks the bitmap, without scanning VRAM or maintaining a separate CPU shadow.
+Captures remain complete. Publication merges dirty pages into the latest capture's
+private transfer hints until `FrameSource::take_capture()` hands them to the
+uploading renderer. Taking atomically returns the capture with all pending changes
+and starts a fresh bitmap for later writes. The latest capture remains readable;
+`current_capture()` and `next_capture()` never consume its hints. Retained captures
+stay immutable. Only plane versions and one fixed bitmap are retained, not a queue
+of captures. Publication clears the device's local bitmap; immediate snapshots
+leave it alone. The renderer compares plane identities and walks the bitmap,
+without scanning VRAM or maintaining a separate CPU shadow.
 The raw register header and palette are compared and uploaded independently
 when changed. Blink, cursor or geometry updates do not resend the palette;
 palette-only updates do not resend the header or font memory.
 
 If a captured plane already matches the last queued GPU version, no memory upload
 is needed. If its change baseline matches, the renderer uploads dirty pages.
-Otherwise it restores that entire 64-KiB plane, including when a skipped capture
-changed memory that the latest bitmap no longer marks. New renderers, other
-sources, immediate snapshots and reverse playback stay correct through this
-fallback. No capture acknowledgements or pending-update queues are required.
+Skipped publications retain their dirty pages, so a slower uploading renderer
+does not need full-plane transfers just because it missed captures. Use one
+consuming renderer per source, and upload each taken capture before taking the
+next. New renderers, independent readers, other sources, immediate snapshots and
+reverse playback can have a different baseline; they restore the affected 64-KiB
+plane instead. Taking requires no GPU-completion acknowledgement or update queue.
 
 The device never waits for GPU mapping or completion. Snapshot storage still
 uses shared CPU planes with copy-on-write, so a changed retained plane can copy
@@ -420,10 +426,10 @@ task. Production rendering records commands without waiting for GPU completion.
 `FrameSource::next_capture(after)`. Unchanged refreshes leave this wait asleep;
 the adapter needs no separate change subscription or refresh counter.
 
-`encode_image(queue, encoder)` selects the newest capture at redraw time, uploads
-changed resources, and records decoding only when rendering inputs changed.
-Skipped captures remain safe through the existing upload baseline checks. A resize
-with unchanged inputs reuses the image. No redraw means no VGA uploads or decoding;
+`encode_image(queue, encoder)` takes the newest capture and its accumulated dirty
+pages at redraw time, uploads changed resources, and records decoding only when
+rendering inputs changed. A resize with unchanged inputs reuses the image.
+No redraw means no VGA uploads or decoding;
 VGA timing and capture publication continue independently. Closing the source
 preserves the image and its last decoded capture metadata, available from
 `current_frame()`.
