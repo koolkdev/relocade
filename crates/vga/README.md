@@ -390,6 +390,27 @@ and save-pointer override services are not advertised. Reserved state fields
 remain zero. The BIOS information module owns this ABI encoding and reuses
 adapter metadata and page validation; it adds no device or renderer state.
 
+AH=1Ch saves selected video-state components to ES:BX. CX bits 0, 1 and 2 select
+hardware registers/latches, BIOS data, and DAC colors respectively; higher bits
+are ignored. AL=0 returns the required number of 64-byte blocks in BX, and AL=1
+saves the components. Valid nonempty requests return AL=1Ch, while an empty mask
+or unsupported operation returns AL=0 without side effects. Other registers and
+flags are preserved. Restoration (AL=2) is not implemented yet.
+
+The buffer follows the [IBM ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
+(xCB9–x1200) and [RBIL's corrected DAC layout](https://fd.lod.bz/rbil/interrup/video/101c.html):
+a 20h-byte header has absolute ES offsets at +0/+2/+4 for hardware (46h bytes),
+BIOS data (3Ah), and DAC data (304h). Only selected header entries and blocks are
+written; offset arithmetic wraps at ES:FFFF. Color Select is the last DAC byte,
+not an overlapping palette entry as in the early IBM ROM. BIOS data includes
+the save pointer at 4A8h and vectors 05h, 1Dh, 1Fh and 43h.
+
+This BIOS buffer does not include VRAM or fonts. Saving hardware uses AFFFFh as
+latch scratch space, overwriting the last byte of each physical plane as described
+in IBM VGA Function p. 2-98. The ABI has no attribute flip-flop or DAC RGB-component
+field; DAC transfers resume at red. These guest-facing operations use ports and
+memory accesses; renderer captures retain their existing immutable state.
+
 At the start of vertical retrace the device latches the programmed display start,
 then captures a complete `DisplaySnapshot` for the following active display:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
