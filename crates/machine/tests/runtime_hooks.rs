@@ -58,7 +58,7 @@ async fn check_interrupt_hooks() {
     let observed = calls.clone();
     runtime
         .install_hooks([
-            Hook::new(0x10020, {
+            real_mode_interrupt::hook(0x10020, runtime.cpu_state(), {
                 let resources = runtime.memory();
                 let cpu = runtime.cpu_state();
                 async move || {
@@ -79,7 +79,6 @@ async fn check_interrupt_hooks() {
                     assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
                     assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
                     real_mode_interrupt::set_carry(&cpu, &mut memory, false);
-                    real_mode_interrupt::return_from_interrupt(&cpu)
                 }
             }),
             Hook::new(0x400, async move || {

@@ -114,7 +114,7 @@ async fn check_pending_calls() {
         .unwrap();
     let captured = state.clone();
     runtime
-        .install_hooks([Hook::new(0x200, {
+        .install_hooks([real_mode_interrupt::hook(0x200, runtime.cpu_state(), {
             let resources = runtime.memory();
             let cpu = runtime.cpu_state();
             async move || {
@@ -123,6 +123,7 @@ async fn check_pending_calls() {
                 // Distinct fields stay borrowed together through both awaits.
                 let state = &captured;
                 state.started.set(state.started.get() + 1);
+                assert_eq!(cpu.eip(), 0x200);
                 let operation = Operation(state.clone());
                 let first = operation.0.read().await;
                 cpu.set_bx(first);
@@ -134,13 +135,13 @@ async fn check_pending_calls() {
                 let values = [first];
                 let saved = &values[0];
                 let second = operation.0.read().await;
+                assert_eq!(cpu.eip(), 0x200);
                 assert_eq!(cpu.bx(), *saved);
                 let sum = *saved + second;
                 cpu.set_bx(sum);
                 drop(operation);
                 state.completed.set(state.completed.get() + 1);
                 memory.write(0x300, &sum.to_le_bytes()).unwrap();
-                real_mode_interrupt::return_from_interrupt(&cpu)
             }
         })])
         .await
@@ -253,9 +254,12 @@ async fn check_pending_calls() {
     runtime.context().cpu.set_eip(0x100);
     assert_pending(runtime.run(10));
     assert_eq!(state.dropped.get(), 3);
+    let retained_cpu = runtime.cpu_state();
+    assert_eq!(retained_cpu.eip(), 0x200);
     drop(runtime);
     assert_eq!(state.dropped.get(), 4);
     assert_eq!(state.completed.get(), 3);
+    assert_eq!(retained_cpu.eip(), 0x200);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
