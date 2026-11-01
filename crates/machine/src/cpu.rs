@@ -114,6 +114,17 @@ impl CpuStateAccess {
         self.store(offset_of!(CpuState, instruction_count), value);
     }
 
+    #[inline]
+    pub fn interrupts_enabled(&self) -> bool {
+        self.load::<u8>(offset_of!(CpuState, flags.bytes.if_)) & 1 != 0
+    }
+
+    /// Changes live IF without touching arithmetic flags or creating STI's shadow.
+    #[inline]
+    pub fn set_interrupts_enabled(&self, enabled: bool) {
+        self.store(offset_of!(CpuState, flags.bytes.if_), u8::from(enabled));
+    }
+
     /// Returns represented EFLAGS bits, resolving any lazy arithmetic flags.
     pub fn eflags(&self) -> u32 {
         FlagsState::from_bytes(self.read(offset_of!(CpuState, flags))).eflags()

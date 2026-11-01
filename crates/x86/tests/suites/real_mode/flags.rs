@@ -210,7 +210,11 @@ fn interrupt_controls(frontend: Frontend) {
                 &[Step {
                     cpu,
                     ram: &[],
-                    exit: Exit::Dispatch(cpu.eip),
+                    exit: if opcode == 0xfb && fill & 1 == 0 {
+                        Exit::Other(crate::ExecutionExit::InterruptInhibited)
+                    } else {
+                        Exit::Dispatch(cpu.eip)
+                    },
                 }],
             );
         }
@@ -219,8 +223,8 @@ fn interrupt_controls(frontend: Frontend) {
 test_frontends!(direct_interrupt_flag_controls, interrupt_controls);
 
 fn interrupt_histories(frontend: Frontend) {
-    // Both writes are visible immediately to PUSHF. The final fault publishes
-    // the latest IF and keeps the pending arithmetic flags unchanged.
+    // STI publishes IF at its execution boundary. PUSHF observes both IF
+    // writes, and a later fault preserves the pending arithmetic flags.
     let code = [0xfb, 0x9c, 0xfa, 0x9c, 0x67, 0xa1, 0, 0, 1, 0];
     let mut image = image(&code);
     image.cpu.flags.status_source.kind = 9;
@@ -232,6 +236,18 @@ fn interrupt_histories(frontend: Frontend) {
     image.map(2, 0x8000, true);
     let mut set = retired(&image, 1);
     set.flags.bytes.if_ = 1;
+    let mut cases = sequences(frontend);
+    cases.check(
+        "STI publishes IF without materializing pending arithmetic flags",
+        &code,
+        &image,
+        &[Step {
+            cpu: set,
+            ram: &[],
+            exit: Exit::Other(crate::ExecutionExit::InterruptInhibited),
+        }],
+    );
+    image.cpu = set;
     let mut pushed_set = set;
     pushed_set.eip += 1;
     pushed_set.instruction_count += 1;
@@ -244,16 +260,11 @@ fn interrupt_histories(frontend: Frontend) {
     pushed_clear.eip += 1;
     pushed_clear.instruction_count += 1;
     pushed_clear.registers.esp = 0xabcd_2000;
-    sequences(frontend).check(
-        "STI/CLI feed PUSHF and survive a later fault in the same entry",
-        &code,
+    cases.check(
+        "STI/CLI feed PUSHF and survive a later fault",
+        &code[1..],
         &image,
         &[
-            Step {
-                cpu: set,
-                ram: &[],
-                exit: Exit::Dispatch(set.eip),
-            },
             Step {
                 cpu: pushed_set,
                 ram: &[(0x8002, &[0x97, 0x67])],

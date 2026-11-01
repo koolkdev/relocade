@@ -151,6 +151,12 @@ impl Cpu {
     /// cannot overlap another live service's registered positions. Completion is
     /// ordinary guest code and is not intercepted.
     ///
+    /// Host entries and resume positions at the immediate successor of an
+    /// interrupt-inhibiting instruction are currently unsupported. The protected
+    /// interpreter step executes guest bytes there; ordinary CALL/INT targets
+    /// reached by that instruction still dispatch normally. See
+    /// <https://github.com/koolkdev/relocade/issues/709>.
+    ///
     /// # Panics
     /// Panics if a service is suspended. Complete it before installing.
     pub async fn install_hooks(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
