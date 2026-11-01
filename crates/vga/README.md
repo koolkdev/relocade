@@ -380,16 +380,15 @@ and dirty tracking along with the optional renderer.
 
 `upload(queue, capture)` synchronizes persistent input resources without decoding
 or presenting, and returns whether rendering inputs or output geometry changed.
-Capture time and sequence alone do not count as changes. The graphics owner can
-service captures independently of redraw requests and submit uploads with
-`queue.submit([])`. `encode(encoder)` decodes the
+Capture time and sequence alone do not count as changes. Uploads can share the
+submission that decodes and draws the image. `encode(encoder)` decodes the
 latest uploaded inputs and returns `None` before the first upload. It always records
 a decode, including retries after an encoder was discarded. Uploading inputs does
 not imply that image pixels have been generated.
 
 The main thread can coalesce new-frame notifications and resize events into one
-animation-frame redraw request. The graphics worker uploads incoming captures;
-on a redraw request it decodes the latest inputs if necessary, draws and presents.
+animation-frame redraw request. On a redraw request the graphics worker selects
+the latest capture, uploads and decodes its inputs if necessary, draws and presents.
 A resize with no new inputs reuses the decoded image. Scheduling remains with the
 embedding; VGA creates no worker, redraw queue or presentation loop.
 
@@ -412,12 +411,17 @@ command batch. Neither renderer creates a surface, worker, timer or background
 task. Production rendering records commands without waiting for GPU completion.
 
 `VgaDisplay` connects a `FrameSource` to a host through
-`relocade_frontend::display::DisplayRenderer`. It waits for new captures and
-uploads them in `update(queue)`, requesting a redraw only when rendering inputs
-change. VRAM, fonts, palette, registers, geometry and the cursor/text blink phase
-use the existing upload checks; no VRAM comparison scan is needed. Changes remain
-pending until `encode_image(encoder)` records decoding, even when unchanged captures
-arrive in between. Unchanged captures and resize-only draws reuse the image.
+`relocade_frontend::display::DisplayRenderer`. Its `service(queue)` waits on
+`FrameSource::next_changed_capture(after)`, which does not wake for time/sequence
+changes alone. Publication compares plane identities, registers and blink phase
+without scanning VRAM. This is a conservative input comparison: hidden memory and
+register access state can cause a notification even when pixels would not change.
+The existing `next_capture(after)` still observes every published refresh.
+
+`encode_image(queue, encoder)` selects the newest capture at redraw time, uploads
+changed resources, and records decoding only when rendering inputs changed.
+Skipped captures remain safe through the existing upload baseline checks. A resize
+with unchanged inputs reuses the image. No redraw means no VGA uploads or decoding;
 VGA timing and capture publication continue independently. Closing the source
 preserves the image and its last decoded capture metadata, available from
 `current_frame()`.
@@ -437,14 +441,14 @@ let mut graphics = relocade_app::graphics::Graphics::spawn(
 
 The adapter retains the `FrameSource`. `device_lost()` drops its GPU resources
 and cached output without changing guest VGA state. `attach_device(device, queue)`
-creates fresh resources and fully uploads the latest capture, including after the
-source closes. The same adapter and source survive; the next `encode_image` records
-decoding of the restored input. Automatic restoration is VGA's policy, not a
-requirement of other display backends.
+creates fresh resources. The same adapter and source survive; the next
+`encode_image` fully uploads and decodes the latest capture, including after the
+source closes. Automatic restoration is VGA's policy, not a requirement of other
+display backends.
 
-The host submits uploads even when presentation is idle, and submits each recorded
-batch before servicing the adapter again. `VgaDisplay` relies on that submission
-contract for its cache. Callers that need to discard and retry recorded commands
+The host submits each recorded presentation batch before servicing the adapter
+again. `VgaDisplay` relies on that submission contract for its cache. Callers that
+need to discard and retry recorded commands
 can use `VgaRenderer` directly. The adapter adds no worker, surface or request loop.
 
 ## Rendering checks

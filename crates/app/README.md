@@ -152,14 +152,15 @@ The application stops requesting redraws when hidden or suspended; outstanding
 work can settle. Graphics handles completion internally and does not start another
 frame without demand. Normal presentation does not wait for GPU completion.
 
-The display's asynchronous `update(queue)` services inputs independently of draws.
-It returns `Some(true)` when a redraw is useful, `Some(false)` for input work that
-does not change visible content, and `None` when its source closes. Graphics submits
-queued uploads even without redraw demand, and coalesces redraw notifications until
-the next request. `encode_image(encoder)` records any GPU work needed for the current
-display image, or returns an existing image for reuse. The host records drawing that
-image later in the same command batch, then submits before another input update or
-encode. The image uses reusable GPU storage; recording does not wait for GPU
+The display's asynchronous `service(queue)` handles backend work independently of
+draws. It returns `Some(true)` when a redraw is useful, `Some(false)` for input work that
+does not change visible content, and `None` when backend work ends. A backend submits
+work that must run without a redraw itself; Graphics does not submit on service
+results. Graphics coalesces redraw notifications until the next request.
+`encode_image(queue, encoder)` queues uploads and records any GPU work needed for
+the current display image, or returns an existing image for reuse. The host records
+drawing that image later in the same command batch, then submits before another
+service or encode. The image uses reusable GPU storage; recording does not wait for GPU
 completion. Guest execution stays independent of these host redraws.
 
 Source closure preserves the display and its last image. `Graphics` owns both
@@ -171,7 +172,7 @@ Dropping it early can terminate a browser worker before Rust destructors run.
 Browser work yields to the event loop so continuously ready updates cannot starve
 WebGPU callbacks; this does not generate redraw demand.
 
-The worker handles source updates, redraw requests and GPU failures in one loop.
+The worker handles backend activity, redraw requests and GPU failures in one loop.
 Drawing one frame reports whether presentation was requested, skipped or should
 be retried.
 

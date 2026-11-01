@@ -64,7 +64,7 @@ struct TestDisplay {
     source: Arc<Source>,
     commands: mpsc::UnboundedReceiver<Command>,
     guest_lost: bool,
-    updates_closed: bool,
+    service_closed: bool,
 }
 
 fn upload_image(device: &wgpu::Device, queue: &wgpu::Queue, colored: bool) -> Image {
@@ -114,13 +114,13 @@ impl DisplayRenderer for TestDisplay {
             image: None,
         });
         // Host GPU availability must not clear the guest's lost-device state.
-        // Updates keep processing commands while encode_image returns no image.
+        // Service keeps processing commands while encode_image returns no image.
         Ok(())
     }
 
-    async fn update(&mut self, queue: &wgpu::Queue) -> Option<bool> {
+    async fn service(&mut self, queue: &wgpu::Queue) -> Option<bool> {
         assert!(
-            !self.updates_closed,
+            !self.service_closed,
             "recovery must not poll a closed source again"
         );
         match self.commands.recv().await.ok()? {
@@ -140,6 +140,7 @@ impl DisplayRenderer for TestDisplay {
                     queue,
                     self.source.colored.load(SeqCst),
                 ));
+                queue.submit([]);
                 self.guest_lost = false;
                 self.source.guest_resets.fetch_add(1, SeqCst);
                 Some(true)
@@ -148,13 +149,17 @@ impl DisplayRenderer for TestDisplay {
             Command::Acquisition => {
                 failAcquisitions(2);
                 self.source.acquisition_failed.store(true, SeqCst);
-                self.updates_closed = true;
+                self.service_closed = true;
                 None
             }
         }
     }
 
-    fn encode_image(&mut self, _encoder: &mut wgpu::CommandEncoder) -> Option<&Image> {
+    fn encode_image(
+        &mut self,
+        _queue: &wgpu::Queue,
+        _encoder: &mut wgpu::CommandEncoder,
+    ) -> Option<&Image> {
         self.source.draws.fetch_add(1, SeqCst);
         let image = self.gpu.as_ref().unwrap().image.as_ref();
         if self.guest_lost {
@@ -207,7 +212,7 @@ async fn exercise_recovery() {
                 source: retained,
                 commands: incoming,
                 guest_lost: false,
-                updates_closed: false,
+                service_closed: false,
             })
         },
         || {},

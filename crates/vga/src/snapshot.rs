@@ -34,6 +34,18 @@ pub struct DisplaySnapshot {
 }
 
 impl DisplaySnapshot {
+    // Conservative input comparison, not pixel equivalence. Plane identities
+    // avoid scanning VRAM; register access state can cause harmless extra changes.
+    pub(crate) fn same_inputs(&self, other: &Self) -> bool {
+        self.blink_on == other.blink_on
+            && self.registers == other.registers
+            && self
+                .planes
+                .iter()
+                .zip(&other.planes)
+                .all(|(a, b)| Arc::ptr_eq(a, b))
+    }
+
     /// One complete 64-KiB physical plane, including bytes outside the display.
     /// Panics when `plane` is outside 0–3.
     pub fn plane(&self, plane: usize) -> &[u8] {

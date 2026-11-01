@@ -31,12 +31,12 @@ struct Display {
 }
 
 impl DisplayRenderer for Display {
-    async fn update(&mut self, _: &wgpu::Queue) -> Option<bool> {
+    async fn service(&mut self, _: &wgpu::Queue) -> Option<bool> {
         self.updates.recv().await.ok()?;
         self.counts.updates.fetch_add(1, SeqCst);
         Some(true)
     }
-    fn encode_image(&mut self, _: &mut wgpu::CommandEncoder) -> Option<&Image> {
+    fn encode_image(&mut self, _: &wgpu::Queue, _: &mut wgpu::CommandEncoder) -> Option<&Image> {
         self.counts.draws.fetch_add(1, SeqCst);
         while !self.counts.release.load(SeqCst) {
             std::hint::spin_loop();

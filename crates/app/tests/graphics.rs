@@ -24,6 +24,7 @@ struct Counts {
     source_closed: AtomicBool,
     flooding: AtomicBool,
     callback_completed: AtomicBool,
+    background_completed: AtomicUsize,
     released: AtomicBool,
     dropped: AtomicBool,
 }
@@ -41,7 +42,7 @@ struct TestDisplay {
 }
 
 impl DisplayRenderer for TestDisplay {
-    async fn update(&mut self, queue: &wgpu::Queue) -> Option<bool> {
+    async fn service(&mut self, queue: &wgpu::Queue) -> Option<bool> {
         if self.counts.flooding.load(SeqCst) {
             if !self.callback_requested {
                 let counts = self.counts.clone();
@@ -60,20 +61,27 @@ impl DisplayRenderer for TestDisplay {
             self.counts.source_closed.store(true, SeqCst);
             return None;
         };
-        self.input
-            .upload(
-                queue,
-                &[
-                    255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
-                ],
-            )
-            .unwrap();
+        let pixels = [
+            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+        ];
+        self.input.upload(queue, &pixels).unwrap();
+        // This backend needs uploads to run without presentation. It submits
+        // them itself; the host does not flush arbitrary backend work.
+        if visible_change {
+            queue.submit([]);
+        } else {
+            self.check_background_upload(queue);
+        }
         self.dirty |= visible_change;
         self.counts.updates.fetch_add(1, SeqCst);
         Some(visible_change)
     }
 
-    fn encode_image(&mut self, encoder: &mut wgpu::CommandEncoder) -> Option<&Image> {
+    fn encode_image(
+        &mut self,
+        _queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Option<&Image> {
         self.counts.draws.fetch_add(1, SeqCst);
         if let Some(blocked) = self.blocked.take() {
             blocked.send(()).unwrap();
@@ -92,6 +100,45 @@ impl DisplayRenderer for TestDisplay {
             self.counts.decodes.fetch_add(1, SeqCst);
         }
         Some(&self.image)
+    }
+}
+
+impl TestDisplay {
+    fn check_background_upload(&self, queue: &wgpu::Queue) {
+        let image = Image::new(&self.device, [1, 1], (1, 1)).unwrap();
+        image.upload(queue, &[17, 34, 51, 255]).unwrap();
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("background upload readback"),
+            size: 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            image.texture().as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: Default::default(),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+        let counts = self.counts.clone();
+        let readback = buffer.clone();
+        buffer.map_async(wgpu::MapMode::Read, .., move |result| {
+            result.unwrap();
+            assert_eq!(&*readback.get_mapped_range(..).unwrap(), &[17, 34, 51, 255]);
+            readback.unmap();
+            counts.background_completed.fetch_add(1, SeqCst);
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
     }
 }
 
@@ -181,6 +228,7 @@ async fn exercise_graphics() {
     let notifications = counts.notifications.load(SeqCst);
     input.unbounded_send(false).unwrap();
     wait_until(|| counts.updates.load(SeqCst) == 21).await;
+    wait_until(|| counts.background_completed.load(SeqCst) == 1).await;
     futures_timer::Delay::new(Duration::from_millis(40)).await;
     assert_eq!(counts.notifications.load(SeqCst), notifications);
     assert_eq!(counts.draws.load(SeqCst), 2);

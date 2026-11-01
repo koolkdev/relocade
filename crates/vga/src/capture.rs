@@ -3,7 +3,7 @@ use arc_swap::ArcSwapOption;
 use event_listener::Event;
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -24,7 +24,9 @@ pub struct CapturedFrame {
 #[derive(Default)]
 struct Captures {
     frame: ArcSwapOption<CapturedFrame>,
-    changed: Event,
+    captured: Event,
+    inputs_changed: Event,
+    last_change: AtomicU64,
     closed: AtomicBool,
 }
 
@@ -52,11 +54,44 @@ impl FrameSource {
     /// Returns `None` when VGA is destroyed and no newer capture is available.
     /// Captures already returned remain usable. This does not schedule rendering.
     pub async fn next_capture(&self, after: Option<u64>) -> Option<Arc<CapturedFrame>> {
+        self.wait_for_capture(after, false).await
+    }
+
+    /// Waits for changed memory, registers or blink phase, ignoring captures that
+    /// only advance time and sequence. Returns the latest capture after a change,
+    /// so slow consumers still skip intermediate frames. `after` is a previously
+    /// observed capture sequence, as in `next_capture`.
+    ///
+    /// This conservatively compares captured inputs, not visible pixels. Hidden
+    /// memory and register access state can also count as changes. Unchanged
+    /// captures do not wake this waiter. Source closure follows `next_capture`.
+    pub async fn next_changed_capture(&self, after: Option<u64>) -> Option<Arc<CapturedFrame>> {
+        self.wait_for_capture(after, true).await
+    }
+
+    async fn wait_for_capture(
+        &self,
+        after: Option<u64>,
+        changes_only: bool,
+    ) -> Option<Arc<CapturedFrame>> {
+        let event = if changes_only {
+            &self.captures.inputs_changed
+        } else {
+            &self.captures.captured
+        };
         loop {
-            let changed = self.captures.changed.listen();
+            let changed = event.listen();
             let closed = self.captures.closed.load(Ordering::Acquire);
+            // Publication stores the frame before this sequence. Acquire the
+            // sequence first so a reported change cannot return an older frame.
+            let last_change = self.captures.last_change.load(Ordering::Acquire);
             if let Some(frame) = self.current_capture() {
-                if after.is_none_or(|sequence| frame.sequence > sequence) {
+                let sequence = if changes_only {
+                    last_change
+                } else {
+                    frame.sequence
+                };
+                if after.is_none_or(|after| sequence > after) {
                     return Some(frame);
                 }
             }
@@ -68,12 +103,24 @@ impl FrameSource {
     }
 
     pub(crate) fn publish(&self, frame: CapturedFrame) {
+        let inputs_changed = self
+            .captures
+            .frame
+            .load()
+            .as_ref()
+            .is_none_or(|previous| !frame.display.same_inputs(&previous.display));
+        let sequence = frame.sequence;
         self.captures.frame.store(Some(Arc::new(frame)));
-        self.captures.changed.notify(usize::MAX);
+        if inputs_changed {
+            self.captures.last_change.store(sequence, Ordering::Release);
+            self.captures.inputs_changed.notify(usize::MAX);
+        }
+        self.captures.captured.notify(usize::MAX);
     }
 
     pub(crate) fn close(&self) {
         self.captures.closed.store(true, Ordering::Release);
-        self.captures.changed.notify(usize::MAX);
+        self.captures.captured.notify(usize::MAX);
+        self.captures.inputs_changed.notify(usize::MAX);
     }
 }

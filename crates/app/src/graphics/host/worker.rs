@@ -21,14 +21,12 @@ pub(super) async fn run<D: DisplayRenderer>(
     let mut display = create(&surface.device, &surface.queue)?;
     let mut renderer =
         Renderer::new(surface.device.clone(), surface.format()).map_err(|e| e.to_string())?;
-    // A factory can queue static image uploads before the first redraw.
-    surface.queue.submit([]);
     notify_redraw_needed();
-    let mut updates_closed = false;
+    let mut service_closed = false;
     let mut recovery_allowed = true;
     loop {
         // Give cancellation, GPU callbacks and the worker event loop a turn
-        // even when input updates or redraw requests are continuously ready.
+        // even when backend work or redraw requests are continuously ready.
         crate::platform::graphics::yield_to_host().await;
         let event = or(
             async {
@@ -40,25 +38,24 @@ pub(super) async fn run<D: DisplayRenderer>(
             },
             race(
                 async {
-                    if updates_closed {
+                    if service_closed {
                         pending::<()>().await;
                     }
-                    Event::Update(display.update(&surface.queue).await)
+                    Event::Serviced(display.service(&surface.queue).await)
                 },
                 async { Event::Redraw(requests.recv().await.ok()) },
             ),
         )
         .await;
         let failure_reason = match event {
-            Event::Update(Some(changed)) => {
-                surface.queue.submit([]);
+            Event::Serviced(Some(changed)) => {
                 if changed {
                     notify_redraw_needed();
                 }
                 continue;
             }
-            Event::Update(None) => {
-                updates_closed = true;
+            Event::Serviced(None) => {
+                service_closed = true;
                 continue;
             }
             Event::Redraw(None) => return Ok(()),
@@ -103,13 +100,12 @@ pub(super) async fn run<D: DisplayRenderer>(
         display.attach_device(&surface.device, &surface.queue)?;
         renderer =
             Renderer::new(surface.device.clone(), surface.format()).map_err(|e| e.to_string())?;
-        surface.queue.submit([]);
         notify_redraw_needed();
     }
 }
 
 enum Event {
-    Update(Option<bool>),
+    Serviced(Option<bool>),
     Redraw(Option<PhysicalSize<u32>>),
     Failure(Failure),
 }

@@ -30,6 +30,8 @@ impl Graphics {
     /// need not be `Send`. The factory runs once. The display keeps its logical
     /// state across device loss and controls its own recovery through the
     /// `DisplayRenderer` lifecycle hooks.
+    /// Factory uploads are flushed with the first redraw. Initialization that
+    /// must run without redraw demand must submit its own work.
     /// `notify_redraw_needed` runs on graphics and asks the app to schedule
     /// a redraw opportunity. Notifications coalesce until `request_redraw`
     /// is called.
