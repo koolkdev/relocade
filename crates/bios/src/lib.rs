@@ -33,7 +33,7 @@ mod screen;
 mod video;
 
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::{real_mode_interrupt, Hook};
+use relocade_machine::{real_mode_interrupt, Entry};
 use relocade_machine::{CpuStateAccess, IoBus, MemoryBus, MemoryView};
 pub use screen::write_text;
 
@@ -72,9 +72,13 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     }
 }
 
-/// Returns hooks for installation alongside another environment's hooks.
-/// The keyboard is captured by the hooks and may be shared with console input.
-pub fn hooks(cpu: CpuStateAccess, memory: MemoryBus, keyboard: Keyboard) -> [Hook; 3] {
+/// Returns service entries for installation alongside another environment.
+/// The keyboard is captured by their handlers and may be shared with console input.
+pub fn hooks(
+    cpu: CpuStateAccess,
+    memory: MemoryBus,
+    keyboard: Keyboard,
+) -> impl Iterator<Item = Entry> {
     [
         hook(CLOCK_ADDRESS, cpu.clone(), memory.clone(), clock),
         hook(
@@ -85,6 +89,8 @@ pub fn hooks(cpu: CpuStateAccess, memory: MemoryBus, keyboard: Keyboard) -> [Hoo
         ),
         hook(VIDEO_ADDRESS, cpu, memory, video::interrupt),
     ]
+    .into_iter()
+    .flatten()
 }
 
 struct BiosContext<'call> {
@@ -93,7 +99,7 @@ struct BiosContext<'call> {
     io: &'call IoBus,
 }
 
-fn hook<F>(address: u32, cpu: CpuStateAccess, memory: MemoryBus, handler: F) -> Hook
+fn hook<F>(address: u32, cpu: CpuStateAccess, memory: MemoryBus, handler: F) -> [Entry; 3]
 where
     F: AsyncFn(&mut BiosContext<'_>) + 'static,
 {

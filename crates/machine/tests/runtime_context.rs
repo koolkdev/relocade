@@ -49,7 +49,7 @@ async fn check_context_lifetime() {
     let ready = Rc::new(Cell::new(false));
     let complete = ready.clone();
     runtime
-        .install_hooks([Hook::new(0x100, {
+        .install([Hook::new(0x100, {
             let resources = runtime.memory();
             let cpu = runtime.cpu_state();
             let exit = runtime.exit_handle();

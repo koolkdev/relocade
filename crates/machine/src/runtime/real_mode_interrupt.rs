@@ -1,31 +1,50 @@
 //! Helpers for hooks entered through a 16-bit real-mode interrupt frame.
 //!
-//! Place [`HOOK_STUB`] in guest memory and register its first byte with [`hook`].
+//! Place [`HOOK_STUB`] in guest memory and install the entries returned by [`hook`].
 //! When the async handler returns, the adapter advances to the guest IRET,
 //! which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
+//! The second byte supplies the service's explicit resume position.
 
-use super::Hook;
+use super::{Entry, Hook};
 use crate::{CpuStateAccess, MemoryView};
-use relocade_x86::Segment;
+use relocade_x86::{abi, ExecutionExitValues, HostExit, Segment};
 
-/// NOP reserves the hook entry; IRET performs the interrupt return in the guest.
-pub const HOOK_STUB: [u8; 2] = [0x90, 0xcf];
+/// Entry NOP, resume NOP, and completion IRET inside the environment's service code.
+/// The adapter supplies all three positions in a batch. The return
+/// entry uses the existing interpreter to execute the live guest IRET byte.
+pub const HOOK_STUB: [u8; 3] = [0x90, 0x90, 0xcf];
 
 /// Adapts an ordinary async handler to the real-mode interrupt return convention.
-/// The handler sees the hook's entry CS:IP until it returns. It must leave that
-/// position and the interrupt frame intact, apart from intended frame edits.
-/// Completion advances IP once; the guest executes IRET on the next dispatch.
-/// Pending handlers retain their future, and dropping one does not advance IP.
-pub fn hook<F>(address: u32, cpu: CpuStateAccess, handler: F) -> Hook
+/// Entry advances IP to the resume position before polling the handler. The
+/// handler must preserve that continuation and the interrupt frame, apart from
+/// intended frame edits. Completion advances the live IP once more to IRET;
+/// dropping a pending handler leaves the CPU untouched. The stub must fit in the
+/// entering code segment. Redirected resumes must also have IRET immediately after
+/// the live resume position; completion follows that position through the live CS.
+pub fn hook<F>(address: u32, cpu: CpuStateAccess, handler: F) -> [Entry; 3]
 where
     F: AsyncFn() + 'static,
 {
-    Hook::new(address, async move || {
-        handler().await;
-        let iret_ip = (cpu.eip() as u16).wrapping_add(1);
-        cpu.set_eip(u32::from(iret_ip));
-    })
+    let iret = address.checked_add(2).expect("interrupt stub address");
+    [
+        Hook::new(address, async move || {
+            let resume_ip = (cpu.eip() as u16).wrapping_add(1);
+            cpu.set_eip(u32::from(resume_ip));
+            handler().await;
+            let iret_ip = (cpu.eip() as u16).wrapping_add(1);
+            cpu.set_eip(u32::from(iret_ip));
+        })
+        .into(),
+        Entry::block(address + 1, |program| {
+            program
+                .function::<abi::ExecutionSignature>(|body, ()| {
+                    body.return_(ExecutionExitValues::host(HostExit::Resume))
+                })
+                .into()
+        }),
+        Entry::block(iret, |program| program.import_function(abi::INTERPRET)),
+    ]
 }
 
 /// Changes carry in the saved FLAGS, preserving every other flag.

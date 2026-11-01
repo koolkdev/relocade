@@ -1131,6 +1131,29 @@ a flag; cancellation and wakeups belong to the execution owner.
 futures until completion, an observed exit request or CPU drop. Handler captures and
 futures may be local to the CPU's thread and need not be `Send` or `Sync`.
 
+`Cpu::install` publishes a flat batch of `Entry` values: ordinary async `Hook`
+entries and generated or imported Wasm blocks with the common execution signature.
+A Hook converts directly to an Entry. Each address is independently replaceable,
+including exports supplied to `Cpu::install_module`; the last declaration at a
+repeated address wins. Replacing a host entry releases its old handler captures.
+An environment replaces a service by supplying all of its related entries again.
+A low-level overwrite changes only its address, even when entries share a module.
+
+The real-mode interrupt adapter returns a batch of three entries at positions
+inside the environment's service code: entry NOP, resume NOP, completion IRET.
+The wrapper advances the live 16-bit IP to Resume before invoking the ordinary
+async handler, then advances it once more to IRET on normal completion. A pending
+future stays at its resume position; abandonment does not advance IP. The resume
+block emits `HostExit::Resume`; the completion block directly exports the existing
+interpreter entry to execute the live guest IRET byte. The environment owns the
+stub layout, which must fit in the entering code segment. Redirected resumes
+must provide a compatible IRET position immediately afterward; completion follows
+the live CS:IP. The runner reserves no global guest address.
+
+A resume entry returns payload-free `HostExit::Resume` to the embedding without
+invoking a handler. Registration does not change pending-call scheduling: a pending
+future keeps guest execution parked until it completes.
+
 Floating-point error reports #MF (architectural vector 16). Its return value
 contains no payload; the published x87 status and environment describe the
 pending exception.

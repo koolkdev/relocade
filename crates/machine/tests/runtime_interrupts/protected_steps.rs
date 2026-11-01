@@ -148,7 +148,7 @@ async fn software_interrupt() {
         runner.memory().view().write(0x84, &[0, 2, 0, 0]).unwrap();
         one_instruction(&mut runner, &code, compiled).await;
         runner
-            .install_hooks([Hook::new(0x200, {
+            .install([Hook::new(0x200, {
                 let state = runner.cpu_state();
                 let memory = runner.memory();
                 let exit = runner.exit_handle();
@@ -179,7 +179,7 @@ async fn function_call() {
     // STI; CALL 0200; JMP to self. CALL is the protected instruction.
     let mut runner = cpu(&[0xfb, 0xe8, 0xfc, 0, 0xeb, 0xfe], 2, &irq).await;
     runner
-        .install_hooks([Hook::new(0x200, {
+        .install([Hook::new(0x200, {
             let state = runner.cpu_state();
             let memory = runner.memory();
             let exit = runner.exit_handle();

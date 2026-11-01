@@ -1,5 +1,5 @@
 use crate::{interrupt, memory, services, state::DosState};
-use relocade_machine::{real_mode_interrupt::HOOK_STUB, Hook};
+use relocade_machine::{real_mode_interrupt::HOOK_STUB, Entry};
 use relocade_machine::{CpuConfig, CpuStateAccess, MachineConfig, MemoryView};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -56,7 +56,7 @@ pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
     }
 }
 
-pub(crate) fn hooks(cpu: CpuStateAccess, state: Rc<DosState>) -> [Hook; 2] {
+pub(crate) fn hooks(cpu: CpuStateAccess, state: Rc<DosState>) -> impl Iterator<Item = Entry> {
     [
         interrupt::hook(
             address(INT20_ENTRY),
@@ -66,6 +66,8 @@ pub(crate) fn hooks(cpu: CpuStateAccess, state: Rc<DosState>) -> [Hook; 2] {
         ),
         interrupt::hook(address(INT21_ENTRY), cpu, state, services::int21),
     ]
+    .into_iter()
+    .flatten()
 }
 
 const fn address(offset: u16) -> u32 {

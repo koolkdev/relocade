@@ -41,6 +41,7 @@ mod call;
 mod code;
 mod context;
 mod dispatch;
+mod entry;
 mod error;
 mod execution;
 mod hooks;
@@ -54,13 +55,12 @@ use call::Call;
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
+pub use entry::Entry;
 pub use error::{Error, Result};
 pub use execution::ExitHandle;
 pub use hooks::Hook;
-use hooks::Services;
 use machine::Machine;
 use memory::RuntimeMemory;
-use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
@@ -85,7 +85,6 @@ impl Cpu {
             bindings,
             io,
             dispatch,
-            services: Services::default(),
         };
         Ok(Self {
             pending: None,
@@ -98,6 +97,8 @@ impl Cpu {
     /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
     /// publication and continuation. Addresses are linear CS.base + EIP, before
     /// paging/A20. Installing an existing address replaces its function.
+    /// Exports are independently replaceable; a batch does not tie their lifetimes.
+    /// The last export supplied at a repeated address wins.
     ///
     /// The caller must maintain the module's execution assumptions and invalidate
     /// or replace captured code when guest bytes or mappings change.
@@ -112,16 +113,40 @@ impl Cpu {
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let machine = self.machine_mut();
-        let compiler = machine.backend.compiler();
-        let module = compiler.compile(bytes).await?;
         machine
             .dispatch
-            .install(&mut machine.backend, &machine.bindings, &module, entries)
-            .await?;
-        for entry in entries {
-            machine.services.remove(entry.address);
-        }
-        Ok(())
+            .install_module(&mut machine.backend, &machine.bindings, bytes, entries)
+            .await
+    }
+
+    /// Installs host and generated guest entries in one batch. A [`Hook`] converts
+    /// directly to an [`Entry`]. Each address is independently replaceable; the
+    /// last entry at a repeated address wins. Replacing a host entry releases its
+    /// old handler captures. Environment adapters supply all their related entries
+    /// when replacing a service; a low-level overwrite changes only its address.
+    ///
+    /// The driver polls ordinary async handlers after guest Wasm returns. Ready
+    /// awaits complete in one poll; pending calls survive waiter replacement.
+    /// Entries are intended for function and interrupt targets. Direct hooks at
+    /// the protected successor of STI/MOV SS/POP SS remain unsupported; interpreter
+    /// STEP executes those bytes. CALL/INT targets work normally. See
+    /// <https://github.com/koolkdev/relocade/issues/709>.
+    ///
+    /// # Panics
+    /// Panics if a host call is pending. Complete it before installing.
+    pub async fn install<E: Into<Entry>>(
+        &mut self,
+        entries: impl IntoIterator<Item = E>,
+    ) -> Result<()> {
+        let machine = self.machine_mut();
+        machine
+            .dispatch
+            .install(
+                &mut machine.backend,
+                &machine.bindings,
+                entries.into_iter().map(Into::into),
+            )
+            .await
     }
 
     /// Borrows the stopped machine. The context and its views must end before

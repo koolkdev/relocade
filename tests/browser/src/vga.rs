@@ -77,7 +77,7 @@ pub async fn vga_workers() -> Result<(), String> {
         .unwrap();
         let input = RefCell::new(Some((incoming, waiting)));
         let mut cpu = Cpu::new(memory, cpu_config, io.clone()).await.unwrap();
-        cpu.install_hooks([
+        cpu.install([
             Hook::new(0x200, {
                 let resources = cpu.memory().with_io(io.clone());
                 let cpu = cpu.cpu_state();

@@ -56,7 +56,7 @@ async fn check_frames() {
     state.set_segment(Segment::Cs, SegmentRegister::real_mode(Segment::Cs, 0x10));
     state.set_eip(0);
     state.set_segment(Segment::Ss, SegmentRegister::real_mode(Segment::Ss, 0x20));
-    cpu.install_hooks([Hook::new(0x100, {
+    cpu.install([Hook::new(0x100, {
         let exit = cpu.exit_handle();
         async move || exit.request()
     })])
@@ -142,7 +142,7 @@ async fn check_pending_call() {
     let mut runner = cpu(&[0xeb, 0xfe], 0x202, &irq).await;
     let ready = Rc::new(Cell::new(false));
     runner
-        .install_hooks([Hook::new(0x100, {
+        .install([Hook::new(0x100, {
             let ready = ready.clone();
             let irq = irq.clone();
             let state = runner.cpu_state();

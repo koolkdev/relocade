@@ -21,7 +21,7 @@ async fn cpu(io: IoBus) -> Cpu {
         .write(0x401, &[0x40, 0xeb, 0xfe])
         .unwrap();
     runner
-        .install_hooks([Hook::new(0x400, {
+        .install([Hook::new(0x400, {
             let cpu = runner.cpu_state();
             async move || cpu.set_eip(0x401)
         })])
@@ -43,7 +43,7 @@ async fn exit_lifetime() {
     assert_eq!(runner.cpu_state().ax(), 1, "the exit request was consumed");
 
     runner
-        .install_hooks([Hook::new(0x400, {
+        .install([Hook::new(0x400, {
             let cpu = runner.cpu_state();
             let exit = exit.clone();
             async move || {
@@ -68,7 +68,7 @@ async fn exit_pending_waiter() {
     let cpu = runner.cpu_state();
     cpu.set_eflags(2);
     runner
-        .install_hooks([Hook::new(0x400, {
+        .install([Hook::new(0x400, {
             let input = input.clone();
             let cpu = cpu.clone();
             async move || {
@@ -139,7 +139,7 @@ async fn exit_during_poll() {
         let mut runner = cpu(IoBus::default()).await;
         let dropped = Rc::new(Cell::new(0));
         runner
-            .install_hooks([Hook::new(0x400, {
+            .install([Hook::new(0x400, {
                 let exit = runner.exit_handle();
                 let dropped = dropped.clone();
                 move || ExitOnDrop {
@@ -189,7 +189,7 @@ async fn exit_during_guest() {
     runner.cpu_state().set_eip(0x100);
     let started = Rc::new(Cell::new(false));
     runner
-        .install_hooks([Hook::new(0x500, {
+        .install([Hook::new(0x500, {
             let started = started.clone();
             let cpu = runner.cpu_state();
             async move || {
