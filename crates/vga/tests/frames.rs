@@ -125,6 +125,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     );
     assert_eq!(&first_pixels.pixels[..4], [255, 255, 85, 255]);
 
+    crtc(&mut *vga.borrow_mut(), 0x0f, 2);
     tick(
         &clock,
         video.as_mut(),
@@ -165,6 +166,7 @@ fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
     assert!(matches!(b.as_mut().poll(&mut cx_b), Poll::Ready(Some(_))));
 
     for index in 2..=20 {
+        vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 1, index);
         tick(&clock, video.as_mut(), boundary(index));
     }
     let mut slow = Box::pin(source.next_capture(Some(0)));
@@ -180,6 +182,65 @@ fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
     assert!(wake_a.0.load(Ordering::Relaxed) > wakes);
     assert!(matches!(next.as_mut().poll(&mut cx_a), Poll::Ready(None)));
     assert!(Arc::ptr_eq(&latest, &source.current_capture().unwrap()));
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
+    let clock = Rc::new(ManualClock::default());
+    let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
+    let mut video = Box::pin(Vga::run(vga.clone()));
+    let source = vga.borrow().frame_source();
+    tick(&clock, video.as_mut(), boundary(1));
+    let first = source.current_capture().unwrap();
+    let wakes = Arc::new(WakeCount::default());
+    let change_waker = waker(wakes.clone());
+    let mut cx = Context::from_waker(&change_waker);
+    let mut changed = Box::pin(source.next_capture(Some(first.sequence)));
+    assert!(changed.as_mut().poll(&mut cx).is_pending());
+
+    tick(&clock, video.as_mut(), boundary(2));
+    assert_eq!(clock.deadline.get(), Some(boundary(3)));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
+    assert!(changed.as_mut().poll(&mut cx).is_pending());
+    assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
+    assert_eq!((first.sequence, first.time), (1, boundary(1)));
+
+    vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
+    tick(&clock, video.as_mut(), boundary(3));
+    tick(&clock, video.as_mut(), boundary(4));
+    assert!(wakes.0.load(Ordering::Relaxed) > 0);
+    let Poll::Ready(Some(latest)) = changed.as_mut().poll(&mut cx) else {
+        panic!("changed inputs must wake the consumer");
+    };
+    assert_eq!((latest.sequence, latest.time), (3, boundary(3)));
+    assert_eq!(latest.display.plane(0)[0], 0xdb);
+    assert!(Arc::ptr_eq(&latest, &source.current_capture().unwrap()));
+
+    let mut changed = Box::pin(source.next_capture(Some(latest.sequence)));
+    assert!(changed.as_mut().poll(&mut cx).is_pending());
+    wakes.0.store(0, Ordering::Relaxed);
+    crtc(&mut *vga.borrow_mut(), 0x0f, 1);
+    tick(&clock, video.as_mut(), boundary(5));
+    assert!(wakes.0.load(Ordering::Relaxed) > 0, "register-only change");
+    let Poll::Ready(Some(latest)) = changed.as_mut().poll(&mut cx) else {
+        panic!("changed registers must wake the consumer");
+    };
+    assert_eq!((latest.sequence, latest.time), (5, boundary(5)));
+
+    let mut changed = Box::pin(source.next_capture(Some(latest.sequence)));
+    assert!(changed.as_mut().poll(&mut cx).is_pending());
+    wakes.0.store(0, Ordering::Relaxed);
+    tick(&clock, video.as_mut(), boundary(16));
+    assert!(
+        wakes.0.load(Ordering::Relaxed) > 0,
+        "blink without guest writes"
+    );
+    let Poll::Ready(Some(latest)) = changed.as_mut().poll(&mut cx) else {
+        panic!("blink must wake the consumer");
+    };
+    assert_eq!((latest.sequence, latest.time), (16, boundary(16)));
+    assert_ne!(first.display.blink_on, latest.display.blink_on);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

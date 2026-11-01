@@ -242,7 +242,9 @@ At the start of vertical retrace the device latches the programmed display start
 then captures a complete `DisplaySnapshot` for the following active display:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
 settings, DAC colors and mask, the effective start address, and blink phase.
-`CapturedFrame` adds the sampling boundary's time and sequence. Late service
+When these inputs change, a `CapturedFrame` is published with that boundary's
+time and hardware retrace count. Unchanged refreshes retain the previous capture,
+including its timestamp; sequence numbers can have gaps. Late service
 coalesces missed boundaries; guest mutations first service elapsed time using
 the preceding state. A write exactly at a retrace edge applies after that latch.
 The capture describes selected inputs, not pixels scanned earlier in the frame.
@@ -274,10 +276,13 @@ Retaining many distinct captures can therefore retain many versions of a plane.
 `FrameSource` retains just the latest immutable `CapturedFrame`. Readers have no
 observation bookkeeping, and a slow reader can skip any number of captures. The
 capture has no RGBA image. It can cross workers and survive device destruction.
-Waiting for `next_capture` observes emulated refreshes, not pixel output or
-presentation. The registered VGA activity keeps capturing while the CPU waits
-for input and while the app is not drawing. Destroying VGA closes this source and
-wakes waiters without creating an extra frame.
+Waiting for `next_capture` observes changed inputs captured at a refresh boundary,
+not every hardware refresh, pixel output or presentation. Comparison uses plane
+identities, registers and blink phase without scanning VRAM. It is conservative:
+hidden memory and register access state can also cause a publication. Hardware
+timing and status-port behavior continue through unchanged refreshes, while the
+CPU waits for input and while the app is not drawing. Destroying VGA closes this
+source and wakes waiters without creating an extra frame.
 
 Captured memory and display settings are renderer inputs. An embedding can
 read them directly or use the optional GPU renderer below. Device-only users do
@@ -323,7 +328,7 @@ command encoder:
 ```rust,ignore
 let mut vga_renderer = relocade_vga::VgaRenderer::new(&device)?;
 let mut renderer = relocade_renderer::Renderer::new(device.clone(), output_format)?;
-if let Some(capture) = source.current_capture() {
+if let Some(capture) = source.take_capture() {
     let mut encoder = device.create_command_encoder(&Default::default());
     vga_renderer.upload(&queue, &capture);
     let frame = vga_renderer.encode(&mut encoder).unwrap();
@@ -356,21 +361,27 @@ in each plane become one upload. Character,
 attribute and font planes update independently. Hidden memory is included, so
 changing the display start or font bank requires no residency bookkeeping.
 
-Captures remain complete. Private transfer hints retain the preceding published
-plane versions and a copy of the dirty bitmap; they hold no references to older
-captures. Publication clears the device's bitmap, while immediate snapshots and
-independent readers leave it alone. The renderer compares plane identities and
-walks the bitmap, without scanning VRAM or maintaining a separate CPU shadow.
+Captures remain complete. Publication merges dirty pages into the latest capture's
+private transfer hints until `FrameSource::take_capture()` hands them to the
+uploading renderer. Taking atomically returns the capture with all pending changes
+and starts a fresh bitmap for later writes. The latest capture remains readable;
+`current_capture()` and `next_capture()` never consume its hints. Retained captures
+stay immutable. Only plane versions and one fixed bitmap are retained, not a queue
+of captures. Publication clears the device's local bitmap; immediate snapshots
+leave it alone. The renderer compares plane identities and walks the bitmap,
+without scanning VRAM or maintaining a separate CPU shadow.
 The raw register header and palette are compared and uploaded independently
 when changed. Blink, cursor or geometry updates do not resend the palette;
 palette-only updates do not resend the header or font memory.
 
 If a captured plane already matches the last queued GPU version, no memory upload
 is needed. If its change baseline matches, the renderer uploads dirty pages.
-Otherwise it restores that entire 64-KiB plane, including when a skipped capture
-changed memory that the latest bitmap no longer marks. New renderers, other
-sources, immediate snapshots and reverse playback stay correct through this
-fallback. No capture acknowledgements or pending-update queues are required.
+Skipped publications retain their dirty pages, so a slower uploading renderer
+does not need full-plane transfers just because it missed captures. Use one
+consuming renderer per source, and upload each taken capture before taking the
+next. New renderers, independent readers, other sources, immediate snapshots and
+reverse playback can have a different baseline; they restore the affected 64-KiB
+plane instead. Taking requires no GPU-completion acknowledgement or update queue.
 
 The device never waits for GPU mapping or completion. Snapshot storage still
 uses shared CPU planes with copy-on-write, so a changed retained plane can copy
@@ -380,16 +391,15 @@ and dirty tracking along with the optional renderer.
 
 `upload(queue, capture)` synchronizes persistent input resources without decoding
 or presenting, and returns whether rendering inputs or output geometry changed.
-Capture time and sequence alone do not count as changes. The graphics owner can
-service captures independently of redraw requests and submit uploads with
-`queue.submit([])`. `encode(encoder)` decodes the
+Capture time and sequence alone do not count as changes. Uploads can share the
+submission that decodes and draws the image. `encode(encoder)` decodes the
 latest uploaded inputs and returns `None` before the first upload. It always records
 a decode, including retries after an encoder was discarded. Uploading inputs does
 not imply that image pixels have been generated.
 
 The main thread can coalesce new-frame notifications and resize events into one
-animation-frame redraw request. The graphics worker uploads incoming captures;
-on a redraw request it decodes the latest inputs if necessary, draws and presents.
+animation-frame redraw request. On a redraw request the graphics worker selects
+the latest capture, uploads and decodes its inputs if necessary, draws and presents.
 A resize with no new inputs reuses the decoded image. Scheduling remains with the
 embedding; VGA creates no worker, redraw queue or presentation loop.
 
@@ -412,12 +422,14 @@ command batch. Neither renderer creates a surface, worker, timer or background
 task. Production rendering records commands without waiting for GPU completion.
 
 `VgaDisplay` connects a `FrameSource` to a host through
-`relocade_frontend::display::DisplayRenderer`. It waits for new captures and
-uploads them in `update(queue)`, requesting a redraw only when rendering inputs
-change. VRAM, fonts, palette, registers, geometry and the cursor/text blink phase
-use the existing upload checks; no VRAM comparison scan is needed. Changes remain
-pending until `encode_image(encoder)` records decoding, even when unchanged captures
-arrive in between. Unchanged captures and resize-only draws reuse the image.
+`relocade_frontend::display::DisplayRenderer`. Its `service(queue)` waits on
+`FrameSource::next_capture(after)`. Unchanged refreshes leave this wait asleep;
+the adapter needs no separate change subscription or refresh counter.
+
+`encode_image(queue, encoder)` takes the newest capture and its accumulated dirty
+pages at redraw time, uploads changed resources, and records decoding only when
+rendering inputs changed. A resize with unchanged inputs reuses the image.
+No redraw means no VGA uploads or decoding;
 VGA timing and capture publication continue independently. Closing the source
 preserves the image and its last decoded capture metadata, available from
 `current_frame()`.
@@ -437,14 +449,14 @@ let mut graphics = relocade_app::graphics::Graphics::spawn(
 
 The adapter retains the `FrameSource`. `device_lost()` drops its GPU resources
 and cached output without changing guest VGA state. `attach_device(device, queue)`
-creates fresh resources and fully uploads the latest capture, including after the
-source closes. The same adapter and source survive; the next `encode_image` records
-decoding of the restored input. Automatic restoration is VGA's policy, not a
-requirement of other display backends.
+creates fresh resources. The same adapter and source survive; the next
+`encode_image` fully uploads and decodes the latest capture, including after the
+source closes. Automatic restoration is VGA's policy, not a requirement of other
+display backends.
 
-The host submits uploads even when presentation is idle, and submits each recorded
-batch before servicing the adapter again. `VgaDisplay` relies on that submission
-contract for its cache. Callers that need to discard and retry recorded commands
+The host submits each recorded presentation batch before servicing the adapter
+again. `VgaDisplay` relies on that submission contract for its cache. Callers that
+need to discard and retry recorded commands
 can use `VgaRenderer` directly. The adapter adds no worker, surface or request loop.
 
 ## Rendering checks

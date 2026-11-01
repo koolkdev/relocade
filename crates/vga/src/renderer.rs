@@ -93,6 +93,8 @@ impl VgaRenderer {
     /// matches, otherwise complete planes. Call `queue.submit([])` when no drawing
     /// follows. Captures can be uploaded independently of redraws.
     /// Complete retained captures can also restore older input state.
+    /// Use `FrameSource::take_capture` to accumulate dirty pages across skipped
+    /// publications for one uploading renderer.
     /// Returns whether rendering inputs or output geometry changed. Capture time
     /// and sequence alone do not require decoding another image.
     pub fn upload(&mut self, queue: &wgpu::Queue, capture: &CapturedFrame) -> bool {

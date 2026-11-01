@@ -53,7 +53,7 @@ fn write_planes(
                 write(base + range.start, &bytes[range]);
             }
         } else {
-            // A new renderer or a skipped/older capture may have another baseline.
+            // A new renderer or an independently read capture may have another baseline.
             // Restore this plane even if the latest dirty bitmap is empty.
             write(base, bytes);
         }

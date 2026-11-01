@@ -6,6 +6,7 @@ use std::{
     cell::RefCell,
     pin::pin,
     rc::Rc,
+    sync::Arc,
     task::{Context, Waker},
     time::Duration,
 };
@@ -86,16 +87,17 @@ fn programmed_totals_and_clock_selection_determine_frame_boundaries() {
         assert!(source.current_capture().is_none());
         clock.set(first);
         assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
-        assert_eq!(source.current_capture().unwrap().time, first);
-        assert_eq!(source.current_capture().unwrap().sequence, 1);
+        let capture = source.current_capture().unwrap();
+        assert_eq!(capture.time, first);
+        assert_eq!(capture.sequence, 1);
 
         let second = dots((retrace_line + total_lines) * 100 * dot_width, frequency);
         clock.set(second - Duration::from_nanos(1));
         assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
         clock.set(second);
         assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
-        assert_eq!(source.current_capture().unwrap().time, second);
-        assert_eq!(source.current_capture().unwrap().sequence, 2);
+        // Retrace still advances without replacing unchanged display inputs.
+        assert!(Arc::ptr_eq(&capture, &source.current_capture().unwrap()));
     }
 }
 
@@ -162,7 +164,7 @@ fn retrace_end_comparison_continues_after_the_vertical_counter_wraps() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn disabling_sync_suppresses_the_pulse_without_resetting_counters_or_capture_cadence() {
+fn disabling_sync_suppresses_the_pulse_without_resetting_counters_or_capture_boundary() {
     let clock = Rc::new(ManualClock::default());
     let mut vga = Vga::with_clock(clock.clone());
     let source = vga.frame_source();

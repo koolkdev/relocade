@@ -98,12 +98,19 @@ impl<C: Clock> Vga<C> {
         }
     }
 
-    /// Bring raster state up to the shared clock and publish the latest due capture.
+    /// Bring raster state up to the shared clock and publish changed display inputs.
     /// Guest writes call this first, while the preceding registers and VRAM still apply.
     fn sync_to_clock(&mut self) {
         if let Some(time) = self.raster.update_to(self.clock.now()) {
             self.registers.crtc.latch_display_start();
             let display = self.snapshot();
+            if self
+                .frames
+                .current_capture()
+                .is_some_and(|previous| display.same_inputs(&previous.display))
+            {
+                return;
+            }
             // Only publication starts a new dirty interval. Immediate snapshots
             // must leave writes visible to the next published capture.
             #[cfg(feature = "renderer")]

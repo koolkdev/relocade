@@ -5,8 +5,9 @@ use crate::memory::DirtyPages;
 use crate::Registers;
 use std::sync::Arc;
 
-/// Changes since a known immutable memory version. Retains plane references,
-/// not earlier captures, so the latest snapshot cannot keep a capture history.
+/// Changes since a known immutable memory version. Published captures accumulate
+/// these until taken for upload. Retains plane references, not earlier captures,
+/// so the latest snapshot cannot keep a capture history.
 #[derive(Clone)]
 #[cfg(feature = "renderer")]
 pub(crate) struct MemoryChanges {
@@ -34,6 +35,18 @@ pub struct DisplaySnapshot {
 }
 
 impl DisplaySnapshot {
+    // Conservative input comparison, not pixel equivalence. Plane identities
+    // avoid scanning VRAM; register access state can cause harmless extra changes.
+    pub(crate) fn same_inputs(&self, other: &Self) -> bool {
+        self.blink_on == other.blink_on
+            && self.registers == other.registers
+            && self
+                .planes
+                .iter()
+                .zip(&other.planes)
+                .all(|(a, b)| Arc::ptr_eq(a, b))
+    }
+
     /// One complete 64-KiB physical plane, including bytes outside the display.
     /// Panics when `plane` is outside 0–3.
     pub fn plane(&self, plane: usize) -> &[u8] {

@@ -35,7 +35,7 @@ pub(super) fn draw<D: DisplayRenderer>(
         _ => return Ok(DrawOutcome::Retry),
     };
     let mut encoder = surface.device.create_command_encoder(&Default::default());
-    let image = display.encode_image(&mut encoder);
+    let image = display.encode_image(&surface.queue, &mut encoder);
     let view = frame.texture.create_view(&Default::default());
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
