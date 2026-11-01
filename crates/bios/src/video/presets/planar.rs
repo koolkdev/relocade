@@ -18,13 +18,15 @@ const fn graphics_registers(compare_planes: u8) -> [(u8, u8); 9] {
         (graphics::BIT_MASK, 255),
     ]
 }
-const ATTRIBUTE: &[(u8, u8)] = &[
-    (attribute::MODE_CONTROL, 1),
-    (attribute::OVERSCAN_COLOR, 0),
-    (attribute::COLOR_PLANE_ENABLE, 15),
-    (attribute::HORIZONTAL_PANNING, 0),
-    (attribute::COLOR_SELECT, 0),
-];
+const fn attribute_registers(mode: u8, color_planes: u8) -> [(u8, u8); 5] {
+    [
+        (attribute::MODE_CONTROL, mode),
+        (attribute::OVERSCAN_COLOR, 0),
+        (attribute::COLOR_PLANE_ENABLE, color_planes),
+        (attribute::HORIZONTAL_PANNING, 0),
+        (attribute::COLOR_SELECT, 0),
+    ]
+}
 
 // Half-rate dot clock and double scanning: 320 pixels by 200 memory rows.
 pub(in crate::video) const PLANAR_320X200: Preset = Preset {
@@ -47,7 +49,7 @@ pub(in crate::video) const PLANAR_320X200: Preset = Preset {
         (crtc::MODE_CONTROL, 0xe3), // Byte addresses, no row-scan substitution.
         (crtc::VERTICAL_RETRACE_END, 0x8e),
     ]),
-    attribute: ATTRIBUTE,
+    attribute: &attribute_registers(1, 15),
     attribute_palette: [
         0, 1, 2, 3, 4, 5, 6, 7, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
     ],
@@ -97,7 +99,7 @@ pub(in crate::video) const PLANAR_640X480: Preset = Preset {
         (crtc::UNDERLINE_LOCATION, 0),
         (crtc::MODE_CONTROL, 0xe3),
     ]),
-    attribute: ATTRIBUTE,
+    attribute: &attribute_registers(1, 15),
     attribute_palette: text_mode::ATTRIBUTE_PALETTE,
     palette: &text_mode::DAC_PALETTE,
 };
@@ -111,4 +113,18 @@ pub(in crate::video) const MONO_640X480: Preset = Preset {
         0, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63,
     ],
     ..PLANAR_640X480
+};
+
+// Mode 0Fh displays planes zero and two as video and intensity. Blinking
+// switches palette entry 4 (bright white) to 12 (black); other pairs match.
+pub(in crate::video) const MONO_640X350: Preset = Preset {
+    miscellaneous: 0xa2, // Monochrome CRTC/status ports.
+    graphics: &graphics_registers(5),
+    crtc: PLANAR_640X350
+        .crtc
+        .with(&[(crtc::UNDERLINE_LOCATION, 0x0f)]),
+    attribute: &attribute_registers(0x0b, 5),
+    attribute_palette: [0, 8, 0, 0, 24, 24, 0, 0, 0, 8, 0, 0, 0, 24, 0, 0],
+    palette: &palette::MONOCHROME,
+    ..PLANAR_640X350
 };

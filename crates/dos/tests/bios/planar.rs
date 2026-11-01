@@ -2,6 +2,73 @@ use super::video::{video, PROGRAM};
 use crate::common;
 
 #[test]
+fn monochrome_planar_palette_ports_and_no_clear_preservation() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        video(&mut dos, 0x000f, 0, 0, 0);
+        let initial = dos.vga().borrow().snapshot();
+        assert_eq!(initial.registers.miscellaneous, 0xa2);
+        assert_eq!(initial.registers.attribute.values[0x10], 0x0b);
+        assert_eq!(initial.registers.attribute.values[0x12], 5);
+        assert_eq!(
+            &initial.registers.attribute.values[..16],
+            &[0, 8, 0, 0, 24, 24, 0, 0, 0, 8, 0, 0, 0, 24, 0, 0]
+        );
+        for (index, level) in [(0, 0), (8, 42), (24, 63)] {
+            assert_eq!(initial.registers.dac.colors[index], [level; 3]);
+        }
+        {
+            let mut context = dos.cpu().context();
+            assert_eq!(context.io.read_port(0x3d5, 1), 255);
+            context.io.write_port(0x3b4, 1, 4);
+            assert_eq!(context.io.read_port(0x3b5, 1), 0x54);
+            // The display mask does not discard CPU writes to any plane or page.
+            for plane in 0..4 {
+                context.io.write_port(0x3c4, 2, (1 << (plane + 8)) | 2);
+                context
+                    .memory
+                    .write(0xa0000, &vec![0x31 + plane as u8; 65536])
+                    .unwrap();
+            }
+        }
+        let before = dos.vga().borrow().snapshot();
+        // Mono mode's CGA color call is a no-op, but VGA palette calls use 3BA.
+        video(&mut dos, 0x0b00, 0x001f, 0, 0);
+        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        video(&mut dos, 0x1000, 0x1801, 0, 0);
+        video(&mut dos, 0x1010, 24, 0, 0);
+        video(&mut dos, 0x1003, 0, 0, 0);
+        let modified = dos.vga().borrow().snapshot();
+        assert_eq!(modified.registers.attribute.values[1], 24);
+        assert_eq!(modified.registers.attribute.values[0x10], 3);
+        assert_eq!(modified.registers.dac.colors[24], [0; 3]);
+
+        video(&mut dos, 0x008f, 0, 0, 0);
+        let preserved = dos.vga().borrow().snapshot();
+        assert_eq!(
+            preserved.registers.attribute.values,
+            initial.registers.attribute.values
+        );
+        assert_eq!(preserved.registers.dac.colors, initial.registers.dac.colors);
+        for plane in 0..4 {
+            assert_eq!(preserved.plane(plane), before.plane(plane));
+        }
+        assert_eq!(
+            video(&mut dos, 0x0f00, 0, 0, 0).registers.eax as u16,
+            0x508f
+        );
+        // A later color mode switches both CRTC and attribute-status routing back.
+        video(&mut dos, 0x0010, 0, 0, 0);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x463).unwrap(), 0x3d4);
+        let color = dos.vga().borrow().snapshot();
+        assert_eq!(color.registers.attribute.values[0x10], 1);
+        assert_eq!(color.registers.attribute.values[0x12], 15);
+        assert_eq!(color.registers.dac.colors[1], [0, 0, 42]);
+    });
+}
+
+#[test]
 fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
@@ -9,6 +76,7 @@ fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
         for (mode, size, columns, rows, height, page_bytes, clocking) in [
             (0x0d, [320, 200], 40, 25, 8, 0x2000, 9),
             (0x0e, [640, 200], 80, 25, 8, 0x4000, 1),
+            (0x0f, [640, 350], 80, 25, 14, 0x8000, 1),
             (0x10, [640, 350], 80, 25, 14, 0x8000, 1),
             (0x11, [640, 480], 80, 30, 16, 0xa000, 1),
             (0x12, [640, 480], 80, 30, 16, 0xa000, 1),
@@ -39,6 +107,13 @@ fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
             assert_eq!(context.memory.read_u16(0x44c).unwrap(), page_bytes);
             assert_eq!(context.memory.read_u8(0x484).unwrap(), rows - 1);
             assert_eq!(context.memory.read_u16(0x485).unwrap(), height);
+            let crtc_port = if mode == 0x0f { 0x3b4 } else { 0x3d4 };
+            assert_eq!(context.memory.read_u16(0x463).unwrap(), crtc_port);
+            let compare_planes = match mode {
+                0x0f => 5,
+                0x11 => 1,
+                _ => 15,
+            };
             for (port, index, expected) in [
                 (0x3c4, 0, 3),
                 (0x3c4, 1, clocking),
@@ -47,10 +122,10 @@ fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
                 (0x3ce, 1, 0),
                 (0x3ce, 5, 0),
                 (0x3ce, 6, 5),
-                (0x3ce, 7, if mode == 0x11 { 1 } else { 15 }),
+                (0x3ce, 7, compare_planes),
                 (0x3ce, 8, 255),
-                (0x3d4, 0x14, 0),
-                (0x3d4, 0x17, if mode == 0x11 { 0xc3 } else { 0xe3 }),
+                (crtc_port, 0x14, if mode == 0x0f { 15 } else { 0 }),
+                (crtc_port, 0x17, if mode == 0x11 { 0xc3 } else { 0xe3 }),
             ] {
                 context.io.write_port(port, 1, index);
                 assert_eq!(context.io.read_port(port + 1, 1), expected);
