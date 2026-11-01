@@ -74,7 +74,7 @@ pub(super) async fn read_character(call: &mut DosContext<'_>, echo: bool) {
         Err(error) => return return_result(call, Err(error)),
     };
     if let Some(output) = output {
-        output.write_cooked(byte);
+        let _ = output.write_cooked(byte);
     }
     call.cpu.set_al(byte);
 }
@@ -82,7 +82,8 @@ pub(super) async fn read_character(call: &mut DosContext<'_>, echo: bool) {
 /// AH=02h: write DL through stdout; AL is the last output byte.
 pub(super) fn write_character(call: &mut DosContext<'_>) {
     let byte = call.cpu.dl();
-    let last = call.stdout().write_cooked(byte);
+    let _ = call.stdout().write_cooked(byte);
+    let last = if byte == b'\t' { b' ' } else { byte };
     call.cpu.set_al(last);
 }
 
@@ -126,7 +127,7 @@ pub(super) fn write_string(call: &mut DosContext<'_>) {
             call.cpu.set_al(b'$');
             return;
         }
-        output.write_cooked(byte[0]);
+        let _ = output.write_cooked(byte[0]);
     }
     call.exit(Err(ServiceError::UnterminatedString))
 }

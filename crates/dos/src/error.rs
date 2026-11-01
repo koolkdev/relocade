@@ -33,7 +33,7 @@ impl From<LoadError> for LaunchError {
 
 /// Error numbers returned to the guest in AX with carry set.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum DosError {
+pub enum DosError {
     InvalidFunction,
     FileNotFound,
     PathNotFound,
@@ -54,7 +54,7 @@ pub(crate) enum DosError {
 }
 
 impl DosError {
-    pub(crate) fn code(self) -> u16 {
+    pub fn code(self) -> u16 {
         match self {
             Self::InvalidFunction => 1,
             Self::FileNotFound => 2,
@@ -76,6 +76,14 @@ impl DosError {
         }
     }
 }
+
+impl fmt::Display for DosError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "DOS error {}", self.code())
+    }
+}
+
+impl std::error::Error for DosError {}
 
 /// A host-supplied file could not be mounted in the DOS environment.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

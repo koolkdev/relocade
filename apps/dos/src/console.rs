@@ -1,4 +1,4 @@
-use relocade_dos::Dos;
+use relocade_dos::{Dos, DosError};
 
 const BANNER: &str = r"  ____       _                     _
  |  _ \ ___ | | ___   ___ __ _  __| | ___
@@ -10,15 +10,15 @@ const BANNER: &str = r"  ____       _                     _
 
 /// Runs the Rust console on the DOS execution owner. Executable lookup is left
 /// to future application policy; supplied images can use DOS's launch APIs.
-pub async fn run_console(dos: &mut Dos) {
+pub async fn run_console(dos: &mut Dos) -> Result<(), DosError> {
     for line in BANNER.lines() {
-        dos.console().write(line.as_bytes());
-        dos.console().write(b"\r\n");
+        dos.console().write(line.as_bytes())?;
+        dos.console().write(b"\r\n")?;
     }
     loop {
         let console = dos.console();
-        console.write(b"> ");
-        let line = console.read_line().await;
+        console.write(b"> ")?;
+        let line = console.read_line().await?;
         let line = line.trim_ascii_start();
         let end = line
             .iter()
@@ -26,10 +26,10 @@ pub async fn run_console(dos: &mut Dos) {
             .unwrap_or(line.len());
         let (command, arguments) = line.split_at(end);
         if command.eq_ignore_ascii_case(b"echo") {
-            console.write(arguments.trim_ascii_start());
-            console.write(b"\r\n");
+            console.write(arguments.trim_ascii_start())?;
+            console.write(b"\r\n")?;
         } else if !command.is_empty() {
-            console.write(b"Unknown command\r\n");
+            console.write(b"Unknown command\r\n")?;
         }
         futures_lite::future::yield_now().await;
     }

@@ -7,13 +7,14 @@
 mod builtin;
 mod chain;
 
-use crate::error::DosError;
+use crate::DosError;
 pub(crate) use builtin::{BiosConsole, NullDevice, Unavailable};
-pub(crate) use chain::{CharacterDevice, DeviceChain};
+pub use chain::CharacterDevice;
+pub(crate) use chain::DeviceChain;
 use std::{future::Future, pin::Pin};
 
 /// DOS character-driver attributes, also reported by IOCTL.
-pub(crate) mod attributes {
+pub mod attributes {
     /// Character device rather than a block device.
     pub const CHARACTER: u16 = 0x8000;
     /// Character device providing standard console input and output.
@@ -23,12 +24,12 @@ pub(crate) mod attributes {
 }
 
 /// A character read that may wait on the execution thread. It need not be Send.
-pub(crate) type ReadFuture<'a> = Pin<Box<dyn Future<Output = Result<u8, DosError>> + 'a>>;
+pub type ReadFuture<'a> = Pin<Box<dyn Future<Output = Result<u8, DosError>> + 'a>>;
 
 /// A resident DOS character driver. Methods take shared access so a pending read
 /// does not prevent output or status requests. Release mutable state borrows
 /// before awaiting. The default operations describe an unavailable device.
-pub(crate) trait CharacterDriver {
+pub trait CharacterDriver {
     /// DOS name, padded with spaces to eight bytes. Captured at installation.
     fn name(&self) -> [u8; 8];
 

@@ -25,13 +25,10 @@ pub(super) async fn read(
         }
         return Ok(Vec::new());
     }
-    if !handle.device.is_console() {
-        return Err(DosError::AccessDenied);
-    }
     if handle.eof() {
         return Ok(Vec::new());
     }
-    if handle.raw() {
+    if handle.raw() || !handle.device.is_console() {
         let mut bytes = Vec::with_capacity(count);
         while bytes.len() < count {
             bytes.push(handle.device.read_character().await?);
@@ -66,13 +63,10 @@ pub(super) fn write(
         Handle::Device(handle) => handle,
     };
     let output = console.device_output(handle.clone());
-    if handle.device.is_null() || handle.raw() {
+    if !handle.device.is_console() || handle.raw() {
         output.write(bytes)?;
         handle.set_eof(false);
         return Ok(bytes.len());
-    }
-    if !handle.device.is_console() {
-        return Err(DosError::AccessDenied);
     }
     handle.set_eof(false);
     // Cooked writes stop before Ctrl-Z and count source bytes, including tabs.
@@ -81,7 +75,7 @@ pub(super) fn write(
         .position(|&byte| byte == 0x1a)
         .unwrap_or(bytes.len());
     for &byte in &bytes[..count] {
-        output.write_cooked(byte);
+        output.write_cooked(byte)?;
     }
     Ok(count)
 }
