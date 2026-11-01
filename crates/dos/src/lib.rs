@@ -101,6 +101,7 @@
 
 mod com;
 mod console;
+mod devices;
 mod error;
 mod execution;
 mod files;
@@ -331,11 +332,11 @@ impl Dos {
     }
 
     /// Execution-local console access for Rust code, including between programs.
-    /// Uses the same keyboard, video memory and cursor as BIOS/DOS console services.
+    /// Resolves the current CON device, sharing BIOS keyboard and video state.
     pub fn console(&self) -> Console<'_> {
         Console {
             stdio: self.state.stdio(),
-            memory: self.state.memory(),
+            devices: self.state.devices(),
         }
     }
 

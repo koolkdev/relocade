@@ -5,23 +5,22 @@ mod output;
 pub(crate) use line::edit_line;
 pub(crate) use output::CharacterOutput;
 
-use crate::stdio::Stdio;
-use relocade_machine::MemoryBus;
+use crate::{devices::DeviceChain, stdio::Stdio};
 
-/// A borrowed console on the execution owner. Rust console operations target the
-/// screen directly, independent of a process's redirected standard handles.
+/// A borrowed console on the execution owner. Rust console operations resolve
+/// the current CON device, independent of a process's redirected standard handles.
 #[derive(Clone, Copy)]
 pub struct Console<'a> {
+    pub(crate) devices: &'a DeviceChain,
     pub(crate) stdio: &'a Stdio,
-    pub(crate) memory: &'a MemoryBus,
 }
 
 impl Console<'_> {
     /// Writes guest-encoded bytes, with the same tab expansion, cursor movement
     /// and scrolling as cooked DOS output. Use CRLF for a new line. This writes
-    /// video state directly without adding a duplicate host stdout byte stream.
+    /// through CON without adding a duplicate host stdout byte stream.
     pub fn write(&self, bytes: &[u8]) {
-        let output = self.screen();
+        let output = self.direct_output(self.devices.console());
         for &byte in bytes {
             output.write_cooked(byte);
         }
@@ -31,19 +30,13 @@ impl Console<'_> {
     /// editor (including Backspace), then completes CRLF and excludes the ending
     /// CR from the returned bytes. There must be only one console/guest input reader.
     pub async fn read_line(&self) -> Vec<u8> {
-        let mut line = edit_line(
-            async || Ok(self.stdio.input.read_character().await),
-            255,
-            self.screen(),
-        )
-        .await
-        .expect("keyboard console reads cannot fail");
+        let device = self.devices.console();
+        let output = self.direct_output(device.clone());
+        let mut line = edit_line(async || device.read_character().await, 255, output)
+            .await
+            .expect("keyboard console reads cannot fail");
         line.pop(); // The shared DOS editor includes its final CR.
-        self.write(b"\n");
+        device.write(b"\n").expect("console output");
         line
-    }
-
-    pub(crate) fn write_video(&self, bytes: &[u8]) {
-        relocade_bios::write_text(&mut self.memory.view(), self.memory.io(), bytes);
     }
 }

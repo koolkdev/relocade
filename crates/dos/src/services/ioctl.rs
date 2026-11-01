@@ -2,7 +2,7 @@
 
 use crate::{
     error::DosError,
-    files::{Device, Handle},
+    files::Handle,
     interrupt::{return_result, DosContext},
 };
 
@@ -29,15 +29,13 @@ pub(super) fn ioctl(call: &mut DosContext<'_>) {
                 })
         }
         GET_INPUT_STATUS => call.process.files().handle(handle).map(|handle| {
-            let available = super::console::input_available(handle, &call.dos.stdio().input);
+            let available = super::console::input_available(handle);
             call.cpu.set_al(if available { 0xff } else { 0 });
         }),
         GET_OUTPUT_STATUS => call.process.files().handle(handle).map(|handle| {
             let ready = match handle {
                 Handle::File(_) => true,
-                Handle::Device(device) => {
-                    matches!(device.kind(), Device::Console(_) | Device::Null)
-                }
+                Handle::Device(handle) => handle.device.output_ready(),
             };
             call.cpu.set_al(if ready { 0xff } else { 0 });
         }),
