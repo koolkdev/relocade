@@ -84,7 +84,9 @@ impl Mode {
                 modes::GRAPHICS_640X200_2 => (640, 200, 0x4000, 1, Layout::Packed1),
                 modes::GRAPHICS_320X200_16 => (320, 200, 0x2000, 8, Layout::Planar),
                 modes::GRAPHICS_640X200_16 => (640, 200, 0x4000, 4, Layout::Planar),
-                modes::GRAPHICS_640X350_16 => (640, 350, 0x8000, 2, Layout::Planar),
+                modes::GRAPHICS_640X350_MONO | modes::GRAPHICS_640X350_16 => {
+                    (640, 350, 0x8000, 2, Layout::Planar)
+                }
                 modes::GRAPHICS_640X480_2 | modes::GRAPHICS_640X480_16 => {
                     (640, 480, 0xa000, 1, Layout::Planar)
                 }

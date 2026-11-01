@@ -30,7 +30,7 @@ fn planar_pixel_calls_preserve_neighbors_and_restore_access_registers() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        for mode in [0x0d, 0x11, 0x12] {
+        for mode in [0x0d, 0x0f, 0x11, 0x12] {
             video(&mut dos, mode, 0, 0, 0);
             {
                 let context = dos.cpu().context();
@@ -99,6 +99,7 @@ fn pixel_pages_and_256_color_high_bits_follow_the_bios_abi() {
         for (mode, pages, page_bytes, x, y, last_byte) in [
             (0x0d, 8, 0x2000, 319, 199, 7999),
             (0x0e, 4, 0x4000, 639, 199, 15999),
+            (0x0f, 2, 0x8000, 639, 349, 27999),
             (0x10, 2, 0x8000, 639, 349, 27999),
         ] {
             video(&mut dos, mode, 0, 0, 0);
@@ -106,7 +107,8 @@ fn pixel_pages_and_256_color_high_bits_follow_the_bios_abi() {
                 video(&mut dos, 0x0c00 | (page + 1), page << 8, x, y);
             }
             // Changing the display start does not change the page requested by BH.
-            dos.cpu().context().io.write_port(0x3d4, 2, 0x600c);
+            let crtc_port = dos.cpu().context().memory.read_u16(0x463).unwrap();
+            dos.cpu().context().io.write_port(crtc_port, 2, 0x600c);
             let snapshot = dos.vga().borrow().snapshot();
             for page in 0..pages {
                 assert_eq!(
@@ -163,6 +165,8 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
             (0x0d, 0, 320, 0),
             (0x0e, 4, 0, 0),
             (0x0e, 0, 0, 200),
+            (0x0f, 2, 0, 0),
+            (0x0f, 0, 0, 350),
             (0x10, 2, 0, 0),
             (0x10, 0, 0, 350),
             (0x11, 0, 0, 480),

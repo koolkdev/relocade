@@ -2,12 +2,12 @@
 //!
 //! INT 10h sets text modes 00h–03h and 07h with output, cursors, pages and scrolling.
 //! Mode 07h uses the VGA monochrome palette, nine-dot cells and B0000 aperture.
-//! Graphics modes 04h–06h, 0Dh, 0Eh, 10h, 11h, 12h and 13h program VGA for direct guest pixel
+//! Graphics modes 04h–06h and 0Dh–13h program VGA for direct guest pixel
 //! and palette writes, including CGA-compatible packed storage at B8000.
 //! Mode setting honors AL bit 7 to preserve video memory; AH=0Fh reports the
 //! mode, that flag, character columns and active page. AH=0Ch/0Dh write/read
 //! graphics pixels, with XOR in packed/planar modes and eight, four or two pages
-//! in modes 0Dh, 0Eh or 10h respectively.
+//! in modes 0Dh, 0Eh or 0Fh/10h respectively.
 //! Graphics page/cursor and scroll services use that same layout. AH=09h/0Ah
 //! draw characters from live BIOS font vectors; AH=0Eh and [`write_text`] share
 //! teletype wrapping and scrolling in text and graphics modes.
