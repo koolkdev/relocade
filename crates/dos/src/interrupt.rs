@@ -31,11 +31,11 @@ impl<'call> DosContext<'call> {
             .output(self.process.files().writable_handle(1))
     }
 
-    /// Records process termination and stops execution after this host poll.
+    /// Records process termination and returns to the embedding after this host poll.
     pub(crate) fn exit(&mut self, status: Result<u8, ServiceError>) {
         self.process
             .terminate(status, &mut self.memory, &mut self.dos.filesystem());
-        self.dos.stop();
+        self.dos.request_exit();
     }
 }
 

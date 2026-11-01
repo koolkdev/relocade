@@ -1,5 +1,5 @@
-#[path = "runtime_pending/stop.rs"]
-mod stop;
+#[path = "runtime_pending/exit.rs"]
+mod exit;
 mod support;
 use relocade_machine::{real_mode_interrupt, Hook};
 use relocade_x86::{
@@ -235,16 +235,16 @@ async fn check_pending_calls() {
     runtime
         .install_hooks([Hook::new(0x400, {
             let cpu = runtime.cpu_state();
-            let stop = runtime.stop_handle();
+            let exit = runtime.exit_handle();
             async move || {
-                // An explicit stop returns before the guest continuation executes.
+                // An explicit exit returns before the guest continuation executes.
                 cpu.set_eip(0x500);
                 let value = std::future::ready(99).await;
                 cpu.set_bx(value);
                 let value = std::future::ready(value + 1).await;
                 assert_eq!(cpu.bx(), 99);
                 cpu.set_cx(value);
-                stop.stop()
+                exit.request()
             }
         })])
         .await
@@ -297,13 +297,13 @@ async fn check_completed_replacement() {
     runtime
         .install_hooks([Hook::new(0x400, {
             let cpu = runtime.cpu_state();
-            let stop = runtime.stop_handle();
+            let exit = runtime.exit_handle();
             async move || {
                 let registration = registration.clone();
                 let value = input.read().await;
                 cpu.set_ax(value);
                 drop(registration);
-                stop.stop()
+                exit.request()
             }
         })])
         .await
@@ -319,10 +319,10 @@ async fn check_completed_replacement() {
     runtime
         .install_hooks([Hook::new(0x400, {
             let cpu = runtime.cpu_state();
-            let stop = runtime.stop_handle();
+            let exit = runtime.exit_handle();
             async move || {
                 cpu.set_ax(99);
-                stop.stop()
+                exit.request()
             }
         })])
         .await
@@ -346,7 +346,7 @@ async fn completion_allows_replacement_and_releases_the_old_registration() {
 
 struct Completion {
     cpu: relocade_machine::CpuStateAccess,
-    stop: relocade_machine::StopHandle,
+    exit: relocade_machine::ExitHandle,
     first: bool,
 }
 
@@ -357,7 +357,7 @@ impl Future for Completion {
             Poll::Pending
         } else {
             self.cpu.set_ax(55);
-            self.stop.stop();
+            self.exit.request();
             Poll::Ready(())
         }
     }
@@ -365,12 +365,12 @@ impl Future for Completion {
 
 fn custom_completion(
     cpu: relocade_machine::CpuStateAccess,
-    stop: relocade_machine::StopHandle,
+    exit: relocade_machine::ExitHandle,
 ) -> Completion {
     cpu.set_bx(99);
     Completion {
         cpu,
-        stop,
+        exit,
         first: true,
     }
 }
@@ -390,8 +390,8 @@ async fn check_custom_completion() {
     let mut cpu = support::create_cpu(config).await.unwrap();
     cpu.install_hooks([Hook::new(0x400, {
         let state = cpu.cpu_state();
-        let stop = cpu.stop_handle();
-        move || custom_completion(state.clone(), stop.clone())
+        let exit = cpu.exit_handle();
+        move || custom_completion(state.clone(), exit.clone())
     })])
     .await
     .unwrap();
@@ -442,7 +442,7 @@ async fn check_completion_and_abandonment() {
         runner
             .install_hooks([Hook::new(0x400, {
                 let cpu = state.clone();
-                let stop = runner.stop_handle();
+                let exit = runner.exit_handle();
                 let input = input.clone();
                 async move || {
                     let _operation = Operation(input.clone());
@@ -453,7 +453,7 @@ async fn check_completion_and_abandonment() {
                     // Abandonment destroys its future without executing this code.
                     cpu.set_eflags((cpu.eflags() & !0x200) | saved_if);
                     input.completed.set(input.completed.get() + 1);
-                    stop.stop()
+                    exit.request()
                 }
             })])
             .await

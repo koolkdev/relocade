@@ -156,7 +156,7 @@ impl Dos {
         let state = Rc::new(DosState::new(
             memory.with_io(io),
             keyboard,
-            cpu.stop_handle(),
+            cpu.exit_handle(),
         ));
         let keyboard = state.stdio().input.clone();
         kernel::initialize(&mut cpu.context().memory);

@@ -82,8 +82,8 @@ async fn check_interrupt_hooks() {
                 }
             }),
             Hook::new(0x400, {
-                let stop = runtime.stop_handle();
-                async move || stop.stop()
+                let exit = runtime.exit_handle();
+                async move || exit.request()
             }),
         ])
         .await
@@ -341,19 +341,19 @@ async fn check_hook_replacement() {
         let unused = Rc::new(());
         let released = Rc::downgrade(&unused);
         let unused_cpu = runtime.cpu_state();
-        let unused_stop = runtime.stop_handle();
-        let stop = runtime.stop_handle();
+        let unused_exit = runtime.exit_handle();
+        let exit = runtime.exit_handle();
         let cpu = runtime.cpu_state();
         runtime
             .install_hooks([
                 Hook::new(address, async move || {
                     let _borrow = &unused;
                     unused_cpu.set_ax(100);
-                    unused_stop.stop();
+                    unused_exit.request();
                 }),
                 Hook::new(address, async move || {
                     cpu.set_ax(75);
-                    stop.stop();
+                    exit.request();
                 }),
             ])
             .await

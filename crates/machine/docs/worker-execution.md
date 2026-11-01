@@ -65,15 +65,22 @@ a control path for a continuously running CPU.
 
 The embedding supplies host input and controls when execution stops.
 Services return `()`; their adapters apply guest calling conventions.
-Capture `cpu.stop_handle()` to request `HostExit::Return` at the next driver
-boundary. It wakes a pending run and applies only while that run is active.
-Returning from or dropping the run clears its stop request and waker. An
-observed stop drops the pending call; dropping only the waiter preserves it.
+Capture `cpu.exit_handle()` in a service to request `HostExit::Return` after
+its current poll. The driver drops pending work and consumes the request before
+returning to the embedding. Dropping only the run waiter preserves both the call
+and any unobserved request. The exit flag does not wake suspended execution;
+session cancellation uses the worker's existing `stop().await`.
 The runtime owns execution and retained futures; the web and
 Wasmtime backends supply Wasm engine access. Generated guest calls remain
 synchronous; the execution task awaits services after those calls return.
 
 ## Task lifetime
+
+The worker can outlive individual DOS programs. The Rust console and device
+activities run without driving guest instructions. `Dos::run` requires a launched
+process and returns an already completed process's result without running the CPU.
+DOS termination records that result and requests an execution exit before the
+driver resumes guest code. The environment remains alive for another launch.
 
 For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, session)`
 creates the timer service and drives it on the caller while the session runs on

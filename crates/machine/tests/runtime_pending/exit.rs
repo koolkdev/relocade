@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::{Cpu, Device, DeviceConnection, IoBus, Memory, StopHandle};
+use relocade_machine::{Cpu, Device, DeviceConnection, ExitHandle, IoBus, Memory};
 
 async fn cpu(io: IoBus) -> Cpu {
     let config = support::configuration(
@@ -30,25 +30,24 @@ async fn cpu(io: IoBus) -> Cpu {
     runner
 }
 
-async fn stop_lifetime() {
+async fn exit_lifetime() {
     let mut runner = cpu(IoBus::default()).await;
-    let stop = runner.stop_handle();
-    stop.stop();
+    let exit = runner.exit_handle();
+    exit.request();
     drop(runner.run(1));
     assert_eq!(runner.run(0).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.cpu_state().eip(), 0x400);
+    assert_eq!(runner.cpu_state().instruction_count(), 0);
     assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(
-        runner.cpu_state().ax(),
-        1,
-        "idle requests do not reach a later run"
-    );
+    assert_eq!(runner.cpu_state().ax(), 1, "the exit request was consumed");
 
     runner
         .install_hooks([Hook::new(0x400, {
             let cpu = runner.cpu_state();
-            let stop = stop.clone();
+            let exit = exit.clone();
             async move || {
-                stop.stop();
+                exit.request();
                 cpu.set_eip(0x401); // The current poll still completes normally.
             }
         })])
@@ -58,14 +57,13 @@ async fn stop_lifetime() {
     assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runner.cpu_state().eip(), 0x401);
     assert_eq!(runner.cpu_state().ax(), 1, "the guest has not resumed");
-    stop.stop();
     assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
     assert_eq!(runner.cpu_state().ax(), 2);
 }
 
-async fn stop_pending_waiter() {
+async fn exit_pending_waiter() {
     let mut runner = cpu(IoBus::default()).await;
-    let stop = runner.stop_handle();
+    let exit = runner.exit_handle();
     let input = Rc::new(State::default());
     let cpu = runner.cpu_state();
     cpu.set_eflags(2);
@@ -86,48 +84,24 @@ async fn stop_pending_waiter() {
         })])
         .await
         .unwrap();
-    let old = Arc::new(WakeCount::default());
-    let new = Arc::new(WakeCount::default());
-    let old_waker = Waker::from(old.clone());
-    let new_waker = Waker::from(new.clone());
     {
         let mut run = pin!(runner.run(1));
         assert!(run
             .as_mut()
-            .poll(&mut Context::from_waker(&old_waker))
+            .poll(&mut Context::from_waker(Waker::noop()))
             .is_pending());
-        stop.stop();
-        assert_eq!(old.0.load(Ordering::Relaxed), 1);
+        exit.request();
         // Drop the waiter before it observes the request; retain the call.
     }
-    stop.stop();
-    assert_eq!(old.0.load(Ordering::Relaxed), 1);
     assert_eq!(input.dropped.get(), 0);
+    cpu.set_eflags(0x603);
+    input.send(&[42]);
     assert_eq!(runner.run(0).await, ExecutionExit::BudgetExhausted);
-    {
-        let mut run = pin!(runner.run(1));
-        assert!(run
-            .as_mut()
-            .poll(&mut Context::from_waker(&new_waker))
-            .is_pending());
-        cpu.set_eflags(0x603);
-        input.send(&[42]);
-        new.0.store(0, Ordering::Relaxed);
-        stop.stop();
-        stop.stop();
-        assert_eq!(old.0.load(Ordering::Relaxed), 1);
-        assert_eq!(new.0.load(Ordering::Relaxed), 1);
-        assert_eq!(
-            run.as_mut().poll(&mut Context::from_waker(&new_waker)),
-            Poll::Ready(ExecutionExit::Host(HostExit::Return))
-        );
-    }
-    stop.stop();
-    assert_eq!(new.0.load(Ordering::Relaxed), 1);
+    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         input.completed.get(),
         0,
-        "ready input must not resume a stopped call"
+        "ready input must not resume an abandoned call"
     );
     assert_eq!(input.dropped.get(), 1);
     assert_eq!(cpu.ax(), 0);
@@ -135,17 +109,17 @@ async fn stop_pending_waiter() {
     assert_eq!(cpu.eflags(), 0x603, "abandonment must not restore saved IF");
 }
 
-struct StopOnDrop {
-    stop: StopHandle,
+struct ExitOnDrop {
+    exit: ExitHandle,
     dropped: Rc<Cell<u32>>,
     pending: bool,
 }
 
-impl Future for StopOnDrop {
+impl Future for ExitOnDrop {
     type Output = ();
     fn poll(self: std::pin::Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
         if self.pending {
-            self.stop.stop();
+            self.exit.request();
             Poll::Pending
         } else {
             Poll::Ready(())
@@ -153,23 +127,23 @@ impl Future for StopOnDrop {
     }
 }
 
-impl Drop for StopOnDrop {
+impl Drop for ExitOnDrop {
     fn drop(&mut self) {
         self.dropped.set(self.dropped.get() + 1);
-        self.stop.stop();
+        self.exit.request();
     }
 }
 
-async fn stop_during_poll() {
+async fn exit_during_poll() {
     for pending in [false, true] {
         let mut runner = cpu(IoBus::default()).await;
         let dropped = Rc::new(Cell::new(0));
         runner
             .install_hooks([Hook::new(0x400, {
-                let stop = runner.stop_handle();
+                let exit = runner.exit_handle();
                 let dropped = dropped.clone();
-                move || StopOnDrop {
-                    stop: stop.clone(),
+                move || ExitOnDrop {
+                    exit: exit.clone(),
                     dropped: dropped.clone(),
                     pending,
                 }
@@ -179,26 +153,33 @@ async fn stop_during_poll() {
         assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
         assert_eq!(dropped.get(), 1);
         assert_eq!(runner.cpu_state().instruction_count(), 0);
+        runner.cpu_state().set_eip(0x401);
+        assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            runner.cpu_state().ax(),
+            1,
+            "destruction left no stale request"
+        );
     }
 }
 
 #[derive(Default)]
-struct StopDevice(Option<StopHandle>);
-impl Device for StopDevice {
+struct ExitDevice(Option<ExitHandle>);
+impl Device for ExitDevice {
     fn write_port(&mut self, _: u16, _: u8, _: u32) {
-        self.0.as_ref().unwrap().stop();
+        self.0.as_ref().unwrap().request();
     }
 }
 
-async fn stop_during_guest() {
-    let device = Rc::new(RefCell::new(StopDevice::default()));
+async fn exit_during_guest() {
+    let device = Rc::new(RefCell::new(ExitDevice::default()));
     let io = IoBus::new([DeviceConnection {
         device: device.clone(),
         mmio: Vec::new(),
         ports: std::iter::once(0x80..=0x80).collect(),
     }]);
     let mut runner = cpu(io).await;
-    device.borrow_mut().0 = Some(runner.stop_handle());
+    device.borrow_mut().0 = Some(runner.exit_handle());
     // OUT 80h,AL; JMP 0500 (host entry).
     runner
         .memory()
@@ -221,7 +202,7 @@ async fn stop_during_guest() {
     assert_eq!(runner.run(20).await, ExecutionExit::Host(HostExit::Return));
     assert!(
         !started.get(),
-        "observe the stop before entering another handler"
+        "observe the exit before entering another handler"
     );
 }
 
@@ -240,13 +221,16 @@ macro_rules! test_backends {
     };
 }
 
-test_backends!(stop_requests_belong_to_the_active_run, stop_lifetime);
 test_backends!(
-    stop_wakes_current_waiter_without_resuming_cancelled_work,
-    stop_pending_waiter
+    exit_requests_are_consumed_only_when_execution_returns,
+    exit_lifetime
 );
 test_backends!(
-    stop_from_pending_or_destroyed_ready_future_ends_the_run,
-    stop_during_poll
+    exit_survives_waiter_replacement_without_resuming_ready_work,
+    exit_pending_waiter
 );
-test_backends!(device_stop_prevents_the_next_host_entry, stop_during_guest);
+test_backends!(
+    exit_from_pending_or_destroyed_ready_future_ends_execution,
+    exit_during_poll
+);
+test_backends!(device_exit_prevents_the_next_host_entry, exit_during_guest);

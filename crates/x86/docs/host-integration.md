@@ -1079,11 +1079,12 @@ programming error.
 service's future after the guest call returns; pending work has no guest
 execution exit. Async handlers return `()` and continue at the live guest
 position; environment adapters apply guest calling conventions. A captured
-`StopHandle` can request `HostExit::Return` at the next driver boundary and wake
-a pending run. Its request and waker belong to the active run; an observed stop
-releases pending work, while dropping and replacing the waiter preserves it.
+`ExitHandle` can request `HostExit::Return` after the current guest dispatch or
+host poll. The driver releases pending work and consumes the request when it
+returns; dropping and replacing the waiter preserves both. The handle only sets
+a flag; cancellation and wakeups belong to the execution owner.
 `HostExit::Call` remains reserved for generated entries. The runner owns pinned
-futures until completion, an observed stop or CPU drop. Handler captures and
+futures until completion, an observed exit request or CPU drop. Handler captures and
 futures may be local to the CPU's thread and need not be `Send` or `Sync`.
 
 Floating-point error reports #MF (architectural vector 16). Its return value

@@ -98,8 +98,8 @@ pub async fn vga_workers() -> Result<(), String> {
                 }
             }),
             Hook::new(0x400, {
-                let stop = cpu.stop_handle();
-                async move || stop.stop()
+                let exit = cpu.exit_handle();
+                async move || exit.request()
             }),
         ])
         .await

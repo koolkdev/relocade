@@ -52,7 +52,7 @@ async fn check_context_lifetime() {
         .install_hooks([Hook::new(0x100, {
             let resources = runtime.memory();
             let cpu = runtime.cpu_state();
-            let stop = runtime.stop_handle();
+            let exit = runtime.exit_handle();
             async move || {
                 let mut memory = resources.view();
 
@@ -67,7 +67,7 @@ async fn check_context_lifetime() {
                     }
                 })
                 .await;
-                stop.stop();
+                exit.request();
             }
         })])
         .await
