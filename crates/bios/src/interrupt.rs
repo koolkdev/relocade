@@ -1,6 +1,8 @@
 //! BIOS hook registration and shared interrupt return handling.
 
-use crate::{clock, keyboard, video, Keyboard, CLOCK_ADDRESS, KEYBOARD_ADDRESS, VIDEO_ADDRESS};
+use crate::{
+    clock, keyboard, video, Keyboard, CLOCK_ADDRESS, KEYBOARD_ADDRESS, TIMER_ADDRESS, VIDEO_ADDRESS,
+};
 use relocade_machine::{real_mode_interrupt, CpuStateAccess, Hook, MemoryBus};
 
 /// Returns hooks for installation alongside another environment's hooks.
@@ -13,6 +15,12 @@ pub fn hooks(
     keyboard: Keyboard,
 ) -> impl Iterator<Item = Hook> {
     [
+        hook(
+            TIMER_ADDRESS,
+            cpu.clone(),
+            memory.clone(),
+            clock::tick_entry,
+        ),
         hook(
             CLOCK_ADDRESS,
             cpu.clone(),

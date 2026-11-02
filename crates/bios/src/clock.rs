@@ -1,4 +1,4 @@
-//! BIOS time-of-day data and the default timer interrupt source.
+//! BIOS time-of-day data, advanced by IRQ0 and read through INT 1Ah.
 
 mod timer;
 pub use timer::connect;
@@ -8,8 +8,33 @@ use relocade_machine::{
     MemoryView,
 };
 
-pub(crate) const CLOCK_TICKS: u32 = 0x46c;
+const CLOCK_TICKS: u32 = 0x46c;
 const MIDNIGHT_ROLLOVER: u32 = 0x470;
+const TICKS_PER_DAY: u32 = 0x18_00b0;
+
+pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
+    memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
+}
+
+/// Advances time for one delivered IRQ0. Missed timer edges are not reconstructed.
+/// The midnight byte counts rollovers until INT 1Ah consumes it.
+#[interrupt(context(memory))]
+pub(crate) fn tick(memory: &mut MemoryView<'_>) {
+    let ticks = memory.read_u32(CLOCK_TICKS).expect("BIOS clock ticks");
+    if ticks >= TICKS_PER_DAY - 1 {
+        memory.write_u32(CLOCK_TICKS, 0).expect("BIOS clock ticks");
+        let rollover = memory
+            .read_u8(MIDNIGHT_ROLLOVER)
+            .expect("BIOS midnight rollover");
+        memory
+            .write_u8(MIDNIGHT_ROLLOVER, rollover.wrapping_add(1))
+            .expect("BIOS midnight rollover");
+    } else {
+        memory
+            .write_u32(CLOCK_TICKS, ticks + 1)
+            .expect("BIOS clock ticks");
+    }
+}
 
 /// Time returned by INT 1Ah/AH=00h. Reading consumes only the rollover byte.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -5,8 +5,8 @@
 //! MZ executables use their header's memory request, relocation table and CS:IP/SS:SP.
 //! Both formats receive a separate environment block through PSP:002C, containing
 //! the supplied variables and executable path. Its storage comes from conventional RAM.
-//! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock; ticks initially remain zero
-//! until the embedding updates them.
+//! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock. A fixed-rate timer raises
+//! IRQ0 about 18.2 times per second; the BIOS handler advances the clock.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. CON output is buffered as guest
@@ -69,8 +69,8 @@
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
 //! Construct DOS inside [`relocade_machine::Runner::run`] or an execution worker.
-//! [`Dos::new`] registers VGA with that runner and shares its clock. [`Dos::run`]
-//! returns the current program's exit code; registered devices keep running while
+//! [`Dos::new`] registers VGA and the timer with that runner and shares its clock.
+//! [`Dos::run`] returns the current program's exit code; devices keep running while
 //! the main session awaits input or another program. [`Dos::frame_source`] exposes
 //! captured display state across launches. The caller chooses the rendering implementation
 //! and its worker, scheduling and presentation lifetime.
@@ -123,29 +123,34 @@ pub use execution::RunError;
 pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
-use relocade_machine::{Cpu, CpuContext, IoBus, Memory, Runner};
+use relocade_machine::{Clock, Cpu, CpuContext, IoBus, Memory, Runner, TimerHandle};
 use relocade_vga::Vga;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
 /// A DOS session with persistent CPU, memory, filesystems and console resources.
-pub struct Dos {
+/// Devices share the runner's clock; the default uses the host timer service.
+pub struct Dos<C = TimerHandle> {
     state: Rc<DosState>,
     cpu: Cpu,
-    vga: Rc<RefCell<Vga>>,
+    vga: Rc<RefCell<Vga<C>>>,
     keyboard_input: relocade_frontend::keyboard::KeyboardInput,
 }
 
-impl Dos {
-    /// Prepares the memory map and service hooks, and registers VGA with the runner.
+impl<C: Clock> Dos<C> {
+    /// Prepares memory and services, and registers VGA and the timer with the runner.
     /// Launch a program before executing DOS services.
-    pub async fn new(runner: &Runner) -> relocade_machine::Result<Self> {
+    pub async fn new(runner: &Runner<C>) -> relocade_machine::Result<Self>
+    where
+        C: Clone + 'static,
+    {
         let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
             runner.clock().clone(),
         ))));
         let keyboard = relocade_bios::Keyboard::default();
         let (keyboard_input, keyboard_device) = keyboard.connect(runner);
         let io = IoBus::new([
+            relocade_bios::clock::connect(runner),
             runner.connect(
                 vga.clone(),
                 [relocade_vga::MEMORY_RANGE],
@@ -366,7 +371,7 @@ impl Dos {
     /// Retains the execution-local device, including while the CPU awaits input.
     /// Give other workers the immutable captures from [`Dos::frame_source`].
     /// End device borrows before polling execution or dropping the session.
-    pub fn vga(&self) -> Rc<RefCell<Vga>> {
+    pub fn vga(&self) -> Rc<RefCell<Vga<C>>> {
         Rc::clone(&self.vga)
     }
 

@@ -21,7 +21,7 @@ const KEY: KeyStroke = KeyStroke {
     scan_code: 0x25,
 };
 
-/// Controlled timer edges; the guest ISR, rather than this device, advances BDA time.
+/// Controlled timer edges; the interrupt handler advances BDA time.
 #[derive(Default)]
 struct Timer {
     pending: bool,
@@ -219,6 +219,42 @@ async fn abandon_during_irq() {
     assert_eq!(keyboard.peek_key(), Some(KEY));
 }
 
+async fn bios_timer_rollover() {
+    let keyboard = Keyboard::default();
+    let timer = Rc::new(RefCell::new(Timer::default()));
+    let mut cpu = machine(&keyboard, &timer).await;
+    // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
+    {
+        let mut context = cpu.context();
+        relocade_bios::initialize(&mut context.memory, context.io);
+    }
+    let memory = cpu.memory();
+    memory.view().write(0x46c, &[0xaf, 0, 0x18, 0, 1]).unwrap();
+    let state = cpu.cpu_state();
+    state.set_ax(0x55);
+    state.set_bx(0x1234);
+    state.set_cx(0x5678);
+    state.set_dx(0x9abc);
+    state.set_eflags(0x443);
+    pending(cpu.run(100));
+    let before = state.snapshot();
+    timer.borrow_mut().tick();
+    pending(cpu.run(100));
+    let after = state.snapshot();
+    assert_eq!(after.registers, before.registers);
+    assert_eq!(after.segments, before.segments);
+    assert_eq!(after.flags.eflags(), before.flags.eflags());
+    assert_eq!(after.eip, before.eip);
+    assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
+    assert_eq!(memory.view().read_u8(0x470).unwrap(), 2);
+    keyboard.push(KEY);
+    assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(memory.view().read_u8(0x470).unwrap(), 0);
+    assert_eq!(memory.view().read_u16(0x502).unwrap(), 0);
+    assert_eq!(cpu.cpu_state().sp(), 0x8000);
+    assert!(!cpu.cpu_state().interrupts_enabled());
+}
+
 macro_rules! test_backends {
     ($name:ident, $check:ident) => {
         #[cfg(not(target_arch = "wasm32"))]
@@ -245,4 +281,8 @@ test_backends!(
 test_backends!(
     abandoning_a_keyboard_wait_preserves_guest_isr_state,
     abandon_during_irq
+);
+test_backends!(
+    bios_irq0_counts_and_consumes_midnight_rollovers,
+    bios_timer_rollover
 );

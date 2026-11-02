@@ -30,7 +30,8 @@
 //! pixel coordinates/pages return AH=86h with carry set.
 //! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared BIOS keyboard state.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
-//! 0040:006C and 0040:0070. A machine timer must update these fields.
+//! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
+//! Timer hardware supplies vector 08h; INT 1Ch chaining is not implemented yet.
 //! These service entries enable live IF. Pending handlers admit device IRQs;
 //! ready handlers finish in one poll. Guest IRET preserves the caller's saved IF,
 //! while abandonment leaves live CPU state untouched.
@@ -54,6 +55,8 @@ const KEYBOARD_ENTRY: u16 = 0xff10;
 const KEYBOARD_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + KEYBOARD_ENTRY as u32;
 const VIDEO_ENTRY: u16 = 0xff20;
 const VIDEO_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + VIDEO_ENTRY as u32;
+const TIMER_ENTRY: u16 = 0xff30;
+const TIMER_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + TIMER_ENTRY as u32;
 
 /// Initializes clock/video data, BIOS vectors, ROM fonts and hook instructions.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
@@ -62,11 +65,10 @@ const VIDEO_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + VIDEO_ENTRY as u32;
 /// the A0000 aperture before mode setup restores the color text aperture.
 pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     video::initialize(memory, io);
-    memory
-        .write(clock::CLOCK_TICKS, &[0; 5])
-        .expect("BIOS clock data");
+    clock::initialize(memory);
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
     for (vector, offset) in [
+        (0x08, TIMER_ENTRY),
         (0x1a, CLOCK_ENTRY),
         (0x16, KEYBOARD_ENTRY),
         (0x10, VIDEO_ENTRY),
