@@ -1,5 +1,6 @@
 //! Register syntax. Alias ranges and widths come from the CPU accessors.
 
+use super::pointer::Pointer;
 use proc_macro2::TokenStream as Tokens;
 use quote::{format_ident, quote};
 use syn::{
@@ -12,6 +13,7 @@ pub(super) enum Register {
     Scalar(Ident),
     Pair(Ident, Ident),
     Flag(Ident),
+    Pointer(Pointer),
 }
 
 impl Parse for Register {
@@ -29,6 +31,10 @@ impl Parse for Register {
         }
         if input.peek(Ident) {
             let name: Ident = input.fork().parse()?;
+            if name == "ptr" {
+                input.parse::<Ident>()?;
+                return Ok(Self::Pointer(Pointer::parse(input)?));
+            }
             if name == "cf" || name == "zf" {
                 return Ok(Self::Flag(input.parse()?));
             }
@@ -37,7 +43,7 @@ impl Parse for Register {
     }
 }
 
-fn general_register(input: ParseStream<'_>) -> syn::Result<Ident> {
+pub(super) fn general_register(input: ParseStream<'_>) -> syn::Result<Ident> {
     let name: Ident = input.parse()?;
     if name == "sp" || name == "esp" {
         return Err(syn::Error::new_spanned(
@@ -54,6 +60,7 @@ impl Register {
             Self::Scalar(name) => vec![name],
             Self::Pair(high, low) => vec![high, low],
             Self::Flag(_) => vec![],
+            Self::Pointer(pointer) => return pointer.ranges(),
         };
         names
             .into_iter()
@@ -76,6 +83,7 @@ impl Register {
                     "saved flags are return values",
                 ))
             }
+            Self::Pointer(pointer) => pointer.read(cpu),
         };
         Ok(quote!(({
             const _: () = { ::relocade_machine::real_mode_interrupt::registers::assert_disjoint(&[#(#ranges),*]); };
@@ -83,8 +91,8 @@ impl Register {
         })))
     }
 
-    pub(super) fn write(&self, call: &Ident, value: Tokens) -> Tokens {
-        match self {
+    pub(super) fn write(&self, call: &Ident, value: Tokens) -> syn::Result<Tokens> {
+        Ok(match self {
             Self::Scalar(name) => {
                 let setter = format_ident!("set_{name}");
                 quote!(#call.cpu.#setter(#value);)
@@ -106,6 +114,7 @@ impl Register {
                 };
                 quote!(::relocade_machine::real_mode_interrupt::#setter(#call.cpu, &mut #call.memory, #value);)
             }
-        }
+            Self::Pointer(pointer) => return pointer.write(call, value),
+        })
     }
 }

@@ -1,4 +1,4 @@
-//! Input mappings are registers, word pairs, or records of register fields.
+//! Input mappings are registers, word pairs, pointers, or records of those fields.
 
 use super::register::Register;
 use proc_macro2::{Ident, TokenStream as Tokens};
@@ -33,7 +33,10 @@ pub(super) fn read(value: &Expr, cpu: &Ident) -> syn::Result<Tokens> {
 fn read_register(value: &Expr, cpu: &Ident) -> syn::Result<Tokens> {
     syn::parse2::<Register>(quote!(#value))
         .map_err(|_| {
-            syn::Error::new_spanned(value, "expected a register or high/low register pair")
+            syn::Error::new_spanned(
+                value,
+                "expected a register, word pair, or ptr(segment, offset)",
+            )
         })?
         .read(cpu)
 }

@@ -8,13 +8,17 @@
 //! The second byte resumes the top suspended host call after guest IRQ execution.
 
 mod bindings;
+mod pointer;
 #[doc(hidden)]
 pub use crate::cpu::registers;
 pub use bindings::{interrupt, interrupt_dispatch};
+pub use pointer::FarPointer;
+#[doc(hidden)]
+pub use relocade_x86::{Segment, SegmentRegister};
 
 use super::Hook;
 use crate::{CpuStateAccess, MemoryView};
-use relocade_x86::{abi, ExecutionExitValues, HostExit, Segment};
+use relocade_x86::{abi, ExecutionExitValues, HostExit};
 use std::future::Future;
 
 /// Entry NOP, resume NOP, and completion IRET inside the environment's service code.

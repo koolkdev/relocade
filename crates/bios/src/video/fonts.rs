@@ -1,111 +1,42 @@
 //! INT 10h/AH=11h: text font memory, graphics font vectors and font information.
 mod glyph;
-mod graphics;
+pub(super) mod graphics;
 mod layout;
 mod rom;
+pub(super) mod text;
 mod upload;
 
-use super::{buffer_addresses, write_indexed, CHARACTER_HEIGHT, LAST_ROW};
-use crate::screen;
+use super::{CHARACTER_HEIGHT, LAST_ROW};
 pub(crate) use glyph::Glyph;
-use relocade_machine::{IoBus, MemoryView};
-use relocade_vga::registers::{sequencer, SEQUENCER_INDEX_PORT};
-use relocade_x86::{Segment, SegmentRegister};
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, FarPointer},
+    IoBus, MemoryView,
+};
 pub(super) use rom::initialize;
 
-#[relocade_machine::real_mode_interrupt::interrupt(
-    context(call),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
-)]
-pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
-    let function = call.cpu.al();
-    match function {
-        0x20..=0x24 => return graphics::select(call),
-        0x30 => return information(call),
-        _ => {}
-    }
-    if !screen::is_text_mode(&call.memory) {
-        return None;
-    }
-    if function == 0x03 {
-        write_indexed(
-            call.io,
-            SEQUENCER_INDEX_PORT,
-            sequencer::CHARACTER_MAP_SELECT,
-            call.cpu.bl(),
-        );
-        return Some(());
-    }
-    let builtin = match function {
-        0x00 | 0x10 => None,
-        0x01 | 0x11 => Some(rom::for_height(14)),
-        0x02 | 0x12 => Some(rom::for_height(8)),
-        0x04 | 0x14 => Some(rom::for_height(16)),
-        _ => return None,
-    };
-    let height = builtin.map_or(call.cpu.bh(), |font| font.height);
-    let bank = call.cpu.bl();
-    let (first, count) = if builtin.is_some() {
-        (0, 256)
-    } else {
-        (call.cpu.dx(), call.cpu.cx())
-    };
-    if !(1..=32).contains(&height) || bank >= 8 || u32::from(first) + u32::from(count) > 256 {
-        return None;
-    }
-    let layout = if function & 0x10 != 0 {
-        Some(layout::Layout::for_font(&call.memory, call.io, height)?)
-    } else {
-        None
-    };
-    if count != 0 {
-        // Read the source before exposing plane two: ES can itself address VGA.
-        let guest_bytes;
-        let bytes = if let Some(font) = builtin {
-            font.bytes
-        } else {
-            guest_bytes = buffer_addresses(
-                call.cpu.segments().es.base,
-                call.cpu.bp(),
-                u32::from(count) * u32::from(height),
-            )
-            .map(|address| call.memory.read_u8(address).expect("font buffer"))
-            .collect::<Vec<_>>();
-            &guest_bytes
-        };
-        upload::write_glyphs(
-            &mut call.memory,
-            call.io,
-            bank,
-            first,
-            bytes.chunks(usize::from(height)),
-        );
-    }
-    if let Some(layout) = layout {
-        layout.apply(&mut call.memory, call.io);
-    }
-    Some(())
+pub(super) struct FontInformation {
+    pub pointer: FarPointer,
+    pub height: u16,
+    pub last_row: u8,
 }
 
-fn information(call: &mut crate::BiosContext<'_>) -> Option<()> {
-    let pointer = rom::query(&call.memory, call.cpu.bh())?;
-    let height = call.memory.read_u16(CHARACTER_HEIGHT).expect("font height");
-    let last_row = call.memory.read_u8(LAST_ROW).expect("video rows");
-    call.cpu.set_segment(
-        Segment::Es,
-        SegmentRegister::real_mode(Segment::Es, (pointer >> 16) as u16),
-    );
-    call.cpu.set_bp(pointer as u16);
-    // CX describes the current display even when BH asks for another ROM font.
-    call.cpu.set_cx(height);
-    call.cpu.set_dl(last_row);
-    Some(())
+#[interrupt(context(memory), args(selector = bh), returns {
+    Some(info) => { ptr(es, bp) = info.pointer, cx = info.height, dl = info.last_row },
+    None => crate::interrupt::unsupported,
+})]
+pub(super) fn information(memory: &MemoryView<'_>, selector: u8) -> Option<FontInformation> {
+    Some(FontInformation {
+        pointer: rom::query(memory, selector)?,
+        // Geometry describes the current display even when another font is requested.
+        height: memory.read_u16(CHARACTER_HEIGHT).expect("font height"),
+        last_row: memory.read_u8(LAST_ROW).expect("video rows"),
+    })
 }
 
 pub(super) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, height: u8, text: bool) {
     let font = rom::for_height(height);
     memory
-        .write_u32(0x43 * 4, font.pointer())
+        .write_u32(0x43 * 4, font.pointer().packed())
         .expect("graphics font vector");
     if text {
         // Mode setting resets complete slots. AH=11h instead preserves all

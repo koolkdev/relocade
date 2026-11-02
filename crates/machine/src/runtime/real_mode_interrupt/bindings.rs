@@ -41,6 +41,25 @@
 //! example `args(point = Point { x: cx, y: dx })`. Computation belongs in the
 //! ordinary Rust function, rather than in an argument mapping.
 //!
+//! `ptr(es, dx)` captures a [`super::FarPointer`]: the visible segment value and
+//! a 16-bit offset. It also works in record fields. Services access memory through
+//! [`crate::MemoryView`]; the mapping does not copy buffers or create Rust slices.
+//! Buffer length, format and offset wrapping remain the service's responsibility.
+//! These bindings use the machine's ordinary real-mode contract: segment bases
+//! equal their selector shifted by four. Protected-mode pointers need a different ABI.
+//!
+//! A pointer result takes a [`super::FarPointer`] and loads the destination's
+//! real-mode segment cache as well as its offset. ES, DS, FS and GS can be written;
+//! CS and SS must remain intact for the interrupt continuation. For example:
+//! ```
+//! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
+//! #[interrupt(args(source = ptr(es, dx)), returns {
+//!     address => { ptr(es, bp) = address },
+//! })]
+//! fn address(source: FarPointer) -> FarPointer { source }
+//! # fn main() {}
+//! ```
+//!
 //! Return arms write only their declared locations on normal completion. `cf` and
 //! `zf` edit saved interrupt FLAGS; omitted registers and flags are preserved.
 //! A result arm such as `None => unsupported` delegates to that annotated service,
@@ -85,6 +104,40 @@
 //! use relocade_machine::real_mode_interrupt::interrupt;
 //! #[interrupt(returns { value => { (cx, cx) = value } })]
 //! fn repeated_word() -> u32 { 0 }
+//! # fn main() {}
+//! ```
+//!
+//! Pointer outputs participate in the same alias checks, including the segment:
+//! ```compile_fail
+//! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
+//! #[interrupt(returns { p => { ptr(es, bp) = p, ptr(es, di) = p } })]
+//! fn conflicting_segments(p: FarPointer) -> FarPointer { p }
+//! # fn main() {}
+//! ```
+//! ```compile_fail
+//! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
+//! #[interrupt(returns { p => { ptr(es, bp) = p, ebp = 0u32 } })]
+//! fn conflicting_offsets(p: FarPointer) -> FarPointer { p }
+//! # fn main() {}
+//! ```
+//! Pointer offsets must be 16-bit registers:
+//! ```compile_fail
+//! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
+//! #[interrupt(args(source = ptr(es, edx)))]
+//! fn wide_offset(source: FarPointer) {}
+//! # fn main() {}
+//! ```
+//! Continuation segments cannot be returned:
+//! ```compile_fail
+//! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
+//! #[interrupt(returns { p => { ptr(cs, bp) = p } })]
+//! fn overwrite_code(p: FarPointer) -> FarPointer { p }
+//! # fn main() {}
+//! ```
+//! ```compile_fail
+//! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
+//! #[interrupt(returns { p => { ptr(ss, bp) = p } })]
+//! fn overwrite_stack(p: FarPointer) -> FarPointer { p }
 //! # fn main() {}
 //! ```
 

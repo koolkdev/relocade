@@ -1,6 +1,7 @@
 //! ABI declarations on the service implementation; selection belongs to its table.
 
 mod argument;
+mod pointer;
 mod register;
 #[cfg(test)]
 mod tests;
@@ -263,7 +264,7 @@ pub(super) fn expand(binding: Binding, function: ItemFn) -> syn::Result<Tokens> 
                     ranges.extend(output.destination.ranges());
                     expressions.push(&output.value);
                     let index = syn::Index::from(index);
-                    writes.push(output.destination.write(&call, quote!(#values.#index)));
+                    writes.push(output.destination.write(&call, quote!(#values.#index))?);
                 }
                 checks.push(quote!(::relocade_machine::real_mode_interrupt::registers::assert_disjoint(&[#(#ranges),*]);));
                 quote!({ let #values = (#(#expressions,)*); #(#writes)* })
