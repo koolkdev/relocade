@@ -56,16 +56,5 @@ pub(crate) fn return_error(error: DosError) -> DosError {
     error
 }
 
-/// Returns a DOS result through the interrupt frame, preserving other flags.
-pub(crate) fn return_result(call: &mut CpuContext<'_>, result: Result<(), DosError>) {
-    if let Err(error) = result {
-        call.cpu.set_ax(error.code());
-        if let DosError::InsufficientMemory { available } = error {
-            call.cpu.set_bx(available);
-        }
-    }
-    real_mode_interrupt::set_carry(call.cpu, &mut call.memory, result.is_err());
-}
-
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
