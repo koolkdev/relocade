@@ -1,9 +1,9 @@
 # Worker tasks and messages
 
-Enable the machine's `worker` feature for `worker::Thread`. This is a direct
-reexport of `web-thread-select`; the Wasm runtime exposes the same worker API
-through its own `worker` feature. The application creates workers and keeps them
-alive until their tasks finish.
+Enable the machine's `worker` feature for `worker::Thread`, reexported from
+`web-thread-select`. The Wasm runtime exposes the same worker API and resource
+channels through its own `worker` feature. The application creates workers and
+keeps them alive until their tasks finish.
 
 Pass the shared allocation as the task context. Capture configuration and Rust
 channel endpoints in the closure, then construct the CPU inside the worker:
@@ -37,6 +37,27 @@ serialization. Once running on its worker, a future can retain non-Send values
 such as `Rc`, the CPU and browser engine objects. Construct those values inside
 the task. `Thread::run_send` returns Send results through Rust memory;
 `Thread::run` posts its result and can return a shared allocation or module.
+
+## Persistent resource delivery
+
+`worker::channel::<Module>()` creates two transferable resource endpoints. Pass
+an endpoint as a worker context and capture an ordinary Rust request receiver in
+its closure. Call `endpoint.bind()` on the receiving worker to create its local
+port. A persistent worker can then accept Rust requests and call
+`port.send(module)` repeatedly, without starting another `Thread::run` task for
+every result. The other port receives through `recv().await` or `poll_recv`.
+The same channel can carry other `Post` resources, including shared memories.
+
+Bound browser ports retain a local listener and Rust inbox and cannot be
+transferred. Dropping a receive waiter preserves the port and queued messages.
+Dropping the bound peer normally ends reception after its last message. Keep the
+worker alive through its task completion so its ports and other Rust resources are dropped.
+A successful send queues a message; it does not acknowledge receipt.
+
+Browser ports post resource handles through `MessagePort`; native ports move
+values through Rust channels. Browser delivery still needs an event-loop turn
+on the receiving owner. Request scheduling and readiness notifications remain
+ordinary Rust communication, separate from resource delivery.
 
 Host services are ordinary async functions capturing CPU state, memory, I/O and
 service resources. They await Rust channel input without retaining a backend

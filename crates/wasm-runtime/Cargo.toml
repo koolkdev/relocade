@@ -6,12 +6,13 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-worker = ["dep:web-thread"]
+worker = ["dep:web-thread", "dep:futures-channel", "dep:web-sys"]
 
 [dependencies]
 relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+futures-channel = { version = "=0.3.34", optional = true }
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"], optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -22,6 +23,7 @@ wasm-encoder.workspace = true
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "=0.4.79"
 js-sys = "=0.3.106"
+web-sys = { version = "=0.3.106", features = ["MessageChannel", "MessageEvent", "MessagePort"], optional = true }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde-wasm-bindgen = "=0.6.5"
 

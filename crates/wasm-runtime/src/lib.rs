@@ -58,7 +58,7 @@ compile_error!("worker requires a threaded browser build; see tests/browser/READ
 
 /// Rust async workers with native value transfer and browser resource posting.
 #[cfg(feature = "worker")]
-pub use web_thread as worker;
+pub mod worker;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
 /// The handle can move to another thread; create and await its futures there.
