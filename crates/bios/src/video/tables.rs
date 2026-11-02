@@ -77,6 +77,9 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>) {
 pub(super) enum Pointer {
     Parameters,
     DisplayCombinations,
+    TextFont,
+    GraphicsFont,
+    AlternateFont,
 }
 
 impl Pointer {
@@ -84,11 +87,41 @@ impl Pointer {
         let primary = non_null(memory.read_u32(SAVE_POINTER).expect("video save pointer"))?;
         let address = match self {
             Self::Parameters => primary,
+            Self::TextFont => primary.wrapping_add(8),
+            Self::GraphicsFont => primary.wrapping_add(12),
             Self::DisplayCombinations => {
                 read_pointer(memory, primary.wrapping_add(16))?.wrapping_add(2)
             }
+            Self::AlternateFont => read_pointer(memory, primary.wrapping_add(16))?.wrapping_add(6),
         };
         read_pointer(memory, address)
+    }
+
+    /// Override headers are followed by mode bytes terminated by FFh.
+    pub fn read_for_mode<const N: usize>(
+        self,
+        memory: &MemoryView<'_>,
+        mode: u8,
+    ) -> Option<[u8; N]> {
+        let pointer = self.read(memory)?;
+        // A malformed list must not loop forever after its offset wraps.
+        for offset in N..N + 0x10000 {
+            match memory
+                .read_u8(pointer.wrapping_add(offset).address())
+                .expect("video override modes")
+            {
+                0xff => return None,
+                value if value == mode => {
+                    let mut header = [0; N];
+                    memory
+                        .read_wrapping(pointer, &mut header)
+                        .expect("video override header");
+                    return Some(header);
+                }
+                _ => {}
+            }
+        }
+        None
     }
 }
 

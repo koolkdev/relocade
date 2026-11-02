@@ -119,6 +119,7 @@ pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<
             graphics::clear(memory);
         }
     }
+    fonts::apply_overrides(memory, io);
     write_indexed(
         io,
         SEQUENCER_INDEX_PORT,

@@ -2,12 +2,14 @@
 mod glyph;
 pub(super) mod graphics;
 mod layout;
+mod overrides;
 mod rom;
 pub(super) mod text;
 mod upload;
 
 use super::{CHARACTER_HEIGHT, LAST_ROW};
 pub(crate) use glyph::Glyph;
+pub(super) use overrides::apply as apply_overrides;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, FarPointer},
     IoBus, MemoryView,

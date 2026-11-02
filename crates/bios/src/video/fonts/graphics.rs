@@ -7,8 +7,8 @@ use relocade_machine::{
 };
 
 pub(in crate::video) struct Rows {
-    selection: u8,
-    custom: u8,
+    pub(super) selection: u8,
+    pub(super) custom: u8,
 }
 
 #[interrupt(context(memory), args(source = ptr(es, bp)))]
