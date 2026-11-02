@@ -1,5 +1,9 @@
+#[path = "character_reads/indexed.rs"]
+mod indexed;
 #[path = "character_reads/packed.rs"]
 mod packed;
+#[path = "character_reads/planar.rs"]
+mod planar;
 
 use crate::video::video;
 use relocade_dos::Dos;

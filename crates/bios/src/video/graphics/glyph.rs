@@ -10,21 +10,27 @@ impl Page {
         io: &IoBus,
         row: u16,
         column: u16,
-    ) -> Option<u8> {
-        let layout = self.mode.layout;
-        if !matches!(layout, Layout::Packed1 | Layout::Packed2) {
-            return None;
+        height: u16,
+    ) -> u8 {
+        if !(1..=32).contains(&height) {
+            return 0;
         }
-        let mut rows = [0; 8];
+        let layout = self.mode.layout;
+        let mut rows = [0; 32];
+        let rows = &mut rows[..usize::from(height)];
         {
-            let _access = GraphicsAccess::new(io, layout.write_planes());
+            let access = GraphicsAccess::new(io, layout.write_planes());
             for (scanline, bits) in rows.iter_mut().enumerate() {
-                let address = self.address(column * 8, row * 8 + scanline as u16);
-                *bits = nonzero_pixels(memory, address, layout);
+                let address = self.address(column * 8, row * height + scanline as u16);
+                *bits = if layout == Layout::Planar {
+                    access.read_color_mismatch(memory, address)
+                } else {
+                    nonzero_pixels(memory, address, layout)
+                };
             }
         }
         // Fonts may be in VRAM. Restore the caller's access settings before matching.
-        Some(Glyph::recognize(memory, &rows))
+        Glyph::recognize(memory, rows)
     }
 
     /// Positions are bounded (row, column) cells in the BIOS character grid.

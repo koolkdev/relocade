@@ -42,6 +42,15 @@ impl<'a> GraphicsAccess<'a> {
         }
     }
 
+    /// IBM character reads invert read-mode-one comparisons, retaining the
+    /// caller's Color Compare and Color Don't Care registers.
+    pub fn read_color_mismatch(&self, memory: &MemoryView<'_>, address: u32) -> u8 {
+        write_indexed(self.io, GRAPHICS_INDEX_PORT, graphics::MODE, self.mode | 8);
+        !memory
+            .read_u8(address)
+            .expect("graphics character comparison")
+    }
+
     pub fn read_planar_pixel(&self, memory: &MemoryView<'_>, address: u32, mask: u8) -> u8 {
         let mut color = 0;
         for plane in 0..4 {

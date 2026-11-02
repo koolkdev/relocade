@@ -10,7 +10,7 @@ pub struct CharacterCell {
     pub attribute: u8,
 }
 
-/// Reads a text cell or recognizes a packed graphics glyph from live video memory.
+/// Reads a text cell or recognizes a graphics glyph from live video memory.
 /// Graphics returns the first matching character, or zero if no glyph matches.
 /// Unsupported modes and invalid pages return None.
 #[interrupt(context(memory, io), args(page = bh), returns {
