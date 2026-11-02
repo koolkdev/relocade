@@ -2,6 +2,8 @@
 mod adapter;
 #[path = "bios/cga.rs"]
 mod cga;
+#[path = "bios/character_reads.rs"]
+mod character_reads;
 mod common;
 #[path = "bios/fonts.rs"]
 mod fonts;

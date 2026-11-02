@@ -20,10 +20,18 @@ pub fn write_text(memory: &mut MemoryView<'_>, io: &IoBus, bytes: &[u8]) {
     }
 }
 
-pub(crate) fn read_cell(memory: &MemoryView<'_>, page: u8) -> [u8; 2] {
+pub(crate) fn read_cell(memory: &MemoryView<'_>, io: &IoBus, page: u8) -> Option<[u8; 2]> {
     let geometry = Geometry::read(memory);
     let position = CursorPosition::from_bios(cursor_position(memory, page));
-    read_cell_at(memory, &geometry, page, position)
+    if is_text_mode(memory) {
+        return Some(read_cell_at(memory, &geometry, page, position));
+    }
+    if !geometry.contains(position.row, position.column) {
+        return Some([0; 2]);
+    }
+    let character =
+        Page::locate(memory, page)?.read_character(memory, io, position.row, position.column)?;
+    Some([character, 0])
 }
 
 fn read_cell_at(

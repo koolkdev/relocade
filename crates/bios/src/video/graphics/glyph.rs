@@ -1,8 +1,32 @@
-//! Glyph rows become planar masks, indexed pixels or packed bytes through MMIO.
+//! Character bitmaps and graphics pixels share the BIOS layout's MMIO addressing.
 use super::{access::GraphicsAccess, Layout, Page};
+use crate::video::Glyph;
 use relocade_machine::{IoBus, MemoryView};
 
 impl Page {
+    pub fn read_character(
+        &self,
+        memory: &MemoryView<'_>,
+        io: &IoBus,
+        row: u16,
+        column: u16,
+    ) -> Option<u8> {
+        let layout = self.mode.layout;
+        if !matches!(layout, Layout::Packed1 | Layout::Packed2) {
+            return None;
+        }
+        let mut rows = [0; 8];
+        {
+            let _access = GraphicsAccess::new(io, layout.write_planes());
+            for (scanline, bits) in rows.iter_mut().enumerate() {
+                let address = self.address(column * 8, row * 8 + scanline as u16);
+                *bits = nonzero_pixels(memory, address, layout);
+            }
+        }
+        // Fonts may be in VRAM. Restore the caller's access settings before matching.
+        Some(Glyph::recognize(memory, &rows))
+    }
+
     /// Positions are bounded (row, column) cells in the BIOS character grid.
     /// The caller reads the glyph before VGA access changes, even for a font in VRAM.
     pub fn write_glyphs(
@@ -54,4 +78,21 @@ impl Page {
             }
         }
     }
+}
+
+fn nonzero_pixels(memory: &MemoryView<'_>, address: u32, layout: Layout) -> u8 {
+    let pixels_per_byte = layout.pixels_per_byte();
+    let mut bytes = [0; 8];
+    memory
+        .read(address, &mut bytes[..usize::from(8 / pixels_per_byte)])
+        .expect("graphics character row");
+    let mut bits = 0;
+    for x in 0..8 {
+        let color =
+            (bytes[usize::from(x / pixels_per_byte)] >> layout.shift(x)) & layout.pixel_mask();
+        if color != 0 {
+            bits |= 0x80 >> x;
+        }
+    }
+    bits
 }
