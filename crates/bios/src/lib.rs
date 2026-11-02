@@ -31,6 +31,9 @@
 //! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared BIOS keyboard state.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. A machine timer must update these fields.
+//! These service entries enable live IF. Pending handlers admit device IRQs;
+//! ready handlers finish in one poll. Guest IRET preserves the caller's saved IF,
+//! while abandonment leaves live CPU state untouched.
 #![forbid(unsafe_code)]
 
 pub mod clock;

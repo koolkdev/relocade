@@ -2060,10 +2060,12 @@ dependencies = [
 name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
+ "pollster",
  "relocade-frontend",
  "relocade-machine",
  "relocade-vga",
  "relocade-x86",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

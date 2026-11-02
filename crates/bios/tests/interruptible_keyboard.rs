@@ -1,0 +1,248 @@
+use relocade_bios::{KeyStroke, Keyboard};
+use relocade_machine::{Cpu, CpuConfig, Device, DeviceConnection, IoBus, MachineConfig, Memory};
+use relocade_vga::Vga;
+use relocade_x86::{
+    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
+    Segment, Segments,
+};
+use std::{
+    cell::RefCell,
+    future::Future,
+    pin::pin,
+    rc::Rc,
+    task::{Context, Poll, Waker},
+};
+
+#[cfg(target_arch = "wasm32")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+const KEY: KeyStroke = KeyStroke {
+    character: b'K',
+    scan_code: 0x25,
+};
+
+/// Controlled timer edges; the guest ISR, rather than this device, advances BDA time.
+#[derive(Default)]
+struct Timer {
+    pending: bool,
+    waker: Option<Waker>,
+    acknowledged: usize,
+}
+
+impl Timer {
+    fn tick(&mut self) {
+        self.pending = true;
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+impl Device for Timer {
+    fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
+        if std::mem::take(&mut self.pending) {
+            self.acknowledged += 1;
+            Poll::Ready(8)
+        } else {
+            self.waker = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+}
+
+async fn machine(keyboard: &Keyboard, timer: &Rc<RefCell<Timer>>) -> Cpu {
+    let map = PhysicalMemoryMap::new([
+        (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
+        (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
+        (
+            0xf0000..=0xfffff,
+            PhysicalMapping::Rom {
+                backing_offset: 0xf0000,
+            },
+        ),
+    ])
+    .unwrap();
+    let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
+    let (clock, _timers) = relocade_machine::timer_service();
+    let io = IoBus::new([
+        DeviceConnection {
+            device: Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock)))),
+            mmio: vec![relocade_vga::MEMORY_RANGE],
+            ports: relocade_vga::PORT_RANGES.into_iter().collect(),
+        },
+        DeviceConnection {
+            device: timer.clone(),
+            mmio: vec![],
+            ports: vec![],
+        },
+    ]);
+    let mut state = CpuState {
+        eip: 0x100,
+        segments: Segments::real_mode(),
+        ..CpuState::default()
+    };
+    state.registers.esp = 0x8000;
+    state.flags.set_eflags(2); // The caller has IF clear, independently of INT entry.
+    let config = CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), state).unwrap();
+    let mut cpu = Cpu::new(memory.clone(), config, io.clone()).await.unwrap();
+    relocade_bios::initialize(&mut memory.view().with_io(&io), &io);
+    memory.view().write(8 * 4, &[0, 3, 0, 0]).unwrap();
+    // INT 16h; save AX; INT 1Ah/AH=00h; save DX; loop.
+    memory
+        .view()
+        .write(
+            0x100,
+            &[
+                0xcd, 0x16, 0xa3, 0, 5, 0x31, 0xc0, 0xcd, 0x1a, 0x89, 0x16, 2, 5, 0xeb, 0xfe,
+            ],
+        )
+        .unwrap();
+    // IRQ0: INC word [046Ch]; INT 1Ah/AH=00h; save DX; change BX; IRET.
+    // Short jumps delimit blocks so budget exits can stop before nested BIOS entry
+    // and IRQ return without depending on straight-line instruction granularity.
+    memory
+        .view()
+        .write(
+            0x300,
+            &[
+                0xff, 0x06, 0x6c, 4, 0xeb, 0, 0xb4, 0, 0xcd, 0x1a, 0x89, 0x16, 4, 5, 0xbb, 0x21,
+                0x43, 0xeb, 0, 0xcf,
+            ],
+        )
+        .unwrap();
+    cpu.install(relocade_bios::hooks(
+        cpu.cpu_state(),
+        memory.with_io(io),
+        keyboard.clone(),
+    ))
+    .await
+    .unwrap();
+    cpu
+}
+
+fn pending(future: impl Future) {
+    assert!(pin!(future)
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+}
+
+async fn clock_during_wait() {
+    let keyboard = Keyboard::default();
+    let timer = Rc::new(RefCell::new(Timer::default()));
+    let mut cpu = machine(&keyboard, &timer).await;
+    let state = cpu.cpu_state();
+    let memory = cpu.memory();
+    let entry = memory.view().read_u32(0x16 * 4).unwrap();
+    pending(cpu.run(100));
+    assert!(state.interrupts_enabled());
+    timer.borrow_mut().tick();
+    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(state.eip(), 0x306);
+    assert_eq!(memory.view().read_u16(0x7ff4).unwrap(), entry as u16 + 1);
+    assert_eq!(
+        memory.view().read_u16(0x7ff6).unwrap(),
+        (entry >> 16) as u16
+    );
+    assert_ne!(memory.view().read_u16(0x7ff8).unwrap() & 0x200, 0);
+    pending(cpu.run(100));
+    assert_eq!(memory.view().read_u32(0x46c).unwrap(), 1);
+    assert_eq!(memory.view().read_u16(0x504).unwrap(), 1);
+
+    timer.borrow_mut().tick();
+    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    keyboard.push(KEY);
+    // Finish the nested clock call, then the IRQ's IRET. Readiness alone must not
+    // consume the key while the guest ISR or its nested BIOS call owns execution.
+    assert_eq!(cpu.run(3).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(state.eip(), 0x30a);
+    assert_eq!(keyboard.peek_key(), Some(KEY));
+    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(state.eip(), 0x313);
+    assert_eq!(keyboard.peek_key(), Some(KEY));
+    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(state.segment(Segment::Cs).selector, (entry >> 16) as u16);
+    assert_eq!(state.eip(), u32::from(entry as u16 + 1));
+    assert_eq!(keyboard.peek_key(), Some(KEY));
+
+    assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(keyboard.peek_key(), None);
+    assert_eq!(memory.view().read_u16(0x500).unwrap(), 0x254b);
+    assert_eq!(memory.view().read_u16(0x502).unwrap(), 2);
+    assert_eq!(memory.view().read_u16(0x504).unwrap(), 2);
+    assert_eq!(timer.borrow().acknowledged, 2);
+    assert_eq!(state.bx(), 0x4321, "guest ISR effects remain live");
+    assert_eq!(state.sp(), 0x8000);
+    assert!(!state.interrupts_enabled(), "IRET restores the caller's IF");
+}
+
+async fn ready_services() {
+    let keyboard = Keyboard::default();
+    let timer = Rc::new(RefCell::new(Timer::default()));
+    let mut cpu = machine(&keyboard, &timer).await;
+    // After the keyboard read and clock query, query video state before looping.
+    cpu.memory()
+        .view()
+        .write(0x10d, &[0xb4, 0x0f, 0xcd, 0x10, 0xeb, 0xfe])
+        .unwrap();
+    keyboard.push(KEY);
+    timer.borrow_mut().tick();
+    assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(cpu.memory().view().read_u16(0x500).unwrap(), 0x254b);
+    assert_eq!(
+        timer.borrow().acknowledged,
+        0,
+        "ready keyboard, clock and video services finish in one poll"
+    );
+    assert_eq!(cpu.cpu_state().eip(), 0x111);
+    assert!(!cpu.cpu_state().interrupts_enabled());
+}
+
+async fn abandon_during_irq() {
+    let keyboard = Keyboard::default();
+    let timer = Rc::new(RefCell::new(Timer::default()));
+    let mut cpu = machine(&keyboard, &timer).await;
+    let state = cpu.cpu_state();
+    // STI; JMP to self. Live ISR IF must differ from the outer wrapper's saved IF.
+    cpu.memory()
+        .view()
+        .write(0x304, &[0xfb, 0xeb, 0xfe])
+        .unwrap();
+    pending(cpu.run(100));
+    timer.borrow_mut().tick();
+    assert_eq!(cpu.run(2).await, ExecutionExit::BudgetExhausted);
+    keyboard.push(KEY);
+    let before = state.snapshot();
+    assert!(state.interrupts_enabled());
+    drop(cpu);
+    assert_eq!(state.snapshot(), before);
+    assert_eq!(keyboard.peek_key(), Some(KEY));
+}
+
+macro_rules! test_backends {
+    ($name:ident, $check:ident) => {
+        #[cfg(not(target_arch = "wasm32"))]
+        #[test]
+        fn $name() {
+            pollster::block_on($check());
+        }
+        #[cfg(target_arch = "wasm32")]
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        async fn $name() {
+            $check().await;
+        }
+    };
+}
+
+test_backends!(
+    timer_irqs_advance_clock_while_bios_waits_for_a_key,
+    clock_during_wait
+);
+test_backends!(
+    ready_bios_services_finish_before_irq_delivery,
+    ready_services
+);
+test_backends!(
+    abandoning_a_keyboard_wait_preserves_guest_isr_state,
+    abandon_during_irq
+);
