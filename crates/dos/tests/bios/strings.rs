@@ -231,14 +231,20 @@ fn empty_strings_leave_cursors_untouched_and_invalid_requests_have_no_output() {
         source(&mut dos, 0xffff, 0xffff);
         video(&mut dos, 0x0200, 0, 0, 0x0203);
         let before = dos.vga().borrow().snapshot();
-        assert_eq!(
-            video(&mut dos, 0x1303, 0xff7c, 0, 0xffff).registers.eax as u16,
-            0x1303
-        );
-        assert_eq!(
-            video(&mut dos, 0x1304, 0, 1, 0).registers.eax as u16,
-            0x8604
-        );
+        for format in 0..4 {
+            assert_eq!(
+                video(&mut dos, 0x1300 | format, 0xff7c, 0, 0xffff)
+                    .registers
+                    .eax as u16,
+                0x1300 | format
+            );
+        }
+        for count in [0, 1] {
+            assert_eq!(
+                video(&mut dos, 0x1304, 0, count, 0).registers.eax as u16,
+                0x8604
+            );
+        }
         assert_eq!(
             video(&mut dos, 0x1300, 0x0800, 1, 0).registers.eax as u16,
             0x8600

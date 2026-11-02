@@ -4,7 +4,10 @@ use super::{
     MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES,
 };
 use crate::{screen, BIOS_SEGMENT};
-use relocade_machine::{IoBus, MemoryView};
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, FarPointer},
+    IoBus, MemoryView,
+};
 use relocade_vga::registers::{attribute, sequencer, SEQUENCER_INDEX_PORT};
 
 // Follows the font ROM and ninth-column replacement tables.
@@ -29,22 +32,26 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>) {
         .expect("BIOS video functionality table");
 }
 
-#[relocade_machine::real_mode_interrupt::interrupt(context(call))]
-pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
-    if call.cpu.bx() != 0 {
-        // This service reports an unsupported selector through AL, not carry.
-        call.cpu.set_al(0);
-        return;
+// This service acknowledges through AL and leaves carry unchanged.
+#[interrupt(context(memory, io), args(selector = bx, destination = ptr(es, di)),
+    returns { true => { al = 0x1b }, false => { al = 0 } },
+)]
+pub(super) fn write_report(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    selector: u16,
+    destination: FarPointer,
+) -> bool {
+    if selector != 0 {
+        return false;
     }
     // Collect the fields before writing: ES:DI may overlap BIOS data.
-    let bytes = encode_state(&call.memory, call.io);
-    let addresses = buffer_addresses(call.cpu.segments().es.base, call.cpu.di(), 64);
+    let bytes = encode_state(memory, io);
+    let addresses = buffer_addresses(destination.segment_base(), destination.offset, 64);
     for (address, byte) in addresses.zip(bytes) {
-        call.memory
-            .write_u8(address, byte)
-            .expect("video state buffer");
+        memory.write_u8(address, byte).expect("video state buffer");
     }
-    call.cpu.set_al(0x1b);
+    true
 }
 
 fn encode_state(memory: &MemoryView<'_>, io: &IoBus) -> [u8; 64] {
