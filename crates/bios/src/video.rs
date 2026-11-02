@@ -14,7 +14,7 @@ pub(super) use fonts::Glyph;
 pub(super) use modes::{set_mode, text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
 
 use crate::screen::{self, ScrollDirection, Window};
-use relocade_machine::{real_mode_interrupt, IoBus, MemoryView};
+use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::registers::{
     sequencer, COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT,
     MONO_CRTC_INDEX_PORT, MONO_INPUT_STATUS_1_PORT, SEQUENCER_INDEX_PORT,
@@ -43,7 +43,11 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");
 }
 
-pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(call),
+    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+)]
+pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
     let cpu = call.cpu;
     let function = cpu.ah();
     let al = cpu.al();
@@ -53,9 +57,7 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
     let dx = cpu.dx();
     match function {
         0x00 => {
-            let Some(result) = set_mode(&mut call.memory, call.io, al) else {
-                return unsupported(call);
-            };
+            let result = set_mode(&mut call.memory, call.io, al)?;
             call.cpu.set_al(result);
         }
         0x0f => {
@@ -69,18 +71,16 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
             call.cpu.set_bh(active);
         }
         0x0c | 0x0d => {
-            let Some(pixel) = graphics::Pixel::locate(&call.memory, page, cx, dx) else {
-                return unsupported(call);
-            };
+            let pixel = graphics::Pixel::locate(&call.memory, page, cx, dx)?;
             if function == 0x0c {
                 pixel.write(&mut call.memory, call.io, al);
             } else {
                 call.cpu.set_al(pixel.read(&call.memory, call.io));
             }
         }
-        0x0b => palette::compatibility(call),
-        0x10 => palette::interrupt(call),
-        0x11 => fonts::interrupt(call),
+        0x0b => palette::compatibility(call)?,
+        0x10 => palette::interrupt(call)?,
+        0x11 => fonts::interrupt(call)?,
         0x12 if attribute == 0x10 => adapter::configuration(call),
         0x12 if matches!(attribute, 0x31 | 0x33) => palette::configure_load(call),
         0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
@@ -105,11 +105,11 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
             // IBM acknowledges this service even when AL is not a valid selection.
             call.cpu.set_al(0x12);
         }
-        0x13 => strings::interrupt(call),
-        0x1a => adapter::display_combination(call),
+        0x13 => strings::interrupt(call)?,
+        0x1a => adapter::display_combination(call)?,
         0x1b => information::interrupt(call),
         0x1c => state::interrupt(call),
-        0x02 | 0x03 if !screen::valid_page(&call.memory, page) => unsupported(call),
+        0x02 | 0x03 if !screen::valid_page(&call.memory, page) => return None,
         0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
         0x03 => {
             let position = screen::cursor_position(&call.memory, page);
@@ -155,21 +155,18 @@ pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>) {
             call.cpu.set_ax(u16::from_le_bytes(cell));
         }
         0x09 | 0x0a => {
-            let Some(mut output) = screen::Output::new(&mut call.memory, call.io, page) else {
-                return unsupported(call);
-            };
+            let mut output = screen::Output::new(&mut call.memory, call.io, page)?;
             output.write_repeated(al, attribute, cx, function == 0x09);
         }
         0x0e => {
             let page = screen::active_page(&call.memory);
-            let Some(mut output) = screen::Output::new(&mut call.memory, call.io, page) else {
-                return unsupported(call);
-            };
+            let mut output = screen::Output::new(&mut call.memory, call.io, page)?;
             output.teletype(al, attribute);
             output.commit_cursor();
         }
-        _ => unsupported(call),
+        _ => return None,
     }
+    Some(())
 }
 
 fn write_indexed(io: &IoBus, port: u16, register: u8, value: u8) {
@@ -208,9 +205,4 @@ fn input_status_1_port(io: &IoBus) -> u16 {
     } else {
         MONO_INPUT_STATUS_1_PORT
     }
-}
-
-fn unsupported(call: &mut crate::BiosContext<'_>) {
-    call.cpu.set_ah(0x86);
-    real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
 }

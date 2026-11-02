@@ -2,7 +2,7 @@
 
 mod input;
 
-use relocade_machine::real_mode_interrupt;
+use relocade_machine::real_mode_interrupt::{interrupt, interrupt_dispatch};
 use std::{
     cell::RefCell,
     collections::VecDeque,
@@ -19,12 +19,6 @@ use std::{
 pub struct KeyStroke {
     pub character: u8,
     pub scan_code: u8,
-}
-
-impl KeyStroke {
-    fn word(self) -> u16 {
-        u16::from_le_bytes([self.character, self.scan_code])
-    }
 }
 
 /// Modifier and toggle states reported by INT 16h/AH=02h.
@@ -100,6 +94,12 @@ impl Keyboard {
         }
     }
 
+    /// Returns the modifier and toggle states, as for INT 16h/AH=02h.
+    #[interrupt(returns { shifts => { al = shifts.bits() } })]
+    pub fn shift_state(&self) -> ShiftState {
+        self.0.borrow().shifts
+    }
+
     pub fn set_shift_state(&self, shifts: ShiftState) {
         self.0.borrow_mut().shifts = shifts;
     }
@@ -110,6 +110,10 @@ impl Keyboard {
     }
 
     /// Reports the next whole keystroke without consuming it, as for INT 16h/AH=01h.
+    #[interrupt(returns {
+        Some(key) => { al = key.character, ah = key.scan_code, zf = false },
+        None => { zf = true },
+    })]
     pub fn peek_key(&self) -> Option<KeyStroke> {
         self.0.borrow().keys.front().copied()
     }
@@ -120,6 +124,7 @@ impl Keyboard {
     }
 
     /// Waits for and consumes one whole keystroke, as for INT 16h/AH=00h.
+    #[interrupt(returns { key => { al = key.character, ah = key.scan_code } })]
     pub async fn read_key(&self) -> KeyStroke {
         loop {
             if let Some(key) = self.try_read_key() {
@@ -131,6 +136,15 @@ impl Keyboard {
 
     fn wait_for_key(&self) -> WaitForKey<'_> {
         WaitForKey { keyboard: self }
+    }
+}
+
+interrupt_dispatch! {
+    pub(crate) dispatch(ah, keyboard: &Keyboard) {
+        0x00: keyboard.read_key,
+        0x01: keyboard.peek_key,
+        0x02: keyboard.shift_state,
+        _: crate::interrupt::unsupported,
     }
 }
 
@@ -171,26 +185,5 @@ impl Future for WaitForKey<'_> {
 impl Drop for WaitForKey<'_> {
     fn drop(&mut self) {
         self.keyboard.0.borrow_mut().waker = None;
-    }
-}
-
-pub(super) async fn interrupt(call: &mut crate::BiosContext<'_>, keyboard: &Keyboard) {
-    match call.cpu.ah() {
-        0x00 => {
-            let key = keyboard.read_key().await;
-            call.cpu.set_ax(key.word());
-        }
-        0x01 => {
-            let key = keyboard.peek_key();
-            if let Some(key) = key {
-                call.cpu.set_ax(key.word());
-            }
-            real_mode_interrupt::set_zero(call.cpu, &mut call.memory, key.is_none());
-        }
-        0x02 => call.cpu.set_al(keyboard.0.borrow().shifts.bits()),
-        _ => {
-            call.cpu.set_ah(0x86);
-            real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
-        }
     }
 }

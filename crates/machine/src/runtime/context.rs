@@ -1,11 +1,12 @@
-//! Convenience access for the embedding while the runner is stopped.
+//! Borrowed resource access while guest instructions are not executing.
 
 use crate::{CpuStateAccess, IoBus, MemoryView};
 
-/// Borrowed convenience access to a stopped runner's resources.
+/// Resource access for embeddings and host services.
 /// The fields borrow separate handles and apply writes immediately. A context
-/// excludes another mutable borrow of the runner; retain `cpu_state()`, `memory()`
-/// and I/O handles instead when registering asynchronous services.
+/// obtained from a runner excludes another mutable borrow of that runner.
+/// Asynchronous services construct their context from retained `cpu_state()`,
+/// `memory()` and I/O handles instead.
 ///
 /// A live view excludes another run:
 /// ```compile_fail

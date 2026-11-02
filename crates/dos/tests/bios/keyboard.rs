@@ -43,6 +43,7 @@ fn bios_peeks_reads_and_reports_shift_state_without_echo() {
         let keyboard = dos.keyboard();
         let cpu = invoke(&mut dos, 0x100, 0x017b);
         assert_eq!(cpu.flags.eflags(), 0x643);
+        assert_eq!(cpu.registers.eax as u16, 0x017b); // Empty peek preserves AX.
         let key = KeyStroke {
             character: b'A',
             scan_code: 0x1e,

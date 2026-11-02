@@ -17,15 +17,45 @@ fn text_uses_layout_and_scan_codes_use_physical_keys() {
     let keyboard = Keyboard::default();
     let mut translation = Translation::default();
     translation.apply(&keyboard, press(KeyCode::KeyQ, Some("A")));
-    assert_eq!(keyboard.try_read_key().unwrap().word(), 0x1041);
+    assert_eq!(
+        keyboard.try_read_key(),
+        Some(KeyStroke {
+            character: b'A',
+            scan_code: 0x10
+        })
+    );
     translation.apply(&keyboard, press(KeyCode::ArrowUp, None));
-    assert_eq!(keyboard.try_read_key().unwrap().word(), 0x4800);
+    assert_eq!(
+        keyboard.try_read_key(),
+        Some(KeyStroke {
+            character: 0,
+            scan_code: 0x48
+        })
+    );
     translation.apply(&keyboard, press(KeyCode::Numpad8, None));
-    assert_eq!(keyboard.try_read_key().unwrap().word(), 0x4800);
+    assert_eq!(
+        keyboard.try_read_key(),
+        Some(KeyStroke {
+            character: 0,
+            scan_code: 0x48
+        })
+    );
     translation.apply(&keyboard, press(KeyCode::Numpad8, Some("8")));
-    assert_eq!(keyboard.try_read_key().unwrap().word(), 0x4838);
+    assert_eq!(
+        keyboard.try_read_key(),
+        Some(KeyStroke {
+            character: b'8',
+            scan_code: 0x48
+        })
+    );
     translation.apply(&keyboard, press(KeyCode::Enter, None));
-    assert_eq!(keyboard.try_read_key().unwrap().word(), 0x1c0d);
+    assert_eq!(
+        keyboard.try_read_key(),
+        Some(KeyStroke {
+            character: b'\r',
+            scan_code: 0x1c
+        })
+    );
     translation.apply(&keyboard, press(KeyCode::KeyE, Some("é")));
     translation.apply(&keyboard, press(KeyCode::MediaPlayPause, None));
     assert!(
@@ -40,9 +70,21 @@ fn modifiers_releases_and_focus_do_not_enqueue_characters() {
     let mut translation = Translation::default();
     translation.apply(&keyboard, KeyboardEvent::Modifiers(ModifiersState::CONTROL));
     translation.apply(&keyboard, press(KeyCode::KeyC, Some("c")));
-    assert_eq!(keyboard.try_read_key().unwrap().word(), 0x2e03);
+    assert_eq!(
+        keyboard.try_read_key(),
+        Some(KeyStroke {
+            character: 3,
+            scan_code: 0x2e
+        })
+    );
     translation.apply(&keyboard, press(KeyCode::KeyQ, Some("A")));
-    assert_eq!(keyboard.try_read_key().unwrap().word(), 0x1001);
+    assert_eq!(
+        keyboard.try_read_key(),
+        Some(KeyStroke {
+            character: 1,
+            scan_code: 0x10
+        })
+    );
     translation.apply(&keyboard, press(KeyCode::CapsLock, None));
     translation.apply(
         &keyboard,

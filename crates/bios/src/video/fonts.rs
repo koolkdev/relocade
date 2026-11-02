@@ -5,7 +5,7 @@ mod layout;
 mod rom;
 mod upload;
 
-use super::{buffer_addresses, unsupported, write_indexed, CHARACTER_HEIGHT, LAST_ROW};
+use super::{buffer_addresses, write_indexed, CHARACTER_HEIGHT, LAST_ROW};
 use crate::screen;
 pub(crate) use glyph::Glyph;
 use relocade_machine::{IoBus, MemoryView};
@@ -13,7 +13,7 @@ use relocade_vga::registers::{sequencer, SEQUENCER_INDEX_PORT};
 use relocade_x86::{Segment, SegmentRegister};
 pub(super) use rom::initialize;
 
-pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
+pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
     let function = call.cpu.al();
     match function {
         0x20..=0x24 => return graphics::select(call),
@@ -21,7 +21,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
         _ => {}
     }
     if !screen::is_text_mode(&call.memory) {
-        return unsupported(call);
+        return None;
     }
     if function == 0x03 {
         write_indexed(
@@ -30,14 +30,14 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
             sequencer::CHARACTER_MAP_SELECT,
             call.cpu.bl(),
         );
-        return;
+        return Some(());
     }
     let builtin = match function {
         0x00 | 0x10 => None,
         0x01 | 0x11 => Some(rom::for_height(14)),
         0x02 | 0x12 => Some(rom::for_height(8)),
         0x04 | 0x14 => Some(rom::for_height(16)),
-        _ => return unsupported(call),
+        _ => return None,
     };
     let height = builtin.map_or(call.cpu.bh(), |font| font.height);
     let bank = call.cpu.bl();
@@ -47,13 +47,10 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
         (call.cpu.dx(), call.cpu.cx())
     };
     if !(1..=32).contains(&height) || bank >= 8 || u32::from(first) + u32::from(count) > 256 {
-        return unsupported(call);
+        return None;
     }
     let layout = if function & 0x10 != 0 {
-        let Some(layout) = layout::Layout::for_font(&call.memory, call.io, height) else {
-            return unsupported(call);
-        };
-        Some(layout)
+        Some(layout::Layout::for_font(&call.memory, call.io, height)?)
     } else {
         None
     };
@@ -83,12 +80,11 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
     if let Some(layout) = layout {
         layout.apply(&mut call.memory, call.io);
     }
+    Some(())
 }
 
-fn information(call: &mut crate::BiosContext<'_>) {
-    let Some(pointer) = rom::query(&call.memory, call.cpu.bh()) else {
-        return unsupported(call);
-    };
+fn information(call: &mut crate::BiosContext<'_>) -> Option<()> {
+    let pointer = rom::query(&call.memory, call.cpu.bh())?;
     let height = call.memory.read_u16(CHARACTER_HEIGHT).expect("font height");
     let last_row = call.memory.read_u8(LAST_ROW).expect("video rows");
     call.cpu.set_segment(
@@ -99,6 +95,7 @@ fn information(call: &mut crate::BiosContext<'_>) {
     // CX describes the current display even when BH asks for another ROM font.
     call.cpu.set_cx(height);
     call.cpu.set_dl(last_row);
+    Some(())
 }
 
 pub(super) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, height: u8, text: bool) {

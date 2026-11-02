@@ -2,7 +2,7 @@
 mod compatibility;
 pub(super) mod dac;
 mod load;
-use super::{buffer_addresses, input_status_1_port, modes, unsupported, MODE};
+use super::{buffer_addresses, input_status_1_port, modes, MODE};
 pub(super) use compatibility::{
     initialize as initialize_compatibility, interrupt as compatibility,
 };
@@ -13,7 +13,7 @@ use relocade_vga::registers::{
     DAC_READ_ADDRESS_PORT,
 };
 
-pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
+pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
     let function = call.cpu.al();
     let bl = call.cpu.bl();
     let bh = call.cpu.bh();
@@ -96,7 +96,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
         0x17 => {} // Zero-length transfers do not disturb DAC access state.
         0x13 => {
             if call.memory.read_u8(MODE).expect("video mode") == modes::GRAPHICS_320X200_256 {
-                return unsupported(call);
+                return None;
             }
             match bl {
                 0 if bh <= 1 => {
@@ -112,7 +112,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
                     };
                     write_attribute(io, attribute::COLOR_SELECT, page);
                 }
-                _ => unsupported(call),
+                _ => return None,
             }
         }
         0x18 => io.write_port(DAC_MASK_PORT, 1, u32::from(bl)),
@@ -124,8 +124,9 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
             call.cpu.set_bh(if mode == 0 { page >> 2 } else { page });
         }
         0x1b => dac::grayscale_range(io, bl, call.cpu.cx()),
-        _ => unsupported(call),
+        _ => return None,
     }
+    Some(())
 }
 
 fn select_attribute(io: &IoBus, address: u8) {
