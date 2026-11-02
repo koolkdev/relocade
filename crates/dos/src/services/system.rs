@@ -1,47 +1,41 @@
 //! DOS version and interrupt-vector services used during program startup.
 
-use relocade_machine::real_mode_interrupt::interrupt;
+use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 
-use relocade_machine::CpuContext;
-
-use relocade_x86::{Segment, SegmentRegister};
-
-/// AH=30h: report DOS 5.00, with no serial number or special version flags.
-#[interrupt(context(call))]
-pub(super) fn version(call: &mut CpuContext<'_>) {
-    let cpu = call.cpu;
-    let version_flags = cpu.al() == 1;
-    cpu.set_ax(5); // AL is the major version, AH the minor version.
-    cpu.set_bx(if version_flags { 0 } else { 0xff00 }); // FFh is the Microsoft OEM ID.
-    cpu.set_cx(0);
+pub(super) struct Version {
+    major: u8,
+    minor: u8,
+    vendor_or_flags: u16,
+    serial: u16,
 }
 
-/// AH=25h: set AL's interrupt vector to DS:DX.
-#[interrupt(context(call))]
-pub(super) fn set_vector(call: &mut CpuContext<'_>) {
-    let cpu = call.cpu;
-    let address = u32::from(cpu.al()) * 4;
-    let [offset_lo, offset_hi] = cpu.dx().to_le_bytes();
-    let [segment_lo, segment_hi] = cpu.segment(Segment::Ds).selector.to_le_bytes();
-    call.memory
-        .write(address, &[offset_lo, offset_hi, segment_lo, segment_hi])
+/// DOS 5.00, with no serial number or special version flags.
+#[interrupt(args(request = al), returns {
+    version => { al = version.major, ah = version.minor, bx = version.vendor_or_flags, cx = version.serial },
+})]
+pub(super) fn version(request: u8) -> Version {
+    Version {
+        major: 5,
+        minor: 0,
+        vendor_or_flags: if request == 1 { 0 } else { 0xff00 },
+        serial: 0,
+    }
+}
+
+#[interrupt(context(memory), args(vector = al, destination = ptr(ds, dx)))]
+pub(super) fn set_vector(memory: &mut MemoryView<'_>, vector: u8, destination: FarPointer) {
+    memory
+        .write_u32(u32::from(vector) * 4, destination.packed())
         .expect("interrupt vector table");
 }
 
-/// AH=35h: return AL's current interrupt vector in ES:BX.
-#[interrupt(context(call))]
-pub(super) fn get_vector(call: &mut CpuContext<'_>) {
-    let address = u32::from(call.cpu.al()) * 4;
-    let mut vector = [0; 4];
-    call.memory
-        .read(address, &mut vector)
-        .expect("interrupt vector table");
-    let offset = u16::from_le_bytes([vector[0], vector[1]]);
-    let segment = u16::from_le_bytes([vector[2], vector[3]]);
-    let cpu = call.cpu;
-    cpu.set_bx(offset);
-    cpu.set_segment(
-        Segment::Es,
-        SegmentRegister::real_mode(Segment::Es, segment),
-    );
+#[interrupt(context(memory), args(vector = al), returns {
+    destination => { ptr(es, bx) = destination },
+})]
+pub(super) fn get_vector(memory: &MemoryView<'_>, vector: u8) -> FarPointer {
+    FarPointer::from_packed(
+        memory
+            .read_u32(u32::from(vector) * 4)
+            .expect("interrupt vector table"),
+    )
 }

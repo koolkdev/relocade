@@ -41,6 +41,9 @@
 //! CX as its high word. Records map each field to a register or word pair, for
 //! example `args(point = Point { x: cx, y: dx })`. Computation belongs in the
 //! ordinary Rust function, rather than in an argument mapping.
+//! Segment names such as `args(segment = es)` capture the visible u16 selector.
+//! Returning `ds = segment` also loads its real-mode segment cache, just as a
+//! pointer result does. Both forms share segment alias and continuation checks.
 //!
 //! `ptr(es, dx)` captures a [`super::FarPointer`]: the visible segment value and
 //! a 16-bit offset. It also works in record fields. Services access memory through
@@ -118,6 +121,12 @@
 //! ```
 //! ```compile_fail
 //! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
+//! #[interrupt(returns { p => { ptr(es, bp) = p, es = 0u16 } })]
+//! fn overlapping_selector(p: FarPointer) -> FarPointer { p }
+//! # fn main() {}
+//! ```
+//! ```compile_fail
+//! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
 //! #[interrupt(returns { p => { ptr(es, bp) = p, ebp = 0u32 } })]
 //! fn conflicting_offsets(p: FarPointer) -> FarPointer { p }
 //! # fn main() {}
@@ -140,6 +149,12 @@
 //! use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
 //! #[interrupt(returns { p => { ptr(ss, bp) = p } })]
 //! fn overwrite_stack(p: FarPointer) -> FarPointer { p }
+//! # fn main() {}
+//! ```
+//! ```compile_fail
+//! use relocade_machine::real_mode_interrupt::interrupt;
+//! #[interrupt(returns { selector => { cs = selector } })]
+//! fn overwrite_code(selector: u16) -> u16 { selector }
 //! # fn main() {}
 //! ```
 

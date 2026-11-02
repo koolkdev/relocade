@@ -26,6 +26,11 @@ async fn locate_font(
     FarPointer::from_packed(0x4321_0070)
 }
 
+#[interrupt(args(selector = es), returns { selector => { ds = selector } })]
+fn select_data_segment(selector: u16) -> u16 {
+    selector
+}
+
 async fn check_pointer_bindings() {
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
@@ -42,6 +47,11 @@ async fn check_pointer_bindings() {
     let mut call = runtime.context();
     let cpu = call.cpu.clone();
     cpu.set_segment(Segment::Es, SegmentRegister::real_mode(Segment::Es, 0x1234));
+    select_data_segment_entry(&mut call).await;
+    assert_eq!(
+        cpu.segment(Segment::Ds),
+        SegmentRegister::real_mode(Segment::Ds, 0x1234)
+    );
     cpu.set_esi(0x9876_0050);
     cpu.set_ebp(0xabcd_2222);
     call.memory.write(0x12390, &[0xa5, 0x3c]).unwrap();

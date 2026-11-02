@@ -1,6 +1,6 @@
 //! Register syntax. Alias ranges and widths come from the CPU accessors.
 
-use super::pointer::Pointer;
+use super::{pointer::Pointer, segment::Segment};
 use proc_macro2::TokenStream as Tokens;
 use quote::{format_ident, quote};
 use syn::{
@@ -11,6 +11,7 @@ use syn::{
 
 pub(super) enum Register {
     Scalar(Ident),
+    Segment(Segment),
     Pair(Ident, Ident),
     Flag(Ident),
     Pointer(Pointer),
@@ -38,6 +39,10 @@ impl Parse for Register {
             if name == "cf" || name == "zf" {
                 return Ok(Self::Flag(input.parse()?));
             }
+            if let Some(segment) = Segment::from_name(&name) {
+                input.parse::<Ident>()?;
+                return Ok(Self::Segment(segment));
+            }
         }
         Ok(Self::Scalar(general_register(input)?))
     }
@@ -60,6 +65,7 @@ impl Register {
             Self::Scalar(name) => vec![name],
             Self::Pair(high, low) => vec![high, low],
             Self::Flag(_) => vec![],
+            Self::Segment(segment) => return vec![segment.range()],
             Self::Pointer(pointer) => return pointer.ranges(),
         };
         names
@@ -72,6 +78,7 @@ impl Register {
         let ranges = self.ranges();
         let read = match self {
             Self::Scalar(name) => quote!(#cpu.#name()),
+            Self::Segment(segment) => segment.read(cpu),
             Self::Pair(high, low) => quote!({
                 let high: u16 = #cpu.#high();
                 let low: u16 = #cpu.#low();
@@ -115,6 +122,7 @@ impl Register {
                 quote!(::relocade_machine::real_mode_interrupt::#setter(#call.cpu, &mut #call.memory, #value);)
             }
             Self::Pointer(pointer) => return pointer.write(call, value),
+            Self::Segment(segment) => return segment.write(call, value),
         })
     }
 }
