@@ -2,7 +2,7 @@
 
 mod support;
 
-use relocade_machine::{Cpu, DispatchEntry, Error, OwnedBlockSnapshot};
+use relocade_machine::{CodeSnapshot, Cpu, DispatchEntry, Error};
 use relocade_x86::{
     BlockError, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister, Segments,
@@ -38,7 +38,7 @@ async fn check_worker_compilation() {
     drop(original_cpu);
 
     let error = compiler
-        .compile_blocks(vec![OwnedBlockSnapshot {
+        .compile_blocks(vec![CodeSnapshot {
             start_eip: 0x100,
             bytes: vec![0x40],
             instruction_limit: 0,
@@ -56,12 +56,12 @@ async fn check_worker_compilation() {
     let second = [0x43, 0xeb, 0xed]; // INC BX; JMP 0100
     let compiled = compiler
         .compile_blocks(vec![
-            OwnedBlockSnapshot {
+            CodeSnapshot {
                 start_eip: 0x100,
                 bytes: first.to_vec(),
                 instruction_limit: 1,
             },
-            OwnedBlockSnapshot {
+            CodeSnapshot {
                 start_eip: 0x110,
                 bytes: second.to_vec(),
                 instruction_limit: 10,

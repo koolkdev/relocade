@@ -54,7 +54,7 @@ pub mod real_mode_interrupt;
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
 #[cfg(feature = "worker")]
-pub use compiler::{CompiledCode, CompilerWorker, OwnedBlockSnapshot};
+pub use compiler::{CodeSnapshot, CompiledCode, CompilerWorker};
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;

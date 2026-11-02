@@ -60,4 +60,4 @@ pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, DispatchEntry, Error, ExitHandle, Hook, Result,
 };
 #[cfg(feature = "worker")]
-pub use runtime::{CompiledCode, CompilerWorker, OwnedBlockSnapshot};
+pub use runtime::{CodeSnapshot, CompiledCode, CompilerWorker};

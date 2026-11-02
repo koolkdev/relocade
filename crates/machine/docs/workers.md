@@ -8,10 +8,10 @@ generation and Wasm compilation run there. The worker retains no live CPU,
 memory view, backend borrow, or device state.
 
 ```rust,ignore
-use relocade_machine::{DispatchEntry, OwnedBlockSnapshot};
+use relocade_machine::{DispatchEntry, CodeSnapshot};
 
 let compiler = cpu.compiler_worker();
-let compiled = compiler.compile_blocks(vec![OwnedBlockSnapshot {
+let compiled = compiler.compile_blocks(vec![CodeSnapshot {
     start_eip,
     bytes: instruction_bytes,
     instruction_limit: 64,

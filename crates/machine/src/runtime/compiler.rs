@@ -7,7 +7,7 @@ use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionTarget};
 
 /// Owned instruction bytes for one CS-relative entry.
 /// The caller maintains snapshot validity, as with x86's `BlockSnapshot`.
-pub struct OwnedBlockSnapshot {
+pub struct CodeSnapshot {
     pub start_eip: u32,
     pub bytes: Vec<u8>,
     pub instruction_limit: u32,
@@ -42,7 +42,7 @@ impl CompilerWorker {
         }
     }
 
-    pub async fn compile_blocks(&self, snapshots: Vec<OwnedBlockSnapshot>) -> Result<CompiledCode> {
+    pub async fn compile_blocks(&self, snapshots: Vec<CodeSnapshot>) -> Result<CompiledCode> {
         let compiler = self.compiler.clone();
         let target = self.target;
         let (metadata, receive_metadata) = oneshot::channel();
