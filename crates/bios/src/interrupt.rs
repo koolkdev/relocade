@@ -5,6 +5,8 @@ use relocade_machine::{real_mode_interrupt, CpuStateAccess, Hook, MemoryBus};
 
 /// Returns hooks for installation alongside another environment's hooks.
 /// The keyboard is captured by the hooks and may be shared with console input.
+/// INT 10h, 16h and 1Ah enable live IF during service execution. Ready services
+/// finish in one poll; pending services allow the driver to deliver device IRQs.
 pub fn hooks(
     cpu: CpuStateAccess,
     memory: MemoryBus,
@@ -38,12 +40,12 @@ where
     F: AsyncFn(&mut BiosContext<'_>) + 'static,
 {
     real_mode_interrupt::hook(address, cpu.clone(), async move || {
-        handler(&mut BiosContext {
+        let mut call = BiosContext {
             cpu: &cpu,
             memory: memory.view(),
             io: memory.io(),
-        })
-        .await
+        };
+        real_mode_interrupt::with_interrupts_enabled(&cpu, handler(&mut call)).await
     })
 }
 
