@@ -1,6 +1,6 @@
 //! BIOS palette services through the guest-visible VGA ports.
 mod compatibility;
-mod dac;
+pub(super) mod dac;
 mod load;
 use super::{buffer_addresses, input_status_1_port, modes, unsupported, MODE};
 pub(super) use compatibility::{
@@ -141,7 +141,7 @@ pub(super) fn read_attribute(io: &IoBus, index: u8) -> u8 {
     value
 }
 
-fn write_attribute(io: &IoBus, index: u8, value: u8) {
+pub(super) fn write_attribute(io: &IoBus, index: u8, value: u8) {
     let saved_address = io.read_port(ATTRIBUTE_ADDRESS_PORT, 1) as u8;
     // Selecting a palette index clears PAS so Type-1 VGA accepts the write.
     select_attribute(io, index);

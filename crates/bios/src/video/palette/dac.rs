@@ -7,7 +7,7 @@ pub(super) fn read(io: &IoBus, index: u8) -> [u8; 3] {
     std::array::from_fn(|_| io.read_port(DAC_DATA_PORT, 1) as u8)
 }
 
-pub(super) fn write(io: &IoBus, index: u8, colors: impl IntoIterator<Item = [u8; 3]>) {
+pub(in crate::video) fn write(io: &IoBus, index: u8, colors: impl IntoIterator<Item = [u8; 3]>) {
     let mut colors = colors.into_iter().peekable();
     if colors.peek().is_none() {
         return;

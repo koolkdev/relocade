@@ -385,17 +385,19 @@ The report points to a guest-readable ROM capability table advertising only
 implemented modes and services. It reports two simultaneously visible font
 banks and eight total banks. Miscellaneous capability bits cover font loading,
 EGA/DAC palettes, grayscale summing, default palette loading, cursor emulation,
-palette paging, blink and display combination; unsupported light-pen, save/restore,
+palette paging, blink, display combination and save/restore; unsupported light-pen
 and save-pointer override services are not advertised. Reserved state fields
 remain zero. The BIOS information module owns this ABI encoding and reuses
 adapter metadata and page validation; it adds no device or renderer state.
 
-AH=1Ch saves selected video-state components to ES:BX. CX bits 0, 1 and 2 select
-hardware registers/latches, BIOS data, and DAC colors respectively; higher bits
-are ignored. AL=0 returns the required number of 64-byte blocks in BX, and AL=1
-saves the components. Valid nonempty requests return AL=1Ch, while an empty mask
-or unsupported operation returns AL=0 without side effects. Other registers and
-flags are preserved. Restoration (AL=2) is not implemented yet.
+AH=1Ch saves and restores selected video-state components through ES:BX.
+CX bits 0, 1 and 2 select hardware registers/latches, BIOS data, and DAC colors
+respectively; higher bits are ignored. AL=0 returns the required number of
+64-byte blocks in BX, AL=1 saves the components, and AL=2 restores them. Valid
+nonempty requests return AL=1Ch, while an empty mask or unsupported operation
+returns AL=0 without side effects. Other registers and flags are preserved.
+A restore reads the selected components through the saved header pointers, so
+a subset can be restored from a larger save.
 
 The buffer follows the [IBM ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
 (xCB9–x1200) and [RBIL's corrected DAC layout](https://fd.lod.bz/rbil/interrup/video/101c.html):
@@ -405,11 +407,15 @@ written; offset arithmetic wraps at ES:FFFF. Color Select is the last DAC byte,
 not an overlapping palette entry as in the early IBM ROM. BIOS data includes
 the save pointer at 4A8h and vectors 05h, 1Dh, 1Fh and 43h.
 
-This BIOS buffer does not include VRAM or fonts. Saving hardware uses AFFFFh as
-latch scratch space, overwriting the last byte of each physical plane as described
-in IBM VGA Function p. 2-98. The ABI has no attribute flip-flop or DAC RGB-component
-field; DAC transfers resume at red. These guest-facing operations use ports and
-memory accesses; renderer captures retain their existing immutable state.
+This BIOS buffer does not include VRAM or fonts. Saving or restoring hardware
+uses AFFFFh as latch scratch space, overwriting the last byte of each physical
+plane as described in IBM VGA Function p. 2-98. The ABI has no attribute flip-flop
+or DAC RGB-component field; DAC transfers resume at red. These operations use
+ports and memory accesses; renderer captures retain their existing immutable state.
+Hardware restore unlocks protected CRTC timing, programs registers through their
+normal ports, and restores register indices and display enable. Display-start changes
+still latch at vertical retrace. BIOS-only restore changes metadata and vectors
+without setting a mode; DAC restore bypasses grayscale and default-palette policy.
 
 At the start of vertical retrace the device latches the programmed display start,
 then captures a complete `DisplaySnapshot` for the following active display:

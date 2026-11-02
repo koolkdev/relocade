@@ -1,3 +1,5 @@
+#[path = "state/restore.rs"]
+mod restore;
 #[path = "state/save.rs"]
 mod save;
 

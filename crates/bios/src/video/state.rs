@@ -27,6 +27,7 @@ pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
             call.cpu.set_bx(size.div_ceil(64));
         }
         1 if components != 0 => save(call, components),
+        2 if components != 0 => restore(call, components),
         _ => {
             call.cpu.set_al(0);
             return;
@@ -67,4 +68,38 @@ fn write_buffer(memory: &mut MemoryView<'_>, base: u32, offset: u16, bytes: &[u8
     for (address, &byte) in buffer_addresses(base, offset, bytes.len() as u32).zip(bytes) {
         memory.write_u8(address, byte).expect("video state buffer");
     }
+}
+
+fn restore(call: &mut crate::BiosContext<'_>, components: u16) {
+    let base = call.cpu.segments().es.base;
+    let header = call.cpu.bx();
+    // Read every selected block before restoring BIOS data or remapping VRAM.
+    // A subset restore follows the saved pointers, not a newly packed layout.
+    let hardware = (components & 1 != 0).then(|| read_component(&call.memory, base, header));
+    let firmware =
+        (components & 2 != 0).then(|| read_component(&call.memory, base, header.wrapping_add(2)));
+    let dac =
+        (components & 4 != 0).then(|| read_component(&call.memory, base, header.wrapping_add(4)));
+    if let Some(bytes) = hardware {
+        hardware::restore(&mut call.memory, call.io, &bytes);
+    }
+    if let Some(bytes) = firmware {
+        firmware::restore(&mut call.memory, &bytes);
+    }
+    if let Some(bytes) = dac {
+        dac::restore(call.io, &bytes);
+    }
+}
+
+fn read_component<const N: usize>(memory: &MemoryView<'_>, base: u32, pointer: u16) -> [u8; N] {
+    let offset = u16::from_le_bytes(read_buffer(memory, base, pointer));
+    read_buffer(memory, base, offset)
+}
+
+fn read_buffer<const N: usize>(memory: &MemoryView<'_>, base: u32, offset: u16) -> [u8; N] {
+    let mut bytes = [0; N];
+    for (address, byte) in buffer_addresses(base, offset, N as u32).zip(&mut bytes) {
+        *byte = memory.read_u8(address).expect("video state buffer");
+    }
+    bytes
 }

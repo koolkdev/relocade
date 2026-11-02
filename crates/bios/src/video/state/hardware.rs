@@ -1,9 +1,9 @@
 //! Hardware register block and the four CPU memory-read latches.
-use super::super::{crtc_port, palette, read_indexed, write_indexed};
+use super::super::{crtc_port, input_status_1_port, palette, read_indexed, write_indexed};
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::registers::{
-    graphics, sequencer, ATTRIBUTE_ADDRESS_PORT, FEATURE_CONTROL_READ_PORT, GRAPHICS_INDEX_PORT,
-    MISC_OUTPUT_READ_PORT, MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
+    crtc, graphics, sequencer, ATTRIBUTE_ADDRESS_PORT, FEATURE_CONTROL_READ_PORT,
+    GRAPHICS_INDEX_PORT, MISC_OUTPUT_READ_PORT, MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
 };
 
 pub(super) const SIZE: usize = 0x46;
@@ -85,4 +85,64 @@ fn select_latch_memory(io: &IoBus) {
     io.write_port(MISC_OUTPUT_WRITE_PORT, 1, miscellaneous | 2);
     write_indexed(io, SEQUENCER_INDEX_PORT, sequencer::MEMORY_MODE, 6);
     write_indexed(io, GRAPHICS_INDEX_PORT, graphics::MISCELLANEOUS, 4);
+}
+
+pub(super) fn restore(memory: &mut MemoryView<'_>, io: &IoBus, bytes: &[u8; SIZE]) {
+    select_latch_memory(io);
+    for (register, value) in [
+        (graphics::ENABLE_SET_RESET, 0),
+        (graphics::DATA_ROTATE, 0),
+        (graphics::MODE, 0),
+        (graphics::BIT_MASK, 0xff),
+    ] {
+        write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
+    }
+    for (plane, &byte) in bytes[0x42..].iter().enumerate() {
+        write_indexed(io, SEQUENCER_INDEX_PORT, sequencer::MAP_MASK, 1 << plane);
+        memory
+            .write_u8(LATCH_SCRATCH, byte)
+            .expect("VGA latch scratch");
+    }
+    memory.read_u8(LATCH_SCRATCH).expect("VGA latch scratch");
+
+    write_indexed(
+        io,
+        SEQUENCER_INDEX_PORT,
+        sequencer::RESET,
+        sequencer::SYNCHRONOUS_RESET,
+    );
+    for (index, &byte) in bytes[5..9].iter().enumerate() {
+        write_indexed(io, SEQUENCER_INDEX_PORT, index as u8 + 1, byte);
+    }
+    io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(bytes[9]));
+    write_indexed(
+        io,
+        SEQUENCER_INDEX_PORT,
+        sequencer::RESET,
+        sequencer::RESET_RELEASED,
+    );
+
+    let crtc = u16::from_le_bytes([bytes[0x40], bytes[0x41]]);
+    // Unlock 00h–07h before loading timing; the loop then restores protection.
+    write_indexed(
+        io,
+        crtc,
+        crtc::VERTICAL_RETRACE_END,
+        bytes[0x1b] & !crtc::PROTECT_TIMING_REGISTERS,
+    );
+    for (index, &byte) in bytes[0x0a..0x23].iter().enumerate() {
+        write_indexed(io, crtc, index as u8, byte);
+    }
+    for (index, &byte) in bytes[0x23..0x37].iter().enumerate() {
+        palette::write_attribute(io, index as u8, byte);
+    }
+    for (index, &byte) in bytes[0x37..0x40].iter().enumerate() {
+        write_indexed(io, GRAPHICS_INDEX_PORT, index as u8, byte);
+    }
+    io.write_port(input_status_1_port(io), 1, u32::from(bytes[4]));
+    io.write_port(SEQUENCER_INDEX_PORT, 1, u32::from(bytes[0]));
+    io.write_port(crtc, 1, u32::from(bytes[1]));
+    io.write_port(GRAPHICS_INDEX_PORT, 1, u32::from(bytes[2]));
+    io.read_port(input_status_1_port(io), 1);
+    io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(bytes[3]));
 }
