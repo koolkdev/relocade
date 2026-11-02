@@ -1,4 +1,4 @@
-#[path = "runtime_interrupts/irq.rs"]
+#[path = "support/interrupts.rs"]
 mod irq;
 mod support;
 
@@ -147,6 +147,8 @@ async fn check_pending_call() {
             let irq = irq.clone();
             let state = runner.cpu_state();
             async move || {
+                let saved_if = state.interrupts_enabled();
+                state.set_interrupts_enabled(false);
                 irq.borrow_mut().raise();
                 poll_fn(|_| {
                     if ready.get() {
@@ -157,6 +159,7 @@ async fn check_pending_call() {
                 })
                 .await;
                 state.set_eip(0x400);
+                state.set_interrupts_enabled(saved_if);
             }
         })])
         .await
@@ -170,7 +173,7 @@ async fn check_pending_call() {
         assert_eq!(
             irq.borrow().acknowledged,
             0,
-            "pending calls keep the guest parked"
+            "live IF masks IRQs while the call is pending"
         );
     }
     ready.set(true);
@@ -208,7 +211,7 @@ test_backends!(
     check_live_if
 );
 test_backends!(
-    pending_calls_delay_irqs_until_completion,
+    if_masked_pending_calls_deliver_irqs_after_completion,
     check_pending_call
 );
 

@@ -74,8 +74,9 @@ let hook = real_mode_interrupt::hook(entry, cpu.clone(), async move || {
 The service retains no backend borrow. A pending future may borrow its captured
 handles and keep ordinary references to local values across awaits. The driver
 retains the handler until after the future is destroyed. `cpu.context()` remains
-available when no service is suspended; independent state and memory handles
-also work while one waits and after runner destruction.
+available at stopped guest boundaries, including when outer calls are parked
+during an ISR, but not while a host call is actively pending. Independent state
+and memory handles also work while a call waits and after runner destruction.
 
 Pass `memory.backing().clone()` directly as a worker task's context.
 The worker transport moves native handles and preserves browser shared-memory
