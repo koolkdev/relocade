@@ -10,7 +10,7 @@ use crate::{
     stdio::Stdio,
     ServiceError,
 };
-use relocade_machine::MemoryView;
+use relocade_machine::{FarPointer, MemoryView};
 use std::cell::{RefCell, RefMut};
 
 /// The lifecycle of one successfully launched DOS process.
@@ -39,18 +39,7 @@ enum State {
 
 struct Resources {
     files: Files,
-    dta: DiskTransferAddress,
-}
-
-pub(crate) struct DiskTransferAddress {
-    pub(crate) segment: u16,
-    pub(crate) offset: u16,
-}
-
-impl DiskTransferAddress {
-    pub(crate) fn address(&self) -> u32 {
-        u32::from(self.segment) * 16 + u32::from(self.offset)
-    }
+    dta: FarPointer,
 }
 
 impl Process {
@@ -59,7 +48,7 @@ impl Process {
             psp_segment,
             state: RefCell::new(State::Active(Resources {
                 files: Files::new(devices, stdio),
-                dta: DiskTransferAddress {
+                dta: FarPointer {
                     segment: psp_segment,
                     offset: COMMAND_TAIL_OFFSET,
                 },
@@ -91,7 +80,7 @@ impl Process {
         RefMut::map(self.resources(), |resources| &mut resources.files)
     }
 
-    pub(crate) fn dta(&self) -> RefMut<'_, DiskTransferAddress> {
+    pub(crate) fn dta(&self) -> RefMut<'_, FarPointer> {
         RefMut::map(self.resources(), |resources| &mut resources.dta)
     }
 
