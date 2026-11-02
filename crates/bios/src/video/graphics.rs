@@ -2,8 +2,7 @@
 mod access;
 mod glyph;
 mod layout;
-mod pixel;
-pub(super) use pixel::Pixel;
+pub(super) mod pixel;
 
 use crate::screen::Scroll;
 use access::GraphicsAccess;

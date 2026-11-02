@@ -1,23 +1,41 @@
-//! INT 10h services. BIOS bookkeeping never selects rendering.
+//! BIOS video services callable from Rust and through INT 10h.
+//!
+//! Direct calls take memory, I/O and ordinary values; they never access CPU
+//! registers. Invalid mode/page requests return None. The interrupt adapter maps
+//! that outcome to AH=86h/CF and writes declared successful results.
+//! BIOS bookkeeping never selects host rendering.
 
 mod adapter;
+mod characters;
+mod cursor;
 mod fonts;
 pub(super) mod graphics;
 mod information;
+mod interrupt;
 mod modes;
 mod palette;
 mod presets;
+mod scroll;
 mod state;
 mod strings;
 
+pub use characters::{
+    read_character, teletype, write_characters, write_characters_preserving_attributes,
+    write_characters_with_attribute, CharacterRun, TextCell,
+};
+pub use cursor::{cursor, select_page, set_cursor, set_cursor_shape, CursorState};
 pub(super) use fonts::Glyph;
-pub(super) use modes::{set_mode, text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
+pub use graphics::pixel::{read_pixel, write_pixel};
+pub(crate) use interrupt::dispatch_entry;
+pub use modes::{mode, set_mode, set_screen_output, ModeInfo};
+pub(super) use modes::{text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
+pub use scroll::{scroll, scroll_down, scroll_up};
 
-use crate::screen::{self, ScrollDirection, Window};
+pub use crate::screen::{ScrollDirection, Window};
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::registers::{
-    sequencer, COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT,
-    MONO_CRTC_INDEX_PORT, MONO_INPUT_STATUS_1_PORT, SEQUENCER_INDEX_PORT,
+    COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT, MONO_CRTC_INDEX_PORT,
+    MONO_INPUT_STATUS_1_PORT,
 };
 
 // Firmware video data in segment 0040h.
@@ -39,134 +57,12 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     adapter::initialize(memory);
     fonts::initialize(memory);
     information::initialize(memory);
-    modes::select_scanlines(memory, 0); // Preserve the existing doubled 8-high startup.
+    // Preserve the existing doubled 8-high startup.
+    assert!(
+        modes::select_scanlines(memory, 0),
+        "initial scanline profile"
+    );
     set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");
-}
-
-#[relocade_machine::real_mode_interrupt::interrupt(
-    context(call),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
-)]
-pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
-    let cpu = call.cpu;
-    let function = cpu.ah();
-    let al = cpu.al();
-    let page = cpu.bh();
-    let attribute = cpu.bl();
-    let cx = cpu.cx();
-    let dx = cpu.dx();
-    match function {
-        0x00 => {
-            let result = set_mode(&mut call.memory, call.io, al)?;
-            call.cpu.set_al(result);
-        }
-        0x0f => {
-            let memory = &call.memory;
-            let mode = memory.read_u8(MODE).expect("video mode");
-            let preserved = memory.read_u8(VIDEO_CONTROL).expect("video control") & 0x80;
-            let columns = memory.read_u16(COLUMNS).expect("video columns") as u8;
-            let active = screen::active_page(memory);
-            call.cpu
-                .set_ax(u16::from_le_bytes([mode | preserved, columns]));
-            call.cpu.set_bh(active);
-        }
-        0x0c | 0x0d => {
-            let pixel = graphics::Pixel::locate(&call.memory, page, cx, dx)?;
-            if function == 0x0c {
-                pixel.write(&mut call.memory, call.io, al);
-            } else {
-                call.cpu.set_al(pixel.read(&call.memory, call.io));
-            }
-        }
-        0x0b => palette::compatibility(call)?,
-        0x10 => palette::interrupt(call)?,
-        0x11 => fonts::interrupt(call)?,
-        0x12 if attribute == 0x10 => adapter::configuration(call),
-        0x12 if matches!(attribute, 0x31 | 0x33) => palette::configure_load(call),
-        0x12 if attribute == 0x30 && modes::select_scanlines(&mut call.memory, al) => {
-            call.cpu.set_al(0x12);
-        }
-        0x12 if attribute == 0x34 => {
-            let accepted = screen::set_cursor_emulation(&mut call.memory, al);
-            call.cpu.set_al(if accepted { 0x12 } else { 0 });
-        }
-        0x12 if attribute == 0x36 => {
-            if al <= 1 {
-                let clocking =
-                    read_indexed(call.io, SEQUENCER_INDEX_PORT, sequencer::CLOCKING_MODE);
-                let screen_off = if al == 1 { sequencer::SCREEN_OFF } else { 0 };
-                write_indexed(
-                    call.io,
-                    SEQUENCER_INDEX_PORT,
-                    sequencer::CLOCKING_MODE,
-                    (clocking & !sequencer::SCREEN_OFF) | screen_off,
-                );
-            }
-            // IBM acknowledges this service even when AL is not a valid selection.
-            call.cpu.set_al(0x12);
-        }
-        0x13 => strings::interrupt(call)?,
-        0x1a => adapter::display_combination(call)?,
-        0x1b => information::interrupt(call),
-        0x1c => state::interrupt(call),
-        0x02 | 0x03 if !screen::valid_page(&call.memory, page) => return None,
-        0x02 => screen::set_cursor_position(&mut call.memory, call.io, page, dx),
-        0x03 => {
-            let position = screen::cursor_position(&call.memory, page);
-            let shape = call
-                .memory
-                .read_u16(CURSOR_SHAPE)
-                .expect("video cursor shape");
-            call.cpu.set_dx(position);
-            call.cpu.set_cx(shape);
-        }
-        0x05 if screen::valid_page(&call.memory, al) => {
-            screen::select_page(&mut call.memory, call.io, al)
-        }
-        0x06 | 0x07 => {
-            let [left, top] = cx.to_le_bytes();
-            let [right, bottom] = dx.to_le_bytes();
-            let memory = &mut call.memory;
-            let active_page = screen::active_page(memory);
-            screen::scroll(
-                memory,
-                call.io,
-                active_page,
-                Window {
-                    top,
-                    left,
-                    bottom,
-                    right,
-                },
-                al,
-                page, // BH supplies the text attribute or graphics fill color.
-                if function == 0x06 {
-                    ScrollDirection::Up
-                } else {
-                    ScrollDirection::Down
-                },
-            );
-        }
-        0x01 if screen::is_text_mode(&call.memory) => {
-            screen::set_cursor_shape(&mut call.memory, call.io, cx)
-        }
-        0x08 if screen::is_text_mode(&call.memory) && screen::valid_page(&call.memory, page) => {
-            let cell = screen::read_cell(&call.memory, page);
-            call.cpu.set_ax(u16::from_le_bytes(cell));
-        }
-        0x09 | 0x0a => {
-            let mut output = screen::Output::new(&mut call.memory, call.io, page)?;
-            output.write_repeated(al, attribute, cx, function == 0x09);
-        }
-        0x0e => {
-            let page = screen::active_page(&call.memory);
-            let mut output = screen::Output::new(&mut call.memory, call.io, page)?;
-            output.teletype(al, attribute);
-            output.commit_cursor();
-        }
-        _ => return None,
-    }
-    Some(())
 }
 
 fn write_indexed(io: &IoBus, port: u16, register: u8, value: u8) {

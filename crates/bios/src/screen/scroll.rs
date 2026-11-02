@@ -2,15 +2,18 @@
 use super::geometry::Geometry;
 use relocade_machine::MemoryView;
 
-pub(crate) struct Window {
+/// Inclusive character coordinates for a BIOS scroll operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Window {
     pub top: u8,
     pub left: u8,
     pub bottom: u8,
     pub right: u8,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum ScrollDirection {
+/// Direction in which retained rows move within a scroll window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScrollDirection {
     Up,
     Down,
 }

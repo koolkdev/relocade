@@ -25,41 +25,52 @@ pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>, mode: u8) {
         .expect("video compatibility shadows");
 }
 
-pub(in crate::video) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
-    // IBM's legacy CGA color service does nothing with monochrome CRTC routing.
-    if call.memory.read_u16(CRTC_PORT).expect("CRTC port") == MONO_CRTC_INDEX_PORT {
-        return Some(());
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(memory, io), args(value = bl),
+)]
+pub(in crate::video) fn set_background(memory: &mut MemoryView<'_>, io: &IoBus, value: u8) {
+    if monochrome_crtc(memory) {
+        return;
     }
-    let value = call.cpu.bl();
-    let previous = call
-        .memory
-        .read_u8(COLOR_SHADOW)
+    let previous = memory.read_u8(COLOR_SHADOW).expect("video color shadow");
+    let shadow = (previous & 0xe0) | (value & 31);
+    memory
+        .write_u8(COLOR_SHADOW, shadow)
         .expect("video color shadow");
-    let text = screen::is_text_mode(&call.memory);
-    match call.cpu.bh() {
-        0 => {
-            let shadow = (previous & 0xe0) | (value & 31);
-            call.memory
-                .write_u8(COLOR_SHADOW, shadow)
-                .expect("video color shadow");
-            let color = (value & 7) | ((value & 8) << 1);
-            write_attribute(call.io, attribute::OVERSCAN_COLOR, color);
-            if !text {
-                write_attribute(call.io, 0, color);
-                foreground_palette(call.io, shadow);
-            }
-        }
-        1 if text => {} // Palette selection is a complete no-op in text modes.
-        1 => {
-            let shadow = (previous & !0x20) | ((value & 1) << 5);
-            call.memory
-                .write_u8(COLOR_SHADOW, shadow)
-                .expect("video color shadow");
-            foreground_palette(call.io, shadow);
-        }
-        _ => return None,
+    let color = (value & 7) | ((value & 8) << 1);
+    write_attribute(io, attribute::OVERSCAN_COLOR, color);
+    if !screen::is_text_mode(memory) {
+        write_attribute(io, 0, color);
+        foreground_palette(io, shadow);
     }
-    Some(())
+}
+
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(memory, io), args(value = bl),
+)]
+pub(in crate::video) fn select_palette(memory: &mut MemoryView<'_>, io: &IoBus, value: u8) {
+    // Palette selection is a complete no-op in text modes.
+    if monochrome_crtc(memory) || screen::is_text_mode(memory) {
+        return;
+    }
+    let previous = memory.read_u8(COLOR_SHADOW).expect("video color shadow");
+    let shadow = (previous & !0x20) | ((value & 1) << 5);
+    memory
+        .write_u8(COLOR_SHADOW, shadow)
+        .expect("video color shadow");
+    foreground_palette(io, shadow);
+}
+
+/// Monochrome routing ignores every legacy color request, even unknown selectors.
+#[relocade_machine::real_mode_interrupt::interrupt(context(memory), returns {
+    true => {}, false => crate::interrupt::unsupported,
+})]
+pub(in crate::video) fn ignore_unknown_selector(memory: &MemoryView<'_>) -> bool {
+    monochrome_crtc(memory)
+}
+
+fn monochrome_crtc(memory: &MemoryView<'_>) -> bool {
+    memory.read_u16(CRTC_PORT).expect("CRTC port") == MONO_CRTC_INDEX_PORT
 }
 
 fn foreground_palette(io: &IoBus, shadow: u8) {

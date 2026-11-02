@@ -13,6 +13,10 @@ use relocade_vga::registers::{sequencer, SEQUENCER_INDEX_PORT};
 use relocade_x86::{Segment, SegmentRegister};
 pub(super) use rom::initialize;
 
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(call),
+    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+)]
 pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
     let function = call.cpu.al();
     match function {

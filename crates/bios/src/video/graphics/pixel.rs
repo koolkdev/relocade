@@ -1,10 +1,37 @@
-use super::{access::GraphicsAccess, Layout, Mode};
-use relocade_machine::{IoBus, MemoryView};
+//! BIOS pixel access through the current graphics layout.
 
-pub(in crate::video) struct Pixel {
+use super::{access::GraphicsAccess, Layout, Mode};
+use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
+
+struct Pixel {
     address: u32,
     layout: Layout,
     shift: u8,
+}
+
+/// Reads a graphics pixel without changing guest VGA access settings.
+#[interrupt(context(memory, io), args(page = bh, x = cx, y = dx), returns {
+    Some(color) => { al = color },
+    None => crate::interrupt::unsupported,
+})]
+pub fn read_pixel(memory: &MemoryView<'_>, io: &IoBus, page: u8, x: u16, y: u16) -> Option<u8> {
+    Some(Pixel::locate(memory, page, x, y)?.read(memory, io))
+}
+
+/// Writes a graphics pixel, including the mode's existing XOR/color rules.
+#[interrupt(context(memory, io), args(page = bh, x = cx, y = dx, color = al),
+    returns { Some(()) => {}, None => crate::interrupt::unsupported }
+)]
+pub fn write_pixel(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    page: u8,
+    x: u16,
+    y: u16,
+    color: u8,
+) -> Option<()> {
+    Pixel::locate(memory, page, x, y)?.write(memory, io, color);
+    Some(())
 }
 
 impl Pixel {

@@ -29,6 +29,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>) {
         .expect("BIOS video functionality table");
 }
 
+#[relocade_machine::real_mode_interrupt::interrupt(context(call))]
 pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
     if call.cpu.bx() != 0 {
         // This service reports an unsupported selector through AL, not carry.

@@ -46,27 +46,40 @@ impl PaletteLoad {
     }
 }
 
-pub(in crate::video) fn configure_load(call: &mut crate::BiosContext<'_>) {
-    let selection = call.cpu.al();
+/// AL=0 enables default palettes on mode changes; AL=1 preserves the current palette.
+/// Returns whether the selection was accepted; invalid selections leave the policy unchanged.
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(memory), args(selection = al),
+    returns { true => { al = 0x12 }, false => { al = 0 } }
+)]
+pub(in crate::video) fn set_palette_loading(memory: &mut MemoryView<'_>, selection: u8) -> bool {
     if selection > 1 {
-        // IBM's recognized alternate functions return AL=0 for an invalid selection.
-        call.cpu.set_al(0);
-        return;
+        return false;
     }
-    let (mask, enabled) = match call.cpu.bl() {
-        0x31 => (DEFAULT_PALETTE_DISABLED, selection == 1),
-        0x33 => (GRAYSCALE_SUMMING, selection == 0),
-        _ => unreachable!("palette loading function"),
-    };
-    let control = call
-        .memory
-        .read_u8(MODESET_CONTROL)
-        .expect("mode-set control");
-    call.memory
+    set_control_flag(memory, DEFAULT_PALETTE_DISABLED, selection == 1);
+    true
+}
+
+/// AL=0 enables grayscale conversion of BIOS palette writes; AL=1 disables it.
+/// Returns whether the selection was accepted; invalid selections leave the policy unchanged.
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(memory), args(selection = al),
+    returns { true => { al = 0x12 }, false => { al = 0 } }
+)]
+pub(in crate::video) fn set_grayscale_summing(memory: &mut MemoryView<'_>, selection: u8) -> bool {
+    if selection > 1 {
+        return false;
+    }
+    set_control_flag(memory, GRAYSCALE_SUMMING, selection == 0);
+    true
+}
+
+fn set_control_flag(memory: &mut MemoryView<'_>, flag: u8, value: bool) {
+    let control = memory.read_u8(MODESET_CONTROL).expect("mode-set control");
+    memory
         .write_u8(
             MODESET_CONTROL,
-            (control & !mask) | if enabled { mask } else { 0 },
+            (control & !flag) | if value { flag } else { 0 },
         )
         .expect("mode-set control");
-    call.cpu.set_al(0x12);
 }
