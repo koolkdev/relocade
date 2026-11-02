@@ -10,7 +10,7 @@ pub async fn run_console(dos: &mut Dos) -> Result<(), DosError> {
     dos.console().write(&banner::bytes()).await?;
     loop {
         let console = dos.console();
-        console.write(b"   \x1b[0;1;32m>\x1b[0m ").await?;
+        console.write(b"\x1b[0;1;32m>\x1b[0m ").await?;
         let line = console.read_line().await?;
         let line = line.trim_ascii_start();
         let end = line

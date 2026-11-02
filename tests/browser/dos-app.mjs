@@ -10,7 +10,7 @@ import { build } from "../../tools/web.mjs";
 // Literal firmware glyphs: verify the displayed pixels, without a test-only
 // text/status API or a software rasterizer interpreting the same capture.
 const promptRow = 10;
-const promptColumn = 3;
+const promptColumn = 0;
 const prompt = [96, 48, 24, 12, 24, 48, 96, 0];
 const xGlyph = [0, 0, 198, 108, 56, 108, 198, 0];
 

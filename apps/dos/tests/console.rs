@@ -11,7 +11,7 @@ use std::{
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
     let prompt_row = 10;
-    let prompt_column = 3;
+    let prompt_column = 0;
     let (clock, timers) = timer_service();
     let console = Runner::with_clock(clock).run(async |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
@@ -36,12 +36,12 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
             .unwrap();
         let screen = video.borrow().snapshot();
         for (row, text) in [
-            b"   > eChO hello".as_slice(),
+            b"> eChO hello".as_slice(),
             b"hello",
-            b"   > unknown",
+            b"> unknown",
             b"Unknown command",
-            b"   > ",
-            b"   > ",
+            b"> ",
+            b"> ",
         ]
         .into_iter()
         .enumerate()

@@ -65,7 +65,7 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
 
     // Literal eight-row firmware glyphs, sampled from the displayed window.
     let prompt_row = 10;
-    let prompt_column: usize = 3;
+    let prompt_column: usize = 0;
     let prompt = [96, 48, 24, 12, 24, 48, 96, 0];
     let x_glyph = [0, 0, 198, 108, 56, 108, 198, 0];
     let displayed_glyph = |column, row: usize, expected: [u8; 8]| -> Result<(), Box<dyn Error>> {
