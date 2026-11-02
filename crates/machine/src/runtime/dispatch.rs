@@ -1,21 +1,24 @@
 //! Links executable modules and owns dispatch for one CPU.
 
+mod hooks;
 mod table;
 
-use super::{code, Backend, RuntimeMemory};
+use super::{code, hooks::Handler, Backend, Hook, RuntimeMemory};
 use crate::Result;
-use relocade_wasm_runtime::{Function, Import, Module, WasmBackend};
+use hooks::Hooks;
+use relocade_wasm_runtime::{Function, Import, Module, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionProfile};
+use std::{collections::BTreeMap, rc::Rc};
 use table::DispatchTable;
 
-/// An ordinary `() -> ExecutionExit` export to publish at a guest linear address.
+/// An ordinary `() -> ExecutionExit` export to install at a guest linear address.
 pub struct DispatchEntry<'a> {
     pub address: u32,
     pub export: &'a str,
 }
 
 /// Bound dispatcher, interpreter, host imports and callable entries for one CPU.
-/// Keeps module linking and publication together so every entry uses the same
+/// Keeps module linking and installation together so every entry uses the same
 /// runtime bindings and execution table.
 pub(crate) struct Dispatch {
     dispatch: Function<Backend, abi::ExecutionSignature>,
@@ -23,6 +26,7 @@ pub(crate) struct Dispatch {
     step: Function<Backend, abi::ExecutionSignature>,
     interrupt: Option<Function<Backend, fn(u8) -> ExecutionExit>>,
     table: DispatchTable<Backend>,
+    hooks: Hooks,
     host_imports: Vec<Import<'static, Backend>>,
 }
 
@@ -60,6 +64,7 @@ impl Dispatch {
                 None
             },
             table,
+            hooks: Hooks::default(),
             host_imports,
         })
     }
@@ -84,11 +89,40 @@ impl Dispatch {
         &mut self,
         backend: &mut Backend,
         bindings: &RuntimeMemory,
-        module: &Module,
+        hooks: impl IntoIterator<Item = Hook>,
+    ) -> Result<()> {
+        let module = self.hooks.compile(hooks)?;
+        self.install_module(backend, bindings, &module.bytes, &module.entries())
+            .await?;
+        self.hooks.install(module);
+        Ok(())
+    }
+
+    pub(crate) async fn install_module(
+        &mut self,
+        backend: &mut Backend,
+        bindings: &RuntimeMemory,
+        bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let instance = self.instantiate(backend, bindings, module).await?;
-        self.table.install(backend, &instance, entries)
+        let entries: BTreeMap<_, _> = entries
+            .iter()
+            .map(|entry| (entry.address, entry.export))
+            .collect();
+        let entries: Vec<_> = entries
+            .into_iter()
+            .map(|(address, export)| DispatchEntry { address, export })
+            .collect();
+        let module = backend.compiler().compile(bytes).await?;
+        let instance = self.instantiate(backend, bindings, &module).await?;
+        self.table.install(backend, &instance, &entries)?;
+        self.hooks.remove(entries.iter().map(|entry| entry.address));
+        Ok(())
+    }
+
+    #[inline]
+    pub(super) fn handler(&self, id: u32) -> &Rc<dyn Handler> {
+        self.hooks.handler(id)
     }
 
     async fn instantiate(

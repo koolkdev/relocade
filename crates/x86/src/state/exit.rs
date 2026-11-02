@@ -52,6 +52,9 @@ pub enum HostExit {
     /// CPU state is published; the runtime consumes this exit before resuming.
     /// Reserved for execution entries, not handler results.
     Call { service_id: u32 },
+    /// An explicit resume marker emitted by guest service code.
+    /// Reserved for execution entries, not handler results; carries no service ID.
+    Resume,
 }
 
 /// CPU state must already describe the completed block.

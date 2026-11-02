@@ -40,10 +40,10 @@ Services can keep ordinary resource views and local references across input awai
 
 ```rust,ignore
 let state = cpu.cpu_state();
-cpu.install_hooks([real_mode_interrupt::hook(entry, state.clone(), async move || {
+cpu.install(real_mode_interrupt::hook(entry, state.clone(), async move || {
     let value = input.read().await;
     state.set_ax(value);
-})]).await?;
+})).await?;
 ```
 
 The driver first polls the concrete pinned future. Only Pending erases its type
