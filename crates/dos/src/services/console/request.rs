@@ -13,35 +13,16 @@ pub(in crate::services) enum DirectIo {
 pub(in crate::services) struct Input<'a> {
     source: Result<Handle, DosError>,
     output: CharacterOutput<'a>,
-    flush: Option<Handle>,
 }
 
 impl<'a> Input<'a> {
     pub(in crate::services) fn new(services: &Services<'a>) -> Self {
         let source = services.process.files().readable_handle(0);
         let output = services.stdout();
-        Self {
-            source,
-            output,
-            flush: None,
-        }
-    }
-
-    pub(super) fn flush_first(services: &Services<'a>) -> Self {
-        let mut input = Self::new(services);
-        input.flush = services.process.files().handle(0).cloned().ok();
-        input
-    }
-
-    pub(super) async fn flush(&self) {
-        // Closed stdin or a failed flush must not skip the selected operation.
-        if let Some(handle) = &self.flush {
-            let _ = handle.flush_input().await;
-        }
+        Self { source, output }
     }
 
     pub(super) async fn character(&self, echo: bool) -> Result<u8, DosError> {
-        self.flush().await;
         let handle = self.source.as_ref().map_err(|error| *error)?;
         let byte = input::read_character(handle).await?;
         if echo {
@@ -51,7 +32,6 @@ impl<'a> Input<'a> {
     }
 
     pub(super) async fn direct(&self, byte: u8) -> Result<DirectIo, DosError> {
-        self.flush().await;
         if byte == 0xff {
             let handle = self.source.as_ref().map_err(|error| *error)?;
             input::try_read_character(handle).await.map(DirectIo::Input)
@@ -68,7 +48,6 @@ impl<'a> Input<'a> {
         buffer: FarPointer,
         capacity: u8,
     ) -> Result<(), DosError> {
-        self.flush().await;
         if capacity == 0 {
             return Ok(());
         }
