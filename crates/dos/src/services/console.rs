@@ -1,9 +1,8 @@
-use super::buffers::write_wrapping;
 use crate::{
     interrupt::{return_result, DosContext},
     ServiceError,
 };
-use relocade_machine::real_mode_interrupt::set_zero;
+use relocade_machine::{real_mode_interrupt::set_zero, FarPointer};
 use relocade_x86::Segment;
 use std::future::Future;
 
@@ -120,11 +119,13 @@ pub(super) async fn write_character(call: &mut DosContext<'_>) {
 pub(super) fn read_buffered<'a, 'b>(
     call: &'a mut DosContext<'b>,
 ) -> impl Future<Output = ()> + use<'a, 'b> {
-    let segment = call.cpu.segment(Segment::Ds);
-    let offset = call.cpu.dx();
+    let buffer = FarPointer {
+        segment: call.cpu.segment(Segment::Ds).selector,
+        offset: call.cpu.dx(),
+    };
     let mut capacity = [0];
     call.memory
-        .read_segment(&segment, u32::from(offset), &mut capacity)
+        .read_wrapping(buffer, &mut capacity)
         .expect("real-mode line buffer");
     let input = call.process.files().readable_handle(0);
     let output = call.stdout();
@@ -141,21 +142,27 @@ pub(super) fn read_buffered<'a, 'b>(
             Err(error) => return return_result(call, Err(error)),
         };
         let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
-        write_wrapping(&mut call.memory, &segment, offset.wrapping_add(1), &[count]);
-        write_wrapping(&mut call.memory, &segment, offset.wrapping_add(2), &bytes);
+        call.memory
+            .write_wrapping(buffer.wrapping_add(1), &[count])
+            .expect("real-mode line count");
+        call.memory
+            .write_wrapping(buffer.wrapping_add(2), &bytes)
+            .expect("real-mode line buffer");
     }
 }
 
 /// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
 pub(super) async fn write_string(call: &mut DosContext<'_>) {
-    let segment = call.cpu.segment(Segment::Ds);
-    let start = call.cpu.dx();
+    let source = FarPointer {
+        segment: call.cpu.segment(Segment::Ds).selector,
+        offset: call.cpu.dx(),
+    };
     let memory = &call.memory;
     let output = call.stdout();
     for index in 0..=u16::MAX {
         let mut byte = [0];
         memory
-            .read_segment(&segment, u32::from(start.wrapping_add(index)), &mut byte)
+            .read_wrapping(source.wrapping_add(usize::from(index)), &mut byte)
             .expect("real-mode byte address");
         if byte[0] == b'$' {
             call.cpu.set_al(b'$');

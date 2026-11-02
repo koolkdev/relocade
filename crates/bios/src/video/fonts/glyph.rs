@@ -1,5 +1,5 @@
 //! Read a graphics glyph through the guest's live BIOS font vectors.
-use super::super::{buffer_addresses, modes, MODE};
+use super::super::{modes, MODE};
 use super::rom;
 use relocade_machine::MemoryView;
 
@@ -23,18 +23,14 @@ impl Glyph {
             (1, character)
         };
         let pointer = rom::query(memory, selector).expect("graphics font vector");
-        let offset = pointer.offset.wrapping_add(u16::from(index) * height);
+        let source = pointer.wrapping_add(usize::from(index) * usize::from(height));
         let mut glyph = Self {
             rows: [0; 32],
             height: usize::from(height),
         };
-        for (row, address) in glyph.rows.iter_mut().zip(buffer_addresses(
-            pointer.segment_base(),
-            offset,
-            u32::from(height),
-        )) {
-            *row = memory.read_u8(address).expect("graphics font byte");
-        }
+        memory
+            .read_wrapping(source, &mut glyph.rows[..glyph.height])
+            .expect("graphics font bytes");
         Some(glyph)
     }
 

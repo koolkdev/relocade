@@ -8,11 +8,10 @@
 //! The second byte resumes the top suspended host call after guest IRQ execution.
 
 mod bindings;
-mod pointer;
 #[doc(hidden)]
 pub use crate::cpu::registers;
+pub use crate::FarPointer;
 pub use bindings::{interrupt, interrupt_dispatch};
-pub use pointer::FarPointer;
 #[doc(hidden)]
 pub use relocade_x86::{Segment, SegmentRegister};
 

@@ -74,12 +74,6 @@ fn read_indexed(io: &IoBus, port: u16, register: u8) -> u8 {
     io.read_port(port + 1, 1) as u8
 }
 
-// BIOS transfer buffers advance a 16-bit ES offset, including within a glyph
-// or RGB triple. The next byte after ES:FFFF is ES:0000.
-pub(super) fn buffer_addresses(base: u32, offset: u16, bytes: u32) -> impl Iterator<Item = u32> {
-    (0..bytes).map(move |index| base + u32::from(offset.wrapping_add(index as u16)))
-}
-
 pub(super) fn write_crtc_word(io: &IoBus, register: u8, value: u16) {
     let [high, low] = value.to_be_bytes();
     let port = crtc_port(io);

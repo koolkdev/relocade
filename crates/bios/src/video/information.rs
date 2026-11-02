@@ -1,13 +1,10 @@
 //! INT 10h/AH=1Bh: the guest-visible functionality table and 64-byte state report.
 use super::{
-    adapter, buffer_addresses, modes, palette, read_indexed, CHARACTER_HEIGHT, LAST_ROW, MODE,
-    MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES,
+    adapter, modes, palette, read_indexed, CHARACTER_HEIGHT, LAST_ROW, MODE, MODESET_CONTROL,
+    VIDEO_CONTROL, VIDEO_SWITCHES,
 };
 use crate::{screen, BIOS_SEGMENT};
-use relocade_machine::{
-    real_mode_interrupt::{interrupt, FarPointer},
-    IoBus, MemoryView,
-};
+use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, IoBus, MemoryView};
 use relocade_vga::registers::{attribute, sequencer, SEQUENCER_INDEX_PORT};
 
 // Follows the font ROM and ninth-column replacement tables.
@@ -47,10 +44,9 @@ pub(super) fn write_report(
     }
     // Collect the fields before writing: ES:DI may overlap BIOS data.
     let bytes = encode_state(memory, io);
-    let addresses = buffer_addresses(destination.segment_base(), destination.offset, 64);
-    for (address, byte) in addresses.zip(bytes) {
-        memory.write_u8(address, byte).expect("video state buffer");
-    }
+    memory
+        .write_wrapping(destination, &bytes)
+        .expect("video state buffer");
     true
 }
 

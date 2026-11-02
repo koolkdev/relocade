@@ -1,5 +1,5 @@
 //! BIOS Attribute Controller palette entries, border color and blink control.
-use crate::video::{buffer_addresses, input_status_1_port};
+use crate::video::input_status_1_port;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, FarPointer},
     IoBus, MemoryView,
@@ -36,8 +36,10 @@ pub(in crate::video) fn overscan(io: &IoBus) -> u8 {
 
 #[interrupt(context(memory, io), args(source = ptr(es, dx)))]
 pub(in crate::video) fn load_palette(memory: &MemoryView<'_>, io: &IoBus, source: FarPointer) {
-    for (index, address) in palette_entries(source) {
-        let value = memory.read_u8(address).expect("attribute palette buffer");
+    for (offset, index) in palette_registers().enumerate() {
+        let value = memory
+            .read_u8(source.wrapping_add(offset).address())
+            .expect("attribute palette buffer");
         write_attribute(io, index, value);
     }
 }
@@ -48,17 +50,19 @@ pub(in crate::video) fn read_palette(
     io: &IoBus,
     destination: FarPointer,
 ) {
-    for (index, address) in palette_entries(destination) {
+    for (offset, index) in palette_registers().enumerate() {
         memory
-            .write_u8(address, read_attribute(io, index))
+            .write_u8(
+                destination.wrapping_add(offset).address(),
+                read_attribute(io, index),
+            )
             .expect("attribute palette buffer");
     }
 }
 
 // The 17-byte BIOS buffer contains sixteen palette entries followed by overscan.
-fn palette_entries(buffer: FarPointer) -> impl Iterator<Item = (u8, u32)> {
-    let registers = (0..16).chain(std::iter::once(attribute::OVERSCAN_COLOR));
-    registers.zip(buffer_addresses(buffer.segment_base(), buffer.offset, 17))
+fn palette_registers() -> impl Iterator<Item = u8> {
+    (0..16).chain(std::iter::once(attribute::OVERSCAN_COLOR))
 }
 
 #[interrupt(context(io), args(selection = bl),

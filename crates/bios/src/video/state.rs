@@ -3,11 +3,7 @@ mod dac;
 mod firmware;
 mod hardware;
 
-use super::buffer_addresses;
-use relocade_machine::{
-    real_mode_interrupt::{interrupt, FarPointer},
-    IoBus, MemoryView,
-};
+use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, IoBus, MemoryView};
 
 const HEADER_SIZE: u16 = 0x20;
 const COMPONENT_SIZES: [u16; 3] = [
@@ -57,20 +53,20 @@ pub(super) fn save(
         firmware.as_ref().map(|bytes| bytes.as_slice()),
         dac.as_ref().map(|bytes| bytes.as_slice()),
     ];
-    let base = destination.segment_base();
-    let header = destination.offset;
-    let mut offset = header.wrapping_add(HEADER_SIZE);
+    let mut payload = destination.wrapping_add(usize::from(HEADER_SIZE));
     for (index, block) in blocks.into_iter().enumerate() {
         if let Some(bytes) = block {
             // Header pointers are absolute ES offsets, not buffer displacements.
-            write_buffer(
-                memory,
-                base,
-                header.wrapping_add(index as u16 * 2),
-                &offset.to_le_bytes(),
-            );
-            write_buffer(memory, base, offset, bytes);
-            offset = offset.wrapping_add(bytes.len() as u16);
+            memory
+                .write_wrapping(
+                    destination.wrapping_add(index * 2),
+                    &payload.offset.to_le_bytes(),
+                )
+                .expect("video state header");
+            memory
+                .write_wrapping(payload, bytes)
+                .expect("video state buffer");
+            payload = payload.wrapping_add(bytes.len());
         }
     }
     true
@@ -89,14 +85,11 @@ pub(super) fn restore(
     if components == 0 {
         return false;
     }
-    let base = source.segment_base();
-    let header = source.offset;
     // Read every selected block before restoring BIOS data or remapping VRAM.
     // A subset restore follows the saved pointers, not a newly packed layout.
-    let hardware = (components & 1 != 0).then(|| read_component(memory, base, header));
-    let firmware =
-        (components & 2 != 0).then(|| read_component(memory, base, header.wrapping_add(2)));
-    let dac = (components & 4 != 0).then(|| read_component(memory, base, header.wrapping_add(4)));
+    let hardware = (components & 1 != 0).then(|| read_component(memory, source));
+    let firmware = (components & 2 != 0).then(|| read_component(memory, source.wrapping_add(2)));
+    let dac = (components & 4 != 0).then(|| read_component(memory, source.wrapping_add(4)));
     if let Some(bytes) = hardware {
         hardware::restore(memory, io, &bytes);
     }
@@ -113,21 +106,15 @@ pub(super) fn restore(
 #[interrupt(returns { () => { al = 0 } })]
 pub(super) fn unsupported() {}
 
-fn write_buffer(memory: &mut MemoryView<'_>, base: u32, offset: u16, bytes: &[u8]) {
-    for (address, &byte) in buffer_addresses(base, offset, bytes.len() as u32).zip(bytes) {
-        memory.write_u8(address, byte).expect("video state buffer");
-    }
+fn read_component<const N: usize>(memory: &MemoryView<'_>, pointer: FarPointer) -> [u8; N] {
+    let offset = u16::from_le_bytes(read_buffer(memory, pointer));
+    read_buffer(memory, FarPointer { offset, ..pointer })
 }
 
-fn read_component<const N: usize>(memory: &MemoryView<'_>, base: u32, pointer: u16) -> [u8; N] {
-    let offset = u16::from_le_bytes(read_buffer(memory, base, pointer));
-    read_buffer(memory, base, offset)
-}
-
-fn read_buffer<const N: usize>(memory: &MemoryView<'_>, base: u32, offset: u16) -> [u8; N] {
+fn read_buffer<const N: usize>(memory: &MemoryView<'_>, pointer: FarPointer) -> [u8; N] {
     let mut bytes = [0; N];
-    for (address, byte) in buffer_addresses(base, offset, N as u32).zip(&mut bytes) {
-        *byte = memory.read_u8(address).expect("video state buffer");
-    }
+    memory
+        .read_wrapping(pointer, &mut bytes)
+        .expect("video state buffer");
     bytes
 }

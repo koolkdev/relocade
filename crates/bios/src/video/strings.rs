@@ -75,12 +75,7 @@ fn write(
     }
     let mut output = Output::new(memory, io, run.page)?;
     output.set_position(run.position);
-    output.write_string(
-        run.source.segment_base(),
-        run.source.offset,
-        run.count,
-        attribute,
-    );
+    output.write_string(run.source, run.count, attribute);
     if move_cursor {
         output.commit_cursor();
     }
