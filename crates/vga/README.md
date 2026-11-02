@@ -381,6 +381,14 @@ entries 00h–0Fh and overscan 11h, plus DAC colors, mask and transfer position.
 Mode control, plane enable, panning, color select and display enable still follow
 the new preset. Explicit palette services remain effective.
 
+AH=12h/BL=32h enables CPU video addressing with AL=0 and disables it with AL=1,
+by writing 0Eh or 00h to the adapter control port at 46E8h. Valid selections
+return AL=12h; others return AL=0 without accessing the device. Other registers
+and flags are preserved, following the IBM adapter ROM (x96B–x97E).
+The service changes no BIOS bookkeeping, display registers or VRAM. It neither
+blanks output nor overrides the separate option-byte sleep and RAM-enable bits.
+BIOS calls and direct guest writes therefore share one address-decoding state.
+
 AH=12h/BL=33h enables grayscale summing with AL=0 and disables it with AL=1.
 It changes future mode-palette loads and explicit BIOS DAC writes (AX=1010h/1012h),
 without recoloring the current palette. Direct guest port writes remain raw.
