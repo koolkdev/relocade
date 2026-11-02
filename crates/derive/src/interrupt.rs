@@ -14,7 +14,7 @@ use syn::{
     braced, parenthesized,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
-    token, Expr, FnArg, Ident, ItemFn, Pat, Path, ReturnType, Token, Type, Visibility,
+    token, Expr, FnArg, Ident, ItemFn, Pat, ReturnType, Token, Type, Visibility,
 };
 
 pub(super) struct Binding {
@@ -32,7 +32,7 @@ struct ReturnArm {
 }
 enum ReturnAction {
     Values(Vec<Output>),
-    Service(Path),
+    Service(Expr),
 }
 struct Output {
     destination: Register,
@@ -246,8 +246,7 @@ pub(super) fn expand(binding: Binding, function: ItemFn) -> syn::Result<Tokens> 
         let pattern = &arm.pattern;
         let action = match &arm.action {
             ReturnAction::Service(service) => {
-                let invoke =
-                    crate::interrupt_dispatch::call_entry(syn::parse_quote!(#service), &call)?;
+                let invoke = crate::interrupt_dispatch::call_entry(service.clone(), &call)?;
                 quote!(#invoke.await)
             }
             ReturnAction::Values(outputs) => {
