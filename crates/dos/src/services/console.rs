@@ -1,49 +1,33 @@
 use super::Services;
 use crate::{DosError, ServiceError};
-use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
+    FarPointer, MemoryView,
+};
 
 pub(super) mod cooked;
 mod input;
 mod request;
-use request::{capacity, Input, InputResult};
+pub(super) use request::Input;
+use request::{capacity, DirectIo};
 
-/// AH=0Ch captures the requested input operation before flushing stdin.
-#[interrupt(context(memory), args(operation = al, byte = dl, buffer = ptr(ds, dx)), returns {
-    Ok(InputResult::Character(byte)) => { al = byte },
-    Ok(InputResult::Polled(Some(byte))) => { al = byte, zf = false },
-    Ok(InputResult::Polled(None)) => { al = 0u8, zf = true },
-    Ok(InputResult::Buffered) => {},
-    Err(error) => crate::interrupt::return_error(error),
-})]
-pub(super) async fn flush_input(
-    memory: &mut MemoryView<'_>,
-    services: &Services<'_>,
-    operation: u8,
-    byte: u8,
-    buffer: FarPointer,
-) -> Result<InputResult, DosError> {
-    let flush = services.process.files().handle(0).cloned();
-    let input = Input::new(services);
-    let capacity = if operation == 0x0a {
-        capacity(memory, buffer)
-    } else {
-        0
-    };
-    // A closed stdin skips the flush but still performs the requested operation.
-    if let Ok(handle) = flush {
-        let _ = handle.flush_input().await;
+// AH=0Ch selects the same input services through AL, with a flush before I/O.
+// Each service captures its arguments before that flush can suspend.
+interrupt_dispatch! {
+    pub(super) flush_input(al, services: &Services<'_>) {
+        0x01: read_character_echo(Input::flush_first(services)),
+        0x06: direct_io(Input::flush_first(services)),
+        0x07: read_character(Input::flush_first(services)),
+        0x08: read_character_check_break(Input::flush_first(services)),
+        0x0a: read_buffered(Input::flush_first(services)),
+        _: flush_only(Input::flush_first(services)),
     }
-    match operation {
-        0x01 => input.character(true).await.map(InputResult::Character),
-        0x07 => input.character(false).await.map(InputResult::Character),
-        0x08 => input.character(false).await.map(InputResult::Character),
-        0x06 => input.direct(byte).await,
-        0x0a => {
-            input.buffered(memory, buffer, capacity).await?;
-            Ok(InputResult::Buffered)
-        }
-        _ => Ok(InputResult::Character(0)),
-    }
+}
+
+#[interrupt(returns { byte => { al = byte } })]
+async fn flush_only(input: Input<'_>) -> u8 {
+    input.flush().await;
+    0
 }
 
 /// AH=0Bh reports stdin availability without consuming input or changing flags.
@@ -64,14 +48,13 @@ pub(super) async fn input_status(services: &Services<'_>) -> u8 {
 
 /// AH=06h polls stdin for DL=FFh; other values write a byte to stdout.
 #[interrupt(args(byte = dl), returns {
-    Ok(InputResult::Character(byte)) => { al = byte },
-    Ok(InputResult::Polled(Some(byte))) => { al = byte, zf = false },
-    Ok(InputResult::Polled(None)) => { al = 0u8, zf = true },
-    Ok(InputResult::Buffered) => {},
+    Ok(DirectIo::Output(byte)) => { al = byte },
+    Ok(DirectIo::Input(Some(byte))) => { al = byte, zf = false },
+    Ok(DirectIo::Input(None)) => { al = 0u8, zf = true },
     Err(error) => crate::interrupt::return_error(error),
 })]
-pub(super) async fn direct_io(services: &Services<'_>, byte: u8) -> Result<InputResult, DosError> {
-    Input::new(services).direct(byte).await
+pub(super) async fn direct_io(input: Input<'_>, byte: u8) -> Result<DirectIo, DosError> {
+    input.direct(byte).await
 }
 
 /// AH=01h waits for a character and echoes it through the retained stdout.
@@ -79,8 +62,8 @@ pub(super) async fn direct_io(services: &Services<'_>, byte: u8) -> Result<Input
     Ok(byte) => { al = byte },
     Err(error) => crate::interrupt::return_error(error),
 })]
-pub(super) async fn read_character_echo(services: &Services<'_>) -> Result<u8, DosError> {
-    Input::new(services).character(true).await
+pub(super) async fn read_character_echo(input: Input<'_>) -> Result<u8, DosError> {
+    input.character(true).await
 }
 
 /// AH=07h waits for a character without echo.
@@ -88,8 +71,8 @@ pub(super) async fn read_character_echo(services: &Services<'_>) -> Result<u8, D
     Ok(byte) => { al = byte },
     Err(error) => crate::interrupt::return_error(error),
 })]
-pub(super) async fn read_character(services: &Services<'_>) -> Result<u8, DosError> {
-    Input::new(services).character(false).await
+pub(super) async fn read_character(input: Input<'_>) -> Result<u8, DosError> {
+    input.character(false).await
 }
 
 /// AH=08h currently shares AH=07h behavior; DOS break handling is not implemented.
@@ -97,8 +80,8 @@ pub(super) async fn read_character(services: &Services<'_>) -> Result<u8, DosErr
     Ok(byte) => { al = byte },
     Err(error) => crate::interrupt::return_error(error),
 })]
-pub(super) async fn read_character_check_break(services: &Services<'_>) -> Result<u8, DosError> {
-    read_character(services).await
+pub(super) async fn read_character_check_break(input: Input<'_>) -> Result<u8, DosError> {
+    read_character(input).await
 }
 
 /// AH=02h writes through stdout and returns the last output byte.
@@ -119,13 +102,11 @@ pub(super) async fn write_character(services: &Services<'_>, byte: u8) -> u8 {
 })]
 pub(super) async fn read_buffered(
     memory: &mut MemoryView<'_>,
-    services: &Services<'_>,
+    input: Input<'_>,
     buffer: FarPointer,
 ) -> Result<(), DosError> {
     let capacity = capacity(memory, buffer);
-    Input::new(services)
-        .buffered(memory, buffer, capacity)
-        .await
+    input.buffered(memory, buffer, capacity).await
 }
 
 /// AH=09h outputs a '$'-terminated string and returns AL='$'.

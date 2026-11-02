@@ -5,6 +5,7 @@ use std::{cell::RefCell, rc::Rc};
 
 struct WaitingConsole {
     ready: RefCell<Option<oneshot::Receiver<()>>>,
+    input: RefCell<&'static [u8]>,
     output: Rc<RefCell<Vec<u8>>>,
 }
 
@@ -40,10 +41,7 @@ impl CharacterDriver for WaitingConsole {
         })
     }
     fn read<'a>(&'a self, bytes: &'a mut [u8]) -> DriverFuture<'a, usize> {
-        Box::pin(async move {
-            bytes.fill(b'K');
-            Ok(bytes.len())
-        })
+        Box::pin(async move { Ok(self.input.borrow_mut().read(bytes).unwrap()) })
     }
     fn write<'a>(&'a self, bytes: &'a [u8]) -> DriverFuture<'a, usize> {
         Box::pin(async move {
@@ -57,13 +55,14 @@ impl CharacterDriver for WaitingConsole {
 #[test]
 fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
     pollster::block_on(async {
-        for function in [0x4000, 0x4406, 0x4407, 0x0c00, 0x0c01] {
+        for function in [0x4000, 0x4406, 0x4407, 0x0c00, 0x0c01, 0x0c0a] {
             let (clock, _timers) = timer_service();
             let mut dos = Dos::new(&Runner::with_clock(clock)).await.unwrap();
             let (ready, wait) = oneshot::channel();
             let output = Rc::new(RefCell::new(Vec::new()));
             dos.state.devices().install(WaitingConsole {
                 ready: RefCell::new(Some(wait)),
+                input: RefCell::new(b"K\r"),
                 output: output.clone(),
             });
             dos.launch_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
@@ -75,6 +74,9 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                 call.cpu.set_cx(1);
                 call.cpu.set_dx(0x300);
                 call.memory.write(0x10300, b"A").unwrap();
+                if function == 0x0c0a {
+                    call.memory.write(0x10300, &[2, 0xcc]).unwrap();
+                }
             }
             assert!(pin!(dos.cpu().run(10))
                 .as_mut()
@@ -92,6 +94,10 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                 .files()
                 .force_duplicate(&mut dos.state.filesystem(), 3, 0)
                 .unwrap();
+            if function == 0x0c0a {
+                // The buffered service captured capacity before the flush.
+                dos.cpu().memory().view().write_u8(0x10300, 0).unwrap();
+            }
             ready.send(()).unwrap();
             assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
             let call = dos.cpu().context();
@@ -107,6 +113,12 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                     assert_eq!(&*output.borrow(), b"K");
                 }
                 0x0c00 => assert_eq!(call.cpu.al(), 0),
+                0x0c0a => {
+                    let mut buffer = [0; 4];
+                    call.memory.read(0x10300, &mut buffer).unwrap();
+                    assert_eq!(buffer, [0, 1, b'K', b'\r']);
+                    assert_eq!(&*output.borrow(), b"K\r");
+                }
                 _ => unreachable!(),
             }
         }

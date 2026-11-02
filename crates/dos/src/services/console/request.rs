@@ -4,25 +4,44 @@ use super::input;
 use crate::{console::CharacterOutput, files::Handle, services::Services, DosError};
 use relocade_machine::{FarPointer, MemoryView};
 
-pub(in crate::services) enum InputResult {
-    Character(u8),
-    Polled(Option<u8>),
-    Buffered,
+/// AH=06h only changes ZF when reading; output preserves it.
+pub(in crate::services) enum DirectIo {
+    Output(u8),
+    Input(Option<u8>),
 }
 
-pub(super) struct Input<'a> {
+pub(in crate::services) struct Input<'a> {
     source: Result<Handle, DosError>,
     output: CharacterOutput<'a>,
+    flush: Option<Handle>,
 }
 
 impl<'a> Input<'a> {
-    pub(super) fn new(services: &Services<'a>) -> Self {
+    pub(in crate::services) fn new(services: &Services<'a>) -> Self {
         let source = services.process.files().readable_handle(0);
         let output = services.stdout();
-        Self { source, output }
+        Self {
+            source,
+            output,
+            flush: None,
+        }
+    }
+
+    pub(super) fn flush_first(services: &Services<'a>) -> Self {
+        let mut input = Self::new(services);
+        input.flush = services.process.files().handle(0).cloned().ok();
+        input
+    }
+
+    pub(super) async fn flush(&self) {
+        // Closed stdin or a failed flush must not skip the selected operation.
+        if let Some(handle) = &self.flush {
+            let _ = handle.flush_input().await;
+        }
     }
 
     pub(super) async fn character(&self, echo: bool) -> Result<u8, DosError> {
+        self.flush().await;
         let handle = self.source.as_ref().map_err(|error| *error)?;
         let byte = input::read_character(handle).await?;
         if echo {
@@ -31,16 +50,15 @@ impl<'a> Input<'a> {
         Ok(byte)
     }
 
-    pub(super) async fn direct(&self, byte: u8) -> Result<InputResult, DosError> {
+    pub(super) async fn direct(&self, byte: u8) -> Result<DirectIo, DosError> {
+        self.flush().await;
         if byte == 0xff {
             let handle = self.source.as_ref().map_err(|error| *error)?;
-            input::try_read_character(handle)
-                .await
-                .map(InputResult::Polled)
+            input::try_read_character(handle).await.map(DirectIo::Input)
         } else {
             // Character output has no DOS write-error return.
             let _ = self.output.write(&[byte]).await;
-            Ok(InputResult::Character(byte))
+            Ok(DirectIo::Output(byte))
         }
     }
 
@@ -50,6 +68,7 @@ impl<'a> Input<'a> {
         buffer: FarPointer,
         capacity: u8,
     ) -> Result<(), DosError> {
+        self.flush().await;
         if capacity == 0 {
             return Ok(());
         }

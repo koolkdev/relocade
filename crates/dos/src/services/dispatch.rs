@@ -2,6 +2,7 @@
 
 use super::{console, directories, files, ioctl, memory, search, system, Services};
 use crate::ServiceError;
+use console::Input;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, MemoryView,
@@ -9,13 +10,13 @@ use relocade_machine::{
 
 interrupt_dispatch! {
     pub(crate) int21(ah, services: &Services<'_>) {
-        0x01: console::read_character_echo(services),
+        0x01: console::read_character_echo(Input::new(services)),
         0x02: console::write_character(services),
-        0x06: console::direct_io(services),
-        0x07: console::read_character(services),
-        0x08: console::read_character_check_break(services),
+        0x06: console::direct_io(Input::new(services)),
+        0x07: console::read_character(Input::new(services)),
+        0x08: console::read_character_check_break(Input::new(services)),
         0x09: console::write_string(services),
-        0x0a: console::read_buffered(services),
+        0x0a: console::read_buffered(Input::new(services)),
         0x0b: console::input_status(services),
         0x0c: console::flush_input(services),
         0x0e: directories::select_drive(services),
