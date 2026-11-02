@@ -45,6 +45,15 @@ where
     }
 }
 
+/// Shared DOS error ABI; successful services declare their own outputs and flags.
+#[real_mode_interrupt::interrupt(returns {
+    error @ DosError::InsufficientMemory { available } => { ax = error.code(), bx = available, cf = true },
+    error => { ax = error.code(), cf = true },
+})]
+pub(crate) fn return_error(error: DosError) -> DosError {
+    error
+}
+
 /// Returns a DOS result through the interrupt frame, preserving other flags.
 pub(crate) fn return_result(call: &mut CpuContext<'_>, result: Result<(), DosError>) {
     if let Err(error) = result {

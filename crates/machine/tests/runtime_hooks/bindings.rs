@@ -36,17 +36,17 @@ fn store_value(memory: &mut MemoryView<'_>, value: u16) {
 }
 
 #[interrupt(returns {
-    Some(__interrupt_call) => { si = __interrupt_call, zf = false },
-    None => missing,
+    Ok(__interrupt_call) => { si = __interrupt_call, zf = false },
+    Err(status) => missing(status),
 })]
 // Parameter and pattern names may coincide with the function and context names.
-fn position(position: Option<u16>) -> Option<u16> {
+fn position(position: Result<u16, u8>) -> Result<u16, u8> {
     position
 }
 
 #[interrupt(returns { status => { ah = status, cf = true } })]
-fn missing() -> u8 {
-    0x86
+fn missing(status: u8) -> u8 {
+    status
 }
 
 #[interrupt(args(value = ax), returns { value => { ax = value, cf = false } })]
@@ -57,15 +57,15 @@ async fn delayed(value: u16, ready: oneshot::Receiver<()>) -> u16 {
 
 interrupt_dispatch! {
     selection(ah) {
-        0x12: position(None),
+        0x12: position(Err(0x86)),
         0x13: nested,
-        _: missing,
+        _: missing(0x86),
     }
 }
 interrupt_dispatch! {
     nested(bl) {
-        0x45: position(Some(0x1357)),
-        _: missing,
+        0x45: position(Ok(0x1357)),
+        _: missing(0x86),
     }
 }
 interrupt_dispatch! {

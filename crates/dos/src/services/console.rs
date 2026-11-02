@@ -1,164 +1,143 @@
 use super::Services;
-use crate::{interrupt::return_result, ServiceError};
-use relocade_machine::{real_mode_interrupt::set_zero, CpuContext, FarPointer};
-use relocade_x86::Segment;
-use std::future::Future;
+use crate::{DosError, ServiceError};
+use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 
 pub(super) mod cooked;
 mod input;
-use input::read_line;
+mod request;
+use request::{capacity, Input, InputResult};
 
-/// AH=0Ch: flush stdin, then complete AL's input service in the current interrupt frame.
-pub(super) async fn flush_input(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    // A closed stdin skips the flush but still performs AL's requested service.
-    let input = services.process.files().handle(0).cloned();
-    let flush = async {
-        if let Ok(handle) = input {
-            let _ = handle.flush_input().await;
-        }
+/// AH=0Ch captures the requested input operation before flushing stdin.
+#[interrupt(context(memory), args(operation = al, byte = dl, buffer = ptr(ds, dx)), returns {
+    Ok(InputResult::Character(byte)) => { al = byte },
+    Ok(InputResult::Polled(Some(byte))) => { al = byte, zf = false },
+    Ok(InputResult::Polled(None)) => { al = 0u8, zf = true },
+    Ok(InputResult::Buffered) => {},
+    Err(error) => crate::interrupt::return_error(error),
+})]
+pub(super) async fn flush_input(
+    memory: &mut MemoryView<'_>,
+    services: &Services<'_>,
+    operation: u8,
+    byte: u8,
+    buffer: FarPointer,
+) -> Result<InputResult, DosError> {
+    let flush = services.process.files().handle(0).cloned();
+    let input = Input::new(services);
+    let capacity = if operation == 0x0a {
+        capacity(memory, buffer)
+    } else {
+        0
     };
-    // Construct the follow-up before flushing so a pending flush cannot reroute
-    // this request through newly replaced standard handles.
-    match call.cpu.al() {
-        super::READ_CHARACTER_ECHO | super::READ_CHARACTER | super::READ_CHARACTER_CHECK_BREAK => {
-            let echo = call.cpu.al() == super::READ_CHARACTER_ECHO;
-            let read = read_character(call, services, echo);
-            flush.await;
-            read.await;
+    // A closed stdin skips the flush but still performs the requested operation.
+    if let Ok(handle) = flush {
+        let _ = handle.flush_input().await;
+    }
+    match operation {
+        0x01 => input.character(true).await.map(InputResult::Character),
+        0x07 => input.character(false).await.map(InputResult::Character),
+        0x08 => input.character(false).await.map(InputResult::Character),
+        0x06 => input.direct(byte).await,
+        0x0a => {
+            input.buffered(memory, buffer, capacity).await?;
+            Ok(InputResult::Buffered)
         }
-        super::DIRECT_CONSOLE_IO => {
-            let read = direct_io(call, services);
-            flush.await;
-            read.await;
-        }
-        super::READ_BUFFERED => {
-            let read = read_buffered(call, services);
-            flush.await;
-            read.await;
-        }
-        _ => {
-            flush.await;
-            call.cpu.set_al(0);
-        }
+        _ => Ok(InputResult::Character(0)),
     }
 }
 
-/// AH=0Bh: report stdin availability without consuming input or changing flags.
-pub(super) async fn input_status(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    // Closed stdin falls back to the console; AH=0Bh has no handle-error return.
+/// AH=0Bh reports stdin availability without consuming input or changing flags.
+#[interrupt(returns { status => { al = status } })]
+pub(super) async fn input_status(services: &Services<'_>) -> u8 {
     let input = services.process.files().handle(0).cloned();
     let available = match input {
         Ok(handle) => handle.input_available().await,
         Err(_) => services.dos.devices().console().input_available().await,
     }
     .unwrap_or(false);
-    call.cpu.set_al(if available { 0xff } else { 0 });
-}
-
-/// AH=06h: DL=FFh polls stdin without echo; other values write a byte to stdout.
-pub(super) fn direct_io<'a, 'b, 'c>(
-    call: &'a mut CpuContext<'b>,
-    services: &'a Services<'c>,
-) -> impl Future<Output = ()> + use<'a, 'b, 'c> {
-    let byte = call.cpu.dl();
-    let input = services.process.files().readable_handle(0);
-    let output = services.stdout();
-    async move {
-        if byte == 0xff {
-            let result = match input {
-                Ok(handle) => input::try_read_character(&handle).await,
-                Err(error) => Err(error),
-            };
-            let character = match result {
-                Ok(character) => character,
-                Err(error) => return return_result(call, Err(error)),
-            };
-            call.cpu.set_al(character.unwrap_or(0));
-            set_zero(call.cpu, &mut call.memory, character.is_none());
-        } else {
-            // Like AH=09h, character output has no write-error return.
-            let _ = output.write(&[byte]).await;
-            call.cpu.set_al(byte);
-        }
+    if available {
+        0xff
+    } else {
+        0
     }
 }
 
-/// AH=01h/07h/08h: wait for one character with the requested echo behavior.
-pub(super) fn read_character<'a, 'b, 'c>(
-    call: &'a mut CpuContext<'b>,
-    services: &'a Services<'c>,
-    echo: bool,
-) -> impl Future<Output = ()> + use<'a, 'b, 'c> {
-    let input = services.process.files().readable_handle(0);
-    let output = echo.then(|| services.stdout());
-    async move {
-        let handle = match input {
-            Ok(input) => input,
-            Err(error) => return return_result(call, Err(error)),
-        };
-        let byte = match input::read_character(&handle).await {
-            Ok(byte) => byte,
-            Err(error) => return return_result(call, Err(error)),
-        };
-        if let Some(output) = output {
-            let _ = output.write_cooked(byte).await;
-        }
-        call.cpu.set_al(byte);
-    }
+/// AH=06h polls stdin for DL=FFh; other values write a byte to stdout.
+#[interrupt(args(byte = dl), returns {
+    Ok(InputResult::Character(byte)) => { al = byte },
+    Ok(InputResult::Polled(Some(byte))) => { al = byte, zf = false },
+    Ok(InputResult::Polled(None)) => { al = 0u8, zf = true },
+    Ok(InputResult::Buffered) => {},
+    Err(error) => crate::interrupt::return_error(error),
+})]
+pub(super) async fn direct_io(services: &Services<'_>, byte: u8) -> Result<InputResult, DosError> {
+    Input::new(services).direct(byte).await
 }
 
-/// AH=02h: write DL through stdout; AL is the last output byte.
-pub(super) async fn write_character(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    let byte = call.cpu.dl();
+/// AH=01h waits for a character and echoes it through the retained stdout.
+#[interrupt(returns {
+    Ok(byte) => { al = byte },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+pub(super) async fn read_character_echo(services: &Services<'_>) -> Result<u8, DosError> {
+    Input::new(services).character(true).await
+}
+
+/// AH=07h waits for a character without echo.
+#[interrupt(returns {
+    Ok(byte) => { al = byte },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+pub(super) async fn read_character(services: &Services<'_>) -> Result<u8, DosError> {
+    Input::new(services).character(false).await
+}
+
+/// AH=08h currently shares AH=07h behavior; DOS break handling is not implemented.
+#[interrupt(returns {
+    Ok(byte) => { al = byte },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+pub(super) async fn read_character_check_break(services: &Services<'_>) -> Result<u8, DosError> {
+    read_character(services).await
+}
+
+/// AH=02h writes through stdout and returns the last output byte.
+#[interrupt(args(byte = dl), returns { last => { al = last } })]
+pub(super) async fn write_character(services: &Services<'_>, byte: u8) -> u8 {
     let _ = services.stdout().write_cooked(byte).await;
-    let last = if byte == b'\t' { b' ' } else { byte };
-    call.cpu.set_al(last);
-}
-
-/// AH=0Ah: edit a line into DS:DX's buffer, whose capacity includes the final CR.
-pub(super) fn read_buffered<'a, 'b, 'c>(
-    call: &'a mut CpuContext<'b>,
-    services: &'a Services<'c>,
-) -> impl Future<Output = ()> + use<'a, 'b, 'c> {
-    let buffer = FarPointer {
-        segment: call.cpu.segment(Segment::Ds).selector,
-        offset: call.cpu.dx(),
-    };
-    let mut capacity = [0];
-    call.memory
-        .read_wrapping(buffer, &mut capacity)
-        .expect("real-mode line buffer");
-    let input = services.process.files().readable_handle(0);
-    let output = services.stdout();
-    async move {
-        if capacity[0] == 0 {
-            return;
-        }
-        let input = match input {
-            Ok(input) => input,
-            Err(error) => return return_result(call, Err(error)),
-        };
-        let bytes = match read_line(&input, capacity[0], &output).await {
-            Ok(bytes) => bytes,
-            Err(error) => return return_result(call, Err(error)),
-        };
-        let count = (bytes.len() - 1) as u8; // DOS's count excludes the carriage return.
-        call.memory
-            .write_wrapping(buffer.wrapping_add(1), &[count])
-            .expect("real-mode line count");
-        call.memory
-            .write_wrapping(buffer.wrapping_add(2), &bytes)
-            .expect("real-mode line buffer");
+    if byte == b'\t' {
+        b' '
+    } else {
+        byte
     }
 }
 
-/// AH=09h: output the '$'-terminated string at DS:DX and return AL='$'.
-pub(super) async fn write_string(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    let source = FarPointer {
-        segment: call.cpu.segment(Segment::Ds).selector,
-        offset: call.cpu.dx(),
-    };
-    let memory = &call.memory;
+/// AH=0Ah edits a line; buffer capacity includes the final carriage return.
+#[interrupt(context(memory), args(buffer = ptr(ds, dx)), returns {
+    Ok(()) => {},
+    Err(error) => crate::interrupt::return_error(error),
+})]
+pub(super) async fn read_buffered(
+    memory: &mut MemoryView<'_>,
+    services: &Services<'_>,
+    buffer: FarPointer,
+) -> Result<(), DosError> {
+    let capacity = capacity(memory, buffer);
+    Input::new(services)
+        .buffered(memory, buffer, capacity)
+        .await
+}
+
+/// AH=09h outputs a '$'-terminated string and returns AL='$'.
+#[interrupt(context(memory), args(source = ptr(ds, dx)), returns {
+    Ok(byte) => { al = byte },
+    Err(error) => super::fatal(services, error),
+})]
+pub(super) async fn write_string(
+    memory: &mut MemoryView<'_>,
+    services: &Services<'_>,
+    source: FarPointer,
+) -> Result<u8, ServiceError> {
     let output = services.stdout();
     for index in 0..=u16::MAX {
         let mut byte = [0];
@@ -166,10 +145,9 @@ pub(super) async fn write_string(call: &mut CpuContext<'_>, services: &Services<
             .read_wrapping(source.wrapping_add(usize::from(index)), &mut byte)
             .expect("real-mode byte address");
         if byte[0] == b'$' {
-            call.cpu.set_al(b'$');
-            return;
+            return Ok(b'$');
         }
         let _ = output.write_cooked(byte[0]).await;
     }
-    services.exit(&mut call.memory, Err(ServiceError::UnterminatedString))
+    Err(ServiceError::UnterminatedString)
 }
