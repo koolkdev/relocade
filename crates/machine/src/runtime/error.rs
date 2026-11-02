@@ -6,6 +6,9 @@ use std::fmt;
 #[derive(Debug)]
 pub enum Error {
     Generate(BuildError),
+    Compile(relocade_x86::BlockError),
+    #[cfg(feature = "worker")]
+    Worker(String),
     Configuration(ConfigurationError),
     Memory(MemoryError),
     Wasm(relocade_wasm_runtime::Error),
@@ -15,6 +18,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Generate(error) => write!(f, "generate execution module: {error}"),
+            Self::Compile(error) => write!(f, "compile guest code: {error}"),
+            #[cfg(feature = "worker")]
+            Self::Worker(error) => write!(f, "compiler worker: {error}"),
             Self::Configuration(error) => error.fmt(f),
             Self::Memory(error) => error.fmt(f),
             Self::Wasm(error) => error.fmt(f),
@@ -26,6 +32,9 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Generate(error) => Some(error),
+            Self::Compile(error) => Some(error),
+            #[cfg(feature = "worker")]
+            Self::Worker(_) => None,
             Self::Configuration(error) => Some(error),
             Self::Memory(error) => Some(error),
             Self::Wasm(error) => Some(error),
@@ -36,6 +45,12 @@ impl std::error::Error for Error {
 impl From<BuildError> for Error {
     fn from(error: BuildError) -> Self {
         Self::Generate(error)
+    }
+}
+
+impl From<relocade_x86::BlockError> for Error {
+    fn from(error: relocade_x86::BlockError) -> Self {
+        Self::Compile(error)
     }
 }
 

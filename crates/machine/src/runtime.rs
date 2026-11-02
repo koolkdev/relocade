@@ -39,6 +39,8 @@
 #[allow(unsafe_code)]
 mod call;
 mod code;
+#[cfg(feature = "worker")]
+mod compiler;
 mod context;
 mod dispatch;
 mod error;
@@ -51,6 +53,8 @@ pub mod real_mode_interrupt;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
+#[cfg(feature = "worker")]
+pub use compiler::{CompiledCode, CompilerWorker, OwnedBlockSnapshot};
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
@@ -120,6 +124,40 @@ impl Cpu {
         machine
             .dispatch
             .install_module(&mut machine.backend, &machine.bindings, bytes, entries)
+            .await
+    }
+
+    /// Creates an independent compiler worker with this CPU's target and engine.
+    /// It retains no CPU, guest memory, device state, or backend borrow.
+    #[cfg(feature = "worker")]
+    pub fn compiler_worker(&self) -> CompilerWorker {
+        use relocade_wasm_runtime::WasmBackend;
+        CompilerWorker::new(
+            self.machine.backend.compiler(),
+            self.machine.bindings.configuration().execution_target(),
+        )
+    }
+
+    /// Instantiates an already compiled module and publishes its entries.
+    /// The module must come from a compatible backend compiler. The entry,
+    /// snapshot validity, and start-function contracts of [`Self::install_module`]
+    /// also apply here. Addresses are linear, not CS-relative EIPs.
+    ///
+    /// # Panics
+    /// Panics if a service is pending or parked.
+    pub async fn install_compiled_module(
+        &mut self,
+        module: &relocade_wasm_runtime::Module,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before installing"
+        );
+        let machine = self.machine_mut();
+        machine
+            .dispatch
+            .install_compiled_module(&mut machine.backend, &machine.bindings, module, entries)
             .await
     }
 

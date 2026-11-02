@@ -1,5 +1,42 @@
 # Worker tasks and messages
 
+## Compiling guest snapshots
+
+With the `worker` feature, `cpu.compiler_worker()` creates a host worker holding
+an independent backend compiler and the CPU's execution target. Both x86 IR
+generation and Wasm compilation run there. The worker retains no live CPU,
+memory view, backend borrow, or device state.
+
+```rust,ignore
+use relocade_machine::{DispatchEntry, OwnedBlockSnapshot};
+
+let compiler = cpu.compiler_worker();
+let compiled = compiler.compile_blocks(vec![OwnedBlockSnapshot {
+    start_eip,
+    bytes: instruction_bytes,
+    instruction_limit: 64,
+}]).await?;
+let entries: Vec<_> = compiled.entries.iter().map(|entry| DispatchEntry {
+    address: cs_base + entry.start_eip,
+    export: &entry.export,
+}).collect();
+cpu.install_compiled_module(&compiled.module, &entries).await?;
+```
+
+Keep execution stopped and the captured bytes valid through this manual flow.
+Entry EIPs are CS-relative; dispatch addresses include the CS base. The returned
+byte lengths describe consumed instruction bytes, excluding unused snapshot
+suffixes. Instantiation and registration stay on the CPU's owner and use the
+same dispatch and hook rules as `install_module`.
+
+Keep the compiler worker alive and await accepted work through completion,
+including failed compilations. Browser module delivery needs a host event-loop
+turn; a continuously runnable CPU task must arrange one before consuming a
+posted result. This primitive supplies no hotness policy, live-code validation,
+or automatic installation.
+
+## General worker tasks
+
 Enable the machine's `worker` feature for `worker::Thread`. This is a direct
 reexport of `web-thread-select`; the Wasm runtime exposes the same worker API
 through its own `worker` feature. The application creates workers and keeps them
