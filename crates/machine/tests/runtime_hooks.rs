@@ -381,3 +381,6 @@ async fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
 
 #[path = "runtime_hooks/installation.rs"]
 mod installation;
+
+#[path = "runtime_hooks/bindings.rs"]
+mod bindings;

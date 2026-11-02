@@ -1,5 +1,5 @@
 //! BIOS adapter metadata. Identification never changes VGA registers or memory.
-use super::{unsupported, MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES};
+use super::{MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES};
 use relocade_machine::MemoryView;
 
 const EQUIPMENT: u32 = 0x410;
@@ -77,7 +77,7 @@ pub(super) fn display_codes(memory: &MemoryView<'_>) -> [u8; 2] {
     codes
 }
 
-pub(super) fn display_combination(call: &mut crate::BiosContext<'_>) {
+pub(super) fn display_combination(call: &mut crate::BiosContext<'_>) -> Option<()> {
     match call.cpu.al() {
         0 => call
             .cpu
@@ -92,7 +92,8 @@ pub(super) fn display_combination(call: &mut crate::BiosContext<'_>) {
                 .write_u8(DISPLAY_COMBINATION, index.map_or(0xff, |i| i as u8))
                 .expect("display combination");
         }
-        _ => return unsupported(call),
+        _ => return None,
     }
     call.cpu.set_al(0x1a);
+    Some(())
 }

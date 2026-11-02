@@ -6,7 +6,27 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
 mod compiler_value;
 mod input;
+mod interrupt;
+mod interrupt_dispatch;
 mod wasm_abi;
+
+#[proc_macro_attribute]
+pub fn interrupt(args: TokenStream, item: TokenStream) -> TokenStream {
+    let binding = parse_macro_input!(args as interrupt::Binding);
+    let function = parse_macro_input!(item as syn::ItemFn);
+    interrupt::expand(binding, function)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro]
+pub fn interrupt_dispatch(input: TokenStream) -> TokenStream {
+    let table = parse_macro_input!(input as interrupt_dispatch::Table);
+    table
+        .expand()
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 #[proc_macro_derive(WasmAbi)]
 pub fn derive_wasm_abi(input: TokenStream) -> TokenStream {

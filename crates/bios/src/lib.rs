@@ -33,13 +33,16 @@
 //! 0040:006C and 0040:0070. A machine timer must update these fields.
 #![forbid(unsafe_code)]
 
+pub mod clock;
+mod interrupt;
 mod keyboard;
 mod screen;
 mod video;
 
+pub use interrupt::hooks;
+use interrupt::BiosContext;
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::{real_mode_interrupt, Hook};
-use relocade_machine::{CpuStateAccess, IoBus, MemoryBus, MemoryView};
+use relocade_machine::{real_mode_interrupt, IoBus, MemoryView};
 pub use screen::write_text;
 
 const BIOS_SEGMENT: u16 = 0xf000;
@@ -49,8 +52,6 @@ const KEYBOARD_ENTRY: u16 = 0xff10;
 const KEYBOARD_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + KEYBOARD_ENTRY as u32;
 const VIDEO_ENTRY: u16 = 0xff20;
 const VIDEO_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + VIDEO_ENTRY as u32;
-const CLOCK_TICKS: u32 = 0x46c;
-const MIDNIGHT_ROLLOVER: u32 = 0x470;
 
 /// Initializes clock/video data, BIOS vectors, ROM fonts and hook instructions.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
@@ -59,7 +60,9 @@ const MIDNIGHT_ROLLOVER: u32 = 0x470;
 /// the A0000 aperture before mode setup restores the color text aperture.
 pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     video::initialize(memory, io);
-    memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
+    memory
+        .write(clock::CLOCK_TICKS, &[0; 5])
+        .expect("BIOS clock data");
     let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
     for (vector, offset) in [
         (0x1a, CLOCK_ENTRY),
@@ -74,66 +77,5 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
         memory
             .write_backing(address, &real_mode_interrupt::HOOK_STUB)
             .expect("BIOS ROM backing");
-    }
-}
-
-/// Returns service entries for installation alongside another environment.
-/// The keyboard is captured by their handlers and may be shared with console input.
-pub fn hooks(
-    cpu: CpuStateAccess,
-    memory: MemoryBus,
-    keyboard: Keyboard,
-) -> impl Iterator<Item = Hook> {
-    [
-        hook(CLOCK_ADDRESS, cpu.clone(), memory.clone(), clock),
-        hook(
-            KEYBOARD_ADDRESS,
-            cpu.clone(),
-            memory.clone(),
-            async move |call| keyboard::interrupt(call, &keyboard).await,
-        ),
-        hook(VIDEO_ADDRESS, cpu, memory, video::interrupt),
-    ]
-    .into_iter()
-    .flatten()
-}
-
-struct BiosContext<'call> {
-    cpu: &'call CpuStateAccess,
-    memory: MemoryView<'call>,
-    io: &'call IoBus,
-}
-
-fn hook<F>(address: u32, cpu: CpuStateAccess, memory: MemoryBus, handler: F) -> [Hook; 3]
-where
-    F: AsyncFn(&mut BiosContext<'_>) + 'static,
-{
-    real_mode_interrupt::hook(address, cpu.clone(), async move || {
-        handler(&mut BiosContext {
-            cpu: &cpu,
-            memory: memory.view(),
-            io: memory.io(),
-        })
-        .await
-    })
-}
-
-async fn clock(call: &mut crate::BiosContext<'_>) {
-    if call.cpu.ah() == 0 {
-        let mut data = [0; 5];
-        call.memory
-            .read(CLOCK_TICKS, &mut data)
-            .expect("BIOS clock data");
-        let cpu = call.cpu;
-        cpu.set_dx(u16::from_le_bytes([data[0], data[1]]));
-        cpu.set_cx(u16::from_le_bytes([data[2], data[3]]));
-        cpu.set_al(data[4]);
-        call.memory
-            .write(MIDNIGHT_ROLLOVER, &[0])
-            .expect("BIOS midnight rollover");
-    } else {
-        // Unsupported BIOS function.
-        call.cpu.set_ah(0x86);
-        real_mode_interrupt::set_carry(call.cpu, &mut call.memory, true);
     }
 }

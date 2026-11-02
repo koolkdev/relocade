@@ -3,8 +3,8 @@
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
 //! size and the fixed physical map. [`CpuStateAccess`] and [`Memory`] retain live
 //! resources independently of the runner. Host services capture them once and use
-//! ordinary Rust awaits. [`CpuContext`] remains a convenience for stopped embedding
-//! access, borrowing the resource handles with the machine's access policy.
+//! ordinary Rust awaits. [`CpuContext`] provides borrowed access for embeddings
+//! and host services, using the machine's memory and I/O policy.
 //!
 //! ```
 //! use relocade_machine::{CpuConfig, MachineConfig};

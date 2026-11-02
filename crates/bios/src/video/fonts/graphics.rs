@@ -1,15 +1,15 @@
 //! Graphics font selection changes BIOS pointers and geometry, not VGA font memory.
 use super::rom;
-use crate::video::{unsupported, CHARACTER_HEIGHT, LAST_ROW};
+use crate::video::{CHARACTER_HEIGHT, LAST_ROW};
 
-pub(super) fn select(call: &mut crate::BiosContext<'_>) {
+pub(super) fn select(call: &mut crate::BiosContext<'_>) -> Option<()> {
     let guest_pointer =
         (u32::from(call.cpu.segments().es.selector) << 16) | u32::from(call.cpu.bp());
     if call.cpu.al() == 0x20 {
         call.memory
             .write_u32(0x1f * 4, guest_pointer)
             .expect("high character font vector");
-        return;
+        return Some(());
     }
     let (pointer, height) = match call.cpu.al() {
         0x21 => (guest_pointer, call.cpu.cx()),
@@ -25,7 +25,7 @@ pub(super) fn select(call: &mut crate::BiosContext<'_>) {
     };
     // Keep the same supported glyph heights as the existing BIOS font writer.
     if !(1..=32).contains(&height) {
-        return unsupported(call);
+        return None;
     }
     let rows: u8 = match call.cpu.bl() {
         0 => call.cpu.dl(),
@@ -42,4 +42,5 @@ pub(super) fn select(call: &mut crate::BiosContext<'_>) {
     call.memory
         .write_u8(LAST_ROW, rows.wrapping_sub(1))
         .expect("video rows");
+    Some(())
 }

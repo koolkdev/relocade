@@ -1,5 +1,5 @@
 //! The legacy BIOS color service programs VGA Attribute Controller registers.
-use super::{modes, unsupported, write_attribute};
+use super::{modes, write_attribute};
 use crate::screen;
 use crate::video::CRTC_PORT;
 use relocade_machine::{IoBus, MemoryView};
@@ -25,10 +25,10 @@ pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>, mode: u8) {
         .expect("video compatibility shadows");
 }
 
-pub(in crate::video) fn interrupt(call: &mut crate::BiosContext<'_>) {
+pub(in crate::video) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
     // IBM's legacy CGA color service does nothing with monochrome CRTC routing.
     if call.memory.read_u16(CRTC_PORT).expect("CRTC port") == MONO_CRTC_INDEX_PORT {
-        return;
+        return Some(());
     }
     let value = call.cpu.bl();
     let previous = call
@@ -57,8 +57,9 @@ pub(in crate::video) fn interrupt(call: &mut crate::BiosContext<'_>) {
                 .expect("video color shadow");
             foreground_palette(call.io, shadow);
         }
-        _ => unsupported(call),
+        _ => return None,
     }
+    Some(())
 }
 
 fn foreground_palette(io: &IoBus, shadow: u8) {

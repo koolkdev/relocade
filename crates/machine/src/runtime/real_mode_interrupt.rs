@@ -4,7 +4,13 @@
 //! When the async handler returns, the adapter advances to the guest IRET,
 //! which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
+//!
 //! The second byte resumes the top suspended host call after guest IRQ execution.
+
+mod bindings;
+#[doc(hidden)]
+pub use crate::cpu::registers;
+pub use bindings::{interrupt, interrupt_dispatch};
 
 use super::Hook;
 use crate::{CpuStateAccess, MemoryView};
