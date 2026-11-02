@@ -14,6 +14,8 @@ mod registration;
 pub use crate::cpu::registers;
 pub use crate::FarPointer;
 pub use bindings::{interrupt, interrupt_dispatch};
+#[doc(hidden)]
+pub use futures_util::future::Either;
 pub use registration::Interrupts;
 #[doc(hidden)]
 pub use relocade_x86::{Segment, SegmentRegister};
@@ -22,6 +24,12 @@ use super::Hook;
 use crate::{CpuStateAccess, MemoryView};
 use relocade_x86::{abi, ExecutionExitValues, HostExit};
 use std::future::Future;
+
+// Rust 2021 opaque return types must mention captured input lifetimes, including
+// those inherited from a service's generic owner. This bound has no runtime work.
+#[doc(hidden)]
+pub trait Captures<T: ?Sized> {}
+impl<T: ?Sized, F: ?Sized> Captures<T> for F {}
 
 /// Entry NOP, resume NOP, and completion IRET inside the environment's service code.
 /// The adapter supplies all three positions in a batch. The return

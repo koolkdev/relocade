@@ -16,6 +16,16 @@ struct Request {
     offset: u16,
 }
 
+struct Value<'source, T>(&'source T);
+
+impl<'source, T> Value<'source, T> {
+    #[interrupt(args(value = ax), returns { value => { ax = value } })]
+    fn identity(&self, value: u16) -> u16 {
+        let _ = self.0;
+        value
+    }
+}
+
 #[interrupt(
     context(memory),
     args(request = Request { page: bh, offset: si }, position = (cx, dx), count = edi),
@@ -101,6 +111,8 @@ async fn check_bindings() {
         .write(0x100, &[0x34, 0x12, 0x78, 0x56, 0x57, 0x0a])
         .unwrap();
     let before = cpu.snapshot();
+    drop(store_value_entry(&mut call));
+    assert_eq!(call.memory.read_u16(0x302).unwrap(), 0);
     store_value_entry(&mut call).await;
     assert_eq!(call.memory.read_u16(0x302).unwrap(), 0x2345);
     assert_eq!(cpu.snapshot(), before);
@@ -125,7 +137,11 @@ async fn check_bindings() {
     assert_eq!(cpu.eax(), 0x1234_865a);
     assert_eq!(cpu.esi(), 0x8765_4321);
     cpu.set_ah(0x13);
-    selection(&mut call).await;
+    let selected = selection(&mut call);
+    cpu.set_ah(0xff);
+    cpu.set_bl(0);
+    selected.await;
+    assert_eq!(cpu.ah(), 0xff, "only the selected service's outputs change");
     assert_eq!(cpu.esi(), 0x8765_1357);
     cpu.set_ah(0xff);
     relocade_machine::real_mode_interrupt::set_carry(&cpu, &mut call.memory, false);
@@ -135,16 +151,17 @@ async fn check_bindings() {
     call.memory.read(0x100, &mut frame).unwrap();
     assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x0a]);
 
-    // Async inputs are captured on first poll. Cancellation never applies outputs.
+    // Binding captures arguments before the first poll. Service work stays lazy.
     cpu.set_ax(10);
     let (ready, wait) = oneshot::channel();
     let mut pending = Box::pin(wait_for_ready(&mut call, wait));
+    cpu.set_ax(20);
     let mut cx = Context::from_waker(std::task::Waker::noop());
     assert!(pending.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(cpu.ax(), 10);
+    assert_eq!(cpu.ax(), 20);
     memory.view().read(0x100, &mut frame).unwrap();
     assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x0a]);
-    cpu.set_ax(20);
+    cpu.set_ax(25);
     ready.send(()).unwrap();
     assert!(pending.as_mut().poll(&mut cx).is_ready());
     drop(pending);
@@ -161,6 +178,14 @@ async fn check_bindings() {
     assert_eq!(cpu.ax(), 30);
     call.memory.read(0x100, &mut frame).unwrap();
     assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x0a]);
+
+    // A method's future may also borrow its owner's type and lifetime parameters.
+    let value = 42;
+    let owner = Value(&value);
+    let bound = owner.identity_entry(&mut call);
+    cpu.set_ax(40);
+    bound.await;
+    assert_eq!(cpu.ax(), 30);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

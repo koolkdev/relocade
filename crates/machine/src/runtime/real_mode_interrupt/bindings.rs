@@ -36,7 +36,10 @@
 //! retain their receiver. A table can route to `keyboard.read_key`, and can name
 //! typed parameters after its selector: `keyboard(ah, keyboard: &Keyboard)`.
 //!
-//! Register arguments are captured before borrowing service resources or awaiting.
+//! Calling a dispatcher selects the service and captures its register arguments
+//! immediately, including nested tables. The returned future runs the service and
+//! applies its result when polled. It can wait behind another operation without
+//! rereading registers that an intervening IRQ may have changed.
 //! Scalar names use the existing CPU accessors; `(cx, dx)` represents a u32 with
 //! CX as its high word. Records map each field to a register or word pair, for
 //! example `args(point = Point { x: cx, y: dx })`. Computation belongs in the
