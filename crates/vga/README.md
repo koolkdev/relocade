@@ -213,7 +213,24 @@ inline attributes accompany control characters too, and scrolling targets BH's
 page. This deliberately differs from early IBM ROM quirks that consume attributes
 only for printable characters or scroll the active page. AL values above three
 and invalid pages for nonempty strings return AH=86h with carry set.
-Graphics character recognition (AH=08h) remains unsupported.
+
+AH=08h reads a text cell or recognizes a character in packed graphics modes
+04h–06h. Graphics reads sample the eight rows at the page's stored BIOS cursor,
+then search the live fonts for the first exact match. Modes 04h/05h treat every
+nonzero two-bit pixel as set; mode 06h uses its bitmap directly. Color indices,
+not DAC colors, determine the pattern. The search covers INT 43h characters
+00h–7Fh, followed by INT 1Fh characters 80h–FFh unless that vector is null.
+Font offsets wrap within their segment, using the shared memory transfer API.
+
+Graphics returns AH=0 and AL=the matched character, or AX=0 when no glyph matches.
+Duplicate and blank glyphs return the lowest matching code. This follows the
+[IBM VGA ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
+(x2579–x262C and x2A04–x2A1E). Cursor/page state and VGA access registers are
+preserved; memory reads still load the hardware latches. Out-of-grid cursors
+return zero, and invalid pages return AH=86h with carry set. Planar and indexed
+graphics recognition remains unsupported. Rust callers use the same service as
+`read_character(memory, io, page) -> Option<CharacterCell>`, with attribute zero
+for graphics. Display captures and rendering are unaffected.
 
 BIOS text operations read columns, rows and page allocation from the BIOS data
 area. Cursor addresses, character access, teletype wrapping and scroll windows

@@ -21,7 +21,7 @@ mod strings;
 
 pub use characters::{
     read_character, teletype, write_characters, write_characters_preserving_attributes,
-    write_characters_with_attribute, CharacterRun, TextCell,
+    write_characters_with_attribute, CharacterCell, CharacterRun,
 };
 pub use cursor::{cursor, select_page, set_cursor, set_cursor_shape, CursorState};
 pub(super) use fonts::Glyph;

@@ -1,26 +1,28 @@
-//! BIOS character output and text-cell reads.
+//! BIOS character output and recognition at the stored cursor.
 
 use crate::screen;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 
-/// Character and attribute at a text page's stored cursor.
+/// Character at a page's stored cursor. Graphics reads return attribute zero.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TextCell {
+pub struct CharacterCell {
     pub character: u8,
     pub attribute: u8,
 }
 
-/// Reads a text cell. Graphics modes and invalid pages return None.
-#[interrupt(context(memory), args(page = bh), returns {
+/// Reads a text cell or recognizes a packed graphics glyph from live video memory.
+/// Graphics returns the first matching character, or zero if no glyph matches.
+/// Unsupported modes and invalid pages return None.
+#[interrupt(context(memory, io), args(page = bh), returns {
     Some(cell) => { al = cell.character, ah = cell.attribute },
     None => crate::interrupt::unsupported,
 })]
-pub fn read_character(memory: &MemoryView<'_>, page: u8) -> Option<TextCell> {
-    if !screen::is_text_mode(memory) || !screen::valid_page(memory, page) {
+pub fn read_character(memory: &MemoryView<'_>, io: &IoBus, page: u8) -> Option<CharacterCell> {
+    if !screen::valid_page(memory, page) {
         return None;
     }
-    let [character, attribute] = screen::read_cell(memory, page);
-    Some(TextCell {
+    let [character, attribute] = screen::read_cell(memory, io, page)?;
+    Some(CharacterCell {
         character,
         attribute,
     })

@@ -1,7 +1,7 @@
 use super::{video, PROGRAM};
 use crate::common;
 use relocade_bios::video::{
-    self as bios, CharacterRun, CursorState, ModeInfo, ScrollDirection, TextCell, Window,
+    self as bios, CharacterCell, CharacterRun, CursorState, ModeInfo, ScrollDirection, Window,
 };
 
 #[test]
@@ -52,8 +52,8 @@ fn rust_video_services_and_interrupts_share_state() {
                 })
             );
             assert_eq!(
-                bios::read_character(&context.memory, 2),
-                Some(TextCell {
+                bios::read_character(&context.memory, context.io, 2),
+                Some(CharacterCell {
                     character: b'G',
                     attribute: 0x2e
                 })
