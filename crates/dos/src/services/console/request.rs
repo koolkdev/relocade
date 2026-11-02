@@ -4,12 +4,6 @@ use super::input;
 use crate::{console::CharacterOutput, files::Handle, services::Services, DosError};
 use relocade_machine::{FarPointer, MemoryView};
 
-/// AH=06h only changes ZF when reading; output preserves it.
-pub(in crate::services) enum DirectIo {
-    Output(u8),
-    Input(Option<u8>),
-}
-
 pub(in crate::services) struct Input<'a> {
     source: Result<Handle, DosError>,
     output: CharacterOutput<'a>,
@@ -31,15 +25,14 @@ impl<'a> Input<'a> {
         Ok(byte)
     }
 
-    pub(super) async fn direct(&self, byte: u8) -> Result<DirectIo, DosError> {
-        if byte == 0xff {
-            let handle = self.source.as_ref().map_err(|error| *error)?;
-            input::try_read_character(handle).await.map(DirectIo::Input)
-        } else {
-            // Character output has no DOS write-error return.
-            let _ = self.output.write(&[byte]).await;
-            Ok(DirectIo::Output(byte))
-        }
+    pub(super) async fn poll_character(&self) -> Result<Option<u8>, DosError> {
+        let handle = self.source.as_ref().map_err(|error| *error)?;
+        input::try_read_character(handle).await
+    }
+
+    pub(super) async fn write_raw(&self, byte: u8) {
+        // Character output has no DOS write-error return.
+        let _ = self.output.write(&[byte]).await;
     }
 
     pub(super) async fn buffered(

@@ -8,8 +8,8 @@ use relocade_machine::{
 pub(super) mod cooked;
 mod input;
 mod request;
+use request::capacity;
 pub(super) use request::Input;
-use request::{capacity, DirectIo};
 
 /// AH=0Ch flushes stdin, then invokes the input service selected by AL.
 #[interrupt(context(call))]
@@ -54,15 +54,27 @@ pub(super) async fn input_status(services: &Services<'_>) -> u8 {
     }
 }
 
-/// AH=06h polls stdin for DL=FFh; other values write a byte to stdout.
-#[interrupt(args(byte = dl), returns {
-    Ok(DirectIo::Output(byte)) => { al = byte },
-    Ok(DirectIo::Input(Some(byte))) => { al = byte, zf = false },
-    Ok(DirectIo::Input(None)) => { al = 0u8, zf = true },
+// AH=06h polls stdin for DL=FFh; other values write a byte to stdout.
+interrupt_dispatch! {
+    pub(super) direct_io(dl, input: Input<'_>) {
+        0xff: poll_character(input),
+        _: write_raw_character(input),
+    }
+}
+
+#[interrupt(returns {
+    Ok(Some(byte)) => { al = byte, zf = false },
+    Ok(None) => { al = 0u8, zf = true },
     Err(error) => crate::interrupt::return_error(error),
 })]
-pub(super) async fn direct_io(input: Input<'_>, byte: u8) -> Result<DirectIo, DosError> {
-    input.direct(byte).await
+async fn poll_character(input: Input<'_>) -> Result<Option<u8>, DosError> {
+    input.poll_character().await
+}
+
+#[interrupt(args(byte = dl), returns { byte => { al = byte } })]
+async fn write_raw_character(input: Input<'_>, byte: u8) -> u8 {
+    input.write_raw(byte).await;
+    byte
 }
 
 /// AH=01h waits for a character and echoes it through the retained stdout.
