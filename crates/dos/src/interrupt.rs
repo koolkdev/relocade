@@ -35,6 +35,8 @@ impl<'call> DosContext<'call> {
 }
 
 /// Captures the session and resolves its active process at each hook entry.
+/// Pending device requests admit IRQs. Ready services finish in the same poll;
+/// normal completion restores live IF, while abandonment preserves guest state.
 pub(crate) fn hook<F>(
     address: u32,
     cpu: CpuStateAccess,
@@ -57,7 +59,7 @@ where
             dos: &session,
             process: &process,
         };
-        handler(&mut call).await
+        real_mode_interrupt::with_interrupts_enabled(&cpu, handler(&mut call)).await
     })
 }
 

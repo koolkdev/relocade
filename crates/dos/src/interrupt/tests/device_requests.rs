@@ -70,6 +70,7 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                 .unwrap();
             {
                 let mut call = dos.cpu().context();
+                call.cpu.set_eflags(2);
                 call.cpu.set_ax(function);
                 call.cpu.set_bx(1);
                 call.cpu.set_cx(1);
@@ -80,6 +81,7 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                 .as_mut()
                 .poll(&mut Context::from_waker(Waker::noop()))
                 .is_pending());
+            assert!(dos.cpu().cpu_state().interrupts_enabled());
             // Pending requests release the handle table and retain their own
             // destination even if the process changes its handles.
             dos.process()
@@ -96,6 +98,10 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
             assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
             let call = dos.cpu().context();
             assert!(!call.cpu.carry());
+            assert!(
+                !call.cpu.interrupts_enabled(),
+                "guest IRET restores caller IF"
+            );
             match function {
                 0x4000 => {
                     assert_eq!(call.cpu.ax(), 1);

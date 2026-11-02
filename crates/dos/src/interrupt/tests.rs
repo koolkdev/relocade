@@ -1,4 +1,5 @@
 mod device_requests;
+mod irqs;
 
 use crate::Dos;
 use relocade_machine::{timer_service, Runner};
