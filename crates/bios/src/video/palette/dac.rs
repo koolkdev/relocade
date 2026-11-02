@@ -1,10 +1,86 @@
 //! BIOS DAC color transfers and IBM VGA grayscale conversion.
-use relocade_machine::IoBus;
-use relocade_vga::registers::{DAC_DATA_PORT, DAC_READ_ADDRESS_PORT, DAC_WRITE_ADDRESS_PORT};
+use super::PaletteLoad;
+use crate::video::buffer_addresses;
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, FarPointer},
+    IoBus, MemoryView,
+};
+use relocade_vga::registers::{
+    DAC_DATA_PORT, DAC_MASK_PORT, DAC_READ_ADDRESS_PORT, DAC_WRITE_ADDRESS_PORT,
+};
 
-pub(super) fn read(io: &IoBus, index: u8) -> [u8; 3] {
+#[interrupt(context(memory, io), args(index = bl, red = dh, green = ch, blue = cl))]
+pub(in crate::video) fn set_color(
+    memory: &MemoryView<'_>,
+    io: &IoBus,
+    index: u8,
+    red: u8,
+    green: u8,
+    blue: u8,
+) {
+    PaletteLoad::for_color_write(memory).write(io, index, [[red, green, blue]]);
+}
+
+#[interrupt(context(io), args(index = bl), returns {
+    [red, green, blue] => { dh = red, ch = green, cl = blue },
+})]
+pub(in crate::video) fn color(io: &IoBus, index: u8) -> [u8; 3] {
     io.write_port(DAC_READ_ADDRESS_PORT, 1, u32::from(index));
     std::array::from_fn(|_| io.read_port(DAC_DATA_PORT, 1) as u8)
+}
+
+#[interrupt(context(memory, io), args(first = bl, count = cx, source = ptr(es, dx)))]
+pub(in crate::video) fn load_palette(
+    memory: &MemoryView<'_>,
+    io: &IoBus,
+    first: u8,
+    count: u16,
+    source: FarPointer,
+) {
+    let mut addresses =
+        buffer_addresses(source.segment_base(), source.offset, u32::from(count) * 3);
+    let colors = (0..count).map(|_| {
+        std::array::from_fn(|_| {
+            memory
+                .read_u8(addresses.next().expect("DAC component address"))
+                .expect("DAC palette buffer")
+        })
+    });
+    PaletteLoad::for_color_write(memory).write(io, first, colors);
+}
+
+#[interrupt(context(memory, io), args(first = bl, count = cx, destination = ptr(es, dx)))]
+pub(in crate::video) fn read_palette(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    first: u8,
+    count: u16,
+    destination: FarPointer,
+) {
+    // Zero-length transfers do not disturb DAC access state.
+    if count == 0 {
+        return;
+    }
+    io.write_port(DAC_READ_ADDRESS_PORT, 1, u32::from(first));
+    for address in buffer_addresses(
+        destination.segment_base(),
+        destination.offset,
+        u32::from(count) * 3,
+    ) {
+        memory
+            .write_u8(address, io.read_port(DAC_DATA_PORT, 1) as u8)
+            .expect("DAC palette buffer");
+    }
+}
+
+#[interrupt(context(io), args(mask = bl))]
+pub(in crate::video) fn set_mask(io: &IoBus, mask: u8) {
+    io.write_port(DAC_MASK_PORT, 1, u32::from(mask));
+}
+
+#[interrupt(context(io), returns { mask => { bl = mask } })]
+pub(in crate::video) fn mask(io: &IoBus) -> u8 {
+    io.read_port(DAC_MASK_PORT, 1) as u8
 }
 
 pub(in crate::video) fn write(io: &IoBus, index: u8, colors: impl IntoIterator<Item = [u8; 3]>) {
@@ -26,12 +102,13 @@ pub(super) fn grayscale(color: [u8; 3]) -> [u8; 3] {
     [intensity; 3]
 }
 
-pub(super) fn grayscale_range(io: &IoBus, first: u8, count: u16) {
+#[interrupt(context(io), args(first = bl, count = cx))]
+pub(in crate::video) fn grayscale_range(io: &IoBus, first: u8, count: u16) {
     // A zero count preserves even an unfinished DAC transfer, like the other
     // BIOS block operations. The eight-bit DAC index wraps independently.
     for offset in 0..count {
         let index = first.wrapping_add(offset as u8);
-        let color = read(io, index);
+        let color = color(io, index);
         write(io, index, [grayscale(color)]);
     }
 }

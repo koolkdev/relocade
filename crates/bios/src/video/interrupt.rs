@@ -24,13 +24,43 @@ interrupt_dispatch! {
         0x0d: graphics::pixel::read_pixel,
         0x0e: characters::teletype,
         0x0f: modes::mode,
-        0x10: palette::interrupt,
+        0x10: palette_services,
         0x11: font_services,
         0x12: configuration,
         0x13: strings::interrupt,
         0x1a: display_combination,
         0x1b: information::interrupt,
         0x1c: state::interrupt,
+        _: crate::interrupt::unsupported,
+    }
+}
+
+interrupt_dispatch! {
+    palette_services(al) {
+        0x00: palette::attributes::set_register,
+        0x01: palette::attributes::set_overscan,
+        0x02: palette::attributes::load_palette,
+        0x03: palette::attributes::set_blink,
+        0x07: palette::attributes::register,
+        0x08: palette::attributes::overscan,
+        0x09: palette::attributes::read_palette,
+        0x10: palette::dac::set_color,
+        0x12: palette::dac::load_palette,
+        0x13: palette_paging,
+        0x15: palette::dac::color,
+        0x17: palette::dac::read_palette,
+        0x18: palette::dac::set_mask,
+        0x19: palette::dac::mask,
+        0x1a: palette::paging::paging,
+        0x1b: palette::dac::grayscale_range,
+        _: crate::interrupt::unsupported,
+    }
+}
+
+interrupt_dispatch! {
+    palette_paging(bl) {
+        0x00: palette::paging::set_mode,
+        0x01: palette::paging::select_page,
         _: crate::interrupt::unsupported,
     }
 }
