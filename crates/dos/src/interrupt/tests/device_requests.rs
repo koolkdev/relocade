@@ -62,7 +62,7 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
             let output = Rc::new(RefCell::new(Vec::new()));
             dos.state.devices().install(WaitingConsole {
                 ready: RefCell::new(Some(wait)),
-                input: RefCell::new(b"K\r"),
+                input: RefCell::new(b"KL\r"),
                 output: output.clone(),
             });
             dos.launch_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
@@ -95,8 +95,8 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                 .force_duplicate(&mut dos.state.filesystem(), 3, 0)
                 .unwrap();
             if function == 0x0c0a {
-                // The buffered service captured capacity before the flush.
-                dos.cpu().memory().view().write_u8(0x10300, 0).unwrap();
+                // Buffered input starts after flushing and reads its buffer then.
+                dos.cpu().memory().view().write_u8(0x10300, 3).unwrap();
             }
             ready.send(()).unwrap();
             assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
@@ -114,10 +114,10 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                 }
                 0x0c00 => assert_eq!(call.cpu.al(), 0),
                 0x0c0a => {
-                    let mut buffer = [0; 4];
+                    let mut buffer = [0; 5];
                     call.memory.read(0x10300, &mut buffer).unwrap();
-                    assert_eq!(buffer, [0, 1, b'K', b'\r']);
-                    assert_eq!(&*output.borrow(), b"K\r");
+                    assert_eq!(buffer, [3, 2, b'K', b'L', b'\r']);
+                    assert_eq!(&*output.borrow(), b"KL\r");
                 }
                 _ => unreachable!(),
             }

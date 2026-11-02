@@ -1,6 +1,9 @@
 use super::Services;
 use crate::{DosError, ServiceError};
-use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
+    CpuContext, FarPointer, MemoryView,
+};
 
 pub(super) mod cooked;
 mod input;
@@ -8,55 +11,32 @@ mod request;
 pub(super) use request::Input;
 use request::{capacity, DirectIo};
 
-/// AH=0Ch has the return convention of the input service selected by AL.
-pub(super) enum InputResult {
-    Character(u8),
-    Direct(DirectIo),
-    Buffered,
-}
-
-/// Flush stdin, then perform AL's input service with the retained arguments.
-#[interrupt(context(memory), args(operation = al, byte = dl, buffer = ptr(ds, dx)), returns {
-    Ok(InputResult::Character(byte)) => { al = byte },
-    Ok(InputResult::Direct(DirectIo::Output(byte))) => { al = byte },
-    Ok(InputResult::Direct(DirectIo::Input(Some(byte)))) => { al = byte, zf = false },
-    Ok(InputResult::Direct(DirectIo::Input(None))) => { al = 0u8, zf = true },
-    Ok(InputResult::Buffered) => {},
-    Err(error) => crate::interrupt::return_error(error),
-})]
-pub(super) async fn flush_input(
-    memory: &mut MemoryView<'_>,
-    services: &Services<'_>,
-    operation: u8,
-    byte: u8,
-    buffer: FarPointer,
-) -> Result<InputResult, DosError> {
+/// AH=0Ch flushes stdin, then invokes the input service selected by AL.
+#[interrupt(context(call))]
+pub(super) async fn flush_input(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let stdin = services.process.files().handle(0).cloned();
     let input = Input::new(services);
-    let capacity = if operation == 0x0a {
-        capacity(memory, buffer)
-    } else {
-        0
-    };
-
     // A closed stdin or failed flush must not skip the selected operation.
     if let Ok(stdin) = stdin {
         let _ = stdin.flush_input().await;
     }
-    match operation {
-        0x01 => read_character_echo(input).await.map(InputResult::Character),
-        0x06 => direct_io(input, byte).await.map(InputResult::Direct),
-        0x07 => read_character(input).await.map(InputResult::Character),
-        0x08 => read_character_check_break(input)
-            .await
-            .map(InputResult::Character),
-        0x0a => {
-            input.buffered(memory, buffer, capacity).await?;
-            Ok(InputResult::Buffered)
-        }
-        _ => Ok(InputResult::Character(0)),
+    dispatch_input(call, input).await;
+}
+
+interrupt_dispatch! {
+    dispatch_input(al, input: Input<'_>) {
+        0x01: read_character_echo(input),
+        0x06: direct_io(input),
+        0x07: read_character(input),
+        0x08: read_character_check_break(input),
+        0x0a: read_buffered(input),
+        _: no_input,
     }
 }
+
+/// Other AL values request only a flush.
+#[interrupt(returns { () => { al = 0u8 } })]
+fn no_input() {}
 
 /// AH=0Bh reports stdin availability without consuming input or changing flags.
 #[interrupt(returns { status => { al = status } })]
