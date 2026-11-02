@@ -41,6 +41,8 @@ pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "
 pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");
 pub const READ_MMIO: Function<fn(I32, I32) -> I64> = Function::new("relocade", "readMmio");
 pub const WRITE_MMIO: Function<fn(I32, I32, I64)> = Function::new("relocade", "writeMmio");
+/// Invalidates compiled code before the interpreter writes a tracked backing span.
+pub const INVALIDATE_CODE: Function<fn(I32, I32)> = Function::new("relocade", "invalidateCode");
 
 /// Status, error code, cache fields, and whether the load needs completion.
 pub type ResolveSegmentResults = (I32, I32, I32, I32, I16, I1, I1, I1, I1, I1, I1, I1);

@@ -114,13 +114,14 @@ impl ExecutionBuilder<'_, '_> {
     /// Non-faulting preflight. Zero count skips all operand checks. Oversized or
     /// wrapping offset spans, denied permissions and scattered backing need the
     /// checked interpreter loop to determine actual progress and fault priority.
-    /// Memory models with live mappings keep per-element resolution in both frontends.
+    /// Physical snapshot execution can prove callback-free spans before effects;
+    /// the interpreter retains live per-element routing.
     pub(crate) fn resolve_strings<T: RegisterType, const N: usize>(
         &mut self,
         operands: &[StringOperand; N],
         count: &Val<I32>,
     ) -> Result<Option<ResolvedStrings<N>>, BuildError> {
-        if !self.accesses.memory().has_stable_mappings() {
+        if !self.accesses.memory().has_stable_mappings() && !self.can_fallback {
             return Ok(None);
         }
         let bytes = count.mul(T::BYTES);
@@ -167,7 +168,7 @@ impl ExecutionBuilder<'_, '_> {
                                 segment.denied.unwrap_or(false.into()),
                                 |denied| denied.yield_((false, 0)),
                                 |mut paging| {
-                                    let access = memory.resolve_access(
+                                    let access = memory.check_direct_access(
                                         &mut paging,
                                         &segment.linear,
                                         &bytes,

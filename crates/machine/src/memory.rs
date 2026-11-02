@@ -1,5 +1,7 @@
+mod code;
 mod pointer;
 mod view;
+pub(crate) use code::CodePages;
 pub use pointer::FarPointer;
 pub use view::{MemoryError, MemoryView};
 
@@ -15,6 +17,7 @@ use std::sync::Arc;
 pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
+    pub(crate) code: Arc<CodePages>,
 }
 
 impl Memory {
@@ -35,6 +38,7 @@ impl Memory {
         Ok(Self {
             config: Arc::new(config),
             backing,
+            code: Arc::default(),
         })
     }
 
@@ -43,6 +47,15 @@ impl Memory {
     }
     pub fn backing(&self) -> &SharedMemory {
         &self.backing
+    }
+
+    /// Invalidates installed code after unmanaged backing writes.
+    /// Call before resuming execution when writing through `backing()` or another
+    /// independently wrapped allocation. Ordinary views from this handle notify
+    /// code tracking automatically. The single-writer execution contract still
+    /// applies: other writers must not race a guest entry.
+    pub fn invalidate_code(&self) {
+        self.code.invalidate();
     }
 
     /// Retains this memory and its execution worker's device bus together.
@@ -55,7 +68,7 @@ impl Memory {
     /// For MMIO, retain device routing with [`Self::with_io`], or borrow a bus
     /// for this view with [`MemoryView::with_io`].
     pub fn view(&self) -> MemoryView<'_> {
-        MemoryView::new(&self.config, self.backing.view())
+        MemoryView::new(&self.config, self.backing.view()).with_code(&self.code)
     }
 }
 

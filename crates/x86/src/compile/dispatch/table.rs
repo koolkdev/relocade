@@ -3,6 +3,7 @@
 use super::Dispatch;
 use relocade_compiler::{BlockBuilder, BuildError, Val, I32};
 use std::collections::BTreeMap;
+use std::ops::RangeBounds;
 
 const HASH_MULTIPLIER: u32 = 0x9e37_79b1;
 /// Linear execution addresses mapped to ordinary `() -> ExecutionExit` function-table slots.
@@ -19,6 +20,11 @@ impl EntryTable {
 
     pub fn get(&self, address: u32) -> Option<u32> {
         self.0.get(&address).copied()
+    }
+
+    /// Visits registrations in an address range, in ascending address order.
+    pub fn range(&self, range: impl RangeBounds<u32>) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.0.range(range).map(|(&address, &slot)| (address, slot))
     }
 
     /// Publishes a callable slot. Zero is reserved for empty rows.

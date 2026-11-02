@@ -2,7 +2,7 @@
 
 `ExecutionProfile::Real16` translates segment offsets to physical addresses, then
 uses generated Wasm to route accesses. RAM and ROM reads use `guest` backing;
-only MMIO accesses call the host. Ordinary real mode does not raise a page fault
+MMIO and tracked code writes call the host. Ordinary real mode does not raise a page fault
 for an absent physical mapping. The host controls the A20 gate in the routing map.
 
 ## Physical page map
@@ -63,6 +63,22 @@ keyboard-controller or fast-A20 port that controls this platform state.
 
 Runtime mapping and gate changes update the installed Wasm table.
 
+## Compiled code pages
+
+Bit 2 of the kind word marks backing used by compiled code; the low two bits
+still encode the mapping kind. `to_bytes_with_code` receives a predicate over
+aligned backing offsets and marks every RAM/ROM alias. Marking a page does not
+change reads or ROM write policy. A direct writable window requires unmarked RAM.
+
+The slow writer imports `relocade.invalidateCode(backing: i32, bytes: i32) -> ()`.
+It calls this synchronously before storing into marked RAM. The runtime removes
+all entries depending on that backing page and updates every alias's code bit
+before returning. This callback must not change routing or enter guest execution.
+JIT instructions guard direct memory spans before effects, so code writes and
+MMIO transfers restart in the interpreter; ordinary stores have no host callback.
+Physical REP uses a whole-span guard before iteration. Instructions with partial
+stack or device effects that lack such a proof use the interpreter from entry.
+
 ## MMIO callbacks
 
 Both functions belong to the `relocade` import module:
@@ -111,8 +127,8 @@ Segment checks establish physical table bounds before lookup, including for
 speculative fetch windows. A small inline check handles direct accesses within
 one RAM/ROM page. Routing,
 splitting and partial transfer assembly share one reader and one writer per
-module, created only when used. Helpers are Wasm functions; host calls occur only
-in their MMIO branches. Separate snapshot modules each contain their own helpers.
+module, created only when used. Helpers are Wasm functions; host calls occur in MMIO branches and before
+stores to tracked code pages. Separate snapshot modules each contain their own helpers.
 
 The interpreter checks CS and probes RAM/ROM for a direct fetch window without
 calling a device. Windows stop at page boundaries; unavailable windows use exact

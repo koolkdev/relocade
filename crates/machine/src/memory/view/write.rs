@@ -12,7 +12,12 @@ impl<'a> MemoryView<'a> {
         for span in self.resolve(address, bytes.len())? {
             let (part, rest) = bytes.split_at(span.len);
             match span.mapping {
-                PhysicalMapping::Ram { backing_offset } => self.storage.write(backing_offset, part),
+                PhysicalMapping::Ram { backing_offset } => {
+                    if let Some(code) = self.code {
+                        code.write(backing_offset, part.len());
+                    }
+                    self.storage.write(backing_offset, part);
+                }
                 PhysicalMapping::Mmio => {
                     let io = self.io.expect("MMIO access requires a local I/O bus");
                     for (index, chunk) in part.chunks(8).enumerate() {
@@ -87,6 +92,9 @@ impl<'a> MemoryView<'a> {
     pub fn write_backing(&mut self, offset: u32, bytes: &[u8]) -> Result<(), MemoryError> {
         if !range_fits(offset, bytes.len(), self.backing_size()) {
             return Err(MemoryError::BackingRange);
+        }
+        if let Some(code) = self.code {
+            code.write(offset, bytes.len());
         }
         self.storage.write(offset, bytes);
         Ok(())

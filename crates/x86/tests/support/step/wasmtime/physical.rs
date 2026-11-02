@@ -13,6 +13,13 @@ pub(super) fn register(
     guest: SharedBytes,
     input: &Input,
 ) {
+    linker
+        .func_wrap(
+            "relocade",
+            "invalidateCode",
+            |_address: i32, _bytes: i32| {},
+        )
+        .unwrap();
     let backing = input
         .physical_pages
         .iter()

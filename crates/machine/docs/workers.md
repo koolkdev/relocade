@@ -16,11 +16,11 @@ let compiled = compiler.compile_blocks(vec![CodeSnapshot {
     bytes: instruction_bytes,
     instruction_limit: 64,
 }]).await?;
-let entries: Vec<_> = compiled.entries.iter().map(|entry| DispatchEntry {
+let entries: Vec<_> = compiled.entries().iter().map(|entry| DispatchEntry {
     address: cs_base + entry.start_eip,
     export: &entry.export,
 }).collect();
-cpu.install_compiled_module(&compiled.module, &entries).await?;
+cpu.install_compiled_module(compiled.module(), &entries).await?;
 ```
 
 Keep execution stopped and the captured bytes valid through this manual flow.
@@ -34,6 +34,36 @@ including failed compilations. Browser module delivery needs a host event-loop
 turn; a continuously runnable CPU task must arrange one before consuming a
 posted result. This primitive supplies no hotness policy, live-code validation,
 or automatic installation.
+
+## Validated installation
+
+`cpu.install_code(&compiled, cs_base).await?` admits worker output against the
+CPU target, fixed machine mapping, and the exact instruction bytes consumed by
+each export. It returns `false` for stale or incompatible code, unreadable
+RAM/ROM ranges, or spans covering an existing registration. Unused snapshot
+suffixes may differ. The final check and publication have no intervening await.
+The CPU must be stopped without active or parked host calls.
+
+Installed entries retain dependencies on backing pages. The physical-map code
+bit marks every alias of those pages. A JIT write to one fails specialization
+before instruction effects; the interpreter's slow writer invalidates affected
+entries synchronously before the store. Ordinary RAM writes keep their direct
+Wasm store. Device callbacks publish host memory changes before returning to
+execution. `Memory::view()` writes notify all CPUs sharing clones of that Memory;
+each CPU also checks notifications before entering Wasm. Address removal happens
+immediately, and retired function slots are cleared and reused at backend
+boundaries. Hooks and manually installed modules are not retired by code writes.
+Installing a hook or module inside a compiled span retires that compiled entry;
+this does not change the interpreter's existing straight-line hook behavior.
+
+Raw `SharedMemory` writes, `MemoryView::new`, and independent `Memory::with_backing`
+wrappers do not share this tracking. After such a write, call `invalidate_code()`
+on the Memory handle used by every affected CPU, before it resumes. The existing
+single-writer rule still applies: host writers run between guest entries or
+synchronously in callbacks. Machine routing remains the supplied configuration;
+manually edited Wasm mappings belong to the manual module integration contract.
+`install_module` and `install_compiled_module` continue to require caller-managed
+validity and cannot acquire code dependencies from arbitrary Wasm.
 
 ## General worker tasks
 

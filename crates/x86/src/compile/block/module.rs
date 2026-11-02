@@ -56,25 +56,31 @@ impl<'a> BlockModule<'a> {
         let runtime = self.runtime;
         let target = self.compiler.target;
         let observed_cpu = self.compiler.observed_cpu;
-        let function = self
-            .program
-            .function::<crate::abi::ExecutionSignature>(move |body, ()| {
-                let mut execution = ExecutionBuilder::new(
-                    body,
-                    &cpu,
-                    &memory,
-                    runtime,
-                    block.entry.start_eip,
-                    target,
-                )?
-                .with_interpreter_fallback()
-                .with_observed_cpu(observed_cpu.as_ref());
-                execution.guard_fetch_span(block.entry.byte_len)?;
-                for instruction in block.instructions {
-                    execution.execute(instruction)?;
-                }
-                execution.dispatch()
-            });
+        let function =
+            self.program
+                .function::<crate::abi::ExecutionSignature>(move |mut body, ()| {
+                    // Linear dispatch can reach the same bytes through another CS:EIP.
+                    // Preserve that caller's restart EIP instead of publishing ours.
+                    let eip = cpu.read_eip(&mut body)?;
+                    body.if_(eip.ne(block.entry.start_eip), |body| {
+                        runtime.interpret(body)
+                    })?;
+                    let mut execution = ExecutionBuilder::new(
+                        body,
+                        &cpu,
+                        &memory,
+                        runtime,
+                        block.entry.start_eip,
+                        target,
+                    )?
+                    .with_interpreter_fallback()
+                    .with_observed_cpu(observed_cpu.as_ref());
+                    execution.guard_fetch_span(block.entry.byte_len)?;
+                    for instruction in block.instructions {
+                        execution.execute(instruction)?;
+                    }
+                    execution.dispatch()
+                });
         self.program.export(&block.entry.export, function)?;
         Ok(block.entry)
     }

@@ -17,11 +17,29 @@ fn imports(bytes: &[u8]) -> Vec<String> {
 }
 
 #[test]
-fn physical_accesses_import_backing_map_and_only_mmio_callbacks() {
+fn physical_accesses_import_backing_map_and_slow_callbacks() {
     assert_eq!(
         imports(transfers()),
-        ["guest", "physicalMap", "readMmio", "writeMmio"]
+        [
+            "guest",
+            "invalidateCode",
+            "physicalMap",
+            "readMmio",
+            "writeMmio"
+        ]
     );
+}
+
+#[test]
+fn snapshot_store_guards_before_using_direct_backing_without_write_callbacks() {
+    let block = crate::Compiler::new(crate::ExecutionProfile::Real16)
+        .compile_block(0x100, &[0xc6, 0x06, 0, 0x20, 1], 1)
+        .unwrap();
+    let imports = imports(&block.bytes);
+    assert!(imports.iter().any(|name| name == "interpret"));
+    assert!(!imports
+        .iter()
+        .any(|name| name == "invalidateCode" || name == "writeMmio"));
 }
 
 #[test]

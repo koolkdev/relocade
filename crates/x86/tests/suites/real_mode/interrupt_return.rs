@@ -78,8 +78,15 @@ fn stack_bounds(frontend: Frontend) {
         input.mmio_pages = vec![(0xf, 0x8000)];
         input.observe_mmio = true;
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, code, 1, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
         assert_eq!(
             module.observe(&input, 1),
@@ -151,8 +158,15 @@ fn mmio_fields(frontend: Frontend) {
             .take(reads),
         );
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
         assert_eq!(
             module.observe(&input, 1),

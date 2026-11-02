@@ -8,6 +8,8 @@ pub(super) const UNMAPPED: u32 = 0;
 pub(super) const RAM: u32 = 1;
 pub(super) const ROM: u32 = 2;
 pub(super) const MMIO: u32 = 3;
+pub(super) const KIND_MASK: u32 = 3;
+pub(super) const CODE: u32 = 4;
 
 /// Where a physical address is routed. Backing offsets address bytes in the
 /// host's Wasm backing memory; they are not guest physical addresses.
@@ -172,6 +174,17 @@ impl PhysicalMemoryMap {
     /// The host installs the 2180-byte image at offset zero in `physicalMap`.
     /// This format uses explicit fields, independent of Rust's enum layout.
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
+        self.to_bytes_with_code(|_| false)
+    }
+
+    /// Serializes routing while marking backing pages used by compiled code.
+    /// The predicate receives aligned backing offsets, independently of physical
+    /// aliases or A20. Bit 2 of the kind word excludes direct writes; reads retain
+    /// their ordinary routing. The interpreter invalidates code before writing.
+    pub fn to_bytes_with_code(
+        &self,
+        mut contains_code: impl FnMut(u32) -> bool,
+    ) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
         for (entry, page) in bytes.chunks_exact_mut(8).zip(&self.pages) {
             let (kind, backing): (u32, u32) = match *page {
@@ -179,6 +192,15 @@ impl PhysicalMemoryMap {
                 PhysicalMapping::Ram { backing_offset } => (RAM, backing_offset),
                 PhysicalMapping::Rom { backing_offset } => (ROM, backing_offset),
                 PhysicalMapping::Mmio => (MMIO, 0),
+            };
+            let kind = if matches!(
+                *page,
+                PhysicalMapping::Ram { .. } | PhysicalMapping::Rom { .. }
+            ) && contains_code(backing)
+            {
+                kind | CODE
+            } else {
+                kind
             };
             entry[..4].copy_from_slice(&kind.to_le_bytes());
             entry[4..].copy_from_slice(&backing.to_le_bytes());

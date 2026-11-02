@@ -68,6 +68,7 @@ pub(super) fn declare_writer(
     backing: Mem,
     table: PhysicalTable,
     mmio_writer: Func,
+    invalidate_code: Func,
 ) -> TypedFunc<fn(u32, u32, u64)> {
     program.function::<fn(u32, u32, u64)>(move |mut body, (address, bytes, value)| {
         body.loop_::<I32, ()>(0, |mut part, labels, done| {
@@ -75,7 +76,15 @@ pub(super) fn declare_writer(
             let entry = table.lookup(&mut part, &current)?;
             let count = table.transfer_bytes(&mut part, &entry, &bytes.sub(&done))?;
             let shifted = value.unsigned().shr(done.shl(3));
-            write_part(backing, mmio_writer, &mut part, &entry, &count, &shifted)?;
+            write_part(
+                backing,
+                mmio_writer,
+                invalidate_code,
+                &mut part,
+                &entry,
+                &count,
+                &shifted,
+            )?;
             let next = done.add(count);
             part.branch_if(next.eq(&bytes), &labels.exit, ())?;
             part.branch(&labels.again, next)
@@ -87,6 +96,7 @@ pub(super) fn declare_writer(
 fn write_part(
     backing: Mem,
     callback: Func,
+    invalidate_code: Func,
     body: &mut BlockBuilder<'_>,
     entry: &Entry,
     bytes: &Val<I32>,
@@ -106,6 +116,12 @@ fn write_part(
         },
         |mut ordinary| {
             ordinary.if_(entry.kind.eq(RAM), |mut ram| {
+                ram.if_(entry.contains_code(), |mut tracked| {
+                    tracked.call::<()>(
+                        invalidate_code,
+                        &[entry.backing_address().into(), 1u32.into()],
+                    )
+                })?;
                 ram.store_at::<I8>(backing, entry.backing_address(), 0, value.truncate::<I8>())
             })
         },

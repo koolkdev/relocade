@@ -69,25 +69,28 @@ async fn check_worker_compilation() {
         ])
         .await
         .unwrap();
-    assert_eq!(compiled.entries.len(), 2);
-    assert_eq!(compiled.entries[0].start_eip, 0x100);
-    assert_eq!(compiled.entries[0].byte_len, 1);
-    assert_eq!(compiled.entries[1].start_eip, 0x110);
-    assert_eq!(compiled.entries[1].byte_len, 3);
-    assert_eq!(compiled.execution_target.profile, ExecutionProfile::Real16);
+    assert_eq!(compiled.entries().len(), 2);
+    assert_eq!(compiled.entries()[0].start_eip, 0x100);
+    assert_eq!(compiled.entries()[0].byte_len, 1);
+    assert_eq!(compiled.entries()[1].start_eip, 0x110);
+    assert_eq!(compiled.entries()[1].byte_len, 3);
+    assert_eq!(
+        compiled.execution_target().profile,
+        ExecutionProfile::Real16
+    );
 
     let mut cpu = cpu().await;
     cpu.memory().view().write(0x1100, &first).unwrap();
     cpu.memory().view().write(0x1110, &second).unwrap();
     let entries: Vec<_> = compiled
-        .entries
+        .entries()
         .iter()
         .map(|entry| DispatchEntry {
             address: 0x1000 + entry.start_eip,
             export: &entry.export,
         })
         .collect();
-    cpu.install_compiled_module(&compiled.module, &entries)
+    cpu.install_compiled_module(compiled.module(), &entries)
         .await
         .unwrap();
     // Only the compiled entry stops after INC. A dispatch miss would interpret

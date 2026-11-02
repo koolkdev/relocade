@@ -309,7 +309,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         bytes: u32,
         intent: Intent,
     ) -> Result<Access, BuildError> {
-        self.accesses.resolve(
+        let mut access = self.accesses.resolve(
             &mut self.body,
             linear,
             bytes,
@@ -318,7 +318,30 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
                 self.state
                     .fault(fault_body, &self.eip, self.completed, exception)
             },
-        )
+        )?;
+        let memory = self.accesses.memory();
+        if matches!(memory, Memory::Physical(_)) {
+            self.if_can_fallback(|jit| {
+                let direct =
+                    memory.check_direct_access(&mut jit.body, linear, bytes, intent, None, None)?;
+                // MMIO may modify code or routing. A compiled instruction only
+                // retains direct backing after excluding callbacks and code writes.
+                jit.guard(direct.unavailable.eq(false))?;
+                access.physical = direct.physical;
+                access.unavailable = false.into();
+                Ok(())
+            })?;
+        }
+        Ok(access)
+    }
+
+    /// Instructions with partial effects need the interpreter's live routing.
+    /// Their physical accesses cannot restart after an earlier transfer.
+    pub(crate) fn interpret_live_memory(&mut self) -> Result<(), BuildError> {
+        if matches!(self.accesses.memory(), Memory::Physical(_)) {
+            self.if_can_fallback(|jit| jit.guard(false))?;
+        }
+        Ok(())
     }
 
     /// Ends a block, checks its instruction target and dispatches its successor.

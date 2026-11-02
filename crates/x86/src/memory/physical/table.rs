@@ -3,7 +3,7 @@
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
 
 use super::super::{
-    physical_map::{MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},
+    physical_map::{CODE, KIND_MASK, MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},
     DirectRange, Intent, PhysicalMemoryMap,
 };
 
@@ -14,12 +14,17 @@ pub(super) struct PhysicalTable {
 
 pub(super) struct Entry {
     pub(super) kind: Val<I32>,
+    pub(super) flags: Val<I32>,
     /// Bus address after the A20 gate, also used for MMIO callbacks.
     pub(super) address: Val<I32>,
     backing: Val<I32>,
 }
 
 impl Entry {
+    pub(super) fn contains_code(&self) -> Val<I1> {
+        self.flags.and(CODE).ne(0)
+    }
+
     pub(super) fn readable(&self) -> Val<I1> {
         self.kind.eq(RAM).or(self.kind.eq(ROM))
     }
@@ -46,10 +51,11 @@ impl PhysicalTable {
             body.load_at::<I32>(self.entries, PhysicalMemoryMap::A20_MASK_OFFSET as u32, 0)?;
         let address = address.and(mask);
         let offset = address.unsigned().shr(PAGE_SHIFT).shl(3);
-        let kind = body.load_at::<I32>(self.entries, &offset, 0)?;
+        let flags = body.load_at::<I32>(self.entries, &offset, 0)?;
         let backing = body.load_at::<I32>(self.entries, &offset, 4)?;
         Ok(Entry {
-            kind,
+            kind: flags.and(KIND_MASK),
+            flags,
             backing,
             address,
         })
@@ -67,7 +73,7 @@ impl PhysicalTable {
         let entry = self.lookup(body, address)?;
         let allowed = match intent {
             Intent::Read | Intent::ReadOrExecute | Intent::Fetch => entry.readable(),
-            Intent::Write => entry.kind.eq(RAM),
+            Intent::Write => entry.flags.eq(RAM),
         };
         Ok(DirectRange {
             unavailable: allowed

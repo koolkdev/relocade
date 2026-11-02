@@ -836,8 +836,10 @@ does not check code bytes or mappings, nor establish profile compatibility.
 The host must preserve validity during execution and revalidate or invalidate
 affected entries and links when relevant CS state, code bytes or mappings change.
 An instruction changing a relied-upon assumption must end the block. There is no
-code cache or automatic invalidation in these libraries. A snapshot producer that
-cannot read a complete instruction can stop at the valid prefix and enter the
+code cache or automatic invalidation in x86 itself. The machine runtime offers
+tracked installation through `Cpu::install_code`; its worker documentation describes
+managed writes and the explicit invalidation contract for unmanaged backing.
+A snapshot producer that cannot read a complete instruction can stop at the valid prefix and enter the
 interpreter at the next EIP to handle the fetch precisely.
 
 Protected-mode execution may reuse successful data-access checks while mappings

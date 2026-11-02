@@ -16,6 +16,7 @@ pub struct MemoryView<'a> {
     config: &'a MachineConfig,
     storage: MemoryAccess<'a>,
     io: Option<&'a IoBus>,
+    code: Option<&'a super::CodePages>,
 }
 
 impl<'a> MemoryView<'a> {
@@ -26,7 +27,13 @@ impl<'a> MemoryView<'a> {
             config,
             storage,
             io: None,
+            code: None,
         }
+    }
+
+    pub(super) fn with_code(mut self, code: &'a super::CodePages) -> Self {
+        self.code = Some(code);
+        self
     }
 
     /// Enables device accesses through the execution worker's bus. CPU contexts

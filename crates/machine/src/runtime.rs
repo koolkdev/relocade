@@ -81,8 +81,7 @@ impl Cpu {
     pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus) -> Result<Self> {
         let mut backend = Backend::with_state(io.clone())?;
         let bindings = RuntimeMemory::new(&mut backend, memory, cpu)?;
-        let host_imports = io::imports(&mut backend);
-        let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
+        let dispatch = Dispatch::new(&mut backend, &bindings).await?;
         let machine = Machine {
             backend,
             bindings,
@@ -136,6 +135,31 @@ impl Cpu {
             self.machine.backend.compiler(),
             self.machine.bindings.configuration().execution_target(),
         )
+    }
+
+    /// Admits compiler-worker output against live RAM/ROM and tracks its code pages.
+    /// `cs_base` is the real-mode CS base used to capture the snapshots. Returns
+    /// false when the target or consumed bytes changed, a range is not readable
+    /// RAM/ROM, or an entry would overwrite or span an existing registration.
+    /// Unused snapshot suffixes do not participate in admission.
+    ///
+    /// Host writes through this CPU's Memory handle and guest stores invalidate
+    /// affected entries. Raw backing writes require Memory::invalidate_code.
+    /// Mapping policy remains the Memory configuration supplied to this CPU.
+    ///
+    /// # Panics
+    /// Panics if a host call is pending or parked.
+    #[cfg(feature = "worker")]
+    pub async fn install_code(&mut self, code: &CompiledCode, cs_base: u32) -> Result<bool> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before installing"
+        );
+        let machine = self.machine_mut();
+        machine
+            .dispatch
+            .install_code(&mut machine.backend, &machine.bindings, code, cs_base)
+            .await
     }
 
     /// Instantiates an already compiled module and publishes its entries.

@@ -16,9 +16,22 @@ pub struct CodeSnapshot {
 /// Backend code and the instruction ranges used by its exported entries.
 /// Instantiation and guest-address registration belong to the execution owner.
 pub struct CompiledCode {
-    pub module: Module,
-    pub entries: Vec<BlockEntry>,
-    pub execution_target: ExecutionTarget,
+    pub(super) module: Module,
+    pub(super) entries: Vec<BlockEntry>,
+    pub(super) execution_target: ExecutionTarget,
+    pub(super) snapshots: Vec<CodeSnapshot>,
+}
+
+impl CompiledCode {
+    pub fn module(&self) -> &Module {
+        &self.module
+    }
+    pub fn entries(&self) -> &[BlockEntry] {
+        &self.entries
+    }
+    pub fn execution_target(&self) -> ExecutionTarget {
+        self.execution_target
+    }
 }
 
 /// Compiles owned snapshots without accessing the live machine.
@@ -67,7 +80,7 @@ impl CompilerWorker {
             // Ordinary Rust metadata and typed errors need no serialization.
             match compiled {
                 Ok((module, entries)) => {
-                    let _ = metadata.send(Ok(entries));
+                    let _ = metadata.send(Ok((entries, snapshots)));
                     Ok(module)
                 }
                 Err(error) => {
@@ -80,13 +93,14 @@ impl CompilerWorker {
         let module = task
             .await
             .map_err(|error| Error::Worker(error.to_string()))?;
-        let entries = receive_metadata
+        let (entries, snapshots) = receive_metadata
             .await
             .map_err(|error| Error::Worker(error.to_string()))??;
         Ok(CompiledCode {
             module: module.expect("successful metadata accompanies a compiled module"),
             entries,
             execution_target: target,
+            snapshots,
         })
     }
 }

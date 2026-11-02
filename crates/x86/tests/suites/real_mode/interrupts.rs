@@ -93,8 +93,15 @@ fn stack_bounds(frontend: Frontend) {
         input.mmio_pages = vec![(0, 0x7000), (0x2f, 0x9000)];
         input.observe_mmio = true;
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
         assert_eq!(
             module.observe(&input, 1),
@@ -200,8 +207,15 @@ fn conditional_entry(frontend: Frontend) {
             );
         }
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
         assert_eq!(module.observe( &input, 1), wanted,
             "INTO tests lazy OF, performs word transfers in order, and skips all entry effects when clear");
