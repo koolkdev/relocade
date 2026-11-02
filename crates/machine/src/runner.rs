@@ -1,5 +1,7 @@
 //! CPU execution and registered device activities on one owner.
 
+mod host;
+
 #[cfg(feature = "worker")]
 mod worker;
 #[cfg(feature = "worker")]
@@ -15,7 +17,10 @@ use futures_util::{
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
-use std::{cell::RefCell, num::NonZeroU64, ops::RangeInclusive, pin::pin, rc::Rc};
+use std::{
+    cell::RefCell, future::Future, num::NonZeroU64, ops::RangeInclusive, pin::pin, rc::Rc,
+    time::Duration,
+};
 
 /// Drives a main execution activity alongside registered device futures.
 /// All mutable execution state stays on the caller's thread. CPU quanta provide
@@ -24,6 +29,10 @@ pub struct Runner<C = TimerHandle> {
     clock: C,
     /// Requested CPU budget per quantum; checks remain at block boundaries.
     pub instruction_quantum: NonZeroU64,
+    /// CPU/device work between host event-loop opportunities while a posted
+    /// resource is pending. Quanta and host scheduling can overshoot this gap.
+    pub host_poll_interval: Duration,
+    host: host::HostEvents,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
 }
@@ -34,6 +43,8 @@ impl<C: Clock> Runner<C> {
         Self {
             clock,
             instruction_quantum: NonZeroU64::new(10_000).unwrap(),
+            host_poll_interval: Duration::from_millis(1),
+            host: host::HostEvents::default(),
             activities,
             pending: Some(pending),
         }
@@ -67,10 +78,22 @@ impl<C: Clock> Runner<C> {
     pub async fn run<R>(mut self, main: impl AsyncFnOnce(&Self) -> R) -> R {
         let pending = self.pending.take().expect("new runner activity queue");
         let devices = pending.for_each_concurrent(None, |activity| activity);
-        match select(pin!(main(&self)), pin!(devices)).await {
+        let main = pin!(main(&self));
+        let devices = pin!(devices);
+        let activities = select(main, devices);
+        match self.host.run(self.host_poll_interval, activities).await {
             Either::Left((result, _)) => result,
             Either::Right(_) => unreachable!("runner retains the activity sender"),
         }
+    }
+
+    /// Awaits a host operation while allowing CPU and device activities to
+    /// continue. For module delivery, call after Rust readiness says it was
+    /// posted; local asynchronous instantiation can also need host turns.
+    /// Only this wait enables periodic host turns; completion or cancellation
+    /// removes it. Drive all continuously runnable siblings inside `run`.
+    pub async fn wait_for_host<F: Future>(&self, result: F) -> F::Output {
+        self.host.wait(result).await
     }
 
     /// Runs finite CPU quanta until the first non-budget exit.

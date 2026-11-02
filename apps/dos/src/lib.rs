@@ -42,7 +42,8 @@ pub fn run() -> Result<(), String> {
                     }
                 }
             },
-            async move |runner| {
+            (),
+            async move |runner, ()| {
                 let mut dos = relocade_dos::Dos::new(runner)
                     .await
                     .map_err(|error| error.to_string())?;

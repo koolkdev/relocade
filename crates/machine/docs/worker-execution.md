@@ -12,7 +12,7 @@ the execution worker. `ExecutionWorker` uses the existing
 
 ```rust,ignore
 let (clock, timers) = relocade_machine::timer_service();
-let execution = ExecutionWorker::spawn(clock, async move |runner| {
+let execution = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
     let device = create_device(runner.clock().clone());
     let io = IoBus::new([runner.connect(device, memory_ranges, ports)]);
     let mut cpu = create_cpu(io).await?;
@@ -82,13 +82,17 @@ process and returns an already completed process's result without running the CP
 DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
 
-For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, session)`
+For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, context, session)`
 creates the timer service and drives it on the caller while the session runs on
 execution. It returns the session result on completion, or `None` after the stop
 signal and worker cleanup. The stop signal's value is ignored. Await the whole
 operation; dropping it early is not orderly shutdown. The timer service ends with
 the session. Use `spawn` with an externally driven clock when clock handles must
 remain usable afterward or the embedding needs separate control.
+
+The `context` follows the existing `Post` resource transport. Pass shared memory,
+compiled modules or resource endpoints there, and keep ordinary Rust channels in
+the closure. Use `()` for a session that creates all its engine resources locally.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
@@ -143,10 +147,20 @@ execution worker stays runnable. CPU services can sleep without suspending
 devices, and sleeping devices do not suspend the CPU.
 
 Continuously ready device loops must also cooperate. Genuine CPU waits, including
-Wasm compilation, can return to the underlying executor. This model does not
+Wasm compilation, can return to the underlying executor. Ordinary execution does not
 promise periodic processing of arbitrary JavaScript callbacks on a busy worker.
 Budget checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).
+
+For a resource already posted to this owner, `runner.wait_for_host(receive)`
+enables host turns while delivery is pending. The runner continues CPU and device
+work for `host_poll_interval` (1 ms by default), then suspends the entire activity
+set for one zero-delay host timer. It resumes work even if delivery is still
+pending and repeats after the next interval. Completion or cancellation removes
+the wait; already-ready results add no host timer. Multiple waits are counted.
+All continuously runnable siblings must be inside `Runner::run` for this to allow
+browser event-loop progress. Futures and active CPU services survive each turn.
+The interval is a polling policy, not a hard latency or CPU-time guarantee.
 
 ## Video and application rendering
 

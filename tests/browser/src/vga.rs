@@ -20,7 +20,7 @@ pub async fn vga_workers() -> Result<(), String> {
     let (rendered, presented) = oneshot::channel();
     let (clock, timers) = timer_service();
     let display = Thread::new();
-    let cpu_task = ExecutionWorker::spawn(clock, async move |runner| {
+    let cpu_task = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
             runner.clock().clone(),
         ))));

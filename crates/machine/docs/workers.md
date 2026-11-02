@@ -40,6 +40,44 @@ The caller maintains instruction validity and execution assumptions for as long
 as those entries remain installed. Active or parked services must finish before
 installation, as with `install_module`.
 
+## Session-owned compiler coordination
+
+`CompilerService` owns the compiler worker and relays results on the main thread.
+Create its connections before running the service. Each connection has a Send
+Rust request half and a paired resource endpoint posted to its execution owner:
+
+```rust,ignore
+let worker = CompilerWorker::start(&memory, target).await?;
+let mut service = CompilerService::new(worker);
+let (connection, endpoint) = service.connect()?;
+let execution = ExecutionWorker::run_until(stop, (memory.backing().clone(), endpoint),
+    async move |runner, (backing, endpoint)| {
+        let memory = Memory::with_backing(machine_config, backing)?;
+        let mut compiler = connection.bind(endpoint);
+        let posted = compiler.request(ranges).await?;
+        let compiled = runner.wait_for_host(posted.receive()).await?;
+        // Bind compiled.module to the local CPU at an installation boundary.
+        Ok::<_, Error>(())
+    });
+let (shutdown, result) = futures_lite::future::zip(service.run(), execution).await;
+shutdown?;
+```
+
+The request phase uses Rust communication. Its completion confirms the module
+has been posted to that execution owner; `receive` pairs it with entry metadata
+and can still need a browser host turn. Run compilation alongside CPU work in the
+runner's main activity. `wait_for_host` controls the complete runnable group, so a
+busy CPU or device cannot starve delivery. The compiler protocol has no browser
+activity flags or scheduling branches.
+
+Dropping a posted result abandons only that result. Request IDs drain late modules
+before a subsequent result. Dropping a connection leaves other connections and
+the compiler alive. Once all connections are dropped, `service.run()` drains the
+queue and awaits compiler shutdown; await it through completion. The service
+owns neither CPUs nor installation, and retains no code cache. The compiler can
+outlive individual execution sessions. This does not expand the guest-memory
+concurrency contract to multiple writers or provide code invalidation.
+
 ## General worker tasks
 
 Enable the machine's `worker` feature for `worker::Thread`, reexported from
