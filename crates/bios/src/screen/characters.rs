@@ -29,8 +29,13 @@ pub(crate) fn read_cell(memory: &MemoryView<'_>, io: &IoBus, page: u8) -> Option
     if !geometry.contains(position.row, position.column) {
         return Some([0; 2]);
     }
-    let character =
-        Page::locate(memory, page)?.read_character(memory, io, position.row, position.column)?;
+    let character = Page::locate(memory, page)?.read_character(
+        memory,
+        io,
+        position.row,
+        position.column,
+        geometry.font_height,
+    );
     Some([character, 0])
 }
 

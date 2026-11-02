@@ -148,7 +148,7 @@ coordinates and invalid graphics pages return AH=86h with carry set. This bounds
 policy is local; the BIOS interface does not specify out-of-range results.
 AH=02h/03h keep per-page graphics cursors in BIOS memory without enabling a
 hardware text cursor. AH=05h selects pages 0–7 in mode 0Dh, 0–3 in mode 0Eh,
-0–1 in mode 10h, and page 0 in other graphics modes. Those planar pages occupy
+0–1 in modes 0Fh/10h, and page 0 in other graphics modes. Those planar pages occupy
 2000h, 4000h and 8000h bytes per plane respectively; page selection programs
 the CRTC start address in the units of the mode preset.
 
@@ -183,8 +183,8 @@ cells, stops at the page bottom and never scrolls. Text repeats retain their
 Graphics font bytes come from the guest's live vectors, with 16-bit source-offset
 wrapping. CGA-compatible modes 04h–06h use INT 43h for characters 00h–7Fh and
 INT 1Fh for 80h–FFh, with fixed eight-high cells. Planar and indexed modes use
-INT 43h for all characters, including with eight-high fonts. The BIOS reads a complete
-glyph before changing VGA access, so a source in VRAM uses the caller's read
+INT 43h for all characters, including with eight-high fonts. Character writes read a
+complete glyph before changing VGA access, so a source in VRAM uses the caller's read
 settings. The character grid comes from the BIOS data area and is bounded by
 the graphics layout. Font height also follows BIOS data except for the fixed
 eight-high packed modes. Native planar masks, indexed rows or packed
@@ -214,21 +214,29 @@ page. This deliberately differs from early IBM ROM quirks that consume attribute
 only for printable characters or scroll the active page. AL values above three
 and invalid pages for nonempty strings return AH=86h with carry set.
 
-AH=08h reads a text cell or recognizes a character in packed graphics modes
-04h–06h. Graphics reads sample the eight rows at the page's stored BIOS cursor,
-then search the live fonts for the first exact match. Modes 04h/05h treat every
-nonzero two-bit pixel as set; mode 06h uses its bitmap directly. Color indices,
-not DAC colors, determine the pattern. The search covers INT 43h characters
-00h–7Fh, followed by INT 1Fh characters 80h–FFh unless that vector is null.
-Font offsets wrap within their segment, using the shared memory transfer API.
+AH=08h reads a text cell or recognizes a character in graphics modes 04h–06h
+and 0Dh–13h. Graphics reads sample the cell at the requested page's stored BIOS
+cursor, then search the live fonts for the first exact match. Modes 04h/05h treat
+every nonzero two-bit pixel as set; mode 06h uses its bitmap directly. These
+packed modes sample eight rows and search INT 43h characters 00h–7Fh, followed
+by INT 1Fh characters 80h–FFh unless that vector is null.
+
+Planar modes sample inverted VGA read-mode-one comparisons, retaining the live
+Color Compare and Color Don't Care registers. With the default compare color
+zero, this recognizes pixels with a nonzero bit in any cared plane. Mode 13h
+treats every nonzero pixel byte as set. Planar and indexed modes use the BIOS
+font height and search all 256 characters at INT 43h. DAC colors do not affect
+recognition. Font offsets wrap within their segment, using the shared memory
+transfer API. The BIOS restores the caller's access registers before reading
+the font, including when the font resides in VRAM.
 
 Graphics returns AH=0 and AL=the matched character, or AX=0 when no glyph matches.
 Duplicate and blank glyphs return the lowest matching code. This follows the
 [IBM VGA ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
-(x2579–x262C and x2A04–x2A1E). Cursor/page state and VGA access registers are
+(x2579–x2724 and x2A04–x2A1E). Cursor/page state and VGA access registers are
 preserved; memory reads still load the hardware latches. Out-of-grid cursors
-return zero, and invalid pages return AH=86h with carry set. Planar and indexed
-graphics recognition remains unsupported. Rust callers use the same service as
+and planar/indexed font heights outside 1–32 return zero; invalid pages return AH=86h
+with carry set. Rust callers use the same service as
 `read_character(memory, io, page) -> Option<CharacterCell>`, with attribute zero
 for graphics. Display captures and rendering are unaffected.
 
