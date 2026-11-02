@@ -40,7 +40,6 @@ mod screen;
 pub mod video;
 
 pub use interrupt::hooks;
-use interrupt::BiosContext;
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::{real_mode_interrupt, IoBus, MemoryView};
 pub use screen::write_text;

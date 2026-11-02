@@ -4,7 +4,10 @@ mod firmware;
 mod hardware;
 
 use super::buffer_addresses;
-use relocade_machine::MemoryView;
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, FarPointer},
+    IoBus, MemoryView,
+};
 
 const HEADER_SIZE: u16 = 0x20;
 const COMPONENT_SIZES: [u16; 3] = [
@@ -13,82 +16,106 @@ const COMPONENT_SIZES: [u16; 3] = [
     dac::SIZE as u16,
 ];
 
-#[relocade_machine::real_mode_interrupt::interrupt(context(call))]
-pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
-    let components = call.cpu.cx() & 7;
-    match call.cpu.al() {
-        0 if components != 0 => {
-            let size = COMPONENT_SIZES
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| components & (1 << index) != 0)
-                .map(|(_, size)| size)
-                .sum::<u16>()
-                + HEADER_SIZE;
-            call.cpu.set_bx(size.div_ceil(64));
-        }
-        1 if components != 0 => save(call, components),
-        2 if components != 0 => restore(call, components),
-        _ => {
-            call.cpu.set_al(0);
-            return;
-        }
+/// Returns the required buffer size in 64-byte blocks, or None for an empty mask.
+#[interrupt(args(components = cx), returns {
+    Some(blocks) => { bx = blocks, al = 0x1c }, None => { al = 0 },
+})]
+pub(super) fn required_blocks(components: u16) -> Option<u16> {
+    let components = components & 7;
+    if components == 0 {
+        return None;
     }
-    call.cpu.set_al(0x1c);
+    let size = COMPONENT_SIZES
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| components & (1 << index) != 0)
+        .map(|(_, size)| size)
+        .sum::<u16>()
+        + HEADER_SIZE;
+    Some(size.div_ceil(64))
 }
 
-fn save(call: &mut crate::BiosContext<'_>, components: u16) {
+#[interrupt(context(memory, io), args(components = cx, destination = ptr(es, bx)),
+    returns { true => { al = 0x1c }, false => { al = 0 } },
+)]
+pub(super) fn save(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    components: u16,
+    destination: FarPointer,
+) -> bool {
+    let components = components & 7;
+    if components == 0 {
+        return false;
+    }
     // Collect before writing: the guest buffer may overlap BIOS data.
-    let hardware = (components & 1 != 0).then(|| hardware::save(&mut call.memory, call.io));
-    let firmware = (components & 2 != 0).then(|| firmware::save(&call.memory));
-    let dac = (components & 4 != 0).then(|| dac::save(call.io));
+    let hardware = (components & 1 != 0).then(|| hardware::save(memory, io));
+    let firmware = (components & 2 != 0).then(|| firmware::save(memory));
+    let dac = (components & 4 != 0).then(|| dac::save(io));
     let blocks = [
         hardware.as_ref().map(|bytes| bytes.as_slice()),
         firmware.as_ref().map(|bytes| bytes.as_slice()),
         dac.as_ref().map(|bytes| bytes.as_slice()),
     ];
-    let base = call.cpu.segments().es.base;
-    let header = call.cpu.bx();
+    let base = destination.segment_base();
+    let header = destination.offset;
     let mut offset = header.wrapping_add(HEADER_SIZE);
     for (index, block) in blocks.into_iter().enumerate() {
         if let Some(bytes) = block {
             // Header pointers are absolute ES offsets, not buffer displacements.
             write_buffer(
-                &mut call.memory,
+                memory,
                 base,
                 header.wrapping_add(index as u16 * 2),
                 &offset.to_le_bytes(),
             );
-            write_buffer(&mut call.memory, base, offset, bytes);
+            write_buffer(memory, base, offset, bytes);
             offset = offset.wrapping_add(bytes.len() as u16);
         }
     }
+    true
 }
+
+#[interrupt(context(memory, io), args(components = cx, source = ptr(es, bx)),
+    returns { true => { al = 0x1c }, false => { al = 0 } },
+)]
+pub(super) fn restore(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    components: u16,
+    source: FarPointer,
+) -> bool {
+    let components = components & 7;
+    if components == 0 {
+        return false;
+    }
+    let base = source.segment_base();
+    let header = source.offset;
+    // Read every selected block before restoring BIOS data or remapping VRAM.
+    // A subset restore follows the saved pointers, not a newly packed layout.
+    let hardware = (components & 1 != 0).then(|| read_component(memory, base, header));
+    let firmware =
+        (components & 2 != 0).then(|| read_component(memory, base, header.wrapping_add(2)));
+    let dac = (components & 4 != 0).then(|| read_component(memory, base, header.wrapping_add(4)));
+    if let Some(bytes) = hardware {
+        hardware::restore(memory, io, &bytes);
+    }
+    if let Some(bytes) = firmware {
+        firmware::restore(memory, &bytes);
+    }
+    if let Some(bytes) = dac {
+        dac::restore(io, &bytes);
+    }
+    true
+}
+
+// Unsupported operations leave the buffer and carry unchanged.
+#[interrupt(returns { () => { al = 0 } })]
+pub(super) fn unsupported() {}
 
 fn write_buffer(memory: &mut MemoryView<'_>, base: u32, offset: u16, bytes: &[u8]) {
     for (address, &byte) in buffer_addresses(base, offset, bytes.len() as u32).zip(bytes) {
         memory.write_u8(address, byte).expect("video state buffer");
-    }
-}
-
-fn restore(call: &mut crate::BiosContext<'_>, components: u16) {
-    let base = call.cpu.segments().es.base;
-    let header = call.cpu.bx();
-    // Read every selected block before restoring BIOS data or remapping VRAM.
-    // A subset restore follows the saved pointers, not a newly packed layout.
-    let hardware = (components & 1 != 0).then(|| read_component(&call.memory, base, header));
-    let firmware =
-        (components & 2 != 0).then(|| read_component(&call.memory, base, header.wrapping_add(2)));
-    let dac =
-        (components & 4 != 0).then(|| read_component(&call.memory, base, header.wrapping_add(4)));
-    if let Some(bytes) = hardware {
-        hardware::restore(&mut call.memory, call.io, &bytes);
-    }
-    if let Some(bytes) = firmware {
-        firmware::restore(&mut call.memory, &bytes);
-    }
-    if let Some(bytes) = dac {
-        dac::restore(call.io, &bytes);
     }
 }
 

@@ -27,11 +27,30 @@ interrupt_dispatch! {
         0x10: palette_services,
         0x11: font_services,
         0x12: configuration,
-        0x13: strings::interrupt,
+        0x13: string_output,
         0x1a: display_combination,
-        0x1b: information::interrupt,
-        0x1c: state::interrupt,
+        0x1b: information::write_report,
+        0x1c: state_services,
         _: crate::interrupt::unsupported,
+    }
+}
+
+interrupt_dispatch! {
+    string_output(al) {
+        0x00: strings::write_text,
+        0x01: strings::write_text_and_move_cursor,
+        0x02: strings::write_cells,
+        0x03: strings::write_cells_and_move_cursor,
+        _: crate::interrupt::unsupported,
+    }
+}
+
+interrupt_dispatch! {
+    state_services(al) {
+        0x00: state::required_blocks,
+        0x01: state::save,
+        0x02: state::restore,
+        _: state::unsupported,
     }
 }
 
