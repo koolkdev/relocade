@@ -1,6 +1,4 @@
 //! BIOS raster presets share timings; each mode overrides its scanline and address controls.
-use super::super::write_indexed;
-use relocade_machine::IoBus;
 use relocade_vga::registers::{crtc, text_mode};
 
 #[derive(Clone, Copy)]
@@ -20,26 +18,8 @@ impl CrtcPreset {
         self
     }
 
-    pub fn program(&self, io: &IoBus, port: u16) {
-        write_indexed(io, port, crtc::VERTICAL_RETRACE_END, 0);
-        for (register, &value) in self.0.iter().enumerate() {
-            let register = register as u8;
-            // Mode setup initializes the cursor and display start separately.
-            // Restore timing protection after all timing writes are complete.
-            if matches!(
-                register,
-                crtc::CURSOR_START..=crtc::CURSOR_ADDRESS_LOW | crtc::VERTICAL_RETRACE_END
-            ) {
-                continue;
-            }
-            write_indexed(io, port, register, value);
-        }
-        write_indexed(
-            io,
-            port,
-            crtc::VERTICAL_RETRACE_END,
-            self.0[crtc::VERTICAL_RETRACE_END as usize],
-        );
+    pub fn registers(&self) -> [u8; 25] {
+        self.0
     }
 }
 

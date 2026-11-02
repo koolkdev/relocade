@@ -15,13 +15,10 @@ pub(super) use planar::{
 };
 pub(super) use text::{TEXT_200, TEXT_350, TEXT_400, TEXT_40_200, TEXT_40_350, TEXT_40_400};
 
-use super::{crtc_port, input_status_1_port, palette::PaletteLoad, write_indexed};
+use super::{palette::PaletteLoad, parameters::Parameters};
 use crtc::CrtcPreset;
 use relocade_machine::IoBus;
-use relocade_vga::registers::{
-    attribute, sequencer, ATTRIBUTE_ADDRESS_PORT, DAC_MASK_PORT, GRAPHICS_INDEX_PORT,
-    MISC_OUTPUT_WRITE_PORT, SEQUENCER_INDEX_PORT,
-};
+use relocade_vga::registers::{crtc as crtc_registers, sequencer, DAC_MASK_PORT};
 
 pub(super) struct Preset {
     // BIOS data-area values describe the character grid even in graphics modes.
@@ -39,38 +36,81 @@ pub(super) struct Preset {
 }
 
 impl Preset {
-    pub(super) fn program(&self, io: &IoBus, palette: PaletteLoad) {
-        io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(self.miscellaneous));
+    pub(super) fn parameters(&self) -> Parameters {
+        let mut sequencer = [0; 4];
         for &(register, value) in self.sequencer {
             if register != sequencer::RESET {
-                write_indexed(io, SEQUENCER_INDEX_PORT, register, value);
+                sequencer[usize::from(register - 1)] = value;
             }
         }
+        let mut graphics = [0; 9];
         for &(register, value) in self.graphics {
-            write_indexed(io, GRAPHICS_INDEX_PORT, register, value);
+            graphics[usize::from(register)] = value;
         }
-        self.crtc.program(io, crtc_port(io));
-        io.read_port(input_status_1_port(io), 1);
-        if palette.loads_colors() {
-            for (index, value) in self.attribute_palette.into_iter().enumerate() {
-                io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, index as u32);
-                io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
-            }
-        }
+        let mut attribute = [0; 20];
+        attribute[..16].copy_from_slice(&self.attribute_palette);
         for &(register, value) in self.attribute {
-            if register != attribute::OVERSCAN_COLOR || palette.loads_colors() {
-                io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(register));
-                io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
+            if let Some(entry) = attribute.get_mut(usize::from(register)) {
+                *entry = value;
             }
         }
-        io.write_port(
-            ATTRIBUTE_ADDRESS_PORT,
-            1,
-            u32::from(attribute::PALETTE_ADDRESS_SOURCE),
-        );
+        let mut crtc = self.crtc.registers();
+        let text = attribute[0x10] & 1 == 0;
+        crtc[crtc_registers::CURSOR_START as usize] =
+            if text { self.character_height - 2 } else { 0 };
+        crtc[crtc_registers::CURSOR_END as usize] =
+            if text { self.character_height - 1 } else { 0 };
+        Parameters {
+            columns: self.columns as u8,
+            last_row: self.character_rows - 1,
+            character_height: self.character_height,
+            page_bytes: self.page_bytes,
+            sequencer,
+            miscellaneous: self.miscellaneous,
+            crtc,
+            attribute,
+            graphics,
+        }
+    }
+
+    pub(super) fn load_palette(&self, io: &IoBus, palette: PaletteLoad) {
         if palette.loads_colors() {
             io.write_port(DAC_MASK_PORT, 1, 0xff);
             palette.write(io, 0, self.palette.iter().copied());
         }
     }
 }
+
+// IBM VGA record order. The 256-KiB adapter uses records 17/18 for modes 0Fh/10h;
+// unused EGA-only records (8–12 and 15/16) remain zero.
+pub(super) const TABLE: [Option<&Preset>; 29] = [
+    Some(&TEXT_40_200),
+    Some(&TEXT_40_200),
+    Some(&TEXT_200),
+    Some(&TEXT_200),
+    Some(&CGA_320X200),
+    Some(&CGA_320X200),
+    Some(&CGA_640X200),
+    Some(&MONO_TEXT_350),
+    None,
+    None,
+    None,
+    None,
+    None,
+    Some(&PLANAR_320X200),
+    Some(&PLANAR_640X200),
+    None,
+    None,
+    Some(&MONO_640X350),
+    Some(&PLANAR_640X350),
+    Some(&TEXT_40_350),
+    Some(&TEXT_40_350),
+    Some(&TEXT_350),
+    Some(&TEXT_350),
+    Some(&TEXT_40_400),
+    Some(&TEXT_400),
+    Some(&MONO_TEXT_400),
+    Some(&MONO_640X480),
+    Some(&PLANAR_640X480),
+    Some(&INDEXED256),
+];

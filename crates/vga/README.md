@@ -416,13 +416,37 @@ AH=12h/BL=10h reports the configuration in BDA 487h/488h: adapter color/mono
 assignment, memory-size code, feature bits and compatibility switch settings.
 Startup describes a 256-KiB color VGA with raw cursor shapes (cursor emulation
 disabled). AX=1A00h returns active/alternate display codes; AX=1A01h selects an
-entry in IBM's display-combination table through BDA 48Ah. With two descriptions,
+entry in the live display-combination table through BDA 48Ah. With two descriptions,
 the equipment word chooses the active one. Unknown combinations return FFh codes.
 These calls preserve VGA registers and VRAM; describing another adapter does
 not create one. Mode changes preserve this metadata, including monochrome modes
 07h/0Fh, which still run on the same VGA. The behavior follows the
 [IBM VGA ROM](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
 (x870 and xA2D–xAD2).
+
+BDA 4A8h points to the 28-byte video save-pointer table. Its first pointer selects
+the VGA mode parameter table; the fifth selects a 26-byte secondary table whose
+first pointer selects the display-combination table. BIOS initialization publishes
+these structures in ROM, using the layouts in the
+[IBM BIOS Interface reference](https://bitsavers.org/pdf/ibm/pc/ps2/PS2_and_PC_BIOS_Interface_Technical_Reference_Apr87.pdf)
+(April 1987, figures 3-20/21). Guests can copy them to RAM and replace their
+pointers. Services follow the current pointers, with 16-bit offset wrapping.
+
+Mode setting reads a 64-byte record containing geometry, SR01h–04h, Miscellaneous
+Output, CR00h–18h, AC00h–13h and GC00h–08h. The existing presets produce the ROM
+records; one register programmer handles both defaults and guest replacements,
+including cursor shape and display-start fields. The default DAC palette and ROM
+font still follow the BIOS mode/profile. IBM's record order is retained: 350-line
+text uses records 19–22, 400-line text uses 23–25, and modes 11h–13h use 26–28.
+This 256-KiB VGA uses records 17/18 for modes 0Fh/10h; unused EGA-only slots
+8–12 and 15/16 are zero. INT 1Dh separately exposes the PC BIOS's 88-byte legacy
+6845 parameter table; it does not select VGA mode records.
+
+Custom records change hardware and BIOS geometry. Graphics BIOS pixel and page
+addressing still use the standard mode layouts; arbitrary register-programmed
+graphics layouts require direct guest VRAM access. Text BIOS addressing already
+uses the programmed BIOS geometry. Optional font and palette override pointers
+are initially null and are not yet applied.
 
 AH=1Bh/BX=0000h writes IBM's 64-byte functionality/state report to ES:DI and
 returns AL=1Bh. It includes the BIOS mode, geometry, pages and cursors, the same
@@ -436,8 +460,11 @@ The report points to a guest-readable ROM capability table advertising only
 implemented modes and services. It reports two simultaneously visible font
 banks and eight total banks. Miscellaneous capability bits cover font loading,
 EGA/DAC palettes, grayscale summing, default palette loading, cursor emulation,
-palette paging, blink, display combination and save/restore; unsupported light-pen
-and save-pointer override services are not advertised. Reserved state fields
+palette paging, blink, display combination and save/restore. The table also
+advertises DCC table replacement. Report byte 32h marks a replacement when its
+segment differs from the BIOS segment, following the IBM ROM; the default table
+does not set this bit. Unsupported light-pen, font and palette override services
+are not advertised. Reserved state fields
 remain zero. The BIOS information module owns this ABI encoding and reuses
 adapter metadata and page validation; it adds no device or renderer state.
 

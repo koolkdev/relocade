@@ -35,6 +35,8 @@ mod screen;
 mod state;
 #[path = "bios/strings.rs"]
 mod strings;
+#[path = "bios/tables.rs"]
+mod tables;
 #[path = "bios/text_modes.rs"]
 mod text_modes;
 #[path = "bios/video.rs"]
