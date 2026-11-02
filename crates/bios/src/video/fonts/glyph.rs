@@ -23,13 +23,13 @@ impl Glyph {
             (1, character)
         };
         let pointer = rom::query(memory, selector).expect("graphics font vector");
-        let offset = (pointer as u16).wrapping_add(u16::from(index) * height);
+        let offset = pointer.offset.wrapping_add(u16::from(index) * height);
         let mut glyph = Self {
             rows: [0; 32],
             height: usize::from(height),
         };
         for (row, address) in glyph.rows.iter_mut().zip(buffer_addresses(
-            (pointer >> 16) << 4,
+            pointer.segment_base(),
             offset,
             u32::from(height),
         )) {

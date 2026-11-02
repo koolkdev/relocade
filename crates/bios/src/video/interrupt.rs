@@ -25,12 +25,33 @@ interrupt_dispatch! {
         0x0e: characters::teletype,
         0x0f: modes::mode,
         0x10: palette::interrupt,
-        0x11: fonts::interrupt,
+        0x11: font_services,
         0x12: configuration,
         0x13: strings::interrupt,
         0x1a: display_combination,
         0x1b: information::interrupt,
         0x1c: state::interrupt,
+        _: crate::interrupt::unsupported,
+    }
+}
+
+interrupt_dispatch! {
+    font_services(al) {
+        0x00: fonts::text::load_font,
+        0x01: fonts::text::load_8x14,
+        0x02: fonts::text::load_8x8,
+        0x03: fonts::text::select_maps,
+        0x04: fonts::text::load_8x16,
+        0x10: fonts::text::set_font,
+        0x11: fonts::text::set_8x14,
+        0x12: fonts::text::set_8x8,
+        0x14: fonts::text::set_8x16,
+        0x20: fonts::graphics::set_high_font,
+        0x21: fonts::graphics::set_font,
+        0x22: fonts::graphics::set_8x14,
+        0x23: fonts::graphics::set_8x8,
+        0x24: fonts::graphics::set_8x16,
+        0x30: fonts::information,
         _: crate::interrupt::unsupported,
     }
 }

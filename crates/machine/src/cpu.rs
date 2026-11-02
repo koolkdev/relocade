@@ -223,7 +223,7 @@ impl CpuStateAccess {
     }
 }
 
-fn segment_offset(segment: Segment) -> usize {
+const fn segment_offset(segment: Segment) -> usize {
     match segment {
         Segment::Es => offset_of!(CpuState, segments.es),
         Segment::Cs => offset_of!(CpuState, segments.cs),

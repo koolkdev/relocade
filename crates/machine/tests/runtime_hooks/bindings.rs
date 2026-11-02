@@ -1,4 +1,6 @@
 use super::support;
+#[path = "bindings/pointers.rs"]
+mod pointers;
 use futures_channel::oneshot;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},

@@ -1,7 +1,7 @@
 //! Register accessors and their alias ranges share these declarations.
 
 use super::CpuStateAccess;
-use relocade_x86::CpuState;
+use relocade_x86::{CpuState, Segment, SegmentRegister};
 use std::{mem::offset_of, ops::Range};
 
 macro_rules! register {
@@ -50,6 +50,12 @@ register!(ah, set_ah, u8, eax, 1);
 register!(ch, set_ch, u8, ecx, 1);
 register!(dh, set_dh, u8, edx, 1);
 register!(bh, set_bh, u8, ebx, 1);
+
+/// A pointer result writes both the visible selector and its loaded cache.
+pub const fn segment(segment: Segment) -> Range<usize> {
+    let start = super::segment_offset(segment);
+    start..start + size_of::<SegmentRegister>()
+}
 
 /// Used by generated bindings in const evaluation, without a second alias table.
 pub const fn assert_disjoint(registers: &[Range<usize>]) {
