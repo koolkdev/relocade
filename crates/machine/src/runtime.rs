@@ -39,6 +39,8 @@
 #[allow(unsafe_code)]
 mod call;
 mod code;
+#[cfg(feature = "worker")]
+mod compiler;
 mod context;
 mod dispatch;
 mod error;
@@ -51,6 +53,8 @@ pub mod real_mode_interrupt;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
+#[cfg(feature = "worker")]
+pub use compiler::{BlockRequest, CompiledCode, CompilerWorker};
 pub use context::CpuContext;
 use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
@@ -120,6 +124,28 @@ impl Cpu {
         machine
             .dispatch
             .install_module(&mut machine.backend, &machine.bindings, bytes, entries)
+            .await
+    }
+
+    /// Instantiates prepared code using this CPU's existing dispatch and hooks.
+    /// The module must use a compatible compiler and execution target. The code
+    /// validity and start-function contracts of `install_module` also apply.
+    ///
+    /// # Panics
+    /// Panics if any host service is active or parked.
+    pub async fn install_compiled_module(
+        &mut self,
+        module: &relocade_wasm_runtime::Module,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before installing"
+        );
+        let machine = self.machine_mut();
+        machine
+            .dispatch
+            .install_compiled_module(&mut machine.backend, &machine.bindings, module, entries)
             .await
     }
 

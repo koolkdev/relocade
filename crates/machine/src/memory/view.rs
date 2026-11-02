@@ -62,6 +62,7 @@ fn range_fits(address: u32, len: usize, limit: u64) -> bool {
 pub enum MemoryError {
     AddressRange,
     BackingRange,
+    UnbackedRange,
     SegmentRange,
 }
 
@@ -70,6 +71,7 @@ impl fmt::Display for MemoryError {
         f.write_str(match self {
             Self::AddressRange => "memory access exceeds the 32-bit guest address space",
             Self::BackingRange => "backing access exceeds memory_size",
+            Self::UnbackedRange => "guest memory range is not backed by RAM or ROM",
             Self::SegmentRange => "memory access exceeds the segment limit",
         })
     }

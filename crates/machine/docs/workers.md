@@ -1,5 +1,47 @@
 # Worker tasks and messages
 
+## Compiling mapped guest code
+
+`CompilerWorker::start(&memory, target).await` starts one persistent compiler loop
+for shared guest backing, its physical map and a fixed execution target. The
+worker attaches the backing once. Subsequent `BlockRequest` messages carry only
+addresses, byte bounds and instruction limits through a Rust channel. The worker
+reads RAM/ROM through the configured map, captures its own temporary instruction
+bytes, builds x86 IR and compiles the Wasm module. It retains no CPU or device bus.
+
+```rust,ignore
+let mut compiler = CompilerWorker::start(&memory, target).await?;
+let compiled = compiler.compile_blocks(vec![BlockRequest {
+    address: cs_base + start_eip,
+    start_eip,
+    byte_len: available_code_bytes,
+    instruction_limit: 64,
+}]).await?;
+compiler.shutdown().await?;
+```
+
+Requests use guest physical addresses before A20/physical mapping. Exported
+entries retain CS-relative EIPs; dispatch addresses include CS.base. RAM/ROM
+captures may cross mapping spans. MMIO and unmapped ranges are rejected without
+device accesses. Keep every requested code range and its mapping unchanged from
+submission through receipt; shared memory does not make a range read atomic.
+No invalidation or automatic installation is provided by this lifecycle layer.
+
+Typed errors and entry metadata use Rust responses; modules use the resource
+channel below. Canceling a request waiter leaves the worker alive. Request IDs
+prevent a late module from an abandoned request being used for its successor.
+`shutdown().await` closes submissions and drains accepted work before releasing
+the worker. Await startup and shutdown through completion; abrupt browser worker
+termination has the existing `Thread` cleanup limitation.
+
+The returned module can outlive the compiler worker. Each compatible CPU uses
+`install_compiled_module` to bind it to its own state, memory, dispatch and hooks.
+The caller maintains instruction validity and execution assumptions for as long
+as those entries remain installed. Active or parked services must finish before
+installation, as with `install_module`.
+
+## General worker tasks
+
 Enable the machine's `worker` feature for `worker::Thread`, reexported from
 `web-thread-select`. The Wasm runtime exposes the same worker API and resource
 channels through its own `worker` feature. The application creates workers and
