@@ -1,19 +1,24 @@
 //! BIOS Attribute Controller palette entries, border color and blink control.
-use crate::video::input_status_1_port;
+use crate::video::{input_status_1_port, tables::Pointer};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, FarPointer},
     IoBus, MemoryView,
 };
 use relocade_vga::registers::{attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT};
 
-#[interrupt(context(io), args(index = bl, value = bh),
+#[interrupt(context(memory, io), args(index = bl, value = bh),
     returns { true => {}, false => crate::interrupt::unsupported },
 )]
-pub(in crate::video) fn set_register(io: &IoBus, index: u8, value: u8) -> bool {
+pub(in crate::video) fn set_register(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    index: u8,
+    value: u8,
+) -> bool {
     if index > attribute::COLOR_SELECT {
         return false;
     }
-    write_attribute(io, index, value);
+    write_bios_attribute(memory, io, index, value);
     true
 }
 
@@ -24,9 +29,9 @@ pub(in crate::video) fn register(io: &IoBus, index: u8) -> Option<u8> {
     (index <= attribute::COLOR_SELECT).then(|| read_attribute(io, index))
 }
 
-#[interrupt(context(io), args(color = bh))]
-pub(in crate::video) fn set_overscan(io: &IoBus, color: u8) {
-    write_attribute(io, attribute::OVERSCAN_COLOR, color);
+#[interrupt(context(memory, io), args(color = bh))]
+pub(in crate::video) fn set_overscan(memory: &mut MemoryView<'_>, io: &IoBus, color: u8) {
+    write_bios_attribute(memory, io, attribute::OVERSCAN_COLOR, color);
 }
 
 #[interrupt(context(io), returns { color => { bh = color } })]
@@ -35,12 +40,12 @@ pub(in crate::video) fn overscan(io: &IoBus) -> u8 {
 }
 
 #[interrupt(context(memory, io), args(source = ptr(es, dx)))]
-pub(in crate::video) fn load_palette(memory: &MemoryView<'_>, io: &IoBus, source: FarPointer) {
+pub(in crate::video) fn load_palette(memory: &mut MemoryView<'_>, io: &IoBus, source: FarPointer) {
     for (offset, index) in palette_registers().enumerate() {
         let value = memory
             .read_u8(source.wrapping_add(offset).address())
             .expect("attribute palette buffer");
-        write_attribute(io, index, value);
+        write_bios_attribute(memory, io, index, value);
     }
 }
 
@@ -63,6 +68,29 @@ pub(in crate::video) fn read_palette(
 // The 17-byte BIOS buffer contains sixteen palette entries followed by overscan.
 fn palette_registers() -> impl Iterator<Item = u8> {
     (0..16).chain(std::iter::once(attribute::OVERSCAN_COLOR))
+}
+
+/// Firmware palette writes also maintain the optional 256-byte dynamic area.
+/// Hardware restore and direct guest I/O use raw register writes instead.
+pub(in crate::video) fn write_bios_attribute(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    index: u8,
+    value: u8,
+) {
+    write_attribute(io, index, value);
+    let offset = match index {
+        0..=15 => usize::from(index),
+        attribute::OVERSCAN_COLOR => 16,
+        _ => return,
+    };
+    if let Some(area) = Pointer::DynamicPalette.read(memory) {
+        // Store the requested byte, before VGA register masking. Bytes 17–255
+        // are reserved; overscan belongs at 16, not at its hardware index 11h.
+        memory
+            .write_u8(area.wrapping_add(offset).address(), value)
+            .expect("dynamic palette save area");
+    }
 }
 
 #[interrupt(context(io), args(selection = bl),

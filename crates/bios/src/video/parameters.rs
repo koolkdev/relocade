@@ -1,5 +1,9 @@
 //! The 64-byte VGA mode records reached through the BIOS save-pointer table.
-use super::{crtc_port, input_status_1_port, palette::PaletteLoad, tables, write_indexed};
+use super::{
+    crtc_port, input_status_1_port,
+    palette::{self, PaletteLoad},
+    tables, write_indexed,
+};
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::registers::{
     attribute, crtc, ATTRIBUTE_ADDRESS_PORT, GRAPHICS_INDEX_PORT, MISC_OUTPUT_WRITE_PORT,
@@ -59,7 +63,7 @@ impl Parameters {
         ])
     }
 
-    pub fn program(&self, io: &IoBus, palette: PaletteLoad) {
+    pub fn program(&self, memory: &mut MemoryView<'_>, io: &IoBus, palette: PaletteLoad) {
         io.write_port(MISC_OUTPUT_WRITE_PORT, 1, u32::from(self.miscellaneous));
         for (index, &value) in self.sequencer.iter().enumerate() {
             write_indexed(io, SEQUENCER_INDEX_PORT, index as u8 + 1, value);
@@ -76,21 +80,15 @@ impl Parameters {
             }
         }
         write_indexed(io, port, crtc::VERTICAL_RETRACE_END, self.crtc[0x11]);
-        io.read_port(input_status_1_port(io), 1);
         for (index, &value) in self.attribute.iter().enumerate() {
             if !palette.loads_colors() && (index < 16 || index == 0x11) {
                 continue;
             }
-            io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, index as u32);
-            io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, u32::from(value));
+            palette::attributes::write_bios_attribute(memory, io, index as u8, value);
         }
         // Color Select is a VGA extension absent from the EGA-compatible record.
-        io.write_port(
-            ATTRIBUTE_ADDRESS_PORT,
-            1,
-            u32::from(attribute::COLOR_SELECT),
-        );
-        io.write_port(ATTRIBUTE_ADDRESS_PORT, 1, 0);
+        palette::write_attribute(io, attribute::COLOR_SELECT, 0);
+        io.read_port(input_status_1_port(io), 1);
         io.write_port(
             ATTRIBUTE_ADDRESS_PORT,
             1,

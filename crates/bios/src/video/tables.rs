@@ -77,6 +77,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>) {
 /// Optional slots start null; guests install a table by writing its far pointer.
 pub(super) enum Pointer {
     Parameters,
+    DynamicPalette,
     DisplayCombinations,
     TextFont,
     GraphicsFont,
@@ -89,6 +90,7 @@ impl Pointer {
         let primary = non_null(memory.read_u32(SAVE_POINTER).expect("video save pointer"))?;
         let address = match self {
             Self::Parameters => primary,
+            Self::DynamicPalette => primary.wrapping_add(4),
             Self::TextFont => primary.wrapping_add(8),
             Self::GraphicsFont => primary.wrapping_add(12),
             Self::DisplayCombinations => {

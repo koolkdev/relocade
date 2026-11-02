@@ -1,6 +1,8 @@
 //! Guest-installed BIOS tables affect the actual INT 10h services and VGA state.
 #[path = "tables/fonts.rs"]
 mod fonts;
+#[path = "tables/palette_save.rs"]
+mod palette_save;
 use super::{
     information::information,
     video::{video, PROGRAM},

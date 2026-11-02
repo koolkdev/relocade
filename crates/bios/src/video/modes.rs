@@ -81,7 +81,7 @@ pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<
     );
     fonts::set_mode(memory, io, preset.character_height, text_memory.is_some());
     let palette = palette::PaletteLoad::for_mode_set(memory);
-    parameters.program(io, palette);
+    parameters.program(memory, io, palette);
     preset.load_palette(io, palette);
 
     memory.write_u8(MODE, mode).expect("video mode");
