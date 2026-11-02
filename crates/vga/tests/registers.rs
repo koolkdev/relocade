@@ -51,9 +51,11 @@ fn dac_cycles_mask_channels_wrap_addresses_and_restart_partial_transfers() {
     assert_eq!(vga.read_port(0x3c7, 1) & 3, 0);
     vga.write_port(0x3c7, 1, 255);
     assert_eq!(vga.read_port(0x3c7, 1) & 3, 3);
+    assert_eq!(vga.read_port(0x3c8, 1), 0); // Read index is already incremented.
     for expected in [0x3f, 0x21, 2, 3, 4, 5] {
         assert_eq!(vga.read_port(0x3c9, 1) & 0x3f, expected);
     }
+    assert_eq!(vga.read_port(0x3c8, 1), 2);
     vga.write_port(0x3c8, 1, 2);
     vga.write_port(0x3c9, 1, 10);
     vga.write_port(0x3c8, 1, 3);
@@ -65,7 +67,7 @@ fn dac_cycles_mask_channels_wrap_addresses_and_restart_partial_transfers() {
     vga.write_port(0x3c7, 1, 3); // Restart an incomplete RGB read at red.
     for expected in [11, 12, 13] {
         assert_eq!(vga.read_port(0x3c7, 1) & 3, 3);
-        vga.read_port(0x3c8, 1); // Address/state reads do not advance the RGB phase.
+        assert_eq!(vga.read_port(0x3c8, 1), 4); // These reads do not advance RGB.
         assert_eq!(vga.read_port(0x3c9, 1) & 0x3f, expected);
     }
     vga.write_port(0x3c6, 1, 0x55);

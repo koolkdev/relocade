@@ -32,8 +32,10 @@ impl Dac {
         self.reading = reading;
     }
 
+    /// Port 3C8h reports the next index during a read transfer, and the current
+    /// index during a write transfer (V7 VGA Technical Reference pp. 3-12–13).
     pub fn address(&self) -> u8 {
-        self.address
+        self.address.wrapping_add(u8::from(self.reading))
     }
 
     pub(crate) fn state(&self) -> u8 {
