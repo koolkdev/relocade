@@ -86,6 +86,24 @@ the full 64-KiB guest aperture. CRTC byte, word and doubleword addressing
 translates display counters to those same physical addresses. The IBM VGA
 target does not implement legacy EGA page-selection inputs or 64-KiB chaining.
 
+CPU address decoding follows the PC/AT adapter convention: write-only port
+46E8h bit 3 enables normal VGA I/O and VRAM access, and bit 4 selects setup.
+In setup, only the adapter control and option byte at 0102h are accessible.
+Option bit 0 must also be set for normal access; it can be changed only in setup.
+Blocked reads return FF and writes do nothing, preserving memory latches,
+register indices and transfer phases. Miscellaneous Output bit 1 remains an
+independent CPU RAM gate. Address decoding does not blank output or stop timing;
+its controls stay on the device rather than invalidating display captures.
+The device starts enabled, as it does for its other post-initialization defaults.
+
+This uses the [IBM adapter ROM's setup sequence and BL=32h service](https://github.com/jeffpar/pcjs/blob/master/machines/pcx86/ibm/video/vga/1986-10-27/IBM-VGA.asm)
+(x95–xAA and x96B–x97E). The PC/AT control bits and write-only 46E8h port are
+also described in the [Video Seven VGA reference](https://www.minuszerodegrees.net/manuals/Video%20Seven/Video%20Seven%20-%20V7%20VGA%20chip%20-%20Technical%20reference%20manual%20-%20JUN88.pdf)
+(pp. 3-16–17). Setup access with bit 3 clear is an explicit emulation convention,
+consistent with IBM's sequence, not a hardware-validated priority rule. Video
+Seven documents disable taking priority instead. Motherboard controls at 0094h/03C3h,
+option-ROM banking, additional adapters and clone-specific aliases are not modeled.
+
 Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
 physical map and device bus. The Graphics Controller selects the active aperture;
 reads outside it return FF and writes are ignored. BIOS modes 00h/01h use 40

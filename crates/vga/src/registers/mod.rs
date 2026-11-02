@@ -6,6 +6,7 @@ pub mod crtc;
 pub mod dac;
 pub mod graphics;
 pub mod sequencer;
+pub(crate) mod setup;
 pub mod text_mode;
 
 use attribute::Attribute;
@@ -15,6 +16,7 @@ use graphics::Graphics;
 use sequencer::Sequencer;
 use std::ops::RangeInclusive;
 
+pub const OPTION_SELECT_PORT: u16 = 0x102;
 pub const MONO_CRTC_INDEX_PORT: u16 = 0x3b4;
 pub const MONO_CRTC_DATA_PORT: u16 = 0x3b5;
 pub const MONO_INPUT_STATUS_1_PORT: u16 = 0x3ba;
@@ -34,20 +36,25 @@ pub const GRAPHICS_DATA_PORT: u16 = 0x3cf;
 pub const CRTC_INDEX_PORT: u16 = 0x3d4;
 pub const CRTC_DATA_PORT: u16 = 0x3d5;
 pub const COLOR_INPUT_STATUS_1_PORT: u16 = 0x3da;
+/// PC/AT adapter address-decoding control (write only).
+pub const ADAPTER_CONTROL_PORT: u16 = 0x46e8;
 pub const CRTC_PORT_RANGE: RangeInclusive<u16> = CRTC_INDEX_PORT..=CRTC_DATA_PORT;
 
-/// VGA register and status ports, including monochrome/color CRTC aliases.
-pub const PORT_RANGES: [RangeInclusive<u16>; 5] = [
+/// VGA register, status and adapter setup ports, including monochrome/color aliases.
+pub const PORT_RANGES: [RangeInclusive<u16>; 7] = [
+    OPTION_SELECT_PORT..=OPTION_SELECT_PORT,
     MONO_CRTC_INDEX_PORT..=MONO_CRTC_DATA_PORT,
     MONO_INPUT_STATUS_1_PORT..=MONO_INPUT_STATUS_1_PORT,
     ATTRIBUTE_ADDRESS_PORT..=GRAPHICS_DATA_PORT,
     CRTC_PORT_RANGE,
     COLOR_INPUT_STATUS_1_PORT..=COLOR_INPUT_STATUS_1_PORT,
+    ADAPTER_CONTROL_PORT..=ADAPTER_CONTROL_PORT,
 ];
 
-/// Complete stored VGA register state, used by the device and its captures.
+/// Stored VGA register banks, used by the device and its captures.
 /// Bank indices and transfer phases are retained alongside the raw values;
 /// cloning this state never advances a CPU access or evaluates display settings.
+/// The adapter's CPU address-decoding controls live separately on the device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Registers {
     pub crtc: Crtc,
