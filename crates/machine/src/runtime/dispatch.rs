@@ -105,6 +105,18 @@ impl Dispatch {
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
+        let module = backend.compiler().compile(bytes).await?;
+        self.install_compiled_module(backend, bindings, &module, entries)
+            .await
+    }
+
+    pub(crate) async fn install_compiled_module(
+        &mut self,
+        backend: &mut Backend,
+        bindings: &RuntimeMemory,
+        module: &Module,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
         let entries: BTreeMap<_, _> = entries
             .iter()
             .map(|entry| (entry.address, entry.export))
@@ -113,8 +125,7 @@ impl Dispatch {
             .into_iter()
             .map(|(address, export)| DispatchEntry { address, export })
             .collect();
-        let module = backend.compiler().compile(bytes).await?;
-        let instance = self.instantiate(backend, bindings, &module).await?;
+        let instance = self.instantiate(backend, bindings, module).await?;
         self.table.install(backend, &instance, &entries)?;
         self.hooks.remove(entries.iter().map(|entry| entry.address));
         Ok(())
