@@ -26,7 +26,7 @@ pub use characters::{
 pub use cursor::{cursor, select_page, set_cursor, set_cursor_shape, CursorState};
 pub(super) use fonts::Glyph;
 pub use graphics::pixel::{read_pixel, write_pixel};
-pub(crate) use interrupt::dispatch_entry;
+pub(crate) use interrupt::dispatch;
 pub use modes::{mode, set_mode, set_screen_output, ModeInfo};
 pub(super) use modes::{text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
 pub use scroll::{scroll, scroll_down, scroll_up};

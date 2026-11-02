@@ -1,19 +1,12 @@
-use crate::{interrupt, memory, services, state::DosState};
-use relocade_machine::{real_mode_interrupt::HOOK_STUB, Hook};
-use relocade_machine::{CpuConfig, CpuStateAccess, MachineConfig, MemoryView};
+use relocade_machine::{CpuConfig, MachineConfig};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
-use std::rc::Rc;
-
-const KERNEL_SEGMENT: u16 = 0xf000;
-const INT20_ENTRY: u16 = 0x100;
-const INT21_ENTRY: u16 = 0x110;
 
 pub(crate) fn configuration() -> MachineConfig {
     const CONVENTIONAL_RAM_SIZE: u32 = 640 * 1024;
     const MEMORY_SIZE: u32 = 1024 * 1024;
-    let kernel_rom_start = address(0);
+    let kernel_rom_start = 0xf0000;
     let map = PhysicalMemoryMap::new([
         (
             0..=CONVENTIONAL_RAM_SIZE - 1,
@@ -40,36 +33,4 @@ pub(crate) fn cpu() -> CpuConfig {
         },
     )
     .expect("fixed real-mode DOS CPU")
-}
-
-pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
-    memory::reset(memory);
-    for (vector, offset) in [(0x20, INT20_ENTRY), (0x21, INT21_ENTRY)] {
-        let [lo, hi] = offset.to_le_bytes();
-        let [seg_lo, seg_hi] = KERNEL_SEGMENT.to_le_bytes();
-        memory
-            .write(vector * 4, &[lo, hi, seg_lo, seg_hi])
-            .expect("IVT range");
-        memory
-            .write_backing(address(offset), &HOOK_STUB)
-            .expect("DOS kernel ROM range");
-    }
-}
-
-pub(crate) fn hooks(cpu: CpuStateAccess, state: Rc<DosState>) -> impl Iterator<Item = Hook> {
-    [
-        interrupt::hook(
-            address(INT20_ENTRY),
-            cpu.clone(),
-            Rc::clone(&state),
-            services::int20,
-        ),
-        interrupt::hook(address(INT21_ENTRY), cpu, state, services::int21),
-    ]
-    .into_iter()
-    .flatten()
-}
-
-const fn address(offset: u16) -> u32 {
-    ((KERNEL_SEGMENT as u32) << 4) + offset as u32
 }
