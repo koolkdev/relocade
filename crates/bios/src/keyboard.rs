@@ -110,9 +110,10 @@ impl Keyboard {
     }
 
     /// Reports the next whole keystroke without consuming it, as for INT 16h/AH=01h.
+    // IBM's STI / RETF 2 status return leaves IF enabled along with the result ZF.
     #[interrupt(returns {
-        Some(key) => { al = key.character, ah = key.scan_code, zf = false },
-        None => { zf = true },
+        Some(key) => { al = key.character, ah = key.scan_code, zf = false, interrupts_enabled = true },
+        None => { zf = true, interrupts_enabled = true },
     })]
     pub fn peek_key(&self) -> Option<KeyStroke> {
         self.0.borrow().keys.front().copied()

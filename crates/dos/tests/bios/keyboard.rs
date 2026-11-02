@@ -74,6 +74,44 @@ fn bios_peeks_reads_and_reports_shift_state_without_echo() {
     });
 }
 
+#[test]
+fn bios_keyboard_status_enables_interrupts_and_returns_zero_flag() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        let keyboard = dos.keyboard();
+        let key = KeyStroke {
+            character: b'A',
+            scan_code: 0x1e,
+        };
+        // Start ZF opposite its result. Preserve CF and DF for both incoming IF values.
+        for (queued, flags, expected_flags, expected_ax) in [
+            (None, 0x403, 0x643, 0x017b),
+            (Some(key), 0x443, 0x603, 0x1e41),
+            (None, 0x603, 0x643, 0x017b),
+            (Some(key), 0x643, 0x603, 0x1e41),
+        ] {
+            keyboard.discard_queued();
+            if let Some(key) = queued {
+                keyboard.push(key);
+            }
+            {
+                let machine = dos.cpu().context();
+                machine.cpu.set_eip(0x100);
+                machine.cpu.set_ax(0x017b);
+                machine.cpu.set_eflags(flags);
+            }
+            assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+            let machine = dos.cpu().context();
+            assert_eq!(machine.cpu.eip(), 0x102);
+            assert_eq!(machine.cpu.sp(), 0xfffe);
+            assert_eq!(machine.cpu.eflags(), expected_flags);
+            assert_eq!(machine.cpu.ax(), expected_ax);
+            assert_eq!(keyboard.peek_key(), queued);
+        }
+    });
+}
+
 #[derive(Default)]
 struct WakeCount(AtomicUsize);
 

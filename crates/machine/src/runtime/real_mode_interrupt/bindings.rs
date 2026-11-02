@@ -60,8 +60,10 @@
 //! # fn main() {}
 //! ```
 //!
-//! Return arms write only their declared locations on normal completion. `cf` and
-//! `zf` edit saved interrupt FLAGS; omitted registers and flags are preserved.
+//! Return arms write only their declared locations on normal completion. `cf`,
+//! `zf` and `interrupts_enabled` edit saved interrupt FLAGS; omitted registers and
+//! flags are preserved. `interrupts_enabled` sets the caller's IF after IRET; it
+//! does not enable interrupts during the handler.
 //! A result arm such as `None => unsupported` delegates to that annotated service,
 //! using its generated adapter just like a table entry, including the `_` fallback.
 //! Imported services use their module path so the generated adapter is reachable.

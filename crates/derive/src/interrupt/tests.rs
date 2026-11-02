@@ -26,7 +26,9 @@ fn arguments_must_name_distinct_service_parameters() {
     );
     assert!(error(quote!(args(missing = ax), returns {})).contains("no argument"));
     assert!(error(quote!(context(value), returns {})).contains("references"));
-    assert!(error(quote!(args(value = cf), returns {})).contains("flags are return values"));
+    for flag in [quote!(cf), quote!(zf), quote!(interrupts_enabled)] {
+        assert!(error(quote!(args(value = #flag), returns {})).contains("flags are return values"));
+    }
 }
 
 #[test]
@@ -45,10 +47,12 @@ fn input_mappings_only_read_registers_and_record_fields() {
 
 #[test]
 fn output_flags_cannot_be_assigned_twice_in_one_arm() {
-    assert!(
-        error(quote!(returns { value => { zf = false, zf = true } }))
-            .contains("duplicate output flag")
-    );
+    for flag in [quote!(cf), quote!(zf), quote!(interrupts_enabled)] {
+        assert!(
+            error(quote!(returns { value => { #flag = false, #flag = true } }))
+                .contains("duplicate output flag")
+        );
+    }
 }
 
 #[test]

@@ -19,7 +19,10 @@ struct Request {
 #[interrupt(
     context(memory),
     args(request = Request { page: bh, offset: si }, position = (cx, dx), count = edi),
-    returns { byte => { al = byte, (cx, dx) = 0x9876_5432u32, edi = 0x1234_5678u32, cf = false } }
+    returns { byte => {
+        al = byte, (cx, dx) = 0x9876_5432u32, edi = 0x1234_5678u32,
+        cf = false, interrupts_enabled = false,
+    } }
 )]
 fn inspect_request(memory: &mut MemoryView<'_>, request: Request, position: u32, count: u32) -> u8 {
     assert_eq!(
@@ -118,7 +121,7 @@ async fn check_bindings() {
     assert_eq!(cpu.edi(), 0x1234_5678);
     assert_eq!(cpu.eflags(), 0x202);
     call.memory.read(0x100, &mut frame).unwrap();
-    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x56, 0x0a]);
+    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x56, 0x08]);
 
     cpu.set_ah(0x12);
     selection_entry(&mut call).await;
@@ -133,7 +136,7 @@ async fn check_bindings() {
     assert_eq!(cpu.ah(), 0x86);
     assert_eq!(cpu.eflags(), 0x202);
     call.memory.read(0x100, &mut frame).unwrap();
-    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x0a]);
+    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x08]);
 
     // Async inputs are captured on first poll. Cancellation never applies outputs.
     cpu.set_ax(10);
@@ -143,14 +146,14 @@ async fn check_bindings() {
     assert!(pending.as_mut().poll(&mut cx).is_pending());
     assert_eq!(cpu.ax(), 10);
     memory.view().read(0x100, &mut frame).unwrap();
-    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x0a]);
+    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x08]);
     cpu.set_ax(20);
     ready.send(()).unwrap();
     assert!(pending.as_mut().poll(&mut cx).is_ready());
     drop(pending);
     assert_eq!(cpu.ax(), 11);
     call.memory.read(0x100, &mut frame).unwrap();
-    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x16, 0x0a]);
+    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x16, 0x08]);
 
     cpu.set_ax(30);
     relocade_machine::real_mode_interrupt::set_carry(&cpu, &mut call.memory, true);
@@ -160,7 +163,7 @@ async fn check_bindings() {
     drop(cancelled);
     assert_eq!(cpu.ax(), 30);
     call.memory.read(0x100, &mut frame).unwrap();
-    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x0a]);
+    assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x17, 0x08]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

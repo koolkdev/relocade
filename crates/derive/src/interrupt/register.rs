@@ -35,7 +35,7 @@ impl Parse for Register {
                 input.parse::<Ident>()?;
                 return Ok(Self::Pointer(Pointer::parse(input)?));
             }
-            if name == "cf" || name == "zf" {
+            if name == "cf" || name == "zf" || name == "interrupts_enabled" {
                 return Ok(Self::Flag(input.parse()?));
             }
         }
@@ -109,8 +109,10 @@ impl Register {
             Self::Flag(name) => {
                 let setter = if name == "cf" {
                     quote!(set_carry)
-                } else {
+                } else if name == "zf" {
                     quote!(set_zero)
+                } else {
+                    quote!(set_interrupts_enabled)
                 };
                 quote!(::relocade_machine::real_mode_interrupt::#setter(#call.cpu, &mut #call.memory, #value);)
             }

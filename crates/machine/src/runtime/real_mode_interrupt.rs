@@ -3,7 +3,7 @@
 //! Place [`HOOK_STUB`] in guest memory and install the entries returned by [`hook`].
 //! When the async handler returns, the adapter advances to the guest IRET,
 //! which restores IP, CS and FLAGS. Handlers can update saved flags with
-//! [`set_carry`] or [`set_zero`] before returning.
+//! [`set_carry`], [`set_zero`] or [`set_interrupts_enabled`] before returning.
 //!
 //! The second byte resumes the top suspended host call after guest IRQ execution.
 
@@ -74,18 +74,26 @@ pub async fn with_interrupts_enabled<F: Future>(cpu: &CpuStateAccess, future: F)
 /// Changes carry in the saved FLAGS, preserving every other flag.
 /// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
 pub fn set_carry(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, carry: bool) {
-    set_flag(cpu, memory, 1, carry);
+    set_flag(cpu, memory, 0, carry);
 }
 
 /// Changes zero in the saved FLAGS, preserving every other flag.
 /// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
 pub fn set_zero(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, zero: bool) {
-    set_flag(cpu, memory, 1 << 6, zero);
+    set_flag(cpu, memory, 6, zero);
 }
 
-fn set_flag(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, mask: u8, value: bool) {
+/// Changes IF in the saved FLAGS, preserving every other flag and leaving live IF unchanged.
+/// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
+pub fn set_interrupts_enabled(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, enabled: bool) {
+    set_flag(cpu, memory, 9, enabled);
+}
+
+fn set_flag(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, bit: u16, value: bool) {
     // INT pushed FLAGS, CS, IP. Updating live flags would be undone by IRET.
-    let address = cpu.segment(Segment::Ss).base + u32::from(cpu.sp().wrapping_add(4));
+    let offset = cpu.sp().wrapping_add(4 + bit / 8);
+    let address = cpu.segment(Segment::Ss).base + u32::from(offset);
+    let mask = 1u8 << (bit % 8);
     let mut flags = [0];
     memory
         .read(address, &mut flags)
