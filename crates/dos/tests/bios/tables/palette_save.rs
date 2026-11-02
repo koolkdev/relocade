@@ -6,7 +6,7 @@ const AREA: FarPointer = FarPointer {
     offset: 0xfff8,
 };
 
-fn install_area(dos: &mut Dos) {
+pub(super) fn install_area(dos: &mut Dos) {
     install(dos);
     let mut context = dos.cpu().context();
     context
@@ -16,7 +16,7 @@ fn install_area(dos: &mut Dos) {
     context.memory.write_wrapping(AREA, &[0xa5; 256]).unwrap();
 }
 
-fn saved(dos: &mut Dos) -> [u8; 256] {
+pub(super) fn saved(dos: &mut Dos) -> [u8; 256] {
     let mut bytes = [0; 256];
     dos.cpu()
         .context()

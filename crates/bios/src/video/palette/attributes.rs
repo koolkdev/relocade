@@ -41,7 +41,25 @@ pub(in crate::video) fn overscan(io: &IoBus) -> u8 {
 
 #[interrupt(context(memory, io), args(source = ptr(es, dx)))]
 pub(in crate::video) fn load_palette(memory: &mut MemoryView<'_>, io: &IoBus, source: FarPointer) {
-    for (offset, index) in palette_registers().enumerate() {
+    load_range(memory, io, 0, 17, source);
+}
+
+/// The descriptor's logical entry 16 addresses overscan, not AC Mode Control.
+pub(super) fn load_range(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    first: u16,
+    count: u16,
+    source: FarPointer,
+) {
+    if u32::from(first) + u32::from(count) > 17 {
+        return;
+    }
+    for (offset, index) in palette_registers()
+        .skip(usize::from(first))
+        .take(usize::from(count))
+        .enumerate()
+    {
         let value = memory
             .read_u8(source.wrapping_add(offset).address())
             .expect("attribute palette buffer");

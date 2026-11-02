@@ -82,6 +82,7 @@ pub(super) enum Pointer {
     TextFont,
     GraphicsFont,
     AlternateFont,
+    PaletteProfile,
 }
 
 impl Pointer {
@@ -97,6 +98,9 @@ impl Pointer {
                 read_pointer(memory, primary.wrapping_add(16))?.wrapping_add(2)
             }
             Self::AlternateFont => read_pointer(memory, primary.wrapping_add(16))?.wrapping_add(6),
+            Self::PaletteProfile => {
+                read_pointer(memory, primary.wrapping_add(16))?.wrapping_add(10)
+            }
         };
         read_pointer(memory, address)
     }
