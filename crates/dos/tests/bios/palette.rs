@@ -129,9 +129,25 @@ fn blink_paging_and_dac_mask_services_update_only_their_fields() {
             video(&mut dos, 0x1019, 0xa500, 0, 0).registers.ebx as u16,
             0xa57f
         );
+        let before = dos.vga().borrow().snapshot();
+        // Invalid paging modes, paging selectors and read indices fail independently.
+        for (ax, bx) in [(0x1013, 0x0200), (0x1013, 0x0002), (0x1007, 0xa515)] {
+            let result = video(&mut dos, ax, bx, 0xa5c3, 0x1234);
+            assert_eq!(result.registers.eax as u16, 0x8600 | (ax & 255));
+            assert_eq!(result.registers.ebx as u16, bx);
+            assert_eq!(result.registers.ecx as u16, 0xa5c3);
+            assert_eq!(result.registers.edx as u16, 0x1234);
+        }
+        assert_eq!(before.registers, dos.vga().borrow().snapshot().registers);
         video(&mut dos, 0x0013, 0, 0, 0);
         let before = dos.vga().borrow().snapshot();
-        for (ax, bx) in [(0x1013, 0), (0x1003, 2), (0x1000, 0x15), (0x10ff, 0)] {
+        for (ax, bx) in [
+            (0x1013, 0),
+            (0x1013, 1),
+            (0x1003, 2),
+            (0x1000, 0x15),
+            (0x10ff, 0),
+        ] {
             assert_eq!(
                 video(&mut dos, ax, bx, 0, 0).registers.eax as u16,
                 0x8600 | (ax & 255)

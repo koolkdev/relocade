@@ -1,7 +1,7 @@
 //! The legacy BIOS color service programs VGA Attribute Controller registers.
-use super::{modes, write_attribute};
+use super::write_attribute;
 use crate::screen;
-use crate::video::CRTC_PORT;
+use crate::video::{modes, CRTC_PORT};
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::registers::{attribute, MONO_CRTC_INDEX_PORT};
 
