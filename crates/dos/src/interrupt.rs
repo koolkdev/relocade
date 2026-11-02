@@ -1,13 +1,35 @@
-//! Bind DOS state to CPU hooks and complete real-mode interrupt calls.
+//! Register DOS interrupts and bind each invocation to its active process.
 
 use crate::{
     error::DosError,
     process::{Process, ProcessStatus},
+    services,
     state::DosState,
     ServiceError,
 };
-use relocade_machine::{real_mode_interrupt, CpuStateAccess, Hook, MemoryView};
+use relocade_machine::{
+    real_mode_interrupt::{self, Interrupts},
+    CpuContext, CpuStateAccess, FarPointer, MemoryView,
+};
 use std::rc::Rc;
+
+const INT20_ENTRY: FarPointer = FarPointer {
+    segment: 0xf000,
+    offset: 0x100,
+};
+const INT21_ENTRY: FarPointer = FarPointer {
+    segment: 0xf000,
+    offset: 0x110,
+};
+
+pub(crate) fn register_interrupts(interrupts: &mut Interrupts<'_>, session: Rc<DosState>) {
+    interrupts.register_interrupt(
+        0x20,
+        INT20_ENTRY,
+        for_process(session.clone(), services::int20),
+    );
+    interrupts.register_interrupt(0x21, INT21_ENTRY, for_process(session, services::int21));
+}
 
 /// One CPU invocation bound to its process and shared DOS resources.
 /// Resource borrows last for each operation, not the whole invocation.
@@ -34,31 +56,26 @@ impl<'call> DosContext<'call> {
     }
 }
 
-/// Captures the session and resolves its active process at each hook entry.
-pub(crate) fn hook<F>(
-    address: u32,
-    cpu: CpuStateAccess,
-    session: Rc<DosState>,
-    handler: F,
-) -> [Hook; 3]
+/// Resolves and retains the active process for each interrupt invocation.
+fn for_process<F>(session: Rc<DosState>, handler: F) -> impl AsyncFn(&mut CpuContext<'_>)
 where
     F: AsyncFn(&mut DosContext<'_>) + 'static,
 {
-    real_mode_interrupt::hook(address, cpu.clone(), async move || {
-        let process = session.process().expect("DOS hook requires a process");
+    async move |context| {
+        let process = session.process().expect("DOS interrupt requires a process");
         assert_eq!(
             process.status(),
             ProcessStatus::Active,
-            "DOS hook requires an active process"
+            "DOS interrupt requires an active process"
         );
         let mut call = DosContext {
-            cpu: &cpu,
+            cpu: context.cpu,
             memory: session.memory().view(),
             dos: &session,
             process: &process,
         };
         handler(&mut call).await
-    })
+    }
 }
 
 /// Returns a DOS result through the interrupt frame, preserving other flags.

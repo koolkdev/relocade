@@ -63,7 +63,8 @@ impl Parse for Entry {
 impl Table {
     pub(super) fn expand(self) -> syn::Result<Tokens> {
         let visibility = self.visibility;
-        let name = format_ident!("{}_entry", self.name);
+        let name = self.name;
+        let entry = format_ident!("{name}_entry");
         let selector = self.selector;
         let parameters = self.parameters;
         let call = Ident::new("__interrupt_call", Span::mixed_site());
@@ -89,6 +90,10 @@ impl Table {
             #visibility async fn #name(#call: &mut ::relocade_machine::CpuContext<'_>, #(#parameters),*) {
                 match #call.cpu.#selector() { #(#arms,)* }
             }
+            // Nested tables use the same internal adapter lookup as services.
+            #[doc(hidden)]
+            #[allow(unused_imports)]
+            #visibility use self::#name as #entry;
         })
     }
 }

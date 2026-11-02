@@ -39,20 +39,15 @@ mod keyboard;
 mod screen;
 pub mod video;
 
-pub use interrupt::hooks;
+pub use interrupt::register_interrupts;
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
-use relocade_machine::{real_mode_interrupt, IoBus, MemoryView};
+use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;
 
 const BIOS_SEGMENT: u16 = 0xf000;
-const CLOCK_ENTRY: u16 = 0xff00;
-const CLOCK_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + CLOCK_ENTRY as u32;
-const KEYBOARD_ENTRY: u16 = 0xff10;
-const KEYBOARD_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + KEYBOARD_ENTRY as u32;
-const VIDEO_ENTRY: u16 = 0xff20;
-const VIDEO_ADDRESS: u32 = ((BIOS_SEGMENT as u32) << 4) + VIDEO_ENTRY as u32;
 
-/// Initializes clock/video data, BIOS vectors, ROM fonts and hook instructions.
+/// Initializes clock/video data and ROM fonts. Use [`register_interrupts`] to bind
+/// BIOS interrupt vectors and their handlers to a CPU.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
 /// Map [`relocade_vga::MEMORY_RANGE`] as MMIO and connect VGA to that memory
 /// range and [`relocade_vga::PORT_RANGES`] on the supplied bus. Font loading uses
@@ -62,19 +57,4 @@ pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     memory
         .write(clock::CLOCK_TICKS, &[0; 5])
         .expect("BIOS clock data");
-    let [segment_lo, segment_hi] = BIOS_SEGMENT.to_le_bytes();
-    for (vector, offset) in [
-        (0x1a, CLOCK_ENTRY),
-        (0x16, KEYBOARD_ENTRY),
-        (0x10, VIDEO_ENTRY),
-    ] {
-        let [offset_lo, offset_hi] = offset.to_le_bytes();
-        memory
-            .write(vector * 4, &[offset_lo, offset_hi, segment_lo, segment_hi])
-            .expect("BIOS interrupt vector");
-        let address = ((BIOS_SEGMENT as u32) << 4) + u32::from(offset);
-        memory
-            .write_backing(address, &real_mode_interrupt::HOOK_STUB)
-            .expect("BIOS ROM backing");
-    }
 }
