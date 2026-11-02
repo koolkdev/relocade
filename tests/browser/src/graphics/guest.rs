@@ -26,7 +26,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     let (send_source, source) = oneshot::channel();
     let progress = Arc::new(AtomicUsize::new(0));
     let cpu_progress = progress.clone();
-    let execution = ExecutionWorker::spawn(clock, async move |runner| {
+    let execution = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
             runner.clock().clone(),
         ))));

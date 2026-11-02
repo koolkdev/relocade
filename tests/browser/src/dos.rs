@@ -42,7 +42,7 @@ pub async fn dos_workers() -> Result<(), String> {
     let (launch_next, next_launch) = oneshot::channel();
     let (second_done, second_exit) = oneshot::channel();
     let (clock, timers) = timer_service();
-    let execution = ExecutionWorker::spawn(clock, async move |runner| {
+    let execution = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
         let mut dos = Dos::new(runner).await.unwrap();
         video.send(dos.frame_source()).ok().unwrap();
         dos.launch_com(FIRST_PROGRAM, Default::default()).unwrap();

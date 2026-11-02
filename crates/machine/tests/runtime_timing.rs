@@ -143,7 +143,8 @@ async fn check_cooperation() {
     let before = memory.view().read_u16(0x300).unwrap();
     let mut runner = Runner::with_clock(ManualClock::default());
     runner.instruction_quantum = NonZeroU64::new(2).unwrap();
-    let mut run = pin!(runner.run_cpu(&mut cpu));
+    runner.host_poll_interval = Duration::ZERO;
+    let mut run = pin!(runner.run(async |runner| runner.run_cpu(&mut cpu).await));
     let mut cx = Context::from_waker(Waker::noop());
     // No executor/browser turn occurs between these polls.
     for quantum in 1..=3 {
