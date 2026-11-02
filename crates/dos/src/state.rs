@@ -17,7 +17,6 @@ pub(crate) struct DosState {
     stdio: Stdio,
     devices: DeviceChain,
     process: RefCell<Option<Rc<Process>>>,
-    memory: MemoryBus,
     exit: ExitHandle,
 }
 
@@ -30,20 +29,15 @@ impl DosState {
         let devices = DeviceChain::default();
         devices.install(Unavailable(*b"PRN     "));
         devices.install(Unavailable(*b"AUX     "));
-        devices.install(BiosConsole::new(memory.clone(), keyboard.clone()));
+        devices.install(BiosConsole::new(memory, keyboard.clone()));
         devices.install(NullDevice);
         Self {
             filesystem: RefCell::default(),
             stdio: Stdio::new(keyboard),
             devices,
             process: RefCell::default(),
-            memory,
             exit,
         }
-    }
-
-    pub(crate) fn memory(&self) -> &MemoryBus {
-        &self.memory
     }
 
     pub(crate) fn request_exit(&self) {
