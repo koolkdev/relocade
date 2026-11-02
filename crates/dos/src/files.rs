@@ -1,8 +1,10 @@
 //! Persistent DOS filesystems and the current program's file state.
 
 use crate::{
+    devices::DeviceChain,
     error::DosError,
     path::{self, ResolvedPath},
+    stdio::Output,
 };
 use relocade_vfs::{Drives, MemoryFileSystem, Metadata};
 use std::{collections::BTreeMap, io::ErrorKind};
@@ -13,13 +15,14 @@ mod devices;
 mod directories;
 mod file_handle;
 mod handles;
+mod io;
 mod mounts;
 mod search;
 mod short_name;
 #[cfg(test)]
 mod tests;
 pub(crate) use create::CreateMode;
-pub(crate) use devices::Device;
+pub(crate) use devices::DeviceHandle;
 use file_handle::FileHandle;
 pub(crate) use handles::Handle;
 use handles::HANDLE_COUNT;
@@ -66,6 +69,8 @@ pub(crate) struct FileSystem {
 }
 
 pub(crate) struct Files {
+    devices: DeviceChain,
+    stdout: Output,
     handles: [Option<Handle>; HANDLE_COUNT],
     search_directories: Vec<Option<search::SearchDirectory>>,
 }

@@ -1,48 +1,40 @@
 //! DOS character devices and the state shared by duplicated device handles.
 
 use super::{handles::Handle, AccessMode, FileSystem, Files};
-use crate::{error::DosError, path, stdio::OutputStream};
+use crate::{devices::CharacterDevice, error::DosError, path, stdio::Output};
 use std::{cell::Cell, rc::Rc};
 
 const CHARACTER_DEVICE: u8 = 0x80;
 const INPUT_NOT_EOF: u8 = 0x40;
 const RAW_MODE: u8 = 0x20;
 
-#[derive(Clone, Copy)]
-pub(crate) enum Device {
-    Console(OutputStream),
-    Null,
-    Auxiliary,
-    Printer,
-}
-
 pub(crate) struct DeviceHandle {
-    pub(super) kind: Device,
+    pub(crate) device: Rc<CharacterDevice>,
+    // Copies accepted console bytes for dos.stdout()/stderr(). The device above
+    // performs the actual output. Duplicates and pending writes retain both.
+    output_capture: Output,
     pub(super) access: AccessMode,
     flags: Cell<u8>,
 }
 
 impl DeviceHandle {
-    pub(crate) fn kind(&self) -> Device {
-        self.kind
-    }
-
-    pub(super) fn new(kind: Device, access: AccessMode) -> Self {
-        let attributes = match kind {
-            Device::Console(_) => 0x03, // Standard input and output.
-            Device::Null => 0x04,
-            Device::Auxiliary | Device::Printer => 0,
-        };
+    pub(super) fn new(
+        device: Rc<CharacterDevice>,
+        output_capture: Output,
+        access: AccessMode,
+    ) -> Self {
+        let flags = CHARACTER_DEVICE | INPUT_NOT_EOF | (device.attributes() as u8 & 0x1f);
         Self {
-            kind,
+            device,
+            output_capture,
             access,
-            flags: Cell::new(CHARACTER_DEVICE | INPUT_NOT_EOF | attributes),
+            flags: Cell::new(flags),
         }
     }
 
     pub(super) fn information(&self) -> u16 {
         // DH reports the character-driver attribute; DL belongs to this open record.
-        0x8000 | u16::from(self.flags.get())
+        (self.device.attributes() & 0xff00) | u16::from(self.flags.get())
     }
 
     pub(crate) fn eof(&self) -> bool {
@@ -60,6 +52,15 @@ impl DeviceHandle {
         } else {
             flags | INPUT_NOT_EOF
         });
+    }
+
+    pub(super) async fn write(&self, bytes: &[u8]) -> Result<usize, DosError> {
+        let count = self.device.write(bytes).await?;
+        assert!(count <= bytes.len(), "driver write exceeded its buffer");
+        if self.device.is_console() {
+            self.output_capture.extend(&bytes[..count]);
+        }
+        Ok(count)
     }
 }
 
@@ -93,11 +94,7 @@ impl Files {
             name
         };
         let stem = name.split(|&byte| byte == b'.').next().unwrap();
-        let kind = if stem.eq_ignore_ascii_case(b"CON") {
-            Device::Console(OutputStream::Stdout)
-        } else if stem.eq_ignore_ascii_case(b"NUL") {
-            Device::Null
-        } else {
+        let Some(device) = self.devices.find(stem) else {
             return Ok(None);
         };
         let path = filesystem.file_path(path)?;
@@ -110,7 +107,11 @@ impl Files {
             return Err(DosError::PathNotFound);
         }
         let handle = self.vacant_handle()?;
-        self.handles[handle] = Some(Handle::Device(Rc::new(DeviceHandle::new(kind, access))));
+        self.handles[handle] = Some(Handle::Device(Rc::new(DeviceHandle::new(
+            device,
+            self.stdout.clone(),
+            access,
+        ))));
         Ok(Some(handle as u16))
     }
 }

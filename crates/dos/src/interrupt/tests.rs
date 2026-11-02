@@ -1,3 +1,5 @@
+mod device_requests;
+
 use crate::Dos;
 use relocade_machine::{timer_service, Runner};
 use relocade_x86::ExecutionExit;
@@ -91,7 +93,13 @@ fn pending_handle_read_keeps_its_source_and_partial_transfer() {
             call.memory.read(0x10300, &mut bytes).unwrap();
             assert_eq!(bytes, [b'A', b'B', 0xcc, 0xcc]);
         }
-        assert_eq!(dos.keyboard().try_read_character(), Some(b'C'));
+        assert_eq!(
+            dos.keyboard().try_read_key(),
+            Some(relocade_bios::KeyStroke {
+                character: b'C',
+                scan_code: 0,
+            })
+        );
         let mut output = Vec::new();
         dos.stdout().read_to_end(&mut output).unwrap();
         assert!(output.is_empty());
