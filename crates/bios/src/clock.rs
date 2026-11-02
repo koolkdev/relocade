@@ -1,4 +1,7 @@
-//! BIOS time-of-day data. A machine timer owns advancement of these BDA fields.
+//! BIOS time-of-day data and the default timer interrupt source.
+
+mod timer;
+pub use timer::connect;
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
