@@ -25,7 +25,7 @@ pub fn hooks(
                 keyboard::dispatch_entry(call, &keyboard).await;
             },
         ),
-        hook(VIDEO_ADDRESS, cpu, memory, video::interrupt_entry),
+        hook(VIDEO_ADDRESS, cpu, memory, video::dispatch_entry),
     ]
     .into_iter()
     .flatten()

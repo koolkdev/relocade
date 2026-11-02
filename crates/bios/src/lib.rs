@@ -37,7 +37,7 @@ pub mod clock;
 mod interrupt;
 mod keyboard;
 mod screen;
-mod video;
+pub mod video;
 
 pub use interrupt::hooks;
 use interrupt::BiosContext;

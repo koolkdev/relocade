@@ -1,6 +1,10 @@
 //! INT 10h string formats and cursor-update policy.
 use crate::screen::Output;
 
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(call),
+    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+)]
 pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
     let format = call.cpu.al();
     if format > 3 {

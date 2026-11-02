@@ -8,11 +8,12 @@ use crate::video::graphics::Page as GraphicsPage;
 pub use characters::write_text;
 pub(super) use characters::{read_cell, Output};
 pub(super) use cursor::{
-    cursor_position, set_cursor_emulation, set_cursor_position, set_cursor_shape,
+    cursor_position, set_cursor_emulation_entry, set_cursor_position, set_cursor_shape,
     set_native_cursor_shape,
 };
 use geometry::Geometry;
-pub(super) use scroll::{Scroll, ScrollDirection, Window};
+pub(super) use scroll::Scroll;
+pub use scroll::{ScrollDirection, Window};
 
 use crate::video::{text_memory_start, write_crtc_word, ACTIVE_PAGE, MODE, PAGE_OFFSET};
 use relocade_machine::{IoBus, MemoryView};

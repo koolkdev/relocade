@@ -46,18 +46,35 @@ pub(super) fn memory_size(memory: &MemoryView<'_>) -> u8 {
     (memory.read_u8(VIDEO_CONTROL).expect("video control") >> 5) & 3
 }
 
-pub(super) fn configuration(call: &mut crate::BiosContext<'_>) {
-    let control = call.memory.read_u8(VIDEO_CONTROL).expect("video control");
-    let switches = call.memory.read_u8(VIDEO_SWITCHES).expect("video switches");
-    let size = memory_size(&call.memory);
-    call.cpu.set_bh((control >> 1) & 1);
-    call.cpu.set_bl(size);
-    call.cpu.set_ch(switches >> 4);
-    call.cpu.set_cl(switches & 15);
-    call.cpu.set_al(size); // IBM VGA's AH=12h/BL=10h also leaves this value in AL.
+pub(super) struct Configuration {
+    pub monochrome: bool,
+    pub memory_size: u8,
+    pub features: u8,
+    pub switches: u8,
+}
+
+#[relocade_machine::real_mode_interrupt::interrupt(context(memory), returns {
+    config => {
+        bh = u8::from(config.monochrome), bl = config.memory_size,
+        ch = config.features, cl = config.switches,
+        al = config.memory_size,
+    },
+})]
+pub(super) fn configuration(memory: &MemoryView<'_>) -> Configuration {
+    let control = memory.read_u8(VIDEO_CONTROL).expect("video control");
+    let switches = memory.read_u8(VIDEO_SWITCHES).expect("video switches");
+    Configuration {
+        monochrome: control & 2 != 0,
+        memory_size: memory_size(memory),
+        features: switches >> 4,
+        switches: switches & 15,
+    }
 }
 
 /// Active and alternate display codes, independent of the current BIOS mode.
+#[relocade_machine::real_mode_interrupt::interrupt(context(memory), returns {
+    [active, alternate] => { bl = active, bh = alternate, al = 0x1a },
+})]
 pub(super) fn display_codes(memory: &MemoryView<'_>) -> [u8; 2] {
     let index = memory
         .read_u8(DISPLAY_COMBINATION)
@@ -77,23 +94,17 @@ pub(super) fn display_codes(memory: &MemoryView<'_>) -> [u8; 2] {
     codes
 }
 
-pub(super) fn display_combination(call: &mut crate::BiosContext<'_>) -> Option<()> {
-    match call.cpu.al() {
-        0 => call
-            .cpu
-            .set_bx(u16::from_le_bytes(display_codes(&call.memory))),
-        1 => {
-            let codes = [call.cpu.bl(), call.cpu.bh()];
-            let index = DISPLAY_COMBINATIONS
-                .iter()
-                .position(|&entry| entry == codes || entry == [codes[1], codes[0]]);
-            // IBM records an unknown combination for pairs absent from its table.
-            call.memory
-                .write_u8(DISPLAY_COMBINATION, index.map_or(0xff, |i| i as u8))
-                .expect("display combination");
-        }
-        _ => return None,
-    }
-    call.cpu.set_al(0x1a);
-    Some(())
+/// Stores the matching display-combination index, accepting either code order.
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(memory), args(active = bl, alternate = bh),
+    returns { () => { al = 0x1a } },
+)]
+pub(super) fn set_display_codes(memory: &mut MemoryView<'_>, active: u8, alternate: u8) {
+    let index = DISPLAY_COMBINATIONS
+        .iter()
+        .position(|&entry| entry == [active, alternate] || entry == [alternate, active]);
+    // IBM records an unknown combination for pairs absent from its table.
+    memory
+        .write_u8(DISPLAY_COMBINATION, index.map_or(0xff, |i| i as u8))
+        .expect("display combination");
 }

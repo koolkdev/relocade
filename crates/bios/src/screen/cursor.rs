@@ -28,6 +28,10 @@ pub(crate) fn set_cursor_position(
 }
 
 /// AL=0 enables emulation; AL=1 disables it for subsequent cursor-shape writes.
+/// Returns whether the selection was accepted; invalid selections leave the policy unchanged.
+#[relocade_machine::real_mode_interrupt::interrupt(context(memory), args(selection = al),
+    returns { true => { al = 0x12 }, false => { al = 0 } }
+)]
 pub(crate) fn set_cursor_emulation(memory: &mut MemoryView<'_>, selection: u8) -> bool {
     if selection > 1 {
         return false;

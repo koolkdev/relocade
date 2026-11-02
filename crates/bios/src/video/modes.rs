@@ -5,7 +5,7 @@ use super::{
     VIDEO_CONTROL, VIDEO_SWITCHES,
 };
 use crate::screen;
-use relocade_machine::{IoBus, MemoryView};
+use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 use relocade_vga::{
     registers::{crtc, sequencer, SEQUENCER_INDEX_PORT},
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
@@ -39,8 +39,31 @@ pub(crate) fn text_memory_start(mode: u8) -> Option<u32> {
     }
 }
 
+/// The mode (including its memory-preservation bit), columns and active page.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ModeInfo {
+    pub mode: u8,
+    pub columns: u8,
+    pub page: u8,
+}
+
+/// Returns the state reported by INT 10h/AH=0Fh.
+#[interrupt(context(memory), returns { mode => { al = mode.mode, ah = mode.columns, bh = mode.page } })]
+pub fn mode(memory: &MemoryView<'_>) -> ModeInfo {
+    let mode = memory.read_u8(MODE).expect("video mode");
+    let preserved = memory.read_u8(VIDEO_CONTROL).expect("video control") & 0x80;
+    ModeInfo {
+        mode: mode | preserved,
+        columns: memory.read_u16(COLUMNS).expect("video columns") as u8,
+        page: screen::active_page(memory),
+    }
+}
+
 /// Returns the mode-set AL result, or leaves the device untouched if unsupported.
-pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
+#[relocade_machine::real_mode_interrupt::interrupt(context(memory, io), args(request = al),
+    returns { Some(value) => { al = value }, None => crate::interrupt::unsupported }
+)]
+pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
     let mode = request & 0x7f;
     let profile = memory.read_u8(MODESET_CONTROL).expect("mode-set control") & 0x90;
     let preset = match mode {
@@ -137,6 +160,10 @@ pub(crate) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> 
 }
 
 /// AH=12h/BL=30h selects a profile for a later mode set; it does not touch VGA.
+/// Returns whether the profile is supported.
+#[relocade_machine::real_mode_interrupt::interrupt(context(memory), args(selection = al),
+    returns { true => { al = 0x12 }, false => crate::interrupt::unsupported }
+)]
 pub(super) fn select_scanlines(memory: &mut MemoryView<'_>, selection: u8) -> bool {
     let (control_bits, switches) = match selection {
         0 => (0x80, 8), // 200 logical lines, doubled on the VGA raster.
@@ -153,4 +180,24 @@ pub(super) fn select_scanlines(memory: &mut MemoryView<'_>, selection: u8) -> bo
         .write_u8(VIDEO_SWITCHES, (previous_switches & !0x0f) | switches)
         .expect("video switches");
     true
+}
+
+/// Blanks or restores VGA output. Other selectors leave it unchanged.
+/// The interrupt acknowledges every request, including invalid selectors.
+#[interrupt(context(io), args(selection = al), returns { () => { al = 0x12 } })]
+pub fn set_screen_output(io: &IoBus, selection: u8) {
+    if selection <= 1 {
+        let clocking = super::read_indexed(io, SEQUENCER_INDEX_PORT, sequencer::CLOCKING_MODE);
+        let screen_off = if selection == 1 {
+            sequencer::SCREEN_OFF
+        } else {
+            0
+        };
+        write_indexed(
+            io,
+            SEQUENCER_INDEX_PORT,
+            sequencer::CLOCKING_MODE,
+            (clocking & !sequencer::SCREEN_OFF) | screen_off,
+        );
+    }
 }

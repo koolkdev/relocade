@@ -85,6 +85,12 @@ fn display_combination_set_uses_the_bios_table_and_equipment_active_selection() 
             video(&mut dos, 0x1a00, 0, 0, 0).registers.ebx as u16,
             0xffff
         );
+        let unsupported = video(&mut dos, 0x1a02, 0x0801, 0xa5c3, 0x1234);
+        assert_eq!(unsupported.registers.eax as u16, 0x8602);
+        assert_eq!(unsupported.registers.ebx as u16, 0x0801);
+        assert_eq!(unsupported.registers.ecx as u16, 0xa5c3);
+        assert_eq!(unsupported.registers.edx as u16, 0x1234);
+        assert_eq!(dos.cpu().context().memory.read_u8(0x48a).unwrap(), 255);
         // A directly modified invalid table index has the same unknown result.
         dos.cpu().context().memory.write_u8(0x48a, 16).unwrap();
         assert_eq!(

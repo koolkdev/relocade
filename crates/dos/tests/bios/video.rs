@@ -2,6 +2,8 @@
 mod cursor;
 #[path = "video/output.rs"]
 mod output;
+#[path = "video/services.rs"]
+mod services;
 
 use crate::common;
 use crate::common::inspection::Cell;

@@ -71,5 +71,18 @@ fn legacy_color_shadows_follow_mode_sets_and_text_palette_selection_is_a_no_op()
         );
         assert_eq!(dos.vga().borrow().snapshot().registers, expected);
         assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), 0x3e);
+
+        // Monochrome routing ignores even unsupported selectors.
+        video(&mut dos, 7, 0, 0, 0);
+        let before = dos.vga().borrow().snapshot();
+        for bx in [0x000f, 0x0100, 0x0200] {
+            let result = video(&mut dos, 0x0b00, bx, 0xa5c3, 0x1234);
+            assert_eq!(result.registers.eax as u16, 0x0b00);
+            assert_eq!(result.registers.ebx as u16, bx);
+            assert_eq!(result.registers.ecx as u16, 0xa5c3);
+            assert_eq!(result.registers.edx as u16, 0x1234);
+            assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), 0x30);
+            assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        }
     });
 }

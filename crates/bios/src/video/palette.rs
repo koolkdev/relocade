@@ -1,18 +1,20 @@
 //! BIOS palette services through the guest-visible VGA ports.
-mod compatibility;
+pub(super) mod compatibility;
 pub(super) mod dac;
-mod load;
+pub(super) mod load;
 use super::{buffer_addresses, input_status_1_port, modes, MODE};
-pub(super) use compatibility::{
-    initialize as initialize_compatibility, interrupt as compatibility,
-};
-pub(super) use load::{configure_load, PaletteLoad};
+pub(super) use compatibility::initialize as initialize_compatibility;
+pub(super) use load::PaletteLoad;
 use relocade_machine::IoBus;
 use relocade_vga::registers::{
     attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT, DAC_DATA_PORT, DAC_MASK_PORT,
     DAC_READ_ADDRESS_PORT,
 };
 
+#[relocade_machine::real_mode_interrupt::interrupt(
+    context(call),
+    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+)]
 pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) -> Option<()> {
     let function = call.cpu.al();
     let bl = call.cpu.bl();

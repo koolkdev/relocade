@@ -13,6 +13,7 @@ const COMPONENT_SIZES: [u16; 3] = [
     dac::SIZE as u16,
 ];
 
+#[relocade_machine::real_mode_interrupt::interrupt(context(call))]
 pub(super) fn interrupt(call: &mut crate::BiosContext<'_>) {
     let components = call.cpu.cx() & 7;
     match call.cpu.al() {
