@@ -48,7 +48,7 @@ pub use clock::{timer_service, Clock, TimerDriver, TimerHandle};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::CpuStateAccess;
 pub use io::{Device, DeviceConnection, IoBus};
-pub use memory::{Memory, MemoryBus, MemoryError, MemoryView};
+pub use memory::{FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::MemoryAccess;
 #[cfg(feature = "worker")]
 pub use runner::ExecutionWorker;

@@ -1,6 +1,6 @@
 //! Guest addresses are values; memory access remains with `MemoryView`.
 
-/// A 16:16 real-mode address, captured, stored or returned by an interrupt service.
+/// A 16:16 real-mode address for guest memory or interrupt arguments and results.
 ///
 /// This value does not borrow memory or grant a host pointer into guest storage.
 /// Access remains through `MemoryView`, including physical mappings and A20.
@@ -12,6 +12,14 @@ pub struct FarPointer {
 }
 
 impl FarPointer {
+    /// Advances the 16-bit offset, wrapping without changing the segment.
+    pub const fn wrapping_add(self, bytes: usize) -> Self {
+        Self {
+            offset: self.offset.wrapping_add(bytes as u16),
+            ..self
+        }
+    }
+
     pub const fn segment_base(self) -> u32 {
         (self.segment as u32) << 4
     }

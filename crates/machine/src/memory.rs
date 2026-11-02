@@ -1,4 +1,6 @@
+mod pointer;
 mod view;
+pub use pointer::FarPointer;
 pub use view::{MemoryError, MemoryView};
 
 use crate::{ConfigurationError, IoBus, MachineConfig, Result};

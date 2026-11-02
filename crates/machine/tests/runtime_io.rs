@@ -1,6 +1,6 @@
 mod support;
 
-use relocade_machine::{Cpu, Device, DeviceConnection, DispatchEntry, IoBus, Memory};
+use relocade_machine::{Cpu, Device, DeviceConnection, DispatchEntry, FarPointer, IoBus, Memory};
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister, Segments,
@@ -379,4 +379,70 @@ fn a20_wrap_splits_mmio_at_the_bus_address_discontinuity() {
             },
         ]
     );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn far_buffers_wrap_offsets_independently_of_a20_and_mapping_policy() {
+    for a20_enabled in [false, true] {
+        let device = RecordingDevice::new(0xf0000);
+        let io = IoBus::new([DeviceConnection {
+            device: device.clone(),
+            mmio: vec![0xf0000..=0xf0fff],
+            ports: vec![],
+        }]);
+        let mut map = PhysicalMemoryMap::new([
+            (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
+            (0xf0000..=0xf0fff, PhysicalMapping::Mmio),
+            (
+                0x100000..=0x100fff,
+                PhysicalMapping::Rom {
+                    backing_offset: 0x1000,
+                },
+            ),
+        ])
+        .unwrap();
+        map.set_a20_enabled(a20_enabled);
+        let memory =
+            Memory::new(relocade_machine::MachineConfig::new(0x2000, map).unwrap()).unwrap();
+        let mut view = memory.view().with_io(&io);
+        view.write_backing(0xe, b"lo").unwrap();
+        view.write_backing(0x100e, b"RO").unwrap();
+        let pointer = FarPointer {
+            segment: 0xf001,
+            offset: 0xfffe,
+        };
+        // Empty buffers must not touch even an MMIO destination.
+        view.write_wrapping(pointer.wrapping_add(2), &[]).unwrap();
+        view.read_wrapping(pointer.wrapping_add(2), &mut [])
+            .unwrap();
+        assert!(device.borrow_mut().take_transfers().is_empty());
+
+        // F001:FFFE is 10000E before A20; after offset wrap, F001:0000 is F0010.
+        view.write_wrapping(pointer, b"ABCD").unwrap();
+        let mut bytes = [0; 4];
+        view.read_wrapping(pointer, &mut bytes).unwrap();
+        assert_eq!(&bytes, if a20_enabled { b"ROCD" } else { b"ABCD" });
+        assert_eq!(
+            view.read_u16(0xe).unwrap(),
+            u16::from_le_bytes(if a20_enabled { *b"lo" } else { *b"AB" })
+        );
+        let mut rom = [0; 2];
+        view.read_backing(0x100e, &mut rom).unwrap();
+        assert_eq!(&rom, b"RO");
+        assert_eq!(
+            device.borrow_mut().take_transfers(),
+            [
+                Transfer::MemoryWrite {
+                    address: 0xf0010,
+                    bytes: 2,
+                    value: 0x4443
+                },
+                Transfer::MemoryRead {
+                    address: 0xf0010,
+                    bytes: 2
+                },
+            ]
+        );
+    }
 }

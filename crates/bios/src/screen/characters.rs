@@ -3,7 +3,8 @@ use super::{
     active_page, cursor_position, geometry::Geometry, is_text_mode, scroll, set_cursor_position,
     valid_page, ScrollDirection, Window,
 };
-use crate::video::{buffer_addresses, graphics::Page, Glyph, GRAPHICS_640X480_2, MODE};
+use crate::video::{graphics::Page, Glyph, GRAPHICS_640X480_2, MODE};
+use relocade_machine::FarPointer;
 use relocade_machine::{IoBus, MemoryView};
 
 /// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
@@ -156,20 +157,15 @@ impl<'a, 'memory> Output<'a, 'memory> {
 
     /// `None` reads a character/attribute pair for every character, including
     /// control characters. Reads stay live when the source aliases video memory.
-    pub fn write_string(&mut self, base: u32, offset: u16, count: u16, attribute: Option<u8>) {
+    pub fn write_string(&mut self, mut source: FarPointer, count: u16, attribute: Option<u8>) {
         let bytes_per_character = if attribute.is_some() { 1 } else { 2 };
-        let mut addresses = buffer_addresses(base, offset, u32::from(count) * bytes_per_character);
         for _ in 0..count {
-            let character = self
-                .memory
-                .read_u8(addresses.next().expect("string character address"))
+            let mut cell = [0; 2];
+            self.memory
+                .read_wrapping(source, &mut cell[..bytes_per_character])
                 .expect("string character");
-            let color = attribute.unwrap_or_else(|| {
-                self.memory
-                    .read_u8(addresses.next().expect("string attribute address"))
-                    .expect("string attribute")
-            });
-            self.write_character(character, color, true);
+            source = source.wrapping_add(bytes_per_character);
+            self.write_character(cell[0], attribute.unwrap_or(cell[1]), true);
         }
     }
 

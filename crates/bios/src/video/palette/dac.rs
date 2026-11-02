@@ -1,6 +1,5 @@
 //! BIOS DAC color transfers and IBM VGA grayscale conversion.
 use super::PaletteLoad;
-use crate::video::buffer_addresses;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, FarPointer},
     IoBus, MemoryView,
@@ -37,14 +36,12 @@ pub(in crate::video) fn load_palette(
     count: u16,
     source: FarPointer,
 ) {
-    let mut addresses =
-        buffer_addresses(source.segment_base(), source.offset, u32::from(count) * 3);
-    let colors = (0..count).map(|_| {
-        std::array::from_fn(|_| {
-            memory
-                .read_u8(addresses.next().expect("DAC component address"))
-                .expect("DAC palette buffer")
-        })
+    let colors = (0..count).map(|index| {
+        let mut color = [0; 3];
+        memory
+            .read_wrapping(source.wrapping_add(usize::from(index) * 3), &mut color)
+            .expect("DAC palette buffer");
+        color
     });
     PaletteLoad::for_color_write(memory).write(io, first, colors);
 }
@@ -62,13 +59,12 @@ pub(in crate::video) fn read_palette(
         return;
     }
     io.write_port(DAC_READ_ADDRESS_PORT, 1, u32::from(first));
-    for address in buffer_addresses(
-        destination.segment_base(),
-        destination.offset,
-        u32::from(count) * 3,
-    ) {
+    for offset in 0..usize::from(count) * 3 {
         memory
-            .write_u8(address, io.read_port(DAC_DATA_PORT, 1) as u8)
+            .write_u8(
+                destination.wrapping_add(offset).address(),
+                io.read_port(DAC_DATA_PORT, 1) as u8,
+            )
             .expect("DAC palette buffer");
     }
 }

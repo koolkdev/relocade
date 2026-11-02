@@ -1,5 +1,6 @@
-use super::{buffers::write_wrapping, files::read_path};
+use super::files::read_path;
 use crate::interrupt::{return_result, DosContext};
+use relocade_machine::FarPointer;
 use relocade_x86::Segment;
 
 /// AH=0Eh: select DL's drive; report the drive-letter range in AL.
@@ -37,12 +38,16 @@ pub(super) fn change_directory(call: &mut DosContext<'_>) {
 pub(super) fn get_directory(call: &mut DosContext<'_>) {
     let cpu = call.cpu;
     let drive = cpu.dl();
-    let segment = cpu.segment(Segment::Ds);
-    let offset = cpu.si();
+    let destination = FarPointer {
+        segment: cpu.segment(Segment::Ds).selector,
+        offset: cpu.si(),
+    };
     let result = call.dos.filesystem().current_directory(drive).map(|path| {
         let mut bytes = path.replace('/', "\\").into_bytes();
         bytes.push(0);
-        write_wrapping(&mut call.memory, &segment, offset, &bytes);
+        call.memory
+            .write_wrapping(destination, &bytes)
+            .expect("current directory buffer");
         call.cpu.set_ax(0x0100);
     });
     return_result(call, result)

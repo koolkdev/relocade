@@ -1,11 +1,13 @@
 //! Bind DOS handle transfers to captured register arguments and guest memory.
 
 use super::transfer;
-use crate::{
-    interrupt::{return_result, DosContext},
-    services::buffers::transfer_count,
-};
+use crate::interrupt::{return_result, DosContext};
 use relocade_x86::Segment;
+
+/// AH=3Fh/40h transfer only the part of DS:DX's buffer that fits in its segment.
+fn transfer_count(offset: u16, count: u16) -> usize {
+    usize::from(count).min(0x10000 - usize::from(offset))
+}
 
 /// AH=3Fh: retain the source and DS:DX destination throughout a pending read.
 pub(in crate::services) async fn read(call: &mut DosContext<'_>) {

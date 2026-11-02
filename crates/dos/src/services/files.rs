@@ -1,10 +1,10 @@
-use super::buffers::write_wrapping;
 use crate::{
     error::DosError,
     files::CreateMode,
     interrupt::{return_result, DosContext},
     path::MAX_PATH_BYTES,
 };
+use relocade_machine::FarPointer;
 use relocade_x86::Segment;
 
 mod io;
@@ -76,10 +76,14 @@ pub(super) fn create_temporary(call: &mut DosContext<'_>) {
             attributes,
         )?;
         let cpu = call.cpu;
-        let segment = cpu.segment(Segment::Ds);
-        let offset = cpu.dx();
+        let destination = FarPointer {
+            segment: cpu.segment(Segment::Ds).selector,
+            offset: cpu.dx(),
+        };
         path.push(0);
-        write_wrapping(&mut call.memory, &segment, offset, &path);
+        call.memory
+            .write_wrapping(destination, &path)
+            .expect("temporary file path");
         call.cpu.set_ax(handle);
         Ok(())
     });
@@ -168,12 +172,15 @@ fn read_path_at(
     segment: Segment,
     offset: u16,
 ) -> Result<Vec<u8>, DosError> {
-    let segment = call.cpu.segment(segment);
+    let source = FarPointer {
+        segment: call.cpu.segment(segment).selector,
+        offset,
+    };
     let mut path = Vec::new();
-    for index in 0..MAX_PATH_BYTES as u16 {
+    for index in 0..MAX_PATH_BYTES {
         let mut byte = [0];
         call.memory
-            .read_segment(&segment, u32::from(offset.wrapping_add(index)), &mut byte)
+            .read_wrapping(source.wrapping_add(index), &mut byte)
             .expect("real-mode path address");
         if byte[0] == 0 {
             return Ok(path);

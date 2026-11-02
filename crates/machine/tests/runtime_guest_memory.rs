@@ -1,5 +1,5 @@
 mod support;
-use relocade_machine::{Cpu, Memory, MemoryError};
+use relocade_machine::{Cpu, FarPointer, MachineConfig, Memory, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -92,4 +92,44 @@ fn shared_guest_memory_uses_the_machine_map() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn shared_guest_memory_uses_the_machine_map() {
     check_guest_memory().await;
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn far_buffers_wrap_offsets_across_multiple_laps() {
+    let map = PhysicalMemoryMap::new([(
+        0x12000..=0x22fff,
+        PhysicalMapping::Ram { backing_offset: 0 },
+    )])
+    .unwrap();
+    let memory = Memory::new(MachineConfig::new(0x11000, map).unwrap()).unwrap();
+    let mut view = memory.view();
+    let pointer = FarPointer {
+        segment: 0x1200,
+        offset: 0xfffe,
+    };
+    assert_eq!(
+        pointer.wrapping_add(0x10003),
+        FarPointer {
+            segment: 0x1200,
+            offset: 1
+        }
+    );
+    view.write(0x22000, &[0xcc; 4]).unwrap();
+
+    let mut input = vec![0x33; 0x10004];
+    input[..2].copy_from_slice(b"AB");
+    input[0x10000..].copy_from_slice(b"WXYZ");
+    view.write_wrapping(pointer, &input).unwrap();
+    // The second lap overwrites both ends of the same segment, not its neighbor.
+    assert_eq!(view.read_u16(0x21ffe).unwrap(), u16::from_le_bytes(*b"WX"));
+    assert_eq!(view.read_u16(0x12000).unwrap(), u16::from_le_bytes(*b"YZ"));
+    assert_eq!(view.read_u32(0x22000).unwrap(), 0xcccc_cccc);
+
+    let mut bytes = vec![0; input.len()];
+    view.read_wrapping(pointer, &mut bytes).unwrap();
+    let mut expected = vec![0x33; 0x10004];
+    expected[..4].copy_from_slice(b"WXYZ");
+    expected[0x10000..].copy_from_slice(b"WXYZ");
+    assert_eq!(bytes, expected);
 }

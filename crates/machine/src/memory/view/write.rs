@@ -1,6 +1,7 @@
 use super::{range_fits, segment_address, MemoryError, MemoryView};
+use crate::FarPointer;
 use relocade_wasm_runtime::MemoryValue;
-use relocade_x86::{PhysicalMapping, SegmentRegister};
+use relocade_x86::{PhysicalMapping, Segment, SegmentRegister};
 
 impl<'a> MemoryView<'a> {
     /// Writes guest addresses with the same mapping and ROM policy as execution.
@@ -62,6 +63,24 @@ impl<'a> MemoryView<'a> {
     ) -> Result<(), MemoryError> {
         let address = segment_address(segment, offset, bytes.len())?;
         self.write(address, bytes)
+    }
+
+    /// Writes a real-mode buffer, wrapping its 16-bit offset within the same segment.
+    /// Each contiguous part uses [`Self::write_segment`], including mappings and A20.
+    pub fn write_wrapping(
+        &mut self,
+        pointer: FarPointer,
+        mut bytes: &[u8],
+    ) -> Result<(), MemoryError> {
+        let segment = SegmentRegister::real_mode(Segment::Ds, pointer.segment);
+        let mut offset = pointer.offset;
+        while !bytes.is_empty() {
+            let count = bytes.len().min(0x10000 - usize::from(offset));
+            self.write_segment(&segment, u32::from(offset), &bytes[..count])?;
+            bytes = &bytes[count..];
+            offset = 0;
+        }
+        Ok(())
     }
 
     /// Initializes storage directly, including ROM contents.

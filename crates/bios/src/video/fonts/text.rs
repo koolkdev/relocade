@@ -1,10 +1,7 @@
 //! Text font loading, with optional display geometry changes.
 
 use super::{layout, rom, upload};
-use crate::{
-    screen,
-    video::{buffer_addresses, write_indexed},
-};
+use crate::{screen, video::write_indexed};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, FarPointer},
     IoBus, MemoryView,
@@ -125,17 +122,14 @@ fn load(
     };
     if count != 0 {
         // Read the source before exposing plane two: it can itself address VGA.
-        let guest_bytes;
+        let mut guest_bytes;
         let bytes = match source {
             FontSource::Builtin(font) => font.bytes,
             FontSource::Guest(font) => {
-                guest_bytes = buffer_addresses(
-                    font.source.segment_base(),
-                    font.source.offset,
-                    u32::from(count) * u32::from(height),
-                )
-                .map(|address| memory.read_u8(address).expect("font buffer"))
-                .collect::<Vec<_>>();
+                guest_bytes = vec![0; usize::from(count) * usize::from(height)];
+                memory
+                    .read_wrapping(font.source, &mut guest_bytes)
+                    .expect("font buffer");
                 &guest_bytes
             }
         };

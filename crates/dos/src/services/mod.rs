@@ -1,6 +1,5 @@
 //! DOS interrupt dispatch and service handlers.
 
-mod buffers;
 pub(crate) mod console;
 mod directories;
 mod files;
