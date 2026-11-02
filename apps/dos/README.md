@@ -29,8 +29,9 @@ errors remain visible even when startup ends before the endpoints arrive.
 
 ## Console
 
-`run_console(&mut dos).await` runs on the execution owner. It prints the Relocade
-banner once through the same VGA console, then presents a `> ` prompt,
+`run_console(&mut dos).await` runs on the execution owner and installs the ANSI
+console driver. It prints the cyan/blue CP437 Relocade banner and magenta divider
+once through the same VGA console, then presents a green `> ` prompt,
 reads an edited line through the shared DOS console, and implements `echo` with
 case-insensitive command matching. Enter, Backspace, blank lines and unknown
 commands return to the next prompt. This is a small Rust command loop, not a

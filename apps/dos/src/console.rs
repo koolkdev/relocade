@@ -1,23 +1,16 @@
-use relocade_dos::{Dos, DosError};
+use relocade_dos::{devices::AnsiConsole, Dos, DosError};
 
-const BANNER: &str = r"  ____       _                     _
- |  _ \ ___ | | ___   ___ __ _  __| | ___
- | |_) / _ \| |/ _ \ / __/ _` |/ _` |/ _ \
- |  _ <  __/| | (_) | (_| (_| | (_| |  __/
- |_| \_\___||_|\___/ \___\__,_|\__,_|\___|
+mod banner;
 
-";
-
-/// Runs the Rust console on the DOS execution owner. Executable lookup is left
-/// to future application policy; supplied images can use DOS's launch APIs.
+/// Installs ANSI CON and runs the Rust console on the DOS execution owner.
+/// Executable lookup is left to future application policy; supplied images can
+/// use DOS's launch APIs.
 pub async fn run_console(dos: &mut Dos) -> Result<(), DosError> {
-    for line in BANNER.lines() {
-        dos.console().write(line.as_bytes()).await?;
-        dos.console().write(b"\r\n").await?;
-    }
+    dos.install_driver(AnsiConsole::new(dos));
+    dos.console().write(&banner::bytes()).await?;
     loop {
         let console = dos.console();
-        console.write(b"> ").await?;
+        console.write(b"   \x1b[0;1;32m>\x1b[0m ").await?;
         let line = console.read_line().await?;
         let line = line.trim_ascii_start();
         let end = line
