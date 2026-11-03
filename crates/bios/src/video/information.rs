@@ -15,9 +15,9 @@ const CAPABILITIES_POINTER: u32 = ((BIOS_SEGMENT as u32) << 16) | CAPABILITIES_O
 // 08h–09h: two simultaneously visible font banks, eight total banks.
 // 0Ah–0Bh: fonts, EGA/DAC palettes, grayscale summing, default palette loading,
 // cursor emulation, palette paging, blink, display combination and save/restore.
-// 0Ch–0Dh/0Fh: reserved. 0Eh: font overrides and display-combination replacement.
+// 0Ch–0Dh/0Fh: reserved. 0Eh: font overrides, dynamic palette area and DCC replacement.
 const CAPABILITIES: [u8; 16] = [
-    0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xfe, 0x0e, 0, 0, 0x2d, 0,
+    0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xfe, 0x0e, 0, 0, 0x2f, 0,
 ];
 
 pub(super) fn initialize(memory: &mut MemoryView<'_>) {
@@ -87,6 +87,7 @@ fn encode_state(memory: &MemoryView<'_>, io: &IoBus) -> [u8; 64] {
     // Installed pointers are reported even when their mode filters do not match.
     for (pointer, flag) in [
         (tables::Pointer::AlternateFont, 1),
+        (tables::Pointer::DynamicPalette, 2),
         (tables::Pointer::TextFont, 4),
         (tables::Pointer::GraphicsFont, 8),
     ] {

@@ -27,7 +27,7 @@ pub(super) fn restore(io: &IoBus, bytes: &[u8; SIZE]) {
     // Saved hardware colors bypass BIOS grayscale/default-palette policies.
     palette::dac::write(io, 0, colors.iter().copied());
     io.write_port(DAC_MASK_PORT, 1, u32::from(bytes[2]));
-    palette::write_attribute(io, attribute::COLOR_SELECT, bytes[0x303]);
+    palette::write_raw_attribute(io, attribute::COLOR_SELECT, bytes[0x303]);
     select_transfer(io, bytes);
 }
 

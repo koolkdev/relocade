@@ -134,7 +134,7 @@ pub(super) fn restore(memory: &mut MemoryView<'_>, io: &IoBus, bytes: &[u8; SIZE
         write_indexed(io, crtc, index as u8, byte);
     }
     for (index, &byte) in bytes[0x23..0x37].iter().enumerate() {
-        palette::write_attribute(io, index as u8, byte);
+        palette::write_raw_attribute(io, index as u8, byte);
     }
     for (index, &byte) in bytes[0x37..0x40].iter().enumerate() {
         write_indexed(io, GRAPHICS_INDEX_PORT, index as u8, byte);

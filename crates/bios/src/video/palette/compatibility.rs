@@ -38,10 +38,10 @@ pub(in crate::video) fn set_background(memory: &mut MemoryView<'_>, io: &IoBus, 
         .write_u8(COLOR_SHADOW, shadow)
         .expect("video color shadow");
     let color = (value & 7) | ((value & 8) << 1);
-    write_attribute(io, attribute::OVERSCAN_COLOR, color);
+    write_attribute(memory, io, attribute::OVERSCAN_COLOR, color);
     if !screen::is_text_mode(memory) {
-        write_attribute(io, 0, color);
-        foreground_palette(io, shadow);
+        write_attribute(memory, io, 0, color);
+        foreground_palette(memory, io, shadow);
     }
 }
 
@@ -58,7 +58,7 @@ pub(in crate::video) fn select_palette(memory: &mut MemoryView<'_>, io: &IoBus, 
     memory
         .write_u8(COLOR_SHADOW, shadow)
         .expect("video color shadow");
-    foreground_palette(io, shadow);
+    foreground_palette(memory, io, shadow);
 }
 
 /// Monochrome routing ignores every legacy color request, even unknown selectors.
@@ -73,10 +73,10 @@ fn monochrome_crtc(memory: &MemoryView<'_>) -> bool {
     memory.read_u16(CRTC_PORT).expect("CRTC port") == MONO_CRTC_INDEX_PORT
 }
 
-fn foreground_palette(io: &IoBus, shadow: u8) {
+fn foreground_palette(memory: &mut MemoryView<'_>, io: &IoBus, shadow: u8) {
     let selection = (shadow >> 5) & 1;
     let intensity = shadow & 0x10;
     for index in 1..=3 {
-        write_attribute(io, index, (index * 2) | selection | intensity);
+        write_attribute(memory, io, index, (index * 2) | selection | intensity);
     }
 }
