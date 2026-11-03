@@ -120,6 +120,7 @@ pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<
         }
     }
     fonts::apply_guest_tables(memory, io);
+    palette::apply_guest_tables(memory, io);
     write_indexed(
         io,
         SEQUENCER_INDEX_PORT,
