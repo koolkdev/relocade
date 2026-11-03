@@ -830,6 +830,9 @@ restoration. Guest-to-GPU checks run COM programs that set modes 04h–06h and
 and restore text. Packed checks compare complete images against CPU-visible
 banked byte patterns and retain palette-only updates without VRAM writes.
 Mode X guests unchain the memory and flip pages without rewriting pixels.
+Serializer guests combine four-clock loads with byte/pel panning and a split,
+and two-clock loads with chain-4 writes and divided CRTC counting. They also
+restore ordinary BIOS graphics/text modes.
 Retained captures still render after the DOS session ends.
 Transition checks begin with a scrolled, split Mode X page, blank and unblank it
 without changing VRAM, then switch through planar BIOS modes and return to text.
