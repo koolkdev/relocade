@@ -1,4 +1,5 @@
-//! User palette profiles apply after mode defaults and font overrides.
+//! Guests install palette profiles through the BIOS save-pointer tables.
+//! Mode setting applies their color and underline settings after guest font tables.
 use super::{attributes, dac, PaletteLoad};
 use crate::video::{crtc_port, tables::Pointer, write_indexed, CHARACTER_HEIGHT, MODE};
 use relocade_machine::{FarPointer, IoBus, MemoryView};
