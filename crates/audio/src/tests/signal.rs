@@ -46,11 +46,10 @@ async fn until(mut condition: impl FnMut() -> bool) {
 #[wasm_bindgen_test]
 async fn rust_worker_pcm_reaches_output_across_underrun_and_memory_growth() {
     let observer = observe_output();
-    let (output, mut writer) = Output::open(|error| console_error!("{error}")).unwrap();
-    let format = writer.format();
-    let rate = format.sample_rate();
-    let channels = usize::from(format.channels());
-    let capacity = writer.capacity_frames() as u32;
+    let (output, config, writer) = Output::open(|error| console_error!("{error}")).unwrap();
+    let rate = config.sample_rate;
+    let channels = usize::from(config.channels);
+    let capacity = writer.capacity().unwrap() as u32 * 128;
     let stop = Arc::new(AtomicBool::new(false));
     // Zero holds production so the output drains into underrun silence.
     let frequency = Arc::new(AtomicU32::new(440));
@@ -69,7 +68,7 @@ async fn rust_worker_pcm_reaches_output_across_underrun_and_memory_growth() {
         while !worker_stop.load(Ordering::Acquire) {
             worker_heartbeat.fetch_add(1, Ordering::Relaxed);
             let hz = worker_frequency.load(Ordering::Acquire);
-            if hz == 0 || writer.available_frames() < 128 {
+            if hz == 0 || writer.is_full() {
                 std::hint::spin_loop();
                 continue;
             }
@@ -79,7 +78,7 @@ async fn rust_worker_pcm_reaches_output_across_underrun_and_memory_growth() {
                         / f64::from(rate);
                 frame.fill(phase.sin() as f32 * 0.2);
             }
-            if writer.try_write(&samples).is_err() {
+            if writer.try_send(samples.clone()).is_err() {
                 break;
             }
             position += 128;
@@ -118,7 +117,7 @@ async fn asynchronous_setup_errors_reach_the_application_callback() {
     fail_next_module();
     let reported = Arc::new(AtomicBool::new(false));
     let callback_reported = reported.clone();
-    let (output, writer) = Output::open(move |error| {
+    let (output, _, writer) = Output::open(move |error| {
         assert!(error.to_string().contains("test module failure"));
         callback_reported.store(true, Ordering::Release);
     })

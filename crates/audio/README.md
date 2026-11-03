@@ -1,60 +1,37 @@
 # Audio output
 
-`relocade-audio` supplies bounded interleaved PCM transport through the existing
-`async-channel` crate. The application owns the producer, synthesis, scheduling
-and output lifetime; this crate has no dependency on emulation or a worker framework.
-
-```rust
-use relocade_audio::{pcm_buffer, Format};
-
-let format = Format::new(48_000, 2)?;
-let (mut writer, mut reader) = pcm_buffer(format, 2048)?;
-writer.try_write(&[0.25, -0.25])?;
-let mut samples = [0.0; 4];
-assert_eq!(reader.read(&mut samples)?, 1);
-assert_eq!(samples, [0.25, -0.25, 0.0, 0.0]);
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-The unique writer can move to a synthesis worker. It checks capacity before
-sending a complete batch; a full channel reports backpressure. The reader takes
-complete frames with `try_recv` and fills an underrun with silence.
-Dropping the writer preserves queued samples; dropping the reader closes
-submission. A concurrent output closure may interrupt an in-flight write.
-
-Samples use the explicit rate and channel order. The wrapper validates frame
-boundaries and normalizes samples; channel storage, synchronization and closure
-belong to `async-channel`. There is no resampling, synthesis or playback clock.
-
-## Playback
-
-`Output::open(on_error)` opens the default device with its preferred format and
-returns an `Output` plus its `PcmWriter`. Read `writer.format()` before rendering
-interleaved f32 samples. The queue holds 2048 frames. CPAL converts samples into
-the device's integer or floating-point representation.
+CPAL supplies the platform types, configuration, and errors. Producers submit
+interleaved `f32` buffers through an ordinary bounded `async_channel::Sender<Vec<f32>>`.
+Each message owns its complete buffer, so cancelling a pending send cannot publish
+part of a frame. Devices choose their sample buffers and batch sizes.
 
 ```rust,no_run
 use relocade_audio::Output;
 
-let (output, mut writer) = Output::open(|error| eprintln!("audio: {error}"))?;
-let channels = usize::from(writer.format().channels());
-writer.try_write(&vec![0.25; 128 * channels])?;
+let (output, config, samples) = Output::open(|error| eprintln!("audio: {error}"))?;
+samples.try_send(vec![0.25; 128 * usize::from(config.channels)]).map_err(|e| e.to_string())?;
 output.play()?;
-// Keep output alive while the application feeds writer, possibly from a worker.
-// Dropping output stops playback and closes further submission.
+// Keep output alive while the application submits buffers.
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-The output starts consuming PCM when `play()` is called. Missing samples become
-silence. Dropping the writer lets already queued samples drain; dropping the
-output discards the tail. Stream errors go to the supplied callback, which
-should stay brief because CPAL may invoke it on an audio thread.
+`send(buffer).await` waits for channel capacity; `try_send(buffer)` submits without
+waiting. The channel holds 16 buffers, and the output callback can retain one
+partly consumed buffer. Producers must bound their buffer sizes. With 128-frame
+buffers at 48 kHz, the channel holds about 43 ms of audio, plus callback, producer,
+and platform buffering. There is no resampling or playback-clock mapping.
 
-Linux builds require ALSA development headers and pkg-config (Debian/Ubuntu:
-`apt install libasound2-dev pkg-config`). Run `cargo run -p relocade-audio
---example tone` for one second of synthetic 440 Hz audio. The ignored output test
-can use a physical device or the supplied ALSA null configuration; the null sink
-checks ownership and playback without establishing physical output or latency.
+The callback consumes complete frames, retains remaining samples for the next
+callback, clamps samples to [-1, 1], maps NaN to silence, and converts to the host
+sample format. It discards an incomplete trailing frame from each buffer. An
+empty or shorter-than-one-frame buffer produces one silent output frame. Missing
+samples produce silence. Sending and closure use ordinary Rust channel semantics;
+dropping output closes submission immediately and discards the queued tail.
+
+Linux builds require ALSA development headers and pkg-config (`libasound2-dev`
+on Debian/Ubuntu). `cargo run -p relocade-audio --example tone` plays one second
+of synthetic 440 Hz audio. The ignored output test uses the supplied ALSA null
+configuration in CI; it does not establish physical output or latency.
 
 ## Browser output
 
@@ -72,8 +49,7 @@ browser failure, including rejected resume promises or processor traps.
 
 Use the repository's threaded Wasm build (`tools/web-build.mjs`) and COOP/COEP
 headers. It enables atomics, shared memory and the TLS exports CPAL needs.
-Ordinary Wasm builds can use the PCM transport, but opening browser output
-requires atomics. The application owns worker creation and refill scheduling.
+Opening browser output requires atomics. The application owns worker creation and refill scheduling.
 
 The browser suite starts through a real button click. A busy Rust worker feeds
 440/660 Hz tones through the public API; a Web Audio analyser checks frequency,
