@@ -5,6 +5,9 @@ pub use web_thread::*;
 
 use std::future::Future;
 
+mod channel;
+pub use channel::{channel, Endpoint, Port};
+
 /// A typed handle that can be reconstructed on another worker.
 ///
 /// The posted part uses the existing worker transport. Reconstruction captures
@@ -49,14 +52,14 @@ use std::future::Future;
 /// }
 /// ```
 pub trait WorkerResource: Sized + 'static {
-    type Posted: Post;
+    type Posted: Post + 'static;
 
     fn prepare(
         self,
     ) -> ResourceTransfer<Self::Posted, impl FnOnce(Self::Posted) -> Self + Send + 'static>;
 }
 
-/// A resource and its reconstruction operation, consumed by [`ThreadExt::run_resource`].
+/// A resource and its reconstruction operation, consumed by a worker task or channel.
 /// Private fields keep a capability's underlying storage inaccessible to callers.
 pub struct ResourceTransfer<P, R> {
     posted: P,
@@ -67,6 +70,22 @@ impl<P, R> ResourceTransfer<P, R> {
     /// Prepares a transfer inside the resource owner, where its fields are accessible.
     pub fn new(posted: P, rebuild: R) -> Self {
         Self { posted, rebuild }
+    }
+}
+
+impl WorkerResource for crate::SharedMemory {
+    type Posted = Self;
+
+    fn prepare(self) -> ResourceTransfer<Self, impl FnOnce(Self) -> Self + Send + 'static> {
+        ResourceTransfer::new(self, std::convert::identity)
+    }
+}
+
+impl WorkerResource for crate::Module {
+    type Posted = Self;
+
+    fn prepare(self) -> ResourceTransfer<Self, impl FnOnce(Self) -> Self + Send + 'static> {
+        ResourceTransfer::new(self, std::convert::identity)
     }
 }
 

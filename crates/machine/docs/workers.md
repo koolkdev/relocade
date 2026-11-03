@@ -32,8 +32,31 @@ worker adapter reconstructs the complete handle before invoking the task. Caller
 do not extract backing or pair it with configuration, and the transfer does not
 expose a capability's underlying storage.
 
-`SharedMemory` and compiled `Module` handles still support the library's `Post`
-transport directly. Native handles move as Rust values. Browser transport
+`worker::channel::<R>()` creates two resource endpoints for an existing worker
+connection. Pass an endpoint with `run_resource`, then call `bind` on each owner.
+The resulting `Port` sends and receives complete `WorkerResource` values:
+
+```rust,ignore
+let (local, remote) = worker::channel::<Memory>()?;
+let mut local = local.bind();
+let task = worker.run_resource(remote, |remote| async move {
+    let mut remote = remote.bind();
+    let memory = remote.recv().await.unwrap()?;
+    memory.view().write_u8(0x100, 42)?;
+    Ok::<_, relocade_machine::Error>(())
+});
+local.send(memory)?;
+task.await??;
+```
+
+Reconstruction captures travel through Rust channels; engine resources use the
+platform transport. Receipt pairs them in send order. Cancelling a receive leaves
+the partial message in the port, and dropping a bound port closes the peer after
+earlier messages. `send` only queues delivery; use a Rust reply when the sender
+must wait for installation. Browser receipt requires an event-loop turn.
+
+`SharedMemory` and compiled `Module` handles support both `WorkerResource` and the
+library's `Post` transport directly. Native handles move as Rust values. Browser transport
 preserves their JavaScript objects; shared-memory bytes are shared, not copied.
 The receiving worker prepares its own local access to the allocation. Retained
 handles remain usable after the allocating worker exits.
