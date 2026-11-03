@@ -1,5 +1,5 @@
 //! The legacy BIOS color service programs VGA Attribute Controller registers.
-use super::attributes::write_bios_attribute;
+use super::write_attribute;
 use crate::screen;
 use crate::video::{modes, CRTC_PORT};
 use relocade_machine::{IoBus, MemoryView};
@@ -38,9 +38,9 @@ pub(in crate::video) fn set_background(memory: &mut MemoryView<'_>, io: &IoBus, 
         .write_u8(COLOR_SHADOW, shadow)
         .expect("video color shadow");
     let color = (value & 7) | ((value & 8) << 1);
-    write_bios_attribute(memory, io, attribute::OVERSCAN_COLOR, color);
+    write_attribute(memory, io, attribute::OVERSCAN_COLOR, color);
     if !screen::is_text_mode(memory) {
-        write_bios_attribute(memory, io, 0, color);
+        write_attribute(memory, io, 0, color);
         foreground_palette(memory, io, shadow);
     }
 }
@@ -77,6 +77,6 @@ fn foreground_palette(memory: &mut MemoryView<'_>, io: &IoBus, shadow: u8) {
     let selection = (shadow >> 5) & 1;
     let intensity = shadow & 0x10;
     for index in 1..=3 {
-        write_bios_attribute(memory, io, index, (index * 2) | selection | intensity);
+        write_attribute(memory, io, index, (index * 2) | selection | intensity);
     }
 }

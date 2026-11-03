@@ -1,5 +1,5 @@
 //! BIOS selection of sixteen-color or sixty-four-color palette pages.
-use super::{read_attribute, write_attribute};
+use super::{read_attribute, write_raw_attribute};
 use crate::video::{modes, MODE};
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 use relocade_vga::registers::attribute;
@@ -17,7 +17,7 @@ pub(in crate::video) fn set_mode(memory: &MemoryView<'_>, io: &IoBus, mode: u8) 
         return false;
     }
     let previous = read_attribute(io, attribute::MODE_CONTROL);
-    write_attribute(
+    write_raw_attribute(
         io,
         attribute::MODE_CONTROL,
         (previous & !0x80) | (mode << 7),
@@ -38,7 +38,7 @@ pub(in crate::video) fn select_page(memory: &MemoryView<'_>, io: &IoBus, page: u
     } else {
         (page & 3) << 2
     };
-    write_attribute(io, attribute::COLOR_SELECT, bits);
+    write_raw_attribute(io, attribute::COLOR_SELECT, bits);
     true
 }
 

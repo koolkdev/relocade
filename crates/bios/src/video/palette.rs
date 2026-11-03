@@ -5,6 +5,6 @@ pub(super) mod dac;
 pub(super) mod load;
 pub(super) mod paging;
 
-pub(super) use attributes::{read_attribute, write_attribute};
+pub(super) use attributes::{read_attribute, write_attribute, write_raw_attribute};
 pub(super) use compatibility::initialize as initialize_compatibility;
 pub(super) use load::PaletteLoad;

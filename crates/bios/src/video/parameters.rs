@@ -84,10 +84,10 @@ impl Parameters {
             if !palette.loads_colors() && (index < 16 || index == 0x11) {
                 continue;
             }
-            palette::attributes::write_bios_attribute(memory, io, index as u8, value);
+            palette::write_attribute(memory, io, index as u8, value);
         }
         // Color Select is a VGA extension absent from the EGA-compatible record.
-        palette::write_attribute(io, attribute::COLOR_SELECT, 0);
+        palette::write_raw_attribute(io, attribute::COLOR_SELECT, 0);
         io.read_port(input_status_1_port(io), 1);
         io.write_port(
             ATTRIBUTE_ADDRESS_PORT,
