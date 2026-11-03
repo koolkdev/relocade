@@ -11,6 +11,8 @@ use std::{
 mod common;
 #[path = "../../tests/common/directories.rs"]
 mod directories;
+#[path = "../../tests/common/writes.rs"]
+mod writes;
 
 #[test]
 fn native_worker_reads_file_contents_and_metadata() {
@@ -184,5 +186,42 @@ fn rooted_directory_rejects_escape_links_and_special_files() {
             std::fs::read(temporary.path().join("outside")).unwrap(),
             b"private"
         );
+    });
+}
+
+#[test]
+fn native_worker_creates_and_updates_files_without_escalating_access() {
+    block_on(async {
+        let temporary = tempfile::tempdir().unwrap();
+        let files = FileService::new();
+        let (name, backend) = platform::selected_directory(temporary.path().into())
+            .await
+            .unwrap();
+        let root = files
+            .resources
+            .register_directory(name, Access::ReadWrite, backend)
+            .unwrap();
+        let (name, backend) = platform::selected_directory(temporary.path().into())
+            .await
+            .unwrap();
+        let read_only = files
+            .resources
+            .register_directory(name, Access::ReadOnly, backend)
+            .unwrap();
+        let thread = web_thread::Thread::new();
+        let task = thread.run_send((), move |()| writes::write_contract(root, read_only));
+        zip(
+            async {
+                task.await.unwrap().unwrap();
+                files.close();
+            },
+            files.run(),
+        )
+        .await;
+        assert_eq!(
+            std::fs::read(temporary.path().join("SAVES/STATE.DAT")).unwrap(),
+            b"ok"
+        );
+        assert!(!temporary.path().join("DENIED").exists());
     });
 }

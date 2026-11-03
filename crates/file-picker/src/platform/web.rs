@@ -4,7 +4,7 @@ use std::{
     io,
     time::{Duration, UNIX_EPOCH},
 };
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{DomException, FileSystemFileHandle, FileSystemHandle, FileSystemHandleKind};
 
@@ -110,21 +110,26 @@ pub(crate) async fn open_file(
     directory: &mut Directory,
     name: String,
     _: Access,
+    create: bool,
 ) -> io::Result<File> {
-    Ok(File::Opened(
-        resolve(directory.get_file_handle(&name))
-            .await?
-            .unchecked_into(),
-    ))
+    let options = web_sys::FileSystemGetFileOptions::new();
+    options.set_create(create);
+    let handle = resolve(directory.get_file_handle_with_options(&name, &options)).await?;
+    Ok(File::Opened(handle.unchecked_into()))
 }
 
 pub(crate) async fn open_directory(
     directory: &mut Directory,
     name: String,
+    create: bool,
 ) -> io::Result<Directory> {
-    Ok(resolve(directory.get_directory_handle(&name))
-        .await?
-        .unchecked_into())
+    let options = web_sys::FileSystemGetDirectoryOptions::new();
+    options.set_create(create);
+    Ok(
+        resolve(directory.get_directory_handle_with_options(&name, &options))
+            .await?
+            .unchecked_into(),
+    )
 }
 
 async fn snapshot(file: &File) -> io::Result<web_sys::File> {
@@ -175,6 +180,34 @@ fn metadata(file: &web_sys::File) -> Metadata {
     }
 }
 
+pub(crate) async fn write_file(
+    file: &mut File,
+    offset: u64,
+    bytes: Vec<u8>,
+    replace: bool,
+) -> io::Result<()> {
+    let File::Opened(handle) = file else {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    };
+    let offset = position(offset)?;
+    // The JS operation owns a copy, so cancelling Rust cannot invalidate its bytes.
+    let bytes = Uint8Array::from(bytes.as_slice());
+    write_contents(handle, offset, &bytes, replace)
+        .await
+        .map_err(browser_error)?;
+    Ok(())
+}
+
+pub(crate) async fn set_len(file: &mut File, length: u64) -> io::Result<()> {
+    let File::Opened(handle) = file else {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    };
+    resize_file(handle, position(length)?)
+        .await
+        .map_err(browser_error)?;
+    Ok(())
+}
+
 fn position(value: u64) -> io::Result<f64> {
     if value > (1u64 << 53) - 1 {
         return Err(io::ErrorKind::InvalidInput.into());
@@ -202,4 +235,39 @@ fn browser_error(error: JsValue) -> io::Error {
     } else {
         io::Error::other(format!("{error:?}"))
     }
+}
+
+// Keep ownership through close/abort even if the Rust request is cancelled while
+// createWritable is pending. These promises execute only on the service's owner.
+#[wasm_bindgen(inline_js = r#"
+async function updateFile(handle, keepExistingData, update) {
+    const stream = await handle.createWritable({ keepExistingData });
+    try {
+        await update(stream);
+        await stream.close();
+    } catch (error) {
+        try { await stream.abort(); } catch (_) { }
+        throw error;
+    }
+}
+export function writeContents(handle, offset, bytes, replace) {
+    return updateFile(handle, !replace, async stream => {
+        await stream.seek(offset);
+        await stream.write(bytes);
+    });
+}
+export function resizeFile(handle, length) {
+    return updateFile(handle, true, stream => stream.truncate(length));
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(catch, js_name = writeContents)]
+    async fn write_contents(
+        handle: &FileSystemFileHandle,
+        offset: f64,
+        bytes: &Uint8Array,
+        replace: bool,
+    ) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = resizeFile)]
+    async fn resize_file(handle: &FileSystemFileHandle, length: f64) -> Result<JsValue, JsValue>;
 }

@@ -14,6 +14,8 @@ mod common;
 mod directories;
 #[path = "web/fixture.rs"]
 mod fixture;
+#[path = "common/writes.rs"]
+mod writes;
 use fixture::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -181,6 +183,71 @@ async fn rust_worker_browses_selected_directory() {
         async {
             task.await.unwrap().unwrap();
             files.close();
+        },
+        files.run(),
+    )
+    .await;
+    remove_directory(&directory).await;
+}
+
+#[wasm_bindgen_test]
+async fn rust_worker_creates_and_updates_browser_files() {
+    let fixture = RestorePicker(mock_picker());
+    let directory = directory_handle().await;
+    fixture.0.set("ok", &directory);
+    let files = FileService::new();
+    let root = files
+        .pick_directory(Access::ReadWrite)
+        .await
+        .unwrap()
+        .unwrap();
+    let read_only = files
+        .pick_directory(Access::ReadOnly)
+        .await
+        .unwrap()
+        .unwrap();
+    let thread = web_thread::Thread::new();
+    let task = thread.run_send((), move |()| writes::write_contract(root, read_only));
+    zip(
+        async {
+            task.await.unwrap().unwrap();
+            files.close();
+        },
+        files.run(),
+    )
+    .await;
+    remove_directory(&directory).await;
+}
+
+#[wasm_bindgen_test]
+async fn service_shutdown_keeps_started_browser_write_alive_through_close() {
+    let fixture = RestorePicker(mock_picker());
+    let directory = directory_handle().await;
+    fixture.0.set("ok", &directory);
+    let files = FileService::new();
+    let root = files
+        .pick_directory(Access::ReadWrite)
+        .await
+        .unwrap()
+        .unwrap();
+    zip(
+        async {
+            let file = root.create_file("SAVE.DAT").await.unwrap();
+            let barrier = ReleaseWrite(hold_next_write());
+            let thread = web_thread::Thread::new();
+            let task = thread.run_send((), move |()| async move {
+                assert_eq!(
+                    file.write(b"persisted").await.unwrap_err().kind(),
+                    ErrorKind::BrokenPipe
+                );
+            });
+            barrier.0.write_started().await;
+            files.close();
+            task.await.unwrap();
+            // Closing rejects the Rust request, but cannot roll back an operation
+            // already started by the browser. Its JS-owned bytes and stream survive.
+            barrier.0.release_write();
+            assert_eq!(barrier.0.write_finished().await, "persisted");
         },
         files.run(),
     )
