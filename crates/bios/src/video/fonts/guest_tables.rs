@@ -1,4 +1,6 @@
-//! Guest font tables override mode defaults through the BIOS save-pointer tables.
+//! Guests install font tables through non-null BIOS save-pointer entries.
+//! Mode setting applies matching tables after the defaults; the existing font
+//! loaders validate their settings before changing font memory or layout.
 use super::{graphics, text};
 use crate::{
     screen,
@@ -12,7 +14,7 @@ pub(in crate::video) fn apply(memory: &mut MemoryView<'_>, io: &IoBus) {
     if screen::is_text_mode(memory) {
         apply_primary(memory, io, mode);
         apply_alternate(memory, io, mode);
-    } else if let Some(header) = Pointer::GraphicsFont.read_for_mode::<7>(memory, mode) {
+    } else if let Some(header) = Pointer::GraphicsFont.get_override_header::<7>(memory, mode) {
         let source = FarPointer::from_packed(u32::from_le_bytes(header[3..7].try_into().unwrap()));
         let height = u16::from_le_bytes([header[1], header[2]]);
         let rows = graphics::Rows {
@@ -24,7 +26,7 @@ pub(in crate::video) fn apply(memory: &mut MemoryView<'_>, io: &IoBus) {
 }
 
 fn apply_primary(memory: &mut MemoryView<'_>, io: &IoBus, mode: u8) {
-    let Some(header) = Pointer::TextFont.read_for_mode::<11>(memory, mode) else {
+    let Some(header) = Pointer::TextFont.get_override_header::<11>(memory, mode) else {
         return;
     };
     let font = text::GuestFont {
@@ -43,7 +45,7 @@ fn apply_primary(memory: &mut MemoryView<'_>, io: &IoBus, mode: u8) {
 }
 
 fn apply_alternate(memory: &mut MemoryView<'_>, io: &IoBus, mode: u8) {
-    let Some(header) = Pointer::AlternateFont.read_for_mode::<7>(memory, mode) else {
+    let Some(header) = Pointer::AlternateFont.get_override_header::<7>(memory, mode) else {
         return;
     };
     if u16::from(header[0]) != memory.read_u16(CHARACTER_HEIGHT).expect("font height") {

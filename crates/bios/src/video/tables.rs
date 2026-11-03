@@ -73,7 +73,8 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>) {
         .expect("video save pointer");
 }
 
-/// The BIOS follows guest pointers on each call; it never caches an override.
+/// A table address in the BIOS save-pointer hierarchy rooted at BDA 4A8h.
+/// Optional slots start null; guests install a table by writing its far pointer.
 pub(super) enum Pointer {
     Parameters,
     DisplayCombinations,
@@ -83,6 +84,7 @@ pub(super) enum Pointer {
 }
 
 impl Pointer {
+    /// Resolve the current table address. A null pointer at any level means absent.
     pub fn read(self, memory: &MemoryView<'_>) -> Option<FarPointer> {
         let primary = non_null(memory.read_u32(SAVE_POINTER).expect("video save pointer"))?;
         let address = match self {
@@ -97,32 +99,39 @@ impl Pointer {
         read_pointer(memory, address)
     }
 
-    /// Override headers are followed by mode bytes terminated by FFh.
-    pub fn read_for_mode<const N: usize>(
+    /// Return an override header when its table is installed and lists `mode`.
+    /// The list follows the `HEADER_BYTES`-byte header and ends at FFh.
+    pub fn get_override_header<const HEADER_BYTES: usize>(
         self,
         memory: &MemoryView<'_>,
         mode: u8,
-    ) -> Option<[u8; N]> {
-        let pointer = self.read(memory)?;
-        // A malformed list must not loop forever after its offset wraps.
-        for offset in N..N + 0x10000 {
-            match memory
-                .read_u8(pointer.wrapping_add(offset).address())
-                .expect("video override modes")
-            {
-                0xff => return None,
-                value if value == mode => {
-                    let mut header = [0; N];
-                    memory
-                        .read_wrapping(pointer, &mut header)
-                        .expect("video override header");
-                    return Some(header);
-                }
-                _ => {}
-            }
+    ) -> Option<[u8; HEADER_BYTES]> {
+        let table = self.read(memory)?;
+        let mode_list = table.wrapping_add(HEADER_BYTES);
+        if !mode_list_contains(memory, mode_list, mode) {
+            return None;
         }
-        None
+        let mut header = [0; HEADER_BYTES];
+        memory
+            .read_wrapping(table, &mut header)
+            .expect("video table header");
+        Some(header)
     }
+}
+
+fn mode_list_contains(memory: &MemoryView<'_>, list: FarPointer, mode: u8) -> bool {
+    // A malformed list must not loop forever after its offset wraps.
+    for offset in 0..0x10000 {
+        match memory
+            .read_u8(list.wrapping_add(offset).address())
+            .expect("video table modes")
+        {
+            0xff => return false,
+            value if value == mode => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn read_pointer(memory: &MemoryView<'_>, address: FarPointer) -> Option<FarPointer> {
