@@ -3,7 +3,7 @@ mod view;
 pub use pointer::FarPointer;
 pub use view::{MemoryError, MemoryView};
 
-use crate::{ConfigurationError, IoBus, MachineConfig, Result};
+use crate::{IoBus, MachineConfig, Result};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use std::sync::Arc;
 
@@ -12,8 +12,10 @@ use std::sync::Arc;
 /// an atomic snapshot of a range.
 /// Devices belong to the execution worker and are not retained by this handle.
 #[derive(Clone)]
+#[cfg_attr(feature = "worker", derive(crate::worker::WorkerResource))]
 pub struct Memory {
     config: Arc<MachineConfig>,
+    #[cfg_attr(feature = "worker", worker(post))]
     backing: SharedMemory,
 }
 
@@ -24,14 +26,7 @@ impl Memory {
         let maximum = relocade_x86::abi::GUEST
             .maximum
             .expect("guest memory has a maximum");
-        Self::with_backing(config, SharedMemory::new(minimum, maximum)?)
-    }
-
-    /// Associates shared backing with its guest address policy.
-    pub fn with_backing(config: MachineConfig, backing: SharedMemory) -> Result<Self> {
-        if backing.byte_len() < config.memory_size() {
-            return Err(ConfigurationError::InsufficientMemory.into());
-        }
+        let backing = SharedMemory::new(minimum, maximum)?;
         Ok(Self {
             config: Arc::new(config),
             backing,

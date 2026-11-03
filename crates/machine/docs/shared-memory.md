@@ -78,13 +78,13 @@ available at stopped guest boundaries, including when outer calls are parked
 during an ISR, but not while a host call is actively pending. Independent state
 and memory handles also work while a call waits and after runner destruction.
 
-Pass `memory.backing().clone()` directly as a worker task's context.
-The worker transport moves native handles and preserves browser shared-memory
-objects through structured cloning. The receiver pairs the handle with its machine
-configuration using `relocade_machine::Memory::with_backing`, then borrows a
-view with `memory.view()`. Capture that configuration in the Rust task closure;
-it does not need serialization. See the [worker guide](workers.md).
-The configured guest capacity is checked against the allocation's byte length.
+Pass `memory.clone()` to `worker.run_resource(...)` using `worker::ThreadExt`.
+The memory handle retains its configuration in Rust and prepares its shared
+allocation for the existing worker transport. Native handles move directly;
+browser shared-memory objects use structured cloning. The worker receives a
+complete `Memory` and borrows a view with `memory.view()`, without extracting
+backing or reconstructing the handle in application code. Configuration does not
+need serialization. See the [worker guide](workers.md).
 
 Browser worker sharing requires cross-origin isolation, typically served with
 `Cross-Origin-Opener-Policy: same-origin` and
