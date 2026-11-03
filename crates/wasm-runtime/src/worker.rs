@@ -5,6 +5,9 @@ pub use web_thread::*;
 
 use std::future::Future;
 
+mod wake;
+pub use wake::{wake_connection, WakeConnection, WakeEndpoint, WakeHost, WakeTarget};
+
 /// A typed handle that can be reconstructed on another worker.
 ///
 /// The posted part uses the existing worker transport. Reconstruction captures
