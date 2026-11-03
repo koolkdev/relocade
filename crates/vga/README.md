@@ -857,6 +857,9 @@ Mode X guests unchain the memory and flip pages without rewriting pixels.
 Serializer guests combine four-clock loads with byte/pel panning and a split,
 and two-clock loads with chain-4 writes and divided CRTC counting. They also
 restore ordinary BIOS graphics/text modes.
+Overscan guests compare whole text, planar and indexed images after BIOS border
+selection and direct DAC writes. A custom raster combines display skew, panning
+and a split, then returns to BIOS text and replays its retained graphics capture.
 Retained captures still render after the DOS session ends.
 Transition checks begin with a scrolled, split Mode X page, blank and unblank it
 without changing VRAM, then switch through planar BIOS modes and return to text.

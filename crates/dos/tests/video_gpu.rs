@@ -14,6 +14,8 @@ mod indexed256;
 mod monochrome;
 #[path = "video_gpu/monochrome_graphics.rs"]
 mod monochrome_graphics;
+#[path = "video_gpu/overscan.rs"]
+mod overscan;
 #[path = "video_gpu/pages.rs"]
 mod pages;
 #[path = "video_gpu/palette.rs"]
@@ -66,11 +68,22 @@ impl Gpu {
         }
     }
 
-    async fn render_active(&mut self, capture: &CapturedFrame, size: [u32; 2]) -> Vec<u8> {
+    fn decode(&mut self, capture: &CapturedFrame) -> relocade_vga::VgaImage {
         self.renderer.upload(&self.queue, capture);
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        let image = self.renderer.encode(&mut encoder).unwrap().image;
+        let image = self.renderer.encode(&mut encoder).unwrap();
         self.queue.submit([encoder.finish()]);
+        image
+    }
+
+    async fn render(&mut self, capture: &CapturedFrame, size: [u32; 2]) -> Vec<u8> {
+        let image = self.decode(capture).image;
+        assert_eq!(image.size(), size);
+        readback::read_pixels(&self.device, &self.queue, image.texture()).await
+    }
+
+    async fn render_active(&mut self, capture: &CapturedFrame, size: [u32; 2]) -> Vec<u8> {
+        let image = self.decode(capture).image;
         readback::read_active_pixels(
             &self.device,
             &self.queue,
