@@ -2,8 +2,7 @@ use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, worker::Thread, Cpu, CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig,
-    Memory,
+    timer_service, worker::Thread, CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, Memory,
 };
 use relocade_vga::{Vga, MEMORY_RANGE, PORT_RANGES};
 use relocade_x86::{
@@ -76,7 +75,10 @@ pub async fn vga_workers() -> Result<(), String> {
         )
         .unwrap();
         let input = RefCell::new(Some((incoming, waiting)));
-        let mut cpu = Cpu::new(memory, cpu_config, io.clone()).await.unwrap();
+        let mut cpu = runner
+            .create_cpu(memory, cpu_config, io.clone())
+            .await
+            .unwrap();
         cpu.install([
             Hook::host(0x200, {
                 let resources = cpu.memory().with_io(io.clone());

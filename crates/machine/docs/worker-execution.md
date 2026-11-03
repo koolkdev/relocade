@@ -15,7 +15,7 @@ let (clock, timers) = relocade_machine::timer_service();
 let execution = ExecutionWorker::spawn(clock, async move |runner| {
     let device = create_device(runner.clock().clone());
     let io = IoBus::new([runner.connect(device, memory_ranges, ports)]);
-    let mut cpu = create_cpu(io).await?;
+    let mut cpu = runner.create_cpu(memory, cpu_config, io).await?;
     runner.run_cpu(&mut cpu).await;
     wait_for_next_program().await;
     Ok::<(), Error>(())
@@ -29,7 +29,16 @@ activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `wait_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
-The task owns one `Cpu` for its lifetime. BIOS/DOS services capture their own
+The worker prepares one `CpuStorage` before spawning and posts it through
+`ThreadExt::run_resource`. `runner.create_cpu(memory, config, io).await` consumes
+that storage on the execution thread. `Dos::new(runner)` uses the same factory.
+A connected runner permits one construction attempt, including an attempt that
+fails or is cancelled; later programs reuse that CPU. Standalone runners can
+construct independent CPUs. `run_cpu` checks ownership once at entry, without
+adding checks during hooks or state access. Construction and launch do not
+execute guest instructions.
+
+The task owns this `Cpu` across programs. BIOS/DOS services capture their own
 application resources and execute on the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
 Hooks run in Rust after Wasm returns. They capture a `CpuStateAccess` handle,
