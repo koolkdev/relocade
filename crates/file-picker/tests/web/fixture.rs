@@ -59,6 +59,32 @@ export function completeFilePicker(cancel, modified) {
         }
     });
 }
+export function holdNextWrite() {
+    const original = FileSystemFileHandle.prototype.createWritable;
+    let entered, release, complete, fail;
+    const arrival = new Promise(resolve => entered = resolve);
+    const gate = new Promise(resolve => release = resolve);
+    const finished = new Promise((resolve, reject) => { complete = resolve; fail = reject; });
+    FileSystemFileHandle.prototype.createWritable = async function(options) {
+        const stream = await original.call(this, options);
+        const handle = this;
+        const close = stream.close.bind(stream);
+        stream.close = async () => {
+            try {
+                await close();
+                complete(await (await handle.getFile()).text());
+            } catch (error) { fail(error); throw error; }
+        };
+        entered();
+        await gate;
+        return stream;
+    };
+    return {
+        entered: () => arrival,
+        finished: () => finished,
+        release() { FileSystemFileHandle.prototype.createWritable = original; release(); },
+    };
+}
 export function holdNextRead() {
     const original = Blob.prototype.arrayBuffer;
     let entered, release, first = true;
@@ -95,6 +121,15 @@ extern "C" {
 
     #[wasm_bindgen(js_name = completeFilePicker)]
     pub fn complete_file_picker(cancel: bool, modified: f64);
+    pub type WriteBarrier;
+    #[wasm_bindgen(js_name = holdNextWrite)]
+    pub fn hold_next_write() -> WriteBarrier;
+    #[wasm_bindgen(method, js_name = entered)]
+    pub async fn write_started(this: &WriteBarrier);
+    #[wasm_bindgen(method, js_name = finished)]
+    pub async fn write_finished(this: &WriteBarrier) -> String;
+    #[wasm_bindgen(method, js_name = release)]
+    pub fn release_write(this: &WriteBarrier);
     pub type ReadBarrier;
     #[wasm_bindgen(js_name = holdNextRead)]
     pub fn hold_next_read() -> ReadBarrier;
@@ -115,5 +150,12 @@ pub struct RestorePicker(pub PickerFixture);
 impl Drop for RestorePicker {
     fn drop(&mut self) {
         self.0.restore();
+    }
+}
+
+pub struct ReleaseWrite(pub WriteBarrier);
+impl Drop for ReleaseWrite {
+    fn drop(&mut self) {
+        self.0.release_write();
     }
 }

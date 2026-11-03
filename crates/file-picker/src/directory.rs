@@ -56,27 +56,49 @@ impl Directory {
 
     /// Opens an existing file without truncation. Access cannot exceed the parent's.
     pub async fn open_file(&self, name: &str, access: Access) -> io::Result<File> {
+        self.file(name, access, false).await
+    }
+
+    /// Opens or creates a read/write file, preserving any existing contents.
+    pub async fn create_file(&self, name: &str) -> io::Result<File> {
+        self.file(name, Access::ReadWrite, true).await
+    }
+
+    /// Opens an existing subdirectory with this directory's access.
+    pub async fn open_directory(&self, name: &str) -> io::Result<Self> {
+        self.directory(name, false).await
+    }
+
+    /// Opens or creates a subdirectory. Requires read/write access.
+    pub async fn create_directory(&self, name: &str) -> io::Result<Self> {
+        self.directory(name, true).await
+    }
+
+    async fn file(&self, name: &str, access: Access, create: bool) -> io::Result<File> {
         let name = name.to_owned();
         let parent_access = self.access;
         self.resource
             .call(async move |owner| {
                 validate_name(&name)?;
                 parent_access.require(access)?;
-                let file = platform::open_file(&mut owner.directory, name.clone(), access).await?;
+                let file =
+                    platform::open_file(&mut owner.directory, name.clone(), access, create).await?;
                 owner.resources.register_file(name, access, file)
             })
             .await
     }
 
-    /// Opens an existing subdirectory with this directory's access.
-    pub async fn open_directory(&self, name: &str) -> io::Result<Self> {
+    async fn directory(&self, name: &str, create: bool) -> io::Result<Self> {
         let name = name.to_owned();
         let access = self.access;
         self.resource
             .call(async move |owner| {
                 validate_name(&name)?;
+                if create {
+                    access.require(Access::ReadWrite)?;
+                }
                 let directory =
-                    platform::open_directory(&mut owner.directory, name.clone()).await?;
+                    platform::open_directory(&mut owner.directory, name.clone(), create).await?;
                 owner.resources.register_directory(name, access, directory)
             })
             .await
