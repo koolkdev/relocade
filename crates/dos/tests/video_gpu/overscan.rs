@@ -143,7 +143,7 @@ fn guest_raster_skew_panning_and_split_keep_border_coordinates_independent() {
             (0x11, 9),
             (0x12, 3),
             (0x13, 1),
-            (0x14, 0),
+            (0x14, 0x40), // Doubleword addresses match the chain-4 guest writes.
             (0x15, 5),
             (0x16, 7),
             (0x17, 0xe3),
