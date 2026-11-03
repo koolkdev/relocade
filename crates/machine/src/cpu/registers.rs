@@ -51,7 +51,7 @@ register!(ch, set_ch, u8, ecx, 1);
 register!(dh, set_dh, u8, edx, 1);
 register!(bh, set_bh, u8, ebx, 1);
 
-/// A pointer result writes both the visible selector and its loaded cache.
+/// A segment result writes both the visible selector and its loaded cache.
 pub const fn segment(segment: Segment) -> Range<usize> {
     let start = super::segment_offset(segment);
     start..start + size_of::<SegmentRegister>()

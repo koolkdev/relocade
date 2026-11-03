@@ -3,6 +3,7 @@
 mod argument;
 mod pointer;
 mod register;
+mod segment;
 #[cfg(test)]
 mod tests;
 
