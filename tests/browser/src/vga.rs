@@ -120,7 +120,7 @@ pub async fn vga_workers() -> Result<(), String> {
         let frame = loop {
             let frame = software::rasterize(&display.next_capture(after).await.unwrap());
             if glyph_top(&frame, 0, [255, 255, 85, 255]) == [124, 198, 198, 254, 198]
-                && glyph_top(&frame, 1, [255, 255, 255, 255]) == [252, 102, 102, 124, 102]
+                && glyph_top(&frame, 8, [255, 255, 255, 255]) == [252, 102, 102, 124, 102]
             {
                 break frame;
             }
@@ -140,7 +140,7 @@ pub async fn vga_workers() -> Result<(), String> {
             }
         };
         assert_eq!(
-            glyph_top(&next, 1, [255, 255, 255, 255]),
+            glyph_top(&next, 8, [255, 255, 255, 255]),
             [124, 198, 192, 192, 192]
         );
         assert_eq!(&*frame.pixels, retained);
@@ -163,12 +163,12 @@ pub async fn vga_workers() -> Result<(), String> {
     Ok(())
 }
 
-// Decode the top five rows for literal glyph assertions. Cursor blinking only
-// affects the bottom rows in these fixtures; it must not gate test progress.
-pub(crate) fn glyph_top(frame: &SoftwareFrame, column: usize, foreground: [u8; 4]) -> [u8; 5] {
+// Decode the top five rows at a pixel position for literal glyph assertions.
+// Cursor blinking only affects the bottom rows; it must not gate test progress.
+pub(crate) fn glyph_top(frame: &SoftwareFrame, left: usize, foreground: [u8; 4]) -> [u8; 5] {
     std::array::from_fn(|y| {
         (0..8).fold(0, |bits, x| {
-            let at = (y * frame.width as usize + column * 8 + x) * 4;
+            let at = (y * frame.width as usize + left + x) * 4;
             (bits << 1) | u8::from(frame.pixels[at..at + 4] == foreground)
         })
     })

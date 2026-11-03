@@ -58,7 +58,7 @@ fn mode_11h_direct_writes_bios_drawing_palette_and_text_return() {
         assert_two_color(&gpu.render(&recolored, [640, 480]).await, [0, 255, 0, 255]);
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        assert_eq!(&gpu.render(&text, [640, 200]).await[..4], &[170, 0, 0, 255]);
+        assert_eq!(&gpu.render(&text, [720, 400]).await[..4], &[170, 0, 0, 255]);
         assert_eq!(gpu.render(&original, [640, 480]).await, white);
     });
 }
@@ -145,7 +145,7 @@ fn mode_0fh_monochrome_blink_pages_and_retained_captures() {
         assert_monochrome_pattern(&gpu.render(&steady, [640, 350]).await, true);
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        assert_eq!(&gpu.render(&text, [640, 200]).await[..4], &[170, 0, 0, 255]);
+        assert_eq!(&gpu.render(&text, [720, 400]).await[..4], &[170, 0, 0, 255]);
         assert_eq!(gpu.render(&first, [640, 350]).await, original);
         assert_monochrome_pattern(
             &gpu.render(&opposite, [640, 350]).await,

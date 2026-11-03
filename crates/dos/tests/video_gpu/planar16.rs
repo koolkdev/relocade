@@ -86,9 +86,9 @@ fn guest_planar_modes_masked_pixels_palette_and_text_return() {
             assert_image(&gpu.render(&changed, size).await, [255, 0, 0, 255]);
             let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
             drop(dos);
-            let restored = gpu.render(&text, [640, 200]).await;
+            let restored = gpu.render(&text, [720, 400]).await;
             assert_eq!(&restored[..4], &[170, 0, 0, 255]);
-            assert_eq!(&restored[8 * 4..9 * 4], &[0, 0, 0, 255]);
+            assert_eq!(&restored[9 * 4..10 * 4], &[0, 0, 0, 255]);
             assert_eq!(gpu.render(&graphics, size).await, original);
         }
     });

@@ -62,9 +62,9 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     fonts::initialize(memory);
     information::initialize(memory);
     tables::initialize(memory);
-    // Preserve the existing doubled 8-high startup.
+    // VGA color startup uses 80×25 nine-dot cells and the 16-high font.
     assert!(
-        modes::select_scanlines(memory, 0),
+        modes::select_scanlines(memory, 2),
         "initial scanline profile"
     );
     set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");

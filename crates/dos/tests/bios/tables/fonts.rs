@@ -39,7 +39,7 @@ fn text_overrides_apply_ranges_geometry_and_the_matching_alternate_bank() {
             context.memory.write(0x81000, &alternate).unwrap();
             context
                 .memory
-                .write_wrapping(PARAMETERS.wrapping_add(3 * 64 + 7), &[0x13])
+                .write_wrapping(PARAMETERS.wrapping_add(24 * 64 + 7), &[0x13])
                 .unwrap(); // Normal B=7.
         }
         video(&mut dos, 3, 0, 0, 0);
@@ -66,7 +66,7 @@ fn text_overrides_apply_ranges_geometry_and_the_matching_alternate_bank() {
         assert_eq!(dos.cpu().context().memory.read_u8(0x484).unwrap(), 39);
         assert_eq!(information(&mut dos, 0x4000, 0x200, 0)[0x32], 5);
         video(&mut dos, 1, 0, 0, 0); // Neither mode list includes mode 1.
-        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 8);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 16);
         assert_eq!(
             dos.vga().borrow().snapshot().registers.sequencer.values[3],
             0
@@ -162,7 +162,7 @@ fn invalid_or_unterminated_font_overrides_leave_the_mode_defaults() {
         }
         video(&mut dos, 3, 0, 0, 0);
         assert_eq!(dos.vga().borrow().snapshot().plane(2), before.plane(2));
-        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 8);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 16);
         dos.cpu()
             .context()
             .memory

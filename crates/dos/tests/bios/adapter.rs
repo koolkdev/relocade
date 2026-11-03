@@ -17,7 +17,7 @@ fn adapter_queries_report_bios_configuration_independently_of_display_mode() {
             let config = video(&mut dos, 0x12a5, 0xff10, 0xffff, 0x1234);
             assert_eq!(config.registers.eax as u16, 0x1203);
             assert_eq!(config.registers.ebx as u16, 3); // Color adapter, 256 KiB.
-            assert_eq!(config.registers.ecx as u16, 8); // Startup 200-line profile.
+            assert_eq!(config.registers.ecx as u16, 9); // Startup 400-line profile.
             assert_eq!(config.registers.edx as u16, 0x1234);
             let after = dos.vga().borrow().snapshot();
             assert_eq!(after.registers, before.registers);

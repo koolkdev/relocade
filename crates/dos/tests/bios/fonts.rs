@@ -66,7 +66,7 @@ fn guest_font_loading_wraps_the_source_and_preserves_other_memory_and_registers(
         assert_eq!(unchanged.registers, after.registers);
         assert_eq!(unchanged.plane(2), after.plane(2));
         let context = dos.cpu().context();
-        assert_eq!(context.memory.read_u16(0x485).unwrap(), 8);
+        assert_eq!(context.memory.read_u16(0x485).unwrap(), 16);
         assert_eq!(context.memory.read_u8(0x484).unwrap(), 24);
         assert_eq!(context.memory.read_u16(0x44c).unwrap(), 0x1000);
     });
@@ -93,13 +93,13 @@ fn built_in_font_uploads_leave_geometry_and_bank_selection_to_the_caller() {
                 vec![255; glyph.len()]
             );
             assert_eq!(snapshot.registers.sequencer.values[3], 0);
-            assert_eq!(snapshot.registers.crtc.values[9], 0xc7);
+            assert_eq!(snapshot.registers.crtc.values[9], 0x4f);
         }
         video(&mut dos, 0x1103, 0xff3b, 0, 0); // Bank A=6, bank B=7.
         let snapshot = dos.vga().borrow().snapshot();
         assert_eq!(snapshot.registers.sequencer.values[3], 0x3b);
         let context = dos.cpu().context();
-        assert_eq!(context.memory.read_u16(0x485).unwrap(), 8);
+        assert_eq!(context.memory.read_u16(0x485).unwrap(), 16);
         assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x0720);
     });
 }
@@ -112,14 +112,14 @@ fn font_information_returns_rom_data_current_height_and_guest_replaced_vectors()
         let mut pointers = [0; 8];
         for selector in 0..8 {
             let result = video(&mut dos, 0x1130, selector << 8, 0xffff, 0xa500);
-            assert_eq!(result.registers.ecx as u16, 8);
+            assert_eq!(result.registers.ecx as u16, 16);
             assert_eq!(result.registers.edx as u16, 0xa518);
             let pointer = result.segments.es.base + u32::from(result.registers.ebp as u16);
             assert!((0xf0000..0xfff00).contains(&pointer));
             pointers[usize::from(selector)] = pointer;
         }
         assert_eq!(pointers[0], pointers[4]);
-        assert_eq!(pointers[1], pointers[3]);
+        assert_eq!(pointers[1], pointers[6]);
         assert_eq!(pointers[4], pointers[3] + 128 * 8);
         {
             let mut context = dos.cpu().context();

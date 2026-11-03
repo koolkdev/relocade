@@ -56,9 +56,9 @@ fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures()
 
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        let restored = gpu.render(&text, [640, 200]).await;
+        let restored = gpu.render(&text, [720, 400]).await;
         for (offset, pixel) in restored.as_chunks::<4>().0.iter().enumerate() {
-            let expected = if offset % 640 < 8 && offset / 640 < 8 {
+            let expected = if offset % 720 < 9 && offset / 720 < 16 {
                 [170, 0, 0, 255]
             } else {
                 [0, 0, 0, 255]

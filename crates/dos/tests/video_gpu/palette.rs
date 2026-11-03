@@ -5,7 +5,7 @@ fn bios_palette_changes_recolor_text_and_graphics_without_vram_writes() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         let mut gpu = Gpu::new().await;
-        for (mode, size) in [(3, [640, 200]), (0x12, [640, 480]), (0x13, [320, 200])] {
+        for (mode, size) in [(3, [720, 400]), (0x12, [640, 480]), (0x13, [320, 200])] {
             let mut program = vec![0xb8, mode, 0, 0xcd, 0x10];
             if mode == 3 {
                 program.extend_from_slice(&[

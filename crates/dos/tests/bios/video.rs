@@ -89,7 +89,7 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         // Mode reset also restores clock controls and timing after guest writes.
         {
             let context = dos.cpu().context();
-            context.io.write_port(0x3c2, 1, 0x46); // 28 MHz and monochrome ports.
+            context.io.write_port(0x3c2, 1, 0x42); // 25 MHz and monochrome ports.
             context.io.write_port(0x3c4, 2, 0x2801); // Divide clock and blank screen.
             context.io.write_port(0x3b4, 2, 0x0011); // Unlock CRTC timing.
             context.io.write_port(0x3b4, 2, 0x1000); // Change the horizontal total.
@@ -106,15 +106,15 @@ fn video_services_share_pages_cursors_and_cell_attributes() {
         assert_eq!(screen.cursor.address, 0);
         {
             let context = dos.cpu().context();
-            assert_eq!(context.io.read_port(0x3cc, 1), 0x43);
+            assert_eq!(context.io.read_port(0x3cc, 1), 0x67);
             context.io.write_port(0x3c4, 1, 1);
-            assert_eq!(context.io.read_port(0x3c5, 1), 1);
+            assert_eq!(context.io.read_port(0x3c5, 1), 0);
             context.io.write_port(0x3c4, 1, 0);
             assert_eq!(context.io.read_port(0x3c5, 1), 3);
             context.io.write_port(0x3d4, 1, 0);
             assert_eq!(context.io.read_port(0x3d5, 1), 0x5f);
             context.io.write_port(0x3d4, 1, 0x11);
-            assert_eq!(context.io.read_port(0x3d5, 1), 0xae); // Timing is protected again.
+            assert_eq!(context.io.read_port(0x3d5, 1), 0x8e); // Timing is protected again.
         }
         video(&mut dos, 0x0507, 0, 0, 0);
         assert_eq!(
@@ -170,10 +170,12 @@ fn mode_reset_restores_font_memory_access_and_palette_before_clearing_text() {
         );
         let snapshot = dos.vga().borrow().snapshot();
         assert_eq!(
-            &snapshot.plane(2)[65 * 32..65 * 32 + 8],
-            &[0x7c, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0]
+            &snapshot.plane(2)[65 * 32..65 * 32 + 16],
+            &[
+                0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
+            ]
         );
-        assert_eq!(&snapshot.plane(2)[65 * 32 + 8..66 * 32], &[0; 24]);
+        assert_eq!(&snapshot.plane(2)[65 * 32 + 16..66 * 32], &[0; 16]);
         {
             let mut context = dos.cpu().context();
             assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x0720);

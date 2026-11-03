@@ -5,7 +5,9 @@ worker. BIOS and direct guest writes reach the same MMIO memory. Text decoding
 uses captured geometry, row stride, physical address mapping, 8/9-dot characters,
 font banks and heights, attribute/DAC colors, cursor shape/skew, underline,
 blinking, blanking, panning and split-display settings. Startup BIOS mode 03h
-loads an 8×8 CP437 font into plane two and initializes 80×25 cells.
+loads an 8×16 CP437 font into plane two and initializes 80×25 nine-dot cells:
+720×400 active dots at about 70 Hz. Later mode sets honor the guest's scanline
+preference; startup does not impose a separate renderer mode.
 Eight-bit graphics decoding supports chained mode 13h and byte-addressed
 unchained layouts (Mode X): linear or plane-masked guest writes, all 256 DAC
 colors, display pages and stride, repeated rows, panning and split display.
@@ -31,8 +33,11 @@ Pixel Panning Mode resets both byte and pel shifts there, following the
 With that bit clear, both regions retain the programmed shifts. This shared
 behavior applies to text, serial/interleaved four-bit pixels and byte-addressed Mode X.
 
-The default raster is 25.175 MHz, 800 dots per line and 449 lines per frame
-(about 70.086 Hz). Guest clock selection, 8/9-dot width, clock division and CRTC
+BIOS startup uses 28.322 MHz, 900 dots per line and 449 lines per frame
+(about 70.087 Hz), matching IBM VGA's color-monitor mode 03h default
+([VGA Technical Reference, p. 2-12](https://bitsavers.org/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf)).
+The bare device's legacy register defaults remain 25.175 MHz and 800 dots per line.
+Guest clock selection, 8/9-dot width, clock division and CRTC
 counters determine Input Status 1 and capture deadlines. Mode 12h uses 800×525
 at about 59.94 Hz. The vertical-counter divider scales display height and split
 position independently of character height and repeated scanlines.

@@ -60,7 +60,7 @@ fn functionality_report_has_the_ibm_layout_and_rom_capabilities() {
         );
         assert_eq!(
             &bytes[0x22..0x2e],
-            &[25, 8, 0, 8, 0, 16, 0, 8, 0, 0, 0, 0x21]
+            &[25, 16, 0, 8, 0, 16, 0, 8, 2, 0, 0, 0x21]
         );
         assert_eq!(&bytes[0x2e..0x31], &[0; 3]);
         assert_eq!(bytes[0x31], 3); // 256 KiB.
@@ -91,10 +91,10 @@ fn state_report_follows_mode_font_page_and_live_register_changes() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         for (mode, colors, pages, scanlines) in [
-            (3, 16, 8, 0),
+            (3, 16, 8, 2),
             (4, 4, 1, 0),
             (6, 2, 1, 0),
-            (7, 0, 8, 1),
+            (7, 0, 8, 2),
             (0x0d, 16, 8, 0),
             (0x0e, 16, 4, 0),
             (0x0f, 0, 2, 1),
