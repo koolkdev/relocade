@@ -260,3 +260,47 @@ fn input_wakes_interrupt_cpu_first_composition() {
 async fn input_wakes_interrupt_cpu_first_composition() {
     composition().await;
 }
+
+async fn replacement() {
+    let (_host, endpoint) = wake_connection::<Signal>().unwrap();
+    Thread::new()
+        .run_resource(endpoint, |endpoint| async move {
+            let connection = endpoint.bind();
+            let wake = connection
+                .run(poll_fn(|cx| Poll::Ready(cx.waker().clone())))
+                .await;
+            let (released, mut release) = oneshot::channel();
+            let first = Signal::new(Arc::default(), released);
+            *first.lifetime.wake.lock().unwrap() = Some(wake.clone());
+            connection.run(connection.activate(first)).await.unwrap();
+
+            let (released, _release) = oneshot::channel();
+            let next = Signal::new(Arc::default(), released);
+            connection
+                .run(connection.activate(next.clone()))
+                .await
+                .unwrap();
+            assert_eq!(
+                poll_fn(|cx| Poll::Ready(release.poll_unpin(cx))).await,
+                Poll::Ready(Ok(())),
+                "replacement releases the old target while the connection remains alive"
+            );
+            assert_eq!(next.memory.atomic_load::<u8>(0), 0);
+            wake.wake_by_ref();
+            assert_eq!(next.memory.atomic_load::<u8>(0), 1);
+        })
+        .await
+        .unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn replacement_releases_the_old_target_and_redirects_existing_wakers() {
+    pollster::block_on(replacement());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn replacement_releases_the_old_target_and_redirects_existing_wakers() {
+    replacement().await;
+}

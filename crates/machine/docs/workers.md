@@ -87,6 +87,13 @@ has constructed its target, `connection.activate(target).await` installs the
 host binding before busy execution and yields once so enclosing cancellation can
 register its waker. Keep the returned `WakeHost` alive until execution finishes.
 
+One `WakeConnection` owns the retained target, activation boundary, session
+polling and acknowledgement on both platforms. Its private binding installs
+notification access for the sending threads and releases that access on teardown.
+Native installation completes immediately; browser installation waits for the
+host acknowledgement. Polling acknowledges through the local retained target,
+without acquiring the native notification mutex.
+
 `WakeTarget::wake` requests return to the executor. The request remains set
 through the complete session poll, so CPU-first composition such as
 `join(run_cpu, input)` reaches a checkpoint before consuming ready input.

@@ -1,4 +1,4 @@
-use super::WakeTarget;
+use super::{WakeConnection, WakeTarget};
 use crate::{
     worker::{channel, Endpoint, Port, ResourceTransfer, WorkerResource},
     Error, Result,
@@ -8,7 +8,6 @@ use futures_util::future::{AbortHandle, Abortable};
 use std::{
     cell::RefCell,
     collections::HashMap,
-    future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -33,13 +32,10 @@ pub struct WakeEndpoint<R: WakeTarget> {
     endpoint: Endpoint<Registration<R>>,
 }
 
-/// The execution end of a session's wake connection.
-pub struct WakeConnection<R: WakeTarget> {
-    binding: Binding,
+/// Installs sender-local access and retains the browser registration channel.
+pub(super) struct Binding<R: WakeTarget> {
+    local: LocalBinding,
     port: RefCell<Port<Registration<R>>>,
-    target: RefCell<Option<R>>,
-    notification: Waker,
-    polling: super::Polling,
 }
 
 struct Registration<R> {
@@ -73,7 +69,7 @@ pub fn wake_connection<R: WakeTarget>() -> Result<(WakeHost, WakeEndpoint<R>)> {
     let (stop, registration) = AbortHandle::new_pair();
     wasm_bindgen_futures::spawn_local(async move {
         let host = async move {
-            let binding = Binding(id);
+            let binding = LocalBinding(id);
             let mut host = host.bind();
             while let Some(Ok(Registration { target, ready })) = host.recv().await {
                 binding.install(target);
@@ -102,23 +98,19 @@ impl<R: WakeTarget> WorkerResource for WakeEndpoint<R> {
 
 impl<R: WakeTarget> WakeEndpoint<R> {
     pub fn bind(self) -> WakeConnection<R> {
-        WakeConnection {
-            binding: Binding(self.id),
-            port: RefCell::new(self.endpoint.bind()),
-            target: RefCell::new(None),
-            notification: Waker::from(Arc::new(Request(self.id))),
-            polling: super::Polling::default(),
-        }
+        WakeConnection::new(
+            Binding {
+                local: LocalBinding(self.id),
+                port: RefCell::new(self.endpoint.bind()),
+            },
+            Waker::from(Arc::new(Request(self.id))),
+        )
     }
 }
 
-impl<R: WakeTarget> WakeConnection<R> {
-    /// Reconstructs the target on the host and waits for installation before
-    /// permitting busy execution. The execution side also retains local access.
-    pub async fn activate(&self, target: R) -> Result<()> {
-        self.binding.install(target.clone());
-        let previous = self.target.replace(Some(target.clone()));
-        drop(previous);
+impl<R: WakeTarget> Binding<R> {
+    pub(super) async fn install(&self, target: R) -> Result<()> {
+        self.local.install(target.clone());
         let (ready, installed) = oneshot::channel();
         self.port
             .borrow_mut()
@@ -126,38 +118,19 @@ impl<R: WakeTarget> WakeConnection<R> {
         installed
             .await
             .map_err(|error| Error::new("connect worker wake", error))?;
-        // Abortable registers only after Pending, before busy execution starts.
-        self.yield_now().await;
         Ok(())
-    }
-
-    /// Polls the entire session, including cancellation, with notifying wakers.
-    pub async fn run<F: Future>(&self, future: F) -> F::Output {
-        self.polling
-            .run(future, &self.notification, || {
-                if let Some(target) = &*self.target.borrow() {
-                    target.acknowledge();
-                }
-            })
-            .await
-    }
-
-    /// Yields busy execution without requesting another interrupt. The current
-    /// task's waker still runs, including any enclosing combinator's bookkeeping.
-    pub async fn yield_now(&self) {
-        self.polling.yield_now().await;
     }
 }
 
-struct Binding(usize);
-impl Binding {
+struct LocalBinding(usize);
+impl LocalBinding {
     fn install<R: WakeTarget>(&self, target: R) {
         let previous = TARGETS
             .with_borrow_mut(|targets| targets.insert(self.0, Box::new(move || target.wake())));
         drop(previous);
     }
 }
-impl Drop for Binding {
+impl Drop for LocalBinding {
     fn drop(&mut self) {
         let target = TARGETS.with_borrow_mut(|targets| targets.remove(&self.0));
         drop(target);
