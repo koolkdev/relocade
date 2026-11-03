@@ -9,7 +9,7 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let glyph_row = line.row_scan;
     let column = (x + line.pel_pan) / glyph_width;
     let dot = (x + line.pel_pan) % glyph_width;
-    let line_start = line.counter;
+    let line_start = line.counter + line.byte_pan;
     let counter = (line_start + column / count_divisor) & 0xffffu;
     let address = display_address(counter, glyph_row, input.addressing.z, underline);
     let character = vram_byte(0u, address);

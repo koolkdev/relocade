@@ -19,6 +19,7 @@ fn display_address(counter: u32, row: u32, mode: u32, underline: u32) -> u32 {
 struct Scanline {
     counter: u32,
     row_scan: u32,
+    byte_pan: u32,
     pel_pan: u32,
 }
 
@@ -42,8 +43,9 @@ fn display_scanline(input: DisplayVertex, y: u32) -> Scanline {
         }
     }
     return Scanline(
-        start + (row / row_height) * input.addressing.y + byte_pan,
+        start + (row / row_height) * input.addressing.y,
         row % row_height,
+        byte_pan,
         pel_pan,
     );
 }

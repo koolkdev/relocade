@@ -33,6 +33,26 @@ Pixel Panning Mode resets both byte and pel shifts there, following the
 With that bit clear, both regions retain the programmed shifts. This shared
 behavior applies to text, serial/interleaved four-bit pixels and byte-addressed Mode X.
 
+Sequencer Shift Load (SR01 bit 2) loads the graphics serializers every other
+character clock; Shift 4 (bit 4) takes precedence and loads every fourth clock.
+With both clear they load every clock. The CRTC address counter advances
+independently, so a delayed load samples its current address rather than repeating
+the last eight pixels. Graphics byte panning advances character clocks before
+load alignment and address counting; combined with pel panning it can select any
+of the 32 dots in a four-clock load. These controls follow the
+[IBM reference](https://www.mcamafia.de/pdf/ibm_vgaxga_trm2.pdf), pp. 2-49–50,
+2-63 and 2-99. Text uses its separate Attribute Controller serializer.
+
+Between loads, four-bit outputs rotate through the chained serializers before
+attribute masking and color lookup. In 256-color graphics this applies to each
+nibble before they form a DAC index. Chaining follows the
+[82C451 data sheet](https://www.ardent-tool.com/datasheets/CHIPs_82C451_alt.pdf),
+p. 55, after the Graphics Controller's bit packing. Circular feedback from output
+0 into serializer 3 and a fresh load at the unpanned start of each scanline are
+explicit emulation conventions, not measured original-IBM behavior. The Type 2
+implementation that ignores these controls is not selected. Nonstandard nine-dot
+graphics serialization and within-line changes remain outside this model.
+
 BIOS startup uses 28.322 MHz, 900 dots per line and 449 lines per frame
 (about 70.087 Hz), matching IBM VGA's color-monitor mode 03h default
 ([VGA Technical Reference, p. 2-12](https://bitsavers.org/pdf/ibm/pc/cards/IBM_VGA_XGA_Technical_Reference_Manual_May92.pdf)).
@@ -607,7 +627,9 @@ Controller address byte is preserved; the shader tests its display-enable bit.
 The shader interprets memory addresses, font banks, attributes and colors directly.
 `shaders/scanout` dispatches pixels to `text`, `indexed256` or `graphics16`. All use
 the scanline and physical-address logic in `addressing` and the DAC lookup in
-`palette`. Its vertex stage decodes frame-constant settings and the 16 attribute
+`palette`. Graphics layouts also share load alignment and chained output in
+`serializer`, independently of CRTC address counting. The vertex stage decodes
+frame-constant settings and the 16 attribute
 colors, passing them flat to fragments in the same draw. There is no preparation
 pass or intermediate GPU buffer. Further graphics decoders can read the same physical
 buffer without mode-specific upload tracking or application changes.
