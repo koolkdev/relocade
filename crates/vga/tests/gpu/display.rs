@@ -52,7 +52,7 @@ async fn check_display() {
             depth_or_array_layers: 1,
         },
     );
-    for frame in 2..=8 {
+    for frame in 2..=7 {
         clock.set(common::boundary(frame));
         vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
         assert!(display.service(&queue).now_or_never().is_none());
@@ -159,7 +159,7 @@ async fn check_display_state_changes() {
     let mut vga = common::text_vga(clock.clone());
     common::support::registers::attribute(&mut vga, attribute::MODE_CONTROL, 0x08);
     set_cell(&mut vga, 0, 0xdb, 0x84); // Blinking red glyph.
-    set_cell(&mut vga, 1, b' ', 2); // Green cursor over a blank cell.
+    set_cell(&mut vga, 1, b' ', 0x82); // Green cursor over a blinking blank cell.
     common::crtc(&mut vga, crtc::CURSOR_ADDRESS_LOW, 1);
     common::crtc(&mut vga, crtc::CURSOR_START, 6);
     common::crtc(&mut vga, crtc::CURSOR_END, 7);
@@ -168,12 +168,16 @@ async fn check_display_state_changes() {
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     let mut display = VgaDisplay::new(&device, vga.frame_source()).unwrap();
 
-    // Only the blink phase changes; no guest writes occur between captures.
+    // Only blink phases change; no guest writes occur between captures.
     for (frame, changed, glyph, cursor) in [
         (1, true, [170, 0, 0, 255], [0, 170, 0, 255]),
-        (2, false, [170, 0, 0, 255], [0, 170, 0, 255]),
-        (16, true, [0, 0, 0, 255], [0, 0, 0, 255]),
-        (17, false, [0, 0, 0, 255], [0, 0, 0, 255]),
+        (7, false, [170, 0, 0, 255], [0, 170, 0, 255]),
+        (8, true, [170, 0, 0, 255], [0, 0, 0, 255]),
+        (15, false, [170, 0, 0, 255], [0, 0, 0, 255]),
+        (16, true, [0, 0, 0, 255], [0, 170, 0, 255]),
+        (23, false, [0, 0, 0, 255], [0, 170, 0, 255]),
+        (24, true, [0, 0, 0, 255], [0, 0, 0, 255]),
+        (31, false, [0, 0, 0, 255], [0, 0, 0, 255]),
         (32, true, [170, 0, 0, 255], [0, 170, 0, 255]),
     ] {
         clock.set(common::boundary(frame));

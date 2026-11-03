@@ -47,7 +47,7 @@ async fn check_parity() {
         set_cell(&mut vga, 600, 0xdb, 0x94);
         set_cell(&mut vga, 601, 0xdb, 0x14);
         let mut input = common::fixture::capture(&vga);
-        input.display.blink_on = blink_on;
+        input.display.attribute_blink_on = blink_on;
         let pixels = compare(&mut renderer, &device, &queue, Arc::new(input)).await;
         assert_eq!(
             pixel(&pixels, 320, 56),
@@ -90,7 +90,7 @@ async fn check_parity() {
         }
     }
     let mut cursor_off = capture();
-    cursor_off.display.blink_on = false;
+    cursor_off.display.cursor_blink_on = false;
     cursor_off.display.registers.crtc.values[10] = 6;
     let pixels = compare(&mut renderer, &device, &queue, Arc::new(cursor_off)).await;
     assert!(pixels

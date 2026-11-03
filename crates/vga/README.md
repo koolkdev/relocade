@@ -538,7 +538,7 @@ without setting a mode; DAC restore bypasses grayscale and default-palette polic
 At the start of vertical retrace the device latches the programmed display start,
 then captures a complete `DisplaySnapshot` for the following active display:
 four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
-settings, DAC colors and mask, the effective start address, and blink phase.
+settings, DAC colors and mask, the effective start address, and both blink phases.
 When these inputs change, a `CapturedFrame` is published with that boundary's
 time and hardware retrace count. Unchanged refreshes retain the previous capture,
 including its timestamp; sequence numbers can have gaps. Late service
@@ -575,8 +575,8 @@ observation bookkeeping, and a slow reader can skip any number of captures. The
 capture has no RGBA image. It can cross workers and survive device destruction.
 Waiting for `next_capture` observes changed inputs captured at a refresh boundary,
 not every hardware refresh, pixel output or presentation. Comparison uses plane
-identities, registers and blink phase without scanning VRAM. It is conservative:
-hidden memory and register access state can also cause a publication. Hardware
+identities, registers and both blink phases without scanning VRAM. It is
+conservative: hidden memory and register access state can also cause a publication. Hardware
 timing and status-port behavior continue through unchanged refreshes, while the
 CPU waits for input and while the app is not drawing. Destroying VGA closes this
 source and wakes waiters without creating an extra frame.
@@ -593,7 +593,7 @@ separately from captured registers and palette.
 `memory/pages` tracks physical writes in a fixed 32-byte bitmap.
 `renderer/memory` uploads those pages when their captured baseline matches the
 queued GPU contents, otherwise it restores the affected plane.
-`renderer/state` copies raw register banks, captured blink phase, scanline spacing
+`renderer/state` copies raw register banks, captured blink phases, scanline spacing
 and the unchanged DAC palette into one uniform buffer. The raw Attribute
 Controller address byte is preserved; the shader tests its display-enable bit.
 The shader interprets memory addresses, font banks, attributes and colors directly.
@@ -606,7 +606,15 @@ buffer without mode-specific upload tracking or application changes.
 The generic `relocade-renderer` owns image storage and attachment drawing and knows
 nothing about VGA, BIOS or DOS.
 
-Four-bit graphics blinking uses the same captured 16-retrace phase as text.
+Cursor and attribute blinking follow separate divisions of the existing retrace
+counter. The cursor toggles every eight retraces; text and graphics attributes
+toggle every sixteen. These are the 50% duty-cycle VGA rates in IBM's
+[Video Subsystems Technical Reference](https://ardent-tool.com/docs/pdf/42G2193_PS2_Hardware_Interface_Technical_Reference_Video_Subsystems_Sep92.pdf),
+September 1992, figure 3-3 (p. 3-16). Both phases start on as an emulator convention.
+Each snapshot owns its `cursor_blink_on` and `attribute_blink_on` values, so delayed
+service and retained captures preserve the appropriate phases without another timer.
+
+Four-bit graphics blinking uses the same captured attribute phase as text.
 After Color Plane Enable masks the pixel index, Attribute Mode Control bit 3
 enables replacement of palette address bit 3. Color graphics toggle that bit
 for pixels whose masked bit 3 was set; other pixels use the upper palette half.

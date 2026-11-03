@@ -13,7 +13,7 @@ fn attribute_color(color: u32) -> u32 {
         // Monochrome toggles it for every pixel; color graphics only when bit 3
         // was set. Other color-graphics pixels always use the upper palette half.
         let blinking = (mode & 2u) != 0u || (palette_index & 8u) != 0u;
-        palette_index = (palette_index & 7u) | select(8u, 0u, blinking && state.blink_on != 0u);
+        palette_index = (palette_index & 7u) | select(8u, 0u, blinking && state.attribute_blink_on != 0u);
     }
     let select_bits = attribute_reg(0x14u);
     var index = attribute_reg(palette_index);

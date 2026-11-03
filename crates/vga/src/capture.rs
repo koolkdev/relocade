@@ -35,8 +35,8 @@ struct Captures {
 
 /// Captured VGA state. Only the latest capture is retained; slow
 /// consumers skip obsolete inputs without blocking guest execution.
-/// A capture is published when memory, registers or blink phase change. This is
-/// a conservative input comparison: hidden memory and register access state can
+/// A capture is published when memory, registers or either blink phase change.
+/// The comparison is conservative: hidden memory and register access state can
 /// also count as changes. Hardware timing continues through unchanged refreshes.
 #[derive(Clone)]
 pub struct FrameSource {
