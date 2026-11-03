@@ -445,8 +445,22 @@ This 256-KiB VGA uses records 17/18 for modes 0Fh/10h; unused EGA-only slots
 Custom records change hardware and BIOS geometry. Graphics BIOS pixel and page
 addressing still use the standard mode layouts; arbitrary register-programmed
 graphics layouts require direct guest VRAM access. Text BIOS addressing already
-uses the programmed BIOS geometry. Optional font and palette override pointers
-are initially null and are not yet applied.
+uses the programmed BIOS geometry. Optional override pointers are initially null.
+
+Mode setting applies primary and secondary font overrides whose FFh-terminated
+mode lists include the requested mode. The primary text descriptor specifies
+font height, bank, glyph range, source pointer and row count. It reuses the AH=11h
+font loader and geometry calculation; an explicit row count replaces BDA 484h
+after that calculation, without changing the computed page allocation. Loading
+a primary bank does not select it: SR03 from the parameter record still chooses
+normal font B. The secondary descriptor loads all 256 glyphs and selects only
+alternate font A, preserving B, when its height matches the current BIOS height.
+
+The graphics descriptor changes INT 43h and BIOS font height/rows without loading
+plane two or changing raster timing. Font sources and headers wrap their 16-bit
+offsets. The shared loaders accept banks 0–7 and heights 1–32; invalid ranges
+leave the mode defaults. Malformed mode lists stop after one segment rather than looping forever. Palette overrides are
+not yet applied.
 
 AH=1Bh/BX=0000h writes IBM's 64-byte functionality/state report to ES:DI and
 returns AL=1Bh. It includes the BIOS mode, geometry, pages and cursors, the same
@@ -461,9 +475,10 @@ implemented modes and services. It reports two simultaneously visible font
 banks and eight total banks. Miscellaneous capability bits cover font loading,
 EGA/DAC palettes, grayscale summing, default palette loading, cursor emulation,
 palette paging, blink, display combination and save/restore. The table also
-advertises DCC table replacement. Report byte 32h marks a replacement when its
-segment differs from the BIOS segment, following the IBM ROM; the default table
-does not set this bit. Unsupported light-pen, font and palette override services
+advertises text/graphics font overrides and DCC table replacement. Report byte 32h
+reports installed font pointers even when their mode lists do not match. It marks
+a DCC replacement when its segment differs from the BIOS segment, following the IBM ROM; the default table
+does not set this bit. Unsupported light-pen and palette override services
 are not advertised. Reserved state fields
 remain zero. The BIOS information module owns this ABI encoding and reuses
 adapter metadata and page validation; it adds no device or renderer state.

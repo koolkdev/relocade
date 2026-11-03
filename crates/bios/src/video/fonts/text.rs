@@ -9,10 +9,10 @@ use relocade_machine::{
 use relocade_vga::registers::{sequencer, SEQUENCER_INDEX_PORT};
 
 pub(in crate::video) struct GuestFont {
-    source: FarPointer,
-    height: u8,
-    first: u16,
-    count: u16,
+    pub(super) source: FarPointer,
+    pub(super) height: u8,
+    pub(super) first: u16,
+    pub(super) count: u16,
 }
 
 enum FontSource {
