@@ -146,5 +146,5 @@ impl fmt::Display for WriteError {
 }
 impl Error for WriteError {}
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;

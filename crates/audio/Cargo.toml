@@ -10,3 +10,10 @@ async-channel = { version = "=2.5.0", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "=0.18.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { version = "=0.18.2", features = ["audioworklet"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
