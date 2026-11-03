@@ -7,3 +7,6 @@ publish.workspace = true
 
 [dependencies]
 async-channel = { version = "=2.5.0", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = "=0.18.2"
