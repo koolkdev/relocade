@@ -6,13 +6,13 @@ use super::{
 };
 use crate::screen;
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_match},
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext,
 };
 
 #[interrupt(context(call), args(function = ah))]
 pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => modes::set_mode,
@@ -44,7 +44,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
 
 #[interrupt(context(call), args(function = al))]
 async fn string_output(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => strings::write_text,
@@ -58,7 +58,7 @@ async fn string_output(call: &mut CpuContext<'_>, function: u8) {
 
 #[interrupt(context(call), args(function = al))]
 async fn state_services(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => state::required_blocks,
@@ -71,7 +71,7 @@ async fn state_services(call: &mut CpuContext<'_>, function: u8) {
 
 #[interrupt(context(call), args(function = al))]
 async fn palette_services(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => palette::attributes::set_register,
@@ -97,7 +97,7 @@ async fn palette_services(call: &mut CpuContext<'_>, function: u8) {
 
 #[interrupt(context(call), args(function = bl))]
 async fn palette_paging(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => palette::paging::set_mode,
@@ -109,7 +109,7 @@ async fn palette_paging(call: &mut CpuContext<'_>, function: u8) {
 
 #[interrupt(context(call), args(function = al))]
 async fn font_services(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => fonts::text::load_font,
@@ -134,7 +134,7 @@ async fn font_services(call: &mut CpuContext<'_>, function: u8) {
 
 #[interrupt(context(call), args(function = bh))]
 async fn legacy_color(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => palette::compatibility::set_background,
@@ -146,7 +146,7 @@ async fn legacy_color(call: &mut CpuContext<'_>, function: u8) {
 
 #[interrupt(context(call), args(function = al))]
 async fn display_combination(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => adapter::display_codes,
@@ -158,7 +158,7 @@ async fn display_combination(call: &mut CpuContext<'_>, function: u8) {
 
 #[interrupt(context(call), args(function = bl))]
 async fn configuration(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x10 => adapter::configuration,

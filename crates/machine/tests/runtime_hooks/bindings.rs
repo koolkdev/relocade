@@ -5,7 +5,7 @@ mod handlers;
 mod pointers;
 use futures_channel::oneshot;
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_handler, interrupt_match},
+    real_mode_interrupt::{interrupt, interrupt_dispatch, interrupt_handler},
     CpuContext, MemoryView,
 };
 use relocade_x86::{
@@ -68,7 +68,7 @@ impl Adjustment {
 
 #[interrupt(context(call), args(function = ah))]
 async fn selection(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x12 => position(Err(0x86)),
@@ -80,7 +80,7 @@ async fn selection(call: &mut CpuContext<'_>, function: u8) {
 }
 #[interrupt(context(call), args(function = bl))]
 async fn nested(call: &mut CpuContext<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x45 => position(Ok(0x1357)),
@@ -90,7 +90,7 @@ async fn nested(call: &mut CpuContext<'_>, function: u8) {
 }
 #[interrupt(context(call), args(function = ah))]
 async fn wait_for_ready(call: &mut CpuContext<'_>, ready: oneshot::Receiver<()>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             _ => delayed(ready),
@@ -201,7 +201,7 @@ async fn check_bindings() {
             evaluations += 1;
             choice
         };
-        interrupt_match!(
+        interrupt_dispatch!(
             call,
             match read_choice() {
                 Some(value @ 0..=7) if value < 4 => adjustment.add({

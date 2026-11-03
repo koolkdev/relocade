@@ -4,13 +4,13 @@ use super::{console, directories, files, ioctl, memory, search, system, Services
 use crate::ServiceError;
 use console::Input;
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_match},
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, MemoryView,
 };
 
 #[interrupt(context(call), args(function = ah))]
 pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x01 => console::read_character_echo(Input::new(services)),

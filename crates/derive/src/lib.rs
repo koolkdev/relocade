@@ -7,7 +7,7 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields};
 mod compiler_value;
 mod input;
 mod interrupt;
-mod interrupt_match;
+mod interrupt_dispatch;
 mod wasm_abi;
 
 #[proc_macro_attribute]
@@ -28,8 +28,8 @@ pub fn interrupt_handler(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn interrupt_match(input: TokenStream) -> TokenStream {
-    let selection = parse_macro_input!(input as interrupt_match::Selection);
+pub fn interrupt_dispatch(input: TokenStream) -> TokenStream {
+    let selection = parse_macro_input!(input as interrupt_dispatch::Selection);
     selection
         .expand()
         .unwrap_or_else(syn::Error::into_compile_error)

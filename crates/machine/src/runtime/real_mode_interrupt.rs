@@ -13,7 +13,7 @@ mod registration;
 #[doc(hidden)]
 pub use crate::cpu::registers;
 pub use crate::FarPointer;
-pub use bindings::{interrupt, interrupt_handler, interrupt_match};
+pub use bindings::{interrupt, interrupt_dispatch, interrupt_handler};
 pub use registration::Interrupts;
 #[doc(hidden)]
 pub use relocade_x86::{Segment, SegmentRegister};

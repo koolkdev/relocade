@@ -1,7 +1,7 @@
 use super::Services;
 use crate::{DosError, ServiceError};
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_match},
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, FarPointer, MemoryView,
 };
 
@@ -20,7 +20,7 @@ pub(super) async fn flush_input(call: &mut CpuContext<'_>, services: &Services<'
     if let Ok(stdin) = stdin {
         let _ = stdin.flush_input().await;
     }
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x01 => read_character_echo(input),
@@ -56,7 +56,7 @@ pub(super) async fn input_status(services: &Services<'_>) -> u8 {
 // AH=06h polls stdin for DL=FFh; other values write a byte to stdout.
 #[interrupt(context(call), args(byte = dl))]
 pub(super) async fn direct_io(call: &mut CpuContext<'_>, input: Input<'_>, byte: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match byte {
             0xff => input.poll_character,

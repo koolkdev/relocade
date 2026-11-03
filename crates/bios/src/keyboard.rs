@@ -3,7 +3,7 @@
 mod input;
 
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_match},
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext,
 };
 use std::{
@@ -144,7 +144,7 @@ impl Keyboard {
 
 #[interrupt(context(call), args(function = ah))]
 pub(crate) async fn dispatch(call: &mut CpuContext<'_>, keyboard: &Keyboard, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => keyboard.read_key,

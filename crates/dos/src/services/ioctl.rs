@@ -3,13 +3,13 @@
 use super::Services;
 use crate::DosError;
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_match},
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext,
 };
 
 #[interrupt(context(call), args(function = al))]
 pub(super) async fn dispatch(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => device_information(services),

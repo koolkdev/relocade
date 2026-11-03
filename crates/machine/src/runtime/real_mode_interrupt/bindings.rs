@@ -1,7 +1,7 @@
 //! Declare register ABIs on ordinary Rust functions and select services with match.
 //!
 //! `#[interrupt]` preserves the function's Rust API and generates an internal async
-//! ABI adapter. `interrupt_match!` selects those adapters within a Rust match
+//! ABI adapter. `interrupt_dispatch!` selects those adapters within a Rust match
 //! expression without repeating argument or result mappings. Dispatchers use the
 //! same `#[interrupt]` attribute to bind their selector and context.
 //! `interrupt_handler!` supplies an adapter to the existing registration API.
@@ -11,7 +11,7 @@
 //! ```
 //! use relocade_machine::{CpuContext, FarPointer, MemoryView};
 //! use relocade_machine::real_mode_interrupt::{
-//!     interrupt, interrupt_handler, interrupt_match, Interrupts,
+//!     interrupt, interrupt_dispatch, interrupt_handler, Interrupts,
 //! };
 //!
 //! #[interrupt(context(memory), args(page = bh), returns {
@@ -26,7 +26,7 @@
 //! fn unsupported() -> u8 { 0x86 }
 //! #[interrupt(context(call), args(function = ah))]
 //! async fn video(call: &mut CpuContext<'_>, function: u8) {
-//!     interrupt_match!(call, match function {
+//!     interrupt_dispatch!(call, match function {
 //!         0x03 => position,
 //!         _ => unsupported,
 //!     });
@@ -39,11 +39,11 @@
 //!
 //! Non-exhaustive matches are rejected by Rust:
 //! ```compile_fail
-//! use relocade_machine::{CpuContext, real_mode_interrupt::{interrupt, interrupt_match}};
+//! use relocade_machine::{CpuContext, real_mode_interrupt::{interrupt, interrupt_dispatch}};
 //! #[interrupt]
 //! fn service() {}
 //! async fn incomplete(call: &mut CpuContext<'_>, function: u8) {
-//!     interrupt_match!(call, match function { 0 => service });
+//!     interrupt_dispatch!(call, match function { 0 => service });
 //! }
 //! ```
 //!
@@ -53,7 +53,7 @@
 //! retain their receiver. Match arms can route to `keyboard.read_key` or pass
 //! explicit arguments, as in `read_character(input)`. Methods also accept explicit
 //! arguments.
-//! The first argument to `interrupt_match!` names the mutable context. Its second
+//! The first argument to `interrupt_dispatch!` names the mutable context. Its second
 //! argument is a Rust match expression whose arm bodies name services. Patterns,
 //! guards and exhaustiveness follow Rust's rules; no wildcard arm is required
 //! when the other patterns cover every value. Each selected adapter is awaited.
@@ -187,4 +187,4 @@
 //! # fn main() {}
 //! ```
 
-pub use relocade_derive::{interrupt, interrupt_handler, interrupt_match};
+pub use relocade_derive::{interrupt, interrupt_dispatch, interrupt_handler};

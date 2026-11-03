@@ -3,7 +3,7 @@
 use super::{read_path, Services};
 use crate::DosError;
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_match},
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, FarPointer, MemoryView,
 };
 
@@ -13,7 +13,7 @@ pub(in crate::services) async fn attributes(
     services: &Services<'_>,
     function: u8,
 ) {
-    interrupt_match!(
+    interrupt_dispatch!(
         call,
         match function {
             0x00 => get_attributes(services),
