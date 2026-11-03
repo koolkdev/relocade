@@ -178,12 +178,22 @@ impl<'cpu> State<'cpu> {
         exit::exception(body, exception)
     }
 
-    /// Checks a completed block using its already-computed retirement count.
-    pub(crate) fn check_instruction_budget(
+    /// Checks execution interrupt requests and budget after publishing a completed boundary.
+    pub(crate) fn checkpoint(
         &self,
         body: &mut BlockBuilder<'_>,
         count: &Val<I64>,
     ) -> Result<(), BuildError> {
+        let interrupt_requested = body
+            .atomic::<I8>(
+                self.cpu.memory(),
+                0,
+                std::mem::offset_of!(ExecutionContext, interrupt_requested) as u32,
+            )?
+            .load()?;
+        body.if_(interrupt_requested.ne(0), |body| {
+            body.return_(ExecutionExitValues::interrupted())
+        })?;
         let target = body.load_at::<I64>(
             self.cpu.memory(),
             std::mem::offset_of!(ExecutionContext, instruction_target) as u32,

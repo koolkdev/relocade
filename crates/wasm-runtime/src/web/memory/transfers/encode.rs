@@ -11,11 +11,13 @@ pub(super) fn encode(memory_types: MemoryTypes) -> Vec<u8> {
     const WRITE_I32: u32 = 2;
     const READ_I64: u32 = 3;
     const WRITE_I64: u32 = 4;
+    const SWAP_I32: u32 = 5;
     types.ty().function([ValType::I32; 3], []);
     types.ty().function([ValType::I32], [ValType::I32]);
     types.ty().function([ValType::I32; 2], []);
     types.ty().function([ValType::I32], [ValType::I64]);
     types.ty().function([ValType::I32, ValType::I64], []);
+    types.ty().function([ValType::I32; 2], [ValType::I32]);
 
     // Imported handles keep both memories current after growth.
     let mut imports = ImportSection::new();
@@ -84,6 +86,24 @@ pub(super) fn encode(memory_types: MemoryTypes) -> Vec<u8> {
     transfer("write_u32", WRITE_I32, 2, Op::I32Store(address(2)));
     transfer("read_u64", READ_I64, 1, Op::I64Load(address(3)));
     transfer("write_u64", WRITE_I64, 2, Op::I64Store(address(3)));
+    transfer(
+        "atomic_load_u8",
+        READ_I32,
+        1,
+        Op::I32AtomicLoad8U(address(0)),
+    );
+    transfer(
+        "atomic_store_u8",
+        WRITE_I32,
+        2,
+        Op::I32AtomicStore8(address(0)),
+    );
+    transfer(
+        "atomic_swap_u8",
+        SWAP_I32,
+        2,
+        Op::I32AtomicRmw8XchgU(address(0)),
+    );
 
     let mut module = Module::new();
     module.section(&types);

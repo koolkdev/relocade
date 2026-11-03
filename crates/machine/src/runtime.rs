@@ -43,6 +43,7 @@ mod context;
 mod dispatch;
 mod error;
 mod execution;
+mod execution_interrupt;
 mod hooks;
 mod io;
 mod machine;
@@ -56,6 +57,7 @@ use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
 pub use execution::ExitHandle;
+pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
 use machine::Machine;
 use memory::RuntimeMemory;
@@ -171,6 +173,13 @@ impl Cpu {
     /// Capture this once when registering a service, like memory and I/O handles.
     pub fn cpu_state(&self) -> CpuStateAccess {
         self.machine.bindings.cpu.clone()
+    }
+
+    /// Retains the execution interrupt signal, independently of CPU access.
+    /// Requests cause `ExecutionExit::Interrupted` at a guest checkpoint; they do
+    /// not wake a pending service. The embedding owns acknowledgement and work.
+    pub fn interrupt_handle(&self) -> ExecutionInterrupt {
+        self.machine.bindings.interrupt.clone()
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.

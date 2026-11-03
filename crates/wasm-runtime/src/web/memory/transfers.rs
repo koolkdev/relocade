@@ -12,6 +12,9 @@ use std::{cell::RefCell, collections::HashMap};
 use wasm_bindgen::JsCast;
 
 pub(crate) struct Transfers {
+    pub(super) atomic_load_u8: Binding<(u32,), u8>,
+    pub(super) atomic_store_u8: Binding<(u32, u8), ()>,
+    pub(super) atomic_swap_u8: Binding<(u32, u8), u8>,
     read_u8: Binding<(u32,), u8>,
     write_u8: Binding<(u32, u8), ()>,
     read_u16: Binding<(u32,), u16>,
@@ -65,6 +68,9 @@ impl Transfers {
             };
         }
         Ok(Self {
+            atomic_load_u8: entry!("atomic_load_u8"),
+            atomic_store_u8: entry!("atomic_store_u8"),
+            atomic_swap_u8: entry!("atomic_swap_u8"),
             read: entry!("read"),
             write: entry!("write"),
             read_u8: entry!("read_u8"),

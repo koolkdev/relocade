@@ -31,6 +31,10 @@ pub enum ExecutionExit {
     /// the successor through interpreter STEP before polling IRQs or returning
     /// for a consumed instruction budget.
     InterruptInhibited,
+    /// An execution interrupt was requested at a completed execution boundary.
+    /// CPU state is published. This neither delivers a guest IRQ nor consumes
+    /// the request; the embedding acknowledges it before examining its work.
+    Interrupted,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

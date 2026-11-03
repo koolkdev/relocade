@@ -26,7 +26,7 @@ use super::Compiler;
 /// The host must establish profile compatibility before entry, as described by
 /// the [host integration contract](crate#host-integration).
 ///
-/// Instruction budgets are checked only before dispatch. Straight-line execution
+/// Execution interrupts and budgets are checked only before dispatch. Straight-line execution
 /// continues until a block-ending instruction or guest exit. REP completes its repetition; port
 /// strings dispatch and other strings continue. A fault retains completed elements.
 /// The snapshot compiler's instruction limit does not bound interpreter execution.
@@ -51,7 +51,7 @@ pub fn compile_interpreter(
 /// requesting another protected step before IRQ polling or a budget exit.
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before dispatch and retains completed elements on a fault.
-/// This entry checks the instruction target after retiring the instruction.
+/// This entry checks execution interrupts and the instruction target after retirement.
 ///
 /// The host must establish profile compatibility before entry. The interpreter
 /// checks instruction fetches at runtime; it does not require a validated snapshot.
@@ -129,7 +129,7 @@ impl Compiler {
                 body.if_(single_step, |mut body| {
                     let state = State::new(&before_cpu);
                     let count = state.instruction_count(&mut body, 0)?;
-                    state.check_instruction_budget(&mut body, &count)?;
+                    state.checkpoint(&mut body, &count)?;
                     runtime.dispatch(body)
                 })
             },

@@ -155,8 +155,12 @@ async fn check_retained_future() {
     assert_eq!(completed.get(), 0);
     assert_eq!(dropped.get(), 0);
 
+    let interrupt = runner.interrupt_handle();
+    interrupt.request();
     irq.borrow_mut().raise();
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(runner.run(1).await, ExecutionExit::Interrupted);
+    assert!(interrupt.take());
+    assert_eq!((started.get(), completed.get(), dropped.get()), (1, 0, 0));
     assert_eq!(runner.context().cpu.eip(), 0x306);
     assert_eq!(runner.memory().view().read_u16(0x500).unwrap(), 2);
     let mut frame = [0; 6];

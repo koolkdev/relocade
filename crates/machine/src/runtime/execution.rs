@@ -43,6 +43,11 @@ impl Cpu {
     /// awaiting host services as needed. Ready services complete in the same poll.
     /// Whole blocks can exceed the budget; straight-line code and REP have no
     /// fixed overshoot or elapsed-time bound. The target saturates at u64::MAX.
+    /// Guest checkpoints also return `Interrupted` when the shared host signal is
+    /// set, independently of IF. This preserves suspended calls and leaves the
+    /// signal set until its owner acknowledges it through `ExecutionInterrupt::take`.
+    /// Checkpoints are at completed blocks and after interpreter STEP; neither
+    /// straight-line execution nor REP has a fixed notification-latency bound yet.
     ///
     /// Waits do not replenish this run's budget. Dropping its waiter preserves
     /// active and parked calls and their locals. A subsequent run continues from
