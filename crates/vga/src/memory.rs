@@ -1,6 +1,9 @@
 use crate::registers::Registers;
 use std::sync::Arc;
 
+mod storage;
+use storage::Storage;
+
 #[cfg(feature = "renderer")]
 mod pages;
 #[cfg(feature = "renderer")]
@@ -8,39 +11,30 @@ pub(crate) use pages::DirtyPages;
 
 pub(crate) const PLANE_BYTES: usize = 65536;
 
+/// Physical video memory shared by legacy VGA planes and packed SVGA addressing.
+pub const VIDEO_MEMORY_BYTES: u32 = 4 * 1024 * 1024;
+
 /// Four independent VGA planes. CPU reads latch all planes; scanout reads do not
 /// disturb those latches. Plane addressing wraps at the hardware's 16-bit limit.
+#[derive(Default)]
 pub(super) struct VideoMemory {
-    planes: [Arc<[u8]>; 4],
+    storage: Storage,
     latches: [u8; 4],
-    #[cfg(feature = "renderer")]
-    changed: DirtyPages,
-}
-
-impl Default for VideoMemory {
-    fn default() -> Self {
-        Self {
-            planes: std::array::from_fn(|_| vec![0; PLANE_BYTES].into()),
-            latches: [0; 4],
-            #[cfg(feature = "renderer")]
-            changed: DirtyPages::default(),
-        }
-    }
 }
 
 impl VideoMemory {
     pub fn snapshot(&self) -> [Arc<[u8]>; 4] {
-        self.planes.clone()
+        self.storage.planes()
     }
 
     #[cfg(feature = "renderer")]
     pub fn changed_pages(&self) -> DirtyPages {
-        self.changed
+        self.storage.changed_pages()
     }
 
     #[cfg(feature = "renderer")]
     pub fn clear_changes(&mut self) {
-        self.changed = DirtyPages::default();
+        self.storage.clear_changes();
     }
 
     fn index(offset: u32, registers: &Registers) -> usize {
@@ -69,7 +63,7 @@ impl VideoMemory {
             return 0xff;
         };
         let index = Self::index(offset, registers);
-        self.latches = std::array::from_fn(|plane| self.planes[plane][index]);
+        self.latches = std::array::from_fn(|plane| self.storage.read((index * 4 + plane) as u32));
         if graphics.compare_reads() {
             return graphics.compare(self.latches);
         }
@@ -91,12 +85,8 @@ impl VideoMemory {
         let planes = registers.sequencer.write_planes(offset);
         let values = registers.graphics.write_data(value, self.latches);
         for (plane, value) in values.into_iter().enumerate() {
-            if planes & (1 << plane) != 0 && self.planes[plane][index] != value {
-                // Captures share unchanged planes. Only an actual change copies
-                // a plane still retained by a capture; later writes reuse it.
-                Arc::make_mut(&mut self.planes[plane])[index] = value;
-                #[cfg(feature = "renderer")]
-                self.changed.mark(plane, index);
+            if planes & (1 << plane) != 0 {
+                self.storage.write((index * 4 + plane) as u32, value);
             }
         }
     }

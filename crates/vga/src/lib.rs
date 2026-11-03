@@ -25,6 +25,7 @@ use event_listener::Event;
 use futures_lite::future::{or, yield_now};
 pub use geometry::DisplayGeometry;
 use memory::VideoMemory;
+pub use memory::VIDEO_MEMORY_BYTES;
 use raster::Raster;
 use registers::{setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
