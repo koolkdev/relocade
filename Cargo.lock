@@ -2057,6 +2057,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-audio"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+]
+
+[[package]]
 name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
