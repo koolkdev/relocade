@@ -1,5 +1,7 @@
 //! DOS interrupt dispatch and service handlers.
 
+use relocade_machine::{CpuContext, MemoryView};
+
 pub(crate) mod console;
 mod directories;
 mod files;
@@ -8,7 +10,29 @@ mod memory;
 mod search;
 mod system;
 
-use crate::{files::CreateMode, interrupt::DosContext, ServiceError};
+use crate::{files::CreateMode, process::Process, state::DosState, ServiceError};
+
+/// Resources retained for one DOS interrupt invocation, independent of CPU registers.
+/// The active process is selected at entry and retained across pending I/O.
+pub(crate) struct Services<'call> {
+    pub(crate) dos: &'call DosState,
+    pub(crate) process: &'call Process,
+}
+
+impl<'call> Services<'call> {
+    fn stdout(&self) -> crate::console::CharacterOutput<'call> {
+        crate::console::CharacterOutput::handle(
+            self.dos.stdio(),
+            self.process.files().writable_handle(1),
+        )
+    }
+
+    fn exit(&self, memory: &mut MemoryView<'_>, status: Result<u8, ServiceError>) {
+        self.process
+            .terminate(status, memory, &mut self.dos.filesystem());
+        self.dos.request_exit();
+    }
+}
 
 const READ_CHARACTER_ECHO: u8 = 0x01;
 const WRITE_CHARACTER: u8 = 0x02;
@@ -55,60 +79,65 @@ const TERMINATE_PROCESS: u8 = 0x4c;
 const LONG_FILENAME: u8 = 0x71;
 
 /// INT 21h selects a DOS service through AH.
-pub(crate) async fn int21(call: &mut DosContext<'_>) {
+pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
     match call.cpu.ah() {
-        DIRECT_CONSOLE_IO => console::direct_io(call).await,
-        READ_CHARACTER_ECHO => console::read_character(call, true).await,
-        READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => console::read_character(call, false).await,
-        WRITE_CHARACTER => console::write_character(call).await,
-        WRITE_STRING => console::write_string(call).await,
-        READ_BUFFERED => console::read_buffered(call).await,
-        INPUT_STATUS => console::input_status(call).await,
-        FLUSH_INPUT => console::flush_input(call).await,
-        SELECT_DRIVE => directories::select_drive(call),
-        GET_DRIVE => directories::get_drive(call),
+        DIRECT_CONSOLE_IO => console::direct_io(call, services).await,
+        READ_CHARACTER_ECHO => console::read_character(call, services, true).await,
+        READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
+            console::read_character(call, services, false).await
+        }
+        WRITE_CHARACTER => console::write_character(call, services).await,
+        WRITE_STRING => console::write_string(call, services).await,
+        READ_BUFFERED => console::read_buffered(call, services).await,
+        INPUT_STATUS => console::input_status(call, services).await,
+        FLUSH_INPUT => console::flush_input(call, services).await,
+        SELECT_DRIVE => directories::select_drive(call, services),
+        GET_DRIVE => directories::get_drive(call, services),
         SET_VECTOR => system::set_vector(call),
         GET_VERSION => system::version(call),
         GET_VECTOR => system::get_vector(call),
-        CREATE_DIRECTORY => directories::create_directory(call),
-        REMOVE_DIRECTORY => directories::remove_directory(call),
-        CHANGE_DIRECTORY => directories::change_directory(call),
-        GET_DIRECTORY => directories::get_directory(call),
-        SET_DTA => search::set_dta(call),
-        GET_DTA => search::get_dta(call),
-        FIND_FIRST => search::find_first(call),
-        FIND_NEXT => search::find_next(call),
-        CREATE_HANDLE => files::create(call, CreateMode::TruncateExisting),
-        CREATE_TEMPORARY_HANDLE => files::create_temporary(call),
-        CREATE_NEW_HANDLE => files::create(call, CreateMode::FailIfExists),
-        RENAME_FILE => files::rename(call),
-        OPEN_HANDLE => files::open(call),
-        CLOSE_HANDLE => files::close(call),
-        COMMIT_HANDLE | COMMIT_HANDLE_ALIAS => files::commit(call),
-        READ_HANDLE => files::read(call).await,
-        WRITE_HANDLE => files::write(call).await,
-        DELETE_FILE => files::delete(call),
-        SEEK_HANDLE => files::seek(call),
-        FILE_ATTRIBUTES => files::attributes(call),
-        IOCTL => ioctl::ioctl(call).await,
-        DUPLICATE_HANDLE => files::duplicate(call),
-        FORCE_DUPLICATE_HANDLE => files::force_duplicate(call),
-        ALLOCATE_MEMORY => memory::allocate(call),
+        CREATE_DIRECTORY => directories::create_directory(call, services),
+        REMOVE_DIRECTORY => directories::remove_directory(call, services),
+        CHANGE_DIRECTORY => directories::change_directory(call, services),
+        GET_DIRECTORY => directories::get_directory(call, services),
+        SET_DTA => search::set_dta(call, services),
+        GET_DTA => search::get_dta(call, services),
+        FIND_FIRST => search::find_first(call, services),
+        FIND_NEXT => search::find_next(call, services),
+        CREATE_HANDLE => files::create(call, services, CreateMode::TruncateExisting),
+        CREATE_TEMPORARY_HANDLE => files::create_temporary(call, services),
+        CREATE_NEW_HANDLE => files::create(call, services, CreateMode::FailIfExists),
+        RENAME_FILE => files::rename(call, services),
+        OPEN_HANDLE => files::open(call, services),
+        CLOSE_HANDLE => files::close(call, services),
+        COMMIT_HANDLE | COMMIT_HANDLE_ALIAS => files::commit(call, services),
+        READ_HANDLE => files::read(call, services).await,
+        WRITE_HANDLE => files::write(call, services).await,
+        DELETE_FILE => files::delete(call, services),
+        SEEK_HANDLE => files::seek(call, services),
+        FILE_ATTRIBUTES => files::attributes(call, services),
+        IOCTL => ioctl::ioctl(call, services).await,
+        DUPLICATE_HANDLE => files::duplicate(call, services),
+        FORCE_DUPLICATE_HANDLE => files::force_duplicate(call, services),
+        ALLOCATE_MEMORY => memory::allocate(call, services),
         FREE_MEMORY => memory::free(call),
         RESIZE_MEMORY => memory::resize(call),
-        TERMINATE_PROCESS => terminate_process(call),
+        TERMINATE_PROCESS => terminate_process(call, services),
         LONG_FILENAME => files::long_filename(call),
-        function => call.exit(Err(ServiceError::UnsupportedFunction(function))),
+        function => services.exit(
+            &mut call.memory,
+            Err(ServiceError::UnsupportedFunction(function)),
+        ),
     }
 }
 
 /// AH=4Ch: terminate the current process with the exit code in AL.
-fn terminate_process(call: &mut DosContext<'_>) {
+fn terminate_process(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let code = call.cpu.al();
-    call.exit(Ok(code))
+    services.exit(&mut call.memory, Ok(code))
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) async fn int20(call: &mut DosContext<'_>) {
-    call.exit(Ok(0))
+pub(crate) async fn int20(call: &mut CpuContext<'_>, services: &Services<'_>) {
+    services.exit(&mut call.memory, Ok(0))
 }

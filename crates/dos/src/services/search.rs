@@ -1,23 +1,20 @@
-use super::files::read_path;
-use crate::{
-    error::DosError,
-    files::FIND_DATA_BYTES,
-    interrupt::{return_result, DosContext},
-};
+use super::{files::read_path, Services};
+use crate::{error::DosError, files::FIND_DATA_BYTES, interrupt::return_result};
+use relocade_machine::CpuContext;
 use relocade_x86::{Segment, SegmentRegister};
 
 /// AH=1Ah: select the disk transfer area at DS:DX, preserving flags.
-pub(super) fn set_dta(call: &mut DosContext<'_>) {
+pub(super) fn set_dta(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let segment = call.cpu.segment(Segment::Ds).selector;
     let offset = call.cpu.dx();
-    let mut dta = call.process.dta();
+    let mut dta = services.process.dta();
     dta.segment = segment;
     dta.offset = offset;
 }
 
 /// AH=2Fh: return the current DTA in ES:BX, preserving flags.
-pub(super) fn get_dta(call: &mut DosContext<'_>) {
-    let dta = call.process.dta();
+pub(super) fn get_dta(call: &mut CpuContext<'_>, services: &Services<'_>) {
+    let dta = services.process.dta();
     call.cpu.set_segment(
         Segment::Es,
         SegmentRegister::real_mode(Segment::Es, dta.segment),
@@ -26,31 +23,36 @@ pub(super) fn get_dta(call: &mut DosContext<'_>) {
 }
 
 /// AH=4Eh: find DS:DX's 8.3 pattern with CX's attributes; fill the current DTA.
-pub(super) fn find_first(call: &mut DosContext<'_>) {
+pub(super) fn find_first(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let attributes = call.cpu.cx() as u8;
     let result = read_path(call).and_then(|path| {
-        call.process
+        services
+            .process
             .files()
-            .find_first(&call.dos.filesystem(), &path, attributes)
+            .find_first(&services.dos.filesystem(), &path, attributes)
     });
-    return_search(call, result)
+    return_search(call, services, result)
 }
 
 /// AH=4Fh: continue the search saved in the current DTA.
-pub(super) fn find_next(call: &mut DosContext<'_>) {
-    let address = call.process.dta().address();
+pub(super) fn find_next(call: &mut CpuContext<'_>, services: &Services<'_>) {
+    let address = services.process.dta().address();
     let mut data = [0; FIND_DATA_BYTES];
     call.memory.read(address, &mut data).expect("real-mode DTA");
-    let result = call
+    let result = services
         .process
         .files()
-        .find_next(&call.dos.filesystem(), &data);
-    return_search(call, result)
+        .find_next(&services.dos.filesystem(), &data);
+    return_search(call, services, result)
 }
 
-fn return_search(call: &mut DosContext<'_>, result: Result<[u8; FIND_DATA_BYTES], DosError>) {
+fn return_search(
+    call: &mut CpuContext<'_>,
+    services: &Services<'_>,
+    result: Result<[u8; FIND_DATA_BYTES], DosError>,
+) {
     let result = result.map(|data| {
-        let address = call.process.dta().address();
+        let address = services.process.dta().address();
         call.memory.write(address, &data).expect("real-mode DTA");
     });
     return_result(call, result)
