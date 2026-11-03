@@ -1,14 +1,15 @@
-//! Declare an ABI on the implementation and select services in a separate table.
+//! Declare register ABIs on ordinary Rust functions and select services with match.
 //!
 //! `#[interrupt]` preserves the function's Rust API and generates an internal async
-//! ABI adapter. `interrupt_dispatch!` defines a dispatcher with the declared name
-//! and selects those adapters without repeating argument or result mappings.
+//! ABI adapter. `interrupt_match!` selects those adapters within a Rust match
+//! expression without repeating argument or result mappings. Dispatchers use the
+//! same `#[interrupt]` attribute to bind their selector and context.
 //! Synchronous services finish in
 //! one poll; asynchronous services use their ordinary Rust awaits.
 //!
 //! ```
-//! use relocade_machine::MemoryView;
-//! use relocade_machine::real_mode_interrupt::{interrupt, interrupt_dispatch};
+//! use relocade_machine::{CpuContext, MemoryView};
+//! use relocade_machine::real_mode_interrupt::{interrupt, interrupt_match};
 //!
 //! #[interrupt(context(memory), args(page = bh), returns {
 //!     Some(position) => { (cx, dx) = position, zf = false },
@@ -20,21 +21,41 @@
 //!
 //! #[interrupt(returns { status => { ah = status, cf = true } })]
 //! fn unsupported() -> u8 { 0x86 }
-//! interrupt_dispatch! {
-//!     video(ah) {
-//!         0x03: position,
-//!         _: unsupported,
-//!     }
+//! #[interrupt(context(call), args(function = ah))]
+//! async fn video(call: &mut CpuContext<'_>, function: u8) {
+//!     interrupt_match!(call, match function {
+//!         0x03 => position,
+//!         _ => unsupported,
+//!     });
 //! }
-//! // video(call).await routes AH=03h through position's ABI mapping.
+//! // Register video_entry as the handler to read AH and apply the service's ABI.
 //! # fn main() {}
+//! ```
+//!
+//! Non-exhaustive matches are rejected by Rust:
+//! ```compile_fail
+//! use relocade_machine::{CpuContext, real_mode_interrupt::{interrupt, interrupt_match}};
+//! #[interrupt]
+//! fn service() {}
+//! async fn incomplete(call: &mut CpuContext<'_>, function: u8) {
+//!     interrupt_match!(call, match function { 0 => service });
+//! }
 //! ```
 //!
 //! Context inputs named `memory`, `cpu`, and `io` borrow the corresponding
 //! [`crate::CpuContext`] fields. `context(call)` explicitly supplies the whole
 //! context to a handler that needs it. Other parameters remain explicit; methods
-//! retain their receiver. A table can route to `keyboard.read_key`, and can name
-//! typed parameters after its selector: `keyboard(ah, keyboard: &Keyboard)`.
+//! retain their receiver. Match arms can route to `keyboard.read_key` or pass
+//! explicit arguments, as in `read_character(input)`. Methods also accept explicit
+//! arguments.
+//! The first argument to `interrupt_match!` names the mutable context. Its second
+//! argument is a Rust match expression whose arm bodies name services. Patterns,
+//! guards and exhaustiveness follow Rust's rules; no wildcard arm is required
+//! when the other patterns cover every value. Each selected adapter is awaited.
+//! The context remains available in the scrutinee and guards. Arm and let-guard
+//! bindings must not shadow its name, so an arm cannot invoke another context.
+//! Name the generated `_entry` functions at the interrupt registration boundary
+//! or when explicitly calling an ABI adapter from Rust.
 //!
 //! Register arguments are captured before borrowing service resources or awaiting.
 //! Scalar names use the existing CPU accessors; `(cx, dx)` represents a u32 with
@@ -67,7 +88,7 @@
 //! Return arms write only their declared locations on normal completion. `cf` and
 //! `zf` edit saved interrupt FLAGS; omitted registers and flags are preserved.
 //! A result arm such as `None => unsupported` delegates to that annotated service,
-//! using its generated adapter just like a table entry, including the `_` fallback.
+//! using its generated adapter just like a match arm.
 //! It can forward result values, for example `Err(error) => failure(error)`.
 //! Imported services use their module path so the generated adapter is reachable.
 //! The existing hook owns suspension, IRQ continuation and IRET.
@@ -158,4 +179,4 @@
 //! # fn main() {}
 //! ```
 
-pub use relocade_derive::{interrupt, interrupt_dispatch};
+pub use relocade_derive::{interrupt, interrupt_match};

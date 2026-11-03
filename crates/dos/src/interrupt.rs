@@ -22,7 +22,11 @@ pub(crate) fn register_interrupts(interrupts: &mut Interrupts<'_>, session: Rc<D
         INT20_ENTRY,
         for_process(session.clone(), services::int20),
     );
-    interrupts.register_interrupt(0x21, INT21_ENTRY, for_process(session, services::int21));
+    interrupts.register_interrupt(
+        0x21,
+        INT21_ENTRY,
+        for_process(session, services::int21_entry),
+    );
 }
 
 /// Resolves and retains the active process for each interrupt invocation.

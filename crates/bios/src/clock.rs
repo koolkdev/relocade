@@ -4,8 +4,8 @@ mod timer;
 pub use timer::connect;
 
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_dispatch},
-    MemoryView,
+    real_mode_interrupt::{interrupt, interrupt_match},
+    CpuContext, MemoryView,
 };
 
 const CLOCK_TICKS: u32 = 0x46c;
@@ -60,9 +60,13 @@ pub fn read_clock(memory: &mut MemoryView<'_>) -> ClockReading {
     }
 }
 
-interrupt_dispatch! {
-    pub(crate) dispatch(ah) {
-        0x00: read_clock,
-        _: crate::interrupt::unsupported,
-    }
+#[interrupt(context(call), args(function = ah))]
+pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
+    interrupt_match!(
+        call,
+        match function {
+            0x00 => read_clock,
+            _ => crate::interrupt::unsupported,
+        }
+    );
 }

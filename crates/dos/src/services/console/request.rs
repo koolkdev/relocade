@@ -2,7 +2,7 @@
 
 use super::input;
 use crate::{console::CharacterOutput, files::Handle, services::Services, DosError};
-use relocade_machine::{FarPointer, MemoryView};
+use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 
 pub(in crate::services) struct Input<'a> {
     source: Result<Handle, DosError>,
@@ -25,11 +25,17 @@ impl<'a> Input<'a> {
         Ok(byte)
     }
 
+    #[interrupt(returns {
+        Ok(Some(byte)) => { al = byte, zf = false },
+        Ok(None) => { al = 0u8, zf = true },
+        Err(error) => crate::interrupt::return_error(error),
+    })]
     pub(super) async fn poll_character(&self) -> Result<Option<u8>, DosError> {
         let handle = self.source.as_ref().map_err(|error| *error)?;
         input::try_read_character(handle).await
     }
 
+    #[interrupt(args(byte = dl), returns { () => { al = byte } })]
     pub(super) async fn write_raw(&self, byte: u8) {
         // Character output has no DOS write-error return.
         let _ = self.output.write(&[byte]).await;

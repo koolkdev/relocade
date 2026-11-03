@@ -2,7 +2,10 @@
 
 mod input;
 
-use relocade_machine::real_mode_interrupt::{interrupt, interrupt_dispatch};
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, interrupt_match},
+    CpuContext,
+};
 use std::{
     cell::RefCell,
     collections::VecDeque,
@@ -139,13 +142,17 @@ impl Keyboard {
     }
 }
 
-interrupt_dispatch! {
-    pub(crate) dispatch(ah, keyboard: &Keyboard) {
-        0x00: keyboard.read_key,
-        0x01: keyboard.peek_key,
-        0x02: keyboard.shift_state,
-        _: crate::interrupt::unsupported,
-    }
+#[interrupt(context(call), args(function = ah))]
+pub(crate) async fn dispatch(call: &mut CpuContext<'_>, keyboard: &Keyboard, function: u8) {
+    interrupt_match!(
+        call,
+        match function {
+            0x00 => keyboard.read_key,
+            0x01 => keyboard.peek_key,
+            0x02 => keyboard.shift_state,
+            _ => crate::interrupt::unsupported,
+        }
+    );
 }
 
 impl Write for Keyboard {

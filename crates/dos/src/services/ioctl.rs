@@ -2,16 +2,23 @@
 
 use super::Services;
 use crate::DosError;
-use relocade_machine::real_mode_interrupt::{interrupt, interrupt_dispatch};
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, interrupt_match},
+    CpuContext,
+};
 
-interrupt_dispatch! {
-    pub(super) dispatch(al, services: &Services<'_>) {
-        0x00: device_information(services),
-        0x01: set_device_information(services),
-        0x06: input_status(services),
-        0x07: output_status(services),
-        _: unsupported,
-    }
+#[interrupt(context(call), args(function = al))]
+pub(super) async fn dispatch(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
+    interrupt_match!(
+        call,
+        match function {
+            0x00 => device_information(services),
+            0x01 => set_device_information(services),
+            0x06 => input_status(services),
+            0x07 => output_status(services),
+            _ => unsupported,
+        }
+    );
 }
 
 #[interrupt(args(handle = bx), returns {

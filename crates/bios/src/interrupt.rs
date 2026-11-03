@@ -31,11 +31,11 @@ pub fn register_interrupts(interrupts: &mut Interrupts<'_>, keyboard: Keyboard) 
     register_interrupt(interrupts, 0x08, TIMER_ENTRY, async |call| {
         clock::tick(&mut call.memory);
     });
-    register_interrupt(interrupts, 0x1a, CLOCK_ENTRY, clock::dispatch);
+    register_interrupt(interrupts, 0x1a, CLOCK_ENTRY, clock::dispatch_entry);
     register_interrupt(interrupts, 0x16, KEYBOARD_ENTRY, async move |call| {
-        keyboard::dispatch(call, &keyboard).await;
+        keyboard::dispatch_entry(call, &keyboard).await;
     });
-    register_interrupt(interrupts, 0x10, VIDEO_ENTRY, video::dispatch);
+    register_interrupt(interrupts, 0x10, VIDEO_ENTRY, video::dispatch_entry);
 }
 
 fn register_interrupt<F>(interrupts: &mut Interrupts<'_>, vector: u8, entry: FarPointer, handler: F)
