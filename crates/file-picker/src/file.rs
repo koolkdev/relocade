@@ -1,19 +1,9 @@
 use crate::{
     platform,
     service::{Resource, Resources},
-    Access,
+    Access, Metadata,
 };
-use std::{io, time::SystemTime};
-
-/// A snapshot of file size and modification time, using the platform's precision.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FileMetadata {
-    pub len: u64,
-    /// An absolute timestamp, or `None` when unavailable or outside this target's
-    /// `SystemTime` range. Wasm's `SystemTime` cannot represent dates before 1970.
-    /// No timezone conversion or replacement with the current time occurs here.
-    pub modified: Option<SystemTime>,
-}
+use std::io;
 
 /// Rust-only connection to a file. All requests execute on the file service.
 /// Clones share a serial request queue and have no shared seek cursor.
@@ -50,8 +40,8 @@ impl File {
         Ok(bytes.len())
     }
 
-    /// Reads size and modification time together from the platform file.
-    pub async fn metadata(&self) -> io::Result<FileMetadata> {
+    /// Reads size and available timestamps together from the platform file.
+    pub async fn metadata(&self) -> io::Result<Metadata> {
         self.resource.call(platform::file_metadata).await
     }
 

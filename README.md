@@ -20,7 +20,7 @@ that subset. The project is under development; the crates are not published.
 | --- | --- |
 | [relocade-frontend](crates/frontend/README.md) | Shared winit input and wgpu display contracts for application integration. |
 | [relocade-app](crates/app/README.md) | Main-thread winit application startup on native platforms and the browser. |
-| [relocade-file-picker](crates/file-picker/src/lib.rs) | Main-thread file selection and reads, with Rust-only handles and metadata for workers. |
+| [relocade-file-picker](crates/file-picker/src/lib.rs) | Native/browser file and directory access through a main-thread service and Rust-only worker handles. |
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |

@@ -1,6 +1,44 @@
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(inline_js = r#"
+export async function directoryHandle() {
+    const root = await navigator.storage.getDirectory();
+    return root.getDirectoryHandle(`relocade-${crypto.randomUUID()}`, { create: true });
+}
+export async function removeDirectory(directory) {
+    const root = await navigator.storage.getDirectory();
+    await root.removeEntry(directory.name, { recursive: true });
+}
+export function mockPicker() {
+    const previous = Object.getOwnPropertyDescriptor(window, 'showDirectoryPicker');
+    return {
+        mode: null,
+        receiver: null,
+        set(response, handle) {
+            const fixture = this;
+            const picker = response === 'missing' ? undefined : function(options) {
+                fixture.mode = options.mode;
+                fixture.receiver = this;
+                if (response === 'throw') throw new DOMException('Requires activation', 'SecurityError');
+                if (response === 'ok') return Promise.resolve(handle);
+                return Promise.reject(new DOMException('Selection refused', response));
+            };
+            Object.defineProperty(window, 'showDirectoryPicker', { configurable: true, value: picker });
+        },
+        restore() {
+            if (previous) Object.defineProperty(window, 'showDirectoryPicker', previous);
+            else delete window.showDirectoryPicker;
+        },
+    };
+}
+export async function seedDirectory(directory) {
+    const child = await directory.getDirectoryHandle('DATA', { create: true });
+    const file = await child.getFileHandle('GAME.EXE', { create: true });
+    const stream = await file.createWritable();
+    await stream.write('abcdef');
+    await stream.close();
+    return (await file.getFile()).lastModified;
+}
 export function completeFilePicker(cancel, modified) {
     // The fixture supplies the selection, without opening another native dialog.
     const click = HTMLInputElement.prototype.click;
@@ -37,6 +75,24 @@ export function holdNextRead() {
 }
 "#)]
 extern "C" {
+    #[wasm_bindgen(js_name = directoryHandle)]
+    pub async fn directory_handle() -> JsValue;
+    #[wasm_bindgen(js_name = removeDirectory)]
+    pub async fn remove_directory(directory: &JsValue);
+    pub type PickerFixture;
+    #[wasm_bindgen(js_name = mockPicker)]
+    pub fn mock_picker() -> PickerFixture;
+    #[wasm_bindgen(method)]
+    pub fn set(this: &PickerFixture, response: &str, directory: &JsValue);
+    #[wasm_bindgen(method, getter)]
+    pub fn mode(this: &PickerFixture) -> String;
+    #[wasm_bindgen(method, getter)]
+    pub fn receiver(this: &PickerFixture) -> JsValue;
+    #[wasm_bindgen(method)]
+    pub fn restore(this: &PickerFixture);
+    #[wasm_bindgen(js_name = seedDirectory)]
+    pub async fn seed_directory(directory: &JsValue) -> f64;
+
     #[wasm_bindgen(js_name = completeFilePicker)]
     pub fn complete_file_picker(cancel: bool, modified: f64);
     pub type ReadBarrier;
@@ -52,5 +108,12 @@ pub struct ReleaseReads(pub ReadBarrier);
 impl Drop for ReleaseReads {
     fn drop(&mut self) {
         self.0.release();
+    }
+}
+
+pub struct RestorePicker(pub PickerFixture);
+impl Drop for RestorePicker {
+    fn drop(&mut self) {
+        self.0.restore();
     }
 }
