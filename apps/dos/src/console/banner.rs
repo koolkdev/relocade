@@ -20,7 +20,7 @@ const COLORS: [(&[u8], &[u8]); 6] = [
 ];
 
 pub(super) fn bytes() -> Vec<u8> {
-    let mut bytes = b"\r\n".to_vec();
+    let mut bytes = Vec::new();
     for (line, (fill, shadow)) in LOGO.into_iter().zip(COLORS) {
         bytes.extend_from_slice(b"   ");
         let mut current_color: &[u8] = &[];
@@ -34,9 +34,7 @@ pub(super) fn bytes() -> Vec<u8> {
         }
         bytes.extend_from_slice(b"\r\n");
     }
-    bytes.extend_from_slice(b"\r\n   \x1b[1;35m\xb0\xb1\xb2\x1b[0;35m");
-    bytes.extend(std::iter::repeat_n(0xc4, 59));
-    bytes.extend_from_slice(b"\x1b[1;35m\xb2\xb1\xb0\x1b[0m\r\n\r\n");
+    bytes.extend_from_slice(b"\x1b[0m\r\n");
     bytes
 }
 

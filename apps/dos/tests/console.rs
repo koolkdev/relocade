@@ -10,7 +10,7 @@ use std::{
 
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
-    let prompt_row = 10;
+    let prompt_row = 7;
     let prompt_column = 0;
     let (clock, timers) = timer_service();
     let console = Runner::with_clock(clock).run(async |runner| {
@@ -59,14 +59,12 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
         // Literal CP437 cells and VGA attributes verify the ANSI path, including
         // restoring ordinary gray before input echo and command output.
         for (column, row, character, attribute) in [
-            (3, 1, 0xdb, 0x0f),
-            (9, 1, 0xbb, 0x09),
-            (3, 2, 0xdb, 0x0b),
-            (3, 4, 0xdb, 0x03),
-            (3, 5, 0xdb, 0x09),
-            (3, 6, 0xc8, 0x01),
-            (3, 8, 0xb0, 0x0d),
-            (6, 8, 0xc4, 0x05),
+            (3, 0, 0xdb, 0x0f),
+            (9, 0, 0xbb, 0x09),
+            (3, 1, 0xdb, 0x0b),
+            (3, 3, 0xdb, 0x03),
+            (3, 4, 0xdb, 0x09),
+            (3, 5, 0xc8, 0x01),
             (prompt_column, prompt_row, b'>', 0x0a),
             (prompt_column + 2, prompt_row, b'e', 0x07),
             (0, prompt_row + 1, b'h', 0x07),
