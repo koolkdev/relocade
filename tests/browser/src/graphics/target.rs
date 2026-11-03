@@ -146,7 +146,7 @@ impl Target {
             &output.create_view(&Default::default()),
             size,
         );
-        let pixel = read_first_pixel(&self.device, &self.queue, &output).await;
+        let pixel = read_pixel(&self.device, &self.queue, &output, [0, 0]).await;
         #[cfg(target_arch = "wasm32")]
         {
             self.configuration.width = size[0];
@@ -183,10 +183,11 @@ impl Drop for Target {
     }
 }
 
-pub(super) async fn read_first_pixel(
+pub(super) async fn read_pixel(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
+    position: [u32; 2],
 ) -> [u8; 4] {
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -196,7 +197,14 @@ pub(super) async fn read_first_pixel(
     });
     let mut encoder = device.create_command_encoder(&Default::default());
     encoder.copy_texture_to_buffer(
-        texture.as_image_copy(),
+        wgpu::TexelCopyTextureInfo {
+            origin: wgpu::Origin3d {
+                x: position[0],
+                y: position[1],
+                z: 0,
+            },
+            ..texture.as_image_copy()
+        },
         wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
             layout: wgpu::TexelCopyBufferLayout {

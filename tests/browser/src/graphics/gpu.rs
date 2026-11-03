@@ -1,4 +1,4 @@
-use super::{guest, request, target::read_first_pixel};
+use super::{guest, request, target::read_pixel};
 use futures_channel::{mpsc, oneshot};
 use futures_util::{
     future::{join, select, Either},
@@ -104,6 +104,7 @@ pub async fn gpu_workers() -> Result<(), String> {
                 }
                 let frame = cached.as_ref().unwrap();
                 let output = Image::new(&device, size, (1, 1)).unwrap();
+                let destination = fit_image(&frame.image, Rect::from_size(size));
                 {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -117,16 +118,19 @@ pub async fn gpu_workers() -> Result<(), String> {
                         })],
                         ..Default::default()
                     });
-                    renderer.draw_image(
-                        &mut pass,
-                        &frame.image,
-                        fit_image(&frame.image, Rect::from_size(size)),
-                    );
+                    renderer.draw_image(&mut pass, &frame.image, destination);
                 }
                 queue.submit([encoder.finish()]);
                 // Only this assertion reads pixels back. Decoding and drawing
                 // normally keep the entire image on the GPU.
-                let pixel = read_first_pixel(&device, &queue, output.texture()).await;
+                // The first cell is at (8, 7) inside the 656×414 raster. Sample
+                // its center after scaling, so this still observes guest pixels.
+                assert_eq!(frame.image.size(), [656, 414]);
+                let position = [
+                    (destination.x + 12.0 * destination.width / 656.0) as u32,
+                    (destination.y + 15.0 * destination.height / 414.0) as u32,
+                ];
+                let pixel = read_pixel(&device, &queue, output.texture(), position).await;
                 report
                     .unbounded_send(Report {
                         sequence: frame.sequence,
