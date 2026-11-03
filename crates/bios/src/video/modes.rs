@@ -1,13 +1,13 @@
 //! Firmware mode transitions through the same ports and MMIO used by guests.
 use super::{
-    crtc_port, fonts, graphics, palette, presets, write_crtc_word, write_indexed, ACTIVE_PAGE,
-    COLUMNS, CRTC_PORT, CURSORS, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET, PAGE_SIZE,
-    VIDEO_CONTROL, VIDEO_SWITCHES,
+    crtc_port, fonts, graphics, palette, parameters::Parameters, presets, write_indexed,
+    ACTIVE_PAGE, COLUMNS, CRTC_PORT, CURSORS, LAST_ROW, MODE, MODESET_CONTROL, PAGE_OFFSET,
+    PAGE_SIZE, VIDEO_CONTROL, VIDEO_SWITCHES,
 };
 use crate::screen;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 use relocade_vga::{
-    registers::{crtc, sequencer, SEQUENCER_INDEX_PORT},
+    registers::{sequencer, SEQUENCER_INDEX_PORT},
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 
@@ -65,36 +65,14 @@ pub fn mode(memory: &MemoryView<'_>) -> ModeInfo {
 )]
 pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
     let mode = request & 0x7f;
-    let profile = memory.read_u8(MODESET_CONTROL).expect("mode-set control") & 0x90;
-    let preset = match mode {
-        TEXT_40X25 | COLOR_TEXT_40X25 => match profile {
-            0 => &presets::TEXT_40_350,
-            0x10 => &presets::TEXT_40_400,
-            _ => &presets::TEXT_40_200,
-        },
-        TEXT_80X25 | COLOR_TEXT_80X25 => match profile {
-            0 => &presets::TEXT_350,
-            0x10 => &presets::TEXT_400,
-            _ => &presets::TEXT_200,
-        },
-        MONO_TEXT_80X25 => match profile {
-            0x10 => &presets::MONO_TEXT_400,
-            _ => &presets::MONO_TEXT_350, // Mono has no 200-line text profile.
-        },
-        GRAPHICS_320X200_4 | GRAPHICS_320X200_4_ALT => &presets::CGA_320X200,
-        GRAPHICS_640X200_2 => &presets::CGA_640X200,
-        GRAPHICS_320X200_16 => &presets::PLANAR_320X200,
-        GRAPHICS_640X200_16 => &presets::PLANAR_640X200,
-        GRAPHICS_640X350_MONO => &presets::MONO_640X350,
-        GRAPHICS_640X350_16 => &presets::PLANAR_640X350,
-        GRAPHICS_640X480_2 => &presets::MONO_640X480,
-        GRAPHICS_640X480_16 => &presets::PLANAR_640X480,
-        GRAPHICS_320X200_256 => &presets::INDEXED256,
-        _ => return None,
-    };
+    let control = memory.read_u8(MODESET_CONTROL).expect("mode-set control");
+    let record = presets::record_index(mode, control)?;
+    let preset = presets::TABLE[record].expect("supported BIOS mode");
+    // Read before any writes: a guest table may overlap the BIOS data or VRAM.
+    let parameters = Parameters::read(memory, record)?;
     let text_memory = text_memory_start(mode);
     // Restore routing and write masks before any clear. Font loading temporarily
-    // selects plane two, then the preset restores the mode's normal aperture.
+    // selects plane two, then the mode record establishes guest memory access.
     write_indexed(
         io,
         SEQUENCER_INDEX_PORT,
@@ -102,34 +80,29 @@ pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<
         sequencer::SYNCHRONOUS_RESET,
     );
     fonts::set_mode(memory, io, preset.character_height, text_memory.is_some());
-    preset.program(io, palette::PaletteLoad::for_mode_set(memory));
+    let palette = palette::PaletteLoad::for_mode_set(memory);
+    parameters.program(io, palette);
+    preset.load_palette(io, palette);
 
     memory.write_u8(MODE, mode).expect("video mode");
     palette::initialize_compatibility(memory, mode);
     memory
-        .write_u16(COLUMNS, preset.columns)
+        .write_u16(COLUMNS, u16::from(parameters.columns))
         .expect("video columns");
     memory
-        .write_u16(PAGE_SIZE, preset.page_bytes)
+        .write_u16(PAGE_SIZE, parameters.page_bytes)
         .expect("video page size");
     memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
     memory.write(CURSORS, &[0; 16]).expect("video cursors");
     memory.write_u8(ACTIVE_PAGE, 0).expect("active video page");
-    let shape = if text_memory.is_some() {
-        u16::from_be_bytes([preset.character_height - 2, preset.character_height - 1])
-    } else {
-        0
-    };
-    screen::set_native_cursor_shape(memory, io, shape);
-    write_crtc_word(io, crtc::CURSOR_ADDRESS_HIGH, 0);
-    write_crtc_word(io, crtc::START_ADDRESS_HIGH, 0);
+    screen::set_native_cursor_shape(memory, io, parameters.cursor_shape());
     memory
         .write_u16(CRTC_PORT, crtc_port(io))
         .expect("CRTC port");
     memory
         .write(
             LAST_ROW,
-            &[preset.character_rows - 1, preset.character_height, 0],
+            &[parameters.last_row, parameters.character_height, 0],
         )
         .expect("video font geometry");
     let control = memory.read_u8(VIDEO_CONTROL).expect("video control");

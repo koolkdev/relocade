@@ -15,10 +15,12 @@ mod information;
 mod interrupt;
 mod modes;
 mod palette;
+mod parameters;
 mod presets;
 mod scroll;
 mod state;
 mod strings;
+mod tables;
 
 pub use characters::{
     read_character, teletype, write_characters, write_characters_preserving_attributes,
@@ -59,6 +61,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     adapter::initialize(memory);
     fonts::initialize(memory);
     information::initialize(memory);
+    tables::initialize(memory);
     // Preserve the existing doubled 8-high startup.
     assert!(
         modes::select_scanlines(memory, 0),

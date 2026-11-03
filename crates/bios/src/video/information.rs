@@ -1,7 +1,7 @@
 //! INT 10h/AH=1Bh: the guest-visible functionality table and 64-byte state report.
 use super::{
-    adapter, modes, palette, read_indexed, CHARACTER_HEIGHT, LAST_ROW, MODE, MODESET_CONTROL,
-    VIDEO_CONTROL, VIDEO_SWITCHES,
+    adapter, modes, palette, read_indexed, tables, CHARACTER_HEIGHT, LAST_ROW, MODE,
+    MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES,
 };
 use crate::{screen, BIOS_SEGMENT};
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, IoBus, MemoryView};
@@ -15,9 +15,9 @@ const CAPABILITIES_POINTER: u32 = ((BIOS_SEGMENT as u32) << 16) | CAPABILITIES_O
 // 08h–09h: two simultaneously visible font banks, eight total banks.
 // 0Ah–0Bh: fonts, EGA/DAC palettes, grayscale summing, default palette loading,
 // cursor emulation, palette paging, blink, display combination and save/restore.
-// 0Ch–0Fh: reserved bytes and unsupported save-pointer override tables.
+// 0Ch–0Dh/0Fh: reserved. 0Eh: display-combination table replacement.
 const CAPABILITIES: [u8; 16] = [
-    0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xfe, 0x0e, 0, 0, 0, 0,
+    0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xfe, 0x0e, 0, 0, 0x20, 0,
 ];
 
 pub(super) fn initialize(memory: &mut MemoryView<'_>) {
@@ -84,7 +84,14 @@ fn encode_state(memory: &MemoryView<'_>, io: &IoBus) -> [u8; 64] {
     let attribute = palette::read_attribute(io, attribute::MODE_CONTROL);
     bytes[0x2d] = (modeset & 15) | (((control & 1) ^ 1) << 4) | ((attribute & 8) << 2);
     bytes[0x31] = adapter::memory_size(memory);
-    // Reserved fields and unsupported save-pointer state remain zero.
+    // IBM reports a replacement DCC table when its segment is outside the BIOS ROM.
+    if tables::Pointer::DisplayCombinations
+        .read(memory)
+        .is_some_and(|table| table.segment != BIOS_SEGMENT)
+    {
+        bytes[0x32] |= 0x20;
+    }
+    // Reserved fields remain zero.
     bytes
 }
 

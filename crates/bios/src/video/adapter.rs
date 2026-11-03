@@ -1,6 +1,6 @@
 //! BIOS adapter metadata. Identification never changes VGA registers or memory.
-use super::{MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES};
-use relocade_machine::MemoryView;
+use super::{tables, MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES};
+use relocade_machine::{FarPointer, MemoryView};
 
 const EQUIPMENT: u32 = 0x410;
 const DISPLAY_COMBINATION: u32 = 0x48a;
@@ -27,6 +27,36 @@ const DISPLAY_COMBINATIONS: [[u8; 2]; 16] = [
     [2, 7],
     [6, 7],
 ];
+
+pub(super) fn initialize_table(memory: &mut MemoryView<'_>, pointer: FarPointer) {
+    let mut bytes = [0; 36];
+    bytes[..4].copy_from_slice(&[16, 1, 8, 0]); // Count, version, highest code, reserved.
+    for (entry, codes) in bytes[4..]
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
+        .zip(DISPLAY_COMBINATIONS)
+    {
+        entry.copy_from_slice(&codes);
+    }
+    memory
+        .write_backing(pointer.address(), &bytes)
+        .expect("BIOS display-combination table");
+}
+
+fn display_combinations(memory: &MemoryView<'_>) -> Vec<[u8; 2]> {
+    let Some(pointer) = tables::Pointer::DisplayCombinations.read(memory) else {
+        return Vec::new();
+    };
+    let count = memory
+        .read_u8(pointer.address())
+        .expect("display-combination count");
+    let mut bytes = vec![0; usize::from(count) * 2];
+    memory
+        .read_wrapping(pointer.wrapping_add(4), &mut bytes)
+        .expect("display-combination entries");
+    bytes.as_chunks::<2>().0.to_vec()
+}
 
 pub(super) fn initialize(memory: &mut MemoryView<'_>) {
     // 256 KiB, color adapter, and cursor emulation disabled by default.
@@ -79,7 +109,10 @@ pub(super) fn display_codes(memory: &MemoryView<'_>) -> [u8; 2] {
     let index = memory
         .read_u8(DISPLAY_COMBINATION)
         .expect("display combination");
-    let Some(mut codes) = DISPLAY_COMBINATIONS.get(usize::from(index)).copied() else {
+    let Some(mut codes) = display_combinations(memory)
+        .get(usize::from(index))
+        .copied()
+    else {
         return [0xff; 2];
     };
     if codes[0] == 0 {
@@ -100,7 +133,7 @@ pub(super) fn display_codes(memory: &MemoryView<'_>) -> [u8; 2] {
     returns { () => { al = 0x1a } },
 )]
 pub(super) fn set_display_codes(memory: &mut MemoryView<'_>, active: u8, alternate: u8) {
-    let index = DISPLAY_COMBINATIONS
+    let index = display_combinations(memory)
         .iter()
         .position(|&entry| entry == [active, alternate] || entry == [alternate, active]);
     // IBM records an unknown combination for pairs absent from its table.
