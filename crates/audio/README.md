@@ -26,7 +26,7 @@ Samples use the explicit rate and channel order. The wrapper validates frame
 boundaries and normalizes samples; channel storage, synchronization and closure
 belong to `async-channel`. There is no resampling, synthesis or playback clock.
 
-## Native playback
+## Playback
 
 `Output::open(on_error)` opens the default device with its preferred format and
 returns an `Output` plus its `PcmWriter`. Read `writer.format()` before rendering
@@ -55,3 +55,22 @@ Linux builds require ALSA development headers and pkg-config (Debian/Ubuntu:
 --example tone` for one second of synthetic 440 Hz audio. The ignored output test
 can use a physical device or the supplied ALSA null configuration; the null sink
 checks ownership and playback without establishing physical output or latency.
+
+## Browser output
+
+The same Rust callback runs on CPAL 0.18.2's AudioWorklet backend. It consumes the
+queue from shared Wasm memory; PCM batches are not serialized through messages.
+CPAL owns the worklet's Wasm instance and deinterleaves its Rust scratch buffer
+into browser output channels. No separate JavaScript audio backend is needed.
+
+Open output on the main thread and call `play()` from a user gesture. These are
+synchronous requests: opening does not await processor readiness, playback does
+not await the browser's resume promise, and dropping output requests asynchronous
+context closure. Dropping output immediately closes further PCM submission.
+The error callback forwards errors reported by CPAL; it does not detect every
+browser failure, including rejected resume promises or processor traps.
+
+Use the repository's threaded Wasm build (`tools/web-build.mjs`) and COOP/COEP
+headers. It enables atomics, shared memory and the TLS exports CPAL needs.
+Ordinary Wasm builds can use the PCM transport, but opening browser output
+requires atomics. The application owns worker creation and refill scheduling.

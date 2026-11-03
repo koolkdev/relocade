@@ -17,6 +17,7 @@ use std::{
 pub struct Output {
     stream: cpal::Stream,
     playing: Arc<AtomicBool>,
+    submission: async_channel::Receiver<f32>,
 }
 
 impl Output {
@@ -27,12 +28,13 @@ impl Output {
     pub fn open(
         mut on_error: impl FnMut(OutputError) + Send + 'static,
     ) -> Result<(Self, PcmWriter), OutputError> {
-        let device = cpal::default_host()
+        let device = host()?
             .default_output_device()
             .ok_or(OutputError::Unavailable)?;
         let config = device.default_output_config().map_err(backend_error)?;
         let format = Format::new(config.sample_rate(), config.channels())?;
         let (writer, reader) = pcm_buffer(format, 2048)?;
+        let submission = reader.receiver.clone();
         let playing = Arc::new(AtomicBool::new(false));
         let report = move |error| on_error(backend_error(error));
         let stream = match config.sample_format() {
@@ -79,10 +81,19 @@ impl Output {
             }
         }
         .map_err(backend_error)?;
-        Ok((Self { stream, playing }, writer))
+        Ok((
+            Self {
+                stream,
+                playing,
+                submission,
+            },
+            writer,
+        ))
     }
 
     /// Starts consuming queued samples. Missing samples become silence.
+    /// In browsers this requests playback; it does not await worklet readiness
+    /// or the AudioContext resume promise. Call from a user gesture.
     pub fn play(&self) -> Result<(), OutputError> {
         self.stream.play().map_err(backend_error)?;
         self.playing.store(true, Ordering::Release);
@@ -93,6 +104,26 @@ impl Output {
 impl Drop for Output {
     fn drop(&mut self) {
         self.playing.store(false, Ordering::Release);
+        // Browser teardown is asynchronous. Close submission immediately while
+        // CPAL retains ownership of the callback and its reader.
+        self.submission.close();
+    }
+}
+
+fn host() -> Result<cpal::Host, OutputError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Ok(cpal::default_host())
+    }
+    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+    {
+        cpal::host_from_id(cpal::HostId::AudioWorklet).map_err(backend_error)
+    }
+    #[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
+    {
+        Err(OutputError::Backend(
+            "browser audio requires atomics-enabled Wasm".into(),
+        ))
     }
 }
 
@@ -148,7 +179,7 @@ impl From<ConfigError> for OutputError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use cpal::Sample;
