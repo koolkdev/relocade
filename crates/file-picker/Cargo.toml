@@ -1,0 +1,35 @@
+[package]
+name = "relocade-file-picker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal", "file-handle-inner"] }
+async-channel = { version = "=2.5.0", default-features = false }
+futures-channel = "=0.3.34"
+futures-util = "=0.3.34"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+blocking = "=1.7.0"
+cap-std = "=4.0.3"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs"] }
+
+[dev-dependencies]
+futures-lite = "=2.6.1"
+web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tempfile = "=3.27.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "=0.3.106"
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "=0.4.79"
+web-sys = { version = "=0.3.106", features = ["Window", "Document", "HtmlElement", "DomException", "File", "Blob"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"
