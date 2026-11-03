@@ -18,7 +18,6 @@ pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
 
 /// Advances time for one delivered IRQ0. Missed timer edges are not reconstructed.
 /// The midnight byte counts rollovers until INT 1Ah consumes it.
-#[interrupt(context(memory))]
 pub(crate) fn tick(memory: &mut MemoryView<'_>) {
     let ticks = memory.read_u32(CLOCK_TICKS).expect("BIOS clock ticks");
     if ticks >= TICKS_PER_DAY - 1 {
