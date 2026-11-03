@@ -1,8 +1,8 @@
 //! Output geometry needed to allocate an image from captured display state.
-use crate::{
-    registers::{attribute, crtc, graphics, sequencer},
-    DisplaySnapshot,
-};
+mod sampling;
+
+use crate::DisplaySnapshot;
+use sampling::Sampling;
 use std::ops::Range;
 
 /// Image dimensions and the relationship between output rows and VGA scanlines.
@@ -26,83 +26,41 @@ pub struct DisplayGeometry {
 impl DisplaySnapshot {
     /// Output geometry for text, four-bit and eight-bit graphics layouts.
     pub fn geometry(&self) -> DisplayGeometry {
-        let c = &self.registers.crtc.values;
-        let clocking_mode = self.registers.sequencer.values[sequencer::CLOCKING_MODE as usize];
-        let glyph_width = if clocking_mode & 1 != 0 { 8 } else { 9 };
-        let attribute_mode = self.registers.attribute.values[attribute::MODE_CONTROL as usize];
-        let graphics_mode = self.registers.graphics.values[graphics::MODE as usize];
-        let indexed256 = attribute_mode & 0x41 == 0x41 && graphics_mode & 0x40 != 0;
-        let graphics16 = attribute_mode & 0x41 == 1 && graphics_mode & 0x40 == 0;
-        let columns = u32::from(c[crtc::HORIZONTAL_DISPLAY_END as usize]) + 1;
-        let vertical_divisor = self.registers.crtc.scanlines_per_vertical_count() as u32;
+        let crtc = &self.registers.crtc;
+        let dots_per_character = self.registers.sequencer.dots_per_character() as u32;
+        let scanlines_per_count = crtc.scanlines_per_vertical_count() as u32;
         let horizontal = nonblank_span(
-            self.registers.crtc.horizontal_total() as u32,
-            self.registers.crtc.horizontal_blanking(),
+            crtc.horizontal_total() as u32,
+            crtc.horizontal_blanking(),
+            dots_per_character,
         );
-        let vertical_total = self.registers.crtc.vertical_total() as u32;
-        let vertical = nonblank_span(vertical_total, self.registers.crtc.vertical_blanking());
-        let last_line = self.registers.crtc.vertical_display() as u32 * vertical_divisor - 1;
-        let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
-            | (u32::from(c[crtc::OVERFLOW as usize] & 0x10) << 4)
-            | (u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x40) << 3);
-        let line_compare = (line_compare + 1) * vertical_divisor - 1;
-        let maximum_scan_line = c[crtc::MAXIMUM_SCAN_LINE as usize];
-        let row_height = u32::from(maximum_scan_line & 31) + 1;
-        let mut repeat = 1 << (maximum_scan_line >> 7);
-        // Graphics repeats a memory row while the row-scan counter advances.
-        // Collapse it only when row-scan bits cannot change the memory address
-        // and the preset does not begin partway through that row.
-        if (indexed256 || graphics16)
-            && c[crtc::MODE_CONTROL as usize] & 3 == 3
-            && u32::from(c[crtc::PRESET_ROW_SCAN as usize] & 31) % row_height == 0
-        {
-            repeat *= row_height;
-        }
-        let split_repeat = line_compare < last_line && !(line_compare + 1).is_multiple_of(repeat);
-        let partial_repeat = !(last_line + 1).is_multiple_of(repeat);
-        let blanking_repeat = self.registers.crtc.vertical_blanking().iter().any(|range| {
-            !range.is_empty()
-                && [range.start, range.end].into_iter().any(|count| {
-                    let line = count * vertical_divisor;
-                    line <= last_line && !line.is_multiple_of(repeat)
-                })
-        });
-        // A sample cannot straddle a border edge or a counter reset. In
-        // particular, an odd total breaks paired rows when the crop wraps.
-        let crop_repeat = !(vertical.start * vertical_divisor).is_multiple_of(repeat)
-            || !(vertical.len() as u32 * vertical_divisor).is_multiple_of(repeat)
-            || (vertical.end > vertical_total
-                && !(vertical_total * vertical_divisor).is_multiple_of(repeat));
-        let scanline_step = if split_repeat || partial_repeat || blanking_repeat || crop_repeat {
-            1
-        } else {
-            repeat
-        };
-        let pixel_step = if indexed256 { 2 } else { 1 };
-        let blank = horizontal.is_empty() || vertical.is_empty();
-        DisplayGeometry {
-            size: if blank {
-                [1, 1]
-            } else {
-                [
-                    (horizontal.len() as u32 * glyph_width).div_ceil(pixel_step),
-                    (vertical.len() as u32 * vertical_divisor) / scanline_step,
-                ]
-            },
-            raster_origin: if blank {
-                [0, 0]
-            } else {
-                [
-                    horizontal.start * glyph_width,
-                    vertical.start * vertical_divisor,
-                ]
-            },
-            active_size: [
-                (columns * glyph_width).div_ceil(pixel_step),
-                (last_line + 1) / scanline_step,
+        let vertical = nonblank_span(
+            crtc.vertical_total() as u32,
+            crtc.vertical_blanking(),
+            scanlines_per_count,
+        );
+        let sampling = Sampling::new(&self.registers, &vertical);
+        let active_width = crtc.horizontal_display() as u32 * dots_per_character;
+        let active_height = crtc.vertical_display() as u32 * scanlines_per_count;
+
+        let mut geometry = DisplayGeometry {
+            size: [
+                (horizontal.len() as u32).div_ceil(sampling.dots_per_pixel),
+                vertical.len() as u32 / sampling.scanlines_per_row,
             ],
-            scanline_step,
+            raster_origin: [horizontal.start, vertical.start],
+            active_size: [
+                active_width.div_ceil(sampling.dots_per_pixel),
+                active_height / sampling.scanlines_per_row,
+            ],
+            scanline_step: sampling.scanlines_per_row,
+        };
+        // GPU images need nonzero dimensions even when no raster samples survive.
+        if horizontal.is_empty() || vertical.is_empty() {
+            geometry.size = [1, 1];
+            geometry.raster_origin = [0, 0];
         }
+        geometry
     }
 }
 
@@ -120,9 +78,10 @@ impl DisplayGeometry {
 }
 
 // Unwrap the nonblank interval from the end of blanking. Its end can exceed the
-// total; the shader maps it back to the raster counter with modulo arithmetic.
-fn nonblank_span(total: u32, blanking: [Range<u32>; 2]) -> Range<u32> {
+// total. Convert counters to raster dots/scanlines before choosing image samples;
+// the shader wraps those coordinates at the corresponding raster total.
+fn nonblank_span(total: u32, blanking: [Range<u32>; 2], units_per_count: u32) -> Range<u32> {
     let start = (blanking[0].end + blanking[1].end) % total;
     let length = total - blanking.iter().map(|range| range.len() as u32).sum::<u32>();
-    start..start + length
+    start * units_per_count..(start + length) * units_per_count
 }

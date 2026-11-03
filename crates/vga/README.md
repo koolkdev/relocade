@@ -630,7 +630,9 @@ embedding owns redraw scheduling, request coalescing, dimensions and presentatio
 Closing the source ends capture production without invalidating retained captures
 or requiring the embedding's GPU resources to close.
 
-`geometry` owns output sizing. `VgaRenderer` owns the common VRAM buffer
+`geometry` converts nonblank counter intervals into raster dots and scanlines,
+then sizes the image. `geometry/sampling` owns pixel spacing and the checks that
+allow repeated scanlines to share an image row. `VgaRenderer` owns the common VRAM buffer
 separately from captured registers and palette.
 `memory/pages` tracks physical writes in a fixed 32-byte bitmap.
 `renderer/memory` uploads those pages when their captured baseline matches the
