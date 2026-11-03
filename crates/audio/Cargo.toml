@@ -17,3 +17,7 @@ cpal = { version = "=0.18.2", features = ["audioworklet"] }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "=0.3.79"
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
+wasm-bindgen = "=0.2.129"
+js-sys = "=0.3.106"

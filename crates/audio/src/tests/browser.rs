@@ -26,3 +26,6 @@ fn drop_before_worklet_setup_closes_submission() {
     drop(output);
     assert!(writer.is_closed());
 }
+
+#[path = "signal.rs"]
+mod signal;
