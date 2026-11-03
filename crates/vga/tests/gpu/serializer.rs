@@ -1,6 +1,6 @@
 use super::{
     common,
-    graphics::{Gpu, load_palette, pixels},
+    graphics::{load_palette, pixels, Gpu},
 };
 use common::support::{
     planar16::{program, write_pixels},
