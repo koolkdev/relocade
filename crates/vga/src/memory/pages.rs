@@ -17,6 +17,10 @@ impl DirtyPages {
         self.0[plane] |= 1 << (offset / PAGE_BYTES);
     }
 
+    pub fn mark_plane(&mut self, plane: usize) {
+        self.0[plane] = u64::MAX;
+    }
+
     /// Consecutive dirty pages become one byte range within this plane.
     pub fn ranges(self, plane: usize) -> impl Iterator<Item = Range<usize>> {
         let mut pages = self.0[plane];

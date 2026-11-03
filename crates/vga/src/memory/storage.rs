@@ -26,6 +26,16 @@ impl Default for Storage {
 }
 
 impl Storage {
+    pub fn clear(&mut self) {
+        *self = Self::default();
+        // Clearing replaces the legacy planes too. Retained captures keep their
+        // old storage, and the next VGA upload must see every cleared page.
+        #[cfg(feature = "renderer")]
+        for plane in 0..4 {
+            self.changed.mark_plane(plane);
+        }
+    }
+
     /// Internal callers validate packed offsets against VIDEO_MEMORY_BYTES.
     fn location(address: u32) -> (usize, usize) {
         let address = address as usize;

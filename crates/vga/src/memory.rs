@@ -14,8 +14,9 @@ pub(crate) const PLANE_BYTES: usize = 65536;
 /// Physical video memory shared by legacy VGA planes and packed SVGA addressing.
 pub const VIDEO_MEMORY_BYTES: u32 = 4 * 1024 * 1024;
 
-/// Four independent VGA planes. CPU reads latch all planes; scanout reads do not
-/// disturb those latches. Plane addressing wraps at the hardware's 16-bit limit.
+/// Shared video memory with VGA access latches. Legacy CPU reads latch all four
+/// planes; packed accesses and scanout do not disturb those latches. VGA plane
+/// addressing wraps at the hardware's 16-bit limit.
 #[derive(Default)]
 pub(super) struct VideoMemory {
     storage: Storage,
@@ -23,6 +24,18 @@ pub(super) struct VideoMemory {
 }
 
 impl VideoMemory {
+    pub fn read_packed(&self, offset: u32) -> u8 {
+        self.storage.read(offset)
+    }
+
+    pub fn write_packed(&mut self, offset: u32, value: u8) {
+        self.storage.write(offset, value);
+    }
+
+    pub fn clear_packed(&mut self) {
+        self.storage.clear();
+    }
+
     pub fn snapshot(&self) -> [Arc<[u8]>; 4] {
         self.storage.planes()
     }
