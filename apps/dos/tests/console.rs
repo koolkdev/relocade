@@ -10,7 +10,8 @@ use std::{
 
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
-    let prompt_row = 6;
+    let prompt_row = 7;
+    let prompt_column = 0;
     let (clock, timers) = timer_service();
     let console = Runner::with_clock(clock).run(async |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
@@ -21,7 +22,9 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
         let inspect = async {
             for _ in 0..1000 {
                 // Startup text addressing retains even physical plane addresses.
-                if video.borrow().snapshot().plane(0)[(prompt_row + 5) * 80 * 2] == b'>' {
+                if video.borrow().snapshot().plane(0)[((prompt_row + 5) * 80 + prompt_column) * 2]
+                    == b'>'
+                {
                     return Ok::<(), relocade_dos::DosError>(());
                 }
                 runner.clock().sleep(Duration::from_millis(1)).await;
@@ -52,6 +55,23 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
                     .collect::<Vec<_>>(),
                 text
             );
+        }
+        // Literal CP437 cells and VGA attributes verify the ANSI path, including
+        // restoring ordinary gray before input echo and command output.
+        for (column, row, character, attribute) in [
+            (3, 0, 0xdb, 0x0f),
+            (9, 0, 0xbb, 0x09),
+            (3, 1, 0xdb, 0x0b),
+            (3, 3, 0xdb, 0x03),
+            (3, 4, 0xdb, 0x09),
+            (3, 5, 0xc8, 0x01),
+            (prompt_column, prompt_row, b'>', 0x0a),
+            (prompt_column + 2, prompt_row, b'e', 0x07),
+            (0, prompt_row + 1, b'h', 0x07),
+        ] {
+            let offset = (row * 80 + column) * 2;
+            assert_eq!(screen.plane(0)[offset], character);
+            assert_eq!(screen.plane(1)[offset], attribute);
         }
         assert_eq!(
             dos.stdout().read(&mut [0; 16]).unwrap(),

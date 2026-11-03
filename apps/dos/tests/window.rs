@@ -64,10 +64,11 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
     };
 
     // Literal eight-row firmware glyphs, sampled from the displayed window.
-    let prompt_row = 6;
+    let prompt_row = 7;
+    let prompt_column: usize = 0;
     let prompt = [96, 48, 24, 12, 24, 48, 96, 0];
     let x_glyph = [0, 0, 198, 108, 56, 108, 198, 0];
-    let displayed_glyph = |row: usize, expected: [u8; 8]| -> Result<(), Box<dyn Error>> {
+    let displayed_glyph = |column, row: usize, expected: [u8; 8]| -> Result<(), Box<dyn Error>> {
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let geometry = x.get_geometry(window)?.reply()?;
@@ -94,9 +95,13 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
             let actual: [u8; 8] = std::array::from_fn(|scan| {
                 let mut bits = 0;
                 for bit in 0..8 {
-                    let x = (left + (bit as f64 + 0.5) * width / 640.0) as usize;
+                    let x = (left + ((column * 8 + bit) as f64 + 0.5) * width / 640.0) as usize;
                     let y = (top + ((row * 8 + scan) as f64 + 0.5) * height / 200.0) as usize;
-                    if pixels.data[(y * usize::from(geometry.width) + x) * 4] > 100 {
+                    let offset = (y * usize::from(geometry.width) + x) * 4;
+                    if pixels.data[offset..offset + 3]
+                        .iter()
+                        .any(|&channel| channel > 100)
+                    {
                         bits |= 0x80 >> bit;
                     }
                 }
@@ -107,12 +112,12 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
             }
             assert!(
                 Instant::now() < deadline,
-                "row {row}: {actual:?} != {expected:?}"
+                "cell ({column}, {row}): {actual:?} != {expected:?}"
             );
             sleep(Duration::from_millis(30));
         }
     };
-    displayed_glyph(prompt_row, prompt)?;
+    displayed_glyph(prompt_column, prompt_row, prompt)?;
     x.set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
     let first = x.setup().min_keycode;
     let keys = x
@@ -138,18 +143,18 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
         Ok(())
     };
     type_keys(b"echo xy\x08\r")?;
-    displayed_glyph(prompt_row + 1, x_glyph)?;
-    displayed_glyph(prompt_row + 2, prompt)?;
+    displayed_glyph(0, prompt_row + 1, x_glyph)?;
+    displayed_glyph(prompt_column, prompt_row + 2, prompt)?;
     x.configure_window(window, &ConfigureWindowAux::new().width(960).height(720))?;
     x.flush()?;
     while x.get_geometry(window)?.reply()?.width != 960 {
         assert!(Instant::now() < deadline, "resize did not arrive");
         sleep(Duration::from_millis(20));
     }
-    displayed_glyph(prompt_row + 1, x_glyph)?;
+    displayed_glyph(0, prompt_row + 1, x_glyph)?;
     type_keys(b"echo x\r")?;
-    displayed_glyph(prompt_row + 3, x_glyph)?;
-    displayed_glyph(prompt_row + 4, prompt)?;
+    displayed_glyph(0, prompt_row + 3, x_glyph)?;
+    displayed_glyph(prompt_column, prompt_row + 4, prompt)?;
     x.send_event(
         false,
         window,
