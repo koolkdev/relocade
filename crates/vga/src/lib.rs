@@ -24,8 +24,8 @@ pub use display::VgaDisplay;
 use event_listener::Event;
 use futures_lite::future::{or, yield_now};
 pub use geometry::DisplayGeometry;
-use memory::VideoMemory;
 pub use memory::VIDEO_MEMORY_BYTES;
+use memory::{CpuAccess, VideoMemory};
 use raster::Raster;
 use registers::{dispi, setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
@@ -162,39 +162,14 @@ impl<C: Clock> Device for Vga<C> {
     }
 
     fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {
-        let mut value = [0; 8];
-        if !self.setup.enabled() || !self.registers.video_memory_enabled() {
-            value[..usize::from(bytes)].fill(0xff);
-            return u64::from_le_bytes(value);
-        }
-        for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            let address = address + index as u32;
-            *byte = if self.dispi.enabled() {
-                self.dispi
-                    .memory_offset(address)
-                    .map_or(0xff, |offset| self.memory.read_packed(offset))
-            } else {
-                self.memory.read(address, &self.registers)
-            };
-        }
-        u64::from_le_bytes(value)
+        let access = CpuAccess::new(&self.setup, &self.registers, &self.dispi);
+        self.memory.read(address, bytes, access)
     }
 
     fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
         self.sync_to_clock();
-        if !self.setup.enabled() || !self.registers.video_memory_enabled() {
-            return;
-        }
-        for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-            let address = address + index as u32;
-            if self.dispi.enabled() {
-                if let Some(offset) = self.dispi.memory_offset(address) {
-                    self.memory.write_packed(offset, *byte);
-                }
-            } else {
-                self.memory.write(address, *byte, &self.registers);
-            }
-        }
+        let access = CpuAccess::new(&self.setup, &self.registers, &self.dispi);
+        self.memory.write(address, bytes, value, access);
     }
 
     fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
@@ -223,8 +198,11 @@ impl<C: Clock> Device for Vga<C> {
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
         self.sync_to_clock();
         if dispi::PORT_RANGE.contains(&port) {
-            if self.setup.enabled() && self.dispi.write_port(port, bytes, value) {
-                self.memory.clear_packed();
+            if self.setup.enabled() {
+                match self.dispi.write_port(port, bytes, value) {
+                    dispi::WriteEffect::None => {}
+                    dispi::WriteEffect::ClearVram => self.memory.clear_vram(),
+                }
             }
             return;
         }
