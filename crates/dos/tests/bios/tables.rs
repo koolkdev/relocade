@@ -115,7 +115,7 @@ fn mode_setting_consumes_replacement_parameters_including_cursor_and_display_sta
         install(&mut dos);
         {
             let mut context = dos.cpu().context();
-            let record = PARAMETERS.wrapping_add(3 * 64);
+            let record = PARAMETERS.wrapping_add(24 * 64); // Default 400-line mode 03h.
             let mut bytes = [0; 64];
             context.memory.read_wrapping(record, &mut bytes).unwrap();
             bytes[..5].copy_from_slice(&[60, 19, 10, 0, 0x18]);

@@ -87,7 +87,7 @@ fn graphics_font_vectors_are_live_and_user_glyphs_wrap_the_segment_offset() {
         let after = dos.vga().borrow().snapshot();
         assert_eq!(after.registers, before.registers);
         assert_eq!(after.plane(2), before.plane(2));
-        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 8);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 16);
         video(&mut dos, 0x0d, 0, 0, 0);
         assert_eq!(
             dos.cpu().context().memory.read_u32(0x7c).unwrap(),

@@ -80,9 +80,9 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
         }
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        let pixels = gpu.render(&text, [640, 200]).await;
-        assert_eq!(&pixels[..32], &[170, 0, 0, 255].repeat(8));
-        assert_eq!(&pixels[32..36], &[0, 0, 0, 255]);
+        let pixels = gpu.render(&text, [720, 400]).await;
+        assert_eq!(&pixels[..36], &[170, 0, 0, 255].repeat(9));
+        assert_eq!(&pixels[36..40], &[0, 0, 0, 255]);
         for (capture, size) in retained.into_iter().rev() {
             assert_white_prefix(&gpu.render(&capture, size).await, 8);
         }

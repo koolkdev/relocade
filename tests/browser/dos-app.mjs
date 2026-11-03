@@ -10,8 +10,8 @@ import { build } from "../../tools/web.mjs";
 // Literal firmware glyphs: verify the displayed pixels, without a test-only
 // text/status API or a software rasterizer interpreting the same capture.
 const promptRow = 6;
-const prompt = [96, 48, 24, 12, 24, 48, 96, 0];
-const xGlyph = [0, 0, 198, 108, 56, 108, 198, 0];
+const prompt = [0, 0, 0, 96, 48, 24, 12, 6, 12, 24, 48, 96, 0, 0, 0, 0];
+const xGlyph = [0, 0, 0, 0, 0, 198, 198, 108, 56, 108, 198, 198, 0, 0, 0, 0];
 
 const config = build("relocade-dos-app");
 await bundle(config);
@@ -82,11 +82,11 @@ async function displayedGlyph(page, column, row, expected) {
             const height = width * 3 / 4;
             const left = (canvas.width - width) / 2;
             const top = (canvas.height - height) / 2;
-            return Array.from({ length: 8 }, (_, scan) => {
+            return Array.from({ length: 16 }, (_, scan) => {
                 let bits = 0;
                 for (let bit = 0; bit < 8; bit++) {
-                    const x = Math.floor(left + (column * 8 + bit + 0.5) * width / 640);
-                    const y = Math.floor(top + (row * 8 + scan + 0.5) * height / 200);
+                    const x = Math.floor(left + (column * 9 + bit + 0.5) * width / 720);
+                    const y = Math.floor(top + (row * 16 + scan + 0.5) * height / 400);
                     if (data[(y * canvas.width + x) * 4] > 100) bits |= 0x80 >> bit;
                 }
                 return bits;

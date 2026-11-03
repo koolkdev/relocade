@@ -3,6 +3,43 @@ use super::video::{video, PROGRAM};
 use crate::common;
 
 #[test]
+fn startup_uses_the_400_line_color_profile_without_overriding_later_guest_choices() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        let initial = common::next_capture(&dos).await;
+        assert_eq!(initial.display.geometry().size, [720, 400]);
+        assert_eq!(initial.display.geometry().scanline_step, 1);
+        assert_eq!(initial.display.geometry().pixel_aspect_ratio(), (20, 27));
+        assert_eq!(
+            &initial.display.plane(2)[65 * 32..65 * 32 + 16],
+            &[
+                0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
+            ]
+        );
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        assert_eq!(
+            video(&mut dos, 0x0f00, 0, 0, 0).registers.eax as u16,
+            0x5003
+        );
+        assert_eq!(
+            video(&mut dos, 0x0300, 0, 0, 0).registers.ecx as u16,
+            0x0d0e
+        );
+        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 16);
+        assert_eq!(dos.cpu().context().memory.read_u8(0x484).unwrap(), 24);
+
+        // A guest's later preference survives a graphics mode and the return to text.
+        video(&mut dos, 0x1200, 0x30, 0, 0);
+        video(&mut dos, 0x13, 0, 0, 0);
+        video(&mut dos, 3, 0, 0, 0);
+        let legacy = common::next_capture(&dos).await;
+        assert_eq!(legacy.display.geometry().size, [640, 200]);
+        assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 8);
+        assert_eq!(initial.display.geometry().size, [720, 400]);
+    });
+}
+
+#[test]
 fn color_text_modes_apply_scanline_profiles_and_report_their_page_geometry() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

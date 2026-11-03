@@ -63,11 +63,27 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
         sleep(Duration::from_millis(20));
     };
 
-    // Literal eight-row firmware glyphs, sampled from the displayed window.
+    let resize = |width: u32, height: u32| -> Result<(), Box<dyn Error>> {
+        x.configure_window(window, &ConfigureWindowAux::new().width(width).height(height))?;
+        x.flush()?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let geometry = x.get_geometry(window)?.reply()?;
+            if u32::from(geometry.width) == width && u32::from(geometry.height) == height {
+                return Ok(());
+            }
+            assert!(Instant::now() < deadline, "resize did not arrive");
+            sleep(Duration::from_millis(20));
+        }
+    };
+    // Preserve every source dot when sampling the 720-pixel-wide startup image.
+    resize(800, 600)?;
+
+    // Literal sixteen-row firmware glyphs, sampled from the displayed window.
     let prompt_row = 6;
-    let prompt = [96, 48, 24, 12, 24, 48, 96, 0];
-    let x_glyph = [0, 0, 198, 108, 56, 108, 198, 0];
-    let displayed_glyph = |row: usize, expected: [u8; 8]| -> Result<(), Box<dyn Error>> {
+    let prompt = [0, 0, 0, 96, 48, 24, 12, 6, 12, 24, 48, 96, 0, 0, 0, 0];
+    let x_glyph = [0, 0, 0, 0, 0, 198, 198, 108, 56, 108, 198, 198, 0, 0, 0, 0];
+    let displayed_glyph = |row: usize, expected: [u8; 16]| -> Result<(), Box<dyn Error>> {
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let geometry = x.get_geometry(window)?.reply()?;
@@ -91,11 +107,11 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
             let height = width * 3.0 / 4.0;
             let left = (f64::from(geometry.width) - width) / 2.0;
             let top = (f64::from(geometry.height) - height) / 2.0;
-            let actual: [u8; 8] = std::array::from_fn(|scan| {
+            let actual: [u8; 16] = std::array::from_fn(|scan| {
                 let mut bits = 0;
                 for bit in 0..8 {
-                    let x = (left + (bit as f64 + 0.5) * width / 640.0) as usize;
-                    let y = (top + ((row * 8 + scan) as f64 + 0.5) * height / 200.0) as usize;
+                    let x = (left + (bit as f64 + 0.5) * width / 720.0) as usize;
+                    let y = (top + ((row * 16 + scan) as f64 + 0.5) * height / 400.0) as usize;
                     if pixels.data[(y * usize::from(geometry.width) + x) * 4] > 100 {
                         bits |= 0x80 >> bit;
                     }
@@ -140,12 +156,7 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
     type_keys(b"echo xy\x08\r")?;
     displayed_glyph(prompt_row + 1, x_glyph)?;
     displayed_glyph(prompt_row + 2, prompt)?;
-    x.configure_window(window, &ConfigureWindowAux::new().width(960).height(720))?;
-    x.flush()?;
-    while x.get_geometry(window)?.reply()?.width != 960 {
-        assert!(Instant::now() < deadline, "resize did not arrive");
-        sleep(Duration::from_millis(20));
-    }
+    resize(960, 720)?;
     displayed_glyph(prompt_row + 1, x_glyph)?;
     type_keys(b"echo x\r")?;
     displayed_glyph(prompt_row + 3, x_glyph)?;

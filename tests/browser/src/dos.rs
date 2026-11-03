@@ -101,12 +101,12 @@ pub async fn dos_workers() -> Result<(), String> {
             presentations,
         };
         let busy = display
-            .matching(|frame| glyph_top(frame, 0, [255, 255, 85, 255]) == [124, 198, 198, 254, 198])
+            .matching(|frame| glyph_top(frame, 0, [255, 255, 85, 255]) == [0, 0, 56, 108, 198])
             .await;
         let busy_pixels = busy.pixels.to_vec();
         leave_busy.send(()).unwrap();
         let waiting = display
-            .matching(|frame| glyph_top(frame, 0, [255, 255, 85, 255]) == [252, 102, 102, 124, 96])
+            .matching(|frame| glyph_top(frame, 0, [255, 255, 85, 255]) == [0, 0, 252, 102, 102])
             .await;
 
         // Input is pending and the app stops drawing. VGA still captures while
@@ -128,11 +128,11 @@ pub async fn dos_workers() -> Result<(), String> {
         key.send(b'X').unwrap();
         assert_eq!(first_exit.await.unwrap(), 7);
         let exited = display
-            .matching(|frame| glyph_top(frame, 2, [255, 255, 85, 255]) == [254, 198, 140, 24, 50])
+            .matching(|frame| glyph_top(frame, 18, [255, 255, 85, 255]) == [0, 0, 254, 198, 134])
             .await;
         assert_eq!(
             glyph_top(&exited, 0, [255, 255, 85, 255]),
-            [252, 102, 102, 124, 96]
+            [0, 0, 252, 102, 102]
         );
         let final_pixels = exited.pixels.to_vec();
         let converted = conversions.load(Ordering::Acquire);
@@ -148,7 +148,7 @@ pub async fn dos_workers() -> Result<(), String> {
         launch_next.send(()).unwrap();
         assert_eq!(second_exit.await.unwrap(), 9);
         let second = display
-            .matching(|frame| glyph_top(frame, 0, [255, 255, 255, 255]) == [124, 198, 192, 124, 6])
+            .matching(|frame| glyph_top(frame, 0, [255, 255, 255, 255]) == [0, 0, 124, 198, 198])
             .await;
         assert!(second.sequence > exited.sequence);
         assert_ne!(&*second.pixels, final_pixels);

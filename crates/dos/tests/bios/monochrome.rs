@@ -107,6 +107,7 @@ fn monochrome_pages_scroll_and_font_changes_keep_the_mono_aperture_and_underline
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
+        video(&mut dos, 0x1201, 0x30, 0, 0); // Exercise 43-row text on the 350-line raster.
         video(&mut dos, 7, 0, 0, 0);
         video(&mut dos, 0x0200, 0x0700, 0, 0x184f);
         video(&mut dos, 0x0958, 0x070f, 1, 0);
