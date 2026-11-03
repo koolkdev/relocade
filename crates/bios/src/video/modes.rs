@@ -7,7 +7,7 @@ use super::{
 use crate::screen;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 use relocade_vga::{
-    registers::{sequencer, SEQUENCER_INDEX_PORT},
+    registers::{dispi, sequencer, SEQUENCER_INDEX_PORT},
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 
@@ -71,6 +71,9 @@ pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<
     // Read before any writes: a guest table may overlap the BIOS data or VRAM.
     let parameters = Parameters::read(memory, record)?;
     let text_memory = text_memory_start(mode);
+    // Leave packed addressing before font loading or legacy aperture writes.
+    io.write_port(dispi::INDEX_PORT, 2, u32::from(dispi::ENABLE));
+    io.write_port(dispi::DATA_PORT, 2, u32::from(dispi::DISABLED));
     // Restore routing and write masks before any clear. Font loading temporarily
     // selects plane two, then the mode record establishes guest memory access.
     write_indexed(

@@ -877,6 +877,11 @@ legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
 including LFB and no-clear, are ignored as a whole. No newer DISPI capability,
 virtual layout, VBE BIOS service or linear aperture is advertised.
 
+A supported legacy BIOS mode set disables SVGA after validating the request and
+before loading fonts or writing the VGA aperture. Unsupported mode requests leave
+the active SVGA mode and its memory untouched. BIOS palette calls continue to
+program the same DAC through ordinary VGA ports.
+
 While enabled, A0000h–AFFFFh reads and writes consecutive packed bytes in the
 selected bank; other VGA windows return FFh and ignore writes. Multi-byte
 accesses crossing AFFFFh do not spill into the next bank. Adapter setup and
