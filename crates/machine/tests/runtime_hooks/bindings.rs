@@ -1,9 +1,11 @@
 use super::support;
+#[path = "bindings/handlers.rs"]
+mod handlers;
 #[path = "bindings/pointers.rs"]
 mod pointers;
 use futures_channel::oneshot;
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_match},
+    real_mode_interrupt::{interrupt, interrupt_handler, interrupt_match},
     CpuContext, MemoryView,
 };
 use relocade_x86::{
@@ -123,14 +125,14 @@ async fn check_bindings() {
         .write(0x100, &[0x34, 0x12, 0x78, 0x56, 0x57, 0x0a])
         .unwrap();
     let before = cpu.snapshot();
-    store_value_entry(&mut call).await;
+    interrupt_handler!(store_value)(&mut call).await;
     assert_eq!(call.memory.read_u16(0x302).unwrap(), 0x2345);
     assert_eq!(cpu.snapshot(), before);
     let mut frame = [0; 6];
     call.memory.read(0x100, &mut frame).unwrap();
     assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x57, 0x0a]);
 
-    inspect_request_entry(&mut call).await;
+    interrupt_handler!(inspect_request)(&mut call).await;
     assert_eq!(call.memory.read_u8(0x300).unwrap(), 0x23);
     assert_eq!(cpu.eax(), 0x1234_ab5a);
     assert_eq!(cpu.ebx(), 0x9876_2345);
@@ -143,18 +145,18 @@ async fn check_bindings() {
     assert_eq!(frame, [0x34, 0x12, 0x78, 0x56, 0x56, 0x0a]);
 
     cpu.set_ah(0x12);
-    selection_entry(&mut call).await;
+    interrupt_handler!(selection)(&mut call).await;
     assert_eq!(cpu.eax(), 0x1234_865a);
     assert_eq!(cpu.esi(), 0x8765_4321);
     cpu.set_ah(0x13);
-    selection_entry(&mut call).await;
+    interrupt_handler!(selection)(&mut call).await;
     assert_eq!(cpu.esi(), 0x8765_1357);
     cpu.set_ah(0x14);
-    selection_entry(&mut call).await;
+    interrupt_handler!(selection)(&mut call).await;
     assert_eq!(cpu.esi(), 0x8765_2468);
     cpu.set_ah(0xff);
     relocade_machine::real_mode_interrupt::set_carry(&cpu, &mut call.memory, false);
-    selection_entry(&mut call).await;
+    interrupt_handler!(selection)(&mut call).await;
     assert_eq!(cpu.ah(), 0x86);
     assert_eq!(cpu.eflags(), 0x202);
     call.memory.read(0x100, &mut frame).unwrap();
@@ -163,7 +165,7 @@ async fn check_bindings() {
     // Async inputs are captured on first poll. Cancellation never applies outputs.
     cpu.set_ax(10);
     let (ready, wait) = oneshot::channel();
-    let mut pending = Box::pin(wait_for_ready_entry(&mut call, wait));
+    let mut pending = Box::pin(interrupt_handler!(wait_for_ready)(&mut call, wait));
     let mut cx = Context::from_waker(std::task::Waker::noop());
     assert!(pending.as_mut().poll(&mut cx).is_pending());
     assert_eq!(cpu.ax(), 10);
@@ -180,7 +182,7 @@ async fn check_bindings() {
     cpu.set_ax(30);
     relocade_machine::real_mode_interrupt::set_carry(&cpu, &mut call.memory, true);
     let (_ready, wait) = oneshot::channel();
-    let mut cancelled = Box::pin(wait_for_ready_entry(&mut call, wait));
+    let mut cancelled = Box::pin(interrupt_handler!(wait_for_ready)(&mut call, wait));
     assert!(cancelled.as_mut().poll(&mut cx).is_pending());
     drop(cancelled);
     assert_eq!(cpu.ax(), 30);

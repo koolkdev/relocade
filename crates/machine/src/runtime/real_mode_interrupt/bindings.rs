@@ -4,12 +4,15 @@
 //! ABI adapter. `interrupt_match!` selects those adapters within a Rust match
 //! expression without repeating argument or result mappings. Dispatchers use the
 //! same `#[interrupt]` attribute to bind their selector and context.
-//! Synchronous services finish in
-//! one poll; asynchronous services use their ordinary Rust awaits.
+//! `interrupt_handler!` supplies an adapter to the existing registration API.
+//! Synchronous services finish in one poll; asynchronous services use their
+//! ordinary Rust awaits.
 //!
 //! ```
-//! use relocade_machine::{CpuContext, MemoryView};
-//! use relocade_machine::real_mode_interrupt::{interrupt, interrupt_match};
+//! use relocade_machine::{CpuContext, FarPointer, MemoryView};
+//! use relocade_machine::real_mode_interrupt::{
+//!     interrupt, interrupt_handler, interrupt_match, Interrupts,
+//! };
 //!
 //! #[interrupt(context(memory), args(page = bh), returns {
 //!     Some(position) => { (cx, dx) = position, zf = false },
@@ -28,7 +31,9 @@
 //!         _ => unsupported,
 //!     });
 //! }
-//! // Register video_entry as the handler to read AH and apply the service's ABI.
+//! fn register(interrupts: &mut Interrupts<'_>, entry: FarPointer) {
+//!     interrupts.register_interrupt(0x10, entry, interrupt_handler!(video));
+//! }
 //! # fn main() {}
 //! ```
 //!
@@ -54,8 +59,11 @@
 //! when the other patterns cover every value. Each selected adapter is awaited.
 //! The context remains available in the scrutinee and guards. Arm and let-guard
 //! bindings must not shadow its name, so an arm cannot invoke another context.
-//! Name the generated `_entry` functions at the interrupt registration boundary
-//! or when explicitly calling an ABI adapter from Rust.
+//! `interrupt_handler!(video)` returns the adapter function, retaining any explicit
+//! parameters for callers that supply resources per invocation. To bind resources
+//! at registration, use `interrupt_handler!(keyboard::dispatch(&keyboard))` or
+//! `interrupt_handler!(keyboard.read_key)`. These forms produce an async move
+//! closure that owns its captures and evaluates its arguments on each invocation.
 //!
 //! Register arguments are captured before borrowing service resources or awaiting.
 //! Scalar names use the existing CPU accessors; `(cx, dx)` represents a u32 with
@@ -179,4 +187,4 @@
 //! # fn main() {}
 //! ```
 
-pub use relocade_derive::{interrupt, interrupt_match};
+pub use relocade_derive::{interrupt, interrupt_handler, interrupt_match};
