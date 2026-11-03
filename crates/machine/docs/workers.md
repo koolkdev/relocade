@@ -79,6 +79,30 @@ resumes guest execution, and reuses the allocation on a later worker.
 
 ## Browser build and lifetime
 
+For a session that can spend a synchronous interval outside its executor,
+`worker::wake_connection::<R>()` connects a retained `WakeTarget` to its Rust
+wakers. Transfer the returned endpoint with `run_resource`, bind it there, and
+poll the entire session through `connection.run(...)`. When the execution owner
+has constructed its target, `connection.activate(target).await` installs the
+host binding before busy execution and yields once so enclosing cancellation can
+register its waker. Keep the returned `WakeHost` alive until execution finishes.
+
+`WakeTarget::wake` requests return to the executor. `acknowledge` clears the
+request before each session poll, before ready work is consumed. The wrapped
+waker invokes both the resource notification and the original executor waker on
+the sending thread. Wrap an outer `Abortable` too, so cancellation uses the same
+notification path as ordinary channel input.
+
+Native connections retain a `Send` target directly. Browser connections post it
+back to the responsive host and reconstruct local access there. Their eager host
+receiver does not depend on polling the worker's completion handle. Browser
+wakers carry a session ID; only the two connected threads have a local target
+for it. Moving a Rust channel sender to an additional worker does not post those
+engine resources. Such a sender still wakes the executor, but cannot interrupt a
+busy guest through this connection. Additional direct peers need their own
+resource setup before budgets can be removed. Session IDs are never reused;
+late wakes cannot signal a replacement session.
+
 The browser suite uses one threaded Rust configuration throughout: atomics,
 bulk memory, mutable globals, rebuilt standard library, shared imported memory,
 and wasm-bindgen's TLS exports. Shared Rust host memory is distinct from shared
