@@ -1,6 +1,6 @@
 use super::{common, run, Gpu, TEXT_WITH_RED_BLOCK};
 
-const COLORS: [[u8; 4]; 16] = [
+pub(super) const COLORS: [[u8; 4]; 16] = [
     [0, 0, 0, 255],
     [0, 0, 170, 255],
     [0, 170, 0, 255],
