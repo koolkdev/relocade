@@ -7,11 +7,11 @@ fn color_text_modes_apply_scanline_profiles_and_report_their_page_geometry() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        for (mode, columns, page_bytes, width, shadow, clocking) in [
-            (0, 40, 0x0800, 320, 0x2c, 9),
-            (1, 40, 0x0800, 320, 0x28, 9),
-            (2, 80, 0x1000, 640, 0x2d, 1),
-            (3, 80, 0x1000, 640, 0x29, 1),
+        for (mode, columns, page_bytes, shadow) in [
+            (0, 40, 0x0800, 0x2c),
+            (1, 40, 0x0800, 0x28),
+            (2, 80, 0x1000, 0x2d),
+            (3, 80, 0x1000, 0x29),
         ] {
             for (profile, font_height, lines) in [(0, 8, 200), (1, 14, 350), (2, 16, 400)] {
                 video(&mut dos, 0x1200 | profile, 0x30, 0, 0);
@@ -21,8 +21,26 @@ fn color_text_modes_apply_scanline_profiles_and_report_their_page_geometry() {
                     (columns << 8) | mode
                 );
                 let display = dos.vga().borrow().snapshot();
-                assert_eq!(display.geometry().size, [width, lines]);
+                let cell_width = if profile == 2 { 9 } else { 8 };
+                assert_eq!(
+                    display.geometry().size,
+                    [u32::from(columns) * cell_width, lines]
+                );
+                let clocking = u8::from(columns == 40) * 8 + u8::from(profile != 2);
                 assert_eq!(display.registers.sequencer.values[1], clocking);
+                if profile == 2 {
+                    assert_eq!(display.registers.miscellaneous, 0x67);
+                    assert_eq!(display.registers.attribute.values[0x13], 8);
+                    let crtc = &display.registers.crtc.values;
+                    let retrace = if columns == 40 {
+                        [0x2b, 0xa0]
+                    } else {
+                        [0x55, 0x81]
+                    };
+                    assert_eq!([crtc[4], crtc[5]], retrace);
+                    assert_eq!([crtc[0x0a], crtc[0x0b]], [13, 14]);
+                    assert_eq!(crtc[0x11], 0x8e);
+                }
                 assert_eq!(display.registers.crtc.values[1], columns as u8 - 1);
                 assert_eq!(display.registers.crtc.values[0x13], columns as u8 / 2);
                 assert_eq!(display.registers.graphics.values[6], 0x0e);

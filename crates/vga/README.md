@@ -109,8 +109,10 @@ physical map and device bus. The Graphics Controller selects the active aperture
 reads outside it return FF and writes are ignored. BIOS modes 00h/01h use 40
 text columns and modes 02h/03h use 80, all with 25 rows and restored font memory.
 The even/odd pairs produce identical VGA color output. Their eight pages occupy
-0800h or 1000h bytes each. Color text retains the project's eight-dot cells at
-all scanline profiles; IBM's 400-line color preset uses nine-dot cells instead.
+0800h or 1000h bytes each. The 200/350-line color profiles use eight-dot cells.
+The 400-line profiles use nine-dot cells at 28.322 MHz: 360×400 in forty columns
+and 720×400 in eighty columns. Their CRTC timing, cursor shape and unshifted
+panning value follow the [IBM VGA ROM register tables](https://www.pcjs.org/blog/2015/06/01/).
 Mode 07h uses 80×25 nine-dot monochrome cells, B0000 memory and the 3B4/3BA
 CRTC/status ports. It selects 350 lines with a 14-high font, or 400 lines with
 a 16-high font when requested through AH=12h/BL=30h. Its eight 1000h-byte pages
@@ -307,7 +309,8 @@ allocation are firmware policy rather than a claim about every VGA BIOS.
 AH=12h/BL=30h selects the next text profile and returns AL=12h. For color text,
 AL=0 keeps the existing 200-line logical profile (8-high font, doubled on a 400-line raster);
 AL=1 selects 350 lines with a 14-high font; AL=2 selects 400 lines with a 16-high
-font. Color profiles start at 40×25 or 80×25 according to the mode, with eight-dot characters.
+font. Color profiles start at 40×25 or 80×25 according to the mode, with eight-dot
+cells for 200/350 lines and nine-dot cells for 400 lines.
 Mode 07h uses 350 lines for AL=0/1 and 400 lines for AL=2, with nine-dot characters.
 The preference lives in the BIOS data area, does not change current scanout,
 and survives graphics mode sets.

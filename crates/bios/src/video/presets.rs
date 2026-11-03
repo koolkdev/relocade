@@ -18,7 +18,7 @@ pub(super) use text::{TEXT_200, TEXT_350, TEXT_400, TEXT_40_200, TEXT_40_350, TE
 use super::{palette::PaletteLoad, parameters::Parameters};
 use crtc::CrtcPreset;
 use relocade_machine::IoBus;
-use relocade_vga::registers::{crtc as crtc_registers, sequencer, DAC_MASK_PORT};
+use relocade_vga::registers::{sequencer, DAC_MASK_PORT};
 
 pub(super) struct Preset {
     // BIOS data-area values describe the character grid even in graphics modes.
@@ -54,12 +54,6 @@ impl Preset {
                 *entry = value;
             }
         }
-        let mut crtc = self.crtc.registers();
-        let text = attribute[0x10] & 1 == 0;
-        crtc[crtc_registers::CURSOR_START as usize] =
-            if text { self.character_height - 2 } else { 0 };
-        crtc[crtc_registers::CURSOR_END as usize] =
-            if text { self.character_height - 1 } else { 0 };
         Parameters {
             columns: self.columns as u8,
             last_row: self.character_rows - 1,
@@ -67,7 +61,7 @@ impl Preset {
             page_bytes: self.page_bytes,
             sequencer,
             miscellaneous: self.miscellaneous,
-            crtc,
+            crtc: self.crtc.registers(),
             attribute,
             graphics,
         }

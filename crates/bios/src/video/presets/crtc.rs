@@ -5,7 +5,7 @@ use relocade_vga::registers::{crtc, text_mode};
 pub(super) struct CrtcPreset([u8; 0x19]);
 
 impl CrtcPreset {
-    // Keep the startup profile shared with the device's power-on defaults.
+    // Share the legacy raster with the device's initial register defaults.
     pub const COLOR_TEXT_200: Self = Self([0; 0x19]).with(text_mode::CRTC_REGISTERS);
 
     pub const fn with(mut self, registers: &[(u8, u8)]) -> Self {
