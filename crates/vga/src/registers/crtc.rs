@@ -139,14 +139,6 @@ impl Crtc {
             + 1
     }
 
-    /// CRTC 18 plus Overflow bit 4 and Maximum Scan Line bit 6 form the
-    /// ten-bit line compare. The lower display starts at the following count.
-    pub(crate) fn line_compare(&self) -> u64 {
-        u64::from(self.register(LINE_COMPARE))
-            | (u64::from(self.register(OVERFLOW) & 0x10) << 4)
-            | (u64::from(self.register(MAXIMUM_SCAN_LINE) & 0x40) << 3)
-    }
-
     /// Blank output intervals in character clocks, after the one-count output
     /// delay. CRTC 05 bit 7 supplies the sixth end-comparator bit.
     pub(crate) fn horizontal_blanking(&self) -> [Range<u32>; 2] {

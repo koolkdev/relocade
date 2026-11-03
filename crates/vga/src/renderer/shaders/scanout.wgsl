@@ -9,7 +9,7 @@ struct DisplayVertex {
     @location(2) @interpolate(flat) panning: vec4<u32>, // Preset row, byte/pel pan, line compare.
     @location(3) @interpolate(flat) fonts: vec3<u32>, // A/B bases and dual-font selection.
     @location(4) @interpolate(flat) cursor: vec4<u32>, // Address, start/end scanlines, blink phase.
-    @location(5) @interpolate(flat) scanlines: vec4<u32>, // Repeat, row step, active height, display skew.
+    @location(5) @interpolate(flat) scanlines: vec3<u32>, // Repeat, active height, display skew.
     @location(6) @interpolate(flat) display: vec4<u32>, // Attribute mode/blink, blanked, GC shift bits.
     @location(7) @interpolate(flat) colors0: vec4<u32>,
     @location(8) @interpolate(flat) colors1: vec4<u32>,
@@ -80,7 +80,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     output.panning = vec4(preset_row_scan & 31u, (preset_row_scan >> 5u) & 3u, pel_pan, split_scanline);
     output.fonts = vec3(font_a, font_b, u32(extended_memory && font_a != font_b));
     output.cursor = vec4((crtc(14u) << 8u) | crtc(15u), crtc(10u), crtc(11u), state.cursor_blink_on);
-    output.scanlines = vec4(1u << (maximum_scan_line >> 7u), state.scanline_step,
+    output.scanlines = vec3(1u << (maximum_scan_line >> 7u),
         (vertical_display + 1u) * vertical_divisor, ((crtc(3u) >> 5u) & 3u) * glyph_width);
     output.display = vec4(attribute_mode, state.attribute_blink_on, u32(blanked), shift_mode);
     output.colors0 = colors[0];
@@ -102,14 +102,13 @@ fn fragment(input: DisplayVertex) -> @location(0) vec4<f32> {
     let pixel = vec2<u32>(input.position.xy);
     let indexed256 = (attribute_mode & 0x41u) == 0x41u && (shift_mode & 0x40u) != 0u;
     let pixel_step = select(1u, 2u, indexed256);
-    let scanline_step = input.scanlines.y;
-    let raster = (input.raster.xy + pixel * vec2(pixel_step, scanline_step)) % input.raster.zw;
+    let raster = (input.raster.xy + vec2(pixel.x * pixel_step, pixel.y)) % input.raster.zw;
     if blanked || pixel_blanked(input, raster) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
-    let display_skew = input.scanlines.w;
+    let display_skew = input.scanlines.z;
     let active_width = input.grid.x * input.grid.y;
-    let active_height = input.scanlines.z;
+    let active_height = input.scanlines.y;
     let active_dot = (raster.x + input.raster.z - display_skew) % input.raster.z;
     if active_dot >= active_width || raster.y >= active_height {
         return unpack4x8unorm(overscan_color());

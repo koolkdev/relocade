@@ -10,9 +10,7 @@ struct State {
     dac_mask: u32,
     attribute_blink_on: u32,
     cursor_blink_on: u32,
-    scanline_step: u32,
     display_start: u32,
-    reserved1: u32,
     raster_origin: vec2<u32>,
     palette: array<vec4<u32>, 48>,
 }

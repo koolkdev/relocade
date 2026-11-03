@@ -602,8 +602,8 @@ maintain.
 Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
 captures those same inputs immediately without publishing a frame, forcing a
 display-start latch, or changing CPU access phases. `DisplaySnapshot::geometry()`
-derives the nonblank image size and raster origin, active picture size, scanline
-spacing and nominal pixel aspect ratio.
+derives the nonblank image size and raster origin, active picture size and
+nominal pixel aspect ratio. Each image row represents one physical scanline.
 All pixel interpretation uses captured registers and VRAM directly in the shader.
 
 Snapshots share four immutable 64-KiB planes with the device. Capturing or cloning
@@ -630,14 +630,14 @@ embedding owns redraw scheduling, request coalescing, dimensions and presentatio
 Closing the source ends capture production without invalidating retained captures
 or requiring the embedding's GPU resources to close.
 
-`geometry` converts nonblank counter intervals into raster dots and scanlines,
-then sizes the image. `geometry/sampling` owns pixel spacing and the checks that
-allow repeated scanlines to share an image row. `VgaRenderer` owns the common VRAM buffer
-separately from captured registers and palette.
+`geometry` converts nonblank counter intervals into raster dots and physical
+scanlines, then sizes the image. Hardware row repetition remains in the shader.
+`VgaRenderer` owns the common VRAM buffer separately from captured registers and
+palette.
 `memory/pages` tracks physical writes in a fixed 32-byte bitmap.
 `renderer/memory` uploads those pages when their captured baseline matches the
 queued GPU contents, otherwise it restores the affected plane.
-`renderer/state` copies raw register banks, captured blink phases, raster origin, scanline spacing
+`renderer/state` copies raw register banks, captured blink phases, raster origin
 and the unchanged DAC palette into one uniform buffer. The raw Attribute
 Controller address byte is preserved; the shader tests its display-enable bit.
 The shader interprets memory addresses, font banks, attributes and colors directly.
@@ -706,23 +706,23 @@ if let Some(capture) = source.take_capture() {
 The text shader reads physical plane bytes at stable GPU addresses. Glyphs come
 from captured plane two, and colors follow the captured attribute palette, color
 select, plane enable and DAC mask. Eight-bit graphics pixels index the DAC directly,
-using its mask. Output dimensions follow the CRTC and character clock. Identical
-repeated rows share one image row; a preset, split, border edge or counter reset
-that breaks their alignment retains physical rows. Pixel aspect ratio preserves
+using its mask. Output dimensions follow the CRTC and character clock. Each
+physical scanline has its own image row, including repeated memory rows. Pixel
+aspect ratio preserves
 the active picture's nominal 4:3 proportions when the border is added; physical
 monitor size and position controls are not modeled. The device's legacy text
 preset produces 656×414, with a 640×400 active picture at (8, 7) and 5:6 pixel
 aspect ratio. BIOS mode 03h starts with a 738×414 image containing 720×400 active
 pixels at (9, 7), with 20:27 pixel aspect ratio. Mode 13h produces 328×414, with
 320×400 active pixels at (4, 7) and 5:3 pixel aspect ratio. Its logical resolution
-remains 320×200; the border's odd vertical edges require both physical scanlines
-of each repeated row to remain in the image. These dimensions follow the
-documented blanking convention above, not a fixed border width.
+remains 320×200; the shader repeats each memory row across two physical scanlines.
+These dimensions follow the documented blanking convention above, not a fixed
+border width.
 
 The renderer requires a 2D texture limit of at least 2340 pixels for a raster of
 260 nine-dot clocks (the vertical bound is 2050 scanlines), 14 flat inter-stage
 variables and one 256-KiB fragment storage buffer. The first upload fills all
-four physical planes and 912 bytes of state: a 144-byte register/geometry header
+four physical planes and 896 bytes of state: a 128-byte register/geometry header
 and the 768-byte DAC palette. With
 the renderer feature enabled, actual memory changes mark fixed 1-KiB pages after
 VGA routing and write modes have produced the final byte. Consecutive dirty pages

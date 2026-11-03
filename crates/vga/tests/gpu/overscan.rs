@@ -183,16 +183,14 @@ async fn check_repeats() {
     let mut gpu = Gpu::new().await;
     let mut vga = device(3);
     common::crtc(&mut vga, 9, 1); // Two scanlines per graphics memory row.
-    assert_eq!(vga.snapshot().geometry().scanline_step, 2);
     gpu.expect(
         &common::fixture::capture(&vga),
-        [24, 4],
-        &picture([24, 4], 8..16, 1..3, RED),
+        [24, 8],
+        &picture([24, 8], 8..16, 2..6, RED),
     )
     .await;
 
     common::crtc(&mut vga, 0x15, 4); // One bottom border line, half a pair.
-    assert_eq!(vga.snapshot().geometry().scanline_step, 1);
     gpu.expect(
         &common::fixture::capture(&vga),
         [24, 7],
@@ -200,22 +198,28 @@ async fn check_repeats() {
     )
     .await;
     common::crtc(&mut vga, 0x17, 0xa7); // The vertical counter now ticks every other line.
-    assert_eq!(vga.snapshot().geometry().scanline_step, 2);
     gpu.expect(
         &common::fixture::capture(&vga),
-        [24, 7],
-        &picture([24, 7], 8..16, 2..6, RED),
+        [24, 14],
+        &picture([24, 14], 8..16, 4..12, RED),
     )
     .await;
     common::crtc(&mut vga, 0x17, 0xa3);
-    common::crtc(&mut vga, 0x16, 6); // Even crop length, but it begins on odd line seven.
-    assert_eq!(vga.snapshot().geometry().scanline_step, 1);
-    gpu.expect(
-        &common::fixture::capture(&vga),
-        [24, 8],
-        &picture([24, 8], 8..16, 3..7, RED),
-    )
-    .await;
+    common::crtc(&mut vga, 0x16, 6); // Move the crop origin to physical line seven.
+    common::crtc(&mut vga, 0x13, 1); // Eight pixels per memory row.
+    palette(&mut vga, 1, [0, 63, 0]);
+    for offset in 8..16 {
+        vga.write_mmio(0xa0000 + offset, 1, 1);
+    }
+    let mut expected = picture([24, 8], 8..16, 3..7, RED);
+    // The second memory row occupies two distinct physical rows in the image,
+    // even when the crop begins on an odd scanline.
+    for row in 5..7 {
+        let start = (row * 24 + 8) * 4;
+        expected[start..start + 8 * 4].copy_from_slice(&GREEN.repeat(8));
+    }
+    gpu.expect(&common::fixture::capture(&vga), [24, 8], &expected)
+        .await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

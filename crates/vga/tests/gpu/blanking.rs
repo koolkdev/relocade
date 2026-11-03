@@ -98,18 +98,18 @@ async fn check_horizontal() {
 async fn check_vertical() {
     let mut gpu = Gpu::new().await;
     let mut vga = device(3, 1, 20);
-    for (start, end, repeat, divisor, height, step, blank_rows) in [
-        (2, 4, 1, 1, 20, 1, vec![3, 4]),
-        (2, 0x84, 2, 1, 20, 1, vec![3, 4]), // End bit seven is ignored.
-        (2, 4, 2, 2, 20, 2, vec![3, 4]),
-        (1, 4, 2, 1, 20, 1, vec![2, 3, 4]), // Only the end cuts a repeated pair.
-        (1, 3, 2, 1, 10, 2, vec![1]),
-        (17, 1, 2, 1, 10, 2, vec![0, 9]), // Total reset before the end match.
-        (17, 19, 2, 1, 10, 2, vec![9]),   // End at total has no wrapped head.
-        (19, 1, 2, 1, 10, 2, vec![0]),    // Start on the last counter value.
-        (20, 1, 2, 1, 10, 2, vec![]),     // Start is never reached.
-        (2, 72, 2, 1, 10, 2, (0..10).collect()), // End is never reached.
-        (2, 2, 2, 1, 10, 2, (0..10).collect()), // Simultaneous set wins.
+    for (start, end, repeat, divisor, blank_rows) in [
+        (2, 4, 1, 1, vec![3, 4]),
+        (2, 0x84, 2, 1, vec![3, 4]), // End bit seven is ignored.
+        (2, 4, 2, 2, vec![6, 7, 8, 9]),
+        (1, 4, 2, 1, vec![2, 3, 4]), // Only the end cuts a repeated pair.
+        (1, 3, 2, 1, vec![2, 3]),
+        (17, 1, 2, 1, vec![0, 1, 18, 19]), // Total reset before the end match.
+        (17, 19, 2, 1, vec![18, 19]),      // End at total has no wrapped head.
+        (19, 1, 2, 1, vec![0, 1]),         // Start on the last counter value.
+        (20, 1, 2, 1, vec![]),             // Start is never reached.
+        (2, 72, 2, 1, (0..20).collect()),  // End is never reached.
+        (2, 2, 2, 1, (0..20).collect()),   // Simultaneous set wins.
     ] {
         for (index, value) in [
             (9, if repeat == 2 { 0x80 } else { 0 }),
@@ -120,8 +120,7 @@ async fn check_vertical() {
             common::crtc(&mut vga, index, value);
         }
         let capture = common::fixture::capture(&vga);
-        assert_eq!(capture.display.geometry().scanline_step, step);
-        let size = [4, height];
+        let size = [4, 20 * divisor];
         gpu.expect_active(
             &capture,
             size,

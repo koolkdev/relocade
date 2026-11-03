@@ -8,7 +8,6 @@ fn startup_uses_the_400_line_color_profile_without_overriding_later_guest_choice
         let mut dos = common::dos().await;
         let initial = common::next_capture(&dos).await;
         assert_eq!(initial.display.geometry().size, [738, 414]);
-        assert_eq!(initial.display.geometry().scanline_step, 1);
         assert_eq!(initial.display.geometry().pixel_aspect_ratio(), (20, 27));
         assert_eq!(
             &initial.display.plane(2)[65 * 32..65 * 32 + 16],

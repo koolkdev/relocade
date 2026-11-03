@@ -33,74 +33,41 @@ fn dimensions_follow_captured_crtc_and_character_clock() {
     assert_eq!(preset.geometry().size, [656, 414]);
 }
 
-// Remove borders so these fixtures isolate repeated-row and split alignment.
-fn active_raster(vga: &mut Vga<ManualClock>, lines: u8) {
-    for (index, value) in [
-        (0, 95),
-        (2, 79),
-        (3, 0x83),
-        (5, 0x80),
-        (6, lines),
-        (0x15, lines - 1),
-        (0x16, lines + 1),
-    ] {
-        crtc(vga, index, value);
-    }
-}
-
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn doubled_rows_share_storage_unless_a_split_separates_them() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
-    for (index, value) in [(0x11, 0), (7, 0), (9, 0x81), (0x12, 3)] {
-        crtc(&mut vga, index, value);
-    }
-    active_raster(&mut vga, 4);
-    for (split, height, step) in [(0, 4, 1), (1, 2, 2), (2, 4, 1), (3, 2, 2)] {
-        crtc(&mut vga, 0x18, split);
-        let geometry = vga.snapshot().geometry();
-        assert_eq!(geometry.size, [640, height]);
-        assert_eq!(geometry.scanline_step, step);
-    }
-    crtc(&mut vga, 0x18, 0);
-    crtc(&mut vga, 7, 0x10); // The split is now below the visible image.
-    assert_eq!(vga.snapshot().geometry().size, [640, 2]);
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn graphics_geometry_preserves_partial_repeats_and_row_address_changes() {
-    for shift in [0, 0x20, 0x40] {
+fn image_rows_preserve_physical_scanlines_in_text_and_graphics() {
+    for layout in 0..3 {
         let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
-        if shift == 0x40 {
-            common::support::indexed256::program(&mut vga);
-        } else {
-            common::support::planar16::program(&mut vga);
-            common::support::registers::indexed(&mut vga, 0x3ce, 5, shift);
+        match layout {
+            0 => {} // Device text preset.
+            1 => common::support::planar16::program(&mut vga),
+            2 => common::support::indexed256::program(&mut vga),
+            _ => unreachable!(),
         }
-        let width = if shift == 0x40 { 320 } else { 640 };
-        // Four row scans per memory row, eight visible scanlines.
-        crtc(&mut vga, 7, 0x10);
-        crtc(&mut vga, 9, 0x43);
-        crtc(&mut vga, 0x12, 7);
-        for (preset, split, mode, last, expected_height, expected_step) in [
-            (0, 0xff, 0xa3, 7, 2, 4),
-            (1, 0xff, 0xa3, 7, 8, 1), // Preset starts partway through a repeated row.
-            (0, 2, 0xa3, 7, 8, 1),    // Split cuts a group of four.
-            (0, 3, 0xa3, 7, 2, 4),    // Split lies exactly between groups.
-            (0, 0xff, 0xa1, 7, 8, 1), // Row scan substitutes address bit 14.
-            (0, 0xff, 0xa3, 5, 6, 1), // A partial final group has a different height.
+        // Eight physical scanlines, no borders. Row height and double-scanning
+        // affect pixel contents, not the image's physical dimensions.
+        for (index, value) in [
+            (0x11, 0),
+            (0, 95),
+            (2, 79),
+            (3, 0x83),
+            (5, 0x80),
+            (6, 8),
+            (7, 0),
+            (8, 0),
+            (0x12, 7),
+            (0x15, 7),
+            (0x16, 9),
+            (0x18, 255),
         ] {
-            crtc(&mut vga, 7, 0); // Keep the line compare in the low eight bits.
-            crtc(&mut vga, 9, 3);
-            crtc(&mut vga, 8, preset);
-            crtc(&mut vga, 0x18, split);
-            crtc(&mut vga, 0x17, mode);
-            crtc(&mut vga, 0x12, last);
-            active_raster(&mut vga, last + 1);
+            crtc(&mut vga, index, value);
+        }
+        let width = if layout == 2 { 320 } else { 640 };
+        for maximum_scan_line in [0, 3, 0x81] {
+            crtc(&mut vga, 9, maximum_scan_line);
             let geometry = vga.snapshot().geometry();
-            assert_eq!(geometry.size, [width, expected_height]);
-            assert_eq!(geometry.scanline_step, expected_step);
+            assert_eq!(geometry.size, [width, 8]);
+            assert_eq!(geometry.active_size, [width, 8]);
         }
     }
 }
@@ -134,7 +101,6 @@ fn planar_geometry_uses_character_clocks_and_double_scanning() {
         let geometry = vga.snapshot().geometry();
         assert_eq!(geometry.size, [336, 414]);
         assert_eq!(geometry.active_size, [320, 400]);
-        assert_eq!(geometry.scanline_step, 1);
         assert_eq!(geometry.pixel_aspect_ratio(), (5, 3));
     }
 }

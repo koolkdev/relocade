@@ -34,7 +34,7 @@ pub(crate) async fn read_active_pixels(
             * vertical_divisor,
     ];
     let skew = u32::from((c[3] >> 5) & 3) * clock_width;
-    let physical_height = geometry.active_size[1] * geometry.scanline_step;
+    let physical_height = geometry.active_size[1];
     assert_eq!(physical_height % size[1], 0);
     let row_step = physical_height / size[1];
     let mut active = Vec::with_capacity((size[0] * size[1] * 4) as usize);
@@ -43,8 +43,7 @@ pub(crate) async fn read_active_pixels(
             let column = ((x * pixel_step + skew + total[0] - geometry.raster_origin[0])
                 % total[0])
                 / pixel_step;
-            let row = ((y * row_step + total[1] - geometry.raster_origin[1]) % total[1])
-                / geometry.scanline_step;
+            let row = (y * row_step + total[1] - geometry.raster_origin[1]) % total[1];
             if column < geometry.size[0] && row < geometry.size[1] {
                 let offset = ((row * geometry.size[0] + column) * 4) as usize;
                 active.extend_from_slice(&pixels[offset..offset + 4]);

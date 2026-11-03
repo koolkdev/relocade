@@ -124,7 +124,6 @@ async fn check_banked_rows() {
         [2, 1, 0, 3, 1, 2, 3, 0, 0, 0, 0, 0, 3, 3, 3, 3],
     ];
     let capture = common::fixture::capture(&vga);
-    assert_eq!(capture.display.geometry().scanline_step, 1);
     gpu.expect_active(&capture, [16, 4], &pixels(rows.into_iter().flatten()))
         .await;
     // Count-by-two repeats a whole eight-pixel fetch, while RS0 still banks rows.

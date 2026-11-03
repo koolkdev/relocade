@@ -1,12 +1,12 @@
 //! Output geometry needed to allocate an image from captured display state.
-mod sampling;
-
-use crate::DisplaySnapshot;
-use sampling::Sampling;
+use crate::{
+    registers::{attribute, graphics},
+    DisplaySnapshot,
+};
 use std::ops::Range;
 
-/// Image dimensions and the relationship between output rows and VGA scanlines.
-/// Pixel interpretation belongs to the renderer and uses the captured registers.
+/// Image dimensions and origin, with one row per physical VGA scanline.
+/// The shader interprets pixels and hardware row repetition from captured registers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayGeometry {
     /// The nonblanked raster, including the overscan border. A completely blank
@@ -18,9 +18,6 @@ pub struct DisplayGeometry {
     /// Active picture dimensions at the image's sampling rate, before cropping
     /// or adding borders. These determine pixel proportions, not image size.
     pub active_size: [u32; 2],
-    /// Physical scanlines represented by each image row. Identical repeated
-    /// rows share storage unless panning, a split or blanking separates them.
-    pub scanline_step: u32,
 }
 
 impl DisplaySnapshot {
@@ -39,21 +36,20 @@ impl DisplaySnapshot {
             crtc.vertical_blanking(),
             scanlines_per_count,
         );
-        let sampling = Sampling::new(&self.registers, &vertical);
+        let attribute_mode = self.registers.attribute.values[attribute::MODE_CONTROL as usize];
+        let graphics_mode = self.registers.graphics.values[graphics::MODE as usize];
+        let indexed256 = attribute_mode & 0x41 == 0x41 && graphics_mode & 0x40 != 0;
+        let dots_per_pixel = if indexed256 { 2 } else { 1 };
         let active_width = crtc.horizontal_display() as u32 * dots_per_character;
         let active_height = crtc.vertical_display() as u32 * scanlines_per_count;
 
         let mut geometry = DisplayGeometry {
             size: [
-                (horizontal.len() as u32).div_ceil(sampling.dots_per_pixel),
-                vertical.len() as u32 / sampling.scanlines_per_row,
+                (horizontal.len() as u32).div_ceil(dots_per_pixel),
+                vertical.len() as u32,
             ],
             raster_origin: [horizontal.start, vertical.start],
-            active_size: [
-                active_width.div_ceil(sampling.dots_per_pixel),
-                active_height / sampling.scanlines_per_row,
-            ],
-            scanline_step: sampling.scanlines_per_row,
+            active_size: [active_width.div_ceil(dots_per_pixel), active_height],
         };
         // GPU images need nonzero dimensions even when no raster samples survive.
         if horizontal.is_empty() || vertical.is_empty() {
