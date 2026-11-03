@@ -2,7 +2,7 @@
 fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let glyph_width = input.grid.y;
     let attribute_mode = input.display.x;
-    let blink_on = input.display.y != 0u;
+    let attribute_blink_on = input.display.y != 0u;
     // Character and attribute planes share the CRTC address.
     let underline = input.addressing.w;
     let count_divisor = input.grid.w;
@@ -27,15 +27,15 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
         foreground_pixel = (glyph_bits & 1u) != 0u;
     }
 
-    // Apply character blink, then overlay the cursor during the visible blink phase.
+    // Character and cursor blink have independent phases; the cursor overlays the glyph.
     let blinking = (attribute_mode & 8u) != 0u;
-    if blinking && (cell_attribute & 0x80u) != 0u && !blink_on {
+    if blinking && (cell_attribute & 0x80u) != 0u && !attribute_blink_on {
         foreground_pixel = false;
     }
     let cursor_start = input.cursor.y;
     let cursor_end = input.cursor.z;
     let skew = (cursor_end >> 5u) & 3u;
-    if blink_on && (cursor_start & 0x20u) == 0u
+    if input.cursor.w != 0u && (cursor_start & 0x20u) == 0u
         && column >= skew && column < input.grid.x
         && ((line_start + (column - skew) / count_divisor) & 0xffffu) == input.cursor.x
         && glyph_row >= (cursor_start & 31u) && glyph_row <= (cursor_end & 31u) {

@@ -114,7 +114,10 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     poll_video(video.as_mut(), &mut cx);
     let blinking = source.current_capture().unwrap();
     assert_eq!(blinking.sequence, 16);
-    assert_ne!(blinking.display.blink_on, first.display.blink_on);
+    assert_ne!(
+        blinking.display.attribute_blink_on,
+        first.display.attribute_blink_on
+    );
     assert_eq!(blinking.display.registers, first.display.registers);
     for plane in 0..4 {
         assert!(std::ptr::eq(

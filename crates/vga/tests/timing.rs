@@ -20,6 +20,35 @@ fn sequencer(vga: &mut impl Device, index: u8, value: u8) {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn blink_dividers_follow_retraces_at_different_dot_clocks() {
+    for (miscellaneous, frequency) in [(0x43, 25_175_000), (0x47, 28_322_000)] {
+        let clock = Rc::new(ManualClock::default());
+        let mut vga = Vga::with_clock(clock.clone());
+        vga.write_port(0x3c2, 1, miscellaneous);
+        let source = vga.frame_source();
+        // Cursor and attribute phases differ over each half of a 32-frame cycle.
+        for (frame, cursor_on, attribute_on) in [
+            (1, true, true),
+            (7, true, true),
+            (8, false, true),
+            (15, false, true),
+            (16, true, false),
+            (23, true, false),
+            (24, false, false),
+            (31, false, false),
+            (32, true, true),
+        ] {
+            clock.set(dots((412 + (frame - 1) * 449) * 800, frequency));
+            vga.read_port(0x3da, 1);
+            let capture = source.current_capture().unwrap();
+            assert_eq!(capture.display.cursor_blink_on, cursor_on, "frame {frame}");
+            assert_eq!(capture.display.attribute_blink_on, attribute_on);
+        }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn guest_status_tracks_display_enable_and_retrace_without_a_video_future() {
     let clock = Rc::new(ManualClock::default());
     let mut vga = Vga::with_clock(clock.clone());

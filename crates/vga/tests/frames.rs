@@ -228,24 +228,31 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     };
     assert_eq!((latest.sequence, latest.time), (5, boundary(5)));
 
-    let mut changed = Box::pin(source.next_capture(Some(latest.sequence)));
-    assert!(changed.as_mut().poll(&mut cx).is_pending());
-    wakes.0.store(0, Ordering::Relaxed);
-    tick(&clock, video.as_mut(), boundary(16));
-    assert!(
-        wakes.0.load(Ordering::Relaxed) > 0,
-        "blink without guest writes"
-    );
-    let Poll::Ready(Some(latest)) = changed.as_mut().poll(&mut cx) else {
-        panic!("blink must wake the consumer");
-    };
-    assert_eq!((latest.sequence, latest.time), (16, boundary(16)));
-    assert_ne!(first.display.blink_on, latest.display.blink_on);
+    let mut latest = latest;
+    // Frame 8 changes only the cursor phase. Skipping to 24 changes only the
+    // attribute phase: the cursor has completed a full cycle in between.
+    for (frame, cursor_on, attribute_on) in [(8, false, true), (24, false, false)] {
+        let mut changed = Box::pin(source.next_capture(Some(latest.sequence)));
+        assert!(changed.as_mut().poll(&mut cx).is_pending());
+        wakes.0.store(0, Ordering::Relaxed);
+        tick(&clock, video.as_mut(), boundary(frame));
+        assert!(
+            wakes.0.load(Ordering::Relaxed) > 0,
+            "blink without guest writes"
+        );
+        let Poll::Ready(Some(capture)) = changed.as_mut().poll(&mut cx) else {
+            panic!("either blink phase must wake the consumer");
+        };
+        assert_eq!((capture.sequence, capture.time), (frame, boundary(frame)));
+        assert_eq!(capture.display.cursor_blink_on, cursor_on);
+        assert_eq!(capture.display.attribute_blink_on, attribute_on);
+        latest = capture;
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
+fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_immutable() {
     let clock = Rc::new(ManualClock::default());
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
     let mut video = Box::pin(Vga::run(vga.clone()));
@@ -258,7 +265,8 @@ fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
     let source = vga.borrow().frame_source();
     tick(&clock, video.as_mut(), boundary(1));
     let on = source.current_capture().unwrap();
-    assert!(on.display.blink_on);
+    assert!(on.display.cursor_blink_on);
+    assert!(on.display.attribute_blink_on);
     let on_text = common::support::inspection::inspect(&on.display);
     assert_eq!(on_text.cursor.start_scan_line, 6);
     assert_eq!(on_text.cursor.end_scan_line, 7);
@@ -266,14 +274,46 @@ fn video_time_animates_unchanged_memory_and_retained_pixels_stay_immutable() {
     let cursor = (6 * 640 + 8) * 4;
     assert_eq!(&pixels[..4], [170, 0, 0, 255]);
     assert_eq!(&pixels[cursor..cursor + 4], [170, 170, 170, 255]);
-    tick(&clock, video.as_mut(), boundary(16)); // Sixteen vertical retraces toggle the blink phase.
-    let off = source.current_capture().unwrap();
-    assert!(!off.display.blink_on);
-    assert!(on.display.blink_on);
-    let off_pixels = software::rasterize(&off);
-    let blink = &off_pixels.pixels;
-    assert_eq!(&blink[..4], [0, 0, 170, 255]);
-    assert_eq!(&blink[cursor..cursor + 4], [0, 0, 0, 255]);
+    for (frame, cursor_on, attribute_on) in [
+        (8, false, true),
+        (16, true, false),
+        (24, false, false),
+        (32, true, true),
+        (1_000_024, false, false), // Late service uses all elapsed retraces.
+    ] {
+        tick(&clock, video.as_mut(), boundary(frame));
+        let capture = source.current_capture().unwrap();
+        assert_eq!(capture.sequence, frame);
+        assert_eq!(capture.display.cursor_blink_on, cursor_on);
+        assert_eq!(capture.display.attribute_blink_on, attribute_on);
+        for plane in 0..4 {
+            assert!(std::ptr::eq(
+                on.display.plane(plane),
+                capture.display.plane(plane)
+            ));
+        }
+        let image = software::rasterize(&capture);
+        assert_eq!(
+            &image.pixels[..4],
+            if attribute_on {
+                [170, 0, 0, 255]
+            } else {
+                [0, 0, 170, 255]
+            }
+        );
+        assert_eq!(
+            &image.pixels[cursor..cursor + 4],
+            if cursor_on {
+                [170, 170, 170, 255]
+            } else {
+                [0, 0, 0, 255]
+            }
+        );
+    }
+    drop(video);
+    drop(vga);
+    assert!(on.display.cursor_blink_on);
+    assert!(on.display.attribute_blink_on);
     assert_eq!(&*software::rasterize(&on).pixels, pixels);
 }
 

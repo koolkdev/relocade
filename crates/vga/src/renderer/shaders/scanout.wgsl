@@ -8,9 +8,9 @@ struct DisplayVertex {
     @location(1) @interpolate(flat) addressing: vec4<u32>, // Start, stride, mode, underline.
     @location(2) @interpolate(flat) panning: vec4<u32>, // Preset row, byte/pel pan, line compare.
     @location(3) @interpolate(flat) fonts: vec3<u32>, // A/B bases and dual-font selection.
-    @location(4) @interpolate(flat) cursor: vec3<u32>, // Address and start/end scanlines.
+    @location(4) @interpolate(flat) cursor: vec4<u32>, // Address, start/end scanlines, blink phase.
     @location(5) @interpolate(flat) scanlines: vec2<u32>, // Scan repeat and output row step.
-    @location(6) @interpolate(flat) display: vec4<u32>, // Attribute mode, blink, blanked, GC shift bits.
+    @location(6) @interpolate(flat) display: vec4<u32>, // Attribute mode/blink, blanked, GC shift bits.
     @location(7) @interpolate(flat) colors0: vec4<u32>,
     @location(8) @interpolate(flat) colors1: vec4<u32>,
     @location(9) @interpolate(flat) colors2: vec4<u32>,
@@ -76,9 +76,9 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     output.addressing = vec4(state.display_start, crtc(0x13u) * 2u, address_mode, underline);
     output.panning = vec4(preset_row_scan & 31u, (preset_row_scan >> 5u) & 3u, pel_pan, split_scanline);
     output.fonts = vec3(font_a, font_b, u32(extended_memory && font_a != font_b));
-    output.cursor = vec3((crtc(14u) << 8u) | crtc(15u), crtc(10u), crtc(11u));
+    output.cursor = vec4((crtc(14u) << 8u) | crtc(15u), crtc(10u), crtc(11u), state.cursor_blink_on);
     output.scanlines = vec2(1u << (maximum_scan_line >> 7u), state.scanline_step);
-    output.display = vec4(attribute_mode, state.blink_on, u32(blanked), shift_mode);
+    output.display = vec4(attribute_mode, state.attribute_blink_on, u32(blanked), shift_mode);
     output.colors0 = colors[0];
     output.colors1 = colors[1];
     output.colors2 = colors[2];

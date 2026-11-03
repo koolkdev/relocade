@@ -26,7 +26,10 @@ pub struct DisplaySnapshot {
     /// A direct clone of the device's register banks, sampled with video memory.
     /// These settings apply to the whole image under the snapshot approximation.
     pub registers: Registers,
-    pub blink_on: bool,
+    /// Cursor blink phase, toggled every eight retraces before CRTC visibility rules.
+    pub cursor_blink_on: bool,
+    /// Attribute blink phase, toggled every sixteen retraces for text and graphics.
+    pub attribute_blink_on: bool,
     pub(crate) planes: [Arc<[u8]>; 4],
     /// Optional transfer hints; complete planes remain authoritative. Keep these
     /// with their memory even when a caller replaces CapturedFrame::display.
@@ -38,7 +41,8 @@ impl DisplaySnapshot {
     // Conservative input comparison, not pixel equivalence. Plane identities
     // avoid scanning VRAM; register access state can cause harmless extra changes.
     pub(crate) fn same_inputs(&self, other: &Self) -> bool {
-        self.blink_on == other.blink_on
+        self.cursor_blink_on == other.cursor_blink_on
+            && self.attribute_blink_on == other.attribute_blink_on
             && self.registers == other.registers
             && self
                 .planes

@@ -92,7 +92,8 @@ impl<C: Clock> Vga<C> {
         DisplaySnapshot {
             planes: self.memory.snapshot(),
             registers: self.registers.clone(),
-            blink_on: self.raster.blink_on(),
+            cursor_blink_on: self.raster.cursor_blink_on(),
+            attribute_blink_on: self.raster.attribute_blink_on(),
             #[cfg(feature = "renderer")]
             changes: self.frames.current_capture().map(|previous| MemoryChanges {
                 baseline: previous.display.planes.clone(),

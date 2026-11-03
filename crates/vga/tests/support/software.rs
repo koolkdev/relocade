@@ -32,11 +32,11 @@ pub(crate) fn render(snapshot: &DisplaySnapshot) -> Box<[u8]> {
                 text.attribute_mode & 4 != 0 && (0xc0..=0xdf).contains(&character) && bits & 1 != 0
             };
             let blinking = text.attribute_mode & 8 != 0;
-            if blinking && attribute & 0x80 != 0 && !text.blink_on {
+            if blinking && attribute & 0x80 != 0 && !text.attribute_blink_on {
                 lit = false;
             }
             let skew = u32::from((text.cursor_end >> 5) & 3);
-            lit |= text.blink_on
+            lit |= text.cursor_blink_on
                 && text.cursor_start & 0x20 == 0
                 && column >= skew
                 && column < text.layout.columns

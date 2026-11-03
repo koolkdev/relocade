@@ -19,7 +19,8 @@ pub struct Text {
     pub attribute_mode: u8,
     /// Packed little-endian RGBA8 values after attribute selection and DAC masking.
     pub colors: [u32; 16],
-    pub blink_on: bool,
+    pub cursor_blink_on: bool,
+    pub attribute_blink_on: bool,
     pub blanked: bool,
 }
 
@@ -147,7 +148,8 @@ impl Text {
             cursor_end: c[crtc::CURSOR_END as usize],
             attribute_mode: mode,
             colors,
-            blink_on: snapshot.blink_on,
+            cursor_blink_on: snapshot.cursor_blink_on,
+            attribute_blink_on: snapshot.attribute_blink_on,
             blanked: s[sequencer::CLOCKING_MODE as usize] & 0x20 != 0
                 || r.attribute.address() & attribute::PALETTE_ADDRESS_SOURCE == 0
                 || mode & 1 != 0

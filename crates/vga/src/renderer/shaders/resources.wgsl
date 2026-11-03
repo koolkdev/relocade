@@ -8,11 +8,11 @@ struct State {
     miscellaneous: u32,
     attribute_address: u32,
     dac_mask: u32,
-    blink_on: u32,
+    attribute_blink_on: u32,
+    cursor_blink_on: u32,
     scanline_step: u32,
     display_start: u32,
     reserved1: u32,
-    reserved2: u32,
     palette: array<vec4<u32>, 48>,
 }
 

@@ -59,7 +59,7 @@ fn blinking_uses_the_captured_frame_phase() {
     set_cell(&mut vga, 1, 0xdb, 0x14);
     let mut snapshot = vga.snapshot();
     for (blink_on, blinking_color) in [(true, [170, 0, 0, 255]), (false, [0, 0, 170, 255])] {
-        snapshot.blink_on = blink_on;
+        snapshot.attribute_blink_on = blink_on;
         let pixels = render(&snapshot);
         assert_eq!(pixel(&pixels, 0, 0), blinking_color);
         assert_eq!(pixel(&pixels, 8, 0), [170, 0, 0, 255]);
@@ -78,9 +78,9 @@ fn cursor_shape_visibility_and_blink() {
     assert_eq!(pixel(&pixels, 16, 13), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 16, 14), [170, 170, 170, 255]);
     assert_eq!(pixel(&pixels, 23, 15), [170, 170, 170, 255]);
-    snapshot.blink_on = false;
+    snapshot.cursor_blink_on = false;
     assert_eq!(pixel(&render(&snapshot), 16, 14), [0, 0, 0, 255]);
-    snapshot.blink_on = true;
+    snapshot.cursor_blink_on = true;
     for (address, start, end) in [(82u16, 0x26, 7), (82, 7, 6), (82, 8, 31), (2002, 6, 7)] {
         let [high, low] = address.to_be_bytes();
         snapshot.registers.crtc.values[14] = high;

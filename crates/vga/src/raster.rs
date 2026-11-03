@@ -3,8 +3,9 @@ use std::time::Duration;
 
 const DISPLAY_DISABLED: u8 = 1 << 0;
 const VERTICAL_RETRACE: u8 = 1 << 3;
-const BLINK_HALF_PERIOD_FRAMES: u8 = 16;
-const BLINK_PERIOD_FRAMES: u8 = 2 * BLINK_HALF_PERIOD_FRAMES;
+// IBM VGA: VSYNC/16 for the cursor, VSYNC/32 for attributes, both at 50% duty.
+const CURSOR_BLINK_HALF_PERIOD: u64 = 8;
+const ATTRIBUTE_BLINK_HALF_PERIOD: u64 = 16;
 
 /// Raster position at `updated`. Register writes advance using the old timing
 /// before reconfiguring, so programming cannot retime completed frames.
@@ -84,8 +85,12 @@ impl Raster {
         true
     }
 
-    pub fn blink_on(&self) -> bool {
-        self.retrace_count % u64::from(BLINK_PERIOD_FRAMES) < u64::from(BLINK_HALF_PERIOD_FRAMES)
+    pub fn cursor_blink_on(&self) -> bool {
+        (self.retrace_count / CURSOR_BLINK_HALF_PERIOD).is_multiple_of(2)
+    }
+
+    pub fn attribute_blink_on(&self) -> bool {
+        (self.retrace_count / ATTRIBUTE_BLINK_HALF_PERIOD).is_multiple_of(2)
     }
 
     pub fn next_retrace_at(&self) -> Option<Duration> {
