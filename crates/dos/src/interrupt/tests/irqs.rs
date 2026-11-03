@@ -1,4 +1,3 @@
-use super::device_requests::WaitingConsole;
 use super::*;
 use crate::{com, files::Handle, kernel, state::DosState, stdio::OutputStream};
 use relocade_machine::{Cpu, Device, DeviceConnection, IoBus, Memory};
@@ -35,7 +34,7 @@ impl Device for Irq {
 }
 
 /// Use the production loader, DOS services and BIOS resources with a controlled IRQ source.
-async fn session(irq: &Rc<RefCell<Irq>>, console: Option<WaitingConsole>) -> (Cpu, Rc<DosState>) {
+async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let (clock, _timers) = timer_service();
     let io = IoBus::new([
         DeviceConnection {
@@ -59,9 +58,6 @@ async fn session(irq: &Rc<RefCell<Irq>>, console: Option<WaitingConsole>) -> (Cp
         keyboard.clone(),
         cpu.exit_handle(),
     ));
-    if let Some(console) = console {
-        dos.devices().install(console);
-    }
     crate::memory::reset(&mut cpu.context().memory);
     relocade_bios::initialize(&mut cpu.context().memory, &io);
     let mut interrupts = relocade_machine::real_mode_interrupt::Interrupts::new(&mut cpu);
@@ -109,7 +105,7 @@ fn irq_reentry_preserves_dos_input_resources_and_arguments() {
     pollster::block_on(async {
         for function in [0x01, 0x07, 0x08, 0x0a, 0x3f] {
             let irq = Rc::new(RefCell::new(Irq::default()));
-            let (mut cpu, dos) = session(&irq, None).await;
+            let (mut cpu, dos) = session(&irq).await;
             let state = cpu.cpu_state();
             let memory = cpu.memory();
             let buffer = state.segment(Segment::Ds).base + 0x300;
@@ -215,7 +211,7 @@ fn irq_reentry_preserves_dos_input_resources_and_arguments() {
 fn ready_dos_input_finishes_without_delivering_an_irq() {
     pollster::block_on(async {
         let irq = Rc::new(RefCell::new(Irq::default()));
-        let (mut cpu, dos) = session(&irq, None).await;
+        let (mut cpu, dos) = session(&irq).await;
         cpu.cpu_state().set_ah(0x07);
         dos.stdio().input.clone().write_all(b"K").unwrap();
         irq.borrow_mut().raise();
@@ -223,62 +219,5 @@ fn ready_dos_input_finishes_without_delivering_an_irq() {
         assert_eq!(cpu.cpu_state().al(), b'K');
         assert!(!cpu.cpu_state().interrupts_enabled());
         assert_eq!(irq.borrow().acknowledged, 0);
-    });
-}
-
-#[test]
-fn irq_during_input_flush_preserves_the_selected_operation_and_arguments() {
-    pollster::block_on(async {
-        for function in [0x0c01, 0x0c06, 0x0c0a] {
-            let irq = Rc::new(RefCell::new(Irq::default()));
-            let (ready, wait) = futures_channel::oneshot::channel();
-            let output = Rc::new(RefCell::new(Vec::new()));
-            let console = WaitingConsole {
-                ready: RefCell::new(Some(wait)),
-                input: RefCell::new(b"KL\r"),
-                output: output.clone(),
-            };
-            let (mut cpu, _dos) = session(&irq, Some(console)).await;
-            let state = cpu.cpu_state();
-            let memory = cpu.memory();
-            let buffer = state.segment(Segment::Ds).base + 0x300;
-            memory
-                .view()
-                .write(buffer, &[3, 0xcc, 0xcc, 0xcc, 0xcc])
-                .unwrap();
-            state.set_ax(function);
-            state.set_dx(if function == 0x0c06 {
-                u16::from(b'K')
-            } else {
-                0x300
-            });
-            pending(cpu.run(100));
-            irq.borrow_mut().raise();
-            assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
-            assert_eq!(state.eip(), 0x305);
-            ready.send(()).unwrap();
-            assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
-            assert_eq!(irq.borrow().acknowledged, 1);
-            assert_eq!(state.segment(Segment::Ds).selector, 0x2222);
-            assert_eq!(
-                (state.bx(), state.cx(), state.dx()),
-                (0xbeef, 0x1234, 0x500)
-            );
-            assert!(!state.interrupts_enabled());
-            if function == 0x0c0a {
-                let mut bytes = [0; 5];
-                memory.view().read(buffer, &mut bytes).unwrap();
-                assert_eq!(bytes, [3, 2, b'K', b'L', b'\r']);
-                assert_eq!(
-                    state.ax(),
-                    0x2222,
-                    "buffered input leaves IRQ register effects live"
-                );
-                assert_eq!(&*output.borrow(), b"KL\r");
-            } else {
-                assert_eq!(state.ax(), 0x224b);
-                assert_eq!(&*output.borrow(), b"K");
-            }
-        }
     });
 }

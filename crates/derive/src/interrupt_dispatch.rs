@@ -68,10 +68,9 @@ impl Table {
         let selector = self.selector;
         let parameters = self.parameters;
         let call = Ident::new("__interrupt_call", Span::mixed_site());
-        let count = self.entries.len();
         let mut arms = Vec::new();
         let mut fallback = false;
-        for (index, entry) in self.entries.into_iter().enumerate() {
+        for entry in self.entries {
             let pattern = entry.pattern;
             let is_fallback = matches!(pattern, Pat::Wild(_));
             if fallback {
@@ -81,24 +80,14 @@ impl Table {
                 ));
             }
             fallback |= is_fallback;
-            let mut invoke = call_entry(entry.target, &call)?;
-            if index + 1 < count {
-                invoke = quote!(::relocade_machine::real_mode_interrupt::Either::Left(#invoke));
-            }
-            for _ in 0..index {
-                invoke = quote!(::relocade_machine::real_mode_interrupt::Either::Right(#invoke));
-            }
-            arms.push(quote!(#pattern => #invoke));
+            let invoke = call_entry(entry.target, &call)?;
+            arms.push(quote!(#pattern => #invoke.await));
         }
         if !fallback {
             return Err(syn::Error::new_spanned(name, "missing _ fallback"));
         }
-        let mut signature = syn::parse_quote!(
-            fn #name(#call: &mut ::relocade_machine::CpuContext<'_>, #(#parameters),*)
-        );
-        crate::interrupt::bind_future(&mut signature);
         Ok(quote! {
-            #visibility #signature {
+            #visibility async fn #name(#call: &mut ::relocade_machine::CpuContext<'_>, #(#parameters),*) {
                 match #call.cpu.#selector() { #(#arms,)* }
             }
             // Nested tables use the same internal adapter lookup as services.

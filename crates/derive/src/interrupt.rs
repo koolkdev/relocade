@@ -15,9 +15,7 @@ use syn::{
     braced, parenthesized,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
-    token,
-    visit_mut::{self, VisitMut},
-    Expr, FnArg, Ident, ItemFn, Lifetime, Pat, Signature, Token, Type, Visibility,
+    token, Expr, FnArg, Ident, ItemFn, Pat, ReturnType, Token, Type, Visibility,
 };
 
 pub(super) struct Binding {
@@ -215,6 +213,8 @@ pub(super) fn expand(binding: Binding, function: ItemFn) -> syn::Result<Tokens> 
     }
     let mut entry = signature.clone();
     entry.ident = format_ident!("{}_entry", signature.ident);
+    entry.asyncness = Some(syn::parse_quote!(async));
+    entry.output = ReturnType::Default;
     entry.inputs.clear();
     let method = matches!(signature.inputs.first(), Some(FnArg::Receiver(_)));
     if method {
@@ -292,70 +292,14 @@ pub(super) fn expand(binding: Binding, function: ItemFn) -> syn::Result<Tokens> 
                 || attr.path().is_ident("allow")
         })
         .collect::<Vec<_>>();
-    bind_future(&mut entry);
     Ok(quote! {
         #function
         #(#attributes)*
         #visibility #entry {
             const _: () = { #(#checks)* };
             #(#reads)*
-            async move {
-                let #result = #invoke #await_call;
-                match #result { #(#arms,)* }
-            }
+            let #result = #invoke #await_call;
+            match #result { #(#arms,)* }
         }
     })
-}
-
-/// Name input borrows so Rust 2021 can capture them in a returned future without
-/// tying independent service/context lifetimes together.
-pub(super) fn bind_future(signature: &mut Signature) {
-    #[derive(Default)]
-    struct Borrows(Vec<Lifetime>);
-    impl VisitMut for Borrows {
-        fn visit_type_reference_mut(&mut self, reference: &mut syn::TypeReference) {
-            reference
-                .lifetime
-                .get_or_insert_with(|| syn::parse_quote!('_));
-            visit_mut::visit_type_reference_mut(self, reference);
-        }
-
-        fn visit_receiver_mut(&mut self, receiver: &mut syn::Receiver) {
-            if receiver.colon_token.is_none() {
-                if let Some((_, lifetime)) = &mut receiver.reference {
-                    let lifetime = lifetime.get_or_insert_with(|| syn::parse_quote!('_));
-                    self.visit_lifetime_mut(lifetime);
-                    let mutability = receiver.mutability;
-                    receiver.ty = Box::new(syn::parse_quote!(&#lifetime #mutability Self));
-                }
-            } else {
-                visit_mut::visit_receiver_mut(self, receiver);
-            }
-        }
-
-        fn visit_lifetime_mut(&mut self, lifetime: &mut Lifetime) {
-            if lifetime.ident == "_" {
-                *lifetime = Lifetime::new(
-                    &format!("'__interrupt_borrow_{}", self.0.len()),
-                    Span::mixed_site(),
-                );
-                self.0.push(lifetime.clone());
-            }
-        }
-    }
-    let mut borrows = Borrows::default();
-    for parameter in &mut signature.inputs {
-        borrows.visit_fn_arg_mut(parameter);
-    }
-    let lifetimes = borrows.0;
-    let inputs = signature.inputs.iter().map(|parameter| match parameter {
-        FnArg::Receiver(receiver) => &receiver.ty,
-        FnArg::Typed(parameter) => &parameter.ty,
-    });
-    signature.asyncness = None;
-    signature.generics = syn::parse_quote!(<#(#lifetimes),*>);
-    signature.output = syn::parse_quote!(
-        -> impl ::core::future::Future<Output = ()>
-            + ::relocade_machine::real_mode_interrupt::Captures<(#(#inputs,)*)>
-    );
 }

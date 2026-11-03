@@ -3,10 +3,10 @@ use crate::devices::{attributes, CharacterDriver, DriverFuture};
 use futures_channel::oneshot;
 use std::{cell::RefCell, rc::Rc};
 
-pub(super) struct WaitingConsole {
-    pub(super) ready: RefCell<Option<oneshot::Receiver<()>>>,
-    pub(super) input: RefCell<&'static [u8]>,
-    pub(super) output: Rc<RefCell<Vec<u8>>>,
+struct WaitingConsole {
+    ready: RefCell<Option<oneshot::Receiver<()>>>,
+    input: RefCell<&'static [u8]>,
+    output: Rc<RefCell<Vec<u8>>>,
 }
 
 impl WaitingConsole {

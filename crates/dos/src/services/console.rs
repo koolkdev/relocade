@@ -16,12 +16,11 @@ pub(super) use request::Input;
 pub(super) async fn flush_input(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let stdin = services.process.files().handle(0).cloned();
     let input = Input::new(services);
-    let follow_up = dispatch_input(call, input);
     // A closed stdin or failed flush must not skip the selected operation.
     if let Ok(stdin) = stdin {
         let _ = stdin.flush_input().await;
     }
-    follow_up.await;
+    dispatch_input(call, input).await;
 }
 
 interrupt_dispatch! {
