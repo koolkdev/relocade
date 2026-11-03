@@ -32,6 +32,14 @@ worker adapter reconstructs the complete handle before invoking the task. Caller
 do not extract backing or pair it with configuration, and the transfer does not
 expose a capability's underlying storage.
 
+Use `CpuStorage::new()` when the host needs an execution-interrupt handle before
+CPU construction. Retain `storage.interrupt_handle()`, post the storage with
+`run_resource`, then call `storage.into_cpu(memory, cpu_config, io).await` on the
+execution worker. The storage is consumed by one CPU. Its signal is initialized
+before handles are published; configuring CPU registers and the model preserves
+requests made during construction. Neither preparation nor construction starts
+guest execution. `Cpu::new` uses the same storage path when no early handle is needed.
+
 `SharedMemory` and compiled `Module` handles still support the library's `Post`
 transport directly. Native handles move as Rust values. Browser transport
 preserves their JavaScript objects; shared-memory bytes are shared, not copied.
