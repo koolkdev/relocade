@@ -114,3 +114,45 @@ pub(super) const TABLE: [Option<&Preset>; 29] = [
     Some(&PLANAR_640X480),
     Some(&INDEXED256),
 ];
+
+/// Select the IBM table record for this mode and the BIOS text-scanline setting.
+pub(super) fn record_index(mode: u8, mode_set_control: u8) -> Option<usize> {
+    use super::modes::{
+        COLOR_TEXT_40X25, COLOR_TEXT_80X25, GRAPHICS_320X200_16, GRAPHICS_320X200_256,
+        GRAPHICS_320X200_4, GRAPHICS_320X200_4_ALT, GRAPHICS_640X200_16, GRAPHICS_640X200_2,
+        GRAPHICS_640X350_16, GRAPHICS_640X350_MONO, GRAPHICS_640X480_16, GRAPHICS_640X480_2,
+        MONO_TEXT_80X25, TEXT_40X25, TEXT_80X25,
+    };
+
+    let text_scanlines = match mode_set_control & 0x90 {
+        0 => 350,
+        0x10 => 400,
+        _ => 200,
+    };
+    Some(match (mode, text_scanlines) {
+        (TEXT_40X25, 200) => 0,
+        (COLOR_TEXT_40X25, 200) => 1,
+        (TEXT_80X25, 200) => 2,
+        (COLOR_TEXT_80X25, 200) => 3,
+        (TEXT_40X25, 350) => 19,
+        (COLOR_TEXT_40X25, 350) => 20,
+        (TEXT_80X25, 350) => 21,
+        (COLOR_TEXT_80X25, 350) => 22,
+        (TEXT_40X25 | COLOR_TEXT_40X25, 400) => 23,
+        (TEXT_80X25 | COLOR_TEXT_80X25, 400) => 24,
+        (MONO_TEXT_80X25, 400) => 25,
+        (MONO_TEXT_80X25, _) => 7, // Mono has no 200-line profile; use 350 lines.
+        // Graphics modes do not use the text-scanline setting.
+        (GRAPHICS_320X200_4, _) => 4,
+        (GRAPHICS_320X200_4_ALT, _) => 5,
+        (GRAPHICS_640X200_2, _) => 6,
+        (GRAPHICS_320X200_16, _) => 13,
+        (GRAPHICS_640X200_16, _) => 14,
+        (GRAPHICS_640X350_MONO, _) => 17,
+        (GRAPHICS_640X350_16, _) => 18,
+        (GRAPHICS_640X480_2, _) => 26,
+        (GRAPHICS_640X480_16, _) => 27,
+        (GRAPHICS_320X200_256, _) => 28,
+        _ => return None,
+    })
+}

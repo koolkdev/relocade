@@ -65,27 +65,8 @@ pub fn mode(memory: &MemoryView<'_>) -> ModeInfo {
 )]
 pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
     let mode = request & 0x7f;
-    let profile = memory.read_u8(MODESET_CONTROL).expect("mode-set control") & 0x90;
-    let record = match mode {
-        TEXT_40X25..=COLOR_TEXT_80X25 => match profile {
-            0 => 19 + usize::from(mode),
-            0x10 => 23 + usize::from(mode / 2),
-            _ => usize::from(mode),
-        },
-        MONO_TEXT_80X25 => {
-            if profile == 0x10 {
-                25
-            } else {
-                7
-            }
-        }
-        GRAPHICS_320X200_4..=GRAPHICS_640X200_2 | GRAPHICS_320X200_16..=GRAPHICS_640X200_16 => {
-            usize::from(mode)
-        }
-        GRAPHICS_640X350_MONO | GRAPHICS_640X350_16 => usize::from(mode) + 2,
-        GRAPHICS_640X480_2..=GRAPHICS_320X200_256 => usize::from(mode) + 9,
-        _ => return None,
-    };
+    let control = memory.read_u8(MODESET_CONTROL).expect("mode-set control");
+    let record = presets::record_index(mode, control)?;
     let preset = presets::TABLE[record].expect("supported BIOS mode");
     // Read before any writes: a guest table may overlap the BIOS data or VRAM.
     let parameters = Parameters::read(memory, record)?;
