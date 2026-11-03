@@ -55,7 +55,10 @@ fn mode_changes_preserve_or_convert_palettes_without_skipping_display_controls()
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        let text = dos.vga().borrow().snapshot();
+        video(&mut dos, 0x1202, 0x30, 0, 0);
+        video(&mut dos, 3, 0, 0, 0);
+        let text = dos.vga().borrow().snapshot(); // Defaults for the later 400-line mode set.
+        video(&mut dos, 0x1200, 0x30, 0, 0);
         video(&mut dos, 0x13, 0, 0, 0);
         let graphics = dos.vga().borrow().snapshot();
         // Mode loading must use the same conversion as the explicit service.
