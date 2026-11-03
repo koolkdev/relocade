@@ -6,13 +6,16 @@ pub use winit;
 mod window;
 pub use window::{Window, WindowState};
 
+#[cfg(feature = "audio")]
+pub mod audio;
+
 #[cfg(feature = "graphics")]
 mod application;
 #[cfg(feature = "graphics")]
 pub mod graphics;
 #[cfg(feature = "graphics")]
 pub use application::{run_app, AppHost};
-#[cfg(feature = "graphics")]
+#[cfg(any(feature = "graphics", feature = "audio"))]
 pub use web_thread as worker;
 
 #[cfg_attr(not(target_arch = "wasm32"), path = "platform/native.rs")]

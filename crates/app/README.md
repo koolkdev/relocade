@@ -18,7 +18,68 @@ registers the callbacks and returns immediately; the application remains owned
 by winit until exit. An `Ok` return on the browser does not indicate completion.
 
 The launcher itself creates no workers. CPU/device execution and application
-policy stay with its consumer; the optional graphics host owns one graphics worker.
+policy stay with its consumer; the optional graphics and audio hosts own their workers.
+
+With the `audio` feature, `audio::Audio` opens default CPAL output on main and
+attaches one device task to its own `worker::Thread`. CPAL supplies platform
+types and errors; the attachment receives its `StreamConfig` and an ordinary
+`async_channel::Sender<Vec<f32>>`. It runs once on the audio worker, where its
+device state and future need not be `Send`. Frontend has no audio contract.
+
+```rust,ignore
+let mut audio = relocade_app::audio::Audio::attach_device(
+    move |config, samples| async move {
+        let device = MyAudioDevice::new(config, source)?;
+        device.run(samples).await
+    },
+    report_audio_error,
+)?;
+audio.play()?; // In a browser, call from the application's user activation.
+// Service the application and observe audio.join() for device/worker errors.
+audio.close().await?;
+```
+
+The device owns synthesis and submits interleaved `f32` buffers directly with
+`samples.send(buffer).await`. The bounded channel wakes submission as output
+consumes buffers. Whole-buffer messages cannot publish partial frames when a
+send is cancelled. The device chooses batch sizes, source waits and source
+changes, and must yield during ongoing work so shutdown can cancel its future.
+
+The channel holds 16 buffers, and the callback can retain one partly consumed
+buffer. Devices must bound their buffer sizes. With 128-frame buffers at 48 kHz,
+the channel holds about 43 ms of audio, plus callback, device and platform
+buffering. Source changes follow already produced audio. There is no resampling,
+hardware playback clock or guest-clock synchronization.
+
+The callback consumes complete frames, clamps samples to [-1, 1], maps NaN to
+silence and converts to the host sample format. It discards an incomplete trailing
+frame from each buffer. An empty or shorter-than-one-frame buffer produces one
+silent output frame. Missing samples produce silence.
+
+`join()` waits for device completion without requesting shutdown, and leaves
+output alive to consume queued samples. `close()` cancels the device, waits for
+cleanup on its worker, then drops output and discards queued samples, including
+when the task returned an error. Both waits can be cancelled and resumed;
+cancelling a close wait retains its shutdown request. Repeated calls return the
+same device result. Keep the `Audio` owner alive through this wait. Dropping it
+early closes sample submission immediately but can skip browser worker cleanup.
+Device completion does not mean the queued audio has played.
+
+CPAL 0.18.2's AudioWorklet backend runs the same Rust callback against shared Wasm
+memory, without serializing PCM batches through messages. CPAL owns the worklet's
+Wasm instance and deinterleaves its Rust scratch buffer into browser output.
+Opening output does not await processor readiness; `play()` requests resume
+without awaiting the browser promise; closing requests asynchronous context
+teardown. The error callback forwards errors reported by CPAL, including worklet
+module loading, but does not detect every rejected browser promise or processor
+trap. Use the repository's threaded Wasm build and COOP/COEP headers; opening
+browser output requires atomics, shared memory and CPAL's TLS exports.
+
+Linux builds require ALSA development headers and pkg-config (`libasound2-dev`
+on Debian/Ubuntu). CI uses `tests/alsa-null.conf` for native output tests;
+that sink does not establish physical playback or latency. The browser fixture
+checks tones, underrun silence, shared-memory growth and CPAL error forwarding in
+Chromium. Physical output and other browsers still need playback testing.
 
 With the `graphics` feature, `run_app` hosts one window and drives an application
 lifecycle future on main. `AppHost` stays on main and accepts one display factory
