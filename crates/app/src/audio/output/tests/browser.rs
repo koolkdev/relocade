@@ -1,4 +1,5 @@
 use super::super::Output;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -27,5 +28,33 @@ fn drop_before_worklet_setup_closes_submission() {
     assert!(samples.is_closed());
 }
 
-#[path = "signal.rs"]
-mod signal;
+#[wasm_bindgen(module = "/../../tests/browser/audio-output.js")]
+extern "C" {
+    #[wasm_bindgen(js_name = failNextModule)]
+    fn fail_next_module();
+}
+
+#[wasm_bindgen_test]
+async fn asynchronous_setup_errors_reach_the_application_callback() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    fail_next_module();
+    let reported = Arc::new(AtomicBool::new(false));
+    let callback_reported = reported.clone();
+    let (output, _, writer) = Output::open(move |error| {
+        assert!(error.to_string().contains("test module failure"));
+        callback_reported.store(true, Ordering::Release);
+    })
+    .unwrap();
+    for _ in 0..300 {
+        if reported.load(Ordering::Acquire) {
+            break;
+        }
+        futures_timer::Delay::new(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(reported.load(Ordering::Acquire));
+    drop(output);
+    assert!(writer.is_closed());
+}

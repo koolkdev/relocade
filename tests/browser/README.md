@@ -5,10 +5,17 @@ and per-thread TLS. The linker also exports Rust's stack pointer and permits its
 function table to grow, so typed runtime calls can stay entirely inside Wasm.
 Arguments and scalar results pass directly; aggregate results follow Rust's C
 return convention through generated Wasm glue. `npm test` runs the wasm-bindings,
-wasm-runtime, machine, VGA and renderer tests with wasm-bindgen-test, then the worker
-integration checks. Both stages run
+wasm-runtime, machine, BIOS, VGA, renderer and app tests with wasm-bindgen-test,
+then the worker integration checks. Both stages run
 through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
+
+The app audio tests attach a device that receives CPAL configuration and sends
+whole sample buffers through a Rust channel on the production audio worker,
+with CPAL AudioWorklet output. They cover async backpressure, worker-local cleanup,
+cancellation of pending submission, playback beside busy execution, source
+closure/replacement, and output release after device failure. A Web Audio analyser
+observes tone frequency/amplitude, underrun silence and shared-memory growth.
 
 The worker checks cover Rust channel wakeups after a task returns Pending,
 host timer delivery while an execution worker stays continuously runnable,
