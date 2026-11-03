@@ -321,7 +321,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         )
     }
 
-    /// Ends a block, checks its instruction target and dispatches its successor.
+    /// Ends a block, checks execution controls and dispatches its successor.
     pub(super) fn dispatch(self) -> Result<(), BuildError> {
         let runtime = self.runtime;
         self.finish(true, |body, _| runtime.dispatch(body))
@@ -337,16 +337,15 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     fn finish(
         mut self,
-        check_budget: bool,
+        checkpoint: bool,
         continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let count = self
             .state
             .publish(&mut self.body, &self.eip, self.completed)?
             .expect("successful completion retires an instruction");
-        if check_budget {
-            self.state
-                .check_instruction_budget(&mut self.body, &count)?;
+        if checkpoint {
+            self.state.checkpoint(&mut self.body, &count)?;
         }
         continue_execution(self.body, &self.eip)
     }

@@ -1,4 +1,7 @@
-use crate::{Error, Load, MemoryAccess, MemoryValue, Result, Store, WasmSharedMemory};
+use crate::{
+    AtomicLoad, AtomicStore, AtomicSwap, Error, Load, MemoryAccess, MemoryValue, Result, Store,
+    WasmSharedMemory,
+};
 use relocade_compiler::abi;
 use std::sync::atomic::{AtomicU8, Ordering};
 use wasmtime::{AsContext, AsContextMut, Extern, MemoryType};
@@ -140,6 +143,27 @@ impl WasmSharedMemory for SharedMemory {
         for (cell, byte) in self.range(offset, bytes.len()).iter().zip(bytes) {
             *byte = cell.load(Ordering::Relaxed);
         }
+    }
+}
+
+impl AtomicLoad<u8> for SharedMemory {
+    #[inline]
+    fn atomic_load(&self, offset: u32) -> u8 {
+        self.range(offset, 1)[0].load(Ordering::SeqCst)
+    }
+}
+
+impl AtomicStore<u8> for SharedMemory {
+    #[inline]
+    fn atomic_store(&self, offset: u32, value: u8) {
+        self.range(offset, 1)[0].store(value, Ordering::SeqCst);
+    }
+}
+
+impl AtomicSwap<u8> for SharedMemory {
+    #[inline]
+    fn atomic_swap(&self, offset: u32, value: u8) -> u8 {
+        self.range(offset, 1)[0].swap(value, Ordering::SeqCst)
     }
 }
 

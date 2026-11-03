@@ -14,6 +14,7 @@ fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
             cpu: *cpu.cpu(),
             instruction_target: 998,
             cpu_model: cpu.execution_target().cpu_model,
+            interrupt_requested: 1,
         }
         .to_bytes(),
     );
@@ -82,7 +83,7 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     cpu.restore(&snapshot).unwrap();
     assert_eq!(cpu.snapshot(), snapshot);
     assert_eq!(read::<8>(&context, 536), 998_u64.to_le_bytes());
-    assert_eq!(read::<8>(&context, 544), [0xfd, 1, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(read::<8>(&context, 544), [0xfd, 1, 0, 0, 1, 0, 0, 0]);
 }
 
 #[test]

@@ -72,7 +72,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
     let mut stores = Vec::new();
     let mut additions = 0;
     let mut tails = Vec::new();
-    let mut budget_returns = 0;
+    let mut checkpoint_returns = 0;
     for payload in Parser::new(0).parse_all(&block.bytes) {
         match payload.unwrap() {
             Payload::TypeSection(section) => {
@@ -111,7 +111,7 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
                         }
                         Operator::I64Add => additions += 1,
                         Operator::ReturnCall { function_index } => tails.push(function_index),
-                        Operator::Return => budget_returns += 1,
+                        Operator::Return => checkpoint_returns += 1,
                         Operator::Call { .. } => panic!("dispatch must be a tail call"),
                         _ => {}
                     }
@@ -133,7 +133,8 @@ fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch()
     assert_eq!(stores, [56, 28, 60, 168]);
     assert_eq!(additions, 1);
     assert_eq!(tails, [0]);
-    assert_eq!(budget_returns, 1);
+    // Execution interrupt and budget exits share the already-published state.
+    assert_eq!(checkpoint_returns, 2);
 }
 
 fn abi_state(count: u64) -> CpuState {

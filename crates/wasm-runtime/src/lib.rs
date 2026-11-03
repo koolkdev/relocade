@@ -46,7 +46,10 @@ mod module_cache;
 pub use calls::{CallSignature, ExportFunction, Function};
 pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
-pub use memory::{Load, MemoryAccess, MemoryValue, Store, WasmMemoryAccess, WasmSharedMemory};
+pub use memory::{
+    AtomicLoad, AtomicStore, AtomicSwap, Load, MemoryAccess, MemoryValue, Store, WasmMemoryAccess,
+    WasmSharedMemory,
+};
 pub use module_cache::ModuleCache;
 
 #[cfg(all(

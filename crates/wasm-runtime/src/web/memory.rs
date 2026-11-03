@@ -3,7 +3,7 @@ mod transfers;
 pub(crate) use access::MemoryRegion;
 use transfers::Transfers;
 
-use crate::{Error, MemoryAccess, Result, WasmSharedMemory};
+use crate::{AtomicLoad, AtomicStore, AtomicSwap, Error, MemoryAccess, Result, WasmSharedMemory};
 use js_sys::{Object, Reflect, SharedArrayBuffer, WebAssembly};
 use std::{fmt, rc::Rc};
 use wasm_bindgen::JsCast;
@@ -108,6 +108,33 @@ impl WasmSharedMemory for SharedMemory {
 
     fn write(&self, offset: u32, bytes: &[u8]) {
         self.allocation.transfers.write(offset, bytes);
+    }
+}
+
+impl AtomicLoad<u8> for SharedMemory {
+    #[inline]
+    fn atomic_load(&self, offset: u32) -> u8 {
+        self.allocation.transfers.atomic_load_u8.call((offset,))
+    }
+}
+
+impl AtomicStore<u8> for SharedMemory {
+    #[inline]
+    fn atomic_store(&self, offset: u32, value: u8) {
+        self.allocation
+            .transfers
+            .atomic_store_u8
+            .call((offset, value));
+    }
+}
+
+impl AtomicSwap<u8> for SharedMemory {
+    #[inline]
+    fn atomic_swap(&self, offset: u32, value: u8) -> u8 {
+        self.allocation
+            .transfers
+            .atomic_swap_u8
+            .call((offset, value))
     }
 }
 

@@ -1,6 +1,6 @@
 use relocade_compiler::{
     abi::{Function, Memory},
-    Program, I32, I64,
+    Program, I32, I64, I8,
 };
 use relocade_wasm_runtime::{
     MemoryAccess, SharedMemory, WasmBackend, WasmCompiler, WasmMemoryAccess, WasmSharedMemory,
@@ -248,4 +248,54 @@ fn shared_memory_can_be_accessed_and_grown_on_another_thread() {
     .unwrap();
     assert_eq!(memory.load::<u32>(65535), 0xfedc_ba98);
     assert_eq!(memory.load::<u16>(1), 0x5678);
+}
+
+async fn check_atomic_bytes() {
+    const EXCHANGE: Function<fn(u8) -> u8> = Function::new("example", "exchange");
+    const OFFSET: u32 = 65537;
+    let memory = SharedMemory::new(1, 2).unwrap();
+    let retained = memory.clone();
+    let mut backend = Backend::new().unwrap();
+    let imported = backend.import_shared_memory(&memory);
+    backend.ensure_memory_size(&imported, 2 * 65536).unwrap();
+    let mut program = Program::new();
+    let shared = program.import_memory(SHARED);
+    EXCHANGE
+        .define(&mut program, move |mut body, (value,)| {
+            let previous = body.atomic::<I8>(shared, OFFSET, 0)?.exchange(value)?;
+            body.return_(previous)
+        })
+        .unwrap();
+    let module = backend
+        .compiler()
+        .compile(&program.compile().unwrap())
+        .await
+        .unwrap();
+    let instance = backend
+        .instantiate(&module, &[backend.bind(SHARED, &imported)])
+        .await
+        .unwrap();
+    let exchange = backend.function(&instance, EXCHANGE).unwrap();
+    assert_eq!(memory.atomic_load::<u8>(OFFSET), 0);
+    retained.atomic_store(OFFSET, 0x81_u8);
+    assert_eq!(exchange.call(&mut backend, (0xfe,)), 0x81);
+    assert_eq!(memory.atomic_load::<u8>(OFFSET), 0xfe);
+    assert_eq!(retained.atomic_swap(OFFSET, 0_u8), 0xfe);
+    assert_eq!(exchange.call(&mut backend, (0x42,)), 0);
+    drop(backend);
+    drop(memory);
+    assert_eq!(retained.atomic_swap(OFFSET, 0_u8), 0x42);
+    assert_eq!(retained.atomic_load::<u8>(OFFSET), 0);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn host_and_wasm_share_atomic_bytes_after_growth() {
+    pollster::block_on(check_atomic_bytes());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn host_and_wasm_share_atomic_bytes_after_growth() {
+    check_atomic_bytes().await;
 }

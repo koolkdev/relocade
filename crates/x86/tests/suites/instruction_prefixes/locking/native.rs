@@ -1,21 +1,46 @@
 //! Native atomic encodings and the ordinary-access boundary.
 
-use relocade_x86::compile_block_from_bytes;
-use wasmparser::{Parser, Payload};
+use relocade_x86::{compile_block_from_bytes, ExecutionContext};
+use std::mem::offset_of;
+use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 fn atomic_instructions(code: &[u8]) -> Vec<String> {
     let module = compile_block_from_bytes(0x1000, code, 1).unwrap();
     let mut atomics = Vec::new();
+    let mut cpu_memory = None;
+    let mut memory_index = 0;
     for payload in Parser::new(0).parse_all(&module.bytes) {
-        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-            for operator in body.get_operators_reader().unwrap() {
-                let operator = operator.unwrap();
-                let name = format!("{operator:?}");
-                let name = name.split_whitespace().next().unwrap();
-                if name.contains("Atomic") {
-                    atomics.push(name.to_owned());
+        match payload.unwrap() {
+            Payload::ImportSection(imports) => {
+                for import in imports {
+                    let import = import.unwrap();
+                    if matches!(import.ty, TypeRef::Memory(_)) {
+                        if import.module == "relocade" && import.name == "executionContext" {
+                            cpu_memory = Some(memory_index);
+                        }
+                        memory_index += 1;
+                    }
                 }
             }
+            Payload::CodeSectionEntry(body) => {
+                for operator in body.get_operators_reader().unwrap() {
+                    let operator = operator.unwrap();
+                    // The execution interrupt checkpoint is independent of the
+                    // guest instruction's atomic operations and fences.
+                    if matches!(operator, Operator::I32AtomicLoad8U { memarg }
+                        if Some(memarg.memory) == cpu_memory
+                            && memarg.offset == offset_of!(ExecutionContext, interrupt_requested) as u64)
+                    {
+                        continue;
+                    }
+                    let name = format!("{operator:?}");
+                    let name = name.split_whitespace().next().unwrap();
+                    if name.contains("Atomic") {
+                        atomics.push(name.to_owned());
+                    }
+                }
+            }
+            _ => {}
         }
     }
     atomics

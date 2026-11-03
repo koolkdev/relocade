@@ -175,7 +175,8 @@ impl CpuStateAccess {
         CpuState::from_bytes(self.read(0))
     }
 
-    /// Restores a compatible CPU snapshot without changing the execution budget.
+    /// Restores a compatible CPU snapshot without changing execution controls,
+    /// including the instruction target and pending execution interrupt.
     ///
     /// # Errors
     /// Returns an error without writing if the snapshot violates this CPU's

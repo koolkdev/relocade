@@ -51,7 +51,7 @@ selection. The model is host configuration, not mutable `CpuState`; keep it fixe
 for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
-count, checks its instruction target, then tail-calls
+count, checks execution interrupts and its instruction target, then tail-calls
 `relocade.dispatch() -> ExecutionExit`. Dispatch reads the published EIP from CPU state,
 and its result is returned unchanged. EIP is an offset relative to CS and wraps
 at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
@@ -67,10 +67,10 @@ instruction faults or is unsupported. Each instruction fetches live guest bytes
 and starts with fresh prefix state. REP completes its repetition; port strings
 dispatch and other strings continue to the next instruction in both frontends.
 
-Interpreter `step` executes one instruction before its budget check and dispatch,
+Interpreter `step` executes one instruction before its checkpoint and dispatch,
 including all elements of a supported REP instruction.
 
-## Instruction budgets
+## Execution controls
 
 All execution entries share the declared `ExecutionContext` layout in
 `relocade.executionContext`:
@@ -82,21 +82,52 @@ pub struct ExecutionContext {
     pub cpu: CpuState,
     pub instruction_target: u64,
     pub cpu_model: CpuModel,
+    pub interrupt_requested: u8,
 }
 ```
 
 Initialize backing with `ExecutionContext::default().to_bytes()`. Fields are
 little endian, with offsets derived from this layout using `offset_of!`.
-CPU snapshot reads and writes cover only the `cpu` member. The host sets
+CPU snapshot reads and writes cover only the `cpu` member, preserving pending
+execution interrupts and other execution controls. The host sets
 `instruction_target` between entries; generated code never writes it.
 Its default, `u64::MAX`, is practically unbounded.
 Set `cpu_model` to the guest's configured capabilities before execution and keep it
 fixed for that guest. Interpreters read it for instruction admission and CPUID;
 JIT blocks specialize to it. CPU snapshot replacement preserves this field.
 The model is a little-endian 32-bit capability mask at byte offset 544; use
-`ExecutionContext::to_bytes()` to encode it. The complete context is 552 bytes,
-including four zero padding bytes. Existing backing must be reinitialized when
-updating generated modules to this layout.
+`ExecutionContext::to_bytes()` to encode it. The interrupt request byte follows at offset
+548. The complete context remains 552 bytes, including three zero padding bytes.
+Initialize the complete backing before sharing notification handles; live updates
+must not overwrite the interrupt request byte through whole-context copies.
+
+### Execution interrupts
+
+The interrupt request byte defaults to zero. Producers publish ready work, then store a
+nonzero byte using a sequentially consistent atomic operation. At a completed
+block boundary, generated code atomically loads this byte before checking the
+instruction target. A nonzero value returns `ExecutionExit::Interrupted` with CPU
+state published, without consuming the request or fetching the successor. This
+exit takes precedence over a coincident exhausted budget. It is independent of
+guest IF and does not deliver an x86 IRQ, create a guest interrupt frame, or
+terminate the session. It returns control to the execution runner.
+
+The execution owner acknowledges with an atomic exchange to zero **before**
+examining runnable work, so requests arriving afterward remain set. Work queues
+remain authoritative; the signal coalesces notifications and does not count them.
+The embedding must provide its own wake and parking protocol for pending host
+futures. In `relocade-machine`, `Cpu::interrupt_handle()` returns an
+`ExecutionInterrupt` with `request()` and `take()` over the existing shared
+allocation, without exposing CPU state.
+
+All live accesses to this field use byte atomics, matching the native backing's
+atomic access width. Guest checkpoints only read it. This reuses the existing
+`relocade.executionContext` import; it needs no additional memory or guest address.
+Checkpoints have the same boundaries as budget checks: REP and straight-line
+execution have no fixed notification-latency bound. After an interrupt-inhibiting
+instruction, the protected successor executes through STEP before an `Interrupted` exit.
+
+### Instruction budgets
 
 For a finite budget, add the requested number of instructions to
 `instruction_count`, saturating at `u64::MAX`. Handle a zero budget before entering

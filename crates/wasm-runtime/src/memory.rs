@@ -1,7 +1,9 @@
 //! Value access to retained or borrowed memory, independent of store lookup.
 
+mod atomic;
 mod scalar;
 mod value;
+pub use atomic::{AtomicLoad, AtomicStore, AtomicSwap};
 pub use scalar::{Load, Store};
 pub use value::MemoryValue;
 
