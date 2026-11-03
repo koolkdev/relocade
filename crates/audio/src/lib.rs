@@ -7,7 +7,11 @@
 #![doc = include_str!("../README.md")]
 
 mod format;
+#[cfg(not(target_arch = "wasm32"))]
+mod output;
 mod pcm;
 
 pub use format::{ConfigError, Format};
+#[cfg(not(target_arch = "wasm32"))]
+pub use output::{Output, OutputError};
 pub use pcm::{pcm_buffer, PcmReader, PcmWriter, WriteError};
