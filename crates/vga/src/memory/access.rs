@@ -11,8 +11,8 @@ use crate::registers::{
 #[derive(Clone, Copy)]
 pub(crate) enum VramAccess<'a> {
     Disabled,
-    LegacyVga(&'a Registers),
-    Banked(BankedWindow),
+    Vga(&'a Registers),
+    SvgaBank(BankedWindow),
 }
 
 impl<'a> VramAccess<'a> {
@@ -20,9 +20,9 @@ impl<'a> VramAccess<'a> {
         if !setup.enabled() || !registers.video_memory_enabled() {
             Self::Disabled
         } else if let Some(window) = dispi.banked_window() {
-            Self::Banked(window)
+            Self::SvgaBank(window)
         } else {
-            Self::LegacyVga(registers)
+            Self::Vga(registers)
         }
     }
 }

@@ -33,8 +33,8 @@ impl VideoMemory {
             let address = address + index as u32;
             *byte = match access {
                 VramAccess::Disabled => 0xff,
-                VramAccess::LegacyVga(registers) => self.read_vga_byte(address, registers),
-                VramAccess::Banked(window) => window
+                VramAccess::Vga(registers) => self.read_vga_byte(address, registers),
+                VramAccess::SvgaBank(window) => window
                     .memory_offset(address)
                     .map_or(0xff, |offset| self.storage.read(offset)),
             };
@@ -47,8 +47,8 @@ impl VideoMemory {
             let address = address + index as u32;
             match access {
                 VramAccess::Disabled => {}
-                VramAccess::LegacyVga(registers) => self.write_vga_byte(address, *byte, registers),
-                VramAccess::Banked(window) => {
+                VramAccess::Vga(registers) => self.write_vga_byte(address, *byte, registers),
+                VramAccess::SvgaBank(window) => {
                     if let Some(offset) = window.memory_offset(address) {
                         self.storage.write(offset, *byte);
                     }
