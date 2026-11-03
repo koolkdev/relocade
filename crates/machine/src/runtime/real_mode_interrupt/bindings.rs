@@ -65,6 +65,7 @@
 //! `zf` edit saved interrupt FLAGS; omitted registers and flags are preserved.
 //! A result arm such as `None => unsupported` delegates to that annotated service,
 //! using its generated adapter just like a table entry, including the `_` fallback.
+//! It can forward result values, for example `Err(error) => failure(error)`.
 //! Imported services use their module path so the generated adapter is reachable.
 //! The existing hook owns suspension, IRQ continuation and IRET.
 //! A function returning `()` can omit `returns`; its adapter writes no outputs.

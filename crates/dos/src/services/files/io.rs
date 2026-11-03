@@ -1,5 +1,7 @@
 //! Bind DOS handle transfers to captured register arguments and guest memory.
 
+use relocade_machine::real_mode_interrupt::interrupt;
+
 use crate::services::Services;
 use relocade_machine::CpuContext;
 
@@ -13,6 +15,7 @@ fn transfer_count(offset: u16, count: u16) -> usize {
 }
 
 /// AH=3Fh: retain the source and DS:DX destination throughout a pending read.
+#[interrupt(context(call))]
 pub(in crate::services) async fn read(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let cpu = call.cpu;
     let handle = cpu.bx();
@@ -37,6 +40,7 @@ pub(in crate::services) async fn read(call: &mut CpuContext<'_>, services: &Serv
 }
 
 /// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
+#[interrupt(context(call))]
 pub(in crate::services) async fn write(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let cpu = call.cpu;
     let handle = cpu.bx();

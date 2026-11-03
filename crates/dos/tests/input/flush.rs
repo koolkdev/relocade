@@ -73,6 +73,7 @@ fn flush_only_and_direct_io_leave_output_and_buffered_handle_input_alone() {
         dos.stdin().write_all(b"old").unwrap();
         let cpu = service(&mut dos, 0x0c06, 0, 0, u16::from(b'!'));
         assert_eq!(cpu.registers.eax as u16, 0x0c21);
+        assert_eq!(cpu.flags.eflags(), 0x643); // Output preserves ZF and the other flags.
         assert_eq!(common::output(dos.stdout()), b"!");
         assert_eq!(service(&mut dos, 0x0b00, 0, 0, 0).registers.eax as u8, 0);
         for function in [0, 0x0c, 0xff] {

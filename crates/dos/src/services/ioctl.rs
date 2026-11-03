@@ -1,55 +1,65 @@
 //! DOS device information, mode control and readiness for open handles.
 
 use super::Services;
-use relocade_machine::CpuContext;
+use crate::DosError;
+use relocade_machine::real_mode_interrupt::{interrupt, interrupt_dispatch};
 
-use crate::{error::DosError, interrupt::return_result};
-
-const GET_DEVICE_INFORMATION: u8 = 0x00;
-const SET_DEVICE_INFORMATION: u8 = 0x01;
-const GET_INPUT_STATUS: u8 = 0x06;
-const GET_OUTPUT_STATUS: u8 = 0x07;
-
-/// Query or set BX's device information, or query its input/output readiness.
-pub(super) async fn ioctl(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    let handle = call.cpu.bx();
-    let result = async {
-        match call.cpu.al() {
-            GET_DEVICE_INFORMATION => {
-                services
-                    .process
-                    .files()
-                    .device_information(handle)
-                    .map(|info| {
-                        call.cpu.set_dx(info);
-                        call.cpu.set_ax(info);
-                    })
-            }
-            SET_DEVICE_INFORMATION => {
-                let info = call.cpu.dx();
-                services
-                    .process
-                    .files()
-                    .set_device_information(handle, info)
-                    .map(|previous| {
-                        call.cpu.set_al(previous);
-                    })
-            }
-            GET_INPUT_STATUS => {
-                let handle = services.process.files().handle(handle)?.clone();
-                let available = handle.input_available().await?;
-                call.cpu.set_al(if available { 0xff } else { 0 });
-                Ok(())
-            }
-            GET_OUTPUT_STATUS => {
-                let handle = services.process.files().handle(handle)?.clone();
-                let ready = handle.output_ready().await?;
-                call.cpu.set_al(if ready { 0xff } else { 0 });
-                Ok(())
-            }
-            _ => Err(DosError::InvalidFunction),
-        }
+interrupt_dispatch! {
+    pub(super) dispatch(al, services: &Services<'_>) {
+        0x00: device_information(services),
+        0x01: set_device_information(services),
+        0x06: input_status(services),
+        0x07: output_status(services),
+        _: unsupported,
     }
-    .await;
-    return_result(call, result)
+}
+
+#[interrupt(args(handle = bx), returns {
+    Ok(info) => { dx = info, ax = info, cf = false },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+fn device_information(services: &Services<'_>, handle: u16) -> Result<u16, DosError> {
+    services.process.files().device_information(handle)
+}
+
+#[interrupt(args(handle = bx, info = dx), returns {
+    Ok(previous) => { al = previous, cf = false },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+fn set_device_information(services: &Services<'_>, handle: u16, info: u16) -> Result<u8, DosError> {
+    services
+        .process
+        .files()
+        .set_device_information(handle, info)
+}
+
+#[interrupt(args(handle = bx), returns {
+    Ok(status) => { al = status, cf = false },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+async fn input_status(services: &Services<'_>, handle: u16) -> Result<u8, DosError> {
+    let handle = services.process.files().handle(handle)?.clone();
+    Ok(if handle.input_available().await? {
+        0xff
+    } else {
+        0
+    })
+}
+
+#[interrupt(args(handle = bx), returns {
+    Ok(status) => { al = status, cf = false },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+async fn output_status(services: &Services<'_>, handle: u16) -> Result<u8, DosError> {
+    let handle = services.process.files().handle(handle)?.clone();
+    Ok(if handle.output_ready().await? {
+        0xff
+    } else {
+        0
+    })
+}
+
+#[interrupt(returns { error => crate::interrupt::return_error(error) })]
+fn unsupported() -> DosError {
+    DosError::InvalidFunction
 }
