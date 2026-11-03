@@ -1,7 +1,7 @@
 use super::support;
 use futures_channel::oneshot;
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, FarPointer},
+    real_mode_interrupt::{interrupt, interrupt_handler, FarPointer},
     MemoryView,
 };
 use relocade_x86::{
@@ -47,7 +47,7 @@ async fn check_pointer_bindings() {
     let mut call = runtime.context();
     let cpu = call.cpu.clone();
     cpu.set_segment(Segment::Es, SegmentRegister::real_mode(Segment::Es, 0x1234));
-    select_data_segment_entry(&mut call).await;
+    interrupt_handler!(select_data_segment)(&mut call).await;
     assert_eq!(
         cpu.segment(Segment::Ds),
         SegmentRegister::real_mode(Segment::Ds, 0x1234)
@@ -58,7 +58,7 @@ async fn check_pointer_bindings() {
 
     let before = cpu.snapshot();
     let (ready, wait) = oneshot::channel();
-    let mut pending = Box::pin(locate_font_entry(&mut call, wait));
+    let mut pending = Box::pin(interrupt_handler!(locate_font)(&mut call, wait));
     let mut cx = Context::from_waker(std::task::Waker::noop());
     assert!(pending.as_mut().poll(&mut cx).is_pending());
     assert_eq!(cpu.snapshot(), before);

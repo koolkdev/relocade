@@ -33,6 +33,8 @@ impl<'cpu> Interrupts<'cpu> {
     /// follows the memory map, including nonidentity backing offsets and A20.
     /// Handlers borrow CPU state, mapped memory and I/O from this CPU's resources.
     /// This does not change interrupt-enable behavior.
+    /// Use [`super::interrupt_handler!`] to register a service annotated with
+    /// [`super::interrupt`], applying its register arguments and return mappings.
     pub fn register_interrupt<F>(&mut self, vector: u8, entry: FarPointer, handler: F)
     where
         F: AsyncFn(&mut CpuContext<'_>) + 'static,

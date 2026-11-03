@@ -20,9 +20,17 @@ pub fn interrupt(args: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn interrupt_handler(input: TokenStream) -> TokenStream {
+    let target = parse_macro_input!(input as syn::Expr);
+    interrupt::call::handler(target)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro]
 pub fn interrupt_dispatch(input: TokenStream) -> TokenStream {
-    let table = parse_macro_input!(input as interrupt_dispatch::Table);
-    table
+    let selection = parse_macro_input!(input as interrupt_dispatch::Selection);
+    selection
         .expand()
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()

@@ -5,7 +5,7 @@ use relocade_machine::{real_mode_interrupt::interrupt, MemoryView};
 pub(crate) mod console;
 mod directories;
 mod dispatch;
-pub(crate) use dispatch::{int20, int21};
+pub(crate) use dispatch::{int20, int21_entry};
 mod files;
 mod ioctl;
 mod memory;

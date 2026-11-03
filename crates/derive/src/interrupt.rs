@@ -1,6 +1,7 @@
-//! ABI declarations on the service implementation; selection belongs to its table.
+//! ABI declarations on ordinary service implementations and dispatchers.
 
 mod argument;
+pub(super) mod call;
 mod pointer;
 mod register;
 mod segment;
@@ -247,7 +248,7 @@ pub(super) fn expand(binding: Binding, function: ItemFn) -> syn::Result<Tokens> 
         let pattern = &arm.pattern;
         let action = match &arm.action {
             ReturnAction::Service(service) => {
-                let invoke = crate::interrupt_dispatch::call_entry(service.clone(), &call)?;
+                let invoke = call::entry(service.clone(), &call)?;
                 quote!(#invoke.await)
             }
             ReturnAction::Values(outputs) => {

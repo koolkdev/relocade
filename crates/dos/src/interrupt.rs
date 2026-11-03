@@ -2,7 +2,7 @@
 
 use crate::{error::DosError, process::ProcessStatus, services, state::DosState};
 use relocade_machine::{
-    real_mode_interrupt::{self, Interrupts},
+    real_mode_interrupt::{self, interrupt_handler, Interrupts},
     CpuContext, FarPointer,
 };
 use std::rc::Rc;
@@ -22,7 +22,11 @@ pub(crate) fn register_interrupts(interrupts: &mut Interrupts<'_>, session: Rc<D
         INT20_ENTRY,
         for_process(session.clone(), services::int20),
     );
-    interrupts.register_interrupt(0x21, INT21_ENTRY, for_process(session, services::int21));
+    interrupts.register_interrupt(
+        0x21,
+        INT21_ENTRY,
+        for_process(session, interrupt_handler!(services::int21)),
+    );
 }
 
 /// Resolves and retains the active process for each interrupt invocation.

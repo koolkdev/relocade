@@ -4,15 +4,23 @@ use super::{read_path, Services};
 use crate::DosError;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    FarPointer, MemoryView,
+    CpuContext, FarPointer, MemoryView,
 };
 
-interrupt_dispatch! {
-    pub(in crate::services) attributes(al, services: &Services<'_>) {
-        0x00: get_attributes(services),
-        0x01: set_attributes(services),
-        _: unsupported,
-    }
+#[interrupt(context(call), args(function = al))]
+pub(in crate::services) async fn attributes(
+    call: &mut CpuContext<'_>,
+    services: &Services<'_>,
+    function: u8,
+) {
+    interrupt_dispatch!(
+        call,
+        match function {
+            0x00 => get_attributes(services),
+            0x01 => set_attributes(services),
+            _ => unsupported,
+        }
+    );
 }
 
 #[interrupt(context(memory), args(path = ptr(ds, dx)), returns {

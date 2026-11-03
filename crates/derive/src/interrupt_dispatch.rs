@@ -1,131 +1,122 @@
-//! Static service selection. Each target owns its ABI declaration.
+//! Select ABI adapters using an ordinary Rust match expression.
 
-use proc_macro2::{Ident, Span, TokenStream as Tokens};
-use quote::{format_ident, quote};
+use proc_macro2::{Ident, TokenStream as Tokens};
+use quote::quote;
 use syn::{
-    braced, parenthesized,
+    ext::IdentExt,
     parse::{Parse, ParseStream},
-    punctuated::Punctuated,
-    Expr, FnArg, Member, Pat, Token, Visibility,
+    visit::{self, Visit},
+    BinOp, Expr, ExprMatch, PatIdent, Token,
 };
 
-pub(super) struct Table {
-    visibility: Visibility,
-    name: Ident,
-    selector: Ident,
-    parameters: Vec<FnArg>,
-    entries: Vec<Entry>,
-}
-struct Entry {
-    pattern: Pat,
-    target: Expr,
+pub(super) struct Selection {
+    call: Ident,
+    expression: ExprMatch,
 }
 
-impl Parse for Table {
+impl Parse for Selection {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let visibility = input.parse()?;
-        let name = input.parse()?;
-        let parameters;
-        parenthesized!(parameters in input);
-        let selector = parameters.parse()?;
-        let parameters = if parameters.is_empty() {
-            Vec::new()
-        } else {
-            parameters.parse::<Token![,]>()?;
-            Punctuated::<FnArg, Token![,]>::parse_terminated(&parameters)?
-                .into_iter()
-                .collect()
-        };
-        let content;
-        braced!(content in input);
-        let entries = Punctuated::<Entry, Token![,]>::parse_terminated(&content)?
-            .into_iter()
-            .collect();
-        Ok(Self {
-            visibility,
-            name,
-            selector,
-            parameters,
-            entries,
-        })
+        let call = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let expression = input.parse()?;
+        Ok(Self { call, expression })
     }
 }
-impl Parse for Entry {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let pattern = Pat::parse_multi_with_leading_vert(input)?;
-        input.parse::<Token![:]>()?;
-        Ok(Self {
-            pattern,
-            target: input.parse()?,
-        })
-    }
-}
-impl Table {
+
+impl Selection {
     pub(super) fn expand(self) -> syn::Result<Tokens> {
-        let visibility = self.visibility;
-        let name = self.name;
-        let entry = format_ident!("{name}_entry");
-        let selector = self.selector;
-        let parameters = self.parameters;
-        let call = Ident::new("__interrupt_call", Span::mixed_site());
-        let mut arms = Vec::new();
-        let mut fallback = false;
-        for entry in self.entries {
-            let pattern = entry.pattern;
-            let is_fallback = matches!(pattern, Pat::Wild(_));
-            if fallback {
+        let mut expression = self.expression;
+        for arm in &mut expression.arms {
+            let mut binding = ContextBinding {
+                name: &self.call,
+                shadow: None,
+            };
+            binding.visit_pat(&arm.pat);
+            if let Some((_, guard)) = &arm.guard {
+                binding.visit_expr(guard);
+            }
+            if let Some(name) = binding.shadow {
                 return Err(syn::Error::new_spanned(
-                    pattern,
-                    "fallback must be the last entry",
+                    name,
+                    "match bindings cannot shadow the interrupt context",
                 ));
             }
-            fallback |= is_fallback;
-            let invoke = call_entry(entry.target, &call)?;
-            arms.push(quote!(#pattern => #invoke.await));
+            let invoke = crate::interrupt::call::entry(*arm.body.clone(), &self.call)?;
+            arm.body = syn::parse_quote!(#invoke.await);
         }
-        if !fallback {
-            return Err(syn::Error::new_spanned(name, "missing _ fallback"));
-        }
-        Ok(quote! {
-            #visibility async fn #name(#call: &mut ::relocade_machine::CpuContext<'_>, #(#parameters),*) {
-                match #call.cpu.#selector() { #(#arms,)* }
-            }
-            // Nested tables use the same internal adapter lookup as services.
-            #[doc(hidden)]
-            #[allow(unused_imports)]
-            #visibility use self::#name as #entry;
-        })
+        Ok(quote!(#expression))
     }
 }
 
-pub(super) fn call_entry(target: Expr, call: &Ident) -> syn::Result<Tokens> {
-    let (target, args) = match target {
-        Expr::Call(call) => (*call.func, call.args),
-        target => (target, Punctuated::new()),
-    };
-    match target {
-        Expr::Path(mut path) => {
-            let function = &mut path.path.segments.last_mut().unwrap().ident;
-            *function = format_ident!("{function}_entry");
-            let path = &path.path;
-            let qualifier =
-                (path.segments.len() == 1 && path.leading_colon.is_none()).then(|| quote!(self::));
-            Ok(quote!(#qualifier #path(&mut *#call, #args)))
+struct ContextBinding<'a> {
+    name: &'a Ident,
+    shadow: Option<&'a Ident>,
+}
+
+impl<'a> Visit<'a> for ContextBinding<'a> {
+    fn visit_pat_ident(&mut self, pattern: &'a PatIdent) {
+        if pattern.ident.unraw() == self.name.unraw() {
+            self.shadow = Some(&pattern.ident);
         }
-        Expr::Field(field) => {
-            let receiver = field.base;
-            let Member::Named(mut name) = field.member else {
-                return Err(syn::Error::new_spanned(
-                    field.member,
-                    "expected a method name",
-                ));
-            };
-            name = format_ident!("{name}_entry");
-            Ok(quote!(#receiver.#name(&mut *#call, #args)))
+        visit::visit_pat_ident(self, pattern);
+    }
+
+    fn visit_expr(&mut self, expression: &'a Expr) {
+        // Only top-level let guards introduce bindings into the arm body.
+        match expression {
+            Expr::Let(expression) => self.visit_pat(&expression.pat),
+            Expr::Binary(expression) if matches!(expression.op, BinOp::And(_)) => {
+                self.visit_expr(&expression.left);
+                self.visit_expr(&expression.right);
+            }
+            Expr::Paren(expression) => self.visit_expr(&expression.expr),
+            Expr::Group(expression) => self.visit_expr(&expression.expr),
+            _ => {}
         }
-        target => Err(syn::Error::new_spanned(
-            target,
-            "expected a service function or receiver.method",
-        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Selection;
+    use quote::quote;
+
+    #[test]
+    fn pattern_bindings_cannot_replace_the_interrupt_context() {
+        for context in [quote!(call), quote!(r#call)] {
+            for pattern in [quote!(call), quote!(Some(r#call)), quote!(Record { call })] {
+                let selection = syn::parse2::<Selection>(quote! {
+                    #context, match value { #pattern => service }
+                })
+                .unwrap();
+                assert_eq!(
+                    selection.expand().unwrap_err().to_string(),
+                    "match bindings cannot shadow the interrupt context"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn guard_bindings_cannot_replace_the_context_but_local_bindings_can() {
+        let selection = syn::parse2::<Selection>(quote! {
+            call, match value {
+                _ if ready && let Some(r#call) = other => service,
+                _ => fallback,
+            }
+        })
+        .unwrap();
+        assert_eq!(
+            selection.expand().unwrap_err().to_string(),
+            "match bindings cannot shadow the interrupt context"
+        );
+        let selection = syn::parse2::<Selection>(quote! {
+            call, match value {
+                _ if { let call = true; call } => service,
+                _ => fallback,
+            }
+        })
+        .unwrap();
+        selection.expand().unwrap();
     }
 }

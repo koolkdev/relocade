@@ -12,26 +12,25 @@ use request::capacity;
 pub(super) use request::Input;
 
 /// AH=0Ch flushes stdin, then invokes the input service selected by AL.
-#[interrupt(context(call))]
-pub(super) async fn flush_input(call: &mut CpuContext<'_>, services: &Services<'_>) {
+#[interrupt(context(call), args(function = al))]
+pub(super) async fn flush_input(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
     let stdin = services.process.files().handle(0).cloned();
     let input = Input::new(services);
     // A closed stdin or failed flush must not skip the selected operation.
     if let Ok(stdin) = stdin {
         let _ = stdin.flush_input().await;
     }
-    dispatch_input(call, input).await;
-}
-
-interrupt_dispatch! {
-    dispatch_input(al, input: Input<'_>) {
-        0x01: read_character_echo(input),
-        0x06: direct_io(input),
-        0x07: read_character(input),
-        0x08: read_character_check_break(input),
-        0x0a: read_buffered(input),
-        _: no_input,
-    }
+    interrupt_dispatch!(
+        call,
+        match function {
+            0x01 => read_character_echo(input),
+            0x06 => direct_io(input),
+            0x07 => read_character(input),
+            0x08 => read_character_check_break(input),
+            0x0a => read_buffered(input),
+            _ => no_input,
+        }
+    );
 }
 
 /// Other AL values request only a flush.
@@ -55,26 +54,15 @@ pub(super) async fn input_status(services: &Services<'_>) -> u8 {
 }
 
 // AH=06h polls stdin for DL=FFh; other values write a byte to stdout.
-interrupt_dispatch! {
-    pub(super) direct_io(dl, input: Input<'_>) {
-        0xff: poll_character(input),
-        _: write_raw_character(input),
-    }
-}
-
-#[interrupt(returns {
-    Ok(Some(byte)) => { al = byte, zf = false },
-    Ok(None) => { al = 0u8, zf = true },
-    Err(error) => crate::interrupt::return_error(error),
-})]
-async fn poll_character(input: Input<'_>) -> Result<Option<u8>, DosError> {
-    input.poll_character().await
-}
-
-#[interrupt(args(byte = dl), returns { byte => { al = byte } })]
-async fn write_raw_character(input: Input<'_>, byte: u8) -> u8 {
-    input.write_raw(byte).await;
-    byte
+#[interrupt(context(call), args(byte = dl))]
+pub(super) async fn direct_io(call: &mut CpuContext<'_>, input: Input<'_>, byte: u8) {
+    interrupt_dispatch!(
+        call,
+        match byte {
+            0xff => input.poll_character,
+            _ => input.write_raw,
+        }
+    );
 }
 
 /// AH=01h waits for a character and echoes it through the retained stdout.
