@@ -1,12 +1,16 @@
 use super::Runner;
-use crate::worker::{self, SendTask, Thread};
-use crate::{timer_service, Clock};
+use crate::worker::{self, wake_connection, SendTask, Thread, ThreadExt, WakeHost};
+use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt};
 use futures_lite::future::or;
 use futures_util::future::{AbortHandle, Abortable};
-use std::future::{pending, Future};
+use std::{
+    future::{pending, Future},
+    rc::Rc,
+};
 
 /// Owns a worker for one CPU session and its registered devices.
-/// Construct the CPU and other non-Send state inside the supplied closure.
+/// Use `runner.create_cpu` (or `Dos::new`) inside the supplied closure. CPU
+/// storage is prepared before spawning; construction and access stay local.
 ///
 /// Await `stop` or `join` before releasing the worker, just as with `Thread`.
 /// Dropping the handle or its completion future early can terminate the underlying
@@ -15,6 +19,7 @@ pub struct ExecutionWorker<T: Send + 'static> {
     _thread: Thread,
     task: SendTask<Option<T>>,
     stop: AbortHandle,
+    _wake_host: WakeHost<ExecutionInterrupt>,
 }
 
 impl<T: Send + 'static> ExecutionWorker<T> {
@@ -55,18 +60,29 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         clock: C,
         session: impl AsyncFnOnce(&Runner<C>) -> T + Send + 'static,
     ) -> Self {
+        let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
+        let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
         let thread = Thread::new();
         let (stop, registration) = AbortHandle::new_pair();
-        let task = thread.run_send((), move |()| async move {
-            // Cancellation drops the runner on its owner before task completion.
-            Abortable::new(Runner::with_clock(clock).run(session), registration)
-                .await
-                .ok()
+        let task = thread.run_resource(storage, move |storage| async move {
+            let wake = Rc::new(endpoint.bind(storage.interrupt_handle()));
+            let mut runner = Runner::with_clock(clock);
+            runner.storage = std::cell::RefCell::new(Some(storage));
+            runner.wake = Some(wake.clone());
+            let execution = async {
+                // Abortable registers its waker only after Pending. Do this
+                // before the application can enter synchronous guest execution.
+                wake.yield_now().await;
+                runner.run(session).await
+            };
+            // One root adapter covers application, devices and cancellation.
+            wake.run(Abortable::new(execution, registration)).await.ok()
         });
         Self {
             _thread: thread,
             task,
             stop,
+            _wake_host: wake_host,
         }
     }
 

@@ -1,0 +1,366 @@
+use super::*;
+use futures_channel::{mpsc, oneshot};
+use futures_util::{
+    future::{join, LocalBoxFuture},
+    StreamExt,
+};
+use relocade_machine::{
+    timer_service, Clock, CpuStateAccess, Device, ExecutionInterrupt, ExecutionWorker, ExitHandle,
+};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+
+struct InputDevice {
+    entered: Option<oneshot::Sender<()>>,
+    sent: Arc<AtomicBool>,
+    input: Option<LocalBoxFuture<'static, Vec<u8>>>,
+    values: Vec<u8>,
+    exit: Option<ExitHandle>,
+    interrupt: Option<ExecutionInterrupt>,
+}
+
+impl Device for InputDevice {
+    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {
+        if let Some(entered) = self.entered.take() {
+            // Discard startup scheduling wakes before the measured interval.
+            // Only the following host notification may interrupt this dispatch.
+            self.interrupt.as_ref().unwrap().take();
+            entered.send(()).unwrap();
+            // Keep this first guest block in progress until the host publishes
+            // its ordinary Rust notification. No test calls interrupt.request().
+            for _ in 0..50_000_000 {
+                if self.sent.load(Ordering::SeqCst) {
+                    return;
+                }
+                std::hint::spin_loop();
+            }
+            panic!("host did not publish its input");
+        }
+    }
+
+    async fn run(device: Rc<RefCell<Self>>) {
+        let input = device.borrow_mut().input.take().unwrap();
+        let values = input.await;
+        let mut device = device.borrow_mut();
+        device.values = values;
+        if let Some(exit) = &device.exit {
+            exit.request();
+        }
+    }
+}
+
+async fn connected_input() {
+    for compiled in [false, true] {
+        for timed in [false, true] {
+            let (clock, timers) = timer_service();
+            let (entered, running) = oneshot::channel();
+            let sent = Arc::new(AtomicBool::new(false));
+            let worker_sent = sent.clone();
+            let (send, mut input) = mpsc::unbounded();
+            let worker = ExecutionWorker::spawn(clock, async move |runner| {
+                let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
+                    let clock = runner.clock().clone();
+                    Box::pin(async move {
+                        clock.sleep(Duration::ZERO).await;
+                        vec![7]
+                    })
+                } else {
+                    Box::pin(async move {
+                        vec![input.next().await.unwrap(), input.next().await.unwrap()]
+                    })
+                };
+                let device = Rc::new(RefCell::new(InputDevice {
+                    entered: Some(entered),
+                    sent: worker_sent,
+                    input: Some(input),
+                    values: Vec::new(),
+                    exit: None,
+                    interrupt: None,
+                }));
+                let io =
+                    IoBus::new([runner.connect(device.clone(), [], std::iter::once(0x80..=0x80))]);
+                // OUT; JMP 0100. I/O returns through interpreter STEP after OUT.
+                let mut cpu =
+                    cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], compiled, io, Some(runner)).await;
+                device.borrow_mut().exit = Some(cpu.exit_handle());
+                device.borrow_mut().interrupt = Some(cpu.interrupt_handle());
+                assert_eq!(
+                    runner.run_cpu(&mut cpu).await,
+                    ExecutionExit::Host(relocade_x86::HostExit::Return)
+                );
+                let values = device.borrow().values.clone();
+                (cpu.cpu_state().instruction_count(), values)
+            });
+            // No join polling is needed to install the connection or start CPU.
+            running.await.unwrap();
+            let mut timers = std::pin::pin!(timers.run());
+            if timed {
+                // The device's zero-duration wait is already registered. Driving
+                // the real host timer service delivers its oneshot synchronously.
+                assert!(futures_lite::future::poll_once(timers.as_mut())
+                    .await
+                    .is_none());
+            } else {
+                // The second send can coalesce with the first task wake. Both
+                // values must drain before the guest runs another block.
+                send.unbounded_send(4).unwrap();
+                send.unbounded_send(9).unwrap();
+            }
+            sent.store(true, Ordering::SeqCst);
+            let (result, ()) = join(worker.join(), timers).await;
+            assert_eq!(
+                result.unwrap(),
+                Some((1, if timed { vec![7] } else { vec![4, 9] })),
+                "input must run at the first notified checkpoint"
+            );
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn session_channels_and_timers_interrupt_guest_execution() {
+    pollster::block_on(connected_input());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn session_channels_and_timers_interrupt_guest_execution() {
+    connected_input().await;
+}
+
+struct Stopped {
+    state: CpuStateAccess,
+    report: Option<oneshot::Sender<u64>>,
+}
+
+impl Drop for Stopped {
+    fn drop(&mut self) {
+        let _ = self
+            .report
+            .take()
+            .unwrap()
+            .send(self.state.instruction_count());
+    }
+}
+
+async fn connected_stop() {
+    let (clock, _timers) = timer_service();
+    let (entered, running) = oneshot::channel();
+    let sent = Arc::new(AtomicBool::new(false));
+    let worker_sent = sent.clone();
+    let (report, stopped) = oneshot::channel();
+    let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
+        let device = Rc::new(RefCell::new(InputDevice {
+            entered: Some(entered),
+            sent: worker_sent,
+            input: Some(Box::pin(std::future::pending())),
+            values: Vec::new(),
+            exit: None,
+            interrupt: None,
+        }));
+        let io = IoBus::new([runner.connect(device.clone(), [], std::iter::once(0x80..=0x80))]);
+        let mut cpu = cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], true, io, Some(runner)).await;
+        device.borrow_mut().interrupt = Some(cpu.interrupt_handle());
+        let _stopped = Stopped {
+            state: cpu.cpu_state(),
+            report: Some(report),
+        };
+        runner.run_cpu(&mut cpu).await;
+        panic!("cancellation must drop the running session");
+    });
+    running.await.unwrap();
+    let mut stop = std::pin::pin!(worker.stop());
+    assert!(futures_lite::future::poll_once(stop.as_mut())
+        .await
+        .is_none());
+    sent.store(true, Ordering::SeqCst);
+    assert_eq!(stop.await.unwrap(), None);
+    assert_eq!(
+        stopped.await.unwrap(),
+        1,
+        "stop must interrupt the first guest dispatch"
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
+    pollster::block_on(connected_stop());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
+    connected_stop().await;
+}
+
+async fn saturated_count() {
+    let (clock, _timers) = timer_service();
+    let runner = relocade_machine::Runner::with_clock(clock);
+    let mut cpu = cpu(&[0xeb, 0xfe], true, IoBus::default()).await;
+    let exit = cpu.exit_handle();
+    cpu.install([relocade_machine::Hook::host(0x100, async move || {
+        exit.request()
+    })])
+    .await
+    .unwrap();
+    cpu.cpu_state().set_instruction_count(u64::MAX);
+    assert_eq!(
+        futures_lite::future::poll_once(runner.run_cpu(&mut cpu)).await,
+        Some(ExecutionExit::Host(relocade_x86::HostExit::Return)),
+        "a fresh nonzero quantum must still enter a host service at a saturated count"
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn fresh_quantum_can_exit_at_a_saturated_instruction_count() {
+    pollster::block_on(saturated_count());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn fresh_quantum_can_exit_at_a_saturated_instruction_count() {
+    saturated_count().await;
+}
+
+async fn remaining_quantum() {
+    use std::{
+        future::{poll_fn, Future},
+        task::Poll,
+    };
+    let (clock, _timers) = timer_service();
+    let (entered, running) = oneshot::channel();
+    let sent = Arc::new(AtomicBool::new(false));
+    let worker_sent = sent.clone();
+    let (send, mut input) = mpsc::unbounded();
+    let worker = ExecutionWorker::spawn(clock, async move |runner| {
+        let device = Rc::new(RefCell::new(InputDevice {
+            entered: Some(entered),
+            sent: worker_sent,
+            input: Some(Box::pin(async move { vec![input.next().await.unwrap()] })),
+            values: Vec::new(),
+            exit: None,
+            interrupt: None,
+        }));
+        let io = IoBus::new([runner.connect(device.clone(), [], std::iter::once(0x80..=0x80))]);
+        let mut cpu = cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], true, io, Some(runner)).await;
+        device.borrow_mut().interrupt = Some(cpu.interrupt_handle());
+        let state = cpu.cpu_state();
+        let mut run = std::pin::pin!(runner.run_cpu(&mut cpu));
+        let count = poll_fn(|cx| {
+            assert!(run.as_mut().poll(cx).is_pending());
+            let count = state.instruction_count();
+            if count >= 10_000 {
+                Poll::Ready(count)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        let values = device.borrow().values.clone();
+        (count, values)
+    });
+    running.await.unwrap();
+    send.unbounded_send(7).unwrap();
+    sent.store(true, Ordering::SeqCst);
+    assert_eq!(
+        worker.join().await.unwrap(),
+        Some((10_000, vec![7])),
+        "an interrupted quantum must end at its original budget boundary"
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn input_notification_does_not_replenish_the_quantum() {
+    pollster::block_on(remaining_quantum());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn input_notification_does_not_replenish_the_quantum() {
+    remaining_quantum().await;
+}
+
+struct IdleDevice {
+    requests: Option<mpsc::UnboundedReceiver<oneshot::Sender<u64>>>,
+    state: CpuStateAccess,
+}
+
+impl Device for IdleDevice {
+    async fn run(device: Rc<RefCell<Self>>) {
+        let mut requests = device.borrow_mut().requests.take().unwrap();
+        while let Some(reply) = requests.next().await {
+            reply
+                .send(device.borrow().state.instruction_count())
+                .unwrap();
+        }
+    }
+}
+
+async fn idle_devices() {
+    let (clock, _timers) = timer_service();
+    let worker = ExecutionWorker::spawn(clock, async |runner| {
+        // INC AX; JMP 0200, where the host service completes this guest run.
+        let mut cpu =
+            cpu_with_runner(&[0x40, 0xe9, 0xfc, 0], true, IoBus::default(), Some(runner)).await;
+        let state = cpu.cpu_state();
+        let exit = cpu.exit_handle();
+        cpu.install([relocade_machine::Hook::host(0x200, async move || {
+            exit.request()
+        })])
+        .await
+        .unwrap();
+        let (send, requests) = mpsc::unbounded();
+        let _device = runner.connect(
+            Rc::new(RefCell::new(IdleDevice {
+                requests: Some(requests),
+                state: state.clone(),
+            })),
+            [],
+            [],
+        );
+        let probe = async || {
+            let (reply, received) = oneshot::channel();
+            send.unbounded_send(reply).unwrap();
+            received.await.unwrap()
+        };
+        assert_eq!(
+            probe().await,
+            0,
+            "device work does not start prepared CPU execution"
+        );
+        assert_eq!(
+            runner.run_cpu(&mut cpu).await,
+            ExecutionExit::Host(relocade_x86::HostExit::Return)
+        );
+        assert_eq!(
+            probe().await,
+            2,
+            "devices remain active after guest completion"
+        );
+        assert_eq!(state.ax(), 1);
+    });
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn devices_run_before_and_after_guest_execution_without_starting_it() {
+    pollster::block_on(idle_devices());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn devices_run_before_and_after_guest_execution_without_starting_it() {
+    idle_devices().await;
+}

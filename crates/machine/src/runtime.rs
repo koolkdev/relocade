@@ -72,6 +72,9 @@ pub struct Cpu {
     suspended: Vec<Call>,
     machine: Machine,
     exit: ExitHandle,
+    // Identifies the fixed worker signal once at run entry, never during hooks.
+    #[cfg(feature = "worker")]
+    pub(crate) session: std::rc::Weak<crate::worker::WakeConnection<ExecutionInterrupt>>,
 }
 
 impl Cpu {
@@ -103,6 +106,8 @@ impl Cpu {
             suspended: Vec::new(),
             machine,
             exit: ExitHandle::new(),
+            #[cfg(feature = "worker")]
+            session: std::rc::Weak::new(),
         })
     }
 

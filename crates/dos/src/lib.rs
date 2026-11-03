@@ -161,7 +161,9 @@ impl<C: Clock> Dos<C> {
             keyboard_device,
         ]);
         let memory = Memory::new(kernel::configuration())?;
-        let mut cpu = Cpu::new(memory.clone(), kernel::cpu(), io.clone()).await?;
+        let mut cpu = runner
+            .create_cpu(memory.clone(), kernel::cpu(), io.clone())
+            .await?;
         let state = Rc::new(DosState::new(
             memory.with_io(io),
             keyboard,
