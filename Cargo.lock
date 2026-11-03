@@ -2203,7 +2203,11 @@ dependencies = [
  "async-channel",
  "cpal",
  "futures-timer",
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
  "wasm-bindgen-test",
+ "web-thread-select",
 ]
 
 [[package]]

@@ -39,7 +39,7 @@ try {
         tests: JSON.stringify(tests),
         ignored: String(args.includes("--ignored") || args.includes("--include-ignored")),
     });
-    await run(`/wasm-test.html?${parameters}`, path.join(directory, "suite.js"));
+    await run(`/wasm-test.html?${parameters}`, path.join(directory, "suite.js"), "#run");
 } finally {
     rmSync(directory, { recursive: true, force: true });
 }

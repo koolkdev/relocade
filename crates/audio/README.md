@@ -74,3 +74,10 @@ Use the repository's threaded Wasm build (`tools/web-build.mjs`) and COOP/COEP
 headers. It enables atomics, shared memory and the TLS exports CPAL needs.
 Ordinary Wasm builds can use the PCM transport, but opening browser output
 requires atomics. The application owns worker creation and refill scheduling.
+
+The browser suite starts through a real button click. A busy Rust worker feeds
+440/660 Hz tones through the public API; a Web Audio analyser checks frequency,
+amplitude, underrun silence and continued output after shared-memory growth.
+It also checks bounded buffering before play, immediate submission closure on
+drop, and forwarding of an asynchronous CPAL module-load error. These are
+Chromium checks; physical output and other browsers still need playback testing.
