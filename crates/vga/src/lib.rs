@@ -26,6 +26,7 @@ use futures_lite::future::{or, yield_now};
 pub use geometry::DisplayGeometry;
 use memory::VideoMemory;
 use raster::Raster;
+use registers::{setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, Device, TimerHandle};
 #[cfg(feature = "renderer")]
@@ -53,6 +54,7 @@ pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;
 pub struct Vga<C = TimerHandle> {
     memory: VideoMemory,
     registers: Registers,
+    setup: Setup,
     clock: Rc<C>,
     raster: Raster,
     timing_changed: Event,
@@ -67,6 +69,7 @@ impl<C: Clock> Vga<C> {
         Self {
             memory: VideoMemory::default(),
             registers,
+            setup: Setup::default(),
             clock,
             raster,
             timing_changed: Event::new(),
@@ -150,7 +153,7 @@ impl<C: Clock> Device for Vga<C> {
 
     fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {
         let mut value = [0; 8];
-        if !self.registers.video_memory_enabled() {
+        if !self.setup.enabled() || !self.registers.video_memory_enabled() {
             value[..usize::from(bytes)].fill(0xff);
             return u64::from_le_bytes(value);
         }
@@ -162,7 +165,7 @@ impl<C: Clock> Device for Vga<C> {
 
     fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
         self.sync_to_clock();
-        if !self.registers.video_memory_enabled() {
+        if !self.setup.enabled() || !self.registers.video_memory_enabled() {
             return;
         }
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
@@ -176,7 +179,13 @@ impl<C: Clock> Device for Vga<C> {
         let mut value = [0; 4];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
             let port = port.wrapping_add(index as u16);
-            *byte = self.registers.read_port(port, self.raster.input_status_1());
+            *byte = match port {
+                OPTION_SELECT_PORT => self.setup.read_option(),
+                port if self.setup.enabled() => {
+                    self.registers.read_port(port, self.raster.input_status_1())
+                }
+                _ => 0xff,
+            };
         }
         u32::from_le_bytes(value)
     }
@@ -184,8 +193,12 @@ impl<C: Clock> Device for Vga<C> {
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
         self.sync_to_clock();
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-            self.registers
-                .write_port(port.wrapping_add(index as u16), *byte);
+            match port.wrapping_add(index as u16) {
+                ADAPTER_CONTROL_PORT => self.setup.write_control(*byte),
+                OPTION_SELECT_PORT => self.setup.write_option(*byte),
+                port if self.setup.enabled() => self.registers.write_port(port, *byte),
+                _ => {}
+            }
         }
         if self.raster.set_timing(Timing::new(&self.registers)) {
             self.timing_changed.notify(usize::MAX);

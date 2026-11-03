@@ -175,10 +175,12 @@ fn wide_reads_leave_the_last_latches_and_disabled_reads_preserve_them() {
     seed(&mut vga, 0xa0011, [0x3c, 0xc3, 0x96, 0x69]);
     assert_eq!(vga.read_mmio(0xa0010, 2), 0x3ca5);
     assert_eq!(vga.read_mmio(0xb0000, 1), 0xff); // Inactive aperture.
-    vga.write_port(0x3c2, 1, 0x41); // Disable video RAM decoding.
-    assert_eq!(vga.read_mmio(0xa0010, 1), 0xff);
-    vga.write_mmio(0xa0011, 1, 0);
-    vga.write_port(0x3c2, 1, 0x43);
+    for (port, disabled, enabled) in [(0x3c2, 0x41, 0x43), (0x46e8, 0, 0x0e)] {
+        vga.write_port(port, 1, disabled);
+        assert_eq!(vga.read_mmio(0xa0010, 1), 0xff);
+        vga.write_mmio(0xa0011, 1, 0);
+        vga.write_port(port, 1, enabled);
+    }
     set(&mut vga, 0x3ce, 5, 1);
     vga.write_mmio(0xa0020, 2, 0);
     assert_eq!(planes(&mut vga, 0xa0020), [0x3c, 0xc3, 0x96, 0x69]);
