@@ -1,63 +1,51 @@
-//! Bind DOS handle transfers to captured register arguments and guest memory.
-
-use relocade_machine::real_mode_interrupt::interrupt;
-
-use crate::services::Services;
-use relocade_machine::CpuContext;
+//! DOS handle transfers retain their buffers and handles across pending I/O.
 
 use super::transfer;
-use crate::interrupt::return_result;
-use relocade_x86::Segment;
+use crate::{services::Services, DosError};
+use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 
-/// AH=3Fh/40h transfer only the part of DS:DX's buffer that fits in its segment.
-fn transfer_count(offset: u16, count: u16) -> usize {
-    usize::from(count).min(0x10000 - usize::from(offset))
+/// AH=3Fh/40h stop at the segment end instead of wrapping a file transfer buffer.
+fn transfer_count(buffer: FarPointer, count: u16) -> usize {
+    usize::from(count).min(0x10000 - usize::from(buffer.offset))
 }
 
-/// AH=3Fh: retain the source and DS:DX destination throughout a pending read.
-#[interrupt(context(call))]
-pub(in crate::services) async fn read(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    let cpu = call.cpu;
-    let handle = cpu.bx();
-    let offset = cpu.dx();
-    let count = transfer_count(offset, cpu.cx());
-    let segment = cpu.segment(Segment::Ds);
-    let source = match services.process.files().readable_handle(handle) {
-        Ok(source) => source,
-        Err(error) => return return_result(call, Err(error)),
-    };
-    let bytes = match transfer::read(services.dos.stdio(), &source, count).await {
-        Ok(bytes) => bytes,
-        Err(error) => return return_result(call, Err(error)),
-    };
-    if !bytes.is_empty() {
-        call.memory
-            .write_segment(&segment, u32::from(offset), &bytes)
-            .expect("real-mode read buffer");
-    }
-    call.cpu.set_ax(bytes.len() as u16);
-    return_result(call, Ok(()))
+#[interrupt(context(memory), args(handle = bx, buffer = ptr(ds, dx), count = cx), returns {
+    Ok(count) => { ax = count, cf = false },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+pub(in crate::services) async fn read(
+    memory: &mut MemoryView<'_>,
+    services: &Services<'_>,
+    handle: u16,
+    buffer: FarPointer,
+    count: u16,
+) -> Result<u16, DosError> {
+    let count = transfer_count(buffer, count);
+    let source = services.process.files().readable_handle(handle)?;
+    let bytes = transfer::read(services.dos.stdio(), &source, count).await?;
+    memory
+        .write_wrapping(buffer, &bytes)
+        .expect("real-mode read buffer");
+    Ok(bytes.len() as u16)
 }
 
-/// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
-#[interrupt(context(call))]
-pub(in crate::services) async fn write(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    let cpu = call.cpu;
-    let handle = cpu.bx();
-    let offset = cpu.dx();
-    let count = transfer_count(offset, cpu.cx());
-    let segment = cpu.segment(Segment::Ds);
-    let mut bytes = vec![0; count];
-    if count != 0 {
-        call.memory
-            .read_segment(&segment, u32::from(offset), &mut bytes)
-            .expect("real-mode write buffer");
-    }
-    let destination = services.process.files().writable_handle(handle);
-    let result = match destination {
-        Ok(destination) => transfer::write(services.dos.stdio(), &destination, &bytes).await,
-        Err(error) => Err(error),
-    };
-    let result = result.map(|count| call.cpu.set_ax(count as u16));
-    return_result(call, result)
+/// A zero-length AH=40h write truncates or extends a file at its current cursor.
+#[interrupt(context(memory), args(handle = bx, buffer = ptr(ds, dx), count = cx), returns {
+    Ok(count) => { ax = count, cf = false },
+    Err(error) => crate::interrupt::return_error(error),
+})]
+pub(in crate::services) async fn write(
+    memory: &MemoryView<'_>,
+    services: &Services<'_>,
+    handle: u16,
+    buffer: FarPointer,
+    count: u16,
+) -> Result<u16, DosError> {
+    let mut bytes = vec![0; transfer_count(buffer, count)];
+    memory
+        .read_wrapping(buffer, &mut bytes)
+        .expect("real-mode write buffer");
+    let destination = services.process.files().writable_handle(handle)?;
+    let count = transfer::write(services.dos.stdio(), &destination, &bytes).await?;
+    Ok(count as u16)
 }
