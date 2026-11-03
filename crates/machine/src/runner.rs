@@ -18,14 +18,16 @@ use relocade_x86::ExecutionExit;
 use std::{cell::RefCell, num::NonZeroU64, ops::RangeInclusive, pin::pin, rc::Rc};
 
 /// Drives a main execution activity alongside registered device futures.
-/// All mutable execution state stays on the caller's thread. CPU quanta provide
-/// cooperation, not preemption or an exact elapsed-time bound.
+/// All mutable execution state stays on the caller's thread. Connected workers
+/// yield on notifications; instruction quanta remain a temporary fallback.
 pub struct Runner<C = TimerHandle> {
     clock: C,
     /// Requested CPU budget per quantum; checks remain at block boundaries.
     pub instruction_quantum: NonZeroU64,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
+    #[cfg(feature = "worker")]
+    wake: Option<Rc<crate::worker::WakeConnection<crate::ExecutionInterrupt>>>,
 }
 
 impl<C: Clock> Runner<C> {
@@ -36,6 +38,8 @@ impl<C: Clock> Runner<C> {
             instruction_quantum: NonZeroU64::new(10_000).unwrap(),
             activities,
             pending: Some(pending),
+            #[cfg(feature = "worker")]
+            wake: None,
         }
     }
 
@@ -67,21 +71,52 @@ impl<C: Clock> Runner<C> {
     pub async fn run<R>(mut self, main: impl AsyncFnOnce(&Self) -> R) -> R {
         let pending = self.pending.take().expect("new runner activity queue");
         let devices = pending.for_each_concurrent(None, |activity| activity);
-        match select(pin!(main(&self)), pin!(devices)).await {
-            Either::Left((result, _)) => result,
-            Either::Right(_) => unreachable!("runner retains the activity sender"),
+        // Drain ready devices before returning to guest execution.
+        match select(pin!(devices), pin!(main(&self))).await {
+            Either::Right((result, _)) => result,
+            Either::Left(_) => unreachable!("runner retains the activity sender"),
         }
     }
 
-    /// Runs finite CPU quanta until the first non-budget exit.
+    /// Runs until the guest exits. Connected execution workers cooperate on
+    /// notifications without replenishing the temporary instruction quantum.
     /// A pending service retains its CPU future and original instruction budget.
     pub async fn run_cpu(&self, cpu: &mut Cpu) -> ExecutionExit {
-        loop {
-            let exit = cpu.run(self.instruction_quantum.get()).await;
-            if exit != ExecutionExit::BudgetExhausted {
-                return exit;
-            }
-            yield_now().await;
+        #[cfg(feature = "worker")]
+        if let Some(wake) = &self.wake {
+            wake.activate(cpu.interrupt_handle())
+                .await
+                .expect("execution host must remain alive for its session");
         }
+        let quantum = self.instruction_quantum.get();
+        let mut remaining = quantum;
+        #[cfg(feature = "worker")]
+        let state = cpu.cpu_state();
+        loop {
+            #[cfg(feature = "worker")]
+            let before = state.instruction_count();
+            match cpu.run(remaining).await {
+                ExecutionExit::BudgetExhausted => remaining = quantum,
+                #[cfg(feature = "worker")]
+                ExecutionExit::Interrupted if self.wake.is_some() => {
+                    let spent = state.instruction_count().wrapping_sub(before);
+                    remaining = remaining.saturating_sub(spent);
+                    if remaining == 0 {
+                        remaining = quantum;
+                    }
+                }
+                exit => return exit,
+            }
+            self.yield_execution().await;
+        }
+    }
+
+    async fn yield_execution(&self) {
+        #[cfg(feature = "worker")]
+        if let Some(wake) = &self.wake {
+            wake.yield_now().await;
+            return;
+        }
+        yield_now().await;
     }
 }

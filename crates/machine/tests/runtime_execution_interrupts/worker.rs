@@ -19,7 +19,7 @@ async fn request_during_execution() {
         let (entered, running) = oneshot::channel();
         let io = IoBus::new([DeviceConnection {
             device: Rc::new(RefCell::new(Started(Some(entered)))),
-            ports: vec![0x80..=0x80],
+            ports: std::iter::once(0x80..=0x80).collect(),
             mmio: vec![],
         }]);
         // OUT signals entry; INC AX / JMP then stay inside guest execution.
