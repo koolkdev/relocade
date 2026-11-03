@@ -25,7 +25,7 @@ use event_listener::Event;
 use futures_lite::future::{or, yield_now};
 pub use geometry::DisplayGeometry;
 pub use memory::VIDEO_MEMORY_BYTES;
-use memory::{CpuAccess, VideoMemory};
+use memory::{VideoMemory, VramAccess};
 use raster::Raster;
 use registers::{dispi, setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
@@ -162,13 +162,13 @@ impl<C: Clock> Device for Vga<C> {
     }
 
     fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {
-        let access = CpuAccess::new(&self.setup, &self.registers, &self.dispi);
+        let access = VramAccess::new(&self.setup, &self.registers, &self.dispi);
         self.memory.read(address, bytes, access)
     }
 
     fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
         self.sync_to_clock();
-        let access = CpuAccess::new(&self.setup, &self.registers, &self.dispi);
+        let access = VramAccess::new(&self.setup, &self.registers, &self.dispi);
         self.memory.write(address, bytes, value, access);
     }
 

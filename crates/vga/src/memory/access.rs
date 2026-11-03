@@ -1,4 +1,4 @@
-//! CPU access selected from adapter gates and the active addressing mechanism.
+//! Video memory access selected from adapter gates and the active addressing mechanism.
 
 use crate::registers::{
     dispi::{BankedWindow, Dispi},
@@ -9,13 +9,13 @@ use crate::registers::{
 /// One transfer's access policy. Both register banks remain on the device;
 /// this value only selects how the CPU reaches their shared video memory.
 #[derive(Clone, Copy)]
-pub(crate) enum CpuAccess<'a> {
+pub(crate) enum VramAccess<'a> {
     Disabled,
     LegacyVga(&'a Registers),
     Banked(BankedWindow),
 }
 
-impl<'a> CpuAccess<'a> {
+impl<'a> VramAccess<'a> {
     pub fn new(setup: &Setup, registers: &'a Registers, dispi: &Dispi) -> Self {
         if !setup.enabled() || !registers.video_memory_enabled() {
             Self::Disabled

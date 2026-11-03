@@ -2,7 +2,7 @@ use crate::registers::Registers;
 use std::sync::Arc;
 
 mod access;
-pub(crate) use access::CpuAccess;
+pub(crate) use access::VramAccess;
 mod storage;
 use storage::Storage;
 
@@ -27,14 +27,14 @@ pub(super) struct VideoMemory {
 
 impl VideoMemory {
     /// Reads each byte through the selected aperture; unmapped bytes return FF.
-    pub fn read(&mut self, address: u32, bytes: u8, access: CpuAccess<'_>) -> u64 {
+    pub fn read(&mut self, address: u32, bytes: u8, access: VramAccess<'_>) -> u64 {
         let mut value = [0; 8];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
             let address = address + index as u32;
             *byte = match access {
-                CpuAccess::Disabled => 0xff,
-                CpuAccess::LegacyVga(registers) => self.read_vga_byte(address, registers),
-                CpuAccess::Banked(window) => window
+                VramAccess::Disabled => 0xff,
+                VramAccess::LegacyVga(registers) => self.read_vga_byte(address, registers),
+                VramAccess::Banked(window) => window
                     .memory_offset(address)
                     .map_or(0xff, |offset| self.storage.read(offset)),
             };
@@ -42,13 +42,13 @@ impl VideoMemory {
         u64::from_le_bytes(value)
     }
 
-    pub fn write(&mut self, address: u32, bytes: u8, value: u64, access: CpuAccess<'_>) {
+    pub fn write(&mut self, address: u32, bytes: u8, value: u64, access: VramAccess<'_>) {
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             let address = address + index as u32;
             match access {
-                CpuAccess::Disabled => {}
-                CpuAccess::LegacyVga(registers) => self.write_vga_byte(address, *byte, registers),
-                CpuAccess::Banked(window) => {
+                VramAccess::Disabled => {}
+                VramAccess::LegacyVga(registers) => self.write_vga_byte(address, *byte, registers),
+                VramAccess::Banked(window) => {
                     if let Some(offset) = window.memory_offset(address) {
                         self.storage.write(offset, *byte);
                     }

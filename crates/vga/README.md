@@ -889,7 +889,7 @@ Miscellaneous Output memory gating still apply. The existing six-bit VGA DAC
 ports program the shared palette, with their existing byte-transfer rules.
 Embeddings use the same `PORT_RANGES` and `MEMORY_RANGE` registrations.
 
-Each CPU transfer resolves its adapter gates and addressing mode into `CpuAccess`:
+Each CPU transfer resolves its adapter gates and addressing mode into `VramAccess`:
 disabled, legacy VGA registers, or a validated `BankedWindow` supplied by DISPI.
 `VideoMemory` applies that policy to every byte, retaining ownership of VGA
 latches, aperture bounds and shared storage. The device applies explicit
