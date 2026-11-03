@@ -1,7 +1,10 @@
 //! Bind DOS handle transfers to captured register arguments and guest memory.
 
+use crate::services::Services;
+use relocade_machine::CpuContext;
+
 use super::transfer;
-use crate::interrupt::{return_result, DosContext};
+use crate::interrupt::return_result;
 use relocade_x86::Segment;
 
 /// AH=3Fh/40h transfer only the part of DS:DX's buffer that fits in its segment.
@@ -10,17 +13,17 @@ fn transfer_count(offset: u16, count: u16) -> usize {
 }
 
 /// AH=3Fh: retain the source and DS:DX destination throughout a pending read.
-pub(in crate::services) async fn read(call: &mut DosContext<'_>) {
+pub(in crate::services) async fn read(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let cpu = call.cpu;
     let handle = cpu.bx();
     let offset = cpu.dx();
     let count = transfer_count(offset, cpu.cx());
     let segment = cpu.segment(Segment::Ds);
-    let source = match call.process.files().readable_handle(handle) {
+    let source = match services.process.files().readable_handle(handle) {
         Ok(source) => source,
         Err(error) => return return_result(call, Err(error)),
     };
-    let bytes = match transfer::read(call.dos.stdio(), &source, count).await {
+    let bytes = match transfer::read(services.dos.stdio(), &source, count).await {
         Ok(bytes) => bytes,
         Err(error) => return return_result(call, Err(error)),
     };
@@ -34,7 +37,7 @@ pub(in crate::services) async fn read(call: &mut DosContext<'_>) {
 }
 
 /// AH=40h: write CX bytes to BX; CX=0 truncates or extends a file at its cursor.
-pub(in crate::services) async fn write(call: &mut DosContext<'_>) {
+pub(in crate::services) async fn write(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let cpu = call.cpu;
     let handle = cpu.bx();
     let offset = cpu.dx();
@@ -46,9 +49,9 @@ pub(in crate::services) async fn write(call: &mut DosContext<'_>) {
             .read_segment(&segment, u32::from(offset), &mut bytes)
             .expect("real-mode write buffer");
     }
-    let destination = call.process.files().writable_handle(handle);
+    let destination = services.process.files().writable_handle(handle);
     let result = match destination {
-        Ok(destination) => transfer::write(call.dos.stdio(), &destination, &bytes).await,
+        Ok(destination) => transfer::write(services.dos.stdio(), &destination, &bytes).await,
         Err(error) => Err(error),
     };
     let result = result.map(|count| call.cpu.set_ax(count as u16));

@@ -96,7 +96,7 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
 
     pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let dos = crate::Dos::new(&Runner::with_clock(clock)).await.unwrap();
+        let mut dos = crate::Dos::new(&Runner::with_clock(clock)).await.unwrap();
         let keyboard = dos.keyboard();
         let original = dos.state.devices().console();
         keyboard.push(KeyStroke {
@@ -106,10 +106,10 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
         assert_eq!(original.read_character().await.unwrap(), 0);
         assert_eq!(keyboard.peek_key(), None);
 
-        dos.state.devices().install(BiosConsole::new(
-            dos.state.memory().clone(),
-            keyboard.clone(),
-        ));
+        let memory = dos.cpu.memory().with_io(dos.cpu.context().io.clone());
+        dos.state
+            .devices()
+            .install(BiosConsole::new(memory, keyboard.clone()));
         let replacement = dos.state.devices().console();
         assert_eq!(replacement.peek_character().await.unwrap(), None);
         assert!(!replacement.input_available().await.unwrap());
