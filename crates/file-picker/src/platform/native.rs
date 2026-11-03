@@ -1,4 +1,4 @@
-use crate::{Access, FileMetadata};
+use crate::{Access, DirEntry, EntryKind, Metadata};
 use blocking::Unblock;
 use cap_std::{ambient_authority, fs};
 use std::{
@@ -6,6 +6,7 @@ use std::{
     path::PathBuf,
 };
 
+pub(crate) type Directory = Unblock<fs::Dir>;
 pub(crate) type File = Unblock<fs::File>;
 
 pub(crate) async fn pick_file() -> io::Result<Option<(String, File)>> {
@@ -30,6 +31,70 @@ pub(crate) async fn selected_file(path: PathBuf) -> io::Result<(String, File)> {
     })
     .await?;
     Ok((name, file))
+}
+
+pub(crate) async fn pick_directory(_: Access) -> io::Result<Option<(String, Directory)>> {
+    let Some(selection) = rfd::AsyncFileDialog::new().pick_folder().await else {
+        return Ok(None);
+    };
+    selected_directory(selection.into()).await.map(Some)
+}
+
+pub(crate) async fn selected_directory(path: PathBuf) -> io::Result<(String, Directory)> {
+    let name = path
+        .file_name()
+        .unwrap_or(path.as_os_str())
+        .to_string_lossy()
+        .into_owned();
+    let directory =
+        blocking::unblock(move || fs::Dir::open_ambient_dir(path, ambient_authority())).await?;
+    Ok((name, Unblock::new(directory)))
+}
+
+pub(crate) async fn read_dir(directory: &mut Directory) -> io::Result<Vec<DirEntry>> {
+    directory
+        .with_mut(|directory| {
+            let mut entries = Vec::new();
+            for entry in directory.entries()? {
+                let entry = entry?;
+                let stat = entry.metadata()?;
+                let kind = if stat.is_file() {
+                    EntryKind::File
+                } else if stat.is_dir() {
+                    EntryKind::Directory
+                } else {
+                    continue;
+                };
+                let name = entry.file_name().into_string().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "non-UTF-8 entry name")
+                })?;
+                entries.push(DirEntry {
+                    name,
+                    metadata: metadata(stat, kind),
+                });
+            }
+            Ok(entries)
+        })
+        .await
+}
+
+pub(crate) async fn open_file(
+    directory: &mut Directory,
+    name: String,
+    access: Access,
+) -> io::Result<File> {
+    directory
+        .with_mut(move |directory| regular_file(directory.open_with(name, &file_options(access))?))
+        .await
+}
+
+pub(crate) async fn open_directory(
+    directory: &mut Directory,
+    name: String,
+) -> io::Result<Directory> {
+    directory
+        .with_mut(move |directory| directory.open_dir(name).map(Unblock::new))
+        .await
 }
 
 fn file_options(access: Access) -> fs::OpenOptions {
@@ -72,13 +137,20 @@ pub(crate) async fn read_file(
     .await
 }
 
-pub(crate) async fn file_metadata(file: &mut File) -> io::Result<FileMetadata> {
-    file.with_mut(|file| {
-        let metadata = file.metadata()?;
-        Ok(FileMetadata {
-            len: metadata.len(),
-            modified: metadata.modified().ok().map(|time| time.into_std()),
-        })
-    })
-    .await
+pub(crate) async fn file_metadata(file: &mut File) -> io::Result<Metadata> {
+    file.with_mut(|file| Ok(metadata(file.metadata()?, EntryKind::File)))
+        .await
+}
+
+fn metadata(stat: fs::Metadata, kind: EntryKind) -> Metadata {
+    Metadata {
+        kind,
+        len: if kind == EntryKind::File {
+            stat.len()
+        } else {
+            0
+        },
+        modified: stat.modified().ok().map(|time| time.into_std()),
+        created: stat.created().ok().map(|time| time.into_std()),
+    }
 }

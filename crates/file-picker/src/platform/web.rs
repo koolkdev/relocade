@@ -1,14 +1,18 @@
-use crate::FileMetadata;
-use js_sys::Uint8Array;
+use crate::{Access, DirEntry, EntryKind, Metadata};
+use js_sys::{Function, Object, Reflect, Uint8Array};
 use std::{
     io,
     time::{Duration, UNIX_EPOCH},
 };
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
-use web_sys::DomException;
+use web_sys::{DomException, FileSystemFileHandle, FileSystemHandle, FileSystemHandleKind};
 
-pub(crate) type File = web_sys::File;
+pub(crate) type Directory = web_sys::FileSystemDirectoryHandle;
+pub(crate) enum File {
+    Selected(web_sys::File),
+    Opened(FileSystemFileHandle),
+}
 
 fn window() -> io::Result<web_sys::Window> {
     web_sys::window().ok_or_else(|| {
@@ -33,7 +37,101 @@ pub(crate) async fn pick_file() -> io::Result<Option<(String, File)>> {
     Ok(rfd::AsyncFileDialog::new()
         .pick_file()
         .await
-        .map(|file| (file.file_name(), file.inner().clone())))
+        .map(|file| (file.file_name(), File::Selected(file.inner().clone()))))
+}
+
+pub(crate) async fn pick_directory(access: Access) -> io::Result<Option<(String, Directory)>> {
+    let window = window()?;
+    // Local binding avoids requiring web_sys_unstable_apis in every consumer.
+    let picker = Reflect::get(&window, &"showDirectoryPicker".into()).map_err(browser_error)?;
+    let picker = picker.dyn_into::<Function>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            "directory selection requires the File System Access API",
+        )
+    })?;
+    let options = Object::new();
+    let mode = match access {
+        Access::ReadOnly => "read",
+        Access::ReadWrite => "readwrite",
+    };
+    Reflect::set(&options, &"mode".into(), &mode.into()).map_err(browser_error)?;
+    let promise: js_sys::Promise<Directory> = picker
+        .call1(&window, &options)
+        .map_err(browser_error)?
+        .unchecked_into();
+    match JsFuture::from(promise).await {
+        Ok(directory) => Ok(Some((directory.name(), directory))),
+        Err(error)
+            if error
+                .dyn_ref::<DomException>()
+                .is_some_and(|e| e.name() == "AbortError") =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(browser_error(error)),
+    }
+}
+
+pub(crate) async fn read_dir(directory: &mut Directory) -> io::Result<Vec<DirEntry>> {
+    let iterator = directory.values();
+    let mut entries = Vec::new();
+    loop {
+        let next = JsFuture::from(iterator.next_iterator().map_err(browser_error)?)
+            .await
+            .map_err(browser_error)?;
+        if next.done() {
+            break;
+        }
+        let handle: FileSystemHandle = next.value().unchecked_into();
+        let metadata = match handle.kind() {
+            FileSystemHandleKind::File => {
+                let handle: &FileSystemFileHandle = handle.unchecked_ref();
+                let file = resolve(handle.get_file()).await?.unchecked_into();
+                metadata(&file)
+            }
+            FileSystemHandleKind::Directory => Metadata {
+                kind: EntryKind::Directory,
+                len: 0,
+                modified: None,
+                created: None,
+            },
+            _ => unreachable!("file system handle kind"),
+        };
+        entries.push(DirEntry {
+            name: handle.name(),
+            metadata,
+        });
+    }
+    Ok(entries)
+}
+
+pub(crate) async fn open_file(
+    directory: &mut Directory,
+    name: String,
+    _: Access,
+) -> io::Result<File> {
+    Ok(File::Opened(
+        resolve(directory.get_file_handle(&name))
+            .await?
+            .unchecked_into(),
+    ))
+}
+
+pub(crate) async fn open_directory(
+    directory: &mut Directory,
+    name: String,
+) -> io::Result<Directory> {
+    Ok(resolve(directory.get_directory_handle(&name))
+        .await?
+        .unchecked_into())
+}
+
+async fn snapshot(file: &File) -> io::Result<web_sys::File> {
+    match file {
+        File::Selected(file) => Ok(file.clone()),
+        File::Opened(handle) => Ok(resolve(handle.get_file()).await?.unchecked_into()),
+    }
 }
 
 pub(crate) async fn read_file(
@@ -41,6 +139,7 @@ pub(crate) async fn read_file(
     offset: u64,
     length: Option<usize>,
 ) -> io::Result<Vec<u8>> {
+    let file = snapshot(file).await?;
     let start = position(offset)?;
     let end = match length {
         Some(length) => position(
@@ -56,7 +155,11 @@ pub(crate) async fn read_file(
     Ok(Uint8Array::new(&resolve(blob.array_buffer()).await?).to_vec())
 }
 
-pub(crate) async fn file_metadata(file: &mut File) -> io::Result<FileMetadata> {
+pub(crate) async fn file_metadata(file: &mut File) -> io::Result<Metadata> {
+    Ok(metadata(&snapshot(file).await?))
+}
+
+fn metadata(file: &web_sys::File) -> Metadata {
     let milliseconds = file.last_modified() as i64;
     let duration = Duration::from_millis(milliseconds.unsigned_abs());
     let modified = if milliseconds >= 0 {
@@ -64,10 +167,12 @@ pub(crate) async fn file_metadata(file: &mut File) -> io::Result<FileMetadata> {
     } else {
         UNIX_EPOCH.checked_sub(duration)
     };
-    Ok(FileMetadata {
+    Metadata {
+        kind: EntryKind::File,
         len: file.size() as u64,
         modified,
-    })
+        created: None,
+    }
 }
 
 fn position(value: u64) -> io::Result<f64> {
