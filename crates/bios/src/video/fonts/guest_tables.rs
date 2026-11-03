@@ -1,4 +1,4 @@
-//! Mode-set font overrides from the primary and secondary save-pointer tables.
+//! Guest font tables override mode defaults through the BIOS save-pointer tables.
 use super::{graphics, text};
 use crate::{
     screen,

@@ -1,15 +1,15 @@
 //! INT 10h/AH=11h: text font memory, graphics font vectors and font information.
 mod glyph;
 pub(super) mod graphics;
+mod guest_tables;
 mod layout;
-mod overrides;
 mod rom;
 pub(super) mod text;
 mod upload;
 
 use super::{CHARACTER_HEIGHT, LAST_ROW};
 pub(crate) use glyph::Glyph;
-pub(super) use overrides::apply as apply_overrides;
+pub(super) use guest_tables::apply as apply_guest_tables;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, FarPointer},
     IoBus, MemoryView,
