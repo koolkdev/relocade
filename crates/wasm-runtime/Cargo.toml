@@ -6,9 +6,10 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-worker = ["dep:web-thread"]
+worker = ["dep:relocade-derive", "dep:web-thread"]
 
 [dependencies]
+relocade-derive = { path = "../derive", optional = true }
 relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }

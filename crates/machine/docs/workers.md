@@ -1,21 +1,20 @@
 # Worker tasks and messages
 
-Enable the machine's `worker` feature for `worker::Thread`. This is a direct
-reexport of `web-thread-select`; the Wasm runtime exposes the same worker API
-through its own `worker` feature. The application creates workers and keeps them
-alive until their tasks finish.
+Enable the machine's `worker` feature for `worker::Thread`. The Wasm runtime
+reexports `web-thread-select` and adds `ThreadExt::run_resource` for typed resource
+handles. The application creates workers and keeps them alive until their tasks
+finish.
 
-Pass the shared allocation as the task context. Capture configuration and Rust
-channel endpoints in the closure, then construct the CPU inside the worker:
+Pass the memory handle directly. Capture CPU configuration and Rust channel
+endpoints in the closure, then construct the CPU inside the worker:
 
 ```rust,ignore
-use relocade_machine::{worker::Thread, Cpu, Memory};
+use relocade_machine::{worker::{Thread, ThreadExt}, Cpu, Memory};
 
-let memory = Memory::new(machine_config.clone())?;
+let memory = Memory::new(machine_config)?;
 memory.view().write(0x100, &program)?;
 let worker = Thread::new();
-let task = worker.run_send(memory.backing().clone(), move |backing| async move {
-    let memory = Memory::with_backing(machine_config, backing)?;
+let task = worker.run_resource(memory.clone(), move |memory| async move {
     let mut cpu = Cpu::new(memory, cpu_config, Default::default()).await?;
     Ok::<_, relocade_machine::Error>(cpu.run(budget).await)
 });
@@ -25,7 +24,15 @@ let view = memory.view();
 let exit = task.await??;
 ```
 
-`SharedMemory` and compiled `Module` handles support the library's `Post`
+`Memory` derives `WorkerResource` and marks its backing with `#[worker(post)]`.
+The common derive supports named and tuple structs with one posted field; other
+fields stay in Rust as `Send` captures. It retains the existing configuration and
+posts shared backing through an opaque `ResourceTransfer`. The
+worker adapter reconstructs the complete handle before invoking the task. Callers
+do not extract backing or pair it with configuration, and the transfer does not
+expose a capability's underlying storage.
+
+`SharedMemory` and compiled `Module` handles still support the library's `Post`
 transport directly. Native handles move as Rust values. Browser transport
 preserves their JavaScript objects; shared-memory bytes are shared, not copied.
 The receiving worker prepares its own local access to the allocation. Retained
@@ -43,7 +50,7 @@ service resources. They await Rust channel input without retaining a backend
 borrow. `Cpu::run` drives execution; dropping a run waiter preserves the pending
 service for a later run. The
 [CPU worker example](../../../tests/browser/src/cpus.rs) exercises this complete
-flow on native and browser workers: it captures configuration and channels,
+flow on native and browser workers: it passes memory handles and captures channels,
 constructs local state, waits for input while the caller accesses mapped memory,
 resumes guest execution, and reuses the allocation on a later worker.
 

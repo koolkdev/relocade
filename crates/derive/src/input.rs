@@ -1,4 +1,4 @@
-//! Shared structural validation and field handling for both derives.
+//! Shared field construction and ABI input validation.
 
 use proc_macro2::TokenStream as Tokens;
 use quote::{quote, ToTokens};

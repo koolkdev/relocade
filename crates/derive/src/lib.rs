@@ -1,4 +1,4 @@
-//! Portable ABI codecs and compiler values derived from the same Rust definitions.
+//! Derives and adapters for ABI values, host services and worker resources.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
@@ -9,6 +9,14 @@ mod input;
 mod interrupt;
 mod interrupt_dispatch;
 mod wasm_abi;
+mod worker_resource;
+
+#[proc_macro_derive(WorkerResource, attributes(worker))]
+pub fn derive_worker_resource(input: TokenStream) -> TokenStream {
+    worker_resource::expand(&parse_macro_input!(input as DeriveInput))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 #[proc_macro_attribute]
 pub fn interrupt(args: TokenStream, item: TokenStream) -> TokenStream {

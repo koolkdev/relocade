@@ -2239,6 +2239,7 @@ dependencies = [
  "js-sys",
  "pollster",
  "relocade-compiler",
+ "relocade-derive",
  "relocade-wasm-bindings",
  "serde",
  "serde-wasm-bindgen",
