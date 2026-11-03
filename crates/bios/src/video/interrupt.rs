@@ -1,8 +1,8 @@
 //! INT 10h service selection. Implementations declare their own register ABI.
 
 use super::{
-    adapter, characters, cursor, fonts, graphics, information, modes, palette, scroll, state,
-    strings,
+    adapter, characters, control, cursor, fonts, graphics, information, modes, palette, scroll,
+    state, strings,
 };
 use crate::screen;
 use relocade_machine::{
@@ -164,9 +164,10 @@ async fn configuration(call: &mut CpuContext<'_>, function: u8) {
             0x10 => adapter::configuration,
             0x30 => modes::select_scanlines,
             0x31 => palette::load::set_palette_loading,
+            0x32 => control::set_video_addressing,
             0x33 => palette::load::set_grayscale_summing,
             0x34 => screen::set_cursor_emulation,
-            0x36 => modes::set_screen_output,
+            0x36 => control::set_screen_output,
             _ => crate::interrupt::unsupported,
         }
     );

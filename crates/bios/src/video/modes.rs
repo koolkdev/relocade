@@ -181,23 +181,3 @@ pub(super) fn select_scanlines(memory: &mut MemoryView<'_>, selection: u8) -> bo
         .expect("video switches");
     true
 }
-
-/// Blanks or restores VGA output. Other selectors leave it unchanged.
-/// The interrupt acknowledges every request, including invalid selectors.
-#[interrupt(context(io), args(selection = al), returns { () => { al = 0x12 } })]
-pub fn set_screen_output(io: &IoBus, selection: u8) {
-    if selection <= 1 {
-        let clocking = super::read_indexed(io, SEQUENCER_INDEX_PORT, sequencer::CLOCKING_MODE);
-        let screen_off = if selection == 1 {
-            sequencer::SCREEN_OFF
-        } else {
-            0
-        };
-        write_indexed(
-            io,
-            SEQUENCER_INDEX_PORT,
-            sequencer::CLOCKING_MODE,
-            (clocking & !sequencer::SCREEN_OFF) | screen_off,
-        );
-    }
-}

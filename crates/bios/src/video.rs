@@ -7,6 +7,7 @@
 
 mod adapter;
 mod characters;
+mod control;
 mod cursor;
 mod fonts;
 pub(super) mod graphics;
@@ -23,11 +24,12 @@ pub use characters::{
     read_character, teletype, write_characters, write_characters_preserving_attributes,
     write_characters_with_attribute, CharacterCell, CharacterRun,
 };
+pub use control::{set_screen_output, set_video_addressing};
 pub use cursor::{cursor, select_page, set_cursor, set_cursor_shape, CursorState};
 pub(super) use fonts::Glyph;
 pub use graphics::pixel::{read_pixel, write_pixel};
 pub(crate) use interrupt::dispatch_entry;
-pub use modes::{mode, set_mode, set_screen_output, ModeInfo};
+pub use modes::{mode, set_mode, ModeInfo};
 pub(super) use modes::{text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
 pub use scroll::{scroll, scroll_down, scroll_up};
 
