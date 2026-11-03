@@ -14,6 +14,8 @@ use std::{
 mod platform;
 pub use platform::wake_connection;
 
+mod polling;
+
 /// A retained signal that asks busy execution to return to Rust.
 /// Clones, including handles reconstructed on another thread, must address the
 /// same signal. Waking and acknowledgement may run concurrently. Neither may
@@ -45,6 +47,7 @@ pub struct WakeConnection<R: WakeTarget> {
     _binding: platform::Binding,
     target: R,
     notification: Waker,
+    notified: Arc<AtomicBool>,
 }
 
 impl<R: WakeTarget> WakeEndpoint<R> {
@@ -59,6 +62,7 @@ impl<R: WakeTarget> WakeEndpoint<R> {
             _binding: binding,
             target,
             notification: self.notification,
+            notified: Arc::default(),
         }
     }
 }
