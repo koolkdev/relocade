@@ -9,7 +9,7 @@ struct DisplayVertex {
     @location(2) @interpolate(flat) panning: vec4<u32>, // Preset row, byte/pel pan, line compare.
     @location(3) @interpolate(flat) fonts: vec3<u32>, // A/B bases and dual-font selection.
     @location(4) @interpolate(flat) cursor: vec4<u32>, // Address, start/end scanlines, blink phase.
-    @location(5) @interpolate(flat) scanlines: vec2<u32>, // Scan repeat and output row step.
+    @location(5) @interpolate(flat) scanlines: vec4<u32>, // Repeat, row step, active height, display skew.
     @location(6) @interpolate(flat) display: vec4<u32>, // Attribute mode/blink, blanked, GC shift bits.
     @location(7) @interpolate(flat) colors0: vec4<u32>,
     @location(8) @interpolate(flat) colors1: vec4<u32>,
@@ -17,6 +17,7 @@ struct DisplayVertex {
     @location(10) @interpolate(flat) colors3: vec4<u32>,
     @location(11) @interpolate(flat) horizontal_blank: vec3<u32>,
     @location(12) @interpolate(flat) vertical_blank: vec3<u32>,
+    @location(13) @interpolate(flat) raster: vec4<u32>, // Crop origin and totals in dots/scanlines.
 }
 
 @vertex
@@ -38,6 +39,8 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
         | ((maximum_scan_line & 0x40u) << 3u);
     let vertical_divisor = 1u << ((crtc(0x17u) >> 2u) & 1u);
     let split_scanline = (line_compare + 1u) * vertical_divisor - 1u;
+    let vertical_display = crtc(0x12u) | ((crtc(7u) & 2u) << 7u) | ((crtc(7u) & 0x40u) << 3u);
+    let vertical_total = crtc(6u) | ((crtc(7u) & 1u) << 8u) | ((crtc(7u) & 0x20u) << 4u);
     let preset_row_scan = crtc(8u);
     var pel_pan = attribute_reg(0x13u);
     if indexed256 {
@@ -77,7 +80,8 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     output.panning = vec4(preset_row_scan & 31u, (preset_row_scan >> 5u) & 3u, pel_pan, split_scanline);
     output.fonts = vec3(font_a, font_b, u32(extended_memory && font_a != font_b));
     output.cursor = vec4((crtc(14u) << 8u) | crtc(15u), crtc(10u), crtc(11u), state.cursor_blink_on);
-    output.scanlines = vec2(1u << (maximum_scan_line >> 7u), state.scanline_step);
+    output.scanlines = vec4(1u << (maximum_scan_line >> 7u), state.scanline_step,
+        (vertical_display + 1u) * vertical_divisor, ((crtc(3u) >> 5u) & 3u) * glyph_width);
     output.display = vec4(attribute_mode, state.attribute_blink_on, u32(blanked), shift_mode);
     output.colors0 = colors[0];
     output.colors1 = colors[1];
@@ -85,6 +89,8 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     output.colors3 = colors[3];
     output.horizontal_blank = horizontal_blanking();
     output.vertical_blank = vertical_blanking();
+    output.raster = vec4(state.raster_origin, (crtc(0u) + 5u) * glyph_width,
+        (vertical_total + 2u) * vertical_divisor);
     return output;
 }
 
@@ -94,15 +100,27 @@ fn fragment(input: DisplayVertex) -> @location(0) vec4<f32> {
     let blanked = input.display.z != 0u;
     let shift_mode = input.display.w;
     let pixel = vec2<u32>(input.position.xy);
-    if blanked || pixel_blanked(input, pixel) {
+    let indexed256 = (attribute_mode & 0x41u) == 0x41u && (shift_mode & 0x40u) != 0u;
+    let pixel_step = select(1u, 2u, indexed256);
+    let scanline_step = input.scanlines.y;
+    let raster = (input.raster.xy + pixel * vec2(pixel_step, scanline_step)) % input.raster.zw;
+    if blanked || pixel_blanked(input, raster) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
-    let line = display_scanline(input, pixel.y);
+    let display_skew = input.scanlines.w;
+    let active_width = input.grid.x * input.grid.y;
+    let active_height = input.scanlines.z;
+    let active_dot = (raster.x + input.raster.z - display_skew) % input.raster.z;
+    if active_dot >= active_width || raster.y >= active_height {
+        return unpack4x8unorm(overscan_color());
+    }
+    let x = active_dot / pixel_step;
+    let line = display_scanline(input, raster.y);
     if (attribute_mode & 1u) == 0u {
-        return unpack4x8unorm(text_color(input, line, pixel.x));
+        return unpack4x8unorm(text_color(input, line, x));
     }
     if (shift_mode & 0x40u) != 0u {
-        return unpack4x8unorm(indexed256_color(input, line, pixel.x));
+        return unpack4x8unorm(indexed256_color(input, line, x));
     }
-    return unpack4x8unorm(graphics16_color(input, line, pixel.x));
+    return unpack4x8unorm(graphics16_color(input, line, x));
 }

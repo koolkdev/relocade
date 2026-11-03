@@ -41,8 +41,8 @@ fn cga_modes_restore_b8000_routing_and_honor_memory_preservation() {
             for plane in 0..4 {
                 assert_eq!(preserved.plane(plane), retained.plane(plane));
             }
-            assert_eq!(preserved.geometry().size, [width, 200]);
-            assert_eq!(preserved.geometry().scanline_step, 2);
+            assert_eq!(preserved.geometry().size, [width + 16, 414]);
+            assert_eq!(preserved.geometry().scanline_step, 1);
             assert_eq!(
                 video(&mut dos, 0x0f00, 0, 0, 0).registers.eax as u16,
                 ((width as u16 / 8) << 8) | mode | 0x80

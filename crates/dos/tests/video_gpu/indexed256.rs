@@ -22,8 +22,8 @@ fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures()
         }
         program.push(0xc3); // RET exits the COM program through its PSP.
         let graphics = run(&mut dos, &program).await;
-        assert_eq!(graphics.display.geometry().pixel_aspect_ratio(), (5, 6));
-        let pixels = gpu.render(&graphics, [320, 200]).await;
+        assert_eq!(graphics.display.geometry().pixel_aspect_ratio(), (5, 3));
+        let pixels = gpu.render_active(&graphics, [320, 200]).await;
         for (offset, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
             let expected = if offsets.contains(&(offset as u16)) {
                 [255, 0, 0, 255]
@@ -50,13 +50,13 @@ fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures()
                 recolored.display.plane(plane)
             ));
         }
-        let green = gpu.render(&recolored, [320, 200]).await;
+        let green = gpu.render_active(&recolored, [320, 200]).await;
         assert_eq!(&green[..4], &[0, 255, 0, 255]);
         assert_eq!(&green[4..8], &[85, 85, 255, 255]);
 
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        let restored = gpu.render(&text, [720, 400]).await;
+        let restored = gpu.render_active(&text, [720, 400]).await;
         for (offset, pixel) in restored.as_chunks::<4>().0.iter().enumerate() {
             let expected = if offset % 720 < 9 && offset / 720 < 16 {
                 [170, 0, 0, 255]
@@ -65,7 +65,7 @@ fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures()
             };
             assert_eq!(*pixel, expected, "restored text pixel {offset}");
         }
-        let retained = gpu.render(&graphics, [320, 200]).await;
+        let retained = gpu.render_active(&graphics, [320, 200]).await;
         assert_eq!(retained, pixels);
     });
 }

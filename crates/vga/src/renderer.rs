@@ -36,14 +36,14 @@ struct FrameMetadata {
 }
 
 impl VgaRenderer {
-    /// Requires a 2D texture limit of at least 2304 pixels, covering every VGA
-    /// text width, 13 flat inter-stage variables, and one 256-KiB fragment storage
+    /// Requires a 2D texture limit of at least 2340 pixels, covering a full VGA
+    /// raster, 14 flat inter-stage variables, and one 256-KiB fragment storage
     /// buffer for physical VRAM.
     pub fn new(device: &wgpu::Device) -> Result<Self, FrameError> {
-        // The CRTC can select 256 nine-dot columns and 2048 physical scanlines.
+        // Totals include up to 260 nine-dot clocks and 2050 physical scanlines.
         let limits = device.limits();
-        if limits.max_texture_dimension_2d < 256 * 9
-            || limits.max_inter_stage_shader_variables < 13
+        if limits.max_texture_dimension_2d < 260 * 9
+            || limits.max_inter_stage_shader_variables < 14
             || limits.max_storage_buffers_per_shader_stage < 1
             || limits.max_storage_buffer_binding_size < memory::BUFFER_BYTES
             || limits.max_buffer_size < memory::BUFFER_BYTES

@@ -37,9 +37,9 @@ fn mode_13h_restores_memory_routing_geometry_and_default_palette() {
         }
         video(&mut dos, 0x0013, 0, 0, 0);
         let display = dos.vga().borrow().snapshot();
-        assert_eq!(display.geometry().size, [320, 200]);
-        assert_eq!(display.geometry().scanline_step, 2);
-        assert_eq!(display.geometry().pixel_aspect_ratio(), (5, 6));
+        assert_eq!(display.geometry().size, [328, 414]);
+        assert_eq!(display.geometry().scanline_step, 1);
+        assert_eq!(display.geometry().pixel_aspect_ratio(), (5, 3));
         let mode = video(&mut dos, 0x0f00, 0xffa5, 0, 0);
         assert_eq!(mode.registers.eax as u16, 0x2813);
         assert_eq!(mode.registers.ebx as u16, 0x00a5);
@@ -158,11 +158,9 @@ fn preserve_memory_flag_queries_and_text_return_follow_bios_bookkeeping() {
         let text = dos.vga().borrow().snapshot();
         assert_eq!(
             &text.plane(2)[65 * 32..65 * 32 + 16],
-            &[
-                0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
-            ]
+            &[0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,]
         );
-        assert_eq!(text.geometry().size, [720, 400]);
+        assert_eq!(text.geometry().size, [738, 414]);
         // Loading the text font cannot modify a retained graphics capture.
         assert_ne!(retained.plane(2), text.plane(2));
     });

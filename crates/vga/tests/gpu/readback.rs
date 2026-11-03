@@ -1,4 +1,61 @@
 //! Texture readback shared by VGA and guest-to-GPU integration tests.
+
+/// Observe the active picture at a fixture's row sampling rate. Pixel-decoding
+/// fixtures remain independent of the surrounding border; overscan fixtures read
+/// the complete texture. Active positions removed by blanking read as black.
+pub(crate) async fn read_active_pixels(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    snapshot: &relocade_vga::DisplaySnapshot,
+    size: [u32; 2],
+) -> Vec<u8> {
+    let pixels = read_pixels(device, queue, texture).await;
+    let geometry = snapshot.geometry();
+    assert_eq!([texture.width(), texture.height()], geometry.size);
+    assert_eq!(geometry.active_size[0], size[0]);
+    let c = &snapshot.registers.crtc.values;
+    let clock_width = if snapshot.registers.sequencer.values[1] & 1 == 0 {
+        9
+    } else {
+        8
+    };
+    let pixel_step = if snapshot.registers.attribute.values[0x10] & 0x41 == 0x41
+        && snapshot.registers.graphics.values[5] & 0x40 != 0
+    {
+        2
+    } else {
+        1
+    };
+    let vertical_divisor = 1 << ((c[0x17] >> 2) & 1);
+    let total = [
+        (u32::from(c[0]) + 5) * clock_width,
+        (u32::from(c[6]) + (u32::from(c[7] & 1) << 8) + (u32::from(c[7] & 0x20) << 4) + 2)
+            * vertical_divisor,
+    ];
+    let skew = u32::from((c[3] >> 5) & 3) * clock_width;
+    let physical_height = geometry.active_size[1] * geometry.scanline_step;
+    assert_eq!(physical_height % size[1], 0);
+    let row_step = physical_height / size[1];
+    let mut active = Vec::with_capacity((size[0] * size[1] * 4) as usize);
+    for y in 0..size[1] {
+        for x in 0..size[0] {
+            let column = ((x * pixel_step + skew + total[0] - geometry.raster_origin[0])
+                % total[0])
+                / pixel_step;
+            let row = ((y * row_step + total[1] - geometry.raster_origin[1]) % total[1])
+                / geometry.scanline_step;
+            if column < geometry.size[0] && row < geometry.size[1] {
+                let offset = ((row * geometry.size[0] + column) * 4) as usize;
+                active.extend_from_slice(&pixels[offset..offset + 4]);
+            } else {
+                active.extend_from_slice(&[0, 0, 0, 255]);
+            }
+        }
+    }
+    active
+}
+
 pub(crate) async fn read_pixels(
     device: &wgpu::Device,
     queue: &wgpu::Queue,

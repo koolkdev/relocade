@@ -91,7 +91,7 @@ fn guest_pans_chained_serializers_across_a_split() {
             ]),
         ]
         .concat();
-        assert_eq!(gpu.render(&reset_pan, [32, 4]).await, expected_reset);
+        assert_eq!(gpu.render_active(&reset_pan, [32, 4]).await, expected_reset);
 
         let keep_pan = run(
             &mut dos,
@@ -125,9 +125,9 @@ fn guest_pans_chained_serializers_across_a_split() {
             ]),
         ]
         .concat();
-        assert_eq!(gpu.render(&keep_pan, [32, 4]).await, expected_keep);
+        assert_eq!(gpu.render_active(&keep_pan, [32, 4]).await, expected_keep);
         drop(dos);
-        assert_eq!(gpu.render(&reset_pan, [32, 4]).await, expected_reset);
+        assert_eq!(gpu.render_active(&reset_pan, [32, 4]).await, expected_reset);
     });
 }
 
@@ -161,7 +161,7 @@ fn guest_combines_shift_load_with_chain_four_then_restores_bios_modes() {
             .into_iter()
             .flat_map(|color| COLORS[color])
             .collect();
-        assert_eq!(gpu.render(&shifted, [16, 1]).await, expected);
+        assert_eq!(gpu.render_active(&shifted, [16, 1]).await, expected);
 
         // Standard BIOS modes reset both load and count controls. Pixel checks
         // catch lingering serializer state as well as incorrect register presets.
@@ -181,7 +181,7 @@ fn guest_combines_shift_load_with_chain_four_then_restores_bios_modes() {
             assert_eq!(registers.sequencer.values[1] & 0x14, 0);
             assert_eq!(registers.crtc.values[0x14] & 0x20, 0);
             assert_eq!(registers.crtc.values[0x17] & 8, 0);
-            let image = gpu.render(&capture, size).await;
+            let image = gpu.render_active(&capture, size).await;
             assert_eq!(&image[..white_pixels * 4], &[255; 4].repeat(white_pixels));
             assert!(image[white_pixels * 4..]
                 .as_chunks::<4>()
@@ -191,9 +191,9 @@ fn guest_combines_shift_load_with_chain_four_then_restores_bios_modes() {
         }
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        let image = gpu.render(&text, [720, 400]).await;
+        let image = gpu.render_active(&text, [720, 400]).await;
         assert_eq!(&image[..36], &[170, 0, 0, 255].repeat(9));
         assert_eq!(&image[36..40], &[0, 0, 0, 255]);
-        assert_eq!(gpu.render(&shifted, [16, 1]).await, expected);
+        assert_eq!(gpu.render_active(&shifted, [16, 1]).await, expected);
     });
 }

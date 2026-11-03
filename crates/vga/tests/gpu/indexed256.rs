@@ -18,7 +18,7 @@ async fn check_full_frame() {
     common::crtc(&mut vga, 10, 0x20);
     let text = common::fixture::capture(&vga);
     let text_pixels = super::software::render(&text.display);
-    gpu.expect(&text, [640, 200], &text_pixels).await;
+    gpu.expect_active(&text, [640, 200], &text_pixels).await;
 
     program(&mut vga);
     load_palette(&mut vga);
@@ -35,8 +35,8 @@ async fn check_full_frame() {
     vga.read_port(0x3da, 1);
     let first = source.current_capture().unwrap();
     let original = pixels(indices.iter().copied());
-    assert_eq!(first.display.geometry().pixel_aspect_ratio(), (5, 6));
-    gpu.expect(&first, [320, 200], &original).await;
+    assert_eq!(first.display.geometry().pixel_aspect_ratio(), (5, 3));
+    gpu.expect_active(&first, [320, 200], &original).await;
 
     // Sparse writes cross planes, pages and both high chain-4 address bits.
     for offset in [0, 1, 16383, 16384, 32767, 32768, 49152, 63999] {
@@ -46,7 +46,7 @@ async fn check_full_frame() {
     clock.set(common::boundary(2));
     vga.read_port(0x3da, 1);
     let changed = source.current_capture().unwrap();
-    gpu.expect(&changed, [320, 200], &pixels(indices.iter().copied()))
+    gpu.expect_active(&changed, [320, 200], &pixels(indices.iter().copied()))
         .await;
 
     vga.write_mmio(0xa0000 + 40000, 1, 0xe7);
@@ -67,7 +67,7 @@ async fn check_full_frame() {
             }
         })
         .collect();
-    gpu.expect(&newest, [320, 200], &expected).await;
+    gpu.expect_active(&newest, [320, 200], &expected).await;
 
     // CPU routing does not select the display layout; Color Select is unused
     // in eight-bit graphics. The DAC mask still applies to the complete index.
@@ -76,16 +76,16 @@ async fn check_full_frame() {
     vga.write_port(0x3c6, 1, 0x7f);
     let masked = common::fixture::capture(&vga);
     let expected = pixels(indices.iter().map(|index| index & 0x7f));
-    gpu.expect(&masked, [320, 200], &expected).await;
+    gpu.expect_active(&masked, [320, 200], &expected).await;
     // Eight-bit pixels bypass the attribute palette, including graphics blink.
     for mode in [0x49, 0x4b] {
         attribute(&mut vga, 0x10, mode);
-        gpu.expect(&common::fixture::capture(&vga), [320, 200], &expected)
+        gpu.expect_active(&common::fixture::capture(&vga), [320, 200], &expected)
             .await;
     }
     drop(vga);
-    gpu.expect(&first, [320, 200], &original).await;
-    gpu.expect(&text, [640, 200], &text_pixels).await;
+    gpu.expect_active(&first, [320, 200], &original).await;
+    gpu.expect_active(&text, [640, 200], &text_pixels).await;
 }
 
 async fn check_addressing() {
@@ -105,17 +105,17 @@ async fn check_addressing() {
         common::crtc(&mut vga, index, value);
     }
     let first = common::fixture::capture(&vga);
-    gpu.expect(&first, [8, 2], &pixels((4..12).chain(28..36)))
+    gpu.expect_active(&first, [8, 2], &pixels((4..12).chain(28..36)))
         .await;
     attribute(&mut vga, 0x13, 6); // Three pixels, crossing a four-plane group.
     let panned = common::fixture::capture(&vga);
-    gpu.expect(&panned, [8, 2], &pixels((7..15).chain(31..39)))
+    gpu.expect_active(&panned, [8, 2], &pixels((7..15).chain(31..39)))
         .await;
 
     attribute(&mut vga, 0x10, 0x61);
     common::crtc(&mut vga, 0x18, 0); // Split in the middle of the repeated pair.
     let split = common::fixture::capture(&vga);
-    gpu.expect(
+    gpu.expect_active(
         &split,
         [8, 4],
         &pixels((7..15).chain(0..8).chain(0..8).chain(24..32)),
@@ -125,7 +125,7 @@ async fn check_addressing() {
     common::crtc(&mut vga, 0x18, 0xff);
     common::crtc(&mut vga, 8, 1);
     let preset = common::fixture::capture(&vga);
-    gpu.expect(
+    gpu.expect_active(
         &preset,
         [8, 4],
         &pixels((4..12).chain(28..36).chain(28..36).chain(52..60)),
@@ -136,7 +136,7 @@ async fn check_addressing() {
         common::crtc(&mut vga, index, value);
     }
     let partial = common::fixture::capture(&vga);
-    gpu.expect(
+    gpu.expect_active(
         &partial,
         [8, 6],
         &pixels((4..12).cycle().take(32).chain((28..36).cycle().take(16))),
@@ -149,11 +149,11 @@ async fn check_addressing() {
     clock.set(std::time::Duration::from_secs(1));
     vga.read_port(0x3da, 1);
     let wrapped = common::fixture::capture(&vga);
-    gpu.expect(&wrapped, [8, 1], &pixels([252, 253, 254, 255, 0, 1, 2, 3]))
+    gpu.expect_active(&wrapped, [8, 1], &pixels([252, 253, 254, 255, 0, 1, 2, 3]))
         .await;
     indexed(&mut vga, 0x3c4, 1, 0x21);
     let blanked = common::fixture::capture(&vga);
-    gpu.expect(&blanked, [8, 1], &[0, 0, 0, 255].repeat(8))
+    gpu.expect_active(&blanked, [8, 1], &[0, 0, 0, 255].repeat(8))
         .await;
 }
 

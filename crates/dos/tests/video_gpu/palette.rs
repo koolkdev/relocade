@@ -20,7 +20,7 @@ fn bios_palette_changes_recolor_text_and_graphics_without_vram_writes() {
             }
             program.push(0xc3);
             let original = run(&mut dos, &program).await;
-            let red = gpu.render(&original, size).await;
+            let red = gpu.render_active(&original, size).await;
             assert_eq!(&red[..4], &[170, 0, 0, 255]);
 
             let mut program = Vec::new();
@@ -41,7 +41,10 @@ fn bios_palette_changes_recolor_text_and_graphics_without_vram_writes() {
                     recolored.display.plane(plane)
                 ));
             }
-            assert_eq!(&gpu.render(&recolored, size).await[..4], &[0, 255, 0, 255]);
+            assert_eq!(
+                &gpu.render_active(&recolored, size).await[..4],
+                &[0, 255, 0, 255]
+            );
             let masked = run(
                 &mut dos,
                 &[
@@ -52,13 +55,13 @@ fn bios_palette_changes_recolor_text_and_graphics_without_vram_writes() {
                 ],
             )
             .await;
-            let blue = gpu.render(&masked, size).await;
+            let blue = gpu.render_active(&masked, size).await;
             assert!(blue
                 .as_chunks::<4>()
                 .0
                 .iter()
                 .all(|pixel| *pixel == [0, 0, 255, 255]));
-            assert_eq!(gpu.render(&original, size).await, red);
+            assert_eq!(gpu.render_active(&original, size).await, red);
         }
     });
 }

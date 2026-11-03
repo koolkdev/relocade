@@ -45,12 +45,12 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
         assert_eq!(scrolled.display.registers.crtc.display_start, 0x4000);
         // The preset keeps physical rows. Panning exposes only the fourth white
         // pixel, and the lower split starts at cleared memory.
-        assert_white_prefix(&gpu.render(&scrolled, [320, 400]).await, 1);
+        assert_white_prefix(&gpu.render_active(&scrolled, [320, 400]).await, 1);
 
         let blanked = run(&mut dos, &[0xba, 0xc4, 3, 0xb8, 1, 0x21, 0xef, 0xc3]).await;
-        assert_white_prefix(&gpu.render(&blanked, [320, 400]).await, 0);
+        assert_white_prefix(&gpu.render_active(&blanked, [320, 400]).await, 0);
         let restored = run(&mut dos, &[0xba, 0xc4, 3, 0xb8, 1, 1, 0xef, 0xc3]).await;
-        assert_white_prefix(&gpu.render(&restored, [320, 400]).await, 1);
+        assert_white_prefix(&gpu.render_active(&restored, [320, 400]).await, 1);
         for plane in 0..4 {
             assert!(std::ptr::eq(
                 scrolled.display.plane(plane),
@@ -75,17 +75,17 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
             )
             .await;
             assert_eq!(capture.display.registers.crtc.display_start, 0);
-            assert_white_prefix(&gpu.render(&capture, size).await, 8);
+            assert_white_prefix(&gpu.render_active(&capture, size).await, 8);
             retained.push((capture, size));
         }
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        let pixels = gpu.render(&text, [720, 400]).await;
+        let pixels = gpu.render_active(&text, [720, 400]).await;
         assert_eq!(&pixels[..36], &[170, 0, 0, 255].repeat(9));
         assert_eq!(&pixels[36..40], &[0, 0, 0, 255]);
         for (capture, size) in retained.into_iter().rev() {
-            assert_white_prefix(&gpu.render(&capture, size).await, 8);
+            assert_white_prefix(&gpu.render_active(&capture, size).await, 8);
         }
-        assert_white_prefix(&gpu.render(&scrolled, [320, 400]).await, 1);
+        assert_white_prefix(&gpu.render_active(&scrolled, [320, 400]).await, 1);
     });
 }

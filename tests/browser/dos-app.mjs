@@ -78,15 +78,16 @@ async function displayedGlyph(page, column, row, expected) {
             context.drawImage(image, 0, 0);
             image.close();
             const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-            const width = Math.min(canvas.width, canvas.height * 4 / 3);
-            const height = width * 3 / 4;
+            // 738×414 nonblanked raster, with the 720×400 picture at (9, 7).
+            const width = Math.min(canvas.width, canvas.height * 820 / 621);
+            const height = width * 621 / 820;
             const left = (canvas.width - width) / 2;
             const top = (canvas.height - height) / 2;
             return Array.from({ length: 16 }, (_, scan) => {
                 let bits = 0;
                 for (let bit = 0; bit < 8; bit++) {
-                    const x = Math.floor(left + (column * 9 + bit + 0.5) * width / 720);
-                    const y = Math.floor(top + (row * 16 + scan + 0.5) * height / 400);
+                    const x = Math.floor(left + (9 + column * 9 + bit + 0.5) * width / 738);
+                    const y = Math.floor(top + (7 + row * 16 + scan + 0.5) * height / 414);
                     if (data[(y * canvas.width + x) * 4] > 100) bits |= 0x80 >> bit;
                 }
                 return bits;

@@ -57,7 +57,7 @@ fn guest_unchains_vram_and_flips_pages_without_rewriting_pixels() {
                 ],
             ),
         ] {
-            let pixels = gpu.render(capture, [320, 200]).await;
+            let pixels = gpu.render_active(capture, [320, 200]).await;
             assert_eq!(&pixels[..16], colors.as_flattened());
             assert!(pixels[16..]
                 .as_chunks::<4>()

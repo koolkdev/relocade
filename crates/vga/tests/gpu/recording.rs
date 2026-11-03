@@ -1,4 +1,4 @@
-use super::{common, pixel, read_pixels, set_cell, text_device};
+use super::{common, pixel, read_active_pixels, set_cell, text_device};
 use relocade_renderer::{Image, Rect, Renderer};
 use relocade_vga::VgaRenderer;
 use std::time::Duration;
@@ -9,8 +9,9 @@ async fn check_recording() {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut vga = VgaRenderer::new(&device).unwrap();
     let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
-    let output = Image::new(&device, [640, 200], (5, 12)).unwrap();
     let mut device_state = text_device();
+    let geometry = device_state.snapshot().geometry();
+    let output = Image::new(&device, geometry.size, geometry.pixel_aspect_ratio()).unwrap();
     let mut previous_image: Option<Image> = None;
     let mut empty = device.create_command_encoder(&Default::default());
     assert!(vga.encode(&mut empty).is_none());
@@ -25,7 +26,9 @@ async fn check_recording() {
         vga.upload(&queue, &input);
         queue.submit([]); // Keep GPU input current without decoding or presenting.
         if let Some(image) = &previous_image {
-            let pixels = read_pixels(&device, &queue, image.texture()).await;
+            let pixels =
+                read_active_pixels(&device, &queue, image.texture(), &input.display, [640, 200])
+                    .await;
             assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
         }
         if discard_first {
@@ -36,7 +39,14 @@ async fn check_recording() {
             assert_eq!(recorded.time, input.time);
             // The input upload was submitted, but the discarded decode must not
             // have changed the image. Metadata is not completion.
-            let pixels = read_pixels(&device, &queue, recorded.image.texture()).await;
+            let pixels = read_active_pixels(
+                &device,
+                &queue,
+                recorded.image.texture(),
+                &input.display,
+                [640, 200],
+            )
+            .await;
             assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
         }
 
@@ -63,7 +73,14 @@ async fn check_recording() {
         previous_image = Some(frame.image.clone());
         assert_eq!(frame.sequence, input.sequence);
         assert_eq!(frame.time, input.time);
-        let pixels = read_pixels(&device, &queue, output.texture()).await;
+        let pixels = read_active_pixels(
+            &device,
+            &queue,
+            output.texture(),
+            &input.display,
+            [640, 200],
+        )
+        .await;
         assert_eq!(pixel(&pixels, 0, 0), expected);
         assert_eq!(pixel(&pixels, 8, 0), [0, 0, 0, 255]);
     }

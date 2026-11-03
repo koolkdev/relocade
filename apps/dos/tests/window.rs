@@ -64,7 +64,10 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
     };
 
     let resize = |width: u32, height: u32| -> Result<(), Box<dyn Error>> {
-        x.configure_window(window, &ConfigureWindowAux::new().width(width).height(height))?;
+        x.configure_window(
+            window,
+            &ConfigureWindowAux::new().width(width).height(height),
+        )?;
         x.flush()?;
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
@@ -76,7 +79,7 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
             sleep(Duration::from_millis(20));
         }
     };
-    // Preserve every source dot when sampling the 720-pixel-wide startup image.
+    // Preserve every source dot when sampling the 738-pixel-wide startup image.
     resize(800, 600)?;
 
     // Literal sixteen-row firmware glyphs, sampled from the displayed window.
@@ -103,15 +106,17 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
                 pixels.data.len(),
                 usize::from(geometry.width) * usize::from(geometry.height) * 4
             );
-            let width = f64::from(geometry.width).min(f64::from(geometry.height) * 4.0 / 3.0);
-            let height = width * 3.0 / 4.0;
+            // 738×414 nonblanked raster, with the 720×400 picture at (9, 7).
+            let width = f64::from(geometry.width).min(f64::from(geometry.height) * 820.0 / 621.0);
+            let height = width * 621.0 / 820.0;
             let left = (f64::from(geometry.width) - width) / 2.0;
             let top = (f64::from(geometry.height) - height) / 2.0;
             let actual: [u8; 16] = std::array::from_fn(|scan| {
                 let mut bits = 0;
                 for bit in 0..8 {
-                    let x = (left + (bit as f64 + 0.5) * width / 720.0) as usize;
-                    let y = (top + ((row * 16 + scan) as f64 + 0.5) * height / 400.0) as usize;
+                    let x = (left + (9.0 + bit as f64 + 0.5) * width / 738.0) as usize;
+                    let y =
+                        (top + (7.0 + (row * 16 + scan) as f64 + 0.5) * height / 414.0) as usize;
                     if pixels.data[(y * usize::from(geometry.width) + x) * 4] > 100 {
                         bits |= 0x80 >> bit;
                     }

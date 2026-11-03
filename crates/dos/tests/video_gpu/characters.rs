@@ -24,13 +24,13 @@ fn dos_and_bios_graphics_characters_share_guest_fonts_and_survive_mode_changes()
         let cleared = run(&mut dos, &[0xb8, 0x13, 0, 0xcd, 0x10, 0xc3]).await;
         drop(dos);
         let mut gpu = Gpu::new().await;
-        let blank = gpu.render(&cleared, [320, 200]).await;
+        let blank = gpu.render_active(&cleared, [320, 200]).await;
         assert!(blank
             .as_chunks::<4>()
             .0
             .iter()
             .all(|pixel| *pixel == [0, 0, 0, 255]));
-        let image = gpu.render(&capture, [320, 200]).await;
+        let image = gpu.render_active(&capture, [320, 200]).await;
         for y in 0..200 {
             for x in 0..320 {
                 let color = if y < 8 && x < 32 && glyph[y] & (0x80 >> (x % 8)) != 0 {

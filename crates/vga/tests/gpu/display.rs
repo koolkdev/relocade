@@ -1,4 +1,4 @@
-use super::{common, pixel, read_pixels, set_cell};
+use super::{common, pixel, read_active_pixels, set_cell};
 use futures_util::FutureExt;
 use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
@@ -14,6 +14,7 @@ async fn check_display() {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let clock = Rc::new(common::ManualClock::default());
     let mut vga = common::text_vga(clock.clone());
+    let snapshot = vga.snapshot();
     common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
     set_cell(&mut vga, 0, 0xdb, 4);
     let source = vga.frame_source();
@@ -35,7 +36,7 @@ async fn check_display() {
     let mut encoder = device.create_command_encoder(&Default::default());
     let image = display.encode_image(&queue, &mut encoder).unwrap().clone();
     queue.submit([encoder.finish()]);
-    let pixels = read_pixels(&device, &queue, image.texture()).await;
+    let pixels = read_active_pixels(&device, &queue, image.texture(), &snapshot, [640, 200]).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
     let first = source.current_capture().unwrap();
     assert_eq!(display.current_frame().unwrap().sequence, first.sequence);
@@ -43,7 +44,10 @@ async fn check_display() {
 
     // Mark one output pixel to distinguish reusing the image from decoding again.
     queue.write_texture(
-        image.texture().as_image_copy(),
+        wgpu::TexelCopyTextureInfo {
+            origin: wgpu::Origin3d { x: 8, y: 7, z: 0 },
+            ..image.texture().as_image_copy()
+        },
         &[0, 255, 255, 255],
         Default::default(),
         wgpu::Extent3d {
@@ -67,7 +71,7 @@ async fn check_display() {
         image.texture()
     );
     queue.submit([encoder.finish()]);
-    let pixels = read_pixels(&device, &queue, image.texture()).await;
+    let pixels = read_active_pixels(&device, &queue, image.texture(), &snapshot, [640, 200]).await;
     assert_eq!(
         pixel(&pixels, 0, 0),
         [0, 255, 255, 255],
@@ -86,7 +90,7 @@ async fn check_display() {
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     clock.set(common::boundary(11));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
-    let pixels = read_pixels(&device, &queue, image.texture()).await;
+    let pixels = read_active_pixels(&device, &queue, image.texture(), &snapshot, [640, 200]).await;
     assert_eq!(
         pixel(&pixels, 0, 0),
         [0, 255, 255, 255],
@@ -95,7 +99,7 @@ async fn check_display() {
     let mut encoder = device.create_command_encoder(&Default::default());
     let latest = display.encode_image(&queue, &mut encoder).unwrap().clone();
     queue.submit([encoder.finish()]);
-    let pixels = read_pixels(&device, &queue, latest.texture()).await;
+    let pixels = read_active_pixels(&device, &queue, latest.texture(), &snapshot, [640, 200]).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
     let last = source.current_capture().unwrap();
     assert_eq!((last.sequence, last.time), (10, common::boundary(10)));
@@ -114,7 +118,7 @@ async fn check_display() {
         latest.texture()
     );
     queue.submit([encoder.finish()]);
-    let pixels = read_pixels(&device, &queue, latest.texture()).await;
+    let pixels = read_active_pixels(&device, &queue, latest.texture(), &snapshot, [640, 200]).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
     // The same connection must restore its closed source on a replacement GPU,
     // without another guest write or a new capture sequence.
@@ -133,7 +137,8 @@ async fn check_display() {
     let mut encoder = device.create_command_encoder(&Default::default());
     let restored = display.encode_image(&queue, &mut encoder).unwrap().clone();
     queue.submit([encoder.finish()]);
-    let pixels = read_pixels(&device, &queue, restored.texture()).await;
+    let pixels =
+        read_active_pixels(&device, &queue, restored.texture(), &snapshot, [640, 200]).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
     assert_eq!(display.current_frame().unwrap().sequence, last.sequence);
     assert_eq!(display.current_frame().unwrap().time, last.time);
@@ -157,6 +162,7 @@ async fn check_display_state_changes() {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let clock = Rc::new(common::ManualClock::default());
     let mut vga = common::text_vga(clock.clone());
+    let snapshot = vga.snapshot();
     common::support::registers::attribute(&mut vga, attribute::MODE_CONTROL, 0x08);
     set_cell(&mut vga, 0, 0xdb, 0x84); // Blinking red glyph.
     set_cell(&mut vga, 1, b' ', 0x82); // Green cursor over a blinking blank cell.
@@ -190,7 +196,8 @@ async fn check_display_state_changes() {
         let mut encoder = device.create_command_encoder(&Default::default());
         let image = display.encode_image(&queue, &mut encoder).unwrap().clone();
         queue.submit([encoder.finish()]);
-        let pixels = read_pixels(&device, &queue, image.texture()).await;
+        let pixels =
+            read_active_pixels(&device, &queue, image.texture(), &snapshot, [640, 200]).await;
         assert_eq!(pixel(&pixels, 0, 0), glyph);
         assert_eq!(pixel(&pixels, 8, 6), cursor);
     }
@@ -203,7 +210,7 @@ async fn check_display_state_changes() {
     let mut encoder = device.create_command_encoder(&Default::default());
     let image = display.encode_image(&queue, &mut encoder).unwrap().clone();
     queue.submit([encoder.finish()]);
-    let pixels = read_pixels(&device, &queue, image.texture()).await;
+    let pixels = read_active_pixels(&device, &queue, image.texture(), &snapshot, [640, 200]).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 0, 255, 255]);
 
     let retrace_end = vga.snapshot().registers.crtc.values[crtc::VERTICAL_RETRACE_END as usize];
@@ -216,9 +223,17 @@ async fn check_display_state_changes() {
     let mut encoder = device.create_command_encoder(&Default::default());
     let resized = display.encode_image(&queue, &mut encoder).unwrap().clone();
     queue.submit([encoder.finish()]);
-    assert_eq!(resized.size(), [320, 200]);
+    assert_eq!(resized.size(), [656, 414]);
+    assert_eq!(resized.pixel_aspect_ratio(), (5, 3));
     assert_ne!(resized.texture(), image.texture());
-    let pixels = read_pixels(&device, &queue, resized.texture()).await;
+    let pixels = read_active_pixels(
+        &device,
+        &queue,
+        resized.texture(),
+        &vga.snapshot(),
+        [320, 200],
+    )
+    .await;
     assert_eq!(&pixels[..4], [0, 0, 255, 255]);
 }
 

@@ -24,9 +24,7 @@ struct Scanline {
 }
 
 // The row counter, stride and split address apply to text and graphics alike.
-fn display_scanline(input: DisplayVertex, y: u32) -> Scanline {
-    let scanline_step = input.scanlines.y;
-    let physical_row = y * scanline_step;
+fn display_scanline(input: DisplayVertex, physical_row: u32) -> Scanline {
     let scan_repeat = input.scanlines.x;
     let row_height = input.grid.z;
     let preset_row_scan = input.panning.x;

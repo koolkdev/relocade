@@ -27,7 +27,7 @@ fn bios_page_selection_and_scrolling_reach_captured_planar_pixels() {
         drop(dos);
         let mut gpu = Gpu::new().await;
         for (capture, scrolled) in [(&after, true), (&before, false)] {
-            let image = gpu.render(capture, [320, 200]).await;
+            let image = gpu.render_active(capture, [320, 200]).await;
             for y in 0..200 {
                 for x in 0..320 {
                     let rgb = if x == 0 && y == if scrolled { 0 } else { 8 } {

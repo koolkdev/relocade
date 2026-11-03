@@ -34,7 +34,7 @@ fn mode_11h_direct_writes_bios_drawing_palette_and_text_return() {
             ],
         )
         .await;
-        let white = gpu.render(&original, [640, 480]).await;
+        let white = gpu.render_active(&original, [640, 480]).await;
         assert_two_color(&white, [255, 255, 255, 255]);
         let preserved = run(&mut dos, &[0xb8, 0x91, 0, 0xcd, 0x10, 0xc3]).await;
         for plane in 0..4 {
@@ -44,7 +44,7 @@ fn mode_11h_direct_writes_bios_drawing_palette_and_text_return() {
             );
         }
         assert_two_color(
-            &gpu.render(&preserved, [640, 480]).await,
+            &gpu.render_active(&preserved, [640, 480]).await,
             [255, 255, 255, 255],
         );
         let recolored = run(
@@ -55,11 +55,17 @@ fn mode_11h_direct_writes_bios_drawing_palette_and_text_return() {
             ],
         )
         .await;
-        assert_two_color(&gpu.render(&recolored, [640, 480]).await, [0, 255, 0, 255]);
+        assert_two_color(
+            &gpu.render_active(&recolored, [640, 480]).await,
+            [0, 255, 0, 255],
+        );
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        assert_eq!(&gpu.render(&text, [720, 400]).await[..4], &[170, 0, 0, 255]);
-        assert_eq!(gpu.render(&original, [640, 480]).await, white);
+        assert_eq!(
+            &gpu.render_active(&text, [720, 400]).await[..4],
+            &[170, 0, 0, 255]
+        );
+        assert_eq!(gpu.render_active(&original, [640, 480]).await, white);
     });
 }
 
@@ -99,7 +105,7 @@ fn mode_0fh_monochrome_blink_pages_and_retained_captures() {
             ],
         )
         .await;
-        let original = gpu.render(&first, [640, 350]).await;
+        let original = gpu.render_active(&first, [640, 350]).await;
         assert_monochrome_pattern(&original, first.display.attribute_blink_on);
         // A real device phase change publishes the same memory with new colors.
         let opposite = loop {
@@ -115,13 +121,13 @@ fn mode_0fh_monochrome_blink_pages_and_retained_captures() {
             ));
         }
         assert_monochrome_pattern(
-            &gpu.render(&opposite, [640, 350]).await,
+            &gpu.render_active(&opposite, [640, 350]).await,
             opposite.display.attribute_blink_on,
         );
 
         let page = run(&mut dos, &[0xb8, 1, 5, 0xcd, 0x10, 0xc3]).await;
         assert_eq!(page.display.registers.crtc.display_start, 0x8000);
-        let image = gpu.render(&page, [640, 350]).await;
+        let image = gpu.render_active(&page, [640, 350]).await;
         for (index, pixel) in image.as_chunks::<4>().0.iter().enumerate() {
             let (x, y) = (index % 640, index / 640);
             let level = if (8..16).contains(&x) && (14..28).contains(&y) {
@@ -142,13 +148,16 @@ fn mode_0fh_monochrome_blink_pages_and_retained_captures() {
             ],
         )
         .await;
-        assert_monochrome_pattern(&gpu.render(&steady, [640, 350]).await, true);
+        assert_monochrome_pattern(&gpu.render_active(&steady, [640, 350]).await, true);
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);
-        assert_eq!(&gpu.render(&text, [720, 400]).await[..4], &[170, 0, 0, 255]);
-        assert_eq!(gpu.render(&first, [640, 350]).await, original);
+        assert_eq!(
+            &gpu.render_active(&text, [720, 400]).await[..4],
+            &[170, 0, 0, 255]
+        );
+        assert_eq!(gpu.render_active(&first, [640, 350]).await, original);
         assert_monochrome_pattern(
-            &gpu.render(&opposite, [640, 350]).await,
+            &gpu.render_active(&opposite, [640, 350]).await,
             opposite.display.attribute_blink_on,
         );
     });

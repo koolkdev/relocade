@@ -25,7 +25,7 @@ fn full_restore_returns_to_programmed_text_after_a_graphics_mode_with_a_wrapped_
 
         video(&mut dos, 0x93, 0, 0, 0); // Change interpretation, preserve pixels/fonts.
         let graphics = common::next_capture(&dos).await;
-        assert_eq!(graphics.display.geometry().size, [320, 200]);
+        assert_eq!(graphics.display.geometry().size, [328, 414]);
         assert_eq!(
             state(&mut dos, 2, 7, 0x5000, 0xfffc).registers.eax as u16,
             0x1c1c
@@ -45,7 +45,7 @@ fn full_restore_returns_to_programmed_text_after_a_graphics_mode_with_a_wrapped_
                 &saved.plane(plane)[..0xffff]
             );
         }
-        assert_eq!(graphics.display.geometry().size, [320, 200]); // Retained capture.
+        assert_eq!(graphics.display.geometry().size, [328, 414]); // Retained capture.
     });
 }
 

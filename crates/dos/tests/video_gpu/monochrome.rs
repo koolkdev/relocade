@@ -44,7 +44,7 @@ fn guest_monochrome_text_renders_attributes_and_tracks_underline_through_font_ch
                 ],
             )
             .await;
-            let image = gpu.render(&capture, [720, lines]).await;
+            let image = gpu.render_active(&capture, [720, lines]).await;
             assert_monochrome(&image, height);
             for (font, height) in [(0x12, 8), (restore_font, height)] {
                 let changed = run(
@@ -57,17 +57,17 @@ fn guest_monochrome_text_renders_attributes_and_tracks_underline_through_font_ch
                     ],
                 )
                 .await;
-                assert_monochrome(&gpu.render(&changed, [720, lines]).await, height);
+                assert_monochrome(&gpu.render_active(&changed, [720, lines]).await, height);
             }
             // The color preset restores both the aperture and the DAC palette.
             let mut program = vec![0xb8, 0, 0x12, 0xbb, 0x30, 0, 0xcd, 0x10];
             program.extend_from_slice(TEXT_WITH_RED_BLOCK);
             let color = run(&mut dos, &program).await;
             assert_eq!(
-                &gpu.render(&color, [640, 200]).await[..4],
+                &gpu.render_active(&color, [640, 200]).await[..4],
                 &[170, 0, 0, 255]
             );
-            assert_eq!(gpu.render(&capture, [720, lines]).await, image);
+            assert_eq!(gpu.render_active(&capture, [720, lines]).await, image);
         }
     });
 }

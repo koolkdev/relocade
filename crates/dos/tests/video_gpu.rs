@@ -66,13 +66,19 @@ impl Gpu {
         }
     }
 
-    async fn render(&mut self, capture: &CapturedFrame, size: [u32; 2]) -> Vec<u8> {
+    async fn render_active(&mut self, capture: &CapturedFrame, size: [u32; 2]) -> Vec<u8> {
         self.renderer.upload(&self.queue, capture);
         let mut encoder = self.device.create_command_encoder(&Default::default());
         let image = self.renderer.encode(&mut encoder).unwrap().image;
         self.queue.submit([encoder.finish()]);
-        assert_eq!(image.size(), size);
-        readback::read_pixels(&self.device, &self.queue, image.texture()).await
+        readback::read_active_pixels(
+            &self.device,
+            &self.queue,
+            image.texture(),
+            &capture.display,
+            size,
+        )
+        .await
     }
 }
 

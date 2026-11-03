@@ -49,7 +49,7 @@ async fn check_pages() {
         // Programmed bytes already changed, but immediate snapshots still use
         // the previous latch. The shader must not decode the raw start bytes.
         let previous_base = frame.saturating_sub(1) as u16 * 0x4000;
-        gpu.expect(
+        gpu.expect_active(
             &common::fixture::capture(&vga),
             [320, 200],
             &expected(previous_base, 0, 200),
@@ -58,7 +58,7 @@ async fn check_pages() {
         clock.set(common::boundary(frame as u64 + 1));
         vga.read_port(0x3da, 1);
         let capture = source.current_capture().unwrap();
-        gpu.expect(&capture, [320, 200], &expected(base, 0, 200))
+        gpu.expect_active(&capture, [320, 200], &expected(base, 0, 200))
             .await;
         retained.push(capture);
     }
@@ -75,7 +75,7 @@ async fn check_pages() {
     ] {
         indexed(&mut vga, 0x3d4, index, value);
     }
-    gpu.expect(
+    gpu.expect_active(
         &common::fixture::capture(&vga),
         [320, 240],
         &expected(0xc000, 0, 240),
@@ -93,7 +93,7 @@ async fn check_pages() {
     vga.read_port(0x3da, 1);
     let panned = source.current_capture().unwrap();
     let mut changed = expected(0x8001, 3, 200);
-    gpu.expect(&panned, [320, 200], &changed).await;
+    gpu.expect_active(&panned, [320, 200], &changed).await;
 
     // Change one plane at two nonadjacent physical pages and publish a diff.
     indexed(&mut vga, 0x3c4, 2, 4);
@@ -106,13 +106,13 @@ async fn check_pages() {
     }
     clock.set(reset_at + common::boundary(2));
     vga.read_port(0x3da, 1);
-    gpu.expect(&source.current_capture().unwrap(), [320, 200], &changed)
+    gpu.expect_active(&source.current_capture().unwrap(), [320, 200], &changed)
         .await;
     drop(vga);
     // Page flips changed only captured addresses; replay still restores the
     // old bytes after later sparse writes and device destruction.
     for (capture, base) in retained.iter().zip([0, 0x4000, 0x8000, 0xc000]) {
-        gpu.expect(capture, [320, 200], &expected(base, 0, 200))
+        gpu.expect_active(capture, [320, 200], &expected(base, 0, 200))
             .await;
     }
 }
@@ -157,7 +157,7 @@ async fn check_split() {
     attribute(&mut vga, 0x10, 0x41);
     let keep_pan = common::fixture::capture(&vga);
     drop(vga);
-    gpu.expect(
+    gpu.expect_active(
         &reset_pan,
         [8, 6],
         &pixels(
@@ -167,7 +167,7 @@ async fn check_split() {
         ),
     )
     .await;
-    gpu.expect(
+    gpu.expect_active(
         &keep_pan,
         [8, 6],
         &pixels(

@@ -93,7 +93,10 @@ fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
             }
             assert_eq!(video(&mut dos, mode, 0, 0, 0).registers.eax as u16, 0x20);
             let display = dos.vga().borrow().snapshot();
-            assert_eq!(display.geometry().size, size);
+            assert_eq!(
+                display.geometry().active_size,
+                [size[0], if size[1] == 200 { 400 } else { size[1] }]
+            );
             for plane in 0..4 {
                 assert!(
                     display.plane(plane).iter().all(|&byte| byte == 0),

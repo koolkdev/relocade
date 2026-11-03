@@ -69,7 +69,7 @@ async fn check_horizontal() {
             common::crtc(&mut vga, 3, 0x80 | (skew << 5) | (end & 31));
             common::crtc(&mut vga, 5, (end & 32) << 2);
             let capture = common::fixture::capture(&vga);
-            gpu.expect(
+            gpu.expect_active(
                 &capture,
                 size,
                 &expected(size, |x, _| blank.contains(&(x / pixel_width))),
@@ -80,13 +80,13 @@ async fn check_horizontal() {
         // one must retain its blanking even after later state has been uploaded.
         let earlier = common::fixture::capture(&vga);
         common::crtc(&mut vga, 2, 255); // Unreachable start.
-        gpu.expect(
+        gpu.expect_active(
             &common::fixture::capture(&vga),
             size,
             &expected(size, |_, _| false),
         )
         .await;
-        gpu.expect(
+        gpu.expect_active(
             &earlier,
             size,
             &expected(size, |x, _| (1..4).contains(&(x / pixel_width))),
@@ -122,7 +122,7 @@ async fn check_vertical() {
         let capture = common::fixture::capture(&vga);
         assert_eq!(capture.display.geometry().scanline_step, step);
         let size = [4, height];
-        gpu.expect(
+        gpu.expect_active(
             &capture,
             size,
             &expected(size, |_, y| blank_rows.contains(&y)),
@@ -142,7 +142,7 @@ async fn check_vertical() {
         common::crtc(&mut vga, index, value);
     }
     let size = [4, 776];
-    gpu.expect(
+    gpu.expect_active(
         &common::fixture::capture(&vga),
         size,
         &expected(size, |_, y| (771..774).contains(&y)),

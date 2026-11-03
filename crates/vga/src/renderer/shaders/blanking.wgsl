@@ -19,10 +19,7 @@ fn blanking_intervals(start: u32, end_low: u32, mask: u32, total: u32) -> vec3<u
 
 fn horizontal_blanking() -> vec3<u32> {
     let end_low = (crtc(3u) & 31u) | ((crtc(5u) & 0x80u) >> 2u);
-    let intervals = blanking_intervals(crtc(2u), end_low, 63u, crtc(0u) + 5u);
-    // The cropped image starts at display enable, including its character skew.
-    let skew = vec3((crtc(3u) >> 5u) & 3u);
-    return intervals - min(intervals, skew);
+    return blanking_intervals(crtc(2u), end_low, 63u, crtc(0u) + 5u);
 }
 
 fn vertical_blanking() -> vec3<u32> {
@@ -36,16 +33,12 @@ fn in_blanking(count: u32, intervals: vec3<u32>) -> bool {
     return count < intervals.z || (count >= intervals.x && count < intervals.y);
 }
 
-fn pixel_blanked(input: DisplayVertex, pixel: vec2<u32>) -> bool {
-    let attribute_mode = input.display.x;
-    let shift_mode = input.display.w;
+fn pixel_blanked(input: DisplayVertex, raster: vec2<u32>) -> bool {
     let clock_width = input.grid.y;
     let address_mode = input.addressing.z;
-    let scanline_step = input.scanlines.y;
-    let indexed256 = (attribute_mode & 0x41u) == 0x41u && (shift_mode & 0x40u) != 0u;
-    let horizontal_count = pixel.x * select(1u, 2u, indexed256) / clock_width;
+    let horizontal_count = raster.x / clock_width;
     let vertical_divisor = 1u << ((address_mode >> 2u) & 1u);
-    let vertical_count = pixel.y * scanline_step / vertical_divisor;
+    let vertical_count = raster.y / vertical_divisor;
     return in_blanking(horizontal_count, input.horizontal_blank)
         || in_blanking(vertical_count, input.vertical_blank);
 }

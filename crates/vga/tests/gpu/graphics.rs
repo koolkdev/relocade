@@ -1,5 +1,8 @@
 //! GPU comparison and distinctive palette values for graphics-layout checks.
-use super::{common::support::registers::palette, read_pixels};
+use super::{
+    common::support::registers::palette,
+    readback::{read_active_pixels, read_pixels},
+};
 use relocade_machine::Device;
 use relocade_vga::{CapturedFrame, VgaRenderer};
 
@@ -50,33 +53,60 @@ impl Gpu {
         }
     }
 
+    fn image(&mut self, capture: &CapturedFrame) -> relocade_renderer::Image {
+        self.renderer.upload(&self.queue, capture);
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        let frame = self.renderer.encode(&mut encoder).unwrap();
+        self.queue.submit([encoder.finish()]);
+        frame.image
+    }
+
+    pub(super) async fn expect_active(
+        &mut self,
+        capture: &CapturedFrame,
+        size: [u32; 2],
+        expected: &[u8],
+    ) {
+        let image = self.image(capture);
+        let actual = read_active_pixels(
+            &self.device,
+            &self.queue,
+            image.texture(),
+            &capture.display,
+            size,
+        )
+        .await;
+        assert_pixels(size, &actual, expected);
+    }
+
     pub(super) async fn expect(
         &mut self,
         capture: &CapturedFrame,
         size: [u32; 2],
         expected: &[u8],
     ) {
-        self.renderer.upload(&self.queue, capture);
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        let frame = self.renderer.encode(&mut encoder).unwrap();
-        self.queue.submit([encoder.finish()]);
-        assert_eq!(frame.image.size(), size);
-        let actual = read_pixels(&self.device, &self.queue, frame.image.texture()).await;
-        assert_eq!(actual.len(), expected.len());
-        for (index, (actual, expected)) in actual
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .zip(expected.as_chunks::<4>().0)
-            .enumerate()
-        {
-            assert_eq!(
-                actual,
-                expected,
-                "pixel ({}, {})",
-                index % size[0] as usize,
-                index / size[0] as usize
-            );
-        }
+        let image = self.image(capture);
+        assert_eq!(image.size(), size);
+        let actual = read_pixels(&self.device, &self.queue, image.texture()).await;
+        assert_pixels(size, &actual, expected);
+    }
+}
+
+fn assert_pixels(size: [u32; 2], actual: &[u8], expected: &[u8]) {
+    assert_eq!(actual.len(), expected.len());
+    for (index, (actual, expected)) in actual
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<4>().0)
+        .enumerate()
+    {
+        assert_eq!(
+            actual,
+            expected,
+            "pixel ({}, {})",
+            index % size[0] as usize,
+            index / size[0] as usize
+        );
     }
 }

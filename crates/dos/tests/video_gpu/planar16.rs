@@ -66,7 +66,7 @@ fn guest_planar_modes_masked_pixels_palette_and_text_return() {
                 0xc3,
             ]);
             let graphics = run(&mut dos, &program).await;
-            let original = gpu.render(&graphics, size).await;
+            let original = gpu.render_active(&graphics, size).await;
             assert_image(&original, COLORS[6]);
 
             // The 200-line and higher-resolution presets use different DAC indices.
@@ -83,13 +83,13 @@ fn guest_planar_modes_masked_pixels_palette_and_text_return() {
                     changed.display.plane(plane)
                 ));
             }
-            assert_image(&gpu.render(&changed, size).await, [255, 0, 0, 255]);
+            assert_image(&gpu.render_active(&changed, size).await, [255, 0, 0, 255]);
             let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
             drop(dos);
-            let restored = gpu.render(&text, [720, 400]).await;
+            let restored = gpu.render_active(&text, [720, 400]).await;
             assert_eq!(&restored[..4], &[170, 0, 0, 255]);
             assert_eq!(&restored[9 * 4..10 * 4], &[0, 0, 0, 255]);
-            assert_eq!(gpu.render(&graphics, size).await, original);
+            assert_eq!(gpu.render_active(&graphics, size).await, original);
         }
     });
 }

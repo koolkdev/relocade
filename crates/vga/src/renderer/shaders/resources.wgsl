@@ -13,6 +13,7 @@ struct State {
     scanline_step: u32,
     display_start: u32,
     reserved1: u32,
+    raster_origin: vec2<u32>,
     palette: array<vec4<u32>, 48>,
 }
 

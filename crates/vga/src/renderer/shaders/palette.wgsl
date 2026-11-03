@@ -4,6 +4,16 @@ fn palette_color(input: DisplayVertex, index: u32) -> u32 {
     return colors[index / 4u][index % 4u];
 }
 
+// IBM's eight-bit overscan index bypasses attribute palette and plane selection.
+fn overscan_color() -> u32 {
+    // The divided-clock border gate follows the BIOS mode table convention
+    // documented in README.md; its original-IBM electrical behavior is unverified.
+    if (sequencer(1u) & 8u) != 0u {
+        return 0xff000000u;
+    }
+    return dac_color(attribute_reg(0x11u));
+}
+
 // The attribute controller maps four-bit colors to entries in the DAC palette.
 fn attribute_color(color: u32) -> u32 {
     let mode = attribute_reg(0x10u);

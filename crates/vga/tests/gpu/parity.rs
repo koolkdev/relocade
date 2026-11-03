@@ -1,5 +1,5 @@
 use super::software;
-use super::{capture, common, pixel, read_pixels, set_cell, text_device};
+use super::{capture, common, pixel, read_active_pixels, read_pixels, set_cell, text_device};
 use relocade_machine::Device;
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::{
@@ -19,7 +19,14 @@ async fn compare(
     renderer.upload(queue, &capture);
     let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
-    let pixels = read_pixels(device, queue, frame.image.texture()).await;
+    let pixels = read_active_pixels(
+        device,
+        queue,
+        frame.image.texture(),
+        &capture.display,
+        [software.width, software.height],
+    )
+    .await;
     assert_eq!(pixels.len(), software.pixels.len());
     for (index, (actual, expected)) in pixels
         .as_chunks::<4>()
@@ -161,7 +168,8 @@ async fn check_parity() {
         }
         queue.submit([encoder.finish()]);
         let pixels = read_pixels(&device, &queue, output.texture()).await;
-        assert_eq!(&pixels[..4], [255, 255, 85, 255]);
+        assert!(pixels.as_chunks::<4>().0.contains(&[255, 255, 85, 255]));
+        assert_eq!(&pixels[..4], [0, 0, 0, 255]); // The retained image includes its border.
         assert_eq!(&pixels[pixels.len() - 4..], [0, 0, 0, 255]);
     }
 }
@@ -198,8 +206,14 @@ async fn check_programmed_text() {
         renderer.upload(&queue, &capture);
         let frame = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
-        assert_eq!(frame.image.size(), case.size, "{}", case.name);
-        let pixels = read_pixels(&device, &queue, frame.image.texture()).await;
+        let pixels = read_active_pixels(
+            &device,
+            &queue,
+            frame.image.texture(),
+            &capture.display,
+            case.size,
+        )
+        .await;
         assert_eq!(
             pixels,
             software::render(&capture.display).as_ref(),

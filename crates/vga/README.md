@@ -73,13 +73,26 @@ continues. Integer arithmetic carries fractional progress so repeated polling
 cannot accumulate drift.
 The shared clock measures session elapsed time, not CPU instruction cycles.
 
-Static display settings still apply to the whole captured image. Programmed CRTC
-blanking masks pixels to opaque black independently of VRAM, palette and panning.
-Horizontal edges use character clocks; vertical edges use the physical scanline
-counter, including its divider. Display-enable skew determines the horizontal crop
-origin. The image retains its displayed dimensions; repeated rows share storage
-only when no visible blank/unblank edge separates them. Input Status 1 bit 0
-continues to report inverted display enable, a separate signal.
+Static display settings still apply to the whole captured image. Its dimensions
+cover the register-defined nonblanked raster, including overscan outside display
+enable. Horizontal edges use character clocks; vertical edges use the physical
+scanline counter, including its divider. Each axis begins at the end of blanking
+and continues across total-counter reset as needed. Display-enable skew positions
+the active picture inside that window; panning and memory addresses remain relative
+to the active picture. Blanking inside the active picture removes that interval
+from the image rather than retaining a black stripe. A completely blank raster
+uses a one-pixel opaque black image. Input Status 1 bit 0 continues to report
+inverted display enable, a separate signal.
+
+The border uses the eight-bit Overscan Color register (AC11h) directly as a DAC
+index, with the DAC mask applied. It bypasses the attribute palette, Color Select
+and Color Plane Enable. This follows the IBM attribute-controller diagram and
+register description (VGA Function pp. 2-89 and 2-94); clone-specific border color
+paths are outside this target. Screen Off and attribute display disable make
+both picture and border black. The divided-dot-clock convention also makes the
+border black: IBM's mode table (p. 2-13) lists no border for modes 0/1, 4/5 and 0Dh,
+which all use SR01 bit 3. Using that bit as the gate, and black as the suppressed
+color, is an inference from the mode table, not a verified IBM electrical behavior.
 
 Blanking follows an explicit original-VGA convention: output boundaries are one
 count after the raw comparator values, the horizontal end compares six low bits,
@@ -589,7 +602,8 @@ maintain.
 Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
 captures those same inputs immediately without publishing a frame, forcing a
 display-start latch, or changing CPU access phases. `DisplaySnapshot::geometry()`
-derives only image dimensions, scanline spacing and nominal pixel aspect ratio.
+derives the nonblank image size and raster origin, active picture size, scanline
+spacing and nominal pixel aspect ratio.
 All pixel interpretation uses captured registers and VRAM directly in the shader.
 
 Snapshots share four immutable 64-KiB planes with the device. Capturing or cloning
@@ -621,7 +635,7 @@ separately from captured registers and palette.
 `memory/pages` tracks physical writes in a fixed 32-byte bitmap.
 `renderer/memory` uploads those pages when their captured baseline matches the
 queued GPU contents, otherwise it restores the affected plane.
-`renderer/state` copies raw register banks, captured blink phases, scanline spacing
+`renderer/state` copies raw register banks, captured blink phases, raster origin, scanline spacing
 and the unchanged DAC palette into one uniform buffer. The raw Attribute
 Controller address byte is preserved; the shader tests its display-enable bit.
 The shader interprets memory addresses, font banks, attributes and colors directly.
@@ -691,16 +705,23 @@ The text shader reads physical plane bytes at stable GPU addresses. Glyphs come
 from captured plane two, and colors follow the captured attribute palette, color
 select, plane enable and DAC mask. Eight-bit graphics pixels index the DAC directly,
 using its mask. Output dimensions follow the CRTC and character clock. Identical
-repeated rows share one image row; a preset, split or partial group that breaks
-their alignment retains physical rows. Pixel aspect ratio targets nominal 4:3
-display proportions rather than modeling a particular monitor. The default text
-preset produces 640×200; standard mode-13h registers produce 320×200 with a 5:6
-pixel aspect ratio.
+repeated rows share one image row; a preset, split, border edge or counter reset
+that breaks their alignment retains physical rows. Pixel aspect ratio preserves
+the active picture's nominal 4:3 proportions when the border is added; physical
+monitor size and position controls are not modeled. The device's legacy text
+preset produces 656×414, with a 640×400 active picture at (8, 7) and 5:6 pixel
+aspect ratio. BIOS mode 03h starts with a 738×414 image containing 720×400 active
+pixels at (9, 7), with 20:27 pixel aspect ratio. Mode 13h produces 328×414, with
+320×400 active pixels at (4, 7) and 5:3 pixel aspect ratio. Its logical resolution
+remains 320×200; the border's odd vertical edges require both physical scanlines
+of each repeated row to remain in the image. These dimensions follow the
+documented blanking convention above, not a fixed border width.
 
-The renderer requires a 2D texture limit of at least 2304 pixels for the largest
-nine-dot text width, 13 flat inter-stage variables and one 256-KiB fragment
-storage buffer. The first upload fills all four physical planes and 896 bytes
-of state: a 128-byte register/geometry header and the 768-byte DAC palette. With
+The renderer requires a 2D texture limit of at least 2340 pixels for a raster of
+260 nine-dot clocks (the vertical bound is 2050 scanlines), 14 flat inter-stage
+variables and one 256-KiB fragment storage buffer. The first upload fills all
+four physical planes and 912 bytes of state: a 144-byte register/geometry header
+and the 768-byte DAC palette. With
 the renderer feature enabled, actual memory changes mark fixed 1-KiB pages after
 VGA routing and write modes have produced the final byte. Consecutive dirty pages
 in each plane become one upload. Character,
@@ -811,8 +832,9 @@ Independent CPU register decoding and pixel conversion live only in
 [test support](tests/support/software.rs),
 with its owned CPU image type. It is not part of the VGA library API. Capture,
 DOS, CPU-upload and explicit worker fixtures use that reference. The GPU suite
-compares complete images against it and retains literal glyph, palette, cursor,
-blink, blanking and page-selection expectations.
+compares the active picture against it and retains literal glyph, palette, cursor,
+blink, blanking and page-selection expectations. Separate whole-image fixtures
+check literal overscan dimensions, placement, colors and repeated-row edges.
 Graphics checks compare all 64,000 pixels against the guest's linear byte pattern,
 including CPU address-bit transitions. Focused fixtures cover display start and
 stride, panning across plane groups, split and partial repeated rows, address wrap,

@@ -29,7 +29,7 @@ async fn check_blink() {
     let on = source.current_capture().unwrap();
     assert!(on.display.attribute_blink_on);
     let color_on = pixels([8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7]);
-    gpu.expect(&on, [16, 1], &color_on).await;
+    gpu.expect_active(&on, [16, 1], &color_on).await;
 
     clock.set(common::dots((490 + 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
@@ -40,7 +40,7 @@ async fn check_blink() {
     let cursor_off = source.current_capture().unwrap();
     assert!(!cursor_off.display.cursor_blink_on);
     assert!(cursor_off.display.attribute_blink_on);
-    gpu.expect(&cursor_off, [16, 1], &color_on).await;
+    gpu.expect_active(&cursor_off, [16, 1], &color_on).await;
     clock.set(common::dots((490 + 15 * 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let off = source.current_capture().unwrap();
@@ -52,16 +52,16 @@ async fn check_blink() {
         ));
     }
     let upper = pixels([8, 9, 10, 11, 12, 13, 14, 15].repeat(2));
-    gpu.expect(&off, [16, 1], &upper).await;
+    gpu.expect_active(&off, [16, 1], &upper).await;
 
     attribute(&mut vga, 0x10, 0x0b); // Monochrome blinks independently of bit 3.
-    gpu.expect(&common::fixture::capture(&vga), [16, 1], &upper)
+    gpu.expect_active(&common::fixture::capture(&vga), [16, 1], &upper)
         .await;
     clock.set(common::dots((490 + 31 * 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let mono_on = source.current_capture().unwrap();
     assert!(mono_on.display.attribute_blink_on);
-    gpu.expect(
+    gpu.expect_active(
         &mono_on,
         [16, 1],
         &pixels([0, 1, 2, 3, 4, 5, 6, 7].repeat(2)),
@@ -72,11 +72,11 @@ async fn check_blink() {
     // blinking, while monochrome still toggles the palette half.
     attribute(&mut vga, 0x12, 7);
     attribute(&mut vga, 0x10, 9);
-    gpu.expect(&common::fixture::capture(&vga), [16, 1], &upper)
+    gpu.expect_active(&common::fixture::capture(&vga), [16, 1], &upper)
         .await;
     attribute(&mut vga, 0x12, 5);
     attribute(&mut vga, 0x10, 0x0b);
-    gpu.expect(
+    gpu.expect_active(
         &common::fixture::capture(&vga),
         [16, 1],
         &pixels([0, 1, 0, 1, 4, 5, 4, 5].repeat(2)),
@@ -85,11 +85,11 @@ async fn check_blink() {
 
     attribute(&mut vga, 0x10, 1); // Disabling blink restores the ordinary index.
     attribute(&mut vga, 0x12, 15);
-    gpu.expect(&common::fixture::capture(&vga), [16, 1], &pixels(0..16))
+    gpu.expect_active(&common::fixture::capture(&vga), [16, 1], &pixels(0..16))
         .await;
     drop(vga);
-    gpu.expect(&off, [16, 1], &upper).await;
-    gpu.expect(&on, [16, 1], &color_on).await;
+    gpu.expect_active(&off, [16, 1], &upper).await;
+    gpu.expect_active(&on, [16, 1], &color_on).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

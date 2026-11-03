@@ -26,7 +26,7 @@ fn monochrome_profiles_route_ports_and_preserve_the_shared_text_planes() {
                 0x5087
             );
             let mono = dos.vga().borrow().snapshot();
-            assert_eq!(mono.geometry().size, [720, lines]);
+            assert_eq!(mono.geometry().active_size, [720, lines]);
             assert_eq!(mono.registers.miscellaneous, miscellaneous);
             assert_eq!(mono.registers.sequencer.values[1], 0);
             assert_eq!(mono.registers.graphics.values[6], 0x0a);

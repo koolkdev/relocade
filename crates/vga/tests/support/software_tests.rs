@@ -129,7 +129,12 @@ mod programmed;
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn programmable_display_matches_literal_pixels() {
     for case in programmed::cases() {
-        assert_eq!(case.display.geometry().size, case.size, "{}", case.name);
+        assert_eq!(
+            case.display.geometry().active_size,
+            case.size,
+            "{}",
+            case.name
+        );
         let pixels = render(&case.display);
         for (x, y, expected) in case.pixels {
             let offset = ((y * case.size[0] + x) * 4) as usize;

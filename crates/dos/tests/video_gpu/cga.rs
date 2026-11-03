@@ -60,7 +60,7 @@ fn guest_cga_modes_decode_banked_writes_and_recolor_retained_captures() {
             } else {
                 PALETTE_ONE
             };
-            let image = gpu.render(&capture, size).await;
+            let image = gpu.render_active(&capture, size).await;
             assert_packed_image(&image, &memory, width as usize, &colors);
             retained.push((capture.clone(), size, image));
             if mode == 4 {
@@ -75,14 +75,14 @@ fn guest_cga_modes_decode_banked_writes_and_recolor_retained_captures() {
                         recolored.display.plane(plane)
                     ));
                 }
-                let image = gpu.render(&recolored, size).await;
+                let image = gpu.render_active(&recolored, size).await;
                 assert_packed_image(&image, &memory, 320, &PALETTE_ZERO);
                 retained.push((recolored, size, image));
             }
         }
         drop(dos);
         for (capture, size, expected) in retained {
-            assert_eq!(gpu.render(&capture, size).await, expected);
+            assert_eq!(gpu.render_active(&capture, size).await, expected);
         }
     });
 }

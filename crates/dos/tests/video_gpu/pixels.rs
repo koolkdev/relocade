@@ -26,7 +26,7 @@ fn bios_pixel_services_feed_the_captured_gpu_image() {
                 let segment = context.cpu.segments().ds.base;
                 assert_eq!(context.memory.read_u8(segment + 0x200).unwrap(), 15);
             }
-            let pixels = gpu.render(&capture, size).await;
+            let pixels = gpu.render_active(&capture, size).await;
             for (offset, actual) in pixels.as_chunks::<4>().0.iter().enumerate() {
                 let expected = match offset as u32 {
                     p if p == size[0] + 7 => [255; 4],

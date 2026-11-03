@@ -139,6 +139,19 @@ impl Crtc {
             + 1
     }
 
+    /// Blank output intervals in character clocks, after the one-count output
+    /// delay. CRTC 05 bit 7 supplies the sixth end-comparator bit.
+    pub(crate) fn horizontal_blanking(&self) -> [Range<u32>; 2] {
+        let end = (self.register(HORIZONTAL_BLANK_END) & 31)
+            | ((self.register(HORIZONTAL_RETRACE_END) & 0x80) >> 2);
+        blanking_intervals(
+            u32::from(self.register(HORIZONTAL_BLANK_START)),
+            u32::from(end),
+            63,
+            self.horizontal_total() as u32,
+        )
+    }
+
     /// Blank output intervals in vertical-counter units, after the one-count
     /// output delay. The second interval covers blanking across counter reset.
     /// Original VGA compares seven end bits; see the compatibility README for
@@ -147,24 +160,12 @@ impl Crtc {
         let start = u32::from(self.register(VERTICAL_BLANK_START))
             | (u32::from(self.register(OVERFLOW) & 8) << 5)
             | (u32::from(self.register(MAXIMUM_SCAN_LINE) & 0x20) << 4);
-        let total = self.vertical_total() as u32;
-        if start >= total {
-            return [0..0, 0..0];
-        }
-        let end_low = u32::from(self.register(VERTICAL_BLANK_END) & 0x7f);
-        let end = start + ((end_low.wrapping_sub(start + 1) & 0x7f) + 1) + 1;
-        let head_end = if end > total {
-            (end_low + 1).min(total)
-        } else {
-            0
-        };
-        // An unreachable end, or coincident comparators with set priority,
-        // leaves blanking active throughout the steady-state frame.
-        if head_end > start {
-            [0..total, 0..0]
-        } else {
-            [start + 1..end.min(total), 0..head_end]
-        }
+        blanking_intervals(
+            start,
+            u32::from(self.register(VERTICAL_BLANK_END) & 0x7f),
+            0x7f,
+            self.vertical_total() as u32,
+        )
     }
 
     /// CRTC 10 plus Overflow bits 2/7 form the ten-bit retrace start count.
@@ -192,5 +193,25 @@ impl Crtc {
 
     pub(crate) fn sync_enabled(&self) -> bool {
         self.register(MODE_CONTROL) & (1 << 7) != 0
+    }
+}
+
+// A tail interval followed by a head interval when blanking crosses counter zero.
+fn blanking_intervals(start: u32, end_low: u32, mask: u32, total: u32) -> [Range<u32>; 2] {
+    if start >= total {
+        return [0..0, 0..0];
+    }
+    let end = start + ((end_low.wrapping_sub(start + 1) & mask) + 1) + 1;
+    let head_end = if end > total {
+        (end_low + 1).min(total)
+    } else {
+        0
+    };
+    // An unreachable end, or coincident comparators with set priority,
+    // leaves blanking active throughout the steady-state frame.
+    if head_end > start {
+        [0..total, 0..0]
+    } else {
+        [start + 1..end.min(total), 0..head_end]
     }
 }

@@ -23,7 +23,7 @@ fn bios_custom_fonts_and_dual_banks_render_fifty_rows_and_preserve_old_captures(
         program.resize(0x100, 0x90);
         program.extend_from_slice(&[0x80, 0x40, 0x20, 0x10, 8, 4, 2, 1]);
         let diagonal = run(&mut dos, &program).await;
-        let pixels = gpu.render(&diagonal, [720, 400]).await;
+        let pixels = gpu.render_active(&diagonal, [720, 400]).await;
         assert_custom_font(&pixels, false);
 
         let mut program = LOAD_BANK_FOUR.to_vec();
@@ -39,9 +39,9 @@ fn bios_custom_fonts_and_dual_banks_render_fifty_rows_and_preserve_old_captures(
             diagonal.display.plane(1),
             solid.display.plane(1)
         ));
-        assert_custom_font(&gpu.render(&solid, [720, 400]).await, true);
+        assert_custom_font(&gpu.render_active(&solid, [720, 400]).await, true);
         drop(dos);
-        assert_eq!(gpu.render(&diagonal, [720, 400]).await, pixels);
+        assert_eq!(gpu.render_active(&diagonal, [720, 400]).await, pixels);
     });
 }
 
@@ -110,7 +110,7 @@ fn bios_color_text_profiles_render_both_widths() {
                     ],
                 )
                 .await;
-                let image = gpu.render(&capture, [width, lines]).await;
+                let image = gpu.render_active(&capture, [width, lines]).await;
                 for (index, pixel) in image.as_chunks::<4>().0.iter().enumerate() {
                     let (x, y) = (index % width as usize, index / width as usize);
                     let red = (x < 8 && y < glyph.len() && glyph[y] & (0x80 >> x) != 0)

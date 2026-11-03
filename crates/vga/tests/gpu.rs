@@ -11,9 +11,11 @@ mod graphics;
 mod graphics_blink;
 #[path = "gpu/readback.rs"]
 mod readback;
-use readback::read_pixels;
+use readback::{read_active_pixels, read_pixels};
 #[path = "gpu/indexed256.rs"]
 mod indexed256;
+#[path = "gpu/overscan.rs"]
+mod overscan;
 #[path = "gpu/parity.rs"]
 mod parity;
 #[path = "gpu/planar16.rs"]
@@ -58,11 +60,18 @@ async fn check_image() {
     renderer.upload(&queue, &input);
     let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
-    assert_eq!(frame.image.size(), [640, 200]);
-    assert_eq!(frame.image.pixel_aspect_ratio(), (5, 12));
+    assert_eq!(frame.image.size(), [656, 414]);
+    assert_eq!(frame.image.pixel_aspect_ratio(), (5, 6));
     assert_eq!(frame.time, input.time);
     assert_eq!(frame.sequence, input.sequence);
-    let pixels = read_pixels(&device, &queue, frame.image.texture()).await;
+    let pixels = read_active_pixels(
+        &device,
+        &queue,
+        frame.image.texture(),
+        &input.display,
+        [640, 200],
+    )
+    .await;
     // Literal font rows and palette values check packing, glyph direction and
     // colors independently of the software conversion implementation.
     for (y, bits) in [0xfe, 0x62, 0x68, 0x78, 0x68, 0x60, 0xf0, 0]
@@ -96,7 +105,8 @@ async fn check_image() {
     assert_eq!(frame.sequence, input.sequence);
     assert_eq!(frame.time, other.time);
     assert_eq!(frame.image.texture(), image.texture());
-    let pixels = read_pixels(&device, &queue, image.texture()).await;
+    let pixels =
+        read_active_pixels(&device, &queue, image.texture(), &other.display, [640, 200]).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 639, 199), [0, 0, 0, 255]);
 }
