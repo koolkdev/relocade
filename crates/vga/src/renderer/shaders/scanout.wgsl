@@ -90,15 +90,18 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
 
 @fragment
 fn fragment(input: DisplayVertex) -> @location(0) vec4<f32> {
+    let attribute_mode = input.display.x;
+    let blanked = input.display.z != 0u;
+    let shift_mode = input.display.w;
     let pixel = vec2<u32>(input.position.xy);
-    if input.display.z != 0u || pixel_blanked(input, pixel) {
+    if blanked || pixel_blanked(input, pixel) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
     let line = display_scanline(input, pixel.y);
-    if (input.display.x & 1u) == 0u {
+    if (attribute_mode & 1u) == 0u {
         return unpack4x8unorm(text_color(input, line, pixel.x));
     }
-    if (input.display.w & 0x40u) != 0u {
+    if (shift_mode & 0x40u) != 0u {
         return unpack4x8unorm(indexed256_color(input, line, pixel.x));
     }
     return unpack4x8unorm(graphics16_color(input, line, pixel.x));

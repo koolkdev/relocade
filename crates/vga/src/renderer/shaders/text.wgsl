@@ -4,20 +4,23 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let attribute_mode = input.display.x;
     let attribute_blink_on = input.display.y != 0u;
     // Character and attribute planes share the CRTC address.
+    let address_mode = input.addressing.z;
     let underline = input.addressing.w;
     let count_divisor = input.grid.w;
     let glyph_row = line.row_scan;
     let column = (x + line.pel_pan) / glyph_width;
     let dot = (x + line.pel_pan) % glyph_width;
-    let line_start = line.counter;
+    let line_start = line.counter + line.byte_pan;
     let counter = (line_start + column / count_divisor) & 0xffffu;
-    let address = display_address(counter, glyph_row, input.addressing.z, underline);
+    let address = display_address(counter, glyph_row, address_mode, underline);
     let character = vram_byte(0u, address);
     let cell_attribute = vram_byte(1u, address);
 
     // Glyphs live in plane 2. Underline and line-graphics rules alter their dots.
+    let font_a = input.fonts.x;
+    let font_b = input.fonts.y;
     let dual_font = input.fonts.z != 0u;
-    let font = select(input.fonts.y, input.fonts.x, dual_font && (cell_attribute & 8u) != 0u);
+    let font = select(font_b, font_a, dual_font && (cell_attribute & 8u) != 0u);
     var glyph_bits = vram_byte(2u, font + character * 32u + glyph_row);
     if (cell_attribute & 0x77u) == 1u && glyph_row == (underline & 31u) {
         glyph_bits = 255u;
@@ -32,12 +35,15 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     if blinking && (cell_attribute & 0x80u) != 0u && !attribute_blink_on {
         foreground_pixel = false;
     }
+    let columns = input.grid.x;
+    let cursor_address = input.cursor.x;
     let cursor_start = input.cursor.y;
     let cursor_end = input.cursor.z;
+    let cursor_blink_on = input.cursor.w != 0u;
     let skew = (cursor_end >> 5u) & 3u;
-    if input.cursor.w != 0u && (cursor_start & 0x20u) == 0u
-        && column >= skew && column < input.grid.x
-        && ((line_start + (column - skew) / count_divisor) & 0xffffu) == input.cursor.x
+    if cursor_blink_on && (cursor_start & 0x20u) == 0u
+        && column >= skew && column < columns
+        && ((line_start + (column - skew) / count_divisor) & 0xffffu) == cursor_address
         && glyph_row >= (cursor_start & 31u) && glyph_row <= (cursor_end & 31u) {
         foreground_pixel = true;
     }
