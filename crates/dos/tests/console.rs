@@ -1,3 +1,5 @@
+#[path = "console/ansi.rs"]
+mod ansi;
 mod common;
 #[path = "console/screen.rs"]
 mod screen;
