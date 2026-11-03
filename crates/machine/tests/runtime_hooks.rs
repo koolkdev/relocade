@@ -1,7 +1,10 @@
 mod support;
 
 use relocade_compiler::Program;
-use relocade_machine::{real_mode_interrupt, DispatchEntry, Hook};
+use relocade_machine::{
+    real_mode_interrupt::{self, Interrupts},
+    DispatchEntry, FarPointer, Hook,
+};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
     PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
@@ -20,8 +23,16 @@ async fn check_interrupt_hooks() {
             ..CpuState::default()
         },
         0x20000,
-        PhysicalMemoryMap::new([(0..=0x1ffff, PhysicalMapping::Ram { backing_offset: 0 })])
-            .unwrap(),
+        PhysicalMemoryMap::new([
+            (0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 }),
+            (
+                0x10000..=0x10fff,
+                PhysicalMapping::Rom {
+                    backing_offset: 0x1f000,
+                },
+            ),
+        ])
+        .unwrap(),
     )
     .unwrap();
     // Hooks capture local service state without requiring Send or Sync.
@@ -44,49 +55,41 @@ async fn check_interrupt_hooks() {
             ],
         )
         .unwrap();
-    runtime
-        .context()
-        .memory
-        .write(0x84, &[0x20, 0, 0, 0x10])
-        .unwrap();
-    runtime
-        .context()
-        .memory
-        .write(0x10020, &real_mode_interrupt::HOOK_STUB)
-        .unwrap();
     let increment = Rc::new(Cell::new(1));
     let observed = calls.clone();
+    let mut interrupts = Interrupts::new(&mut runtime);
+    interrupts.register_interrupt(
+        0x21,
+        FarPointer {
+            segment: 0x1000,
+            offset: 0x20,
+        },
+        async move |call| {
+            let cpu = call.cpu;
+            let memory = &mut call.memory;
+            observed.set(observed.get() + increment.get());
+            assert_eq!(cpu.segment(Segment::Cs).selector, 0x1000);
+            assert_eq!(cpu.eip(), 0x21);
+            assert_eq!(cpu.sp(), 0xfefa);
+            assert_eq!(cpu.ax(), 1);
+            assert!(cpu.carry());
+            assert_eq!(cpu.eflags() & 0x200, 0);
+            let mut word = [0; 2];
+            memory.read(0x200, &mut word).unwrap();
+            cpu.set_ax(1 + u16::from_le_bytes(word));
+            let mut frame = [0; 6];
+            memory.read(0xfefa, &mut frame).unwrap();
+            assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
+            assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
+            real_mode_interrupt::set_carry(cpu, memory, false);
+        },
+    );
+    interrupts.install().await.unwrap();
     runtime
-        .install(
-            real_mode_interrupt::hook(0x10020, runtime.cpu_state(), {
-                let resources = runtime.memory();
-                let cpu = runtime.cpu_state();
-                async move || {
-                    let mut memory = resources.view();
-
-                    observed.set(observed.get() + increment.get());
-                    assert_eq!(cpu.segment(Segment::Cs).selector, 0x1000);
-                    assert_eq!(cpu.eip(), 0x21);
-                    assert_eq!(cpu.sp(), 0xfefa);
-                    assert_eq!(cpu.ax(), 1);
-                    assert!(cpu.carry());
-                    assert_eq!(cpu.eflags() & 0x200, 0);
-                    let mut word = [0; 2];
-                    memory.read(0x200, &mut word).unwrap();
-                    cpu.set_ax(1 + u16::from_le_bytes(word));
-                    let mut frame = [0; 6];
-                    memory.read(0xfefa, &mut frame).unwrap();
-                    assert_eq!(&frame[..4], &[0x0e, 1, 0, 0]);
-                    assert_eq!(u16::from_le_bytes([frame[4], frame[5]]) & 0x201, 0x201);
-                    real_mode_interrupt::set_carry(&cpu, &mut memory, false);
-                }
-            })
-            .into_iter()
-            .chain([Hook::host(0x400, {
-                let exit = runtime.exit_handle();
-                async move || exit.request()
-            })]),
-        )
+        .install([Hook::host(0x400, {
+            let exit = runtime.exit_handle();
+            async move || exit.request()
+        })])
         .await
         .unwrap();
     assert_eq!(runtime.run(5).await, ExecutionExit::BudgetExhausted);

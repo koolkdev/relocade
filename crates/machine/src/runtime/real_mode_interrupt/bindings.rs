@@ -1,8 +1,9 @@
 //! Declare an ABI on the implementation and select services in a separate table.
 //!
 //! `#[interrupt]` preserves the function's Rust API and generates an internal async
-//! `name_entry`. `interrupt_dispatch!` selects those entries by register value without
-//! repeating their argument or result mappings. Synchronous services finish in
+//! ABI adapter. `interrupt_dispatch!` defines a dispatcher with the declared name
+//! and selects those adapters without repeating argument or result mappings.
+//! Synchronous services finish in
 //! one poll; asynchronous services use their ordinary Rust awaits.
 //!
 //! ```
@@ -25,7 +26,7 @@
 //!         _: unsupported,
 //!     }
 //! }
-//! // video_entry(call).await routes AH=03h to the generated position_entry.
+//! // video(call).await routes AH=03h through position's ABI mapping.
 //! # fn main() {}
 //! ```
 //!

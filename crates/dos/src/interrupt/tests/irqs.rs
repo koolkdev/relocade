@@ -58,17 +58,12 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
         keyboard.clone(),
         cpu.exit_handle(),
     ));
-    kernel::initialize(&mut cpu.context().memory);
+    crate::memory::reset(&mut cpu.context().memory);
     relocade_bios::initialize(&mut cpu.context().memory, &io);
-    cpu.install(
-        kernel::hooks(cpu.cpu_state(), dos.clone()).chain(relocade_bios::hooks(
-            cpu.cpu_state(),
-            dos.memory().clone(),
-            keyboard,
-        )),
-    )
-    .await
-    .unwrap();
+    let mut interrupts = relocade_machine::real_mode_interrupt::Interrupts::new(&mut cpu);
+    crate::interrupt::register_interrupts(&mut interrupts, dos.clone());
+    relocade_bios::register_interrupts(&mut interrupts, keyboard);
+    interrupts.install().await.unwrap();
     let psp = com::load(
         &mut cpu.context(),
         &[0xcd, 0x21, 0xeb, 0xfe],

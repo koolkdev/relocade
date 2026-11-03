@@ -1,6 +1,7 @@
 //! Helpers for hooks entered through a 16-bit real-mode interrupt frame.
 //!
-//! Place [`HOOK_STUB`] in guest memory and install the entries returned by [`hook`].
+//! [`Interrupts`] registers vectors, guest stubs and their handlers together.
+//! Low-level adapters can place [`HOOK_STUB`] and install entries from [`hook`].
 //! When the async handler returns, the adapter advances to the guest IRET,
 //! which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
@@ -8,10 +9,12 @@
 //! The second byte resumes the top suspended host call after guest IRQ execution.
 
 mod bindings;
+mod registration;
 #[doc(hidden)]
 pub use crate::cpu::registers;
 pub use crate::FarPointer;
 pub use bindings::{interrupt, interrupt_dispatch};
+pub use registration::Interrupts;
 #[doc(hidden)]
 pub use relocade_x86::{Segment, SegmentRegister};
 

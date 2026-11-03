@@ -123,7 +123,9 @@ pub use execution::RunError;
 pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
-use relocade_machine::{Clock, Cpu, CpuContext, IoBus, Memory, Runner, TimerHandle};
+use relocade_machine::{
+    real_mode_interrupt::Interrupts, Clock, Cpu, CpuContext, IoBus, Memory, Runner, TimerHandle,
+};
 use relocade_vga::Vga;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
@@ -166,19 +168,15 @@ impl<C: Clock> Dos<C> {
             cpu.exit_handle(),
         ));
         let keyboard = state.stdio().input.clone();
-        kernel::initialize(&mut cpu.context().memory);
         {
             let mut context = cpu.context();
+            memory::reset(&mut context.memory);
             relocade_bios::initialize(&mut context.memory, context.io);
         }
-        cpu.install(
-            kernel::hooks(cpu.cpu_state(), Rc::clone(&state)).chain(relocade_bios::hooks(
-                cpu.cpu_state(),
-                state.memory().clone(),
-                keyboard,
-            )),
-        )
-        .await?;
+        let mut interrupts = Interrupts::new(&mut cpu);
+        interrupt::register_interrupts(&mut interrupts, Rc::clone(&state));
+        relocade_bios::register_interrupts(&mut interrupts, keyboard);
+        interrupts.install().await?;
         Ok(Self {
             state,
             cpu,
