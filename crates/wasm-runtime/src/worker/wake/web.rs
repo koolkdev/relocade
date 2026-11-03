@@ -39,6 +39,7 @@ pub struct WakeConnection<R: WakeTarget> {
     port: RefCell<Port<Registration<R>>>,
     target: RefCell<Option<R>>,
     notification: Waker,
+    polling: super::Polling,
 }
 
 struct Registration<R> {
@@ -106,6 +107,7 @@ impl<R: WakeTarget> WakeEndpoint<R> {
             port: RefCell::new(self.endpoint.bind()),
             target: RefCell::new(None),
             notification: Waker::from(Arc::new(Request(self.id))),
+            polling: super::Polling::default(),
         }
     }
 }
@@ -124,18 +126,26 @@ impl<R: WakeTarget> WakeConnection<R> {
         installed
             .await
             .map_err(|error| Error::new("connect worker wake", error))?;
-        super::cooperate().await;
+        // Abortable registers only after Pending, before busy execution starts.
+        self.yield_now().await;
         Ok(())
     }
 
     /// Polls the entire session, including cancellation, with notifying wakers.
     pub async fn run<F: Future>(&self, future: F) -> F::Output {
-        super::run(future, &self.notification, || {
-            if let Some(target) = &*self.target.borrow() {
-                target.acknowledge();
-            }
-        })
-        .await
+        self.polling
+            .run(future, &self.notification, || {
+                if let Some(target) = &*self.target.borrow() {
+                    target.acknowledge();
+                }
+            })
+            .await
+    }
+
+    /// Yields busy execution without requesting another interrupt. The current
+    /// task's waker still runs, including any enclosing combinator's bookkeeping.
+    pub async fn yield_now(&self) {
+        self.polling.yield_now().await;
     }
 }
 

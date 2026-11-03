@@ -3,7 +3,8 @@
 use futures_channel::oneshot;
 use futures_util::{
     future::{join, AbortHandle, Abortable},
-    FutureExt,
+    stream::FuturesUnordered,
+    FutureExt, StreamExt,
 };
 use relocade_compiler::abi::Memory as MemoryDeclaration;
 use relocade_wasm_runtime::{
@@ -11,12 +12,14 @@ use relocade_wasm_runtime::{
     Backend, SharedMemory, WasmBackend,
 };
 use std::{
-    future::poll_fn,
+    cell::Cell,
+    future::{poll_fn, Future},
+    pin::pin,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
-    task::Waker,
+    task::{Poll, Waker},
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -127,13 +130,6 @@ async fn exercise() {
                 join(receive, busy).await.0.unwrap()
             };
             let result = connection.run(Abortable::new(session, cancelled)).await;
-            if result.is_ok() {
-                assert_eq!(
-                    target.memory.atomic_load::<u8>(0),
-                    0,
-                    "acknowledge before polling ready work"
-                );
-            }
             result.ok()
         });
         // Startup and resource installation proceed before task/join is polled.
@@ -172,4 +168,95 @@ fn ordinary_wakes_and_cancellation_signal_a_connected_busy_worker() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn ordinary_wakes_and_cancellation_signal_a_connected_busy_worker() {
     exercise().await;
+}
+
+async fn composition() {
+    let (_host, endpoint) = wake_connection::<Signal>().unwrap();
+    Thread::new()
+        .run_resource(endpoint, |endpoint| async move {
+            let connection = endpoint.bind();
+            let (released, _release) = oneshot::channel();
+            let target = Signal::new(Arc::default(), released);
+            connection
+                .run(connection.activate(target.clone()))
+                .await
+                .unwrap();
+
+            for (unordered, during_poll) in [(false, false), (true, false), (false, true)] {
+                let (send, input) = oneshot::channel();
+                let (send_between, send_during) = if during_poll {
+                    (None, Some(send))
+                } else {
+                    (Some(send), None)
+                };
+                let consumed = Cell::new(false);
+                let cpu = async {
+                    connection.yield_now().await;
+                    assert_ne!(
+                        target.memory.atomic_load::<u8>(0),
+                        0,
+                        "ready input must interrupt CPU-first composition"
+                    );
+                    connection.yield_now().await;
+                    assert!(consumed.get(), "ready sibling must run before CPU resumes");
+                    if !unordered {
+                        assert_eq!(
+                            target.memory.atomic_load::<u8>(0),
+                            0,
+                            "our own cooperative yield must not request another interrupt"
+                        );
+                    }
+                };
+                let cpu = async {
+                    if unordered {
+                        let mut tasks = FuturesUnordered::new();
+                        tasks.push(cpu);
+                        tasks.next().await.unwrap();
+                    } else {
+                        cpu.await;
+                    }
+                };
+                let receive = async {
+                    assert_eq!(input.await.unwrap(), 42);
+                    consumed.set(true);
+                };
+                let late_send = async {
+                    // The receiver was already polled Pending this turn. The
+                    // post-poll acknowledgement must preserve this new wake.
+                    if let Some(send) = send_during {
+                        send.send(42).unwrap();
+                    }
+                };
+                let mut session = pin!(connection.run(join(cpu, join(receive, late_send))));
+
+                // Drive exact polls, so this also catches a lost child wake
+                // without hanging or relying on a timeout or guest budget.
+                assert!(poll_fn(|cx| Poll::Ready(session.as_mut().poll(cx)))
+                    .await
+                    .is_pending());
+                if let Some(send) = send_between {
+                    send.send(42).unwrap();
+                }
+                assert!(poll_fn(|cx| Poll::Ready(session.as_mut().poll(cx)))
+                    .await
+                    .is_pending());
+                assert!(poll_fn(|cx| Poll::Ready(session.as_mut().poll(cx)))
+                    .await
+                    .is_ready());
+            }
+        })
+        .await
+        .unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn input_wakes_interrupt_cpu_first_composition() {
+    pollster::block_on(composition());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn input_wakes_interrupt_cpu_first_composition() {
+    composition().await;
 }

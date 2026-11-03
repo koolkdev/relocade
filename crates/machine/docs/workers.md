@@ -87,11 +87,19 @@ has constructed its target, `connection.activate(target).await` installs the
 host binding before busy execution and yields once so enclosing cancellation can
 register its waker. Keep the returned `WakeHost` alive until execution finishes.
 
-`WakeTarget::wake` requests return to the executor. `acknowledge` clears the
-request before each session poll, before ready work is consumed. The wrapped
-waker invokes both the resource notification and the original executor waker on
-the sending thread. Wrap an outer `Abortable` too, so cancellation uses the same
-notification path as ordinary channel input.
+`WakeTarget::wake` requests return to the executor. The request remains set
+through the complete session poll, so CPU-first composition such as
+`join(run_cpu, input)` reaches a checkpoint before consuming ready input.
+`acknowledge` clears it after the poll; wakes during that poll reassert the
+request, including wakes racing with acknowledgement. The wrapped waker invokes
+both the resource notification and the original executor waker on the sending
+thread. Wrap an outer `Abortable` too, so cancellation uses the same notification
+path as ordinary channel input.
+
+Use `connection.yield_now().await` when busy execution cooperatively yields. It
+wakes the current task, preserving child scheduling in combinators, without
+requesting another interrupt from that wake. Other notifications, including a
+combinator's own independent scheduling wakes, continue to request interruption.
 
 Native connections retain a `Send` target directly. Browser connections post it
 back to the responsive host and reconstruct local access there. Their eager host

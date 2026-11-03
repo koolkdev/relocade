@@ -20,6 +20,7 @@ pub struct WakeEndpoint<R>(Arc<Mutex<Option<R>>>);
 pub struct WakeConnection<R> {
     target: Arc<Mutex<Option<R>>>,
     notification: Waker,
+    polling: super::Polling,
 }
 
 /// Connects a host and execution worker before either starts busy execution.
@@ -41,6 +42,7 @@ impl<R: WakeTarget + Send> WakeEndpoint<R> {
         WakeConnection {
             target: self.0,
             notification,
+            polling: super::Polling::default(),
         }
     }
 }
@@ -64,18 +66,26 @@ impl<R: WakeTarget + Send> WakeConnection<R> {
     pub async fn activate(&self, target: R) -> Result<()> {
         let previous = self.target.lock().unwrap().replace(target);
         drop(previous);
-        super::cooperate().await;
+        // Abortable registers only after Pending, before busy execution starts.
+        self.yield_now().await;
         Ok(())
     }
 
     /// Polls the entire session, including cancellation, with notifying wakers.
     pub async fn run<F: Future>(&self, future: F) -> F::Output {
-        super::run(future, &self.notification, || {
-            if let Some(target) = &*self.target.lock().unwrap() {
-                target.acknowledge();
-            }
-        })
-        .await
+        self.polling
+            .run(future, &self.notification, || {
+                if let Some(target) = &*self.target.lock().unwrap() {
+                    target.acknowledge();
+                }
+            })
+            .await
+    }
+
+    /// Yields busy execution without requesting another interrupt. The current
+    /// task's waker still runs, including any enclosing combinator's bookkeeping.
+    pub async fn yield_now(&self) {
+        self.polling.yield_now().await;
     }
 }
 
