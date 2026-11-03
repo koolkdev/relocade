@@ -55,8 +55,8 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
             screen.cursor,
             Cursor {
                 address: 0,
-                start_scan_line: 6,
-                end_scan_line: 7,
+                start_scan_line: 13,
+                end_scan_line: 14,
             }
         );
         assert_eq!(
