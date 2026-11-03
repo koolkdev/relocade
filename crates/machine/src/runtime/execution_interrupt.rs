@@ -37,3 +37,14 @@ impl ExecutionInterrupt {
         self.0.atomic_swap(OFFSET, 0_u8) != 0
     }
 }
+
+#[cfg(feature = "worker")]
+impl crate::worker::WakeTarget for ExecutionInterrupt {
+    fn wake(&self) {
+        self.request();
+    }
+
+    fn acknowledge(&self) {
+        self.take();
+    }
+}

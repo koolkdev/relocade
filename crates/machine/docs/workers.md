@@ -94,6 +94,12 @@ Native installation completes immediately; browser installation waits for the
 host acknowledgement. Polling acknowledges through the local retained target,
 without acquiring the native notification mutex.
 
+`ExecutionWorker` manages this connection automatically. Use `runner.run_cpu` in
+its session to activate the CPU's interrupt handle and consume host notifications
+while preserving the remaining temporary instruction quantum. Direct `cpu.run`
+keeps its lower-level contract: it returns `ExecutionExit::Interrupted` to its
+caller, which owns acknowledgement and scheduling.
+
 `WakeTarget::wake` requests return to the executor. The request remains set
 through the complete session poll, so CPU-first composition such as
 `join(run_cpu, input)` reaches a checkpoint before consuming ready input.

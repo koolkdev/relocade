@@ -2,8 +2,8 @@
 
 Each execution worker runs one CPU session and its registered device activities.
 `Runner::run` drives them together until the main session finishes or is cancelled.
-`run_cpu` executes finite instruction quanta and retains a pending
-CPU service across device wakeups. Devices keep running while the main activity
+`run_cpu` yields on execution interrupts and retains pending
+CPU services across device wakeups. Devices keep running while the main activity
 awaits input or the next program.
 
 Create the [shared timer service](clock.md) on the host, and pass its clock into
@@ -94,8 +94,9 @@ The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
 `ExecutionWorker` wraps the runner in `Abortable`; the runner owns CPU/device
 coordination. `stop().await` sets the cancellation flag and wakes the task even
-while a CPU service is pending. It drops owned CPU and device activities on their
-execution thread, and waits for completion before releasing the thread.
+while a CPU service is pending or guest code is executing. It drops owned CPU and
+device activities on their execution thread, and waits for completion before
+releasing the thread.
 `join().await` waits for ordinary main-activity completion. As with `Thread`, await
 these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
@@ -135,12 +136,38 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-`run_cpu` requests a nonzero instruction quantum (10,000 by default), then
-cooperates with the main/device task set through `yield_now`. This is a Rust
-polling opportunity, with no per-quantum or periodic host timer. The host timer
+`run_cpu` cooperates with the main/device task set when a wake requests an
+execution interrupt. A nonzero instruction quantum (10,000 by default) remains
+as a temporary fallback. Yielding gives a Rust polling opportunity, with no
+per-quantum or periodic host timer. The host timer
 driver delivers deadline notifications through Rust channels even while the
 execution worker stays runnable. CPU services can sleep without suspending
 devices, and sleeping devices do not suspend the CPU.
+
+`ExecutionWorker` connects the CPU's existing `ExecutionInterrupt` handle to the
+whole session's Rust wakers, including cancellation. Before `run_cpu` enters
+guest code, setup installs host access and yields once to register cancellation
+and device waits. Browser setup runs eagerly on the responsive host, independently
+of polling `join`. The CPU is still constructed inside the session.
+
+An ordinary host channel send or timer completion makes its waiter ready, then
+its waker requests an execution interrupt and wakes the executor on the sending
+thread. Guest checkpoints return independently of IF. The interrupt remains set
+through the whole session poll, so CPU-first composition such as
+`join(run_cpu, input)` yields before its ready sibling runs. Acknowledgement
+follows polling and preserves new wakes, including those racing with the exchange.
+The runner resumes with the remainder of the same quantum. The ready queues
+retain coalesced notifications. The runner's cooperative yield wakes its current
+child task without requesting another interrupt from that wake.
+Pending CPU services keep their original future and IRQ-suspended outer services
+remain parked until guest resumption.
+
+The browser connection covers the spawning host and execution worker. A Rust
+sender moved to a third worker still wakes pending tasks, but needs explicit
+resource setup to interrupt busy execution. Instruction budgets are temporary;
+notification coverage and explicit host waits must replace their scheduling role.
+Tests that need bounded guest progress should use instruction stepping when the
+budget API is removed. See the [connection contract](workers.md#browser-build-and-lifetime).
 
 Continuously ready device loops must also cooperate. Genuine CPU waits, including
 Wasm compilation, can return to the underlying executor. This model does not

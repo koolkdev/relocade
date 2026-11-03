@@ -1,9 +1,10 @@
 use super::Runner;
-use crate::worker::{self, SendTask, Thread};
+use crate::worker::{self, wake_connection, SendTask, Thread, ThreadExt, WakeHost};
 use crate::{timer_service, Clock};
 use futures_lite::future::or;
 use futures_util::future::{AbortHandle, Abortable};
 use std::future::{pending, Future};
+use std::rc::Rc;
 
 /// Owns a worker for one CPU session and its registered devices.
 /// Construct the CPU and other non-Send state inside the supplied closure.
@@ -15,6 +16,7 @@ pub struct ExecutionWorker<T: Send + 'static> {
     _thread: Thread,
     task: SendTask<Option<T>>,
     stop: AbortHandle,
+    _wake_host: WakeHost,
 }
 
 impl<T: Send + 'static> ExecutionWorker<T> {
@@ -56,10 +58,16 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         session: impl AsyncFnOnce(&Runner<C>) -> T + Send + 'static,
     ) -> Self {
         let thread = Thread::new();
+        let (wake_host, endpoint) =
+            wake_connection().expect("create execution worker wake connection");
         let (stop, registration) = AbortHandle::new_pair();
-        let task = thread.run_send((), move |()| async move {
+        let task = thread.run_resource(endpoint, move |endpoint| async move {
+            let wake = Rc::new(endpoint.bind());
+            let mut runner = Runner::with_clock(clock);
+            runner.wake = Some(wake.clone());
             // Cancellation drops the runner on its owner before task completion.
-            Abortable::new(Runner::with_clock(clock).run(session), registration)
+            // Its waker also interrupts a synchronous guest dispatch.
+            wake.run(Abortable::new(runner.run(session), registration))
                 .await
                 .ok()
         });
@@ -67,6 +75,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
             _thread: thread,
             task,
             stop,
+            _wake_host: wake_host,
         }
     }
 
