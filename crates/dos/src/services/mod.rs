@@ -1,16 +1,18 @@
 //! DOS interrupt dispatch and service handlers.
 
-use relocade_machine::{CpuContext, MemoryView};
+use relocade_machine::{real_mode_interrupt::interrupt, MemoryView};
 
 pub(crate) mod console;
 mod directories;
+mod dispatch;
+pub(crate) use dispatch::{int20, int21};
 mod files;
 mod ioctl;
 mod memory;
 mod search;
 mod system;
 
-use crate::{files::CreateMode, process::Process, state::DosState, ServiceError};
+use crate::{process::Process, state::DosState, ServiceError};
 
 /// Resources retained for one DOS interrupt invocation, independent of CPU registers.
 /// The active process is selected at entry and retained across pending I/O.
@@ -34,110 +36,7 @@ impl<'call> Services<'call> {
     }
 }
 
-const READ_CHARACTER_ECHO: u8 = 0x01;
-const WRITE_CHARACTER: u8 = 0x02;
-const DIRECT_CONSOLE_IO: u8 = 0x06;
-const READ_CHARACTER: u8 = 0x07;
-const READ_CHARACTER_CHECK_BREAK: u8 = 0x08;
-const WRITE_STRING: u8 = 0x09;
-const READ_BUFFERED: u8 = 0x0a;
-const INPUT_STATUS: u8 = 0x0b;
-const FLUSH_INPUT: u8 = 0x0c;
-const SELECT_DRIVE: u8 = 0x0e;
-const GET_DRIVE: u8 = 0x19;
-const SET_VECTOR: u8 = 0x25;
-const GET_VERSION: u8 = 0x30;
-const GET_VECTOR: u8 = 0x35;
-const CREATE_DIRECTORY: u8 = 0x39;
-const REMOVE_DIRECTORY: u8 = 0x3a;
-const CHANGE_DIRECTORY: u8 = 0x3b;
-const GET_DIRECTORY: u8 = 0x47;
-const SET_DTA: u8 = 0x1a;
-const GET_DTA: u8 = 0x2f;
-const FIND_FIRST: u8 = 0x4e;
-const FIND_NEXT: u8 = 0x4f;
-const CREATE_HANDLE: u8 = 0x3c;
-const CREATE_TEMPORARY_HANDLE: u8 = 0x5a;
-const CREATE_NEW_HANDLE: u8 = 0x5b;
-const RENAME_FILE: u8 = 0x56;
-const OPEN_HANDLE: u8 = 0x3d;
-const CLOSE_HANDLE: u8 = 0x3e;
-const COMMIT_HANDLE: u8 = 0x68;
-const COMMIT_HANDLE_ALIAS: u8 = 0x6a;
-const READ_HANDLE: u8 = 0x3f;
-const WRITE_HANDLE: u8 = 0x40;
-const DELETE_FILE: u8 = 0x41;
-const SEEK_HANDLE: u8 = 0x42;
-const FILE_ATTRIBUTES: u8 = 0x43;
-const IOCTL: u8 = 0x44;
-const DUPLICATE_HANDLE: u8 = 0x45;
-const FORCE_DUPLICATE_HANDLE: u8 = 0x46;
-const ALLOCATE_MEMORY: u8 = 0x48;
-const FREE_MEMORY: u8 = 0x49;
-const RESIZE_MEMORY: u8 = 0x4a;
-const TERMINATE_PROCESS: u8 = 0x4c;
-const LONG_FILENAME: u8 = 0x71;
-
-/// INT 21h selects a DOS service through AH.
-pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    match call.cpu.ah() {
-        DIRECT_CONSOLE_IO => console::direct_io(call, services).await,
-        READ_CHARACTER_ECHO => console::read_character(call, services, true).await,
-        READ_CHARACTER | READ_CHARACTER_CHECK_BREAK => {
-            console::read_character(call, services, false).await
-        }
-        WRITE_CHARACTER => console::write_character(call, services).await,
-        WRITE_STRING => console::write_string(call, services).await,
-        READ_BUFFERED => console::read_buffered(call, services).await,
-        INPUT_STATUS => console::input_status(call, services).await,
-        FLUSH_INPUT => console::flush_input(call, services).await,
-        SELECT_DRIVE => directories::select_drive(call, services),
-        GET_DRIVE => directories::get_drive(call, services),
-        SET_VECTOR => system::set_vector(call),
-        GET_VERSION => system::version(call),
-        GET_VECTOR => system::get_vector(call),
-        CREATE_DIRECTORY => directories::create_directory(call, services),
-        REMOVE_DIRECTORY => directories::remove_directory(call, services),
-        CHANGE_DIRECTORY => directories::change_directory(call, services),
-        GET_DIRECTORY => directories::get_directory(call, services),
-        SET_DTA => search::set_dta(call, services),
-        GET_DTA => search::get_dta(call, services),
-        FIND_FIRST => search::find_first(call, services),
-        FIND_NEXT => search::find_next(call, services),
-        CREATE_HANDLE => files::create(call, services, CreateMode::TruncateExisting),
-        CREATE_TEMPORARY_HANDLE => files::create_temporary(call, services),
-        CREATE_NEW_HANDLE => files::create(call, services, CreateMode::FailIfExists),
-        RENAME_FILE => files::rename(call, services),
-        OPEN_HANDLE => files::open(call, services),
-        CLOSE_HANDLE => files::close(call, services),
-        COMMIT_HANDLE | COMMIT_HANDLE_ALIAS => files::commit(call, services),
-        READ_HANDLE => files::read(call, services).await,
-        WRITE_HANDLE => files::write(call, services).await,
-        DELETE_FILE => files::delete(call, services),
-        SEEK_HANDLE => files::seek(call, services),
-        FILE_ATTRIBUTES => files::attributes(call, services),
-        IOCTL => ioctl::ioctl(call, services).await,
-        DUPLICATE_HANDLE => files::duplicate(call, services),
-        FORCE_DUPLICATE_HANDLE => files::force_duplicate(call, services),
-        ALLOCATE_MEMORY => memory::allocate(call, services),
-        FREE_MEMORY => memory::free(call),
-        RESIZE_MEMORY => memory::resize(call),
-        TERMINATE_PROCESS => terminate_process(call, services),
-        LONG_FILENAME => files::long_filename(call),
-        function => services.exit(
-            &mut call.memory,
-            Err(ServiceError::UnsupportedFunction(function)),
-        ),
-    }
-}
-
-/// AH=4Ch: terminate the current process with the exit code in AL.
-fn terminate_process(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    let code = call.cpu.al();
-    services.exit(&mut call.memory, Ok(code))
-}
-
-/// INT 20h terminates without an exit code, including a COM program's initial RET.
-pub(crate) async fn int20(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    services.exit(&mut call.memory, Ok(0))
+#[interrupt(context(memory))]
+fn fatal(memory: &mut MemoryView<'_>, services: &Services<'_>, error: ServiceError) {
+    services.exit(memory, Err(error));
 }

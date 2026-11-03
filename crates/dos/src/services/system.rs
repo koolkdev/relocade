@@ -1,10 +1,13 @@
 //! DOS version and interrupt-vector services used during program startup.
 
+use relocade_machine::real_mode_interrupt::interrupt;
+
 use relocade_machine::CpuContext;
 
 use relocade_x86::{Segment, SegmentRegister};
 
 /// AH=30h: report DOS 5.00, with no serial number or special version flags.
+#[interrupt(context(call))]
 pub(super) fn version(call: &mut CpuContext<'_>) {
     let cpu = call.cpu;
     let version_flags = cpu.al() == 1;
@@ -14,6 +17,7 @@ pub(super) fn version(call: &mut CpuContext<'_>) {
 }
 
 /// AH=25h: set AL's interrupt vector to DS:DX.
+#[interrupt(context(call))]
 pub(super) fn set_vector(call: &mut CpuContext<'_>) {
     let cpu = call.cpu;
     let address = u32::from(cpu.al()) * 4;
@@ -25,6 +29,7 @@ pub(super) fn set_vector(call: &mut CpuContext<'_>) {
 }
 
 /// AH=35h: return AL's current interrupt vector in ES:BX.
+#[interrupt(context(call))]
 pub(super) fn get_vector(call: &mut CpuContext<'_>) {
     let address = u32::from(call.cpu.al()) * 4;
     let mut vector = [0; 4];
