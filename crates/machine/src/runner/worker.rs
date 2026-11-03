@@ -1,8 +1,8 @@
 use super::Runner;
 use crate::worker::{self, wake_connection, SendTask, SessionDriver, Thread, ThreadExt, WakeHost};
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt};
+use futures_channel::oneshot;
 use futures_lite::future::or;
-use futures_util::future::{AbortHandle, Abortable};
 use std::{
     future::{pending, Future},
     rc::Rc,
@@ -18,7 +18,7 @@ use std::{
 pub struct ExecutionWorker<T: Send + 'static> {
     _thread: Thread,
     task: SendTask<Option<T>>,
-    stop: AbortHandle,
+    stop: Option<oneshot::Sender<()>>,
     _wake_host: WakeHost<ExecutionInterrupt>,
 }
 
@@ -63,29 +63,30 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
         let thread = Thread::new();
-        let (stop, registration) = AbortHandle::new_pair();
+        let (stop, stopped) = oneshot::channel();
         let task = thread.run_resource(storage, move |storage| async move {
             let driver = Rc::new(SessionDriver::new(
                 endpoint.bind(storage.interrupt_handle()),
             ));
             let mut runner = Runner::with_clock(clock);
             runner.storage = std::cell::RefCell::new(Some(storage));
-            runner.session = Some(driver);
-            // Cancellation drops the runner on its owner before task completion.
-            Abortable::new(runner.run(session), registration).await.ok()
+            runner.session = Some(driver.clone());
+            driver.run_until(stopped, runner.run(session)).await
         });
         Self {
             _thread: thread,
             task,
-            stop,
+            stop: Some(stop),
             _wake_host: wake_host,
         }
     }
 
     /// Stops even while a service is pending, drops the session on its owner,
     /// then waits for task completion before releasing the thread.
-    pub async fn stop(self) -> worker::Result<Option<T>> {
-        self.stop.abort();
+    pub async fn stop(mut self) -> worker::Result<Option<T>> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
         self.join().await
     }
 
@@ -97,7 +98,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
 
 impl<T: Send + 'static> Drop for ExecutionWorker<T> {
     fn drop(&mut self) {
-        // Wake an abandoned session before releasing its thread handle.
-        self.stop.abort();
+        // Closing the stop channel also wakes the session before releasing its thread.
+        drop(self.stop.take());
     }
 }
