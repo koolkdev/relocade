@@ -3,9 +3,9 @@
 use relocade_x86::{CpuState, ExecutionProfile};
 
 use super::{
-    blocks::BlockModules,
+    blocks::{instruction_count, BlockModules},
     machine::{expected, expected_steps, Exit, Image, Step},
-    step::{Event, TestModule},
+    step::{Event, Snapshot, TestModule},
 };
 
 #[cfg(test)]
@@ -38,6 +38,39 @@ impl ImageSequences {
     }
 
     pub(crate) fn check(&mut self, name: &str, code: &[u8], image: &Image, steps: &[Step<'_>]) {
+        assert!(!steps.is_empty(), "a sequence contains an instruction");
+        if matches!(self.frontend, Frontend::Interpreter) {
+            self.check_entry(name, code, image, steps);
+            return;
+        }
+        let mut current = image.clone();
+        let mut offset = 0;
+        let mut completed = 0;
+        while completed < steps.len() {
+            let count = instruction_count(&code[offset..], steps.len() - completed, self.profile);
+            let group = &steps[completed..completed + count];
+            let Some(snapshot) = self.check_entry(name, &code[offset..], &current, group) else {
+                return; // A checked interpreter handoff ends the compiled proof.
+            };
+            completed += count;
+            if completed < steps.len() {
+                assert!(matches!(group.last().unwrap().exit, Exit::Dispatch(_)));
+                let before = current.cpu.eip;
+                current.continue_from(&snapshot);
+                let bytes = current.cpu.eip.wrapping_sub(before) as usize;
+                assert!(bytes > 0 && offset + bytes < code.len());
+                offset += bytes;
+            }
+        }
+    }
+
+    fn check_entry(
+        &mut self,
+        name: &str,
+        code: &[u8],
+        image: &Image,
+        steps: &[Step<'_>],
+    ) -> Option<Snapshot> {
         let last = steps.last().expect("a sequence contains an instruction");
         let mut wanted = match self.frontend {
             Frontend::Block => expected(image, steps),
@@ -95,6 +128,18 @@ impl ImageSequences {
             );
         }
         assert_eq!(actual, wanted, "{name}: {:?}", self.frontend);
+        if actual
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::Interpret { .. }))
+        {
+            None
+        } else {
+            let Some(Event::Return { snapshot, .. }) = actual.events.last() else {
+                panic!("execution must return");
+            };
+            Some(snapshot.clone())
+        }
     }
 }
 

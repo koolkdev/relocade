@@ -2,6 +2,7 @@ use relocade_x86::{page_table, CpuState, Exception, ExecutionExit, Registers, Se
 
 use super::step::{returned, Event, Input, Observation, Snapshot, TestModule};
 
+#[derive(Clone)]
 pub(crate) struct Image {
     pub(crate) cpu: CpuState,
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
@@ -55,6 +56,14 @@ impl Image {
             physical_pages: self.physical_pages.clone(),
             observe_guest: true,
             ..Input::new(&self.cpu.to_bytes())
+        }
+    }
+
+    /// Continues from observed CPU/RAM, retaining the fixture's physical mappings.
+    pub(crate) fn continue_from(&mut self, snapshot: &Snapshot) {
+        self.cpu = CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap());
+        for &(address, byte) in snapshot.guest.as_ref().expect("observe guest RAM") {
+            self.data(address, &[byte]);
         }
     }
 

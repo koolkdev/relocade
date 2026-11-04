@@ -63,6 +63,8 @@ impl Cpu {
     /// A suspended service stays parked until guest reaches a resume entry, even
     /// when its input becomes ready. Reentry starts a separate invocation.
     /// Budget/fault exits and replacement waiters preserve parked calls.
+    /// Guest IF-enabling instructions return to this same IRQ polling loop, so a
+    /// request queued while masked needs no later notification to become eligible.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         if instruction_budget == 0 {
             return ExecutionExit::BudgetExhausted;
@@ -103,6 +105,7 @@ impl Cpu {
                         Ok(call) => call,
                         Err(exit) => return Poll::Ready(exit),
                     },
+                    ExecutionExit::StepComplete | ExecutionExit::InterruptsEnabled => continue,
                     exit => return Poll::Ready(exit),
                 };
             }
@@ -150,9 +153,6 @@ impl Cpu {
         // checkpoint. STEP publishes its result without dispatching the target.
         while exit == ExecutionExit::InterruptInhibited && !self.exit.0.get() {
             exit = machine.dispatch.step(&mut machine.backend);
-            if exit == ExecutionExit::StepComplete && !self.exit.0.get() {
-                exit = machine.dispatch(None);
-            }
         }
         exit
     }

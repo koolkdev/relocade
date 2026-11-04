@@ -39,14 +39,16 @@ test_frontends!(push_flag_images, push_images);
 fn pop_images(frontend: Frontend) {
     let mut cases = sequences(frontend);
     for (code, width) in [(&[0x9d][..], 2), (&[0x66, 0x9d][..], 4)] {
-        for (image_bits, if_, iopl, other) in [
-            (0xffdb_8028_u32, 0, 0, 0),
-            (0xffdb_9228, 1, 1, 0),
-            (0xffdb_a028, 0, 2, 0),
-            (0xffdb_b228, 1, 3, 0),
-            (u32::MAX, 1, 3, 1),
+        for (image_bits, initial_if, if_, iopl, other) in [
+            (0xffdb_8028_u32, 0x81, 0, 0, 0),
+            (0xffdb_9228, 0x81, 1, 1, 0),
+            (0xffdb_a028, 0x81, 0, 2, 0),
+            (0xffdb_b228, 0x81, 1, 3, 0),
+            (u32::MAX, 0x81, 1, 3, 1),
+            (0xffdb_9228, 0x80, 1, 1, 0),
         ] {
             let mut image = image(code);
+            image.cpu.flags.bytes.if_ = initial_if;
             image.cpu.flags.status_source.kind = 9;
             image.cpu.flags.status_source.left = 7;
             image.cpu.flags.status_source.right = 8;
@@ -79,7 +81,15 @@ fn pop_images(frontend: Frontend) {
                 "POPF restores IF/IOPL, ignores reserved bits and preserves high flags for word images",
                 code,
                 &image,
-                &[Step { cpu, ram: &[], exit: Exit::Dispatch(cpu.eip) }],
+                &[Step {
+                    cpu,
+                    ram: &[],
+                    exit: if initial_if & 1 == 0 && if_ == 1 {
+                        Exit::Other(crate::ExecutionExit::InterruptsEnabled)
+                    } else {
+                        Exit::Dispatch(cpu.eip)
+                    },
+                }],
             );
         }
     }

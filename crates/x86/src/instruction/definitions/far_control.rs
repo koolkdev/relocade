@@ -208,9 +208,11 @@ where
         ExecutionProfile::Real16 => CodeTarget::resolve(execution, offset, &selector)?,
         ExecutionProfile::Protected(_) => resolve_return_target(execution, offset, &selector)?,
     };
-    image::write_stack_image(execution, &flags)?;
+    let enabled = image::write_stack_image(execution, &flags)?;
     frame.commit(execution, 0)?;
-    target.commit(execution)
+    let next_ip = target.commit(execution)?;
+    execution.interrupts_enabled_if(enabled, &next_ip)?;
+    Ok(next_ip)
 }
 
 fn resolve_return_target<T: RegisterType>(

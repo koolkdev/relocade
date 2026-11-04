@@ -196,6 +196,12 @@ impl Machine {
         }
     }
 
+    /// Continue from the observed raw CPU and physical RAM, keeping code and maps.
+    pub(crate) fn continue_from(&mut self, state: &State) {
+        self.cpu = state.cpu;
+        self.image.guest = vec![(0, state.memory.bytes.clone())];
+    }
+
     pub(crate) fn run(&self, module: &TestModule) -> Execution {
         self.run_many(module, 1).pop().unwrap()
     }

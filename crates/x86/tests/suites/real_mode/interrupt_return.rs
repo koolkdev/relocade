@@ -31,10 +31,13 @@ fn restored_flags(cpu: &mut CpuState, bit: u8, word: bool) {
 fn returns(frontend: Frontend) {
     let mut cases = sequences(frontend);
     for (code, width) in [(&[0x64, 0x67, 0xcf][..], 2), (&[0x66, 0xcf][..], 4)] {
-        for (offset, selector, flags, bit) in
-            [(0_u32, 0_u16, 0_u32, 0), (0xffff, 0xffff, u32::MAX, 1)]
-        {
+        for (offset, selector, flags, bit, initial_if) in [
+            (0_u32, 0_u16, 0_u32, 0, 0x81),
+            (0xffff, 0xffff, u32::MAX, 1, 0x81),
+            (0xffff, 0xffff, u32::MAX, 1, 0x80),
+        ] {
             let mut image = image(code);
+            image.cpu.flags.bytes.if_ = initial_if;
             let mut frame = offset.to_le_bytes()[..width].to_vec();
             frame.extend(selector.to_le_bytes());
             if width == 4 {
@@ -61,7 +64,11 @@ fn returns(frontend: Frontend) {
                 &[Step {
                     cpu,
                     ram: &[],
-                    exit: Exit::Dispatch(offset),
+                    exit: if initial_if & 1 == 0 && bit == 1 {
+                        Exit::Other(crate::ExecutionExit::InterruptsEnabled)
+                    } else {
+                        Exit::Dispatch(offset)
+                    },
                 }],
             );
         }

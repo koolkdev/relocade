@@ -41,9 +41,9 @@ pub struct CompiledBlocks {
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
 ///
-/// Compilation stops at the first branch, segment load, port I/O, serializing
-/// instruction, unconditional fault or `instruction_limit`. A conditional branch
-/// ends the block on both outcomes; bytes after the boundary are ignored.
+/// Compilation stops at the first branch, segment load, POPF/POPFD, port I/O,
+/// serializing instruction, unconditional fault or `instruction_limit`. A conditional
+/// branch ends the block on both outcomes; bytes after the boundary are ignored.
 /// The limit must be nonzero. Incomplete,
 /// unsupported or overlong instructions within that boundary return [`BlockError`].
 ///

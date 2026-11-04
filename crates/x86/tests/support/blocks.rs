@@ -88,3 +88,23 @@ impl BlockKey {
         }
     }
 }
+
+/// Declared extent of a straight-line test block, including its terminating instruction.
+pub(crate) fn instruction_count(code: &[u8], limit: usize, profile: ExecutionProfile) -> usize {
+    let mut bytes = code;
+    let mut eip = 0;
+    for index in 0..limit {
+        let (decoded, rest) = crate::decode::snapshot(bytes, eip, profile.code_default_size())
+            .expect("fixture instructions decode");
+        if decoded.instruction.ends_block()
+            || decoded
+                .instruction
+                .fails_requirements(Compiler::new(profile).target())
+        {
+            return index + 1;
+        }
+        bytes = rest;
+        eip = decoded.fallthrough_eip;
+    }
+    limit
+}

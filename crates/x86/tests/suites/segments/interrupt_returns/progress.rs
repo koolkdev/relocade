@@ -136,7 +136,7 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
 }
 
 #[test]
-fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
+fn nt_published_by_popf_selects_the_following_task_return_path() {
     // POPFD loads NT; IRET must observe that definition before any stack access.
     let code = [0x9d, 0xcf];
     let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
@@ -173,6 +173,23 @@ fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
     );
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 2, profile);
+    let observed = block.observe(&image.input(), 1);
+    assert_eq!(
+        observed,
+        expected(
+            &image,
+            &[Step {
+                cpu,
+                ram: &[],
+                exit: Exit::Dispatch(cpu.eip)
+            }]
+        )
+    );
+    let Some(crate::support::step::Event::Return { snapshot, .. }) = observed.events.last() else {
+        unreachable!()
+    };
+    image.continue_from(snapshot);
+    let block = blocks.get(&image.cpu, &code[1..], 1, profile);
     assert_eq!(
         block.observe(&image.input(), 1),
         expected(&image, &[unsupported()])

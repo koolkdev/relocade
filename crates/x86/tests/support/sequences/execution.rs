@@ -1,6 +1,6 @@
 use super::{Checkpoint, SequenceCase};
 use crate::support::{
-    blocks::BlockModules,
+    blocks::{instruction_count, BlockModules},
     cases::{
         expectations::{self, Boundary},
         observation::FlagObservations,
@@ -37,52 +37,80 @@ pub(crate) fn check(cases: &[SequenceCase], frontend: Frontend) {
         }
         for profile in case.profiles.for_cpu(&initial.cpu) {
             if matches!(frontend, Frontend::Block) {
-                let block = blocks.get(&initial.cpu, &code, limit, profile);
-                let execution = machine.run(block);
-                let context = format!("{} [{profile:?} block]", case.name);
-                let mut final_state = FinalExpectation::new(case);
-                let completed = if execution.exit == Exit::Interpret {
-                    let completed = execution
-                        .state
-                        .cpu
-                        .instruction_count
-                        .wrapping_sub(initial.cpu.instruction_count)
-                        as usize;
-                    assert!(
-                        completed < case.checkpoints.len(),
-                        "{context}: handoff precedes an instruction"
+                let mut machine = case.initial.machine(&code);
+                let mut completed_before = 0;
+                let mut offset = 0;
+                loop {
+                    let count = instruction_count(
+                        &code[offset..],
+                        (limit as usize) - completed_before,
+                        profile,
                     );
-                    completed
-                } else {
-                    case.checkpoints.len()
-                };
-                for checkpoint in &case.checkpoints[..completed] {
-                    assert!(
-                        execution.exit != Exit::Interpret
-                            || matches!(checkpoint.expected.exit, ExpectedExit::Fallthrough)
+                    let block = blocks.get(
+                        &machine.cpu,
+                        &code[offset..],
+                        (limit as usize - completed_before) as u32,
+                        profile,
                     );
-                    final_state.append(checkpoint);
+                    let execution = machine.run(block);
+                    let context = format!("{} [{profile:?} block]", case.name);
+                    let mut final_state = FinalExpectation::new(case);
+                    let completed = if execution.exit == Exit::Interpret {
+                        let completed = execution
+                            .state
+                            .cpu
+                            .instruction_count
+                            .wrapping_sub(initial.cpu.instruction_count)
+                            as usize;
+                        assert!(
+                            completed >= completed_before
+                                && completed < completed_before + count
+                                && completed < case.checkpoints.len(),
+                            "{context}: handoff precedes an instruction in this block"
+                        );
+                        completed
+                    } else {
+                        (completed_before + count).min(case.checkpoints.len())
+                    };
+                    for checkpoint in &case.checkpoints[..completed] {
+                        assert!(
+                            execution.exit != Exit::Interpret
+                                || matches!(checkpoint.expected.exit, ExpectedExit::Fallthrough)
+                        );
+                        final_state.append(checkpoint);
+                    }
+                    final_state.complete_flags();
+                    let check = if execution.exit == Exit::Interpret {
+                        expectations::check_handoff
+                    } else {
+                        expectations::check_checkpoint
+                    };
+                    check(
+                        frontend,
+                        &final_state.expected,
+                        final_state.boundary,
+                        &initial,
+                        &execution,
+                        &context,
+                    );
+                    flags.after(
+                        execution.state.cpu,
+                        initial.cpu,
+                        final_state.expected.flags,
+                        context,
+                    );
+                    if completed == case.checkpoints.len() || execution.exit == Exit::Interpret {
+                        break;
+                    }
+                    assert!(matches!(execution.exit, Exit::Dispatch(_)));
+                    assert!(completed > completed_before);
+                    completed_before = completed;
+                    offset = case.checkpoints[..completed]
+                        .iter()
+                        .map(|checkpoint| checkpoint.code.len())
+                        .sum();
+                    machine.continue_from(&execution.state);
                 }
-                final_state.complete_flags();
-                let check = if execution.exit == Exit::Interpret {
-                    expectations::check_handoff
-                } else {
-                    expectations::check_checkpoint
-                };
-                check(
-                    frontend,
-                    &final_state.expected,
-                    final_state.boundary,
-                    &initial,
-                    &execution,
-                    &context,
-                );
-                flags.after(
-                    execution.state.cpu,
-                    initial.cpu,
-                    final_state.expected.flags,
-                    context,
-                );
                 continue;
             }
             let executions = machine.run_many(

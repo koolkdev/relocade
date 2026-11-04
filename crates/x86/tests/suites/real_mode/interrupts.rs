@@ -279,7 +279,7 @@ fn interrupt_return_round_trip() {
                 Step {
                     cpu: returned,
                     ram: &[],
-                    exit: Exit::Dispatch(0x1002)
+                    exit: Exit::Other(crate::ExecutionExit::InterruptsEnabled)
                 },
             ]
         ),

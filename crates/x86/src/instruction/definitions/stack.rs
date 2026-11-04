@@ -41,6 +41,7 @@ instruction_families! {
     }
     POPF {
         execute: pop_flags::<_>;
+        effects: [control_transfer];
         forms {
             0x9D => word_or_dword();
         }
@@ -143,12 +144,18 @@ where
     execution.push(image, T::BYTES)
 }
 
-fn pop_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>
+fn pop_flags<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    _condition: Option<Condition>,
+    fallthrough: Val<I32>,
+) -> Result<Val<I32>, BuildError>
 where
     I32: AtLeast<T>,
 {
     let frame = execution.pop_frame(T::BYTES, T::BYTES)?;
     let flags = frame.field::<T>(execution, 0)?.read(execution)?;
     frame.commit(execution, 0)?;
-    image::write_stack_image(execution, &flags)
+    let enabled = image::write_stack_image(execution, &flags)?;
+    execution.interrupts_enabled_if(enabled, &fallthrough)?;
+    Ok(fallthrough)
 }

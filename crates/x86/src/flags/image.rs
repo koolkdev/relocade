@@ -82,10 +82,11 @@ where
 
 /// Restores writable flags; word images leave AC/ID unchanged. RF remains
 /// unrepresented even for IRETD; debug delivery is outside this execution model.
+/// Returns whether real-mode IF changed from clear to set.
 pub(crate) fn write_stack_image<T: IntType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     image: &Val<T>,
-) -> Result<(), BuildError>
+) -> Result<Val<I1>, BuildError>
 where
     I32: AtLeast<T>,
 {
@@ -97,13 +98,13 @@ where
     };
     execution.write_flags(change)?;
     match execution.profile() {
-        ExecutionProfile::Protected(_) => Ok(()),
+        ExecutionProfile::Protected(_) => Ok(false.into()),
         ExecutionProfile::Real16 => {
-            execution.write_flag(
-                Flag::IF,
-                image.unsigned().shr(bit(Flag::IF)).truncate::<I1>(),
-            )?;
-            execution.write_iopl(image.unsigned().shr(12).truncate::<I8>())
+            let before = execution.read_flag(Flag::IF)?;
+            let enabled = image.unsigned().shr(bit(Flag::IF)).truncate::<I1>();
+            execution.write_flag(Flag::IF, &enabled)?;
+            execution.write_iopl(image.unsigned().shr(12).truncate::<I8>())?;
+            Ok(before.eq(false).and(enabled))
         }
     }
 }

@@ -1,4 +1,4 @@
-//! Literal instruction checkpoints, executed individually and as one block.
+//! Literal instruction checkpoints, executed individually and across compiled blocks.
 
 mod execution;
 #[cfg(test)]
