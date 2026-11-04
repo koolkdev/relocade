@@ -9,7 +9,7 @@ use std::sync::{
 };
 
 /// Playback on the default device. Dropping it closes all submission endpoints.
-pub struct Output {
+pub(super) struct Output {
     stream: cpal::Stream,
     playing: Arc<AtomicBool>,
     submission: Sender<Vec<f32>>,
@@ -19,7 +19,7 @@ impl Output {
     /// Opens the default device and returns its CPAL configuration and a bounded
     /// Rust sender. Each buffer contains interleaved f32 frames. The channel holds
     /// 16 buffers; the producer chooses and bounds each buffer's size.
-    pub fn open(
+    pub(super) fn open(
         on_error: impl FnMut(cpal::Error) + Send + 'static,
     ) -> Result<(Self, cpal::StreamConfig, Sender<Vec<f32>>), cpal::Error> {
         let device = host()?
@@ -86,7 +86,7 @@ impl Output {
 
     /// Starts consuming PCM. In browsers this requests resume without awaiting
     /// the browser promise; call it from the application's user activation.
-    pub fn play(&self) -> Result<(), cpal::Error> {
+    pub(super) fn play(&self) -> Result<(), cpal::Error> {
         self.stream.play()?;
         self.playing.store(true, Ordering::Release);
         Ok(())
@@ -168,5 +168,5 @@ impl Buffers {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests;

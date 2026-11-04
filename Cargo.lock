@@ -2179,9 +2179,11 @@ name = "relocade-app"
 version = "0.0.0"
 dependencies = [
  "async-channel",
+ "cpal",
  "futures-channel",
  "futures-lite",
  "futures-timer",
+ "futures-util",
  "js-sys",
  "pollster",
  "raw-window-handle",
@@ -2194,20 +2196,6 @@ dependencies = [
  "wgpu",
  "winit",
  "x11rb",
-]
-
-[[package]]
-name = "relocade-audio"
-version = "0.0.0"
-dependencies = [
- "async-channel",
- "cpal",
- "futures-timer",
- "futures-util",
- "js-sys",
- "wasm-bindgen",
- "wasm-bindgen-test",
- "web-thread-select",
 ]
 
 [[package]]

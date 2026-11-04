@@ -1,4 +1,4 @@
-use crate::Output;
+use super::Output;
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -9,7 +9,7 @@ use std::{
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 
-#[wasm_bindgen(module = "/tests/web-signal.js")]
+#[wasm_bindgen(module = "/../../tests/browser/audio-output.js")]
 extern "C" {
     type Observer;
     #[wasm_bindgen(js_name = observeOutput)]
