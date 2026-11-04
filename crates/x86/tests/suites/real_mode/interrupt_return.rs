@@ -156,7 +156,7 @@ fn mmio_fields(frontend: Frontend) {
         };
         assert_eq!(
             module.observe(&input, 1),
-            wanted,
+            module.expected(wanted.clone()),
             "IRETD validates EIP before CS/FLAGS and transfers only the selector's low word"
         );
     }
@@ -202,7 +202,7 @@ fn target_fetch_uses_the_committed_return() {
         };
         assert_eq!(
             module.observe(&image.input(), 2),
-            expected(
+            module.expected(expected(
                 &image,
                 &[
                     Step {
@@ -216,7 +216,7 @@ fn target_fetch_uses_the_committed_return() {
                         exit
                     },
                 ]
-            ),
+            )),
             "target fetch follows the committed return and sees its CS/FLAGS"
         );
     }

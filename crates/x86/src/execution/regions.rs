@@ -39,6 +39,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let locked = self.locked;
         let x87_opcode = self.x87_opcode.clone();
         let runtime = self.runtime;
+        let single_step = self.single_step.clone();
         let eip = self.eip.clone();
         let completed = self.completed;
         move |body| ExecutionBuilder {
@@ -53,6 +54,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             locked,
             x87_opcode: x87_opcode.clone(),
             runtime,
+            single_step: single_step.clone(),
             eip: eip.clone(),
             completed,
             // A child can contain partial effects of the current instruction,

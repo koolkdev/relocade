@@ -70,6 +70,7 @@ pub(crate) fn check(cases: &[SequenceCase], frontend: Frontend) {
                     expectations::check_checkpoint
                 };
                 check(
+                    frontend,
                     &final_state.expected,
                     final_state.boundary,
                     &initial,
@@ -99,6 +100,7 @@ pub(crate) fn check(cases: &[SequenceCase], frontend: Frontend) {
                 );
                 let boundary = boundary(checkpoint, before.cpu.eip);
                 expectations::check_checkpoint(
+                    frontend,
                     &checkpoint.expected,
                     boundary,
                     before,

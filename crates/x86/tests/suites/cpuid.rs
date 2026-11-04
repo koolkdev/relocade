@@ -72,7 +72,7 @@ fn forms(frontend: Frontend) {
             );
             assert_eq!(
                 module.observe(&input, 1),
-                wanted,
+                module.expected(wanted.clone()),
                 "{profile:?}, {code:02x?}"
             );
         }

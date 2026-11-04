@@ -35,6 +35,9 @@ pub enum ExecutionExit {
     /// CPU state is published. This neither delivers a guest IRQ nor consumes
     /// the request; the embedding acknowledges it before examining its work.
     Interrupted,
+    /// Interpreter STEP completed one instruction without dispatching its successor.
+    /// CPU state and retirement count are published.
+    StepComplete,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

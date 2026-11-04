@@ -1,3 +1,4 @@
+use crate::support::machine::step_returns;
 use crate::support::{
     machine::{self, Exit, Image, Step},
     step::{Event, Observation, TestModule},
@@ -77,7 +78,7 @@ fn calls_return_through_the_saved_link_in_wasmtime() {
         let steps = [first, last];
         assert_eq!(
             TestModule::interpreter().observe(&image.input(), 2),
-            machine::expected(&image, &steps),
+            step_returns(machine::expected(&image, &steps)),
             "interpreted CALL/RET from {origin:08x}",
         );
 

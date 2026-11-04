@@ -1,5 +1,6 @@
 //! Case validation and comparisons; instruction results are supplied by the case.
 
+use crate::support::execution::Frontend;
 #[cfg(test)]
 mod tests;
 
@@ -104,12 +105,14 @@ fn disjoint(name: &str, ranges: impl Iterator<Item = Range<u64>>) {
 }
 
 pub(super) fn check_state(
+    frontend: Frontend,
     case: &InstructionCase,
     initial: &State,
     execution: &Execution,
     context: &str,
 ) {
     check_checkpoint(
+        frontend,
         &case.expected,
         Boundary {
             eip: case.expected_eip(),
@@ -128,6 +131,7 @@ pub(in crate::support) struct Boundary {
 }
 
 pub(in crate::support) fn check_checkpoint(
+    frontend: Frontend,
     expected: &ExpectedState,
     boundary: Boundary,
     initial: &State,
@@ -152,6 +156,15 @@ pub(in crate::support) fn check_checkpoint(
         );
     }
     let exit = match expected.exit {
+        ExpectedExit::Fallthrough | ExpectedExit::Dispatch(_)
+            if matches!(frontend, Frontend::Interpreter) =>
+        {
+            assert!(
+                execution.dispatches.is_empty(),
+                "{context}: STEP must not dispatch"
+            );
+            Exit::Other(relocade_x86::ExecutionExit::StepComplete)
+        }
         ExpectedExit::Fallthrough | ExpectedExit::Dispatch(_) => {
             assert_eq!(
                 execution.dispatches,
@@ -171,12 +184,14 @@ pub(in crate::support) fn check_checkpoint(
 }
 
 pub(in crate::support) fn check_handoff(
+    frontend: Frontend,
     expected: &ExpectedState,
     boundary: Boundary,
     initial: &State,
     execution: &Execution,
     context: &str,
 ) {
+    assert!(matches!(frontend, Frontend::Block));
     assert_eq!(execution.exit, Exit::Interpret, "{context}: handoff");
     assert!(
         execution.dispatches.is_empty(),

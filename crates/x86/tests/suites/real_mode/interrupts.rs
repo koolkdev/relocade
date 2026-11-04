@@ -1,7 +1,7 @@
 use super::*;
 use crate::support::{
     blocks::BlockModules,
-    machine::expected,
+    machine::{expected, expected_steps},
     step::{Event, TestModule},
 };
 
@@ -164,7 +164,11 @@ fn conditional_entry(frontend: Frontend) {
         } else {
             &[]
         };
-        let mut wanted = expected(
+        let expect = match frontend {
+            Frontend::Block => expected,
+            Frontend::Interpreter => expected_steps,
+        };
+        let mut wanted = expect(
             &image,
             &[Step {
                 cpu,
@@ -264,7 +268,7 @@ fn interrupt_return_round_trip() {
     }
     assert_eq!(
         TestModule::interpreter_with_profile(ExecutionProfile::Real16).observe(&image.input(), 2),
-        expected(
+        expected_steps(
             &image,
             &[
                 Step {
@@ -279,7 +283,7 @@ fn interrupt_return_round_trip() {
                 },
             ]
         ),
-        "INT dispatches through the new CS and IRET restores its word frame; AC stays clear"
+        "INT publishes the new CS and IRET restores its word frame; AC stays clear"
     );
 }
 

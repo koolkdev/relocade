@@ -43,7 +43,7 @@ fn handoff_publishes_prefix_and_interpreter_step_restarts_once() {
         let (cpu, exit) = if linked {
             module = module.with_interpreter(TestModule::interpreter());
             let cpu = subnormal_loaded(restart);
-            (cpu, Exit::Dispatch(cpu.eip))
+            (cpu, Exit::Other(relocade_x86::ExecutionExit::StepComplete))
         } else {
             (restart, Exit::Interpret)
         };
@@ -56,7 +56,7 @@ fn handoff_publishes_prefix_and_interpreter_step_restarts_once() {
             }],
         );
         let mut input = image.input();
-        // Dispatch returns its typed outcome unchanged across either handoff path.
+        // Unlinked handoff preserves the callback outcome; linked STEP completes directly.
         input.dispatch_return =
             relocade_x86::ExecutionExit::Exception(relocade_x86::Exception::PageFault {
                 linear_address: 0x1234,
@@ -65,7 +65,9 @@ fn handoff_publishes_prefix_and_interpreter_step_restarts_once() {
         let Event::Return { outcome, .. } = wanted.events.last_mut().unwrap() else {
             unreachable!()
         };
-        *outcome = crate::support::step::returned(input.dispatch_return);
+        if !linked {
+            *outcome = crate::support::step::returned(input.dispatch_return);
+        }
         assert_eq!(module.observe(&input, 1), wanted, "linked {linked}");
     }
 }

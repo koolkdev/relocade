@@ -1,6 +1,7 @@
 //! Scalar native narrowing admits only its low source and preserves upper bits.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
@@ -53,7 +54,10 @@ fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
                 )
             );
             let linked = block.with_interpreter(TestModule::interpreter_with_profile(profile));
-            assert_eq!(linked.observe(&image.input(), 1), wanted);
+            assert_eq!(
+                linked.observe(&image.input(), 1),
+                step_returns(wanted.clone())
+            );
         } else {
             assert_eq!(
                 block.observe(&image.input(), 1),

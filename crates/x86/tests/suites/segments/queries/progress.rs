@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 
 #[test]
@@ -108,7 +109,10 @@ fn descriptor_queries_continue_in_one_block_and_a_later_fault_keeps_their_result
             .events
             .insert(index, Event::QuerySegmentDescriptor { selector });
     }
-    assert_eq!(TestModule::interpreter().observe(&input, 6), wanted);
+    assert_eq!(
+        TestModule::interpreter().observe(&input, 6),
+        step_returns(wanted.clone())
+    );
 
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 6, profile);
@@ -172,7 +176,7 @@ fn current_table_rights_and_limits_are_observed_without_changing_loaded_caches()
                 .events
                 .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
             for module in [block, TestModule::interpreter()] {
-                assert_eq!(module.observe(&input, 1), wanted);
+                assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
             }
         }
     }

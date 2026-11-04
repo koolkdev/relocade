@@ -155,3 +155,28 @@ test_backends!(
     exit_requested_during_irq_poll_precedes_entry,
     exit_during_poll
 );
+
+struct ExitOnWrite(Option<ExitHandle>);
+
+impl Device for ExitOnWrite {
+    fn write_port(&mut self, _: u16, _: u8, _: u32) {
+        self.0.as_ref().unwrap().request();
+    }
+}
+
+async fn exit_during_protected_successor() {
+    let device = Rc::new(RefCell::new(ExitOnWrite(None)));
+    // STI; OUT 80h, AL; INC AX; JMP to self.
+    let mut runner = cpu(&[0xfb, 0xe6, 0x80, 0x40, 0xeb, 0xfe], 2, &device).await;
+    device.borrow_mut().0 = Some(runner.exit_handle());
+    assert_eq!(runner.run(100).await, ExecutionExit::Host(HostExit::Return));
+    let state = runner.cpu_state();
+    assert_eq!(state.eip(), 0x103);
+    assert_eq!(state.instruction_count(), 2);
+    assert_eq!(state.ax(), 0, "exit precedes the next guest dispatch");
+}
+
+test_backends!(
+    exit_during_a_protected_successor_precedes_the_next_dispatch,
+    exit_during_protected_successor
+);

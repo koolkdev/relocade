@@ -1,6 +1,7 @@
 //! Native loaded values and full-width register values stay on their exact paths.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
@@ -99,7 +100,7 @@ fn full_precision_and_rejected_operands() {
         write_value(&mut result, 0, output);
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
     // Without CPU observations, all rounding modes stay compiled at full precision.

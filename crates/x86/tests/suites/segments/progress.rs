@@ -1,4 +1,5 @@
 use super::data;
+use crate::support::machine::step_returns;
 use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
@@ -53,7 +54,7 @@ fn segment_fault_publishes_prior_arithmetic_store_and_count() {
     };
     assert_eq!(
         TestModule::interpreter().observe(&image.input(), 4),
-        expected(&image, &[first, second, third, fourth])
+        step_returns(expected(&image, &[first, second, third, fourth]))
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 4).unwrap());
     assert_eq!(
@@ -86,7 +87,7 @@ fn cs_faults_preserve_the_correct_instruction_boundary() {
         cpu.instruction_count = 0;
         assert_eq!(
             module.observe(&image.input(), 2),
-            expected(
+            module.expected(expected(
                 &image,
                 &[
                     Step {
@@ -100,7 +101,7 @@ fn cs_faults_preserve_the_correct_instruction_boundary() {
                         exit: Exit::GeneralProtection { error: 0 }
                     },
                 ]
-            )
+            ))
         );
     }
 
@@ -131,7 +132,7 @@ fn cs_faults_preserve_the_correct_instruction_boundary() {
         };
         assert_eq!(
             module.observe(&image.input(), 2),
-            expected(
+            module.expected(expected(
                 &image,
                 &[
                     Step {
@@ -148,7 +149,7 @@ fn cs_faults_preserve_the_correct_instruction_boundary() {
                         }
                     },
                 ]
-            )
+            ))
         );
     }
 
@@ -175,7 +176,7 @@ fn cs_faults_preserve_the_correct_instruction_boundary() {
     cpu.flags.status_source.right = 1;
     assert_eq!(
         module.observe(&image.input(), 3),
-        expected(
+        module.expected(expected(
             &image,
             &[
                 first,
@@ -190,6 +191,6 @@ fn cs_faults_preserve_the_correct_instruction_boundary() {
                     exit: Exit::GeneralProtection { error: 0 }
                 },
             ]
-        )
+        ))
     );
 }

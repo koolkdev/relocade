@@ -1,5 +1,6 @@
 //! Trigonometric reduction, final rounding, range flags, and precise restarts.
 
+use crate::support::machine::step_returns;
 #[path = "x87_trigonometric/pairs.rs"]
 mod pairs;
 #[path = "x87_trigonometric/values.rs"]
@@ -217,7 +218,7 @@ fn jit_specialization() {
             TestModule::new(&compiled)
                 .with_interpreter(TestModule::interpreter())
                 .observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
         let mut modules = Vec::new();
         for pc in [0, 2, 3] {

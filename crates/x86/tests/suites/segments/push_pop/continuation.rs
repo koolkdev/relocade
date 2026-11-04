@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 
 #[test]
@@ -126,7 +127,7 @@ fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
             ),
             TestModule::interpreter(),
         ] {
-            assert_eq!(module.observe(&input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
         }
     }
 }
@@ -172,7 +173,10 @@ fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
     };
     let mut wanted = expected(&image, &[first, last()]);
     wanted.events.insert(2, event.clone());
-    assert_eq!(TestModule::interpreter().observe(&input, 2), wanted);
+    assert_eq!(
+        TestModule::interpreter().observe(&input, 2),
+        step_returns(wanted.clone())
+    );
     let mut blocks = BlockModules::default();
     let block = blocks.get(
         &image.cpu,

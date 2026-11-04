@@ -170,7 +170,7 @@ fn rep_then_boundary(frontend: Frontend) {
 test_frontends!(rep_retires_once_before_block_boundary, rep_then_boundary);
 
 #[test]
-fn step_checks_budget_after_one_instruction_before_dispatch() {
+fn step_checks_budget_after_one_instruction_without_dispatch() {
     for (code, next_eip) in [
         (&[0x40, 0x40, 0xeb, 0][..], 0x1001),
         (&[0x66, 0x40, 0x40, 0xeb, 0][..], 0x1002),
@@ -202,10 +202,10 @@ fn step_checks_budget_after_one_instruction_before_dispatch() {
                 if target == 41 {
                     ExecutionExit::BudgetExhausted
                 } else {
-                    ExecutionExit::Host(HostExit::Return)
+                    ExecutionExit::StepComplete
                 }
             );
-            assert_eq!(observation.events.len(), if target == 41 { 1 } else { 2 });
+            assert_eq!(observation.events.len(), 1);
         }
     }
 }

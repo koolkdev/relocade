@@ -1,6 +1,7 @@
 //! Control writes replace the guarded SSA values and retain restart state.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::x87::status;
 
 fn loaded_controls() {
@@ -41,7 +42,7 @@ fn loaded_controls() {
             );
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+                step_returns(expected(&image, &[dispatch(result)]))
             );
         }
     }
@@ -102,7 +103,7 @@ fn initialized_controls() {
             );
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+                step_returns(expected(&image, &[dispatch(result)]))
             );
         }
     }

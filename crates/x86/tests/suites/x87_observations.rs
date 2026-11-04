@@ -1,5 +1,6 @@
 //! Observed x87 state specializes current SSA values without replacing guest state.
 
+use crate::support::machine::step_returns;
 #[path = "x87_observations/changes.rs"]
 mod changes;
 #[path = "x87_observations/precision.rs"]
@@ -201,7 +202,7 @@ fn mismatch_restarts_at_the_consumer() {
         result.x87.status.c1 = 0;
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
 }

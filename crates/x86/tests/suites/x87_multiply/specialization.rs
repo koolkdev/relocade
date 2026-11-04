@@ -1,6 +1,7 @@
 //! JIT guards retain dynamic controls and hand off before instruction effects.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
@@ -199,7 +200,7 @@ fn rejected_products_restart_and_complete_in_the_interpreter() {
         product.x87.status = status(0x4500 | flags);
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(product)]),
+            step_returns(expected(&image, &[dispatch(product)])),
             "the interpreter completes rejected operands {left:x?} * {right:x?}"
         );
     }
@@ -218,7 +219,7 @@ fn rejected_products_restart_and_complete_in_the_interpreter() {
     product.x87.status = status(0x4561);
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(product)])
+        step_returns(expected(&image, &[dispatch(product)]))
     );
 
     // Zero does not suppress an unmasked denormal-operand exception.
@@ -231,7 +232,7 @@ fn rejected_products_restart_and_complete_in_the_interpreter() {
     product.x87.status = status(0xfda2);
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(product)])
+        step_returns(expected(&image, &[dispatch(product)]))
     );
 }
 
@@ -287,7 +288,11 @@ fn live_zero_products_preserve_rounding_and_handoff_state() {
         }
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(third)])
+            if infinity {
+                step_returns(expected(&image, &[dispatch(third)]))
+            } else {
+                expected(&image, &[dispatch(third)])
+            }
         );
     }
 }
@@ -327,6 +332,6 @@ fn handoff_preserves_the_previous_rounding_state() {
     second.x87.tag_word |= 3;
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(second)])
+        step_returns(expected(&image, &[dispatch(second)]))
     );
 }

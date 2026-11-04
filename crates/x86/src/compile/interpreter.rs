@@ -46,11 +46,12 @@ pub fn compile_interpreter(
 /// Generates the same module as [`compile_interpreter`], selecting `step() -> ExecutionExit`.
 /// This entry fetches and executes one supported instruction at the current
 /// CS-relative EIP under the selected execution profile.
-/// Success publishes state, retires the instruction and tail-calls host dispatch.
+/// Success publishes state, retires the instruction and returns `StepComplete`
+/// without fetching or dispatching the successor.
 /// An inhibiting Real16 STI/MOV SS/POP SS instead returns `InterruptInhibited`,
 /// requesting another protected step before IRQ polling or a budget exit.
 /// Guest faults and unsupported forms return directly without retiring it.
-/// REP executes all elements before dispatch and retains completed elements on a fault.
+/// REP executes all elements before returning and retains completed elements on a fault.
 /// This entry checks execution interrupts and the instruction target after retirement.
 ///
 /// The host must establish profile compatibility before entry. The interpreter
@@ -130,14 +131,16 @@ impl Compiler {
                     let state = State::new(&before_cpu);
                     let count = state.instruction_count(&mut body, 0)?;
                     state.checkpoint(&mut body, &count)?;
-                    runtime.dispatch(body)
+                    body.return_(crate::ExecutionExitValues::step_complete())
                 })
             },
-            move |body, decoded, continuation| {
+            move |mut body, decoded, continuation| {
+                let single_step = RuntimeDecoder::single_step(&mut body)?;
                 let ends_block = decoded.instruction.ends_block();
                 let mut execution =
                     ExecutionBuilder::new(body, &cpu, &memory, runtime, &decoded.eip, target)?
-                        .with_cpu_features_from_context()?;
+                        .with_cpu_features_from_context()?
+                        .with_single_step(single_step);
                 execution.execute(decoded)?;
                 if ends_block {
                     execution.dispatch()

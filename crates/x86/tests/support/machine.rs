@@ -203,10 +203,56 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
     }
 }
 
+/// Uses the authored completed states at STEP returns, preserving device events
+/// and faults. Only expectations are adapted; observed entry events stay exact.
+pub(crate) fn step_returns(expected: Observation) -> Observation {
+    let mut source = expected.events.into_iter();
+    let mut events = Vec::new();
+    while let Some(event) = source.next() {
+        if let Event::Dispatch { snapshot } = event {
+            let Some(Event::Return {
+                snapshot: returned_state,
+                ..
+            }) = source.next()
+            else {
+                panic!("expected dispatch must have its return boundary");
+            };
+            assert_eq!(snapshot, returned_state);
+            events.push(Event::Return {
+                outcome: returned(ExecutionExit::StepComplete),
+                snapshot,
+            });
+        } else {
+            events.push(event);
+        }
+    }
+    Observation { events, ..expected }
+}
+
+pub(crate) fn expected_steps(image: &Image, steps: &[Step<'_>]) -> Observation {
+    step_returns(expected(image, steps))
+}
+
+impl TestModule {
+    /// Selects the expected success boundary for a direct entry. Linked fallback
+    /// tests use step_returns explicitly, since their native path may still dispatch.
+    pub(crate) fn expected(&self, expected: Observation) -> Observation {
+        if self.entry == "step" {
+            step_returns(expected)
+        } else {
+            expected
+        }
+    }
+}
+
 pub(crate) fn check(module: &TestModule, name: &str, image: &Image, steps: &[Step<'_>]) {
     assert_eq!(
         module.observe(&image.input(), steps.len()),
-        expected(image, steps),
+        if module.entry == "step" {
+            expected_steps(image, steps)
+        } else {
+            expected(image, steps)
+        },
         "{name}, {}",
         module.entry
     );

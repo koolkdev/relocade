@@ -1,6 +1,7 @@
 //! Native ordering retains exact values; operand exceptions restart before effects.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
@@ -94,7 +95,7 @@ fn native_values() {
             );
             assert_eq!(
                 TestModule::interpreter().observe(&image.input(), count as usize),
-                expected(&image, &steps)
+                step_returns(expected(&image, &steps))
             );
         }
     }
@@ -148,7 +149,7 @@ fn operand_exception_restart() {
                 result.x87.data_offset = 0x4008;
                 assert_eq!(
                     linked.observe(&image.input(), 1),
-                    expected(&image, &[dispatch(result)]),
+                    step_returns(expected(&image, &[dispatch(result)])),
                     "interpreter completes the excluded operand response"
                 );
             }
@@ -302,7 +303,7 @@ fn binary32_and_integer_comparisons_stay_compiled() {
         );
         assert_eq!(
             TestModule::interpreter().observe(&image.input(), 2),
-            expected(&image, &[dispatch(first), dispatch(result)]),
+            step_returns(expected(&image, &[dispatch(first), dispatch(result)])),
             "interpreted {code:02x?}"
         );
     }
@@ -332,10 +333,10 @@ fn sign_changes_update_native_integer_comparisons() {
         );
         assert_eq!(
             TestModule::interpreter().observe(&image.input(), 3),
-            expected(
+            step_returns(expected(
                 &image,
                 &[dispatch(first), dispatch(changed), dispatch(result)]
-            )
+            ))
         );
     }
 }

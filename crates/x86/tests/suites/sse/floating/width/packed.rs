@@ -1,6 +1,7 @@
 //! Packed width conversion preserves lane effects and guards range boundaries.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
@@ -201,7 +202,10 @@ fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) 
                     )
                 );
                 let linked = block.with_interpreter(TestModule::interpreter_with_profile(profile));
-                assert_eq!(linked.observe(&image.input(), 1), wanted);
+                assert_eq!(
+                    linked.observe(&image.input(), 1),
+                    step_returns(wanted.clone())
+                );
             } else {
                 assert_eq!(
                     block.observe(&image.input(), 1),
@@ -302,7 +306,10 @@ fn native_widen() {
                     )
                 );
                 let linked = block.with_interpreter(TestModule::interpreter());
-                assert_eq!(linked.observe(&image.input(), 1), wanted);
+                assert_eq!(
+                    linked.observe(&image.input(), 1),
+                    step_returns(wanted.clone())
+                );
             } else {
                 assert_eq!(block.observe(&image.input(), 1), wanted);
             }

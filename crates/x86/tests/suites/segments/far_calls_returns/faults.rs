@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 use relocade_x86::SegmentRegister;
 
@@ -327,7 +328,10 @@ fn faults_publish_earlier_register_flag_memory_and_retirement_progress() {
         };
         let mut wanted = expected(&image, &[first, second, fault()]);
         wanted.events.insert(4, event.clone());
-        assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
+        assert_eq!(
+            TestModule::interpreter().observe(&input, 3),
+            step_returns(wanted.clone())
+        );
         let mut blocks = BlockModules::default();
         let module = blocks.get(
             &image.cpu,
@@ -337,6 +341,6 @@ fn faults_publish_earlier_register_flag_memory_and_retirement_progress() {
         );
         let mut wanted = expected(&image, &[fault()]);
         wanted.events.insert(0, event);
-        assert_eq!(module.observe(&input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
     }
 }

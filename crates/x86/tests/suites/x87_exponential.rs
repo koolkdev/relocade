@@ -1,5 +1,6 @@
 //! F2XM1 retains binary80 precision, range, exception priority and restart state.
 
+use crate::support::machine::step_returns;
 #[path = "x87_exponential/values.rs"]
 mod values;
 
@@ -244,7 +245,7 @@ fn jit_specialization() {
         TestModule::new(&compiled)
             .with_interpreter(TestModule::interpreter())
             .observe(&image.input(), 1,),
-        expected(&image, &[dispatch(result)]),
+        step_returns(expected(&image, &[dispatch(result)])),
     );
 }
 

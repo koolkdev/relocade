@@ -1,6 +1,7 @@
 //! PC53/nearest quotients preserve precision evidence, x87 range and restart state.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
@@ -207,7 +208,7 @@ fn range_and_restarts() {
         if restart {
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+                step_returns(expected(&image, &[dispatch(result)]))
             );
         }
     }
@@ -311,7 +312,7 @@ fn reverse_zero_divisor_restarts() {
     write_value(&mut result, 0, (LEADING, 0xffff));
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(result)])
+        step_returns(expected(&image, &[dispatch(result)]))
     );
 }
 

@@ -1,5 +1,6 @@
 //! A masked, already-set precision flag needs no repeated exception bookkeeping.
 use super::*;
+use crate::support::machine::step_returns;
 
 fn matched_arithmetic() {
     let code = [0xd8, 0xc9].repeat(8);
@@ -88,7 +89,7 @@ fn mismatch_restarts_before_arithmetic() {
         }
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
 }
@@ -125,7 +126,7 @@ fn clearing_precision_invalidates_the_guard() {
     write_value(&mut result, 0, (LEADING + 3, 0x3fff));
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(result)])
+        step_returns(expected(&image, &[dispatch(result)]))
     );
 }
 

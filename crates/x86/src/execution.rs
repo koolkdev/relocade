@@ -47,6 +47,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     locked: bool,
     x87_opcode: Option<Val<I16>>,
     runtime: Runtime,
+    single_step: Val<I1>,
     eip: Val<I32>,
     completed: u32,
     can_fallback: bool,
@@ -75,11 +76,18 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             locked: false,
             x87_opcode: None,
             runtime,
+            single_step: false.into(),
             eip,
             completed: 0,
             can_fallback: false,
             observed_cpu: None,
         })
+    }
+
+    /// Reuses the decoder's entry mode for successful block-ending instructions.
+    pub(super) fn with_single_step(mut self, single_step: Val<I1>) -> Self {
+        self.single_step = single_step;
+        self
     }
 
     /// Allows guards to restart the current instruction in the interpreter.
@@ -346,6 +354,9 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             .expect("successful completion retires an instruction");
         if checkpoint {
             self.state.checkpoint(&mut self.body, &count)?;
+            self.body.if_(&self.single_step, |body| {
+                body.return_(crate::ExecutionExitValues::step_complete())
+            })?;
         }
         continue_execution(self.body, &self.eip)
     }

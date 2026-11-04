@@ -33,6 +33,7 @@ pub(crate) fn check(cases: &[InstructionCase], frontend: Frontend) {
             if execution.exit == Exit::Interpret {
                 assert!(matches!(frontend, Frontend::Block));
                 expectations::check_handoff(
+                    frontend,
                     &super::ExpectedState::new(super::ExpectedFlags::Preserved),
                     expectations::Boundary {
                         eip: initial.cpu.eip,
@@ -44,7 +45,7 @@ pub(crate) fn check(cases: &[InstructionCase], frontend: Frontend) {
                 );
                 continue;
             }
-            expectations::check_state(case, &initial, &execution, &context);
+            expectations::check_state(frontend, case, &initial, &execution, &context);
             flags.after(
                 execution.state.cpu,
                 initial.cpu,

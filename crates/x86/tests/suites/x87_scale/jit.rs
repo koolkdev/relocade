@@ -1,6 +1,7 @@
 //! Scaling retains native significands and restarts exactly at exceptional ranges.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
@@ -67,7 +68,7 @@ fn restart() {
         write_value(&mut result, 0, output);
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
     // Zero remains compiled even when the scale's finite magnitude is enormous.

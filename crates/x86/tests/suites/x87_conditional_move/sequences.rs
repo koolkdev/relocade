@@ -1,6 +1,7 @@
 //! Value selection survives subsequent stack reads and consumes live flag sources.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
@@ -133,7 +134,7 @@ fn native_compare_move_store() {
         );
         assert_eq!(
             TestModule::interpreter().observe(&image.input(), 5),
-            expected(&image, &steps)
+            step_returns(expected(&image, &steps))
         );
         assert_eq!(
             register_bits(&cpu, 5),
@@ -190,7 +191,7 @@ fn empty_operand_restart() {
             }
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+                step_returns(expected(&image, &[dispatch(result)]))
             );
         }
     }

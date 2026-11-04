@@ -1,5 +1,6 @@
 //! Logarithmic products retain precision before multiplication and pop on completion.
 
+use crate::support::machine::step_returns;
 #[path = "x87_logarithm/epsilon.rs"]
 mod epsilon;
 #[path = "x87_logarithm/values.rs"]
@@ -185,7 +186,7 @@ fn jit_specialization() {
     write_value(&mut result, 0, (LEAD, 0xffff));
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(result)])
+        step_returns(expected(&image, &[dispatch(result)]))
     );
     check_pc_independent(CODE);
 }

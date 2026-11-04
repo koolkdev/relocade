@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 
 #[test]
@@ -92,7 +93,7 @@ fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() 
         ),
         TestModule::interpreter(),
     ] {
-        assert_eq!(module.observe(&input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
     }
 
     // The dispatch owner can admit the resulting cache under Segmented32.
@@ -176,5 +177,8 @@ fn reloading_the_same_selector_refreshes_the_cache_for_later_entries() {
             selector: 0x27,
         },
     );
-    assert_eq!(TestModule::interpreter().observe(&input, 4), wanted);
+    assert_eq!(
+        TestModule::interpreter().observe(&input, 4),
+        step_returns(wanted.clone())
+    );
 }

@@ -1,6 +1,7 @@
 //! Native coefficients retain wide exponents and restart at the extreme range boundary.
 
 use super::*;
+use crate::support::machine::step_returns;
 
 #[test]
 fn native_products_preserve_extended_range_and_boundary_restart() {
@@ -107,7 +108,7 @@ fn native_products_preserve_extended_range_and_boundary_restart() {
         if restart {
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+                step_returns(expected(&image, &[dispatch(result)]))
             );
         }
     }

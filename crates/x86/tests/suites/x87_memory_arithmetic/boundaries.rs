@@ -1,6 +1,7 @@
 //! Memory faults and JIT handoffs precede the current instruction's effects.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
@@ -145,7 +146,7 @@ fn restart_state() {
     write_value(&mut second, 3, (LEADING, 0x3f6a));
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(second)])
+        step_returns(expected(&image, &[dispatch(second)]))
     );
 }
 

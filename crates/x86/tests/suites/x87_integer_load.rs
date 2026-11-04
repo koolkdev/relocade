@@ -1,5 +1,6 @@
 //! FILD converts signed integers exactly and shares the x87 push response.
 
+use crate::support::machine::step_returns;
 #[path = "x87_integer_load/arithmetic.rs"]
 mod arithmetic;
 
@@ -244,7 +245,7 @@ fn check_stack_overflow(frontend: Frontend, source: Source) {
         if matches!(frontend, Frontend::Block) {
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(loaded)]),
+                step_returns(expected(&image, &[dispatch(loaded)])),
                 "the linked interpreter completes the overflowing FILD"
             );
         }

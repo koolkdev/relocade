@@ -129,7 +129,7 @@ fn all_pointer_loads_end_the_block_after_committing_both_results() {
             ),
             TestModule::interpreter(),
         ] {
-            assert_eq!(module.observe(&input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
         }
     }
 }

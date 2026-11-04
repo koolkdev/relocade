@@ -79,7 +79,7 @@ fn memory_quotients(frontend: Frontend) {
                     write_value(&mut result, 0, quotient);
                     assert_eq!(
                         module.observe(&image.input(), 1),
-                        expected(&image, &[dispatch(result)]),
+                        module.expected(expected(&image, &[dispatch(result)])),
                         "{numerator:x}/{denominator:x}, PC={pc}, RC={rc}, negative={negative}"
                     );
                 }
@@ -138,7 +138,7 @@ fn loaded_denominators(frontend: Frontend) {
         };
         assert_eq!(
             module.observe(&image.input(), steps.len()),
-            expected(&image, &steps),
+            module.expected(expected(&image, &steps)),
             "division uses the actual denominator's precision"
         );
     }
