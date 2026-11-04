@@ -239,12 +239,38 @@ must replace their scheduling role.
 Use instruction stepping for bounded guest progress tests. See the
 [connection contract](workers.md#browser-build-and-lifetime).
 
-Continuously ready device loops must also cooperate with the other root futures.
-When the whole session is waiting, including for Wasm compilation, the executor
-parks through the underlying executor. A Rust cooperative yield does not promise
-a browser event-loop turn: posted resources need an explicit host-wait boundary
-when other session work remains runnable. Arbitrary JavaScript callbacks on a
-busy execution worker receive no periodic fairness turn.
+Independent browser resource work uses `worker::wait_for_host(future).await`.
+Only a pending wait pauses guest entry; ready work stays synchronous. Browser
+Wasm compilation uses this boundary internally. A cached interpreter request
+also wraps its own wait, including when another executor owns that compilation.
+For posted resources, annotate the independent receive operation:
+
+```rust,ignore
+let resource = worker::wait_for_host(receive_resource()).await?;
+```
+
+The annotated operation must finish without guest execution. Ordinary keyboard,
+timer and device waits remain ordinary awaits. Do not wrap a whole worker task
+that may be waiting for guest output. Each consumer of a shared resource future
+must annotate its own await. Outside a worker executor the wrapper is an ordinary
+await. Poll it from an application/device activity or retained async service;
+it must remain pollable while guest execution is paused. Synchronous guest and
+IRQ callbacks must not own these waits.
+
+The executor identifies itself only during a synchronous Rust root poll. Pending
+host waits register with that owner and release on completion or cancellation.
+`Cpu::run` retains one `ExecutionWaiter`, checked after polling retained services
+and before IRQ suspension or guest entry. A service can therefore finish its own
+host wait without being parked behind an ISR that the wait prevents from running.
+Guest termination still takes precedence. The final completed or cancelled wait
+wakes the CPU child, including an enclosing combinator's queue. Replacing a CPU run releases its old waiter;
+retained services and their resource waits survive.
+
+Continuously ready device loops must still cooperate with the other root futures.
+Once host waits prevent guest entry and the Rust activities are pending, the
+executor parks through the underlying executor so browser callbacks can run.
+This adds no periodic fairness turn for arbitrary JavaScript callbacks on a busy
+execution worker, and does not make a permanently self-waking Rust task fair.
 Budget checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).
 

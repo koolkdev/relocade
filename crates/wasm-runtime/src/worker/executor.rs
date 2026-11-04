@@ -1,11 +1,12 @@
 //! Polling and parking for a worker's root future.
 
-use super::{WakeConnection, WakePeer, WakeTarget};
+use super::{host_wait::HostWaits, ExecutionWaiter, WakeConnection, WakePeer, WakeTarget};
 use futures_util::task::AtomicWaker;
 use std::{
     cell::Cell,
     future::{poll_fn, Future},
     pin::pin,
+    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -19,6 +20,7 @@ use std::{
 pub struct Executor<R: WakeTarget> {
     connection: WakeConnection<R>,
     wake: Arc<ExecutorWake>,
+    host_waits: Rc<HostWaits>,
 }
 
 impl<R: WakeTarget> Executor<R> {
@@ -34,7 +36,17 @@ impl<R: WakeTarget> Executor<R> {
             runnable: AtomicBool::new(false),
             notified: AtomicBool::new(false),
         });
-        Self { connection, wake }
+        Self {
+            connection,
+            wake,
+            host_waits: Rc::default(),
+        }
+    }
+
+    /// Registers this executor's sole CPU run. Check readiness at each guest
+    /// entry, after polling any retained Rust service. Only one may be live.
+    pub fn execution_waiter(&self) -> ExecutionWaiter<'_> {
+        self.host_waits.execution_waiter()
     }
 
     /// Runs the worker's root future until it completes or stop resolves.
@@ -49,10 +61,13 @@ impl<R: WakeTarget> Executor<R> {
             self.wake.runnable.store(false, Ordering::SeqCst);
             self.wake.notified.store(false, Ordering::SeqCst);
             let mut context = Context::from_waker(&waker);
-            if stop.as_mut().poll(&mut context).is_ready() {
-                return None;
-            }
-            let result = future.as_mut().poll(&mut context);
+            let result = {
+                let _scope = self.host_waits.enter();
+                if stop.as_mut().poll(&mut context).is_ready() {
+                    return None;
+                }
+                future.as_mut().poll(&mut context)
+            };
             // Keep the signal through the whole poll: CPU-first composition
             // must yield before its ready siblings can consume their input.
             self.connection.acknowledge();

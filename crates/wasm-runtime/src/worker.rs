@@ -6,8 +6,10 @@ pub use web_thread::*;
 use std::future::Future;
 
 mod executor;
+mod host_wait;
 mod wake;
 pub use executor::Executor;
+pub use host_wait::{wait_for_host, ExecutionWaiter};
 pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
 };

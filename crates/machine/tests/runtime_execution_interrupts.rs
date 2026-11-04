@@ -1,5 +1,8 @@
 mod support;
 
+#[path = "support/interrupts.rs"]
+mod irq;
+
 use relocade_machine::{Cpu, DispatchEntry, IoBus, Memory, Runner};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -131,3 +134,6 @@ mod construction;
 
 #[path = "runtime_execution_interrupts/session.rs"]
 mod session;
+
+#[path = "runtime_execution_interrupts/host_waits.rs"]
+mod host_waits;

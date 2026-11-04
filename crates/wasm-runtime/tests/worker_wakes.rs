@@ -14,6 +14,9 @@ use std::{
 #[path = "worker_wakes/executor.rs"]
 mod executor;
 
+#[path = "worker_wakes/host_waits.rs"]
+mod host_waits;
+
 #[path = "worker_wakes/peers.rs"]
 mod peers;
 
