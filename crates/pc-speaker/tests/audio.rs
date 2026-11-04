@@ -28,20 +28,11 @@ async fn exercise_audio_device() {
     let (started, ready) = async_channel::bounded(1);
     let (clock, _timers) = timer_service();
     let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
-        let speaker = Speaker::with_clock(Rc::new(runner.clock().clone()))
-            .with_audio(
-                cpal::StreamConfig {
-                    channels: 1,
-                    sample_rate: 48_000,
-                    buffer_size: cpal::BufferSize::Fixed(256),
-                },
-                samples,
-            )
-            .unwrap();
+        let speaker = Rc::new(RefCell::new(Speaker::with_clock(Rc::new(
+            runner.clock().clone(),
+        ))));
         let io = IoBus::new([
-            runner
-                .connect(Rc::new(RefCell::new(speaker)), [], PORTS)
-                .await,
+            runner.connect(speaker.clone(), [], PORTS).await,
             runner
                 .connect(
                     Rc::new(RefCell::new(Started(Some(started)))),
@@ -75,6 +66,17 @@ async fn exercise_audio_device() {
         )
         .unwrap();
         let mut cpu = runner.create_cpu(memory, config, io).await.unwrap();
+        speaker
+            .borrow_mut()
+            .attach_audio(
+                cpal::StreamConfig {
+                    channels: 1,
+                    sample_rate: 48_000,
+                    buffer_size: cpal::BufferSize::Fixed(256),
+                },
+                samples,
+            )
+            .unwrap();
         panic!(
             "busy guest unexpectedly returned: {:?}",
             runner.run_cpu(&mut cpu).await

@@ -2265,6 +2265,7 @@ dependencies = [
  "relocade-bios",
  "relocade-frontend",
  "relocade-machine",
+ "relocade-pc-speaker",
  "relocade-pit",
  "relocade-vfs",
  "relocade-vga",

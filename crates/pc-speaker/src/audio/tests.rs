@@ -41,11 +41,9 @@ fn program(speaker: &mut impl Device) {
 impl Playback {
     fn new(config: cpal::StreamConfig) -> Self {
         let (samples, output) = async_channel::bounded(1);
-        let speaker = Rc::new(RefCell::new(
-            Speaker::with_clock(Rc::new(ManualClock::default()))
-                .with_audio(config, samples)
-                .unwrap(),
-        ));
+        let mut speaker = Speaker::with_clock(Rc::new(ManualClock::default()));
+        speaker.attach_audio(config, samples).unwrap();
+        let speaker = Rc::new(RefCell::new(speaker));
         Self {
             task: Box::pin(Speaker::run(speaker.clone())),
             speaker,
@@ -184,11 +182,54 @@ fn invalid_configuration_and_unbounded_output_are_rejected() {
     for config in [config(0, 1, 128), config(48_000, 0, 128)] {
         let (samples, _output) = async_channel::bounded(1);
         assert!(Speaker::with_clock(Rc::new(ManualClock::default()))
-            .with_audio(config, samples)
+            .attach_audio(config, samples)
             .is_err());
     }
     let (samples, _output) = async_channel::unbounded();
     assert!(Speaker::with_clock(Rc::new(ManualClock::default()))
-        .with_audio(config(48_000, 1, 128), samples)
+        .attach_audio(config(48_000, 1, 128), samples)
         .is_err());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn attaching_output_wakes_an_already_running_device() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    struct Woken(AtomicBool);
+    impl std::task::Wake for Woken {
+        fn wake(self: Arc<Self>) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let speaker = Rc::new(RefCell::new(Speaker::with_clock(Rc::new(
+        ManualClock::default(),
+    ))));
+    let mut task = std::pin::pin!(Speaker::run(speaker.clone()));
+    let woken = Arc::new(Woken(AtomicBool::new(false)));
+    let waker = Waker::from(woken.clone());
+    let mut cx = Context::from_waker(&waker);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    program(&mut *speaker.borrow_mut());
+    let (samples, output) = async_channel::bounded(1);
+    speaker
+        .borrow_mut()
+        .attach_audio(config(48_000, 1, 128), samples.clone())
+        .unwrap();
+    assert!(woken.0.load(Ordering::Relaxed));
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(output
+        .try_recv()
+        .unwrap()
+        .iter()
+        .any(|&sample| sample > 0.0));
+    assert!(speaker
+        .borrow_mut()
+        .attach_audio(config(48_000, 1, 128), samples)
+        .is_err());
+    output.close();
+    assert!(task.as_mut().poll(&mut cx).is_ready());
 }

@@ -20,7 +20,7 @@ including direct bit-1 toggling while GATE2 is low. Other system-control and
 refresh/parity functions of this port are outside this crate's initial scope.
 
 With the `audio` feature, attach CPAL's output configuration and an ordinary
-bounded `async_channel::Sender<Vec<f32>>` before connecting the device. The app
+bounded `async_channel::Sender<Vec<f32>>` when output becomes available. The app
 opens platform output on main:
 
 ```rust,ignore
@@ -31,16 +31,18 @@ audio.play()?; // In a browser, call from the application's user activation.
 Move `config` and `samples` into the existing execution-worker session:
 
 ```rust,ignore
-let speaker = Speaker::with_clock(Rc::new(runner.clock().clone()))
-    .with_audio(config, samples)?;
+let speaker = Rc::new(RefCell::new(Speaker::with_clock(Rc::new(runner.clock().clone()))));
 let io = IoBus::new([
-    runner.connect(Rc::new(RefCell::new(speaker)), [], PORTS).await,
+    runner.connect(speaker.clone(), [], PORTS).await,
 ]);
+speaker.borrow_mut().attach_audio(config, samples)?;
 // Pass io to runner.create_cpu, then run the guest with runner.run_cpu.
 ```
 
 The runner drives `Speaker::run` alongside the CPU, including while the guest
-awaits input. The activity produces interleaved f32 buffers and awaits
+awaits input. Until output is attached, the activity waits on an ordinary Rust
+channel while hardware port access remains available. Attachment is allowed once;
+it uses the current timer and speaker state. The activity produces interleaved f32 buffers and awaits
 `samples.send(buffer)`. The full queue suspends production until output frees
 space. Output must consume at its configured playback rate; an unpaced sink
 needs external pacing to let CPU execution and cancellation progress. Muted
