@@ -1,20 +1,22 @@
 //! PC timer registers and IRQ0 activity. BIOS owns the handler and clock data.
 
-use crate::{clocks_at, time_at, Counter, CHANNEL_2_PORT, CONTROL_PORT};
-use relocade_machine::{Clock, Device, DeviceConnection, Runner, TimerHandle};
+use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT};
+use event_listener::Event;
+use futures_lite::future::or;
+use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Runner, TimerHandle};
 use relocade_pic::IrqLine;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
-const CLOCKS_PER_TICK: u64 = 65_536;
-
-/// Execution-owned PIT registers and the default-rate channel-0 interrupt.
+/// Execution-owned PIT registers and programmable channel-0 interrupt.
 /// Channel 2 shares its gate and output with the PC speaker.
 pub struct Pit<C = TimerHandle> {
     clock: Rc<C>,
     at: Duration,
+    channel0: Counter,
     channel2: Counter,
     channel2_update: Option<Counter>,
     irq: IrqLine,
+    changed: Event,
 }
 
 impl<C: Clock> Pit<C> {
@@ -35,13 +37,23 @@ impl<C: Clock> Pit<C> {
         (pit, connection)
     }
 
+    /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
     pub fn with_clock(clock: Rc<C>, irq: IrqLine) -> Self {
+        let mut channel0 = Counter::default();
+        channel0.set_gate(true);
+        channel0.control(0x36);
+        channel0.write(0);
+        channel0.write(0);
+        channel0.advance(1); // BIOS initialization has already loaded the divisor.
+        irq.set_initial_level(channel0.output());
         Self {
             at: clock.now(),
             clock,
+            channel0,
             channel2: Counter::default(),
             channel2_update: None,
             irq,
+            changed: Event::new(),
         }
     }
 
@@ -71,7 +83,19 @@ impl<C: Clock> Pit<C> {
 
     fn sync_to_clock(&mut self) {
         let now = self.clock.now();
-        self.channel2.advance(clocks_at(now) - clocks_at(self.at));
+        let clocks = clocks_at(now) - clocks_at(self.at);
+        if self
+            .channel0
+            .next_rising_edge()
+            .is_some_and(|edge| edge <= clocks)
+        {
+            // Preserve one pending edge even if a delayed wake skipped whole
+            // periods. The final level also serves a level-triggered PIC.
+            self.irq.pulse();
+        }
+        self.channel0.advance(clocks);
+        self.irq.set_level(self.channel0.output());
+        self.channel2.advance(clocks);
         self.at = now;
     }
 }
@@ -79,21 +103,34 @@ impl<C: Clock> Pit<C> {
 impl<C: Clock> Device for Pit<C> {
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
-        let origin = clock.now();
-        let mut next_tick = CLOCKS_PER_TICK;
+        device.borrow_mut().sync_to_clock();
         loop {
-            clock
-                .wait_until(origin.saturating_add(time_at(next_tick)))
-                .await;
-            let elapsed = clocks_at(clock.now().saturating_sub(origin));
-            next_tick = (elapsed / CLOCKS_PER_TICK + 1) * CLOCKS_PER_TICK;
-            device.borrow().irq.pulse();
+            let (deadline, changed) = {
+                let device = device.borrow();
+                (
+                    device
+                        .channel0
+                        .next_transition()
+                        .map(|clocks| time_at(clocks_at(device.at) + clocks)),
+                    device.changed.listen(),
+                )
+            };
+            if let Some(deadline) = deadline {
+                or(clock.wait_until(deadline), changed).await;
+            } else {
+                changed.await;
+            }
+            device.borrow_mut().sync_to_clock();
+            // Divisor 2 can leave every deadline overdue. Give the CPU a turn
+            // even then; elapsed edges still coalesce at the next synchronization.
+            yield_now().await;
         }
     }
 
     fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
         self.sync_to_clock();
         match (port, bytes) {
+            (CHANNEL_0_PORT, 1) => self.channel0.read().into(),
             (CHANNEL_2_PORT, 1) => self.channel2.read().into(),
             _ => u32::MAX,
         }
@@ -105,22 +142,42 @@ impl<C: Clock> Device for Pit<C> {
             return;
         }
         let value = value as u8;
-        match port {
-            CHANNEL_2_PORT => self.channel2.write(value),
-            CONTROL_PORT if value >> 6 == 2 => {
-                self.channel2.control(value);
-                if value & 0x30 == 0 {
-                    return; // Count latching does not change playback.
+        let channel = match port {
+            CHANNEL_0_PORT => 0,
+            CHANNEL_2_PORT => 2,
+            CONTROL_PORT if value >> 6 == 3 => {
+                // Read-back selection bits are high-active; requests are low-active.
+                if value & 1 == 0 {
+                    for (bit, counter) in [(2, &mut self.channel0), (8, &mut self.channel2)] {
+                        if value & bit != 0 {
+                            counter.latch(value & 0x20 == 0, value & 0x10 == 0);
+                        }
+                    }
                 }
-            }
-            // Read-back selects channel 2 with bit 3 high. Requests are low-active.
-            CONTROL_PORT if value >> 6 == 3 && value & 9 == 8 => {
-                self.channel2.latch(value & 0x20 == 0, value & 0x10 == 0);
                 return;
             }
+            CONTROL_PORT => value >> 6,
             _ => return,
+        };
+        let counter = match channel {
+            0 => &mut self.channel0,
+            2 => &mut self.channel2,
+            _ => return,
+        };
+        if port == CONTROL_PORT {
+            counter.control(value);
+            if value & 0x30 == 0 {
+                return;
+            }
+        } else {
+            counter.write(value);
         }
-        self.channel2_update = Some(self.channel2.clone());
+        if channel == 0 {
+            self.irq.set_level(self.channel0.output());
+            self.changed.notify(1);
+        } else {
+            self.channel2_update = Some(self.channel2.clone());
+        }
     }
 }
 

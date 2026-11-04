@@ -2358,6 +2358,8 @@ dependencies = [
 name = "relocade-pit"
 version = "0.0.0"
 dependencies = [
+ "event-listener",
+ "futures-lite",
  "relocade-machine",
  "relocade-pic",
  "wasm-bindgen-test",

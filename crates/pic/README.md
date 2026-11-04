@@ -8,6 +8,11 @@ vectors through the existing machine `Device::poll_interrupt` API. Its initial
 mask is FFh. DOS calls `pic.unmask_irq(TIMER_IRQ)` to enable the timer; the BIOS
 IRQ0 handler uses `end_of_interrupt(io)` to send EOI through the device bus.
 
+Peripherals use `IrqLine::set_initial_level` when wiring their starting output.
+This establishes the physical level without latching an edge or clearing pending
+edges. Later output changes use `set_level`; level-triggered requests follow the
+input in either case.
+
 The controller supports edge and level inputs, IRR/ISR/IMR, fixed and rotating
 priorities, specific/non-specific EOI, automatic EOI, special mask mode, polling,
 and ICW initialization. Masking retains pending edges. An acknowledged request

@@ -188,3 +188,33 @@ fn high_time_integrates_large_jumps_and_partial_periods() {
     counter.advance(1);
     assert_eq!(counter.advance(3_000_000_000), 2_000_000_000);
 }
+
+#[test]
+fn edge_deadlines_follow_loads_and_mode_specific_reload_boundaries() {
+    for (control, first_fall, reloaded_rise) in [(0x34, 4, 5), (0x36, 3, 6)] {
+        let mut counter = programmed(control, 4);
+        assert_eq!(counter.next_transition(), Some(1));
+        assert_eq!(counter.next_rising_edge(), Some(5));
+        counter.advance(2); // Loaded, one decrement elapsed.
+        counter.write(6);
+        counter.write(0);
+        assert_eq!(counter.next_transition(), Some(first_fall - 2));
+        assert_eq!(counter.next_rising_edge(), Some(reloaded_rise - 2));
+        counter.advance(reloaded_rise - 2);
+        assert!(counter.output());
+        assert_eq!(counter.next_rising_edge(), Some(6));
+        counter.set_gate(false);
+        assert_eq!(counter.next_transition(), None);
+        assert_eq!(counter.next_rising_edge(), None);
+        counter.set_gate(true);
+        assert_eq!(counter.next_rising_edge(), Some(7));
+    }
+    let mut counter = programmed(0x36, 5);
+    counter.advance(4); // Start of the odd divisor's two-clock low phase.
+    counter.write(6);
+    counter.write(0);
+    assert_eq!(counter.next_rising_edge(), Some(2));
+    counter.control(0x30);
+    assert_eq!(counter.next_transition(), None);
+    assert_eq!(counter.next_rising_edge(), None);
+}

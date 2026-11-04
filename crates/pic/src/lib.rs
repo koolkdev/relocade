@@ -91,6 +91,14 @@ pub struct IrqLine {
 }
 
 impl IrqLine {
+    /// Establishes a peripheral's initial input level without creating an edge.
+    /// Existing pending edges are preserved; level-triggered inputs still reflect
+    /// the supplied level. Use [`Self::set_level`] for subsequent changes.
+    pub fn set_initial_level(&self, high: bool) {
+        self.pic
+            .update(|state| state.set_initial_level(self.number, high));
+    }
+
     pub fn set_level(&self, high: bool) {
         self.pic.update(|state| state.set_level(self.number, high));
     }
