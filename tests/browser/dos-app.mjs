@@ -94,7 +94,7 @@ export async function testApplication(config) {
     }
 }
 
-if (import.meta.main) await testApplication(build("relocade-dos-app"));
+if (import.meta.main) await testApplication(await build("relocade-dos-app"));
 
 // Playwright evaluation and locator screenshots grant activation. Use CDP for
 // observations so only the fixture's real input enables browser audio.

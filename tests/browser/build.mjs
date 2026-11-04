@@ -12,17 +12,17 @@ const packages = [
 ];
 const features = "relocade-vga/renderer,relocade-app/graphics,relocade-app/audio,relocade-pc-speaker/audio";
 
-export function cargo(command, args) {
-    webCargo(command, [
+export function cargo(command, args, env = {}) {
+    return webCargo(command, [
         ...packages.flatMap(name => ["-p", name]), "--features", features, ...args,
-    ], `node ${path.join(directory, "wasm-test.mjs")}`);
+    ], { runner: `node ${path.join(directory, "wasm-test.mjs")}`, env });
 }
 
-export function build() {
+export async function build() {
     // Include dev dependencies now, so cargo test reuses the same libraries.
-    cargo("build", ["--lib", "--tests", "--profile", "test"]);
-    bindgen(path.join(target, "wasm32-unknown-unknown/debug/relocade_browser_tests.wasm"),
+    await cargo("build", ["--lib", "--tests", "--profile", "test"]);
+    await bindgen(path.join(target, "wasm32-unknown-unknown/debug/relocade_browser_tests.wasm"),
         path.join(directory, "pkg"));
 }
 
-if (import.meta.main) build();
+if (import.meta.main) await build();

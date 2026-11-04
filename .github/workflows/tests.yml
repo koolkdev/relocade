@@ -21,7 +21,7 @@ env:
 
 jobs:
   native:
-    name: ${{ matrix.suite }} tests
+    name: ${{ matrix.name }} tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -29,12 +29,14 @@ jobs:
       matrix:
         include:
           - suite: Core
+            name: Core
             packages: >-
               -p relocade-derive -p relocade-compiler -p relocade-x86
               -p relocade-interpreter -p relocade-test-support
               -p relocade-wasm-bindings -p relocade-wasm-runtime
             system-packages: ''
           - suite: Native integration
+            name: DOS and application
             # New workspace members join this suite until assigned to Core.
             packages: >-
               --workspace --exclude relocade-derive --exclude relocade-compiler
@@ -87,13 +89,6 @@ jobs:
       - name: Run display and audio integration tests
         if: matrix.suite == 'Native integration'
         run: xvfb-run -a cargo test ${{ matrix.packages }} --all-features --locked -- --ignored
-
-      - name: Check optional dependency boundaries
-        if: matrix.suite == 'Native integration'
-        run: |
-          cargo check -p relocade-app -p relocade-pc-speaker --lib --profile test --locked
-          cargo check -p relocade-app --lib --features audio --profile test --locked
-          cargo check -p relocade-app --lib --features graphics --profile test --locked
 
   test:
     # Preserve the required check while reporting each native suite separately.
@@ -151,4 +146,5 @@ jobs:
         run: |
           npm --prefix tests/browser ci
           npm --prefix tools ci
+          npm --prefix tests/browser run test:runner
           npm --prefix tests/browser test

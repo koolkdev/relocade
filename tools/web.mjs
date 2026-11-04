@@ -34,18 +34,18 @@ function compressedWasm() {
     };
 }
 
-export function build(application) {
+export async function build(application) {
     if (!/^[a-z][a-z0-9-]*$/.test(application)) throw new Error("Expected a Cargo package name");
-    cargo("build", ["-p", application, "--lib", "--profile", "test"]);
+    await cargo("build", ["-p", application, "--lib", "--profile", "test"]);
     return configure(application);
 }
 
 // Bind and bundle an application already compiled by a larger Cargo build.
-export function configure(application) {
+export async function configure(application) {
     if (!/^[a-z][a-z0-9-]*$/.test(application)) throw new Error("Expected a Cargo package name");
     const output = path.join(root, "target/web", application);
     const module = application.replaceAll("-", "_");
-    bindgen(path.join(target, `wasm32-unknown-unknown/debug/${module}.wasm`), path.join(output, "pkg"));
+    await bindgen(path.join(target, `wasm32-unknown-unknown/debug/${module}.wasm`), path.join(output, "pkg"));
     return {
         configFile: false,
         plugins: [compressedWasm()],
@@ -79,7 +79,7 @@ export function configure(application) {
 if (import.meta.main) {
     const [, , application, mode] = process.argv;
     if (!application || (mode && mode !== "--build")) throw new Error("Usage: node tools/web.mjs package-name [--build]");
-    const config = build(application);
+    const config = await build(application);
     if (mode === "--build") {
         await bundle(config);
     } else {
