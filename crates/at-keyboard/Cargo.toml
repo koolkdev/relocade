@@ -1,5 +1,5 @@
 [package]
-name = "relocade-keyboard"
+name = "relocade-at-keyboard"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

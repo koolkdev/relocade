@@ -2202,6 +2202,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-at-keyboard"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+ "futures-util",
+ "relocade-frontend",
+ "relocade-machine",
+ "relocade-pic",
+]
+
+[[package]]
 name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
@@ -2312,17 +2323,6 @@ name = "relocade-interpreter"
 version = "0.0.0"
 dependencies = [
  "relocade-x86",
-]
-
-[[package]]
-name = "relocade-keyboard"
-version = "0.0.0"
-dependencies = [
- "async-channel",
- "futures-util",
- "relocade-frontend",
- "relocade-machine",
- "relocade-pic",
 ]
 
 [[package]]
