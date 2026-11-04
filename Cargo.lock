@@ -2277,8 +2277,10 @@ dependencies = [
 name = "relocade-dos-app"
 version = "0.0.0"
 dependencies = [
+ "async-channel",
  "futures-channel",
  "futures-lite",
+ "futures-timer",
  "pollster",
  "relocade-app",
  "relocade-dos",
@@ -2286,6 +2288,7 @@ dependencies = [
  "relocade-pc-speaker",
  "relocade-vga",
  "wasm-bindgen",
+ "wasm-bindgen-test",
  "x11rb",
 ]
 
