@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-audio = ["dep:cpal", "dep:web-thread", "dep:async-channel", "dep:futures-lite"]
+audio = ["dep:cpal", "dep:async-channel"]
 graphics = ["dep:wgpu", "dep:web-thread", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys", "dep:futures-channel", "dep:async-channel", "dep:futures-lite", "dep:futures-timer", "dep:relocade-renderer", "dep:relocade-frontend", "relocade-frontend/display", "relocade-frontend/keyboard"]
 
 [dependencies]
@@ -30,6 +30,8 @@ js-sys = { version = "=0.3.106", optional = true }
 web-sys = { version = "=0.3.106", features = ["OffscreenCanvas", "Window", "Document", "HtmlCanvasElement", "console"], optional = true }
 
 [dev-dependencies]
+futures-lite = "=2.6.1"
+web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
 async-channel = { version = "=2.5.0", default-features = false }
 futures-channel = "=0.3.34"
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }

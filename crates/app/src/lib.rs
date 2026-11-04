@@ -15,7 +15,7 @@ mod application;
 pub mod graphics;
 #[cfg(feature = "graphics")]
 pub use application::{run_app, AppHost};
-#[cfg(any(feature = "graphics", feature = "audio"))]
+#[cfg(feature = "graphics")]
 pub use web_thread as worker;
 
 #[cfg_attr(not(target_arch = "wasm32"), path = "platform/native.rs")]

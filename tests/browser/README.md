@@ -10,12 +10,11 @@ then the worker integration checks. Both stages run
 through Vite and Chrome, sharing the toolchain, flags, Cargo target directory
 and worker bootstrap used by browser applications.
 
-The app audio tests attach a device that receives CPAL configuration and sends
-whole sample buffers through a Rust channel on the production audio worker,
-with CPAL AudioWorklet output. They cover async backpressure, worker-local cleanup,
-cancellation of pending submission, playback beside busy execution, source
-closure/replacement, and output release after device failure. A Web Audio analyser
-observes tone frequency/amplitude, underrun silence and shared-memory growth.
+The app audio tests open CPAL AudioWorklet output and feed whole sample buffers
+through a Rust channel from an independently owned producer. They cover async
+backpressure, playback gating, submission closure when output is dropped, and
+asynchronous setup errors. A Web Audio analyser observes tone frequency/amplitude,
+underrun silence, recovery after the producer resumes, and shared-memory growth.
 
 The worker checks cover Rust channel wakeups after a task returns Pending,
 host timer delivery while an execution worker stays continuously runnable,

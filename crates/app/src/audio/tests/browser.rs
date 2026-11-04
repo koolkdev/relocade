@@ -1,4 +1,4 @@
-use super::super::Output;
+use super::super::Audio;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 
@@ -6,7 +6,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
 async fn queued_pcm_waits_for_play_and_drop_closes_submission() {
-    let (output, config, samples) = Output::open(|error| console_error!("{error}")).unwrap();
+    let (output, config, samples) = Audio::open(|error| console_error!("{error}")).unwrap();
     for _ in 0..samples.capacity().unwrap() {
         samples
             .try_send(vec![0.25; usize::from(config.channels)])
@@ -23,7 +23,7 @@ async fn queued_pcm_waits_for_play_and_drop_closes_submission() {
 
 #[wasm_bindgen_test]
 fn drop_before_worklet_setup_closes_submission() {
-    let (output, _, samples) = Output::open(|error| console_error!("{error}")).unwrap();
+    let (output, _, samples) = Audio::open(|error| console_error!("{error}")).unwrap();
     drop(output);
     assert!(samples.is_closed());
 }
@@ -43,7 +43,7 @@ async fn asynchronous_setup_errors_reach_the_application_callback() {
     fail_next_module();
     let reported = Arc::new(AtomicBool::new(false));
     let callback_reported = reported.clone();
-    let (output, _, writer) = Output::open(move |error| {
+    let (output, _, writer) = Audio::open(move |error| {
         assert!(error.to_string().contains("test module failure"));
         callback_reported.store(true, Ordering::Release);
     })
