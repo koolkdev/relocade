@@ -1,5 +1,5 @@
 use super::*;
-use futures_channel::mpsc;
+use futures_channel::{mpsc, oneshot};
 use relocade_frontend::{
     display::DisplayRenderer,
     keyboard::{self, KeyboardEvent, ModifiersState},
@@ -182,8 +182,14 @@ fn fixture(
                 cleaned.set(true);
                 return Ok(());
             }
+            let mut closing = Box::pin(host.closing());
+            assert!(futures_lite::future::poll_once(closing.as_mut())
+                .await
+                .is_none());
             // Execution returns ordinary endpoints; the main-thread host attaches them.
             assert_eq!(main_id, std::thread::current().id());
+            #[cfg(all(feature = "audio", target_arch = "wasm32"))]
+            let (_, samples) = host.open_audio()?;
             host.attach_keyboard(input)?;
             host.attach_display(move |device, queue| {
                 assert_ne!(main_id, std::thread::current().id());
@@ -200,12 +206,16 @@ fn fixture(
                     counts: display_counts,
                 })
             })?;
+            // Cancelling a closing wait does not prevent a later wait from observing it.
+            drop(closing);
             assert_eq!(
                 keys.recv().await.unwrap(),
                 KeyboardEvent::Modifiers(ModifiersState::CONTROL)
             );
             if matches!(startup, Startup::DisplayError) {
                 assert_eq!(host.closing().await.unwrap_err(), "fixture display failed");
+                #[cfg(all(feature = "audio", target_arch = "wasm32"))]
+                assert!(samples.is_closed());
                 // Closing again during delayed cleanup must retain the window
                 // and the original graphics error.
                 action(Action::Close).await;
@@ -251,6 +261,8 @@ fn fixture(
             drop(updates);
             action(Action::Close).await;
             host.closing().await?;
+            #[cfg(all(feature = "audio", target_arch = "wasm32"))]
+            assert!(samples.is_closed(), "audio closes before lifecycle cleanup");
             // The callback has not released the window while lifecycle cleanup awaits.
             wait_for(|| counts.dropped.load(SeqCst)).await;
             futures_timer::Delay::new(Duration::from_millis(20)).await;

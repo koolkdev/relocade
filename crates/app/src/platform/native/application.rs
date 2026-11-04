@@ -7,3 +7,16 @@ pub(crate) fn attributes(title: &str) -> Result<WindowAttributes, String> {
 }
 
 pub(crate) fn report(_: &Result<(), String>) {}
+
+#[cfg(feature = "audio")]
+pub(crate) fn start_audio(audio: &crate::audio::Audio) -> Result<(), cpal::Error> {
+    audio.play()
+}
+
+#[cfg(feature = "audio")]
+pub(crate) fn window_event(_: &mut Option<crate::audio::Audio>) {}
+
+#[cfg(feature = "audio")]
+pub(crate) fn report_audio_error(error: cpal::Error) {
+    eprintln!("Audio unavailable: {error}");
+}

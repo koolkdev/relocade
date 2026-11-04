@@ -32,6 +32,16 @@ audio.play()?; // In a browser, call from the application's user activation.
 // Keep audio alive while playing. Dropping it closes sample submission.
 ```
 
+`Audio::play()` ignores repeated calls after a successful request on every platform.
+
+Applications using `run_app` call `host.open_audio()` to get the configuration and
+sender while the host owns playback. Native output starts immediately. Browser
+platform code waits for document user activation before calling `play()`.
+CPAL retains that request through worklet setup. The app can start before any
+input. A successful `play()` return does not confirm browser
+completion. The host drops output when the window starts closing, before awaiting
+lifecycle cleanup.
+
 The device owns synthesis and submits interleaved `f32` buffers directly with
 `samples.send(buffer).await`. The bounded channel wakes submission as output
 consumes buffers. Whole-buffer messages cannot publish partial frames when a
@@ -83,7 +93,8 @@ relocade_app::run_app("My application", |mut app| async move {
 })?;
 ```
 
-`closing().await` reports a window close or startup/graphics error. Keep host
+`closing().await` reports a window close or startup/graphics error. The future
+owns its wait, allowing attachment to continue while it is pending. Keep host
 services responsive through worker cleanup, then return from the lifecycle.
 The host waits for lifecycle and graphics completion before releasing the window.
 Native execution returns that result. Browser startup returns immediately and

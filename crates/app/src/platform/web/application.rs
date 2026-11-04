@@ -28,3 +28,32 @@ pub(crate) fn report(result: &Result<(), String>) {
         web_sys::console::error_1(&error.as_str().into());
     }
 }
+
+#[cfg(feature = "audio")]
+pub(crate) fn start_audio(audio: &crate::audio::Audio) -> Result<(), cpal::Error> {
+    // Sticky activation survives winit's buffered delivery and worklet startup.
+    if web_sys::window()
+        .expect("application runs on main")
+        .navigator()
+        .user_activation()
+        .has_been_active()
+    {
+        audio.play()?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "audio")]
+pub(crate) fn window_event(output: &mut Option<crate::audio::Audio>) {
+    if let Some(audio) = output {
+        if let Err(error) = start_audio(audio) {
+            *output = None;
+            report_audio_error(error);
+        }
+    }
+}
+
+#[cfg(feature = "audio")]
+pub(crate) fn report_audio_error(error: cpal::Error) {
+    web_sys::console::warn_1(&format!("Audio unavailable: {error}").into());
+}

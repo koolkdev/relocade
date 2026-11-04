@@ -20,12 +20,25 @@ headers. Use a host that honors `_headers`, or configure those headers explicitl
 The shared host owns the canvas.
 
 The application entrypoint connects existing owners. One execution worker owns
-DOS/keyboard/VGA and the Rust command loop. It sends `dos.keyboard_input()` and
+DOS/keyboard/VGA/speaker and the Rust command loop. It sends `dos.keyboard_input()` and
 `dos.frame_source()` through a startup channel. Main attaches those endpoints to
 its `AppHost` while driving the application and timer service; the graphics worker
 constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
 a pending console read, and waits for execution and graphics cleanup. Execution
 errors remain visible even when startup ends before the endpoints arrive.
+
+`AppHost::open_audio` opens and owns CPAL output on main. Only its stream
+configuration and bounded Rust PCM sender go to the execution worker. `Dos::new`
+creates the hardware; `dos.speaker()` exposes it for `attach_audio(config, samples)`.
+Guest writes to PIT channel 2 and port 0x61 produce sound; the console itself
+does not ring a bell yet. Speaker state persists across guest process exits.
+
+Native playback starts immediately. The browser console appears immediately;
+the app's browser platform code requests playback once the document has user
+activation. CPAL retains that request through worklet setup. If opening or
+starting output fails, the console still runs with silent speaker ports.
+Closing the window drops output before waiting for execution
+cleanup, closing any pending PCM submission. No extra synthesis worker is created.
 
 ## Console
 

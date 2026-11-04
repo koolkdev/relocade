@@ -91,9 +91,12 @@ impl Audio {
 
     /// Starts consuming PCM. In browsers this requests resume without awaiting
     /// the browser promise; call it from the application's user activation.
+    /// Repeated calls after a successful request do nothing.
     pub fn play(&self) -> Result<(), cpal::Error> {
-        self.stream.play()?;
-        self.playing.store(true, Ordering::Release);
+        if !self.playing.load(Ordering::Acquire) {
+            self.stream.play()?;
+            self.playing.store(true, Ordering::Release);
+        }
         Ok(())
     }
 }
