@@ -21,6 +21,8 @@ mod graphics_pages;
 mod information;
 #[path = "bios/keyboard.rs"]
 mod keyboard;
+#[path = "bios/keyboard_hardware.rs"]
+mod keyboard_hardware;
 #[path = "bios/monochrome.rs"]
 mod monochrome;
 #[path = "bios/palette.rs"]

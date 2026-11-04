@@ -7,7 +7,8 @@ const directory = fileURLToPath(new URL(".", import.meta.url));
 // Resolve one feature graph for backend tests, worker fixtures and the application.
 const packages = [
     "relocade-wasm-bindings", "relocade-wasm-runtime", "relocade-machine",
-    "relocade-bios", "relocade-pit", "relocade-pc-speaker", "relocade-renderer",
+    "relocade-bios", "relocade-pit", "relocade-pic", "relocade-at-keyboard",
+    "relocade-pc-speaker", "relocade-renderer",
     "relocade-vga", "relocade-app", "relocade-browser-tests", "relocade-dos-app",
 ];
 const features = "relocade-vga/renderer,relocade-app/graphics,relocade-app/audio,relocade-pc-speaker/audio";
