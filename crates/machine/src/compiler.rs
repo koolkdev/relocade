@@ -1,5 +1,8 @@
 //! One persistent compiler over a guest's shared memory and fixed execution target.
 
+mod service;
+pub use service::{CompilerClient, CompilerConnection, CompilerService, PostedCode};
+
 use crate::{Error, Memory, Result};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
@@ -111,23 +114,7 @@ impl CompilerWorker {
             .start_send(Request { id, blocks, reply })
             .map_err(worker_error)?;
         let entries = result.await.map_err(worker_error)??;
-        loop {
-            let (received, module) = self
-                .modules
-                .recv()
-                .await
-                .ok_or_else(|| Error::Worker("compiler result channel closed".into()))??;
-            if received == id {
-                return Ok(CompiledCode {
-                    module,
-                    entries,
-                    execution_target: self.target,
-                });
-            }
-            // The exclusive request waiter can be dropped after its module was
-            // posted. IDs keep that late module separate from its successor.
-            assert!(received < id, "compiler results preserve request order");
-        }
+        receive_code(&mut self.modules, id, entries, self.target).await
     }
 
     /// Closes submission, drains accepted requests and releases the worker only
@@ -135,6 +122,30 @@ impl CompilerWorker {
     pub async fn shutdown(mut self) -> Result<()> {
         self.requests.close_channel();
         self.task.await.map_err(worker_error)?
+    }
+}
+
+async fn receive_code(
+    modules: &mut Port<(u64, Module)>,
+    id: u64,
+    entries: Vec<BlockEntry>,
+    target: ExecutionTarget,
+) -> Result<CompiledCode> {
+    loop {
+        let (received, module) = modules
+            .recv()
+            .await
+            .ok_or_else(|| Error::Worker("compiler result channel closed".into()))??;
+        if received == id {
+            return Ok(CompiledCode {
+                module,
+                entries,
+                execution_target: target,
+            });
+        }
+        // Each connection has an exclusive waiter. Dropping one after posting
+        // leaves a late resource; its ID keeps it separate from the successor.
+        assert!(received < id, "compiler results preserve request order");
     }
 }
 

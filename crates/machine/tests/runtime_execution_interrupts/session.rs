@@ -73,7 +73,7 @@ async fn connected_input() {
             let worker_sent = sent.clone();
             let (send, mut input) = mpsc::unbounded();
             let (start, started) = oneshot::channel();
-            let worker = ExecutionWorker::spawn(clock, async move |runner| {
+            let worker = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
                 let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
                     let clock = runner.clock().clone();
                     Box::pin(async move {
@@ -194,7 +194,7 @@ async fn connected_stop() {
     let sent = Arc::new(AtomicBool::new(false));
     let worker_sent = sent.clone();
     let (report, stopped) = oneshot::channel();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
+    let worker = ExecutionWorker::<()>::spawn(clock, (), async move |runner, ()| {
         let device = Rc::new(RefCell::new(InputDevice {
             entered: Some(entered),
             sent: worker_sent,
@@ -243,7 +243,7 @@ async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
 
 async fn saturated_count() {
     let (clock, _timers) = timer_service();
-    let worker = ExecutionWorker::spawn(clock, async |runner| {
+    let worker = ExecutionWorker::spawn(clock, (), async |runner, ()| {
         let mut cpu = cpu_with_runner(&[0xeb, 0xfe], true, IoBus::default(), Some(runner)).await;
         let exit = cpu.exit_handle();
         cpu.install([relocade_machine::Hook::host(0x100, async move || {
@@ -285,7 +285,7 @@ impl Device for PublishInput {
 async fn notified_reentry() {
     for nested in [false, true] {
         let (clock, _timers) = timer_service();
-        let worker = ExecutionWorker::spawn(clock, async move |runner| {
+        let worker = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
             let (send, receive) = oneshot::channel();
             let io = IoBus::new([runner
                 .connect(

@@ -7,6 +7,7 @@ use std::future::Future;
 
 mod channel;
 mod executor;
+mod host_turn;
 mod wake;
 pub use channel::{channel, Endpoint, Port};
 pub use executor::Executor;
@@ -63,6 +64,14 @@ pub trait WorkerResource: Sized + 'static {
     fn prepare(
         self,
     ) -> ResourceTransfer<Self::Posted, impl FnOnce(Self::Posted) -> Self + Send + 'static>;
+}
+
+impl WorkerResource for () {
+    type Posted = ();
+
+    fn prepare(self) -> ResourceTransfer<(), impl FnOnce(()) + Send + 'static> {
+        ResourceTransfer::new((), std::convert::identity)
+    }
 }
 
 /// Combines resources for one worker startup without exposing their storage.

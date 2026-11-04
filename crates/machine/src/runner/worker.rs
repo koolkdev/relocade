@@ -1,5 +1,7 @@
 use super::Runner;
-use crate::worker::{self, wake_connection, SendTask, Thread, ThreadExt, WakeHost, WakePeer};
+use crate::worker::{
+    self, wake_connection, SendTask, Thread, ThreadExt, WakeHost, WakePeer, WorkerResource,
+};
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt};
 use futures_channel::oneshot;
 use futures_lite::future::or;
@@ -32,12 +34,16 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     /// ignored. Await this operation through completion for orderly cleanup.
     /// Timers are driven only for this call; use `spawn` and an external timer
     /// service when clock handles must remain usable after the session ends.
-    pub async fn run_until(
+    pub async fn run_until<R: WorkerResource>(
         stop: impl Future,
-        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
-    ) -> worker::Result<Option<T>> {
+        resource: R,
+        session: impl AsyncFnOnce(&Runner, R) -> T + Send + 'static,
+    ) -> worker::Result<Option<T>>
+    where
+        (CpuStorage, R): WorkerResource,
+    {
         let (clock, timers) = timer_service();
-        let mut worker = Self::spawn(clock, session);
+        let mut worker = Self::spawn(clock, resource, session);
         let execution = async move {
             let completed = or(
                 async {
@@ -59,19 +65,26 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         .await
     }
 
-    pub fn spawn<C: Clock + Send + 'static>(
+    /// Posts session resources together with the prepared CPU storage. Pass `()`
+    /// when startup captures contain only ordinary Send Rust values.
+    pub fn spawn<C: Clock + Send + 'static, R: WorkerResource>(
         clock: C,
-        session: impl AsyncFnOnce(&Runner<C>) -> T + Send + 'static,
-    ) -> Self {
+        resource: R,
+        session: impl AsyncFnOnce(&Runner<C>, R) -> T + Send + 'static,
+    ) -> Self
+    where
+        (CpuStorage, R): WorkerResource,
+    {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
         let thread = Thread::new();
         let (stop, stopped) = oneshot::channel();
-        let task = thread.run_resource(storage, move |storage| async move {
-            Runner::new(clock, storage, endpoint)
-                .run(stopped, session)
-                .await
-        });
+        let task =
+            thread.run_resource((storage, resource), move |(storage, resource)| async move {
+                Runner::new(clock, storage, endpoint)
+                    .run(stopped, async move |runner| session(runner, resource).await)
+                    .await
+            });
         Self {
             _thread: thread,
             task,

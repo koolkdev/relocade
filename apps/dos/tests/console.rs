@@ -4,6 +4,7 @@ use futures_lite::future::or;
 use relocade_dos::Dos;
 use relocade_machine::{Clock, ExecutionWorker};
 use std::{
+    future::pending,
     io::{Read, Write},
     time::Duration,
 };
@@ -11,7 +12,7 @@ use std::{
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
     let prompt_row = 6;
-    let console = ExecutionWorker::run_until(std::future::pending::<()>(), async move |runner| {
+    let console = ExecutionWorker::run_until(pending::<()>(), (), async move |runner, ()| {
         let mut dos = Dos::new(runner).await.unwrap();
         dos.stdin()
             .write_all(b"eChO hellx\x08o\runknown\r\r")

@@ -64,7 +64,7 @@ async fn check_devices() {
     let worker_active = active.clone();
     let (report, mut ticks) = mpsc::unbounded();
     let (entered, waiting) = oneshot::channel();
-    let worker = ExecutionWorker::spawn(clock.clone(), async move |runner| {
+    let worker = ExecutionWorker::spawn(clock.clone(), (), async move |runner, ()| {
         let device = Rc::new(RefCell::new(Ticker {
             clock: runner.clock().clone(),
             ticks: Rc::new(Cell::new(0)),
@@ -139,7 +139,7 @@ async fn check_devices() {
     let worker_active = active.clone();
     let (ready, started) = oneshot::channel();
     let (report, _ticks) = mpsc::unbounded();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
+    let worker = ExecutionWorker::<()>::spawn(clock, (), async move |runner, ()| {
         let device = Rc::new(RefCell::new(Ticker {
             clock: runner.clock().clone(),
             ticks: Rc::new(Cell::new(0)),

@@ -12,7 +12,7 @@ the execution worker. `ExecutionWorker` uses the existing
 
 ```rust,ignore
 let (clock, timers) = relocade_machine::timer_service();
-let execution = ExecutionWorker::spawn(clock, async move |runner| {
+let execution = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
     let device = create_device(runner.clock().clone());
     let io = IoBus::new([runner.connect(device, memory_ranges, ports).await]);
     let mut cpu = runner.create_cpu(memory, cpu_config, io).await?;
@@ -31,8 +31,11 @@ activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `wait_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
-The worker prepares one `CpuStorage` before spawning and posts it through
-`ThreadExt::run_resource`. `runner.create_cpu(memory, config, io).await` consumes
+The worker prepares one `CpuStorage` before spawning and posts it together with
+the supplied session resource through `ThreadExt::run_resource`. Pass `()` when
+startup needs only ordinary Send captures, or supply a `WorkerResource` such as
+`Memory` or a compiler connection. The session closure receives the reconstructed
+resource alongside its runner. `runner.create_cpu(memory, config, io).await` consumes
 that storage on the execution thread. `Dos::new(runner)` uses the same factory.
 A runner permits one construction attempt, including an attempt that
 fails or is cancelled; later programs reuse that CPU. Independent CPU-level work
@@ -93,7 +96,7 @@ process and returns an already completed process's result without running the CP
 DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
 
-For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, session)`
+For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, resource, session)`
 creates the timer service and drives it on the caller while the session runs on
 execution. It returns the session result on completion, or `None` after the stop
 signal and worker cleanup. The stop signal's value is ignored. Await the whole
@@ -149,7 +152,7 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 ## Event-loop scheduling
 
 `run_cpu` cooperates with the main/device task set when a wake requests an
-execution interrupt. There is no instruction budget or periodic fallback yield.
+execution interrupt. Ordinary execution has no instruction budget or periodic fallback yield.
 Yielding gives ready Rust activities a polling opportunity. The host timer
 driver delivers deadline notifications through Rust channels even while the
 execution worker stays runnable. CPU services can sleep without suspending
@@ -183,8 +186,10 @@ worker after resource transfer. Direct CPU/device tests do not need a runner.
 
 Each executor turn polls `stopped` first, then the application/device future. A
 ready stop drops that future without polling it again. Runnable work is repolled
-directly in Rust; only an idle session registers an outer-executor waiter and
-parks. Resumption or cancellation releases that waiter. Cancellation needs no
+directly in Rust. An idle session parks; an explicit host-turn request briefly
+suspends even runnable work. Both retain an outer-executor waiter and observe
+cancellation before resuming the application. Resumption or cancellation releases
+that waiter. Cancellation needs no
 startup yield or wrapper around the application.
 
 Participating work belongs inside the application/device future. The runner
@@ -198,7 +203,8 @@ x86 interrupt state.
 
 An ordinary host channel send or timer completion makes its waiter ready, then
 its waker requests an execution interrupt and marks the session ready on the
-sending thread. It wakes the outer executor only when the session is parked.
+sending thread. It wakes the outer executor when the session is parked or taking
+a host turn.
 Guest checkpoints return independently of IF. The interrupt remains set
 through the whole session poll, so CPU-first composition such as
 `join(run_cpu, input)` yields before its ready sibling runs. Acknowledgement
@@ -249,12 +255,28 @@ to inspect a completed guest boundary while retaining suspended work. See the
 [connection contract](workers.md#browser-build-and-lifetime).
 
 Continuously ready device loops must also cooperate with the other root futures.
-When the whole session is waiting, including for Wasm compilation, the executor
-parks through the underlying executor. A Rust cooperative yield does not promise
-a browser event-loop turn. Compile and install modules before guest execution
-or while the CPU is exclusively stopped. Concurrent compiler work on the same
-busy worker needs a separate scheduling design; ordinary JavaScript callbacks
-receive no periodic fairness turn. Execution checkpoints remain at completed
+A Rust cooperative yield does not promise a browser event-loop turn. For a
+resource that has already been posted, receive it through the runner:
+
+```rust,ignore
+let posted = compiler.request(ranges).await?;
+let code = runner.wait_for_host(posted.receive()).await?;
+```
+
+Compose this activity alongside `run_cpu`. The compilation request is an ordinary
+Rust wait. While posted-resource receipt remains pending, `wait_for_host` uses
+the shared clock to request a host turn after one millisecond. That timer wake
+interrupts busy guest execution. The executor suspends the complete runnable
+set for one zero-delay host timer, then resumes it even if delivery is still
+pending. Another millisecond of session work precedes the next attempt.
+Completion or cancellation drops the wait's timer and stops its requests; ready
+results schedule none. Requests in the same executor poll share a host turn.
+
+This adds no guest-entry gate, and no periodic timer when delivery is inactive.
+Ordinary input waits need no wrapper. Installation remains explicit while the
+CPU is stopped and has no retained host calls. Timer delays depend on browser
+scheduling; one millisecond is a requested cadence, not a latency bound.
+Execution checkpoints remain at completed
 blocks, with [no fixed notification-latency guarantee](../../x86/docs/host-integration.md#execution-interrupts)
 for long straight-line code or REP.
 

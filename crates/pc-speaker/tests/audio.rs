@@ -27,7 +27,7 @@ async fn exercise_audio_device() {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
     let (clock, _timers) = timer_service();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
+    let worker = ExecutionWorker::<()>::spawn(clock, (), async move |runner, ()| {
         let speaker = Rc::new(RefCell::new(Speaker::with_clock(Rc::new(
             runner.clock().clone(),
         ))));

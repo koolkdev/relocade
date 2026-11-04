@@ -11,6 +11,7 @@ relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 futures-channel = "=0.3.34"
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -5,7 +5,8 @@ use relocade_machine::ExecutionWorker;
 fn speaker_ports_work_without_output_and_survive_process_launches() {
     let result = pollster::block_on(ExecutionWorker::run_until(
         std::future::pending::<()>(),
-        async |runner| {
+        (),
+        async |runner, ()| {
             let mut dos = Dos::new(runner).await.unwrap();
             dos.launch_com(
                 &[

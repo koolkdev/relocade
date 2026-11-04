@@ -1,6 +1,7 @@
 //! Polling and parking for a worker's root future.
 
-use super::{WakeConnection, WakePeer, WakeTarget};
+use super::{host_turn::HostTurns, WakeConnection, WakePeer, WakeTarget};
+use futures_timer::Delay;
 use futures_util::task::AtomicWaker;
 use std::{
     cell::Cell,
@@ -11,14 +12,17 @@ use std::{
         Arc,
     },
     task::{Context, Poll, Wake, Waker},
+    time::Duration,
 };
 
 /// Owns polling, cancellation and parking for a worker's root future.
-/// Application and device futures are composed into one root future. Only an
-/// idle worker uses the caller's executor; runnable work is repolled here.
+/// Application and device futures are composed into one root future. Runnable
+/// work is repolled here; idle parking and explicit host turns use the caller's
+/// executor.
 pub struct Executor<R: WakeTarget> {
     connection: WakeConnection<R>,
     wake: Arc<ExecutorWake>,
+    host_turns: HostTurns,
 }
 
 impl<R: WakeTarget> Executor<R> {
@@ -34,7 +38,11 @@ impl<R: WakeTarget> Executor<R> {
             runnable: AtomicBool::new(false),
             notified: AtomicBool::new(false),
         });
-        Self { connection, wake }
+        Self {
+            connection,
+            wake,
+            host_turns: HostTurns::default(),
+        }
     }
 
     /// Runs the worker's root future until it completes or stop resolves.
@@ -65,6 +73,30 @@ impl<R: WakeTarget> Executor<R> {
             if let Poll::Ready(value) = result {
                 return Some(value);
             }
+            if self.host_turns.has_waiters() {
+                // Suspend the entire runnable set for one host turn. Busy Rust
+                // siblings must not keep a posted resource callback from running.
+                let mut turn = pin!(Delay::new(Duration::ZERO));
+                let _registration = ParkRegistration(&self.wake.parked);
+                let stopped = poll_fn(|cx| {
+                    self.wake.parked.register(cx.waker());
+                    if stop
+                        .as_mut()
+                        .poll(&mut Context::from_waker(&waker))
+                        .is_ready()
+                    {
+                        return Poll::Ready(true);
+                    }
+                    turn.as_mut().poll(cx).map(|()| false)
+                })
+                .await;
+                if stopped {
+                    return None;
+                }
+            }
+            // Wake each requesting child, including nested combinator queues.
+            // Also discard cancelled requests without scheduling a host turn.
+            self.host_turns.resume();
             if self.wake.runnable.load(Ordering::SeqCst) {
                 continue;
             }
@@ -84,6 +116,19 @@ impl<R: WakeTarget> Executor<R> {
             })
             .await;
         }
+    }
+
+    /// Gives browser callbacks a task opportunity, then resumes runnable work.
+    /// Poll this inside this executor's root future. Requests in the same poll
+    /// share a zero-delay timer; cancellation still takes precedence. This waits
+    /// for one host turn, not for any resource to arrive. Host scheduling controls
+    /// the actual pause duration. Ordinary Rust cooperation uses `yield_now`.
+    pub async fn yield_to_host(&self) {
+        let resumed = self.host_turns.request();
+        self.wake.wake_by_ref();
+        resumed
+            .await
+            .expect("executor must resume its host-turn waiters");
     }
 
     /// Yields busy execution without requesting another interrupt. The current

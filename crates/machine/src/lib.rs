@@ -46,7 +46,10 @@ mod runner;
 pub mod runtime;
 
 pub use clock::{timer_service, Clock, TimerDriver, TimerHandle};
-pub use compiler::{BlockRequest, CompiledCode, CompilerWorker};
+pub use compiler::{
+    BlockRequest, CompiledCode, CompilerClient, CompilerConnection, CompilerService,
+    CompilerWorker, PostedCode,
+};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::CpuStateAccess;
 pub use io::{Device, DeviceConnection, IoBus};
