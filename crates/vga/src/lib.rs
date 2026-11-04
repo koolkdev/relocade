@@ -28,7 +28,7 @@ use memory::VideoMemory;
 use raster::Raster;
 use registers::{setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
-use relocade_machine::{Clock, Device, TimerHandle};
+use relocade_machine::{Clock, Device, DeviceConnection, Runner, TimerHandle};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
 pub use snapshot::DisplaySnapshot;
@@ -62,6 +62,21 @@ pub struct Vga<C = TimerHandle> {
 }
 
 impl<C: Clock> Vga<C> {
+    /// Creates VGA on the runner's clock and starts display capture.
+    /// Returns the device handle and its memory/port connection for the CPU bus.
+    pub async fn initialize(runner: &Runner<C>) -> (Rc<RefCell<Self>>, DeviceConnection)
+    where
+        C: Clone + 'static,
+    {
+        let vga = Rc::new(RefCell::new(Self::with_clock(Rc::new(
+            runner.clock().clone(),
+        ))));
+        let connection = runner
+            .connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)
+            .await;
+        (vga, connection)
+    }
+
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Rc<C>) -> Self {
         let registers = Registers::default();

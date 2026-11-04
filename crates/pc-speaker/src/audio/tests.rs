@@ -1,10 +1,10 @@
 #[path = "../../tests/common/mod.rs"]
 mod common;
 
-use crate::{Speaker, SPEAKER_CONTROL_PORT};
+use crate::{Speaker, PORT_RANGE, SPEAKER_CONTROL_PORT};
 use async_channel::Receiver;
 use common::ManualClock;
-use relocade_machine::Device;
+use relocade_machine::{Device, IoBus};
 use relocade_pit::{CHANNEL_2_PORT, CONTROL_PORT as PIT_CONTROL_PORT};
 use std::{
     cell::RefCell,
@@ -19,6 +19,8 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 struct Playback {
     speaker: Rc<RefCell<Speaker<ManualClock>>>,
+    io: IoBus,
+    clock: ManualClock,
     output: Receiver<Vec<f32>>,
     task: Pin<Box<dyn Future<Output = ()>>>,
 }
@@ -31,22 +33,24 @@ fn config(rate: u32, channels: u16, batch: u32) -> cpal::StreamConfig {
     }
 }
 
-fn program(speaker: &mut impl Device) {
-    speaker.write_port(PIT_CONTROL_PORT, 1, 0xb6);
-    speaker.write_port(CHANNEL_2_PORT, 1, 1193 & 0xff);
-    speaker.write_port(CHANNEL_2_PORT, 1, 1193 >> 8);
-    speaker.write_port(SPEAKER_CONTROL_PORT, 1, 3);
+fn program(io: &IoBus) {
+    io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
+    io.write_port(CHANNEL_2_PORT, 1, 1193 & 0xff);
+    io.write_port(CHANNEL_2_PORT, 1, 1193 >> 8);
+    io.write_port(SPEAKER_CONTROL_PORT, 1, 3);
 }
 
 impl Playback {
     fn new(config: cpal::StreamConfig) -> Self {
         let (samples, output) = async_channel::bounded(1);
-        let mut speaker = Speaker::with_clock(Rc::new(ManualClock::default()));
-        speaker.attach_audio(config, samples).unwrap();
-        let speaker = Rc::new(RefCell::new(speaker));
+        let clock = ManualClock::default();
+        let (io, speaker) = common::hardware(Rc::new(clock.clone()));
+        speaker.borrow_mut().attach_audio(config, samples).unwrap();
         Self {
             task: Box::pin(Speaker::run(speaker.clone())),
             speaker,
+            io,
+            clock,
             output,
         }
     }
@@ -77,7 +81,7 @@ impl Playback {
 fn tone_continues_without_guest_updates_at_multiple_output_rates() {
     for rate in [44_100, 48_000, 96_000] {
         let mut playback = Playback::new(config(rate, 2, 256));
-        program(&mut *playback.speaker.borrow_mut());
+        program(&playback.io);
         let output = playback.collect(rate as usize * 2);
         let mono: Vec<_> = output
             .as_chunks::<2>()
@@ -103,11 +107,11 @@ fn tone_continues_without_guest_updates_at_multiple_output_rates() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn buffer_boundaries_preserve_phase_and_fractional_clock_remainder() {
     let mut reference = Playback::new(config(44_100, 1, 256));
-    program(&mut *reference.speaker.borrow_mut());
+    program(&reference.io);
     let expected = reference.collect(8000);
     for batch in [1, 7, 128] {
         let mut playback = Playback::new(config(44_100, 1, batch));
-        program(&mut *playback.speaker.borrow_mut());
+        program(&playback.io);
         assert_eq!(playback.collect(expected.len()), expected, "batch {batch}");
     }
 }
@@ -117,7 +121,7 @@ fn buffer_boundaries_preserve_phase_and_fractional_clock_remainder() {
 fn controls_mute_and_resume_at_buffer_boundaries() {
     let mut playback = Playback::new(config(48_000, 1, 128));
     assert!(playback.next_buffer().iter().all(|&sample| sample == 0.0));
-    program(&mut *playback.speaker.borrow_mut());
+    program(&playback.io);
     let tone = playback.collect(512);
     assert!(tone[384..].iter().any(|&sample| sample > 0.0));
     playback
@@ -137,21 +141,30 @@ fn controls_mute_and_resume_at_buffer_boundaries() {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn reads_and_latches_do_not_change_playback_or_advance_guest_time() {
+fn reads_and_latches_preserve_playback_phase() {
     let mut reference = Playback::new(config(44_100, 1, 128));
     let mut playback = Playback::new(config(44_100, 1, 128));
-    program(&mut *reference.speaker.borrow_mut());
-    program(&mut *playback.speaker.borrow_mut());
+    program(&reference.io);
+    program(&playback.io);
     for _ in 0..8 {
         assert_eq!(playback.next_buffer(), reference.next_buffer());
-        let mut speaker = playback.speaker.borrow_mut();
-        assert_eq!(speaker.read_port(SPEAKER_CONTROL_PORT, 1), 0x23);
-        speaker.write_port(PIT_CONTROL_PORT, 1, 0x80);
+        let io = &playback.io;
+        assert_eq!(io.read_port(SPEAKER_CONTROL_PORT, 1), 0x23);
+        io.write_port(PIT_CONTROL_PORT, 1, 0x80);
         // The machine clock has not advanced to the initial divisor load yet.
-        assert_eq!(speaker.read_port(CHANNEL_2_PORT, 1), 0);
-        assert_eq!(speaker.read_port(CHANNEL_2_PORT, 1), 0);
-        speaker.write_port(SPEAKER_CONTROL_PORT, 1, 3);
+        assert_eq!(io.read_port(CHANNEL_2_PORT, 1), 0);
+        assert_eq!(io.read_port(CHANNEL_2_PORT, 1), 0);
+        io.write_port(SPEAKER_CONTROL_PORT, 1, 3);
     }
+    // Hardware can advance after programming but before playback takes the update.
+    program(&reference.io);
+    program(&playback.io);
+    playback.clock.0.set(std::time::Duration::from_micros(200));
+    playback.io.write_port(PIT_CONTROL_PORT, 1, 0x80);
+    playback.io.read_port(CHANNEL_2_PORT, 1);
+    playback.io.read_port(CHANNEL_2_PORT, 1);
+    playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 3);
+    assert_eq!(playback.collect(512), reference.collect(512));
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -160,7 +173,7 @@ fn backpressure_bounds_submission_and_output_close_ends_the_activity() {
     for enabled in [false, true] {
         let mut playback = Playback::new(config(48_000, 2, 4096));
         if enabled {
-            program(&mut *playback.speaker.borrow_mut());
+            program(&playback.io);
         }
         assert!(playback.poll().is_pending());
         assert!(playback.poll().is_pending());
@@ -173,6 +186,7 @@ fn backpressure_bounds_submission_and_output_close_ends_the_activity() {
     let playback = Playback::new(config(48_000, 1, 128));
     drop(playback.task);
     drop(playback.speaker);
+    drop(playback.io);
     assert!(playback.output.is_closed());
 }
 
@@ -181,12 +195,13 @@ fn backpressure_bounds_submission_and_output_close_ends_the_activity() {
 fn invalid_configuration_and_unbounded_output_are_rejected() {
     for config in [config(0, 1, 128), config(48_000, 0, 128)] {
         let (samples, _output) = async_channel::bounded(1);
-        assert!(Speaker::with_clock(Rc::new(ManualClock::default()))
-            .attach_audio(config, samples)
-            .is_err());
+        let (_io, speaker) = common::hardware(Rc::new(ManualClock::default()));
+        assert!(speaker.borrow_mut().attach_audio(config, samples).is_err());
     }
     let (samples, _output) = async_channel::unbounded();
-    assert!(Speaker::with_clock(Rc::new(ManualClock::default()))
+    let (_io, speaker) = common::hardware(Rc::new(ManualClock::default()));
+    assert!(speaker
+        .borrow_mut()
         .attach_audio(config(48_000, 1, 128), samples)
         .is_err());
 }
@@ -205,15 +220,13 @@ fn attaching_output_wakes_an_already_running_device() {
         }
     }
 
-    let speaker = Rc::new(RefCell::new(Speaker::with_clock(Rc::new(
-        ManualClock::default(),
-    ))));
+    let (io, speaker) = common::hardware(Rc::new(ManualClock::default()));
     let mut task = std::pin::pin!(Speaker::run(speaker.clone()));
     let woken = Arc::new(Woken(AtomicBool::new(false)));
     let waker = Waker::from(woken.clone());
     let mut cx = Context::from_waker(&waker);
     assert!(task.as_mut().poll(&mut cx).is_pending());
-    program(&mut *speaker.borrow_mut());
+    program(&io);
     let (samples, output) = async_channel::bounded(1);
     speaker
         .borrow_mut()

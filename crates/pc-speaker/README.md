@@ -1,19 +1,17 @@
 # PC speaker
 
-Emulates PIT channel 2 and the PC speaker control port. Counter behavior and
-input-clock arithmetic are shared with [relocade-pit](../pit/README.md), which
-also owns the default-rate channel-0 IRQ scheduler. BIOS keeps its IRQ handler
-and time-of-day data.
+Emulates the PC speaker control port and synthesizes PIT channel 2. The shared
+[relocade-pit](../pit/README.md) device owns the timer registers, input-clock
+arithmetic and default channel-0 IRQ scheduler. BIOS keeps its IRQ handler and
+time-of-day data.
 
-`Speaker::with_clock(Rc<C>)` creates the machine `Device`. Connect it with
-`runner.connect(speaker, [], relocade_pc_speaker::PORTS).await`. Mutable state and
-port reads stay with execution; elapsed time uses the session clock's absolute
-origin, preserving fractional PIT clocks across repeated accesses.
+`Speaker::initialize(runner, pit).await` connects the speaker to that PIT,
+registers port 0x61 and starts its activity. It returns the speaker handle and
+its connection for the CPU bus. Both devices stay on the execution worker.
 
-Only byte transfers at PIT `CHANNEL_2_PORT` (0x42, count), PIT `CONTROL_PORT`
-(0x43, control/read-back), and `SPEAKER_CONTROL_PORT` (0x61) are supported.
-Word/dword writes are ignored and reads return open bus. Commands
-for other PIT channels and read-back commands with reserved bit 0 set are ignored.
+The speaker supports byte transfers at `SPEAKER_CONTROL_PORT` (0x61).
+Word/dword writes are ignored and reads return open bus. PIT channel-2 count
+(0x42) and control/read-back (0x43) transfers go to the PIT device.
 Port 0x61 stores bits 0/1 and reads raw OUT2 in bit 5; other bits read zero and
 their writes have no effect. Bit 0 is GATE2. The speaker drive is bit 1 AND OUT2,
 including direct bit-1 toggling while GATE2 is low. Other system-control and
@@ -31,10 +29,10 @@ audio.play()?; // In a browser, call from the application's user activation.
 Move `config` and `samples` into the existing execution-worker session:
 
 ```rust,ignore
-let speaker = Rc::new(RefCell::new(Speaker::with_clock(Rc::new(runner.clock().clone()))));
-let io = IoBus::new([
-    runner.connect(speaker.clone(), [], PORTS).await,
-]);
+let (pic, pic_device) = Pic::initialize(runner).await;
+let (pit, pit_device) = Pit::initialize(runner, pic.irq(TIMER_IRQ)).await;
+let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
+let io = IoBus::new([pic_device, pit_device, speaker_device]);
 speaker.borrow_mut().attach_audio(config, samples)?;
 // Pass io to runner.create_cpu, then run the guest with runner.run_cpu.
 ```
@@ -60,7 +58,8 @@ submission, callback and platform buffering. Control changes, including unmuting
 follow already prepared samples.
 
 Playback keeps its own counter phase because queued samples extend ahead of the
-machine clock. Sound-changing port writes update that phase locally. Reads,
+machine clock. Sound-changing writes retain the latest counter state in PIT; playback consumes
+that state before generating its next buffer. Reads,
 latches and unchanged speaker-control writes leave playback alone. Guest register
 readback follows the machine clock; waveform generation follows the output sample
 clock between control changes.

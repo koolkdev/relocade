@@ -20,6 +20,7 @@ cpal = { workspace = true, optional = true }
 cpal = { workspace = true, features = ["audioworklet"], optional = true }
 
 [dev-dependencies]
+relocade-pic = { path = "../pic" }
 futures-lite = "=2.6.1"
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 relocade-x86 = { path = "../x86" }

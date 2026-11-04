@@ -1,7 +1,8 @@
 # Master interrupt controller
 
-`Pic::default()` creates an execution-owned 8259A master. Connect the cloneable
-PIC at `[PORT_RANGE]` (20h–21h), and pass `pic.irq(n)` to peripherals. `IrqLine::set_level`
+`Pic::initialize(runner).await` creates an execution-owned 8259A master and
+registers ports 20h–21h. Add the returned connection to the CPU bus, and pass
+`pic.irq(n)` from the shared controller handle to peripherals. `IrqLine::set_level`
 models a level transition; `pulse` produces a timer edge. The PIC alone supplies
 vectors through the existing machine `Device::poll_interrupt` API. Its initial
 mask is FFh. DOS calls `pic.unmask_irq(TIMER_IRQ)` to enable the timer; the BIOS

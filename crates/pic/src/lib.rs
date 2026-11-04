@@ -3,7 +3,7 @@
 mod controller;
 
 use controller::{Controller, IRQ_COUNT, OCW2_EOI};
-use relocade_machine::{Device, IoBus};
+use relocade_machine::{Clock, Device, DeviceConnection, IoBus, Runner};
 use std::{
     cell::RefCell,
     ops::RangeInclusive,
@@ -38,6 +38,16 @@ impl Default for Pic {
 }
 
 impl Pic {
+    /// Creates the BIOS-configured master and registers its ports with the runner.
+    /// Returns a shared controller handle and its connection for the CPU bus.
+    pub async fn initialize<C: Clock>(runner: &Runner<C>) -> (Self, DeviceConnection) {
+        let pic = Self::default();
+        let connection = runner
+            .connect(Rc::new(RefCell::new(pic.clone())), [], [PORT_RANGE])
+            .await;
+        (pic, connection)
+    }
+
     /// Starts in 8086 edge-triggered mode, with all inputs masked. The vector base
     /// must be aligned to eight; DOS uses 08h and unmasks its connected devices.
     pub fn new(vector_base: u8) -> Self {

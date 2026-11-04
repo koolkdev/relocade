@@ -24,11 +24,12 @@ impl<C: Clock> Speaker<C> {
         if samples.capacity().is_none() {
             return Err("speaker output needs a bounded sample channel".into());
         }
-        self.sync_to_clock();
+        let mut pit = self.pit.borrow_mut();
+        pit.take_channel2_update();
         self.audio = Some(Audio {
             config,
             samples,
-            counter: self.counter.clone(),
+            counter: pit.channel2(),
             fraction: 0,
         });
         self.audio_ready.0.try_send(()).unwrap();
@@ -84,7 +85,12 @@ pub(super) async fn run<C: Clock>(device: Rc<RefCell<Speaker<C>>>) {
         let buffer = {
             let mut device = device.borrow_mut();
             let enabled = device.control & 2 != 0;
-            device.audio.as_mut().unwrap().buffer(enabled)
+            let update = device.pit.borrow_mut().take_channel2_update();
+            let audio = device.audio.as_mut().unwrap();
+            if let Some(counter) = update {
+                audio.update(&counter);
+            }
+            audio.buffer(enabled)
         };
         if samples.send(buffer).await.is_err() {
             return;
