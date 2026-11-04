@@ -78,10 +78,10 @@ fn accuracy(frontend: Frontend, opcode: u8, check: fn(u32, u32)) {
                 .events
                 .iter()
                 .find_map(|event| match event {
-                    Event::Dispatch { snapshot, .. } => Some(snapshot),
+                    Event::Return { snapshot, .. } => Some(snapshot),
                     _ => None,
                 })
-                .expect("reciprocal stays compiled and dispatches without a numerical fault");
+                .expect("reciprocal returns a published result");
             let result_cpu = CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap());
             let mut cpu = retire(image.cpu, code.len());
             for (index, &source) in values.iter().enumerate() {
@@ -93,7 +93,7 @@ fn accuracy(frontend: Frontend, opcode: u8, check: fn(u32, u32)) {
                 check(source, result);
                 lane(&mut cpu.simd.xmm[0], false, index, u64::from(result));
             }
-            assert_eq!(actual, expected(&image, &[dispatch(cpu)]));
+            assert_eq!(actual, module.expected(expected(&image, &[dispatch(cpu)])));
         }
     }
 }
@@ -171,7 +171,7 @@ fn special(frontend: Frontend, opcode: u8, cases: &[(u32, u32)]) {
                     cpu.simd.xmm[0] = result;
                     assert_eq!(
                         module.observe(&image.input(), 1),
-                        expected(&image, &[dispatch(cpu)])
+                        module.expected(expected(&image, &[dispatch(cpu)]))
                     );
                 }
             }
@@ -190,7 +190,7 @@ fn special(frontend: Frontend, opcode: u8, cases: &[(u32, u32)]) {
     };
     assert_eq!(
         module.observe(&image.input(), 1),
-        expected(&image, &[dispatch(cpu)])
+        module.expected(expected(&image, &[dispatch(cpu)]))
     );
 }
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 use relocade_x86::SegmentRegister;
 
@@ -39,7 +40,7 @@ fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructio
         };
         assert_eq!(
             TestModule::interpreter().observe(&image.input(), 2),
-            expected(
+            step_returns(expected(
                 &image,
                 &[
                     Step {
@@ -49,7 +50,7 @@ fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructio
                     },
                     fault(),
                 ]
-            )
+            ))
         );
         let mut blocks = BlockModules::default();
         let block = blocks.get(&image.cpu, &code, 3, profile);
@@ -107,7 +108,7 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
         blocks.get(&image.cpu, &code, 2, profile),
         TestModule::interpreter_with_profile(profile),
     ] {
-        assert_eq!(module.observe(&input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
     }
     image.cpu = cpu;
     let step = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
@@ -158,7 +159,7 @@ fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
     };
     assert_eq!(
         TestModule::interpreter().observe(&image.input(), 2),
-        expected(
+        step_returns(expected(
             &image,
             &[
                 Step {
@@ -168,7 +169,7 @@ fn nt_defined_by_popf_in_the_same_block_selects_the_task_return_path() {
                 },
                 unsupported(),
             ]
-        )
+        ))
     );
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 2, profile);

@@ -1,6 +1,7 @@
 //! Native directed rounding preserves exact direction, sticky status and scalar isolation.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::Compiler;
 
@@ -384,7 +385,7 @@ fn restart() {
     let linked = module.with_interpreter(TestModule::interpreter());
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(cpu)])
+        step_returns(expected(&image, &[dispatch(cpu)]))
     );
 }
 

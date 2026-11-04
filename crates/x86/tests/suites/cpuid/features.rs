@@ -63,14 +63,14 @@ fn configured_features(frontend: Frontend) {
             let cpu = result(image.cpu, values, 2, 1);
             assert_eq!(
                 module.observe(&image.input(), 1),
-                expected(
+                module.expected(expected(
                     &image,
                     &[Step {
                         cpu,
                         ram: &[],
                         exit: Exit::Dispatch(cpu.eip)
                     }]
-                ),
+                )),
                 "{feature:?}, leaf {leaf:#x}"
             );
         }
@@ -111,14 +111,14 @@ fn configured_features(frontend: Frontend) {
     let cpu = result(image.cpu, [0x601, 0, 0, 0], 2, 1);
     assert_eq!(
         module.observe(&image.input(), 1),
-        expected(
+        module.expected(expected(
             &image,
             &[Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip)
             }]
-        )
+        ))
     );
 }
 test_frontends!(

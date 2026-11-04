@@ -1,6 +1,7 @@
 //! Arithmetic specialization restarts before effects in both execution modes.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
@@ -92,7 +93,14 @@ fn sse_arithmetic_compiled_and_restart() {
                 } else {
                     assert_eq!(block.observe(&image.input(), 1), wanted);
                 }
-                assert_eq!(linked.observe(&image.input(), 1), wanted);
+                assert_eq!(
+                    linked.observe(&image.input(), 1),
+                    if restart {
+                        step_returns(wanted.clone())
+                    } else {
+                        wanted.clone()
+                    }
+                );
             }
         }
     }

@@ -1,6 +1,7 @@
 //! Observed MXCSR controls are guarded; live status and later loads stay dynamic.
 
 use super::*;
+use crate::support::machine::step_returns;
 
 fn block(code: &[u8], count: u32, profile: ExecutionProfile, observed: &CpuState) -> TestModule {
     TestModule::new(
@@ -111,7 +112,7 @@ fn changed_controls() {
             lane(&mut cpu.simd.xmm[0], false, 0, 0x4040_0000); // 3.0, exact under all controls.
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(cpu)])
+                step_returns(expected(&image, &[dispatch(cpu)]))
             );
         }
     }
@@ -155,7 +156,11 @@ fn loaded_controls() {
         );
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(cpu)])
+            if loaded == 0x5f80 {
+                step_returns(expected(&image, &[dispatch(cpu)]))
+            } else {
+                expected(&image, &[dispatch(cpu)])
+            }
         );
     }
 }
@@ -199,7 +204,7 @@ fn mismatch_before_mmio() {
             bytes: 4,
         },
     );
-    assert_eq!(linked.observe(&input, 1), wanted);
+    assert_eq!(linked.observe(&input, 1), step_returns(wanted.clone()));
 }
 
 fn flush_to_zero() {
@@ -227,7 +232,7 @@ fn flush_to_zero() {
         );
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(cpu)])
+            step_returns(expected(&image, &[dispatch(cpu)]))
         );
     }
 }

@@ -1,4 +1,5 @@
 use super::data;
+use crate::support::machine::step_returns;
 use crate::support::{
     cases::{test_cases, InstructionCase as Case, Permissions::ReadOnly},
     machine::{Exit, Image, Step},
@@ -98,7 +99,7 @@ fn segment_overrides_end_with_their_instruction() {
     };
     assert_eq!(
         TestModule::interpreter().observe(&image.input(), 2),
-        expected(&image, &[first, second])
+        step_returns(expected(&image, &[first, second]))
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
     assert_eq!(

@@ -1,6 +1,7 @@
 //! Normal and zero sums remain live; exceptional sums restart before effects.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
@@ -61,7 +62,7 @@ fn restart_state() {
     second.x87.tag_word |= 3;
     assert_eq!(
         linked.observe(&image.input(), 1),
-        expected(&image, &[dispatch(second)])
+        step_returns(expected(&image, &[dispatch(second)]))
     );
 }
 

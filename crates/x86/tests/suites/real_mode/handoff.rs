@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{
-    machine::expected,
+    machine::{expected, step_returns},
     step::{Event, TestModule},
 };
 use relocade_compiler::Program;
@@ -46,5 +46,5 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
             bytes: 2,
         },
     );
-    assert_eq!(module.observe(&input, 1), wanted);
+    assert_eq!(module.observe(&input, 1), step_returns(wanted));
 }

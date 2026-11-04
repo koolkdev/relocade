@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 
 #[test]
@@ -166,7 +167,10 @@ fn a_pop_fault_publishes_earlier_register_flags_store_and_retirement_progress() 
     };
     let mut wanted = expected(&image, &[first, second, fault()]);
     wanted.events.insert(4, event.clone());
-    assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
+    assert_eq!(
+        TestModule::interpreter().observe(&input, 3),
+        step_returns(wanted.clone())
+    );
     let mut blocks = BlockModules::default();
     let block = blocks.get(
         &image.cpu,

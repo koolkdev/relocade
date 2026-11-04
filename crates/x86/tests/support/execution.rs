@@ -4,7 +4,7 @@ use relocade_x86::{CpuState, ExecutionProfile};
 
 use super::{
     blocks::BlockModules,
-    machine::{expected, Exit, Image, Step},
+    machine::{expected, expected_steps, Exit, Image, Step},
     step::{Event, TestModule},
 };
 
@@ -39,7 +39,10 @@ impl ImageSequences {
 
     pub(crate) fn check(&mut self, name: &str, code: &[u8], image: &Image, steps: &[Step<'_>]) {
         let last = steps.last().expect("a sequence contains an instruction");
-        let mut wanted = expected(image, steps);
+        let mut wanted = match self.frontend {
+            Frontend::Block => expected(image, steps),
+            Frontend::Interpreter => expected_steps(image, steps),
+        };
         let (module, invocations) = match self.frontend {
             Frontend::Block => {
                 // The composed final snapshot retains writes from earlier

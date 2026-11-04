@@ -209,7 +209,7 @@ fn physical_addresses(frontend: Frontend) {
             };
             assert_eq!(
                 module.observe(&input, 1),
-                wanted,
+                module.expected(wanted.clone()),
                 "cache operations must not call MMIO"
             );
         }

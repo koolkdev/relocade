@@ -1,6 +1,7 @@
 //! Native scalar and packed arithmetic keep precise flags and an explicit restart domain.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, ExecutionProfile, Segments};
 
@@ -109,7 +110,10 @@ fn check(cases: &[NativeCase], restart: bool) {
                                 let linked = block.with_interpreter(
                                     TestModule::interpreter_with_profile(profile),
                                 );
-                                assert_eq!(linked.observe(&image.input(), 1), wanted);
+                                assert_eq!(
+                                    linked.observe(&image.input(), 1),
+                                    step_returns(wanted.clone())
+                                );
                             } else {
                                 assert_eq!(
                                     block.observe( &image.input(), 1),

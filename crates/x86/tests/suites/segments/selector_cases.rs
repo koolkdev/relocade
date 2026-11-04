@@ -34,7 +34,7 @@ pub(super) fn check_one(
     for module in [block, TestModule::interpreter_with_profile(profile)] {
         assert_eq!(
             module.observe(&input, 1),
-            wanted,
+            module.expected(wanted.clone()),
             "{} {profile:?} {code:02x?}",
             module.entry,
         );

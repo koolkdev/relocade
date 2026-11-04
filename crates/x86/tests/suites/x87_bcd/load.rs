@@ -1,6 +1,7 @@
 //! FBLD is exact, preserves the separate sign, and shares ordinary push faults.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule, x87::INDEFINITE};
 use relocade_x86::compile_block_from_bytes;
 
@@ -186,7 +187,7 @@ fn stack_overflow(frontend: Frontend) {
         if matches!(frontend, Frontend::Block) {
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(loaded)]),
+                step_returns(expected(&image, &[dispatch(loaded)])),
                 "the linked interpreter completes a restarted FBLD"
             );
         }

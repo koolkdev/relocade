@@ -65,7 +65,7 @@ fn mmio(frontend: Frontend) {
             };
             assert_eq!(
                 module.observe(&input, 1),
-                wanted,
+                module.expected(wanted.clone()),
                 "MASKMOV width={bytes}, empty={empty}, remap={remap}"
             );
         }

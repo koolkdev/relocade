@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 use relocade_x86::SegmentRegister;
 
@@ -107,7 +108,7 @@ fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
             SegmentProfile::Segmented32
         ))
         .observe(&image.input(), 1),
-        expected(
+        step_returns(expected(
             &image,
             &[Step {
                 cpu,
@@ -117,7 +118,7 @@ fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
                     error: 0x10
                 }
             }]
-        )
+        ))
     );
 }
 
@@ -173,7 +174,7 @@ fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
                 SegmentProfile::Segmented32,
             )),
         ] {
-            assert_eq!(module.observe(&input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
         }
     }
 }

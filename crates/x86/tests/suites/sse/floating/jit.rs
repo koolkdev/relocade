@@ -1,5 +1,6 @@
 //! Common inputs stay compiled; exceptional operands restart before publication.
 
+use crate::support::machine::step_returns;
 #[path = "jit/controls.rs"]
 mod controls;
 
@@ -132,7 +133,7 @@ fn precise_restart(profile: ExecutionProfile) {
             }
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(
+                step_returns(expected(
                     &image,
                     &[Step {
                         cpu,
@@ -143,7 +144,7 @@ fn precise_restart(profile: ExecutionProfile) {
                             Exit::SimdFloatingPoint
                         },
                     }]
-                ),
+                )),
                 "interpreter completes the exception response, including all packed lanes"
             );
         }
@@ -201,7 +202,14 @@ fn real_mode_ram() {
         } else {
             assert_eq!(block.observe(&image.input(), 1), wanted);
         }
-        assert_eq!(linked.observe(&image.input(), 1), wanted);
+        assert_eq!(
+            linked.observe(&image.input(), 1),
+            if invalid {
+                step_returns(wanted.clone())
+            } else {
+                wanted.clone()
+            }
+        );
     }
 }
 

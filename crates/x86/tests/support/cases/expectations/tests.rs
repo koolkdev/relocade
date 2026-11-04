@@ -57,7 +57,13 @@ impl Fixture {
             dispatches: vec![(0x1001, self.actual.clone())],
             machine_unchanged: true,
         };
-        check_state(&self.case, &self.initial, &execution, &self.case.name);
+        check_state(
+            crate::support::execution::Frontend::Block,
+            &self.case,
+            &self.initial,
+            &execution,
+            &self.case.name,
+        );
     }
 }
 

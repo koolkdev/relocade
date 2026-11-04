@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 
 #[test]
@@ -95,7 +96,7 @@ fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() 
         .insert(5, Event::QuerySegmentDescriptor { selector: 0x27 });
     assert_eq!(
         TestModule::interpreter_with_profile(profile).observe(&input, 4),
-        wanted
+        step_returns(wanted.clone())
     );
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 4, profile);
@@ -155,7 +156,7 @@ fn the_same_entry_observes_table_edits_while_the_loaded_cache_stays_unchanged() 
             .events
             .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
         for module in [block, TestModule::interpreter()] {
-            assert_eq!(module.observe(&input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
         }
     }
 }
@@ -195,7 +196,10 @@ fn a_later_fault_preserves_completed_verification_and_its_retirement() {
     wanted
         .events
         .insert(0, Event::QuerySegmentDescriptor { selector: 0x27 });
-    assert_eq!(TestModule::interpreter().observe(&input, 2), wanted);
+    assert_eq!(
+        TestModule::interpreter().observe(&input, 2),
+        step_returns(wanted.clone())
+    );
     let mut blocks = BlockModules::default();
     let block = blocks.get(&image.cpu, &code, 2, profile);
     let mut wanted = expected(&image, &[fault()]);

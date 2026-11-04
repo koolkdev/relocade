@@ -146,11 +146,13 @@ impl Cpu {
     fn run_guest(&mut self, budget: Option<u64>) -> ExecutionExit {
         let machine = &mut self.machine;
         let mut exit = machine.dispatch(budget);
-        // STI and SS loads must execute their successor before another IRQ poll
-        // or budget exit. STEP executes it and resumes ordinary guest dispatch;
-        // another inhibiting instruction simply requests another step.
+        // Finish protected successors before polling IRQs or returning for a
+        // checkpoint. STEP publishes its result without dispatching the target.
         while exit == ExecutionExit::InterruptInhibited && !self.exit.0.get() {
             exit = machine.dispatch.step(&mut machine.backend);
+            if exit == ExecutionExit::StepComplete && !self.exit.0.get() {
+                exit = machine.dispatch(None);
+            }
         }
         exit
     }

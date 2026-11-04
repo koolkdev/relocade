@@ -67,8 +67,10 @@ instruction faults or is unsupported. Each instruction fetches live guest bytes
 and starts with fresh prefix state. REP completes its repetition; port strings
 dispatch and other strings continue to the next instruction in both frontends.
 
-Interpreter `step` executes one instruction before its checkpoint and dispatch,
-including all elements of a supported REP instruction.
+Interpreter `step` executes one instruction, including all elements of a supported
+REP instruction. After publishing state and checking execution controls, it returns
+`ExecutionExit::StepComplete` without dispatching or fetching the successor. This
+applies to taken and untaken branches, interrupt transfers and port operations too.
 
 ## Execution controls
 
@@ -198,7 +200,7 @@ unsupported instructions retain their usual exits. A failed guard is neither of
 those exits.
 
 An embedding can bind this import directly to an instance's `step` or `run` export.
-`step` resumes normal dispatch after one instruction; `run` continues to its own
+`step` returns `StepComplete` after one instruction; `run` continues to its own
 branch, segment-load, port-I/O or serialization boundary. Neither is constrained
 by the abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
 against their execution target. Interpreter execution uses the shared instruction
@@ -937,7 +939,8 @@ STI from IF=1 and LSS do not request protection. The CPU snapshot layout is unch
 there is no stored shadow or retirement-counter comparison.
 
 The driver handles `InterruptInhibited` in a synchronous loop calling STEP.
-STEP executes the successor before it tail-dispatches further guest code.
+STEP executes the successor and returns its result. On `StepComplete`, the driver
+resumes ordinary dispatch without an intervening IRQ poll.
 A software INT or CALL executes normally as
 that successor, including its frame and flag effects. A host service reached
 through the transfer has completed the protected instruction.

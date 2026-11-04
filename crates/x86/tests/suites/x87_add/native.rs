@@ -1,6 +1,7 @@
 //! PC53/nearest sums retain x87 signs, rounding status and exponent range.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule, x87::set_control};
 use relocade_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
@@ -224,7 +225,7 @@ fn native_sums_preserve_extended_range_and_restart() {
         if restart {
             assert_eq!(
                 linked.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
+                step_returns(expected(&image, &[dispatch(result)]))
             );
         }
     }

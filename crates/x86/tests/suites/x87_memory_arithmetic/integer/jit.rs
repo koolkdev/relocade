@@ -1,6 +1,7 @@
 //! Exact integer sources participate in native PC53 arithmetic and precise restart.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
@@ -110,7 +111,7 @@ fn operand_exception_restarts_after_the_completed_load() {
         let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
 }

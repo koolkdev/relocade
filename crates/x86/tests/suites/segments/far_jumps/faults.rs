@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 
 #[test]
@@ -202,7 +203,10 @@ fn failed_jumps_publish_earlier_register_flag_memory_and_retirement_progress() {
         };
         let mut wanted = expected(&image, &[first, second, fault()]);
         wanted.events.insert(4, event.clone());
-        assert_eq!(TestModule::interpreter().observe(&input, 3), wanted);
+        assert_eq!(
+            TestModule::interpreter().observe(&input, 3),
+            step_returns(wanted.clone())
+        );
         let mut blocks = BlockModules::default();
         let block = blocks.get(
             &image.cpu,

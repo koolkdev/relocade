@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 
 #[test]
@@ -163,7 +164,10 @@ fn a_resolver_fault_publishes_earlier_register_flags_store_and_retirement_progre
     };
     let mut wanted = expected(&image, &[first, second, third, fault()]);
     wanted.events.insert(6, event.clone());
-    assert_eq!(TestModule::interpreter().observe(&input, 4), wanted);
+    assert_eq!(
+        TestModule::interpreter().observe(&input, 4),
+        step_returns(wanted.clone())
+    );
     let mut blocks = BlockModules::default();
     let block = blocks.get(
         &image.cpu,

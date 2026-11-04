@@ -1,6 +1,7 @@
 //! Precision tracking retains general JIT arithmetic and precise restart boundaries.
 
 use super::*;
+use crate::support::machine::step_returns;
 
 fn wider_values_stay_in_jit() {
     let code = [0xd8, 0xc9];
@@ -97,7 +98,7 @@ fn memory_operand_exceptions_still_restart() {
         write_value(&mut result, 0, product);
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
 }

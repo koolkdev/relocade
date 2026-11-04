@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{
     blocks::BlockModules,
     machine::expected,
@@ -58,14 +59,14 @@ fn fetches() {
     cpu.registers.eax = 0x1111_ffff;
     assert_eq!(
         module.observe(&crossing.input(), 1),
-        expected(
+        module.expected(expected(
             &crossing,
             &[Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip)
             }]
-        )
+        ))
     );
     let mut image = image(&[0xea, 0x34, 0x12, 0xff, 0xff]);
     let mut cpu = retired(&image, 5);
@@ -73,7 +74,7 @@ fn fetches() {
     cpu.segments.cs = cache(Segment::Cs, 0xffff);
     assert_eq!(
         module.observe(&image.input(), 2),
-        expected(
+        module.expected(expected(
             &image,
             &[
                 Step {
@@ -90,7 +91,7 @@ fn fetches() {
                     }
                 },
             ]
-        )
+        ))
     );
 
     // A real code base participates in fetch translation, including above 1 MiB.
@@ -102,14 +103,14 @@ fn fetches() {
     let cpu = retired(&image, 1);
     assert_eq!(
         module.observe(&image.input(), 1),
-        expected(
+        module.expected(expected(
             &image,
             &[Step {
                 cpu,
                 ram: &[],
                 exit: Exit::Dispatch(cpu.eip)
             },]
-        )
+        ))
     );
 }
 
@@ -145,14 +146,14 @@ fn segment_fetch_bounds() {
     input.observe_mmio = true;
     assert_eq!(
         module.observe(&input, 1),
-        expected(
+        module.expected(expected(
             &image,
             &[Step {
                 cpu: retired(&image, 1),
                 ram: &[],
                 exit: Exit::Dispatch(0xffff),
             }]
-        ),
+        )),
     );
 }
 
@@ -182,14 +183,14 @@ fn a20_fetch(frontend: Frontend) {
         cpu.registers.eax = 0x1111_0000 | if enabled { 0x5678 } else { 0x1234 };
         assert_eq!(
             module.observe(&input, 1),
-            expected(
+            module.expected(expected(
                 &image,
                 &[Step {
                     cpu,
                     ram: &[],
                     exit: Exit::Dispatch(cpu.eip)
                 }]
-            )
+            ))
         );
     }
 }
@@ -314,14 +315,14 @@ fn fetch_callbacks(mmio: bool) {
         );
         assert_eq!(
             observed,
-            expected(
+            step_returns(expected(
                 &image,
                 &[Step {
                     cpu,
                     ram: &[],
                     exit
                 }]
-            ),
+            )),
             "no extra fetch or data callback for {code:02x?}"
         );
     }
@@ -336,14 +337,14 @@ fn live_fetch() {
     input.observe_mmio = true;
     assert_eq!(
         TestModule::interpreter_with_profile(ExecutionProfile::Real16).observe(&input, 1),
-        expected(
+        step_returns(expected(
             &last_byte,
             &[Step {
                 cpu: retired(&last_byte, 1),
                 ram: &[],
                 exit: Exit::Dispatch(0x2000)
             }]
-        )
+        ))
     );
 
     // A device write changes the code mapping before the next instruction.

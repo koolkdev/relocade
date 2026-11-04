@@ -1,6 +1,7 @@
 //! Both extracted values retain native views; rejected cases restart before the push.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
@@ -78,7 +79,7 @@ fn restart() {
         write_value(&mut result, 7, sig);
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
 }

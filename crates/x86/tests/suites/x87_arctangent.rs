@@ -1,5 +1,6 @@
 //! FPATAN covers quadrants without performing an architectural division.
 
+use crate::support::machine::step_returns;
 #[path = "x87_arctangent/values.rs"]
 mod values;
 
@@ -194,7 +195,7 @@ fn jit_specialization() {
         TestModule::new(&compiled)
             .with_interpreter(TestModule::interpreter())
             .observe(&image.input(), 1),
-        expected(&image, &[dispatch(result)])
+        step_returns(expected(&image, &[dispatch(result)]))
     );
     let mut bytes = Vec::new();
     for pc in [0, 2, 3] {

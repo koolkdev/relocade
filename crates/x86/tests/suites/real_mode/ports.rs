@@ -57,7 +57,7 @@ fn scalar(frontend: Frontend) {
             }],
         );
         wanted.events.insert(0, event);
-        assert_eq!(module.observe(&input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
     }
 }
 test_frontends!(scalar_port_transfers, scalar);

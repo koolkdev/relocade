@@ -1,6 +1,7 @@
 //! Direct block observations require admitted quotients to stay in generated code.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{compile_block_from_bytes, Compiler, CpuState};
 
@@ -117,7 +118,7 @@ fn zeros_and_rejected_divisors_preserve_restart_state() {
         }
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(divided)])
+            step_returns(expected(&image, &[dispatch(divided)]))
         );
     }
 }

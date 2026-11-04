@@ -31,14 +31,14 @@ fn compiled_entries_reuse_only_compatible_segment_assumptions() {
         for module in [&block, TestModule::interpreter()] {
             assert_eq!(
                 module.observe(&image.input(), 1),
-                expected(
+                module.expected(expected(
                     &image,
                     &[Step {
                         cpu,
                         ram: &[],
                         exit: Exit::Dispatch(0x1003)
                     }]
-                )
+                ))
             );
         }
     }

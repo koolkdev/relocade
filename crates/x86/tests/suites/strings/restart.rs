@@ -64,8 +64,16 @@ fn restart_after_source_page_repair(opcode: u8) {
         }
         let actual = machine.run(module);
         assert_eq!(actual.state, completed);
-        assert_eq!(actual.exit, Exit::Dispatch(0x1002));
-        assert_eq!(actual.dispatches, [(0x1002, completed)]);
+        if module.entry == "step" {
+            assert_eq!(
+                actual.exit,
+                Exit::Other(relocade_x86::ExecutionExit::StepComplete)
+            );
+            assert!(actual.dispatches.is_empty());
+        } else {
+            assert_eq!(actual.exit, Exit::Dispatch(0x1002));
+            assert_eq!(actual.dispatches, [(0x1002, completed)]);
+        }
         assert!(actual.machine_unchanged);
     }
 }
@@ -158,8 +166,16 @@ fn repaired_comparison_resumes_with_remaining_count() {
             // The logical result is checked above; compare every other CPU and memory field.
             expected.cpu.flags = actual.state.cpu.flags;
             assert_eq!(actual.state, expected);
-            assert_eq!(actual.exit, Exit::Dispatch(0x1002));
-            assert_eq!(actual.dispatches, [(0x1002, expected)]);
+            if module.entry == "step" {
+                assert_eq!(
+                    actual.exit,
+                    Exit::Other(relocade_x86::ExecutionExit::StepComplete)
+                );
+                assert!(actual.dispatches.is_empty());
+            } else {
+                assert_eq!(actual.exit, Exit::Dispatch(0x1002));
+                assert_eq!(actual.dispatches, [(0x1002, expected)]);
+            }
             assert!(actual.machine_unchanged);
         }
     }

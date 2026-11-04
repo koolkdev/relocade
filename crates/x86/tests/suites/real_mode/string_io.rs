@@ -92,7 +92,11 @@ fn transfers(frontend: Frontend) {
             }],
         );
         wanted.events.splice(0..0, events);
-        assert_eq!(module.observe(&input, 1), wanted, "{code:02x?}");
+        assert_eq!(
+            module.observe(&input, 1),
+            module.expected(wanted.clone()),
+            "{code:02x?}"
+        );
     }
 }
 test_frontends!(string_port_transfers, transfers);
@@ -154,7 +158,7 @@ fn faults(frontend: Frontend) {
                 }],
             );
             wanted.events.splice(0..0, events);
-            assert_eq!(module.observe(&input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
         }
     }
 }
@@ -224,7 +228,7 @@ fn segments_and_mmio(frontend: Frontend) {
             Frontend::Block => blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16),
             Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
         };
-        assert_eq!(module.observe(&input, 1), wanted);
+        assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
     }
     // A 16-bit index wraps between complete elements, preserving its high word.
     let code = [0xf3, 0x6d];
@@ -265,7 +269,7 @@ fn segments_and_mmio(frontend: Frontend) {
         Frontend::Block => blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16),
         Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
     };
-    assert_eq!(module.observe(&input, 1), wanted);
+    assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
 }
 test_frontends!(string_port_segments_and_mmio, segments_and_mmio);
 

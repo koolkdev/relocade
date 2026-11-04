@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::machine::step_returns;
 use crate::SegmentProfile;
 use relocade_x86::SegmentRegister;
 
@@ -176,7 +177,7 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
                 SegmentProfile::Segmented32,
             )),
         ] {
-            assert_eq!(module.observe(&input, 1), wanted);
+            assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
         }
         // The transfer has retired even though no page backs its destination.
         image.cpu = cpu;
@@ -188,7 +189,7 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
                 SegmentProfile::Segmented32
             ))
             .observe(&image.input(), 1),
-            expected(
+            step_returns(expected(
                 &image,
                 &[Step {
                     cpu,
@@ -198,7 +199,7 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
                         error: 0x10
                     }
                 }]
-            )
+            ))
         );
     }
 }

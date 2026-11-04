@@ -97,7 +97,7 @@ fn transfers(frontend: Frontend) {
         );
         assert_eq!(
             module.observe(&input, 1),
-            wanted,
+            module.expected(wanted.clone()),
             "{profile:?}, {counter:#018x}"
         );
     }

@@ -1,6 +1,7 @@
 //! Native quotient estimates, preserved precision, and precise restart boundaries.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule, x87::INDEFINITE};
 use relocade_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
@@ -122,7 +123,7 @@ fn restart(opcode: u8) {
         write_value(&mut result, 0, output);
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
 
@@ -158,7 +159,7 @@ fn restart(opcode: u8) {
         TestModule::new(&compiled)
             .with_interpreter(TestModule::interpreter())
             .observe(&image.input(), 1),
-        expected(&image, &[dispatch(result)]),
+        step_returns(expected(&image, &[dispatch(result)])),
     );
 }
 

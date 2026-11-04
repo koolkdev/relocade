@@ -1,6 +1,7 @@
 //! Integer sources convert exactly before the shared ordered comparison.
 
 use super::*;
+use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
@@ -203,7 +204,7 @@ fn compiled_sequence_and_restart() {
     );
     assert_eq!(
         TestModule::interpreter().observe(&image.input(), 2),
-        expected(&image, &[dispatch(first), dispatch(final_cpu)])
+        step_returns(expected(&image, &[dispatch(first), dispatch(final_cpu)]))
     );
 
     // FCMOV copies a signaling NaN exactly; the integer comparison then restarts
@@ -252,7 +253,7 @@ fn compiled_sequence_and_restart() {
         result.x87.data_selector = 0x23;
         assert_eq!(
             linked.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
+            step_returns(expected(&image, &[dispatch(result)]))
         );
     }
 }
