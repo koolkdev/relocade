@@ -28,9 +28,9 @@ each byte access.
 the shared PC/AT frequency. Deadlines round up, and repeated periods retain
 their fractional remainder.
 
-`connect_channel0(&runner).await` registers the default-rate channel-0 timer with the
-machine runner. It raises IRQ0 (vector 08h) every 65,536 input clocks and
-coalesces unacknowledged edges. DOS connects this device directly; BIOS keeps
+`connect_channel0(&runner, pic.irq(0)).await` registers the default-rate channel-0 timer with the
+machine runner. It pulses IRQ0 every 65,536 input clocks and
+coalesces unacknowledged edges in the PIC. DOS connects both devices; BIOS keeps
 the IRQ0 handler, tick data, midnight rollover and INT 1Ah time-of-day service.
 Programmable channel-0 ports are not implemented yet. Channel 2 uses `Counter`
 in the PC speaker device.
