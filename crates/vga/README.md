@@ -237,9 +237,10 @@ bytes write the same MMIO memory as pixel services, with no renderer-side
 character path.
 
 AH=0Eh uses the active page and BL foreground in graphics modes. It handles BEL
-(currently silent), backspace without erasure, CR and LF, wraps at the right edge
-and scrolls at the bottom with black fill. DOS console output shares this
-teletype implementation with foreground 7, alongside its existing byte stream.
+through the BIOS's timed PC speaker service, backspace without erasure, CR and LF,
+wraps at the right edge and scrolls at the bottom with black fill. DOS console
+output shares this teletype implementation with foreground 7, alongside its
+existing byte stream.
 
 AH=13h writes CX characters from ES:BP to BH's page, starting at DH:DL.
 AL=00h/01h use BL for every attribute; AL=02h/03h read alternating character and
