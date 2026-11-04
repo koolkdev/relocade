@@ -9,6 +9,7 @@ use crate::{
     Result, TimerHandle,
 };
 use futures_channel::{mpsc, oneshot};
+use futures_lite::future::poll_once;
 /// Gives other ready Rust activities a polling opportunity without a host timer.
 /// This does not promise a browser event-loop turn.
 pub use futures_lite::future::yield_now;
@@ -17,14 +18,7 @@ use futures_util::{
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
-use std::{
-    cell::RefCell,
-    future::{poll_fn, Future},
-    num::NonZeroU64,
-    ops::RangeInclusive,
-    pin::pin,
-    rc::Rc,
-};
+use std::{cell::RefCell, future::Future, num::NonZeroU64, ops::RangeInclusive, pin::pin, rc::Rc};
 
 /// Owns a worker's execution session, including its CPU storage and device activities.
 /// [`ExecutionWorker`] prepares the resources before starting the owner thread.
@@ -92,19 +86,16 @@ impl<C: Clock> Runner<C> {
     ) -> DeviceConnection {
         let (started, ready) = oneshot::channel();
         let activity_device = device.clone();
+        let activity = async move {
+            let mut run = pin!(D::run(activity_device));
+            let completed = poll_once(run.as_mut()).await.is_some();
+            let _ = started.send(());
+            if !completed {
+                run.await;
+            }
+        };
         self.activities
-            .unbounded_send(Box::pin(async move {
-                let mut activity = pin!(D::run(activity_device));
-                let mut started = Some(started);
-                poll_fn(|cx| {
-                    let result = activity.as_mut().poll(cx);
-                    if let Some(started) = started.take() {
-                        let _ = started.send(());
-                    }
-                    result
-                })
-                .await;
-            }))
+            .unbounded_send(Box::pin(activity))
             .unwrap_or_else(|_| panic!("runner must own its device activities"));
         ready.await.expect("runner must poll registered devices");
         DeviceConnection {
