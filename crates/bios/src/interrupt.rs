@@ -30,6 +30,7 @@ const TIMER_ENTRY: FarPointer = FarPointer {
 pub fn register_interrupts(interrupts: &mut Interrupts<'_>, keyboard: Keyboard) {
     register_interrupt(interrupts, 0x08, TIMER_ENTRY, async |call| {
         clock::tick(&mut call.memory);
+        call.io.write_port(0x20, 1, 0x20);
     });
     register_interrupt(
         interrupts,
