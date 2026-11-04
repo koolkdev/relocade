@@ -59,8 +59,8 @@ segment target before committing instruction effects; fetching the destination
 belongs to the next entry.
 
 The host chooses whether dispatch enters more code or returns control. Interpreter
-`run` continues inside Wasm until a branch, segment load, port I/O or serializing
-instruction completes.
+`run` continues inside Wasm until a branch, segment load, POPF/POPFD, port I/O or
+serializing instruction completes.
 It uses the same instruction boundary as snapshot compilation: conditional branches end
 execution on both outcomes. Earlier instructions remain published if a later
 instruction faults or is unsupported. Each instruction fetches live guest bytes
@@ -149,6 +149,16 @@ the target; interpreter straight-line execution and REP work have no fixed bound
 The snapshot compiler's instruction limit bounds compilation only. There is no
 fixed overshoot or elapsed-time guarantee.
 
+### IRQ eligibility
+
+After STI or an SS load's protected successor completes, the driver polls device
+IRQs before continuing. Real-mode POPF/POPFD and IRET/IRETD that change IF from
+clear to set publish their completed effects and return `InterruptsEnabled`.
+The driver consumes this exit at the same IRQ polling site. A queued one-shot IRQ
+therefore needs no second notification after guest code enables IF. STEP suppresses
+this internal eligibility exit. POPF ends a compiled/interpreted block, including
+in protected profiles, so its restored flags are published before continuation.
+
 ## Callable dispatch
 
 `Compiler::compile_dispatcher()` generates a module that resolves execution addresses to
@@ -201,8 +211,9 @@ those exits.
 
 An embedding can bind this import directly to an instance's `step` or `run` export.
 `step` returns `StepComplete` after one instruction; `run` continues to its own
-branch, segment-load, port-I/O or serialization boundary. Neither is constrained
-by the abandoned snapshot's instruction limit. The host chooses this policy and admits interpreter entries
+branch, segment-load, POPF/POPFD, port-I/O or serialization boundary. Neither is
+constrained by the abandoned snapshot's instruction limit. The host chooses this
+policy and admits interpreter entries
 against their execution target. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
 
@@ -940,7 +951,7 @@ there is no stored shadow or retirement-counter comparison.
 
 The driver handles `InterruptInhibited` in a synchronous loop calling STEP.
 STEP executes the successor and returns its result. On `StepComplete`, the driver
-resumes ordinary dispatch without an intervening IRQ poll.
+returns to its IRQ polling loop before ordinary dispatch.
 A software INT or CALL executes normally as
 that successor, including its frame and flag effects. A host service reached
 through the transfer has completed the protected instruction.

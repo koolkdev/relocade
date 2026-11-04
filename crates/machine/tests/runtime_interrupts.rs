@@ -220,3 +220,6 @@ mod protected_steps;
 
 #[path = "runtime_interrupts/exit.rs"]
 mod exit;
+
+#[path = "runtime_interrupts/eligibility.rs"]
+mod eligibility;

@@ -60,4 +60,25 @@ impl ExecutionBuilder<'_, '_> {
         }
         Ok(())
     }
+
+    /// A flag restore opened an IRQ window without an inhibited successor.
+    /// This is called after committing every instruction effect and fault check.
+    pub(crate) fn interrupts_enabled_if(
+        &mut self,
+        condition: Val<I1>,
+        next_ip: &Val<I32>,
+    ) -> Result<(), BuildError> {
+        if self.profile() == ExecutionProfile::Real16 {
+            self.body
+                .if_(condition.and(self.single_step.eq(false)), |mut body| {
+                    let count = self
+                        .state
+                        .publish(&mut body, next_ip, self.completed + 1)?
+                        .expect("a completed flag restore retires an instruction");
+                    self.state.checkpoint(&mut body, &count)?;
+                    body.return_(ExecutionExitValues::interrupts_enabled())
+                })?;
+        }
+        Ok(())
+    }
 }

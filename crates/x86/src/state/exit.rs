@@ -38,6 +38,9 @@ pub enum ExecutionExit {
     /// Interpreter STEP completed one instruction without dispatching its successor.
     /// CPU state and retirement count are published.
     StepComplete,
+    /// Real-mode POPF or IRET enabled interrupts. CPU state is published;
+    /// poll pending device IRQs before continuing guest execution.
+    InterruptsEnabled,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

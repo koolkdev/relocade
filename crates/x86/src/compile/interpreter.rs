@@ -15,7 +15,7 @@ use super::Compiler;
 
 /// Generates a module exporting both `step` and `run`, selecting `run() -> ExecutionExit`.
 /// This entry fetches and executes instructions until a branch, segment load,
-/// port I/O or serializing instruction completes, then
+/// POPF/POPFD, port I/O or serializing instruction completes, then
 /// tail-calls host dispatch.
 /// Real16 STI from IF=0 and MOV/POP SS instead return `InterruptInhibited`;
 /// the embedding must execute their protected successor through `step`.
