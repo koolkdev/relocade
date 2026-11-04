@@ -32,13 +32,10 @@ jobs:
               -p relocade-interpreter -p relocade-test-support
               -p relocade-wasm-bindings -p relocade-wasm-runtime
             system-packages: ''
-          - suite: Machine and DOS
+          - suite: Native integration
             packages: >-
               -p relocade-vfs -p relocade-machine -p relocade-bios -p relocade-dos
               -p relocade-vga -p relocade-pit -p relocade-pc-speaker
-            system-packages: libvulkan1 mesa-vulkan-drivers libasound2-dev
-          - suite: Native application
-            packages: >-
               -p relocade-renderer -p relocade-frontend -p relocade-app
               -p relocade-dos-app -p relocade-browser-tests
             system-packages: libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
@@ -85,15 +82,15 @@ jobs:
         run: cargo test ${{ matrix.packages }} --all-features --locked
 
       - name: Run display and audio integration tests
-        if: matrix.suite == 'Native application'
+        if: matrix.suite == 'Native integration'
         run: xvfb-run -a cargo test ${{ matrix.packages }} --all-features --locked -- --ignored
 
-      - name: Check independent application features
-        if: matrix.suite == 'Native application'
+      - name: Check optional dependency boundaries
+        if: matrix.suite == 'Native integration'
         run: |
-          cargo check -p relocade-app --lib --locked
-          cargo check -p relocade-app --lib --features audio --locked
-          cargo check -p relocade-app --lib --features graphics --locked
+          cargo check -p relocade-app -p relocade-pc-speaker --lib --profile test --locked
+          cargo check -p relocade-app --lib --features audio --profile test --locked
+          cargo check -p relocade-app --lib --features graphics --profile test --locked
 
   test:
     # Preserve the required check while reporting each native suite separately.
