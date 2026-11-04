@@ -41,7 +41,7 @@ impl<R: WakeTarget> WakeConnection<R> {
         WakePeer {
             target: self.target.clone(),
             endpoint: self.endpoint,
-            active: self._lifetime.0.clone(),
+            active: self._lifetime.active.clone(),
         }
     }
 }

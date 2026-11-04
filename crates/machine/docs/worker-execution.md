@@ -232,10 +232,21 @@ Ordinary Rust senders on that thread now signal busy execution through its local
 resource. Keep the binding until those sends finish. Multiple bindings share the
 same local registration; dropping a peer does not terminate execution. Ending
 execution or dropping its host disables all peers, including escaped wakers.
-Workers without this setup do not have direct signal access. Foreign callback
-threads require their own integration; the AudioWorklet path remains separate.
-Instruction budgets are temporary; notification coverage and explicit host waits
-must replace their scheduling role.
+Callback threads without a posted binding, including CPAL's AudioWorklet, notify
+a coalesced Rust-atomic relay on the responsive spawning host. Its local task
+requests the same execution interrupt. The callback invokes no JavaScript and
+needs no engine resource transfer; the host uses its existing binding. Both
+original owners close and wake the relay, and escaped wakers retain no engine
+resources. The host event loop must remain responsive. This fallback adds host
+scheduling latency; it is not a real-time deadline. Explicit peer bindings still
+signal synchronously and avoid that extra turn.
+
+Audio synthesis remains a device activity on execution. When CPAL consumes a
+buffer, the bounded channel wakes the pending sample submission. The ordinary
+executor waker then interrupts busy guest execution directly on native targets,
+or through the host relay from an unbound browser AudioWorklet. Neither audio nor
+the relay needs a refill timer or polling loop. Instruction budgets are temporary;
+bounded execution tests must move to explicit steps before removing them.
 Use instruction stepping for bounded guest progress tests. See the
 [connection contract](workers.md#browser-build-and-lifetime).
 

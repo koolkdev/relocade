@@ -58,7 +58,7 @@ impl<R: WakeTarget> WakeEndpoint<R> {
     /// transport before binding; no registration message or acknowledgement is
     /// needed. A different signal requires a new connection.
     pub fn bind(self, target: R) -> WakeConnection<R> {
-        let binding = platform::bind(self.binding, target.clone(), self.lifetime.0.clone());
+        let binding = platform::bind(self.binding, target.clone(), self.lifetime.active.clone());
         WakeConnection {
             _lifetime: self.lifetime,
             _binding: binding,
@@ -83,9 +83,15 @@ impl<R: WakeTarget> WakeConnection<R> {
     }
 }
 
-struct Lifetime(Arc<AtomicBool>);
+struct Lifetime {
+    active: Arc<AtomicBool>,
+    on_close: Option<Waker>,
+}
 impl Drop for Lifetime {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
+        self.active.store(false, Ordering::SeqCst);
+        if let Some(waker) = self.on_close.take() {
+            waker.wake();
+        }
     }
 }

@@ -9,6 +9,9 @@ use std::{
 };
 use web_thread::Thread;
 
+#[path = "audio_output/execution.rs"]
+mod execution;
+
 struct ReleaseProducer(Arc<AtomicBool>);
 impl Drop for ReleaseProducer {
     fn drop(&mut self) {

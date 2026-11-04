@@ -36,6 +36,8 @@ async-channel = { version = "=2.5.0", default-features = false }
 futures-channel = "=0.3.34"
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 relocade-renderer = { path = "../renderer" }
+relocade-machine = { path = "../machine" }
+relocade-x86 = { path = "../x86" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"
