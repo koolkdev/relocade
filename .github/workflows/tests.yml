@@ -16,6 +16,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Keep line-number backtraces while reducing test artifacts and linker work.
+  CARGO_PROFILE_TEST_DEBUG: 1
 
 jobs:
   native:
