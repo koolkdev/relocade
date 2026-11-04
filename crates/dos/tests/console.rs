@@ -16,18 +16,12 @@ fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
         assert_eq!(dos.console().read_line().await.unwrap(), b"abc");
         let com = [0xb4, 2, 0xb2, b'C', 0xcd, 0x21, 0xb8, 7, 0x4c, 0xcd, 0x21];
         dos.launch_com(&com, Default::default()).unwrap();
-        assert_eq!(
-            dos.cpu().run(100).await,
-            ExecutionExit::Host(HostExit::Return)
-        );
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
         let mut exe = com;
         exe[3] = b'E';
         dos.launch_mz(&common::mz_image(&exe), Default::default())
             .unwrap();
-        assert_eq!(
-            dos.cpu().run(100).await,
-            ExecutionExit::Host(HostExit::Return)
-        );
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
         dos.console().write(b"> ").await.unwrap();
         let screen = common::screen(&dos);
         assert_eq!(
@@ -64,7 +58,7 @@ fn console_queues_survive_com_and_mz_launches() {
         let program = &[0xb4, 1, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21];
         dos.launch_com(program, Default::default()).unwrap();
         assert_eq!(
-            pollster::block_on(dos.cpu().run(20)),
+            pollster::block_on(dos.cpu().run()),
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(
@@ -74,7 +68,7 @@ fn console_queues_survive_com_and_mz_launches() {
         dos.launch_mz(&common::mz_image(program), Default::default())
             .unwrap();
         assert_eq!(
-            pollster::block_on(dos.cpu().run(20)),
+            pollster::block_on(dos.cpu().run()),
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(
@@ -163,8 +157,8 @@ async fn check_handle_output() {
             cpu.set_eflags(0x642 | u32::from(carry_before));
         }
         assert_eq!(
-            pollster::block_on(dos.cpu().run(10)),
-            ExecutionExit::BudgetExhausted
+            pollster::block_on(crate::common::run_until(dos.cpu(), 0x102)),
+            ExecutionExit::Interrupted
         );
         let machine = dos.cpu().context();
         let cpu = &machine.cpu;

@@ -44,7 +44,10 @@ async fn protected_successor() {
             let code = [instruction, &[0xe6, 0x80, 0xeb, 0xfe]].concat();
             let mut runner = cpu(&code, flags, &irq).await;
             one_instruction(&mut runner, &code, compiled).await;
-            assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                crate::support::checkpoint(&mut runner).await,
+                ExecutionExit::Interrupted
+            );
             let state = runner.cpu_state();
             assert_eq!(state.instruction_count(), if inhibited { 2 } else { 1 });
             assert_eq!(
@@ -55,9 +58,12 @@ async fn protected_successor() {
             if !inhibited {
                 irq.borrow_mut().raise();
             }
-            assert_eq!(runner.run(0).await, ExecutionExit::BudgetExhausted);
+            drop(runner.run());
             assert_eq!(irq.borrow().acknowledged, 0);
-            assert_eq!(runner.run(2).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                crate::support::checkpoint(&mut runner).await,
+                ExecutionExit::Interrupted
+            );
             assert_eq!(irq.borrow().acknowledged, 1);
             assert_eq!(runner.memory().view().read_u16(0x500).unwrap(), 1);
         }
@@ -75,14 +81,20 @@ async fn consecutive_inhibitors() {
             let code = [instructions, &[0xe6, 0x80, 0xeb, 0xfe]].concat();
             let mut runner = cpu(&code, flags, &irq).await;
             one_instruction(&mut runner, &code, compiled).await;
-            assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                crate::support::checkpoint(&mut runner).await,
+                ExecutionExit::Interrupted
+            );
             assert_eq!(runner.cpu_state().instruction_count(), 3);
             assert_eq!(
                 runner.cpu_state().eip(),
                 0x100 + instructions.len() as u32 + 2
             );
             assert_eq!(irq.borrow().acknowledged, 0);
-            assert_eq!(runner.run(2).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                crate::support::checkpoint(&mut runner).await,
+                ExecutionExit::Interrupted
+            );
             assert_eq!(irq.borrow().acknowledged, 1);
         }
         // STI with IF already set does not request another protected instruction.
@@ -90,7 +102,10 @@ async fn consecutive_inhibitors() {
         let code = [0xfb, 0xfb, 0xe6, 0x80, 0xeb, 0xfe];
         let mut runner = cpu(&code, 2, &irq).await;
         one_instruction(&mut runner, &code, compiled).await;
-        assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::support::checkpoint(&mut runner).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(runner.cpu_state().instruction_count(), 2);
         assert_eq!(runner.cpu_state().eip(), 0x102);
     }
@@ -104,7 +119,7 @@ async fn faults() {
         one_instruction(&mut runner, &code, compiled).await;
         let before = runner.cpu_state().snapshot();
         assert_eq!(
-            runner.run(1).await,
+            runner.run().await,
             ExecutionExit::Exception(Exception::GeneralProtection { error_code: 0 })
         );
         assert_eq!(runner.cpu_state().snapshot(), before);
@@ -128,9 +143,9 @@ async fn faults() {
             one_instruction(&mut runner, &code, compiled).await;
             irq.borrow_mut().raise();
             assert_eq!(
-                runner.run(1).await,
+                crate::support::checkpoint(&mut runner).await,
                 fault,
-                "the protected step precedes the budget exit"
+                "the protected step precedes the execution interrupt"
             );
             assert_eq!(runner.cpu_state().instruction_count(), 1);
             assert_eq!(runner.cpu_state().eip(), 0x101);
@@ -165,11 +180,14 @@ async fn software_interrupt() {
             .await
             .unwrap();
         irq.borrow_mut().raise();
-        // Budget one still executes the protected INT, then exits before dispatching its target.
-        assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+        // An execution interrupt waits for the protected INT, then stops before target dispatch.
+        assert_eq!(
+            crate::support::checkpoint(&mut runner).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(runner.cpu_state().eip(), 0x200);
         assert_eq!(irq.borrow().acknowledged, 0);
-        assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
         assert_eq!(irq.borrow().acknowledged, 0);
     }
 }
@@ -193,11 +211,11 @@ async fn function_call() {
         })])
         .await
         .unwrap();
-    assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
 }
 
 test_backends!(
-    protected_successors_execute_before_budget_exits,
+    protected_successors_execute_before_execution_interrupts,
     protected_successor
 );
 test_backends!(

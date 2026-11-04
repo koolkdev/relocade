@@ -178,12 +178,8 @@ impl<'cpu> State<'cpu> {
         exit::exception(body, exception)
     }
 
-    /// Checks execution interrupt requests and budget after publishing a completed boundary.
-    pub(crate) fn checkpoint(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        count: &Val<I64>,
-    ) -> Result<(), BuildError> {
+    /// Checks execution interrupt requests after publishing a completed boundary.
+    pub(crate) fn checkpoint(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         let interrupt_requested = body
             .atomic::<I8>(
                 self.cpu.memory(),
@@ -193,19 +189,11 @@ impl<'cpu> State<'cpu> {
             .load()?;
         body.if_(interrupt_requested.ne(0), |body| {
             body.return_(ExecutionExitValues::interrupted())
-        })?;
-        let target = body.load_at::<I64>(
-            self.cpu.memory(),
-            std::mem::offset_of!(ExecutionContext, instruction_target) as u32,
-            0,
-        )?;
-        let reached = count.unsigned().ge(target);
-        body.if_(reached, exit::budget_exhausted)
+        })
     }
 
     /// Publishes current state on a terminating path, including any permitted
     /// partial progress in an unretired instruction.
-    /// Returns the updated retirement count when instructions completed.
     /// Indexed accesses may already have synchronized register definitions to backing.
     /// Later definitions do not change an earlier authored exit; this does not
     /// restore an older state after partially executing a new instruction.
@@ -214,7 +202,7 @@ impl<'cpu> State<'cpu> {
         body: &mut BlockBuilder<'_>,
         next_eip: impl Into<Val<I32>>,
         completed: u32,
-    ) -> Result<Option<Val<I64>>, BuildError> {
+    ) -> Result<(), BuildError> {
         self.flags.publish(body, self.cpu)?;
         self.x87.publish(body)?;
         self.simd.publish(body)?;
@@ -223,10 +211,8 @@ impl<'cpu> State<'cpu> {
         if completed != 0 {
             let count = self.instruction_count(body, completed)?;
             cpu_store!(body, self.cpu.memory(), instruction_count, &count)?;
-            Ok(Some(count))
-        } else {
-            Ok(None)
         }
+        Ok(())
     }
 }
 

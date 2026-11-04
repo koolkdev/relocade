@@ -16,10 +16,13 @@ fn character_reads_share_the_async_path_and_echo_only_for_ah01() {
                 cpu.set_bx(0x1234);
                 cpu.set_eflags(0x643);
             }
-            crate::common::assert_pending(dos.cpu().run(10));
+            crate::common::assert_pending(dos.cpu().run());
             assert!(common::output(dos.stdout()).is_empty());
             dos.stdin().write_all(b"KZ").unwrap();
-            assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                crate::common::run_until(dos.cpu(), 0x102).await,
+                ExecutionExit::Interrupted
+            );
             {
                 let machine = dos.cpu().context();
                 let cpu = &machine.cpu;

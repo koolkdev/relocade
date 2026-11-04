@@ -304,7 +304,7 @@ impl<C: Clock> Dos<C> {
     /// let process = dos.process().unwrap();
     /// let mut input = dos.stdin();
     /// // An event handler can retain this writer while the cpu waits.
-    /// let run = dos.cpu().run(100);
+    /// let run = dos.cpu().run();
     /// input.write_all(b"y")?;
     /// run.await;
     /// assert_eq!(process.status(), ProcessStatus::Exited(Ok(b'y')));

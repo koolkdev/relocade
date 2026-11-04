@@ -16,8 +16,6 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 pub enum ExecutionExit {
     /// A host entry or handler requested control outside guest execution.
     Host(HostExit),
-    /// The instruction budget was consumed at a completed block boundary.
-    BudgetExhausted,
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
     UnsupportedInstruction {
@@ -29,7 +27,7 @@ pub enum ExecutionExit {
     InterruptEntered,
     /// STI or an SS load completed with interrupt delivery inhibited. Execute
     /// the successor through interpreter STEP before polling IRQs or returning
-    /// for a consumed instruction budget.
+    /// at an execution checkpoint.
     InterruptInhibited,
     /// An execution interrupt was requested at a completed execution boundary.
     /// CPU state is published. This neither delivers a guest IRQ nor consumes
@@ -65,11 +63,6 @@ pub enum HostExit {
     /// A guest resume entry reactivates the top suspended host invocation.
     /// The strictly nested execution stack supplies the invocation; no ID is needed.
     Resume,
-}
-
-/// CPU state must already describe the completed block.
-pub(crate) fn budget_exhausted(body: BlockBuilder<'_>) -> Result<(), BuildError> {
-    body.return_(ExecutionExitValues::budget_exhausted())
 }
 
 /// CPU state must already describe the exception's restart boundary.

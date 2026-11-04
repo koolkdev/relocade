@@ -199,8 +199,8 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
             context.cpu.set_eflags(0x642);
         }
         assert_eq!(
-            dos.cpu().run(15).await,
-            relocade_x86::ExecutionExit::BudgetExhausted
+            crate::common::run_until(dos.cpu(), 0x102).await,
+            relocade_x86::ExecutionExit::Interrupted
         );
         let cpu = dos.cpu().context().cpu.snapshot();
         assert_eq!(cpu.registers.eax as u16, 0x865a);

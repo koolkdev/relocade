@@ -126,16 +126,9 @@ fn packed_add_chains_use_vector_memory_without_scalar_conversions() {
             .count(),
         1
     );
-    // Retirement and its target are independent of the MMX register transfers.
-    assert!(!ops.iter().enumerate().any(|(index, op)| match op {
-        Operator::I64Load { memarg } => {
-            let count = memarg.offset == std::mem::offset_of!(CpuState, instruction_count) as u64;
-            let target = memarg.offset == 0
-                && matches!(ops.get(index.wrapping_sub(1)), Some(Operator::I32Const { value })
-                    if *value as u32 == std::mem::offset_of!(relocade_x86::ExecutionContext, instruction_target) as u32);
-            memarg.memory != cpu_memory || !(count || target)
-        }
-        Operator::I64Store { memarg } => {
+    // Retirement is independent of the MMX register transfers.
+    assert!(!ops.iter().any(|op| match op {
+        Operator::I64Load { memarg } | Operator::I64Store { memarg } => {
             memarg.memory != cpu_memory
                 || memarg.offset != std::mem::offset_of!(CpuState, instruction_count) as u64
         }

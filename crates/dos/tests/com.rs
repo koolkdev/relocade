@@ -33,19 +33,19 @@ async fn check_hello() {
     }
     assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
     assert_eq!(
-        pollster::block_on(dos.cpu().run(1)),
-        ExecutionExit::BudgetExhausted
+        pollster::block_on(common::checkpoint(dos.cpu())),
+        ExecutionExit::Interrupted
     );
     assert!(common::output(dos.stdout()).is_empty()); // INT completed, before entering the hook.
-    assert_eq!(dos.cpu().run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        common::checkpoint(dos.cpu()).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(common::output(dos.stdout()), b"Hello, DOS!\r\n");
     assert_eq!(dos.cpu().context().cpu.al(), b'$');
     assert_eq!(dos.cpu().context().cpu.sp(), 0xfffe);
     assert_eq!(dos.cpu().context().cpu.eip(), 0x107);
-    assert_eq!(
-        dos.cpu().run(u64::MAX).await,
-        ExecutionExit::Host(HostExit::Return)
-    );
+    assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         dos.process().unwrap().status(),
         ProcessStatus::Exited(Ok(7))
@@ -62,10 +62,7 @@ async fn check_com_bounds_and_return() {
     let mut end = [0; 3];
     dos.cpu().context().memory.read(0x1fffd, &mut end).unwrap();
     assert_eq!(end, [0x41, 0, 0]);
-    assert_eq!(
-        dos.cpu().run(10).await,
-        ExecutionExit::Host(HostExit::Return)
-    );
+    assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         dos.process().unwrap().status(),
         ProcessStatus::Exited(Ok(0))
@@ -104,7 +101,7 @@ async fn check_com_bounds_and_return() {
     assert_eq!(&loaded[1..0xfefe], &previous[1..0xfefe]);
     assert_eq!(&loaded[0xfefe..], &[0, 0]);
     assert_eq!(
-        pollster::block_on(dos.cpu().run(10)),
+        pollster::block_on(dos.cpu().run()),
         ExecutionExit::Host(HostExit::Return)
     );
     assert_eq!(
@@ -117,10 +114,7 @@ async fn check_unsupported_service() {
     let mut dos = common::dos().await;
     dos.launch_com(&[0xb4, 0xfe, 0xcd, 0x21], Default::default())
         .unwrap();
-    assert_eq!(
-        dos.cpu().run(10).await,
-        ExecutionExit::Host(HostExit::Return)
-    );
+    assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         dos.process().unwrap().status(),
         ProcessStatus::Exited(Err(ServiceError::UnsupportedFunction(0xfe)))
@@ -153,10 +147,7 @@ async fn check_unterminated_string() {
     dos.launch_com(&image, Default::default()).unwrap();
     dos.cpu().context().memory.write(0x3ffff, b"Z").unwrap();
     dos.cpu().context().memory.write(0x30000, b"A").unwrap();
-    assert_eq!(
-        dos.cpu().run(u64::MAX).await,
-        ExecutionExit::Host(HostExit::Return)
-    );
+    assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         dos.process().unwrap().status(),
         ProcessStatus::Exited(Err(ServiceError::UnterminatedString))

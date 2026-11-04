@@ -39,11 +39,14 @@ async fn redirected_hook() {
         }))
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     input.send(7);
-    assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(starts.get(), 2);
     assert_eq!(input.consumed.get(), 0);
     assert_eq!(
@@ -81,12 +84,18 @@ async fn explicit_abandonment() {
         }))
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(state.eip(), 0x400);
     input.send(7);
-    assert_eq!(runner.run(10).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(
         input.consumed.get(),
         0,
@@ -105,7 +114,7 @@ async fn explicit_abandonment() {
         })])
         .await
         .unwrap();
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     drop(runner);
     assert_eq!(drops.get(), 1);
     state.set_ax(99);
@@ -152,18 +161,18 @@ async fn destruction_order() {
             }))
             .await
             .unwrap();
-        pending(runner.run(10));
+        pending(runner.run());
         for _ in 0..2 {
             irq.borrow_mut().raise();
-            pending(runner.run(10));
+            pending(runner.run());
         }
         assert_eq!(starts.get(), 3);
         let before = state.snapshot();
         if stopping {
             runner.exit_handle().request();
-            assert_eq!(runner.run(0).await, ExecutionExit::BudgetExhausted);
+            drop(runner.run());
             assert!(order.borrow().is_empty());
-            assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+            assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
             assert_eq!(*order.borrow(), [2, 1, 0]);
         }
         drop(runner);
@@ -203,29 +212,32 @@ async fn replacement_irq_waker() {
         }))
         .await
         .unwrap();
+    let interrupt = runner.interrupt_handle();
     let previous = Arc::new(Wakes::default());
     let current = Arc::new(Wakes::default());
     let old_waker = Waker::from(previous.clone());
     let new_waker = Waker::from(current.clone());
     {
-        let mut run = pin!(runner.run(10));
+        let mut run = pin!(runner.run());
         assert!(run
             .as_mut()
             .poll(&mut Context::from_waker(&old_waker))
             .is_pending());
     }
     {
-        let mut run = pin!(runner.run(1));
+        let mut run = pin!(runner.run());
         let mut cx = Context::from_waker(&new_waker);
         assert!(run.as_mut().poll(&mut cx).is_pending());
         irq.borrow_mut().raise();
+        interrupt.request();
         assert_eq!(previous.0.load(Ordering::Relaxed), 0);
         assert_eq!(current.0.load(Ordering::Relaxed), 1);
         assert_eq!(
             run.as_mut().poll(&mut cx),
-            Poll::Ready(ExecutionExit::BudgetExhausted)
+            Poll::Ready(ExecutionExit::Interrupted)
         );
     }
+    assert!(interrupt.take());
     assert_eq!(runner.cpu_state().eip(), 0x306);
     assert_eq!(irq.borrow().acknowledged, 1);
 }
@@ -255,9 +267,9 @@ async fn abandon_outer_while_inner_waits() {
         }))
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    pending(runner.run(10));
+    pending(runner.run());
     assert_eq!(starts.get(), 2);
     let before = state.snapshot();
     assert!(state.interrupts_enabled());
@@ -265,11 +277,11 @@ async fn abandon_outer_while_inner_waits() {
     assert_eq!(state.snapshot(), before);
     assert_eq!(drops.get(), 1);
     inputs[0].send(10);
-    pending(runner.run(10));
+    pending(runner.run());
     assert_eq!(inputs[0].consumed.get(), 0);
     assert_eq!(drops.get(), 1);
     inputs[1].send(20);
-    assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(state.ax(), 20);
     assert_eq!(inputs[1].consumed.get(), 1);
     assert_eq!(drops.get(), 2);
@@ -332,9 +344,9 @@ async fn guest_return() {
         }))
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(drops.get(), 1);
     assert!(!state.interrupts_enabled());
     assert_eq!(state.eip(), 0x300);

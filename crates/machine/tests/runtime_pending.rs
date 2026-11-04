@@ -149,19 +149,19 @@ async fn check_pending_calls() {
         .await
         .unwrap();
 
-    assert_pending(runtime.run(6));
+    assert_pending(runtime.run());
     let shared = runtime.memory();
     let reader = shared.view();
-    assert_pending(runtime.run(100));
+    assert_pending(runtime.run());
     assert_eq!(state.started.get(), 1);
-    assert_eq!(runtime.run(0).await, ExecutionExit::BudgetExhausted);
     // An unpolled run has no effect on the retained service.
-    drop(runtime.run(5));
+    drop(runtime.run());
+    let interrupt = runtime.interrupt_handle();
     let wakes = Arc::new(WakeCount::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
     {
-        let mut run = pin!(runtime.run(5));
+        let mut run = pin!(runtime.run());
         assert!(run.as_mut().poll(&mut cx).is_pending());
         state.send(&[10]);
         assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
@@ -176,13 +176,15 @@ async fn check_pending_calls() {
         assert_eq!(reader.read_u16(0x300).unwrap(), 30);
         assert_eq!(state.started.get(), 2);
         assert_eq!(state.completed.get(), 1);
+        interrupt.request();
         state.send(&[30, 40]);
         assert!(matches!(
             run.as_mut().poll(&mut cx),
-            Poll::Ready(ExecutionExit::BudgetExhausted)
+            Poll::Ready(ExecutionExit::Interrupted)
         ));
     }
-    // Both suspensions shared the original target, ending at the second IRET.
+    assert!(interrupt.take());
+    // Both suspensions retain their locals; the interrupt stops at the second IRET.
     assert_eq!(state.started.get(), 2);
     assert_eq!(state.first_awaits.get(), 2);
     assert_eq!(state.completed.get(), 2);
@@ -201,7 +203,7 @@ async fn check_pending_calls() {
     // Dropping a waiter leaves the future, its local references and partial
     // effects intact. The service retains exclusive access until it returns.
     {
-        let mut run = pin!(runtime.run(10));
+        let mut run = pin!(runtime.run());
         assert!(run.as_mut().poll(&mut cx).is_pending());
         state.send(&[55]);
         assert!(run.as_mut().poll(&mut cx).is_pending());
@@ -210,9 +212,12 @@ async fn check_pending_calls() {
     assert_eq!(state.started.get(), 3);
     assert_eq!(state.completed.get(), 2);
     state.send(&[65]);
-    assert_eq!(runtime.run(0).await, ExecutionExit::BudgetExhausted);
+    drop(runtime.run());
     assert_eq!(state.completed.get(), 2);
-    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runtime).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(runtime.context().cpu.bx(), 120);
     assert_eq!(state.started.get(), 3);
     assert_eq!(state.completed.get(), 3);
@@ -225,7 +230,10 @@ async fn check_pending_calls() {
         .memory
         .write(0x400, &[0xeb, 0xfe])
         .unwrap();
-    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runtime).await,
+        ExecutionExit::Interrupted
+    );
     let count = runtime.context().cpu.instruction_count();
     runtime
         .context()
@@ -249,13 +257,13 @@ async fn check_pending_calls() {
         })])
         .await
         .unwrap();
-    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runtime.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runtime.context().cpu.cx(), 100);
     assert_eq!(runtime.context().cpu.eip(), 0x500);
     assert_eq!(runtime.context().cpu.instruction_count(), count);
 
     runtime.context().cpu.set_eip(0x100);
-    assert_pending(runtime.run(10));
+    assert_pending(runtime.run());
     assert_eq!(state.dropped.get(), 3);
     let retained_cpu = runtime.cpu_state();
     assert_eq!(retained_cpu.eip(), 0x201);
@@ -267,13 +275,13 @@ async fn check_pending_calls() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn pending_services_survive_waiter_changes_and_preserve_each_run_budget() {
+fn pending_services_preserve_locals_across_waiters_and_execution_interrupts() {
     pollster::block_on(check_pending_calls());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn pending_services_survive_waiter_changes_and_preserve_each_run_budget() {
+async fn pending_services_preserve_locals_across_waiters_and_execution_interrupts() {
     check_pending_calls().await;
 }
 
@@ -308,10 +316,10 @@ async fn check_completed_replacement() {
         })])
         .await
         .unwrap();
-    assert_pending(runtime.run(1));
+    assert_pending(runtime.run());
     assert!(released.upgrade().is_some());
     state.send(&[42]);
-    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runtime.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runtime.context().cpu.ax(), 42);
     // Completion drops the invocation; replacing the registration releases
     // the final owner of its captures.
@@ -328,7 +336,7 @@ async fn check_completed_replacement() {
         .await
         .unwrap();
     assert!(released.upgrade().is_none());
-    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runtime.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runtime.context().cpu.ax(), 99);
 }
 
@@ -395,13 +403,13 @@ async fn check_custom_completion() {
     })])
     .await
     .unwrap();
-    assert_pending(cpu.run(1));
+    assert_pending(cpu.run());
     // Captured resource storage stays stable when its runner moves.
     let mut moved = Box::new(cpu);
-    assert_eq!(moved.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(moved.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(moved.context().cpu.ax(), 55);
     assert_eq!(moved.context().cpu.bx(), 99);
-    assert_pending(moved.run(1));
+    assert_pending(moved.run());
     let state = moved.cpu_state();
     state.set_ax(77);
     // Abandonment releases the future without running its completion effects.
@@ -458,12 +466,12 @@ async fn check_completion_and_abandonment() {
             })])
             .await
             .unwrap();
-        assert_pending(runner.run(1));
+        assert_pending(runner.run());
         state.set_eflags(0x603); // Live IF, DF and carry can change while parked.
         input.send(&[42]);
         assert_eq!(input.completed.get(), 0); // Readiness alone does not poll it.
         if complete {
-            assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+            assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
             assert_eq!(state.eflags(), 0x403);
             assert_eq!(state.ax(), 42);
         }

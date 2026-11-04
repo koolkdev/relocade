@@ -1,3 +1,5 @@
+#[path = "../../machine/tests/support/execution.rs"]
+mod execution;
 use relocade_bios::{KeyStroke, Keyboard};
 use relocade_machine::{
     real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, DeviceConnection, IoBus,
@@ -104,7 +106,7 @@ async fn machine(keyboard: &Keyboard, timer: &Rc<RefCell<Timer>>) -> Cpu {
         )
         .unwrap();
     // IRQ0: INC word [046Ch]; INT 1Ah/AH=00h; save DX; change BX; IRET.
-    // Short jumps delimit blocks so budget exits can stop before nested BIOS entry
+    // Short jumps delimit blocks so checkpoints can stop before nested BIOS entry
     // and IRQ return without depending on straight-line instruction granularity.
     memory
         .view()
@@ -133,10 +135,13 @@ async fn clock_during_wait() {
     let state = cpu.cpu_state();
     let memory = cpu.memory();
     let entry = memory.view().read_u32(0x16 * 4).unwrap();
-    pending(cpu.run(100));
+    pending(cpu.run());
     assert!(state.interrupts_enabled());
     timer.borrow_mut().tick();
-    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::checkpoint(&mut cpu).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(state.eip(), 0x306);
     assert_eq!(memory.view().read_u16(0x7ff4).unwrap(), entry as u16 + 1);
     assert_eq!(
@@ -144,27 +149,42 @@ async fn clock_during_wait() {
         (entry >> 16) as u16
     );
     assert_ne!(memory.view().read_u16(0x7ff8).unwrap() & 0x200, 0);
-    pending(cpu.run(100));
+    pending(cpu.run());
     assert_eq!(memory.view().read_u32(0x46c).unwrap(), 1);
     assert_eq!(memory.view().read_u16(0x504).unwrap(), 1);
 
     timer.borrow_mut().tick();
-    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::checkpoint(&mut cpu).await,
+        ExecutionExit::Interrupted
+    );
     keyboard.push(KEY);
     // Finish the nested clock call, then the IRQ's IRET. Readiness alone must not
     // consume the key while the guest ISR or its nested BIOS call owns execution.
-    assert_eq!(cpu.run(3).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::run_until(&mut cpu, 0x30a).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(state.eip(), 0x30a);
     assert_eq!(keyboard.peek_key(), Some(KEY));
-    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::run_until(&mut cpu, 0x313).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(state.eip(), 0x313);
     assert_eq!(keyboard.peek_key(), Some(KEY));
-    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::checkpoint(&mut cpu).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(state.segment(Segment::Cs).selector, (entry >> 16) as u16);
     assert_eq!(state.eip(), u32::from(entry as u16 + 1));
     assert_eq!(keyboard.peek_key(), Some(KEY));
 
-    assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::run_until(&mut cpu, 0x10d).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(keyboard.peek_key(), None);
     assert_eq!(memory.view().read_u16(0x500).unwrap(), 0x254b);
     assert_eq!(memory.view().read_u16(0x502).unwrap(), 2);
@@ -186,7 +206,10 @@ async fn ready_services() {
         .unwrap();
     keyboard.push(KEY);
     timer.borrow_mut().tick();
-    assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::run_until(&mut cpu, 0x111).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(cpu.memory().view().read_u16(0x500).unwrap(), 0x254b);
     assert_eq!(
         timer.borrow().acknowledged,
@@ -207,9 +230,12 @@ async fn abandon_during_irq() {
         .view()
         .write(0x304, &[0xfb, 0xeb, 0xfe])
         .unwrap();
-    pending(cpu.run(100));
+    pending(cpu.run());
     timer.borrow_mut().tick();
-    assert_eq!(cpu.run(2).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::checkpoint(&mut cpu).await,
+        ExecutionExit::Interrupted
+    );
     keyboard.push(KEY);
     let before = state.snapshot();
     assert!(state.interrupts_enabled());
@@ -234,10 +260,10 @@ async fn bios_timer_rollover() {
     state.set_cx(0x5678);
     state.set_dx(0x9abc);
     state.set_eflags(0x443);
-    pending(cpu.run(100));
+    pending(cpu.run());
     let before = state.snapshot();
     timer.borrow_mut().tick();
-    pending(cpu.run(100));
+    pending(cpu.run());
     let after = state.snapshot();
     assert_eq!(after.registers, before.registers);
     assert_eq!(after.segments, before.segments);
@@ -246,7 +272,10 @@ async fn bios_timer_rollover() {
     assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
     assert_eq!(memory.view().read_u8(0x470).unwrap(), 2);
     keyboard.push(KEY);
-    assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        execution::run_until(&mut cpu, 0x10d).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(memory.view().read_u8(0x470).unwrap(), 0);
     assert_eq!(memory.view().read_u16(0x502).unwrap(), 0);
     assert_eq!(cpu.cpu_state().sp(), 0x8000);

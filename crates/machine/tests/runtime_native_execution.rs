@@ -34,44 +34,34 @@ fn runtime(code: &[u8]) -> Cpu {
 }
 
 #[test]
-fn budget_checks_resume_at_block_boundaries() {
+fn steps_publish_each_instruction_and_retirement_wraps() {
     let mut runtime = runtime(&[0x40, 0x43, 0xeb, 0xfc]); // INC AX; INC BX; JMP 0100
-    let initial = runtime.context().cpu.snapshot();
-    assert_eq!(
-        pollster::block_on(runtime.run(0)),
-        ExecutionExit::BudgetExhausted
-    );
-    assert_eq!(runtime.context().cpu.snapshot(), initial);
+    let initial = runtime.cpu_state().snapshot();
+    drop(runtime.run()); // An unpolled waiter does not execute guest code.
+    assert_eq!(runtime.cpu_state().snapshot(), initial);
     for iteration in 1..=3 {
-        assert_eq!(
-            pollster::block_on(runtime.run(1)),
-            ExecutionExit::BudgetExhausted
-        );
-        let cpu = runtime.context().cpu.snapshot();
+        support::steps(&mut runtime, 1);
+        assert_eq!(runtime.cpu_state().eip(), 0x101);
+        assert_eq!(runtime.cpu_state().ax(), iteration);
+        assert_eq!(runtime.cpu_state().bx(), iteration - 1);
+        support::steps(&mut runtime, 2);
+        let cpu = runtime.cpu_state().snapshot();
         assert_eq!(
             (cpu.registers.eax, cpu.registers.ebx, cpu.eip),
-            (iteration, iteration, 0x100)
+            (u32::from(iteration), u32::from(iteration), 0x100)
         );
         assert_eq!(cpu.instruction_count, u64::from(iteration) * 3);
     }
-    runtime.context().cpu.set_instruction_count(u64::MAX - 3);
-    runtime.context().cpu.set_eax(40);
-    assert_eq!(
-        pollster::block_on(runtime.run(10)),
-        ExecutionExit::BudgetExhausted
-    );
-    assert_eq!(runtime.context().cpu.instruction_count(), u64::MAX);
-    assert_eq!(runtime.context().cpu.eax(), 41);
+    runtime.cpu_state().set_instruction_count(u64::MAX - 1);
+    support::steps(&mut runtime, 3);
+    assert_eq!(runtime.cpu_state().instruction_count(), 1);
 }
 
 #[test]
 fn runtimes_keep_private_cpu_and_backing() {
     let mut first = runtime(&[0xb8, 0x34, 0x12, 0xa3, 0, 2, 0xeb, 0]);
     let mut second = runtime(&[0x90]);
-    assert_eq!(
-        pollster::block_on(first.run(1)),
-        ExecutionExit::BudgetExhausted
-    );
+    support::steps(&mut first, 3);
     let mut bytes = [0; 2];
     first.context().memory.read(0x200, &mut bytes).unwrap();
     assert_eq!(bytes, [0x34, 0x12]);
@@ -117,7 +107,7 @@ fn host_backing_access_respects_configured_capacity() {
 fn guest_exits_preserve_progress_and_live_code_can_be_replaced() {
     let mut runtime = runtime(&[0x40, 0x0f, 0x0b]); // INC AX; UD2
     assert_eq!(
-        pollster::block_on(runtime.run(u64::MAX)),
+        pollster::block_on(runtime.run()),
         ExecutionExit::Exception(Exception::InvalidOpcode)
     );
     assert_eq!(
@@ -134,7 +124,7 @@ fn guest_exits_preserve_progress_and_live_code_can_be_replaced() {
         .write(0x101, &[0x40, 0xf4])
         .unwrap(); // INC AX; unsupported HLT
     assert_eq!(
-        pollster::block_on(runtime.run(u64::MAX)),
+        pollster::block_on(runtime.run()),
         ExecutionExit::UnsupportedInstruction {
             eip: 0x102,
             opcode: 0xf4
@@ -192,10 +182,7 @@ fn guest_access_uses_the_map_and_open_bus() {
         .memory
         .write_backing(0x1000, &[0x34, 0x12])
         .unwrap();
-    assert_eq!(
-        pollster::block_on(runtime.run(6)),
-        ExecutionExit::BudgetExhausted
-    );
+    support::steps(&mut runtime, 6);
     assert_eq!(
         (runtime.context().cpu.eax(), runtime.context().cpu.ebx()),
         (0x12ff, 0xffff)
@@ -219,10 +206,7 @@ fn real_interrupt_executes_handler_and_returns_through_saved_frame() {
         .memory
         .write(0x1010, &[0xb8, 0xef, 0xbe, 0xcf])
         .unwrap(); // MOV AX,BEEF; IRET
-    assert_eq!(
-        pollster::block_on(runtime.run(1)),
-        ExecutionExit::BudgetExhausted
-    );
+    support::steps(&mut runtime, 1);
     assert_eq!(
         (
             runtime.context().cpu.segment(Segment::Cs).selector,
@@ -230,10 +214,7 @@ fn real_interrupt_executes_handler_and_returns_through_saved_frame() {
         ),
         (0x100, 0x10)
     );
-    assert_eq!(
-        pollster::block_on(runtime.run(1)),
-        ExecutionExit::BudgetExhausted
-    );
+    support::steps(&mut runtime, 2);
     assert_eq!(
         (
             runtime.context().cpu.segment(Segment::Cs).selector,
@@ -263,12 +244,9 @@ fn prepared_code_uses_configured_cpu_features() {
     let code = [0x0f, 0x44, 0xc0, 0xeb, 0]; // CMOVE AX,AX; JMP next
     enabled.context().memory.write(0x100, &code).unwrap();
     disabled.context().memory.write(0x100, &code).unwrap();
+    assert_eq!(enabled.step(), ExecutionExit::StepComplete);
     assert_eq!(
-        pollster::block_on(enabled.run(1)),
-        ExecutionExit::BudgetExhausted
-    );
-    assert_eq!(
-        pollster::block_on(disabled.run(1)),
+        disabled.step(),
         ExecutionExit::Exception(Exception::InvalidOpcode)
     );
 }

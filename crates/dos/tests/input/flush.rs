@@ -19,15 +19,18 @@ fn flush_then_read_waits_for_new_input_in_the_existing_interrupt_frame() {
                 cpu.set_dx(0x400);
                 cpu.set_eflags(0x643);
             }
-            crate::common::assert_pending(dos.cpu().run(10));
+            crate::common::assert_pending(dos.cpu().run());
             assert!(common::output(dos.stdout()).is_empty());
             assert_eq!(dos.cpu().memory().view().read_u16(0x1fff8).unwrap(), 0x102);
             // Calling run again cannot flush input or push another interrupt frame.
-            crate::common::assert_pending(dos.cpu().run(10));
+            crate::common::assert_pending(dos.cpu().run());
             dos.stdin()
                 .write_all(if function == 0x0a { b"K\r" } else { b"K" })
                 .unwrap();
-            assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                crate::common::run_until(dos.cpu(), 0x102).await,
+                ExecutionExit::Interrupted
+            );
             {
                 let machine = dos.cpu().context();
                 if function == 0x0a {

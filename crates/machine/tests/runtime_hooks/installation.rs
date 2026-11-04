@@ -50,10 +50,10 @@ async fn replacement() {
     runner.install([resume(0x202)]).await.unwrap();
     assert_eq!(Rc::strong_count(&owner), 2);
     state.set_eip(0x200);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     for address in [0x201, 0x202] {
         state.set_eip(address);
-        assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Resume));
+        assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Resume));
     }
 
     // Replacing the host entry releases only that handler's captures.
@@ -66,9 +66,12 @@ async fn replacement() {
     assert_eq!(Rc::strong_count(&owner), 1);
     runner.memory().view().write(0x200, &[0xeb, 0xfe]).unwrap();
     state.set_eip(0x200);
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     state.set_eip(0x201);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Resume));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Resume));
 
     // Reinstalling the adapter supplies all three positions again.
     runner
@@ -79,10 +82,13 @@ async fn replacement() {
         .await
         .unwrap();
     state.set_eip(0x200);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     // The return entry is back to the interpreter, which reads live guest bytes.
     runner.memory().view().write(0x202, &[0xeb, 0xfe]).unwrap();
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
 
     // Duplicate addresses use the final declaration, including across entry kinds.
     let discarded = Rc::new(());
@@ -99,7 +105,7 @@ async fn replacement() {
         .unwrap();
     assert!(released.upgrade().is_none());
     state.set_eip(0x210);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Resume));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Resume));
 }
 
 async fn module_publication() {
@@ -153,7 +159,7 @@ async fn module_publication() {
         "failed publication retains captures"
     );
     state.set_eip(0x200);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
 
     runner
         .install_module(
@@ -180,9 +186,9 @@ async fn module_publication() {
     // Exports from one module also remain independently replaceable.
     runner.install([resume(0x210)]).await.unwrap();
     state.set_eip(0x210);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Resume));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Resume));
     state.set_eip(0x200);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
 }
 
 #[cfg(not(target_arch = "wasm32"))]

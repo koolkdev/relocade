@@ -58,10 +58,10 @@ async fn checkpoints() {
         interrupt.request();
         interrupt.request();
         state.restore(&saved).unwrap();
-        assert_eq!(cpu.run(0).await, ExecutionExit::BudgetExhausted);
+        drop(cpu.run());
         assert_eq!(state.snapshot(), saved);
         for iteration in 1..=2 {
-            assert_eq!(cpu.run(100).await, ExecutionExit::Interrupted);
+            assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
             assert_eq!(state.ax(), iteration);
             assert_eq!(state.bx(), iteration);
             assert_eq!(state.eip(), 0x100);
@@ -70,11 +70,11 @@ async fn checkpoints() {
         }
         assert!(interrupt.take());
         assert!(!interrupt.take());
-        assert_eq!(cpu.run(3).await, ExecutionExit::BudgetExhausted);
+        support::steps(&mut cpu, 3);
         assert_eq!(state.ax(), 3);
-        // Another request also survives a coincident budget boundary.
+        // A fresh request returns through the same compiled or interpreted boundary.
         interrupt.request();
-        assert_eq!(cpu.run(3).await, ExecutionExit::Interrupted);
+        assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
         assert_eq!(state.ax(), 4);
         drop(cpu);
         assert!(interrupt.take());
@@ -87,14 +87,14 @@ async fn protected_step() {
         let mut cpu = cpu(&[0xfb, 0x40, 0xeb, 0xfe], compiled, IoBus::default()).await;
         let interrupt = cpu.interrupt_handle();
         interrupt.request();
-        assert_eq!(cpu.run(1).await, ExecutionExit::Interrupted);
+        assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
         let state = cpu.cpu_state();
         assert!(state.interrupts_enabled());
         assert_eq!(state.ax(), 1);
         assert_eq!(state.eip(), 0x102);
         assert_eq!(state.instruction_count(), 2);
         assert!(interrupt.take());
-        assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+        support::steps(&mut cpu, 1);
         assert_eq!(state.instruction_count(), 3);
     }
 }

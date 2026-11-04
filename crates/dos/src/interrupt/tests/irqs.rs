@@ -73,7 +73,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     dos.start_process(psp);
     cpu.cpu_state().set_eflags(2);
     memory.view().write(8 * 4, &[0, 3, 0, 0]).unwrap();
-    // Jump ends the first block so a budget can park execution inside the ISR.
+    // Jump ends the first block so a checkpoint can park execution inside the ISR.
     // AH=46h replaces stdout with stderr, then stdin with AUX. Neither replacement
     // may redirect the outer request's already captured resources.
     memory
@@ -126,10 +126,13 @@ fn irq_reentry_preserves_dos_input_resources_and_arguments() {
                     .unwrap();
                 input.write_all(b"A").unwrap(); // Retain a partial raw transfer.
             }
-            pending(cpu.run(100));
+            pending(cpu.run());
             assert!(state.interrupts_enabled());
             irq.borrow_mut().raise();
-            assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                execution::checkpoint(&mut cpu).await,
+                ExecutionExit::Interrupted
+            );
             assert_eq!(state.eip(), 0x305);
             input
                 .write_all(match function {
@@ -140,9 +143,15 @@ fn irq_reentry_preserves_dos_input_resources_and_arguments() {
                 .unwrap();
             // The next block enters nested INT 21h. Waking the outer input must
             // not poll it before the guest returns to its Resume entry.
-            assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                execution::checkpoint(&mut cpu).await,
+                ExecutionExit::Interrupted
+            );
             assert!(input.peek_key().is_some());
-            assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                execution::run_until(&mut cpu, 0x102).await,
+                ExecutionExit::Interrupted
+            );
             {
                 let process = dos.process().unwrap();
                 let files = process.files();
@@ -215,7 +224,10 @@ fn ready_dos_input_finishes_without_delivering_an_irq() {
         cpu.cpu_state().set_ah(0x07);
         dos.stdio().input.clone().write_all(b"K").unwrap();
         irq.borrow_mut().raise();
-        assert_eq!(cpu.run(100).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            execution::run_until(&mut cpu, 0x102).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(cpu.cpu_state().al(), b'K');
         assert!(!cpu.cpu_state().interrupts_enabled());
         assert_eq!(irq.borrow().acknowledged, 0);

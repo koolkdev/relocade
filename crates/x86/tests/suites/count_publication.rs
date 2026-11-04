@@ -78,8 +78,8 @@ fn only_exits_with_progress_read_and_write_instruction_count() {
     }
     // The first read's fault has no progress to publish. Two later faults each
     // publish their completed count. Success publishes once before the execution
-    // interrupt, budget and dispatch paths split; later exits add no counter traffic.
-    assert_eq!(exits, [(0, 0), (1, 1), (1, 1), (1, 1), (0, 0), (0, 0)]);
+    // interrupt and dispatch paths split; later exits add no counter traffic.
+    assert_eq!(exits, [(0, 0), (1, 1), (1, 1), (1, 1), (0, 0)]);
     assert_eq!((loads, stores), (0, 0));
 }
 
@@ -171,7 +171,9 @@ fn instruction_counts_reread_host_changes_between_invocations() {
             snapshot: snapshot.clone(),
         });
         events.push(Event::Return {
-            outcome: crate::support::step::returned(relocade_x86::ExecutionExit::BudgetExhausted),
+            outcome: crate::support::step::returned(relocade_x86::ExecutionExit::Host(
+                relocade_x86::HostExit::Return,
+            )),
             snapshot,
         });
     }

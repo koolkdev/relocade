@@ -82,7 +82,7 @@ async fn callback_wakes_execution() {
         );
         // No timer, input or cooperative yield can supply this request. The
         // real CPAL callback must free channel capacity while Wasm stays busy.
-        assert_eq!(cpu.run(u64::MAX).await, ExecutionExit::Interrupted);
+        assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
         submission.await.unwrap();
     });
     timeout(registered).await.unwrap();

@@ -56,12 +56,15 @@ async fn guest_effects() {
         }))
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     input.send(7);
     assert_eq!(input.consumed.get(), 0);
-    assert_eq!(runner.run(100).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(input.consumed.get(), 1);
 }
 
@@ -95,13 +98,16 @@ async fn top_frame_resume() {
             })
         });
     runner.install(hooks).await.unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    pending(runner.run(10));
+    pending(runner.run());
     assert_eq!(starts.get(), 2);
     runner.memory().view().write(0x180, &[0, 3, 0, 0]).unwrap();
     irq.borrow_mut().raise();
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     inputs[0].send(10);
     inputs[1].send(20);
     // Return through the outer service's resume entry instead of the inner's.
@@ -111,7 +117,10 @@ async fn top_frame_resume() {
         .view()
         .write_u16(u32::from(state.sp()), 0x201)
         .unwrap();
-    assert_eq!(runner.run(10).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::run_until(&mut runner, 0x102).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(*finished.borrow(), [(1, 20), (0, 10)]);
     assert_eq!(inputs[0].consumed.get(), 1);
     assert_eq!(inputs[1].consumed.get(), 1);
@@ -119,7 +128,7 @@ async fn top_frame_resume() {
     state.set_eip(0x201); // No suspended frame remains.
     let before = state.snapshot();
     assert!(matches!(
-        runner.run(10).await,
+        runner.run().await,
         ExecutionExit::Host(HostExit::Resume)
     ));
     assert_eq!(state.snapshot(), before);
@@ -143,13 +152,13 @@ async fn failed_entry() {
         }))
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     state.set_sp(4);
     let before = state.snapshot();
     assert_eq!(before.eip, 0x201);
     irq.borrow_mut().raise();
     assert_eq!(
-        runner.run(10).await,
+        runner.run().await,
         ExecutionExit::Exception(Exception::StackFault { error_code: 0 })
     );
     assert_eq!(
@@ -161,7 +170,10 @@ async fn failed_entry() {
     assert_eq!(drops.get(), 0);
     state.set_sp(0x7ffa);
     input.send(42);
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(state.ax(), 42);
     assert_eq!(state.sp(), 0x8000);
     assert_eq!(drops.get(), 1);
@@ -187,10 +199,10 @@ async fn isr_fault_and_repair() {
         }))
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
     assert_eq!(
-        runner.run(10).await,
+        runner.run().await,
         ExecutionExit::Exception(Exception::GeneralProtection { error_code: 0 })
     );
     assert_eq!(state.eip(), 0x300);
@@ -198,7 +210,7 @@ async fn isr_fault_and_repair() {
     assert!(!state.interrupts_enabled());
     input.send(42);
     assert_eq!(
-        runner.run(10).await,
+        runner.run().await,
         ExecutionExit::Exception(Exception::GeneralProtection { error_code: 0 })
     );
     assert_eq!(
@@ -207,7 +219,10 @@ async fn isr_fault_and_repair() {
         "ISR faults cannot poll the parked call"
     );
     runner.context().memory.write(0x300, &[0xcf]).unwrap();
-    assert_eq!(runner.run(10).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::run_until(&mut runner, 0x102).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(input.consumed.get(), 1);
     assert_eq!(state.ax(), 42);
     assert_eq!(state.sp(), 0x8000);
@@ -243,14 +258,17 @@ async fn raw_hook_continuation() {
         ])
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(irq.borrow().acknowledged, 1);
     assert_eq!(runner.memory().view().read_u16(0x7ff4).unwrap(), 0x600);
     input.send(42);
     assert_eq!(input.consumed.get(), 0);
-    assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(state.ax(), 42);
     assert_eq!(state.eip(), 0x600);
     assert_eq!(input.consumed.get(), 1);
@@ -290,7 +308,7 @@ async fn protected_software_interrupt() {
         .await
         .unwrap();
     irq.borrow_mut().raise();
-    pending(runner.run(20));
+    pending(runner.run());
     assert_eq!(starts.get(), 1);
     assert_eq!(
         irq.borrow().acknowledged,
@@ -300,7 +318,10 @@ async fn protected_software_interrupt() {
     assert_eq!(runner.memory().view().read_u16(0x500).unwrap(), 1);
     assert_eq!(state.sp(), 0x7ffa);
     input.send(42);
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(state.ax(), 42);
     assert_eq!(state.sp(), 0x8000);
     assert_eq!(state.eip(), 0x103);

@@ -255,7 +255,7 @@ async fn saturated_count() {
         assert_eq!(
             runner.run_cpu(&mut cpu).await,
             ExecutionExit::Host(relocade_x86::HostExit::Return),
-            "a fresh nonzero quantum must still enter a host service at a saturated count"
+            "the retirement statistic must not prevent entering a host service"
         );
     });
     assert_eq!(worker.join().await.unwrap(), Some(()));
@@ -263,75 +263,14 @@ async fn saturated_count() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn fresh_quantum_can_exit_at_a_saturated_instruction_count() {
+fn retirement_count_does_not_control_execution() {
     pollster::block_on(saturated_count());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn fresh_quantum_can_exit_at_a_saturated_instruction_count() {
+async fn retirement_count_does_not_control_execution() {
     saturated_count().await;
-}
-
-async fn remaining_quantum() {
-    use std::{
-        future::{poll_fn, Future},
-        task::Poll,
-    };
-    let (clock, _timers) = timer_service();
-    let (entered, running) = oneshot::channel();
-    let sent = Arc::new(AtomicBool::new(false));
-    let worker_sent = sent.clone();
-    let (send, mut input) = mpsc::unbounded();
-    let worker = ExecutionWorker::spawn(clock, async move |runner| {
-        let device = Rc::new(RefCell::new(InputDevice {
-            entered: Some(entered),
-            sent: worker_sent,
-            input: Some(Box::pin(async move { vec![input.next().await.unwrap()] })),
-            values: Vec::new(),
-            exit: None,
-            interrupt: None,
-        }));
-        let io = IoBus::new([runner
-            .connect(device.clone(), [], std::iter::once(0x80..=0x80))
-            .await]);
-        let mut cpu = cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], true, io, Some(runner)).await;
-        device.borrow_mut().interrupt = Some(cpu.interrupt_handle());
-        let state = cpu.cpu_state();
-        let mut run = std::pin::pin!(runner.run_cpu(&mut cpu));
-        let count = poll_fn(|cx| {
-            assert!(run.as_mut().poll(cx).is_pending());
-            let count = state.instruction_count();
-            if count >= 10_000 {
-                Poll::Ready(count)
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-        let values = device.borrow().values.clone();
-        (count, values)
-    });
-    running.await.unwrap();
-    send.unbounded_send(7).unwrap();
-    sent.store(true, Ordering::SeqCst);
-    assert_eq!(
-        worker.join().await.unwrap(),
-        Some((10_000, vec![7])),
-        "an interrupted quantum must end at its original budget boundary"
-    );
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn input_notification_does_not_replenish_the_quantum() {
-    pollster::block_on(remaining_quantum());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn input_notification_does_not_replenish_the_quantum() {
-    remaining_quantum().await;
 }
 
 struct PublishInput(Option<oneshot::Sender<()>>);

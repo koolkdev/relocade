@@ -16,7 +16,7 @@ use std::{
 /// a program. The driver releases pending work and consumes the request before
 /// returning `ExecutionExit::Host(HostExit::Return)`.
 ///
-/// Requests remain pending until observed by a nonzero-budget run. This handle
+/// Requests remain pending until observed by a polled run. This handle
 /// does not wake suspended execution; session cancellation belongs to its owner.
 /// It retains only the request flag, independently of the CPU and backend.
 #[derive(Clone)]
@@ -39,39 +39,27 @@ impl Cpu {
         self.exit.clone()
     }
 
-    /// Runs until the instruction budget is consumed or the guest exits,
+    /// Runs until the guest exits or an execution interrupt is requested,
     /// awaiting host services as needed. Ready services complete in the same poll.
-    /// Whole blocks can exceed the budget; straight-line code and REP have no
-    /// fixed overshoot or elapsed-time bound. The target saturates at u64::MAX.
-    /// Guest checkpoints also return `Interrupted` when the shared host signal is
-    /// set, independently of IF. This preserves suspended calls and leaves the
-    /// signal set until its owner acknowledges it through `ExecutionInterrupt::take`.
-    /// Checkpoints are at completed blocks and after interpreter STEP; neither
-    /// straight-line execution nor REP has a fixed notification-latency bound yet.
+    /// Guest checkpoints return `Interrupted` independently of IF and preserve
+    /// suspended calls. The request remains set until its owner acknowledges it
+    /// with `ExecutionInterrupt::take`. Checkpoints occur at completed blocks;
+    /// straight-line execution and REP have no fixed notification-latency bound.
     ///
-    /// Waits do not replenish this run's budget. Dropping its waiter preserves
-    /// active and parked calls and their locals. A subsequent run continues from
-    /// the same active call or guest position with a new budget. A zero budget
-    /// returns `BudgetExhausted` without entering Wasm or polling pending work.
-    /// An observed exit request releases active and parked calls and returns
-    /// `HostExit::Return`. Dropping the waiter preserves both the calls and any
-    /// unobserved request; a zero budget consumes neither.
+    /// Dropping this waiter preserves active and parked calls and their locals.
+    /// A subsequent run continues from the same call or guest position. An observed
+    /// exit request releases retained calls and returns `HostExit::Return`.
     /// Dropping the CPU drops retained calls innermost first, before the machine.
+    ///
     /// Real-mode device IRQs are delivered at stopped guest boundaries according
     /// to live IF. Pending services establish their live guest resume position
     /// before suspending with IF enabled. IRQ entry saves that CS:IP normally.
     /// A suspended service stays parked until guest reaches a resume entry, even
     /// when its input becomes ready. Reentry starts a separate invocation.
-    /// Budget/fault exits and replacement waiters preserve parked calls.
+    /// Execution interrupts, guest faults and replacement waiters preserve parked calls.
     /// Guest IF-enabling instructions return to this same IRQ polling loop, so a
     /// request queued while masked needs no later notification to become eligible.
-    pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
-        if instruction_budget == 0 {
-            return ExecutionExit::BudgetExhausted;
-        }
-        // A replacement waiter supplies its budget at the next guest dispatch.
-        // Re-polling this same waiter never replenishes the budget.
-        let mut budget = Some(instruction_budget);
+    pub async fn run(&mut self) -> ExecutionExit {
         let exit = poll_fn(|cx| {
             if self.exit.0.get() {
                 return Poll::Ready(ExecutionExit::Host(HostExit::Return));
@@ -93,7 +81,7 @@ impl Cpu {
                     return Poll::Pending;
                 }
 
-                let exit = self.run_guest(budget.take());
+                let exit = self.run_guest();
                 if self.exit.0.get() {
                     continue;
                 }
@@ -146,9 +134,9 @@ impl Cpu {
 
     /// Runs guest code to the next host entry or guest exit, including any
     /// successor protected by an interrupt-inhibiting instruction.
-    fn run_guest(&mut self, budget: Option<u64>) -> ExecutionExit {
+    fn run_guest(&mut self) -> ExecutionExit {
         let machine = &mut self.machine;
-        let mut exit = machine.dispatch(budget);
+        let mut exit = machine.dispatch();
         // Finish protected successors before polling IRQs or returning for a
         // checkpoint. STEP publishes its result without dispatching the target.
         while exit == ExecutionExit::InterruptInhibited && !self.exit.0.get() {

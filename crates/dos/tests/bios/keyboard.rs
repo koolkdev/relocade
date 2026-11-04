@@ -26,8 +26,8 @@ fn invoke(dos: &mut Dos, ip: u32, ax: u16) -> CpuState {
         cpu.set_eflags(0x643);
     }
     assert_eq!(
-        pollster::block_on(dos.cpu().run(10)),
-        ExecutionExit::BudgetExhausted
+        pollster::block_on(crate::common::run_until(dos.cpu(), ip + 2)),
+        ExecutionExit::Interrupted
     );
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.ebx as u16, 0xabcd);
@@ -95,7 +95,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().run(10));
+            let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             assert!(run.as_mut().poll(&mut cx).is_pending());
             keyboard.push(KeyStroke {
                 character: 0,
@@ -104,7 +104,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(ExecutionExit::BudgetExhausted)
+                Poll::Ready(ExecutionExit::Interrupted)
             ));
         }
         {
@@ -122,7 +122,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             machine.cpu.set_ax(0);
         }
         {
-            let mut run = pin!(dos.cpu().run(10));
+            let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             assert!(run.as_mut().poll(&mut cx).is_pending());
         }
         keyboard.push(KeyStroke {
@@ -134,7 +134,10 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             dos.launch_com(PROGRAM, Default::default()),
             Err(LaunchError::ProcessActive)
         );
-        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::common::run_until(dos.cpu(), 0x102).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(dos.cpu().context().cpu.ax(), 0x2d58);
         // Termination preserves queued BIOS keys, including their scan codes.
         keyboard.push(KeyStroke {
@@ -146,10 +149,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             execution.cpu.set_eip(0x104); // PROGRAM's DOS INT 21h entry.
             execution.cpu.set_ax(0x4c00);
         }
-        assert_eq!(
-            dos.cpu().run(10).await,
-            ExecutionExit::Host(HostExit::Return)
-        );
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         let cpu = invoke(&mut dos, 0x100, 0x0100);
         assert_eq!(cpu.flags.eflags() & 0x40, 0);
@@ -158,7 +158,7 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         dos.cpu().context().cpu.set_eip(0x100);
         dos.cpu().context().cpu.set_ax(0);
         {
-            let mut run = pin!(dos.cpu().run(10));
+            let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             assert!(run.as_mut().poll(&mut cx).is_pending());
         }
         // Dropping the environment releases the pending read's input registration.

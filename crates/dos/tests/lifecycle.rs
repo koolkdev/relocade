@@ -104,7 +104,7 @@ fn normal_and_error_termination_release_process_resources() {
                 execution.cpu.set_ax(function);
             }
             assert_eq!(
-                pollster::block_on(dos.cpu().run(10)),
+                pollster::block_on(dos.cpu().run()),
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(
@@ -164,7 +164,7 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
 
         let mut input = dos.stdin();
         {
-            let mut run = pin!(dos.cpu().run(100));
+            let mut run = pin!(dos.cpu().run());
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             assert_eq!(first.status(), ProcessStatus::Active);
@@ -178,7 +178,7 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
             .unwrap();
         assert_eq!(dos.read_file("WAIT.TXT").unwrap(), b"available");
         {
-            let mut run = pin!(dos.cpu().run(100));
+            let mut run = pin!(dos.cpu().run());
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             assert_eq!(first.status(), ProcessStatus::Active);
@@ -207,7 +207,7 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
         assert_eq!(second.status(), ProcessStatus::Active);
         assert_eq!(first.status(), ProcessStatus::Exited(Ok(b'Q')));
         assert_eq!(
-            pollster::block_on(dos.cpu().run(100)),
+            pollster::block_on(dos.cpu().run()),
             ExecutionExit::Host(HostExit::Return)
         );
         drop(dos);
@@ -233,20 +233,20 @@ fn bios_input_can_complete_before_the_first_process_launch() {
             execution.cpu.set_sp(0x8000);
             execution.cpu.set_ax(0);
         }
-        common::assert_pending(dos.cpu().run(10));
+        common::assert_pending(dos.cpu().run());
         assert!(dos.process().is_none());
         dos.keyboard().push(relocade_bios::KeyStroke {
             character: b'X',
             scan_code: 0x2d,
         });
-        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::common::run_until(dos.cpu(), 0x7002).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(dos.cpu().context().cpu.ax(), 0x2d58);
         assert!(dos.process().is_none());
         dos.launch_com(&[0xc3], Default::default()).unwrap();
-        assert_eq!(
-            dos.cpu().run(10).await,
-            ExecutionExit::Host(HostExit::Return)
-        );
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
         assert_eq!(
             dos.process().unwrap().status(),
             ProcessStatus::Exited(Ok(0))

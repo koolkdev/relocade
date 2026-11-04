@@ -34,12 +34,14 @@ async fn exit_lifetime() {
     let mut runner = cpu(IoBus::default()).await;
     let exit = runner.exit_handle();
     exit.request();
-    drop(runner.run(1));
-    assert_eq!(runner.run(0).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    drop(runner.run());
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runner.cpu_state().eip(), 0x400);
     assert_eq!(runner.cpu_state().instruction_count(), 0);
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(runner.cpu_state().ax(), 1, "the exit request was consumed");
 
     runner
@@ -54,10 +56,13 @@ async fn exit_lifetime() {
         .await
         .unwrap();
     runner.cpu_state().set_eip(0x400);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runner.cpu_state().eip(), 0x401);
     assert_eq!(runner.cpu_state().ax(), 1, "the guest has not resumed");
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(runner.cpu_state().ax(), 2);
 }
 
@@ -85,7 +90,7 @@ async fn exit_pending_waiter() {
         .await
         .unwrap();
     {
-        let mut run = pin!(runner.run(1));
+        let mut run = pin!(runner.run());
         assert!(run
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
@@ -96,8 +101,8 @@ async fn exit_pending_waiter() {
     assert_eq!(input.dropped.get(), 0);
     cpu.set_eflags(0x603);
     input.send(&[42]);
-    assert_eq!(runner.run(0).await, ExecutionExit::BudgetExhausted);
-    assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+    drop(runner.run());
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         input.completed.get(),
         0,
@@ -150,11 +155,14 @@ async fn exit_during_poll() {
             })])
             .await
             .unwrap();
-        assert_eq!(runner.run(1).await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
         assert_eq!(dropped.get(), 1);
         assert_eq!(runner.cpu_state().instruction_count(), 0);
         runner.cpu_state().set_eip(0x401);
-        assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::support::checkpoint(&mut runner).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(
             runner.cpu_state().ax(),
             1,
@@ -199,7 +207,7 @@ async fn exit_during_guest() {
         })])
         .await
         .unwrap();
-    assert_eq!(runner.run(20).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert!(
         !started.get(),
         "observe the exit before entering another handler"

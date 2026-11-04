@@ -1,6 +1,5 @@
 use crate::common;
 use crate::common::inspection::{Cell, Cursor};
-use relocade_x86::ExecutionExit;
 
 #[test]
 fn guest_planar_programming_reaches_the_graphics_aperture() {
@@ -28,7 +27,7 @@ fn guest_planar_programming_reaches_the_graphics_aperture() {
             Default::default(),
         )
         .unwrap();
-        assert_eq!(dos.cpu().run(40).await, ExecutionExit::BudgetExhausted);
+        common::steps(dos.cpu(), 14);
         let context = dos.cpu().context();
         assert_eq!(context.cpu.al(), 0x5a);
         assert_eq!(context.memory.read_u8(0xa0000).unwrap(), 0x5a);
@@ -84,10 +83,7 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
             Default::default(),
         )
         .unwrap();
-        assert_eq!(
-            pollster::block_on(dos.cpu().run(10)),
-            ExecutionExit::BudgetExhausted
-        );
+        common::steps(dos.cpu(), 3);
         let screen = common::inspection::inspect(&vga.borrow().snapshot());
         assert_eq!(
             screen.cells[0],
@@ -138,7 +134,7 @@ fn guest_memory_and_ports_drive_vga_independently_of_bios_bookkeeping() {
                 .unwrap();
             context.cpu.set_eip(0x100);
         }
-        assert_eq!(dos.cpu().run(30).await, ExecutionExit::BudgetExhausted);
+        common::steps(dos.cpu(), 9);
         common::next_capture(&dos).await;
         let page = common::inspection::inspect(&vga.borrow().snapshot());
         assert_eq!(page.start_address, 0x3800);

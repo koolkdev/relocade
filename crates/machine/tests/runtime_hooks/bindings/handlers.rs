@@ -79,7 +79,10 @@ async fn check_handlers() {
     for (invocations, value) in [(1, 0x19), (2, 0x2e)] {
         runtime.context().cpu.set_bx(invocations);
         runtime.context().cpu.set_carry(true);
-        assert_eq!(runtime.run(7).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::support::run_until(&mut runtime, 0x100).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(calls.get(), invocations);
         assert_eq!(runtime.context().cpu.ax(), value);
         assert!(!runtime.context().cpu.carry());

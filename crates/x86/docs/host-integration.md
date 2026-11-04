@@ -51,7 +51,7 @@ selection. The model is host configuration, not mutable `CpuState`; keep it fixe
 for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
-count, checks execution interrupts and its instruction target, then tail-calls
+count, checks execution interrupts, then tail-calls
 `relocade.dispatch() -> ExecutionExit`. Dispatch reads the published EIP from CPU state,
 and its result is returned unchanged. EIP is an offset relative to CS and wraps
 at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
@@ -82,7 +82,6 @@ All execution entries share the declared `ExecutionContext` layout in
 #[repr(C)]
 pub struct ExecutionContext {
     pub cpu: CpuState,
-    pub instruction_target: u64,
     pub cpu_model: CpuModel,
     pub interrupt_requested: u8,
 }
@@ -91,15 +90,13 @@ pub struct ExecutionContext {
 Initialize backing with `ExecutionContext::default().to_bytes()`. Fields are
 little endian, with offsets derived from this layout using `offset_of!`.
 CPU snapshot reads and writes cover only the `cpu` member, preserving pending
-execution interrupts and other execution controls. The host sets
-`instruction_target` between entries; generated code never writes it.
-Its default, `u64::MAX`, is practically unbounded.
+execution interrupts and other execution controls.
 Set `cpu_model` to the guest's configured capabilities before execution and keep it
 fixed for that guest. Interpreters read it for instruction admission and CPUID;
 JIT blocks specialize to it. CPU snapshot replacement preserves this field.
-The model is a little-endian 32-bit capability mask at byte offset 544; use
+The model is a little-endian 32-bit capability mask at byte offset 536; use
 `ExecutionContext::to_bytes()` to encode it. The interrupt request byte follows at offset
-548. The complete context remains 552 bytes, including three zero padding bytes.
+540. The complete context is 544 bytes, including three zero padding bytes.
 Initialize the complete backing before sharing notification handles; live updates
 must not overwrite the interrupt request byte through whole-context copies.
 
@@ -107,10 +104,9 @@ must not overwrite the interrupt request byte through whole-context copies.
 
 The interrupt request byte defaults to zero. Producers publish ready work, then store a
 nonzero byte using a sequentially consistent atomic operation. At a completed
-block boundary, generated code atomically loads this byte before checking the
-instruction target. A nonzero value returns `ExecutionExit::Interrupted` with CPU
-state published, without consuming the request or fetching the successor. This
-exit takes precedence over a coincident exhausted budget. It is independent of
+block boundary, generated code atomically loads this byte. A nonzero value returns
+`ExecutionExit::Interrupted` with CPU state published, without consuming the request
+or fetching the successor. This exit is independent of
 guest IF and does not deliver an x86 IRQ, create a guest interrupt frame, or
 terminate the session. It returns control to the execution runner.
 
@@ -125,31 +121,22 @@ allocation, without exposing CPU state.
 All live accesses to this field use byte atomics, matching the native backing's
 atomic access width. Guest checkpoints only read it. This reuses the existing
 `relocade.executionContext` import; it needs no additional memory or guest address.
-Checkpoints have the same boundaries as budget checks: REP and straight-line
-execution have no fixed notification-latency bound. After an interrupt-inhibiting
-instruction, the protected successor executes through STEP before an `Interrupted` exit.
+REP and straight-line execution have no fixed notification-latency bound. After an
+interrupt-inhibiting instruction, the protected successor executes through STEP
+before an `Interrupted` exit.
 
-### Instruction budgets
+### Explicit stepping and IRQ eligibility
 
-For a finite budget, add the requested number of instructions to
-`instruction_count`, saturating at `u64::MAX`. Handle a zero budget before entering
-Wasm. Keep the target fixed during execution. Checks compare the count and target
-as unsigned values and assume the instruction counter does not wrap.
+There is no runtime instruction budget. The retirement count is a wrapping statistic
+and does not control execution. The snapshot compiler's instruction limit bounds
+compilation only.
 
-A successful block checks the target using the count it just published. Reaching
-or exceeding it returns an encoded `ExecutionExit::BudgetExhausted` before
-dispatch or fetching the successor.
-Interpreter `run` checks only after a block-ending instruction, on either outcome
-of a conditional branch. Ordinary instruction retirement, decoder restarts and
-optimization handoffs do not introduce budget checkpoints. Faults and unsupported
-instructions retain their own exit reasons and precise retirement counts.
-
-This is an instruction allowance, not an exact stopping point. A block can exceed
-the target; interpreter straight-line execution and REP work have no fixed bound.
-The snapshot compiler's instruction limit bounds compilation only. There is no
-fixed overshoot or elapsed-time guarantee.
-
-### IRQ eligibility
+Interpreter STEP publishes one completed instruction and returns `StepComplete`
+without dispatching its successor. A pending execution interrupt takes precedence
+at that completed boundary. Faults retain their precise effects and exit reasons.
+`relocade-machine::Cpu::step()` also completes any interrupt-inhibited successor
+chain before returning. It bypasses registered hooks and device IRQ polling and
+requires that no host calls remain active or suspended.
 
 After STI or an SS load's protected successor completes, the driver polls device
 IRQs before continuing. Real-mode POPF/POPFD and IRET/IRETD that change IF from
@@ -944,7 +931,7 @@ fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. STI from IF=0 and
 MOV/POP SS publish their effects, retire and return
 `ExecutionExit::InterruptInhibited`. The embedding immediately executes the
 protected successor through the interpreter's existing `step` export before
-polling external IRQs or returning for the instruction budget. Repeated inhibiting
+polling external IRQs or returning an execution interrupt. Repeated inhibiting
 exits use the same synchronous loop. Only the first consecutive SS load is
 architecturally guaranteed to inhibit; this runtime also protects later loads.
 STI from IF=1 and LSS do not request protection. The CPU snapshot layout is unchanged;
@@ -1143,7 +1130,7 @@ match exit {
         // Inspect the denied byte and the full architectural error code.
         let _ = (linear_address, error_code);
     }
-    ExecutionExit::BudgetExhausted => { /* Resume with a new instruction budget. */ }
+    ExecutionExit::Interrupted => { /* Poll notified host work before resuming. */ }
     _ => { /* Handle the other execution outcomes. */ }
 }
 # }
@@ -1161,7 +1148,7 @@ runtime-owned service ID and CPU state already published. IDs identify handler
 slots independently of guest entry addresses. The CPU owns the
 handler registry and consumes this exit internally: Wasm returns before Rust
 invokes the handler. Entries have no service callback import. Reentering
-dispatch after a hook retains the original instruction target; hooks do not
+dispatch after a hook uses the live published CPU state; hooks do not
 retire guest instructions. An ID without a registered handler is a
 programming error.
 
@@ -1216,7 +1203,7 @@ normal completion. With no parked call, Resume returns to the embedding.
 Reentering the original hook always starts a new invocation; input readiness
 alone never polls a parked future.
 
-Budget exits, guest faults and replacement run waiters preserve parked work.
+Execution interrupts, guest faults and replacement run waiters preserve parked work.
 Redirecting an IRQ return away from the resume entry leaves its call parked until
 explicit `Cpu::abandon_suspended_calls()`, execution return or CPU destruction.
 Abandonment drops parked calls innermost first without changing live CPU state;

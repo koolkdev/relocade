@@ -26,8 +26,8 @@ pub(super) fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuSta
         cpu.set_eflags(0x643);
     }
     assert_eq!(
-        pollster::block_on(dos.cpu().run(15)),
-        ExecutionExit::BudgetExhausted
+        pollster::block_on(crate::common::run_until(dos.cpu(), 0x102)),
+        ExecutionExit::Interrupted
     );
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.esp as u16, 0xfffe);
@@ -171,9 +171,7 @@ fn mode_reset_restores_font_memory_access_and_palette_before_clearing_text() {
         let snapshot = dos.vga().borrow().snapshot();
         assert_eq!(
             &snapshot.plane(2)[65 * 32..65 * 32 + 16],
-            &[
-                0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
-            ]
+            &[0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,]
         );
         assert_eq!(&snapshot.plane(2)[65 * 32 + 16..66 * 32], &[0; 16]);
         {

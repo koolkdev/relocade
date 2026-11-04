@@ -92,14 +92,20 @@ async fn check_interrupt_hooks() {
         })])
         .await
         .unwrap();
-    assert_eq!(runtime.run(5).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        support::run_until(&mut runtime, 0x10e).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(calls.get(), 1);
     assert_eq!(runtime.context().cpu.ax(), 11);
     assert_eq!(runtime.context().cpu.segment(Segment::Cs).selector, 0);
     assert_eq!(runtime.context().cpu.eip(), 0x10e);
     assert_eq!(runtime.context().cpu.sp(), 0xff00);
     assert_eq!(runtime.context().cpu.eflags() & 0x201, 0x200);
-    assert_eq!(runtime.run(2).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runtime).await,
+        ExecutionExit::Interrupted
+    );
     let mut result = [0; 2];
     runtime.context().memory.read(0x202, &mut result).unwrap();
     assert_eq!(u16::from_le_bytes(result), 11);
@@ -111,7 +117,10 @@ async fn check_interrupt_hooks() {
         .memory
         .write(0x500, &[0x43, 0xea, 0x20, 0, 0, 0x10])
         .unwrap();
-    assert_eq!(runtime.run(7).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        support::run_until(&mut runtime, 0x10e).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(calls.get(), 2);
     assert_eq!(runtime.context().cpu.bx(), 1);
     assert_eq!(runtime.context().cpu.eip(), 0x10e);
@@ -119,7 +128,7 @@ async fn check_interrupt_hooks() {
     assert_eq!(runtime.context().cpu.instruction_count(), 14);
 
     runtime.context().cpu.set_eip(0x400);
-    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runtime.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runtime.context().cpu.instruction_count(), 14);
     assert_eq!(runtime.context().cpu.eip(), 0x400);
 }
@@ -207,10 +216,13 @@ async fn check_mapped_hook_access() {
     .unwrap();
 
     assert_eq!(count.get(), 0);
-    assert_eq!(cpu.run(0).await, ExecutionExit::BudgetExhausted);
+    drop(cpu.run());
     assert_eq!(count.get(), 0);
     for (calls, value) in [(1, 52), (2, 65)] {
-        assert_eq!(cpu.run(5).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            support::run_until(&mut cpu, 0x100).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(count.get(), calls);
         assert_eq!(cpu.context().cpu.eax(), value);
         assert_eq!(cpu.context().cpu.ebx(), value);
@@ -276,8 +288,15 @@ async fn check_hook_replacement() {
         ])
         .await
         .unwrap();
-    // Both hooks consume no instructions. Reentering Wasm retains one target.
-    assert_eq!(runtime.run(3).await, ExecutionExit::BudgetExhausted);
+    // Hooks retire no instructions. Exercise two complete invocations.
+    assert_eq!(
+        crate::support::checkpoint(&mut runtime).await,
+        ExecutionExit::Interrupted
+    );
+    assert_eq!(
+        crate::support::checkpoint(&mut runtime).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(runtime.context().cpu.instruction_count(), 4);
     assert_eq!(runtime.context().cpu.ax(), 2);
     assert_eq!(runtime.context().cpu.bx(), 2);
@@ -293,7 +312,10 @@ async fn check_hook_replacement() {
         .await
         .unwrap();
     assert!(released.upgrade().is_none());
-    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runtime).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(runtime.context().cpu.ax(), 50);
     assert_eq!(second.get(), 3);
 
@@ -321,7 +343,10 @@ async fn check_hook_replacement() {
         .await
         .is_err());
     runtime.context().cpu.set_eip(0x401);
-    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runtime).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(second.get(), 4);
     assert_eq!(Rc::strong_count(&second), 2);
     runtime
@@ -336,7 +361,7 @@ async fn check_hook_replacement() {
         .unwrap();
     assert_eq!(Rc::strong_count(&second), 1);
     runtime.context().cpu.set_eip(0x401);
-    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runtime.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(second.get(), 4);
     // Reinstalling after a module replacement routes to the new service.
     // Duplicate addresses in one batch publish the last registration and release
@@ -364,7 +389,7 @@ async fn check_hook_replacement() {
             .unwrap();
         assert!(released.upgrade().is_none());
         runtime.context().cpu.set_eip(address);
-        assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(runtime.run().await, ExecutionExit::Host(HostExit::Return));
         assert_eq!(runtime.context().cpu.ax(), 75);
         assert_eq!(second.get(), 4);
     }
@@ -372,13 +397,13 @@ async fn check_hook_replacement() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
+fn local_hooks_preserve_retirement_and_release_replaced_captures() {
     pollster::block_on(check_hook_replacement());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn local_hooks_preserve_budgets_and_release_captures_when_replaced() {
+async fn local_hooks_preserve_retirement_and_release_replaced_captures() {
     check_hook_replacement().await;
 }
 

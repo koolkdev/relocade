@@ -86,7 +86,7 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                     call.memory.write(0x10300, &[2, 0xcc]).unwrap();
                 }
             }
-            assert!(pin!(dos.cpu().run(10))
+            assert!(pin!(dos.cpu().run())
                 .as_mut()
                 .poll(&mut Context::from_waker(Waker::noop()))
                 .is_pending());
@@ -108,7 +108,10 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                 dos.cpu().memory().view().write_u8(0x10300, 3).unwrap();
             }
             ready.send(()).unwrap();
-            assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                execution::run_until(dos.cpu(), 0x102).await,
+                ExecutionExit::Interrupted
+            );
             let call = dos.cpu().context();
             assert!(!call.cpu.carry());
             assert!(

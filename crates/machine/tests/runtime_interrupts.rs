@@ -63,7 +63,7 @@ async fn check_frames() {
     .await
     .unwrap();
     irq.borrow_mut().raise();
-    assert_eq!(cpu.run(10).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(irq.borrow().acknowledged, 1);
     assert_eq!(
         state.instruction_count(),
@@ -93,13 +93,16 @@ async fn check_entry_fault() {
     let before = state.snapshot();
     irq.borrow_mut().raise();
     assert_eq!(
-        cpu.run(1).await,
+        cpu.run().await,
         ExecutionExit::Exception(Exception::StackFault { error_code: 0 })
     );
     assert_eq!(irq.borrow().acknowledged, 1);
     assert_eq!(state.snapshot(), before);
     state.set_sp(0x8000);
-    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut cpu).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(
         irq.borrow().acknowledged,
         1,
@@ -111,22 +114,28 @@ async fn check_live_if() {
     let irq = Rc::new(RefCell::new(Irq::default()));
     let mut cpu = cpu(&[0xeb, 0xfe], 2, &irq).await;
     irq.borrow_mut().raise();
-    assert_eq!(cpu.run(0).await, ExecutionExit::BudgetExhausted);
+    drop(cpu.run());
     assert_eq!(irq.borrow().acknowledged, 0);
-    assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut cpu).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(
         irq.borrow().acknowledged,
         0,
         "IF=0 leaves the request with its device"
     );
     cpu.cpu_state().set_interrupts_enabled(true);
-    assert_eq!(cpu.run(0).await, ExecutionExit::BudgetExhausted);
+    drop(cpu.run());
     assert_eq!(
         irq.borrow().acknowledged,
         0,
-        "zero budget never acknowledges a request"
+        "an unpolled run never acknowledges a request"
     );
-    assert_eq!(cpu.run(2).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut cpu).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(irq.borrow().acknowledged, 1);
 }
 
@@ -165,7 +174,7 @@ async fn check_pending_call() {
         .await
         .unwrap();
     for _ in 0..2 {
-        let mut run = pin!(runner.run(2));
+        let mut run = pin!(runner.run());
         assert!(run
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
@@ -177,7 +186,10 @@ async fn check_pending_call() {
         );
     }
     ready.set(true);
-    assert_eq!(runner.run(2).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(irq.borrow().acknowledged, 1);
     assert_eq!(runner.cpu_state().eip(), 0x400);
     assert_eq!(runner.memory().view().read_u16(0x500).unwrap(), 1);
@@ -207,7 +219,7 @@ test_backends!(
     check_entry_fault
 );
 test_backends!(
-    queued_irqs_follow_live_if_and_zero_budget_does_no_work,
+    queued_irqs_follow_live_if_and_unpolled_runs_do_no_work,
     check_live_if
 );
 test_backends!(

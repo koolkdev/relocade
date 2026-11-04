@@ -72,10 +72,7 @@ async fn check_mz_execution() {
         machine.memory.read(0x10144, &mut after_image).unwrap();
         assert_eq!(after_image, [0; 4]); // Ignore bytes beyond the declared file size.
     }
-    assert_eq!(
-        dos.cpu().run(100).await,
-        ExecutionExit::Host(HostExit::Return)
-    );
+    assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         dos.process().unwrap().status(),
         ProcessStatus::Exited(Ok(7))
@@ -92,7 +89,7 @@ async fn check_mz_execution() {
         assert_eq!(u16::from_le_bytes(end), expected_end);
         assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
         assert_eq!(
-            pollster::block_on(dos.cpu().run(100)),
+            pollster::block_on(dos.cpu().run()),
             ExecutionExit::Host(HostExit::Return)
         );
     }
@@ -106,7 +103,7 @@ async fn check_mz_execution() {
     dos.cpu().context().memory.read(0x10002, &mut end).unwrap();
     assert_eq!(u16::from_le_bytes(end), 0x105e);
     assert_eq!(
-        pollster::block_on(dos.cpu().run(100)),
+        pollster::block_on(dos.cpu().run()),
         ExecutionExit::Host(HostExit::Return)
     );
 
@@ -122,10 +119,7 @@ async fn check_mz_execution() {
     assert_eq!(cpu.segments[Segment::Cs].selector, 0x9ffa);
     assert_eq!(cpu.segments[Segment::Ss].selector, 0x9ff9);
     assert_eq!(cpu.segments[Segment::Ds].selector, 0x1000);
-    assert_eq!(
-        dos.cpu().run(100).await,
-        ExecutionExit::Host(HostExit::Return)
-    );
+    assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         dos.process().unwrap().status(),
         ProcessStatus::Exited(Ok(255))
@@ -144,10 +138,7 @@ async fn check_invalid_mz() {
         Default::default(),
     )
     .unwrap();
-    assert_eq!(
-        dos.cpu().run(100).await,
-        ExecutionExit::Host(HostExit::Return)
-    );
+    assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     let saved_cpu = dos.cpu().context().cpu.snapshot();
     let mut saved_memory = vec![0; 0x110]; // First MCB and PSP.
     dos.cpu()

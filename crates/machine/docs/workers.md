@@ -17,7 +17,7 @@ memory.view().write(0x100, &program)?;
 let worker = Thread::new();
 let task = worker.run_resource(memory.clone(), move |memory| async move {
     let mut cpu = Cpu::new(memory, cpu_config, Default::default()).await?;
-    Ok::<_, relocade_machine::Error>(cpu.run(budget).await)
+    Ok::<_, relocade_machine::Error>(cpu.run().await)
 });
 
 // The caller can retain mapped RAM access while the worker executes.

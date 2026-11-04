@@ -9,13 +9,9 @@ use crate::CpuModel;
 /// Field bytes are little endian on every host. CPU snapshots exchange only
 /// `cpu`; host execution controls remain in the enclosing context.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ExecutionContext {
     pub cpu: CpuState,
-    /// Absolute retirement target; `u64::MAX` is practically unbounded.
-    /// Budget ordering assumes the instruction counter does not wrap.
-    /// Set by the host between entries; generated code only reads it.
-    pub instruction_target: u64,
     /// Fixed capabilities for this guest. Interpreters read this model at runtime;
     /// specialized blocks must have been compiled for the same model.
     pub cpu_model: CpuModel,
@@ -34,25 +30,11 @@ impl ExecutionContext {
         let mut bytes = [0; Self::BYTE_LEN];
         let cpu = offset_of!(Self, cpu);
         bytes[cpu..cpu + CpuState::BYTE_LEN].copy_from_slice(&self.cpu.to_bytes());
-        let target = offset_of!(Self, instruction_target);
-        bytes[target..target + size_of::<u64>()]
-            .copy_from_slice(&self.instruction_target.to_le_bytes());
         let model = offset_of!(Self, cpu_model);
         bytes[model..model + size_of::<u32>()]
             .copy_from_slice(&self.cpu_model.bits().to_le_bytes());
         bytes[offset_of!(Self, interrupt_requested)] = self.interrupt_requested;
         bytes
-    }
-}
-
-impl Default for ExecutionContext {
-    fn default() -> Self {
-        Self {
-            cpu: CpuState::default(),
-            instruction_target: u64::MAX,
-            cpu_model: CpuModel::default(),
-            interrupt_requested: 0,
-        }
     }
 }
 
@@ -63,23 +45,16 @@ mod tests {
     #[test]
     fn context_layout_keeps_cpu_snapshot_and_execution_controls_distinct() {
         assert_eq!(offset_of!(ExecutionContext, cpu), 0);
-        assert_eq!(offset_of!(ExecutionContext, instruction_target), 536);
-        assert_eq!(offset_of!(ExecutionContext, cpu_model), 544);
-        assert_eq!(offset_of!(ExecutionContext, interrupt_requested), 548);
-        assert_eq!(ExecutionContext::BYTE_LEN, 552);
+        assert_eq!(offset_of!(ExecutionContext, cpu_model), 536);
+        assert_eq!(offset_of!(ExecutionContext, interrupt_requested), 540);
+        assert_eq!(ExecutionContext::BYTE_LEN, 544);
         let context = ExecutionContext {
             cpu: CpuState::filled(0xa5),
-            instruction_target: 0x0807_0605_0403_0201,
             cpu_model: CpuModel::default().with_feature(crate::CpuFeature::Cmov, false),
             interrupt_requested: 1,
         };
         let bytes = context.to_bytes();
         assert_eq!(&bytes[..536], &[0xa5; 536]);
-        assert_eq!(&bytes[536..544], &[1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(&bytes[544..], &[0xfd, 1, 0, 0, 1, 0, 0, 0]);
-        assert_eq!(
-            &ExecutionContext::default().to_bytes()[536..544],
-            &[0xff; 8]
-        );
+        assert_eq!(&bytes[536..], &[0xfd, 1, 0, 0, 1, 0, 0, 0]);
     }
 }

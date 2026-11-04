@@ -122,9 +122,9 @@ fn profile_admission_uses_patched_contexts_for_actual_calls() {
                     snapshot: snapshot.clone()
                 },
                 Event::Return {
-                    outcome: crate::test_step::returned(
-                        relocade_x86::ExecutionExit::BudgetExhausted
-                    ),
+                    outcome: crate::test_step::returned(relocade_x86::ExecutionExit::Host(
+                        relocade_x86::HostExit::Return
+                    )),
                     snapshot
                 },
             ],

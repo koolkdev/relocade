@@ -158,7 +158,10 @@ async fn check_device_access() {
                     .collect();
                 cpu.install_module(&module.bytes, &entries).await.unwrap();
             }
-            assert_eq!(cpu.run(7).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                crate::support::run_until(&mut cpu, 0x100 + code.len() as u32).await,
+                ExecutionExit::Interrupted
+            );
             assert_eq!(cpu.context().cpu.eax(), 0x1234_5678);
             assert_eq!(
                 device.borrow_mut().take_transfers(),
@@ -245,7 +248,10 @@ async fn check_retained_memory_bus() {
         view.write_u16(0x3000, 0x5678).unwrap();
         // Neither the view nor the retained bus borrows CPU storage or a device.
         cpu.context().cpu.set_ax(41);
-        assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::support::checkpoint(&mut cpu).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(cpu.context().cpu.ax(), 42);
         assert_eq!(cpu.context().memory.read_u16(0x200).unwrap(), 0x1234);
         assert_eq!(cpu.context().memory.read_u16(0x3000).unwrap(), 0x5678);

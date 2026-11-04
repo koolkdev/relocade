@@ -39,11 +39,7 @@ impl Machine {
         }
     }
 
-    pub fn dispatch(&mut self, budget: Option<u64>) -> ExecutionExit {
-        if let Some(budget) = budget {
-            let target = self.bindings.cpu.instruction_count().saturating_add(budget);
-            self.bindings.cpu.set_instruction_target(target);
-        }
+    pub fn dispatch(&mut self) -> ExecutionExit {
         self.dispatch.run(&mut self.backend)
     }
 }

@@ -54,8 +54,8 @@ async fn check_bios_clock() {
             cpu.set_eflags(0x0a57); // OF, IF, ZF, AF, PF and CF.
         }
         assert_eq!(
-            pollster::block_on(dos.cpu().run(10)),
-            ExecutionExit::BudgetExhausted
+            pollster::block_on(crate::common::run_until(dos.cpu(), 0x102)),
+            ExecutionExit::Interrupted
         );
         let cpu = dos.cpu().context().cpu.snapshot();
         assert_eq!(cpu.registers.eax as u16, rollover);
@@ -76,8 +76,8 @@ async fn check_bios_clock() {
         cpu.set_eflags(0x0a56); // Same flags, with carry clear.
     }
     assert_eq!(
-        pollster::block_on(dos.cpu().run(10)),
-        ExecutionExit::BudgetExhausted
+        pollster::block_on(crate::common::run_until(dos.cpu(), 0x102)),
+        ExecutionExit::Interrupted
     );
     let cpu = dos.cpu().context().cpu.snapshot();
     assert_eq!(cpu.registers.eax as u16, 0x8642);

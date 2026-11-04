@@ -1,5 +1,5 @@
 mod blocks;
-mod budget;
+mod checkpoints;
 mod dispatch;
 mod fetch;
 mod memory;

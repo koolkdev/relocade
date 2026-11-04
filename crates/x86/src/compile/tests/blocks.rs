@@ -205,8 +205,8 @@ fn entry_boundaries() {
         if index == 0 {
             let mut input = image.input();
             input.patches_before_calls.push(CallPatches::cpu(vec![(
-                std::mem::offset_of!(ExecutionContext, instruction_target) as u32,
-                18_u64.to_le_bytes().to_vec(),
+                std::mem::offset_of!(ExecutionContext, interrupt_requested) as u32,
+                vec![1],
             )]));
             assert_eq!(
                 module.observe(&input, 1),
@@ -215,7 +215,7 @@ fn entry_boundaries() {
                     &[Step {
                         cpu: after,
                         ram: &[],
-                        exit: Exit::Other(ExecutionExit::BudgetExhausted),
+                        exit: Exit::Other(ExecutionExit::Interrupted),
                     }]
                 ),
             );

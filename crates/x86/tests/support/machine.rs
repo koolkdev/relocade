@@ -168,14 +168,14 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
                 events.push(Event::Interpret {
                     snapshot: snapshot.clone(),
                 });
-                ExecutionExit::BudgetExhausted
+                ExecutionExit::Host(relocade_x86::HostExit::Return)
             }
             Exit::Dispatch(eip) => {
                 assert_eq!(step.cpu.eip, eip);
                 events.push(Event::Dispatch {
                     snapshot: snapshot.clone(),
                 });
-                ExecutionExit::BudgetExhausted
+                ExecutionExit::Host(relocade_x86::HostExit::Return)
             }
             Exit::DivideError => ExecutionExit::Exception(Exception::DivideError),
             Exit::BoundRangeExceeded => ExecutionExit::Exception(Exception::BoundRangeExceeded),

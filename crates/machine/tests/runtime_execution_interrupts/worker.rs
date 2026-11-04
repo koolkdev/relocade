@@ -31,7 +31,7 @@ async fn prepared_storage() {
             .await
             .unwrap();
         assert_eq!(cpu.cpu_state().snapshot(), initial);
-        assert_eq!(cpu.run(10).await, ExecutionExit::Interrupted);
+        assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
         assert_eq!(cpu.cpu_state().ax(), 1);
         // The host's original handle still addresses this CPU's live signal.
         cpu.cpu_state().instruction_count()
@@ -93,9 +93,9 @@ async fn request_during_execution() {
             interrupt.request();
         });
         listening.await.unwrap();
-        // A finite fallback fails the assertion if the guest never observes the
-        // other worker. No host yield or service poll delivers this notification.
-        let exit = cpu.run(10_000_000).await;
+        // Only the other worker's request can leave this guest loop; no host
+        // yield, instruction budget or service poll delivers the notification.
+        let exit = cpu.run().await;
         notified.await.unwrap();
         drop(notifier);
         assert_eq!(exit, ExecutionExit::Interrupted);

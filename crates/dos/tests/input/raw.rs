@@ -28,12 +28,12 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
             cpu.set_cx(5);
             cpu.set_dx(0x400);
         }
-        crate::common::assert_pending(dos.cpu().run(10));
+        crate::common::assert_pending(dos.cpu().run());
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().run(10));
+            let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"\0\r").unwrap();
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
@@ -43,7 +43,7 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
             assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(ExecutionExit::BudgetExhausted)
+                Poll::Ready(ExecutionExit::Interrupted)
             ));
         }
         let cpu = dos.cpu().context().cpu.snapshot();

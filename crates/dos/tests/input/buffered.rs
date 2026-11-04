@@ -29,7 +29,7 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         input.write_all(b"ab").unwrap();
-        crate::common::assert_pending(dos.cpu().run(10));
+        crate::common::assert_pending(dos.cpu().run());
         assert_eq!(common::output(output.clone()), b"ab");
         let mut buffer = [0; 8];
         dos.cpu()
@@ -38,10 +38,10 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             .read(0x10300, &mut buffer)
             .unwrap();
         assert_eq!(buffer, [5, 0, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb]);
-        crate::common::assert_pending(dos.cpu().run(10));
+        crate::common::assert_pending(dos.cpu().run());
         assert!(common::output(output.clone()).is_empty()); // No replayed echo.
         {
-            let mut run = pin!(dos.cpu().run(10));
+            let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"\x08\0").unwrap(); // Backspace; split extended key.
@@ -50,7 +50,7 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             input.write_all(b"\x48c\rN").unwrap();
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(ExecutionExit::BudgetExhausted)
+                Poll::Ready(ExecutionExit::Interrupted)
             ));
         }
         assert_eq!(common::output(output), b"c\r");
@@ -168,7 +168,7 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
         dos.cpu().context().cpu.set_ax(0x0a00);
         dos.cpu().context().cpu.set_dx(0x400);
         dos.stdin().write_all(b"K").unwrap();
-        common::assert_pending(dos.cpu().run(10));
+        common::assert_pending(dos.cpu().run());
         assert!(dos.keyboard().peek_key().is_some());
     });
 }
@@ -195,12 +195,15 @@ fn suspended_reads_keep_their_buffer_across_run_waiters() {
                 context.cpu.set_dx(0x300);
             }
             dos.stdin().write_all(b"A").unwrap();
-            common::assert_pending(dos.cpu().run(10));
+            common::assert_pending(dos.cpu().run());
             // Shared memory remains accessible. A later capacity edit does not
             // replace the buffered read's already captured capacity.
             dos.cpu().memory().view().write_u8(0x10300, 0).unwrap();
             dos.stdin().write_all(b"B\r").unwrap();
-            assert_eq!(dos.cpu().run(1).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                crate::common::run_until(dos.cpu(), 0x102).await,
+                ExecutionExit::Interrupted
+            );
             let context = dos.cpu().context();
             let mut bytes = [0; 6];
             context.memory.read(0x10300, &mut bytes).unwrap();
