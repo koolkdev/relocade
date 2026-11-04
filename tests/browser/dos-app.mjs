@@ -13,85 +13,88 @@ const promptRow = 6;
 const prompt = [0, 0, 0, 96, 48, 24, 12, 6, 12, 24, 48, 96, 0, 0, 0, 0];
 const xGlyph = [0, 0, 0, 0, 0, 198, 198, 108, 56, 108, 198, 198, 0, 0, 0, 0];
 
-const config = build("relocade-dos-app");
-await bundle(config);
-const headers = await readFile(path.join(config.build.outDir, "_headers"), "utf8");
-assert.match(headers, /Cross-Origin-Opener-Policy: same-origin/);
-assert.match(headers, /Cross-Origin-Embedder-Policy: require-corp/);
-const files = await readdir(config.build.outDir, { recursive: true });
-const wasms = files.filter(file => file.endsWith(".wasm"));
-assert.ok(wasms.length > 0);
-for (const file of wasms) {
-    const wasm = gunzipSync(await readFile(path.join(config.build.outDir, file)));
-    assert.deepEqual([...wasm.subarray(0, 8)], [0, 97, 115, 109, 1, 0, 0, 0]);
-    assert.ok(headers.includes(`/${file}\n  Content-Encoding: gzip\n  Content-Type: application/wasm\n`));
-}
-const server = await preview({ ...config, preview: { host: "127.0.0.1", port: 0 } });
-let browser;
-try {
-    browser = await chromium.launch({
-        executablePath: process.env.CHROME_BINARY,
-        args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-            "--use-webgpu-adapter=opengles", "--autoplay-policy=document-user-activation-required"],
-    });
-    const page = await browser.newPage({ viewport: { width: 1040, height: 900 } });
-    const session = await page.context().newCDPSession(page);
-    await page.addInitScript(() => {
-        const NativeContext = globalThis.AudioContext;
-        globalThis.audioContexts = [];
-        globalThis.AudioContext = class extends NativeContext {
-            constructor(...args) {
-                super(...args);
-                this.resumeRequests = 0;
-                globalThis.audioContexts.push(this);
+export async function testApplication(config) {
+    await bundle(config);
+    const headers = await readFile(path.join(config.build.outDir, "_headers"), "utf8");
+    assert.match(headers, /Cross-Origin-Opener-Policy: same-origin/);
+    assert.match(headers, /Cross-Origin-Embedder-Policy: require-corp/);
+    const files = await readdir(config.build.outDir, { recursive: true });
+    const wasms = files.filter(file => file.endsWith(".wasm"));
+    assert.ok(wasms.length > 0);
+    for (const file of wasms) {
+        const wasm = gunzipSync(await readFile(path.join(config.build.outDir, file)));
+        assert.deepEqual([...wasm.subarray(0, 8)], [0, 97, 115, 109, 1, 0, 0, 0]);
+        assert.ok(headers.includes(`/${file}\n  Content-Encoding: gzip\n  Content-Type: application/wasm\n`));
+    }
+    const server = await preview({ ...config, preview: { host: "127.0.0.1", port: 0 } });
+    let browser;
+    try {
+        browser = await chromium.launch({
+            executablePath: process.env.CHROME_BINARY,
+            args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+                "--use-webgpu-adapter=opengles", "--autoplay-policy=document-user-activation-required"],
+        });
+        const page = await browser.newPage({ viewport: { width: 1040, height: 900 } });
+        const session = await page.context().newCDPSession(page);
+        await page.addInitScript(() => {
+            const NativeContext = globalThis.AudioContext;
+            globalThis.audioContexts = [];
+            globalThis.AudioContext = class extends NativeContext {
+                constructor(...args) {
+                    super(...args);
+                    this.resumeRequests = 0;
+                    globalThis.audioContexts.push(this);
+                }
+                resume(...args) {
+                    this.resumeRequests++;
+                    return super.resume(...args);
+                }
+            };
+        });
+        // The fixture serves no favicon for the browser's automatic request.
+        await page.route("**/favicon.ico", route => route.fulfill({ status: 204 }));
+        const errors = [];
+        page.on("pageerror", error => errors.push(error.message));
+        page.on("console", message => {
+            if (message.type() === "error" || message.text().startsWith("Audio unavailable:")) {
+                errors.push(message.text());
             }
-            resume(...args) {
-                this.resumeRequests++;
-                return super.resume(...args);
-            }
-        };
-    });
-    // The fixture serves no favicon for the browser's automatic request.
-    await page.route("**/favicon.ico", route => route.fulfill({ status: 204 }));
-    const errors = [];
-    page.on("pageerror", error => errors.push(error.message));
-    page.on("console", message => {
-        if (message.type() === "error" || message.text().startsWith("Audio unavailable:")) {
-            errors.push(message.text());
-        }
-    });
-    await page.goto(server.resolvedUrls.local[0]);
-    await displayedGlyph(session, 0, promptRow, prompt);
-    await assertWaitingForActivation(session);
-    await page.locator("#screen").click();
-    await page.waitForFunction(() => audioContexts.at(-1)?.state === "running");
-    await page.keyboard.type("echo xy");
-    await page.keyboard.press("Backspace");
-    await page.keyboard.press("Enter");
-    await displayedGlyph(session, 0, promptRow + 1, xGlyph);
-    await displayedGlyph(session, 0, promptRow + 2, prompt);
-    await page.setViewportSize({ width: 960, height: 768 });
-    await displayedGlyph(session, 0, promptRow + 1, xGlyph);
-    await page.keyboard.type("echo x");
-    await page.keyboard.press("Enter");
-    await displayedGlyph(session, 0, promptRow + 3, xGlyph);
-    await displayedGlyph(session, 0, promptRow + 4, prompt);
-    assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
-    // Keyboard activation also works when the user never clicks the canvas.
-    await page.reload();
-    await displayedGlyph(session, 0, promptRow, prompt);
-    await assertWaitingForActivation(session);
-    await observe(session, () => document.querySelector("#screen").focus());
-    await page.keyboard.press("x");
-    await page.waitForFunction(() => audioContexts.at(-1)?.state === "running");
-    await page.keyboard.press("y");
-    assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
-    assert.deepEqual(errors, []);
-    console.log("DOS console: audio activation, keyboard editing, displayed echo and resize passed");
-} finally {
-    await browser?.close();
-    await server.close();
+        });
+        await page.goto(server.resolvedUrls.local[0]);
+        await displayedGlyph(session, 0, promptRow, prompt);
+        await assertWaitingForActivation(session);
+        await page.locator("#screen").click();
+        await page.waitForFunction(() => audioContexts.at(-1)?.state === "running");
+        await page.keyboard.type("echo xy");
+        await page.keyboard.press("Backspace");
+        await page.keyboard.press("Enter");
+        await displayedGlyph(session, 0, promptRow + 1, xGlyph);
+        await displayedGlyph(session, 0, promptRow + 2, prompt);
+        await page.setViewportSize({ width: 960, height: 768 });
+        await displayedGlyph(session, 0, promptRow + 1, xGlyph);
+        await page.keyboard.type("echo x");
+        await page.keyboard.press("Enter");
+        await displayedGlyph(session, 0, promptRow + 3, xGlyph);
+        await displayedGlyph(session, 0, promptRow + 4, prompt);
+        assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
+        // Keyboard activation also works when the user never clicks the canvas.
+        await page.reload();
+        await displayedGlyph(session, 0, promptRow, prompt);
+        await assertWaitingForActivation(session);
+        await observe(session, () => document.querySelector("#screen").focus());
+        await page.keyboard.press("x");
+        await page.waitForFunction(() => audioContexts.at(-1)?.state === "running");
+        await page.keyboard.press("y");
+        assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
+        assert.deepEqual(errors, []);
+        console.log("DOS console: audio activation, keyboard editing, displayed echo and resize passed");
+    } finally {
+        await browser?.close();
+        await server.close();
+    }
 }
+
+if (import.meta.main) await testApplication(build("relocade-dos-app"));
 
 // Playwright evaluation and locator screenshots grant activation. Use CDP for
 // observations so only the fixture's real input enables browser audio.

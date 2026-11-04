@@ -37,6 +37,12 @@ function compressedWasm() {
 export function build(application) {
     if (!/^[a-z][a-z0-9-]*$/.test(application)) throw new Error("Expected a Cargo package name");
     cargo("build", ["-p", application, "--lib", "--profile", "test"]);
+    return configure(application);
+}
+
+// Bind and bundle an application already compiled by a larger Cargo build.
+export function configure(application) {
+    if (!/^[a-z][a-z0-9-]*$/.test(application)) throw new Error("Expected a Cargo package name");
     const output = path.join(root, "target/web", application);
     const module = application.replaceAll("-", "_");
     bindgen(path.join(target, `wasm32-unknown-unknown/debug/${module}.wasm`), path.join(output, "pkg"));

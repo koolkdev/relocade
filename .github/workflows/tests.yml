@@ -18,10 +18,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Rust tests
+  native:
+    name: ${{ matrix.suite }} tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: Core
+            packages: >-
+              -p relocade-derive -p relocade-compiler -p relocade-x86
+              -p relocade-interpreter -p relocade-test-support
+              -p relocade-wasm-bindings -p relocade-wasm-runtime
+            system-packages: ''
+          - suite: Machine and DOS
+            packages: >-
+              -p relocade-vfs -p relocade-machine -p relocade-bios -p relocade-dos
+              -p relocade-vga -p relocade-pit -p relocade-pc-speaker
+            system-packages: libvulkan1 mesa-vulkan-drivers libasound2-dev
+          - suite: Native application
+            packages: >-
+              -p relocade-renderer -p relocade-frontend -p relocade-app
+              -p relocade-dos-app -p relocade-browser-tests
+            system-packages: libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
+    env:
+      # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
+      # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
+      GALLIUM_OVERRIDE_CPU_CAPS: avx
+      ALSA_CONFIG_PATH: ${{ github.workspace }}/crates/app/tests/alsa-null.conf
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -31,41 +56,55 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install software graphics driver
+      - name: Configure native test environment
+        run: echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Install native test dependencies
+        if: matrix.system-packages != ''
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
+          sudo apt-get install -y ${{ matrix.system-packages }}
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.suite }}
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Cache compiled Wasm test modules
         uses: actions/cache@v6
         with:
           path: ~/.cache/wasmtime
-          key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: |
-            wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-
+            wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-
 
-      - name: Run workspace tests
-        env:
-          # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
-          # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
-          GALLIUM_OVERRIDE_CPU_CAPS: avx
+      - name: Run tests
+        # Keep package selection and features identical when running ignored tests,
+        # so Cargo can reuse this build instead of resolving another feature graph.
+        run: cargo test ${{ matrix.packages }} --all-features --locked
+
+      - name: Run display and audio integration tests
+        if: matrix.suite == 'Native application'
+        run: xvfb-run -a cargo test ${{ matrix.packages }} --all-features --locked -- --ignored
+
+      - name: Check independent application features
+        if: matrix.suite == 'Native application'
         run: |
-          export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          cargo test --workspace --locked
-          ALSA_CONFIG_PATH="$GITHUB_WORKSPACE/crates/app/tests/alsa-null.conf" cargo test -p relocade-app --features audio --lib --locked -- --ignored
-          cargo test -p relocade-pc-speaker --features audio --tests --locked
-          cargo test -p relocade-app --features audio --lib --locked
-          ALSA_CONFIG_PATH="$GITHUB_WORKSPACE/crates/app/tests/alsa-null.conf" cargo test -p relocade-app --features audio --test audio_output --locked -- --ignored
-          cargo test -p relocade-app --features graphics --lib --locked
-          xvfb-run -a cargo test -p relocade-app --features graphics --lib --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-app --test window --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-app --features graphics --test surface --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-app --features graphics --test graphics --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-app --features graphics --test recovery --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-dos-app --test window --locked -- --ignored
+          cargo check -p relocade-app --lib --locked
+          cargo check -p relocade-app --lib --features audio --locked
+          cargo check -p relocade-app --lib --features graphics --locked
+
+  test:
+    # Preserve the required check while reporting each native suite separately.
+    name: Rust tests
+    if: always()
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check native suites
+        run: test "${{ needs.native.result }}" = success
 
   web:
     name: Browser tests
@@ -101,6 +140,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target/browser
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install Wasm test runner
         run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
@@ -112,4 +152,3 @@ jobs:
           npm --prefix tests/browser ci
           npm --prefix tools ci
           npm --prefix tests/browser test
-          node tests/browser/dos-app.mjs
