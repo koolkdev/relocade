@@ -14,6 +14,9 @@ use std::{
 #[path = "worker_wakes/executor.rs"]
 mod executor;
 
+#[path = "worker_wakes/peers.rs"]
+mod peers;
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

@@ -1,5 +1,5 @@
 use super::Runner;
-use crate::worker::{self, wake_connection, SendTask, Thread, ThreadExt, WakeHost};
+use crate::worker::{self, wake_connection, SendTask, Thread, ThreadExt, WakeHost, WakePeer};
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt};
 use futures_channel::oneshot;
 use futures_lite::future::or;
@@ -16,10 +16,16 @@ pub struct ExecutionWorker<T: Send + 'static> {
     _thread: Thread,
     task: SendTask<Option<T>>,
     stop: Option<oneshot::Sender<()>>,
-    _wake_host: WakeHost<ExecutionInterrupt>,
+    wake_host: WakeHost<ExecutionInterrupt>,
 }
 
 impl<T: Send + 'static> ExecutionWorker<T> {
+    /// Captures the signal resource for another worker's startup. Bind the posted
+    /// peer there before using senders that can wake this session.
+    pub fn wake_peer(&self) -> WakePeer<ExecutionInterrupt> {
+        self.wake_host.peer()
+    }
+
     /// Runs a session with host-driven timers until it completes or `stop` resolves.
     /// Poll this on a responsive host, outside the execution worker. A stop signal
     /// returns `None` after dropping execution state on its owner; its value is
@@ -70,7 +76,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
             _thread: thread,
             task,
             stop: Some(stop),
-            _wake_host: wake_host,
+            wake_host,
         }
     }
 

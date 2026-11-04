@@ -1,6 +1,6 @@
 //! Polling and parking for a worker's root future.
 
-use super::{WakeConnection, WakeTarget};
+use super::{WakeConnection, WakePeer, WakeTarget};
 use futures_util::task::AtomicWaker;
 use std::{
     cell::Cell,
@@ -22,6 +22,11 @@ pub struct Executor<R: WakeTarget> {
 }
 
 impl<R: WakeTarget> Executor<R> {
+    /// Captures the signal binding for an additional worker's setup.
+    pub fn peer(&self) -> WakePeer<R> {
+        self.connection.peer()
+    }
+
     pub fn new(connection: WakeConnection<R>) -> Self {
         let wake = Arc::new(ExecutorWake {
             interrupt: connection.waker().clone(),

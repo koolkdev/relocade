@@ -217,10 +217,25 @@ delivered while waking a parked executor.
 Pending CPU services keep their original future and IRQ-suspended outer services
 remain parked until guest resumption.
 
-The browser connection covers the spawning host and execution worker. A Rust
-sender moved to a third worker still wakes pending tasks, but needs explicit
-resource setup to interrupt busy execution. Instruction budgets are temporary;
-notification coverage and explicit host waits must replace their scheduling role.
+The browser connection initially covers the spawning host and execution worker.
+Capture `execution.wake_peer()` on the host, or `runner.wake_peer()` on execution,
+and post it when setting up another worker:
+
+```rust,ignore
+thread.run_resource(execution.wake_peer(), move |peer| async move {
+    let _binding = peer.bind();
+    send_device_updates(input).await;
+}).await?;
+```
+
+Ordinary Rust senders on that thread now signal busy execution through its local
+resource. Keep the binding until those sends finish. Multiple bindings share the
+same local registration; dropping a peer does not terminate execution. Ending
+execution or dropping its host disables all peers, including escaped wakers.
+Workers without this setup do not have direct signal access. Foreign callback
+threads require their own integration; the AudioWorklet path remains separate.
+Instruction budgets are temporary; notification coverage and explicit host waits
+must replace their scheduling role.
 Use instruction stepping for bounded guest progress tests. See the
 [connection contract](workers.md#browser-build-and-lifetime).
 
