@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 relocade-bios = { path = "../bios" }
+relocade-pit = { path = "../pit" }
 relocade-vfs = { path = "../vfs" }
 relocade-x86 = { path = "../x86" }
 relocade-machine = { path = "../machine" }

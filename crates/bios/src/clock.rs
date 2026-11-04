@@ -1,8 +1,5 @@
 //! BIOS time-of-day data, advanced by IRQ0 and read through INT 1Ah.
 
-mod timer;
-pub use timer::connect;
-
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, MemoryView,
