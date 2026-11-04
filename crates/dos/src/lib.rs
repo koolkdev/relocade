@@ -153,7 +153,7 @@ impl<C: Clock> Dos<C> {
     {
         let clock = Rc::new(runner.clock().clone());
         let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
-        let speaker = Rc::new(RefCell::new(Speaker::with_clock(clock)));
+        let speaker = Rc::new(RefCell::new(Speaker::with_clock(clock.clone())));
         let keyboard = relocade_bios::Keyboard::default();
         let (keyboard_input, keyboard_device) = keyboard.connect(runner).await;
         let io = IoBus::new([
@@ -174,7 +174,7 @@ impl<C: Clock> Dos<C> {
         let mut cpu = runner
             .create_cpu(memory.clone(), kernel::cpu(), io.clone())
             .await?;
-        let teletype = Rc::new(relocade_bios::Teletype::new(memory.with_io(io)));
+        let teletype = Rc::new(relocade_bios::Teletype::new(memory.with_io(io), clock));
         let state = Rc::new(DosState::new(teletype.clone(), keyboard, cpu.exit_handle()));
         let keyboard = state.stdio().input.clone();
         {

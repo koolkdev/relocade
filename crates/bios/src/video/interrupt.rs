@@ -7,11 +7,15 @@ use super::{
 use crate::{screen, Teletype};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext,
+    Clock, CpuContext,
 };
 
 #[interrupt(context(call), args(function = ah))]
-pub(crate) async fn dispatch(call: &mut CpuContext<'_>, teletype: &Teletype, function: u8) {
+pub(crate) async fn dispatch(
+    call: &mut CpuContext<'_>,
+    teletype: &Teletype<impl Clock>,
+    function: u8,
+) {
     interrupt_dispatch!(
         call,
         match function {
@@ -43,7 +47,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, teletype: &Teletype, fun
 }
 
 #[interrupt(context(call), args(function = al))]
-async fn string_output(call: &mut CpuContext<'_>, teletype: &Teletype, function: u8) {
+async fn string_output(call: &mut CpuContext<'_>, teletype: &Teletype<impl Clock>, function: u8) {
     interrupt_dispatch!(
         call,
         match function {

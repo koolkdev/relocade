@@ -1,4 +1,4 @@
-//! BIOS character writes and the output cursor shared by INT 10h and DOS.
+//! BIOS character writes and the page cursor shared by INT 10h and DOS.
 use super::{
     cursor_position, geometry::Geometry, is_text_mode, scroll, set_cursor_position, valid_page,
     ScrollDirection, Window,
@@ -65,26 +65,23 @@ impl CursorPosition {
 
 /// Writes to one BIOS page using a local cursor. Only `commit_cursor` publishes
 /// that position; drawing and scrolling never switch the active display page.
-pub(crate) struct Output<'a, 'memory> {
+pub(crate) struct PageWriter<'a, 'memory> {
     memory: &'a mut MemoryView<'memory>,
     io: &'a IoBus,
     page: u8,
-    geometry: Geometry,
     // None uses the stored BIOS cursor and leaves it untouched on commit.
     cursor: Option<CursorPosition>,
 }
 
-impl<'a, 'memory> Output<'a, 'memory> {
+impl<'a, 'memory> PageWriter<'a, 'memory> {
     pub fn new(memory: &'a mut MemoryView<'memory>, io: &'a IoBus, page: u8) -> Option<Self> {
         if !valid_page(memory, page) {
             return None;
         }
-        let geometry = Geometry::read(memory);
         Some(Self {
             memory,
             io,
             page,
-            geometry,
             cursor: None,
         })
     }
@@ -106,10 +103,9 @@ impl<'a, 'memory> Output<'a, 'memory> {
 
     pub fn write_repeated(&mut self, character: u8, color: u8, count: u16, with_attribute: bool) {
         let position = self.position();
+        let geometry = Geometry::read(self.memory);
         if is_text_mode(self.memory) {
-            let start = self
-                .geometry
-                .cell_offset(self.page, position.row, position.column);
+            let start = geometry.cell_offset(self.page, position.row, position.column);
             // Text repeats advance a 16-bit video offset, including across
             // page padding. They never move the cursor.
             for index in 0..count {
@@ -117,16 +113,16 @@ impl<'a, 'memory> Output<'a, 'memory> {
                 let cell = [character, color];
                 self.memory
                     .write(
-                        self.geometry.text_address(offset),
+                        geometry.text_address(offset),
                         &cell[..if with_attribute { 2 } else { 1 }],
                     )
                     .expect("text cell");
             }
-        } else if self.geometry.contains(position.row, position.column) && count != 0 {
+        } else if geometry.contains(position.row, position.column) && count != 0 {
             let Some(page) = Page::locate(self.memory, self.page) else {
                 return;
             };
-            let Some(glyph) = Glyph::read(self.memory, character, self.geometry.font_height) else {
+            let Some(glyph) = Glyph::read(self.memory, character, geometry.font_height) else {
                 return;
             };
             // AH=09h and string writes force white in IBM mode 11h, retaining
@@ -140,41 +136,45 @@ impl<'a, 'memory> Output<'a, 'memory> {
             };
             // Cross-row repeats are unspecified by the BIOS ABI. Our graphics
             // policy wraps through visible cells and stops at the page bottom.
-            let start = position.row * self.geometry.columns + position.column;
+            let start = position.row * geometry.columns + position.column;
             let end = start
                 .saturating_add(count)
-                .min(self.geometry.columns * self.geometry.rows);
-            let positions = (start..end)
-                .map(|index| (index / self.geometry.columns, index % self.geometry.columns));
+                .min(geometry.columns * geometry.rows);
+            let positions =
+                (start..end).map(|index| (index / geometry.columns, index % geometry.columns));
             page.write_glyphs(self.memory, self.io, positions, glyph.rows(), color);
         }
     }
 
     pub fn write_character(&mut self, character: u8, color: u8, with_attribute: bool) {
+        // A timed control may have allowed an IRQ to change the video mode.
+        if !valid_page(self.memory, self.page) {
+            return;
+        }
+        let geometry = Geometry::read(self.memory);
         let mut position = self.position();
-        if !self.geometry.contains(position.row, position.column) {
+        if !geometry.contains(position.row, position.column) {
             return;
         }
         match character {
-            7 => return, // Bell requires a future speaker device.
             8 => position.column = position.column.saturating_sub(1),
             b'\r' => position.column = 0,
             b'\n' => position.row += 1,
             _ => {
                 self.write_repeated(character, color, 1, with_attribute);
                 position.column += 1;
-                if position.column == self.geometry.columns {
+                if position.column == geometry.columns {
                     position.column = 0;
                     position.row += 1;
                 }
             }
         }
-        if position.row == self.geometry.rows {
+        if position.row == geometry.rows {
             position.row -= 1;
             // Text scrolling takes the attribute after cursor advance; graphics
             // scrolling always exposes black pixels, regardless of the foreground.
             let fill = if is_text_mode(self.memory) {
-                read_cell_at(self.memory, &self.geometry, self.page, position)[1]
+                read_cell_at(self.memory, &geometry, self.page, position)[1]
             } else {
                 0
             };
@@ -186,7 +186,7 @@ impl<'a, 'memory> Output<'a, 'memory> {
                     top: 0,
                     left: 0,
                     bottom: position.row as u8,
-                    right: (self.geometry.columns - 1).min(255) as u8,
+                    right: (geometry.columns - 1).min(255) as u8,
                 },
                 1,
                 fill,

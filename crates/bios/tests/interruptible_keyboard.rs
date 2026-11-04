@@ -71,7 +71,7 @@ async fn machine(keyboard: &Keyboard, timer: &Rc<RefCell<Timer>>) -> Cpu {
     let (clock, _timers) = relocade_machine::timer_service();
     let io = IoBus::new([
         DeviceConnection {
-            device: Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock)))),
+            device: Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock.clone())))),
             mmio: vec![relocade_vga::MEMORY_RANGE],
             ports: relocade_vga::PORT_RANGES.into_iter().collect(),
         },
@@ -93,6 +93,7 @@ async fn machine(keyboard: &Keyboard, timer: &Rc<RefCell<Timer>>) -> Cpu {
     relocade_bios::initialize(&mut memory.view().with_io(&io), &io);
     let teletype = Rc::new(relocade_bios::Teletype::new(
         cpu.memory().with_io(cpu.context().io.clone()),
+        Rc::new(clock),
     ));
     let mut interrupts = Interrupts::new(&mut cpu);
     relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), teletype);
@@ -252,8 +253,10 @@ async fn bios_timer_rollover() {
     let timer = Rc::new(RefCell::new(Timer::default()));
     let mut cpu = machine(&keyboard, &timer).await;
     // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
+    let (clock, _timers) = relocade_machine::timer_service();
     let teletype = Rc::new(relocade_bios::Teletype::new(
         cpu.memory().with_io(cpu.context().io.clone()),
+        Rc::new(clock),
     ));
     let mut interrupts = Interrupts::new(&mut cpu);
     relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), teletype);
