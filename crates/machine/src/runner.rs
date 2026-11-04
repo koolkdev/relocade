@@ -128,14 +128,7 @@ impl<C: Clock> Runner<C> {
         let quantum = self.instruction_quantum.get();
         let mut remaining = quantum;
         let state = cpu.cpu_state();
-        let interrupt = cpu.interrupt_handle();
         loop {
-            if interrupt.is_requested() {
-                // Give already-notified work a Rust poll before entering
-                // Wasm. Do this once: nested combinators may synthesize a
-                // wake on each yield, so waiting for silence can starve CPU.
-                self.executor.yield_now().await;
-            }
             let before = state.instruction_count();
             match cpu.run(remaining).await {
                 ExecutionExit::BudgetExhausted => remaining = quantum,

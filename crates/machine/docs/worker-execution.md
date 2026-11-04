@@ -201,12 +201,10 @@ through the whole session poll, so CPU-first composition such as
 `join(run_cpu, input)` yields before its ready sibling runs. Acknowledgement
 follows polling and preserves new wakes, including those racing with the exchange.
 The runner resumes with the remainder of the same quantum. The ready queues
-retain coalesced notifications. Before entering the backend, a known pending
-notification gets one Rust polling opportunity without executing a guest block.
-This deferral is bounded: combinators may synthesize a wake on each cooperative
-yield, so waiting for a quiet signal could starve guest execution. A request
-still pending afterward is observed by the ordinary guest checkpoint. This
-check occurs at runner scheduling boundaries, not at hooks or CPU state accesses.
+retain coalesced notifications. Requests already pending at guest reentry use
+the same block/STEP checkpoints as requests arriving during execution. After
+`Interrupted`, the runner yields to Rust work before resuming the CPU. There is
+no additional pre-entry check or yield for an already-pending notification.
 The runner's cooperative yield wakes its current
 child task without requesting another interrupt from its first root notification.
 Separate notifications still request an interrupt, including reentrant input
