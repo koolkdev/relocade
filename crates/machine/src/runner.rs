@@ -3,7 +3,7 @@
 mod worker;
 pub use worker::ExecutionWorker;
 
-use crate::worker::{SessionDriver, WakeEndpoint};
+use crate::worker::{Executor, WakeEndpoint};
 use crate::{
     Clock, Cpu, CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory,
     Result, TimerHandle,
@@ -28,7 +28,7 @@ pub struct Runner<C = TimerHandle> {
     pub instruction_quantum: NonZeroU64,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
-    driver: Rc<SessionDriver<ExecutionInterrupt>>,
+    executor: Rc<Executor<ExecutionInterrupt>>,
     storage: RefCell<Option<CpuStorage>>,
 }
 
@@ -38,15 +38,13 @@ impl<C: Clock> Runner<C> {
     /// connection created for this storage; retain its host until the session ends.
     pub fn new(clock: C, storage: CpuStorage, endpoint: WakeEndpoint<ExecutionInterrupt>) -> Self {
         let (activities, pending) = mpsc::unbounded();
-        let driver = Rc::new(SessionDriver::new(
-            endpoint.bind(storage.interrupt_handle()),
-        ));
+        let executor = Rc::new(Executor::new(endpoint.bind(storage.interrupt_handle())));
         Self {
             clock,
             instruction_quantum: NonZeroU64::new(10_000).unwrap(),
             activities,
             pending: Some(pending),
-            driver,
+            executor,
             storage: RefCell::new(Some(storage)),
         }
     }
@@ -64,7 +62,7 @@ impl<C: Clock> Runner<C> {
             .take()
             .expect("session CPU storage already consumed");
         let mut cpu = storage.into_cpu(memory, config, io).await?;
-        cpu.session = Rc::downgrade(&self.driver);
+        cpu.executor = Rc::downgrade(&self.executor);
         Ok(cpu)
     }
 
@@ -102,7 +100,7 @@ impl<C: Clock> Runner<C> {
     ) -> Option<R> {
         let pending = self.pending.take().expect("new runner activity queue");
         let devices = pending.for_each_concurrent(None, |activity| activity);
-        self.driver
+        self.executor
             .run_until(stop, async {
                 // Poll ready devices before returning to guest execution.
                 match select(pin!(devices), pin!(main(&self))).await {
@@ -122,11 +120,11 @@ impl<C: Clock> Runner<C> {
     /// Panics if the CPU was not created by this runner.
     pub async fn run_cpu(&self, cpu: &mut Cpu) -> ExecutionExit {
         assert!(
-            std::ptr::eq(cpu.session.as_ptr(), Rc::as_ptr(&self.driver)),
+            std::ptr::eq(cpu.executor.as_ptr(), Rc::as_ptr(&self.executor)),
             "construct the session CPU with runner.create_cpu"
         );
         // Poll devices registered during application setup before guest entry.
-        self.driver.yield_now().await;
+        self.executor.yield_now().await;
         let quantum = self.instruction_quantum.get();
         let mut remaining = quantum;
         let state = cpu.cpu_state();
@@ -136,7 +134,7 @@ impl<C: Clock> Runner<C> {
                 // Give already-notified work a Rust poll before entering
                 // Wasm. Do this once: nested combinators may synthesize a
                 // wake on each yield, so waiting for silence can starve CPU.
-                self.driver.yield_now().await;
+                self.executor.yield_now().await;
             }
             let before = state.instruction_count();
             match cpu.run(remaining).await {
@@ -150,7 +148,7 @@ impl<C: Clock> Runner<C> {
                 }
                 exit => return exit,
             }
-            self.driver.yield_now().await;
+            self.executor.yield_now().await;
         }
     }
 }

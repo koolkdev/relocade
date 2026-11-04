@@ -1,4 +1,4 @@
-//! Polling and parking for one complete worker session.
+//! Polling and parking for a worker's root future.
 
 use super::{WakeConnection, WakeTarget};
 use futures_util::task::AtomicWaker;
@@ -13,17 +13,17 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
-/// Owns polling, cancellation and parking for one worker session.
+/// Owns polling, cancellation and parking for a worker's root future.
 /// Application and device futures are composed into one root future. Only an
-/// idle session uses the caller's executor; runnable work is repolled here.
-pub struct SessionDriver<R: WakeTarget> {
+/// idle worker uses the caller's executor; runnable work is repolled here.
+pub struct Executor<R: WakeTarget> {
     connection: WakeConnection<R>,
-    wake: Arc<SessionWake>,
+    wake: Arc<ExecutorWake>,
 }
 
-impl<R: WakeTarget> SessionDriver<R> {
+impl<R: WakeTarget> Executor<R> {
     pub fn new(connection: WakeConnection<R>) -> Self {
-        let wake = Arc::new(SessionWake {
+        let wake = Arc::new(ExecutorWake {
             interrupt: connection.waker().clone(),
             parked: AtomicWaker::new(),
             runnable: AtomicBool::new(false),
@@ -32,10 +32,10 @@ impl<R: WakeTarget> SessionDriver<R> {
         Self { connection, wake }
     }
 
-    /// Drives the session's root future until it completes or stop resolves.
+    /// Runs the worker's root future until it completes or stop resolves.
     /// Stop is polled first, registering its waker before application code can
     /// enter synchronous guest execution. Cancellation returns None and drops
-    /// the root future on its owner. Drive one root at a time with this driver.
+    /// the root future on its owner. Run one root at a time with this executor.
     pub async fn run_until<S: Future, F: Future>(&self, stop: S, future: F) -> Option<F::Output> {
         let mut stop = pin!(stop);
         let mut future = pin!(future);
@@ -101,17 +101,17 @@ impl<R: WakeTarget> SessionDriver<R> {
 }
 
 thread_local! {
-    static YIELDING: Cell<*const SessionWake> = const { Cell::new(std::ptr::null()) };
+    static YIELDING: Cell<*const ExecutorWake> = const { Cell::new(std::ptr::null()) };
 }
 
-struct YieldScope(*const SessionWake);
+struct YieldScope(*const ExecutorWake);
 impl Drop for YieldScope {
     fn drop(&mut self) {
         YIELDING.set(self.0);
     }
 }
 
-struct SessionWake {
+struct ExecutorWake {
     interrupt: Waker,
     parked: AtomicWaker,
     runnable: AtomicBool,
@@ -119,7 +119,7 @@ struct SessionWake {
     notified: AtomicBool,
 }
 
-impl Wake for SessionWake {
+impl Wake for ExecutorWake {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
     }
@@ -140,7 +140,7 @@ struct ParkRegistration<'a>(&'a AtomicWaker);
 impl Drop for ParkRegistration<'_> {
     fn drop(&mut self) {
         // Release the outer task on resumption or cancellation, including when
-        // a session waker escapes and outlives this run.
+        // an executor waker escapes and outlives this run.
         self.0.take();
     }
 }

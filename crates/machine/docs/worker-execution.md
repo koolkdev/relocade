@@ -101,11 +101,11 @@ remain usable afterward or the embedding needs separate control.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
-`ExecutionWorker` owns a stop channel. `SessionDriver` polls its receiver before
+`ExecutionWorker` owns a stop channel. `worker::Executor` polls its receiver before
 the application/device future, so cancellation is registered before any guest
 execution. `stop().await` sends through that channel; dropping the sender also
 requests cancellation. Either wakes the session while a CPU service is pending
-or requests a return from busy guest execution. The driver drops the application
+or requests a return from busy guest execution. The executor drops the application
 and devices on their execution thread before reporting completion. `stop().await`
 waits for that completion before releasing the thread.
 `join().await` waits for ordinary main-activity completion. As with `Thread`, await
@@ -164,8 +164,8 @@ registration channel, return acknowledgment or target replacement. At startup,
 polling opportunity; it does no installation. The host guard stays alive
 until worker completion.
 
-`WakeConnection` owns only the fixed signal binding. `SessionDriver` owns the
-stable session waker, polling and parking. `Runner` owns that driver and composes
+`WakeConnection` owns only the fixed signal binding. `worker::Executor` owns the
+stable executor waker, polling and parking. `Runner` owns that executor and composes
 the application and registered devices under it. Worker startup is:
 
 ```rust,ignore
@@ -174,12 +174,12 @@ Runner::new(clock, storage, endpoint).run(stopped, session).await
 
 The constructor consumes prepared storage and binds its wake endpoint on the
 execution owner. There is no partially initialized runner or standalone scheduling
-mode. `run` installs the required driver around the whole session, so callers do
+mode. `run` installs the required executor around the whole session, so callers do
 not separately wrap it. Native fixtures can supply the same resources on their
-test thread; they use the same driver. Browser binding belongs on the receiving
+test thread; they use the same executor. Browser binding belongs on the receiving
 worker after resource transfer. Direct CPU/device tests do not need a runner.
 
-Each driver turn polls `stopped` first, then the application/device future. A
+Each executor turn polls `stopped` first, then the application/device future. A
 ready stop drops that future without polling it again. Runnable work is repolled
 directly in Rust; only an idle session registers an outer-executor waiter and
 parks. Resumption or cancellation releases that waiter. Cancellation needs no
@@ -222,7 +222,7 @@ Use instruction stepping for bounded guest progress tests. See the
 [connection contract](workers.md#browser-build-and-lifetime).
 
 Continuously ready device loops must also cooperate with the other root futures.
-When the whole session is waiting, including for Wasm compilation, the driver
+When the whole session is waiting, including for Wasm compilation, the executor
 parks through the underlying executor. A Rust cooperative yield does not promise
 a browser event-loop turn: posted resources need an explicit host-wait boundary
 when other session work remains runnable. Arbitrary JavaScript callbacks on a

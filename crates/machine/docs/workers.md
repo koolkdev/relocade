@@ -70,7 +70,7 @@ Both target handles must address the same signal. This reuses the resource's
 existing transfer instead of posting it again through a registration channel.
 `ExecutionWorker` does this automatically with `CpuStorage`; callers construct
 its CPU through `runner.create_cpu` or `Dos::new`. `WakeConnection` retains the
-binding; the separate `SessionDriver` owns polling, stop handling and idle parking.
+binding; the separate `worker::Executor` owns polling, stop handling and idle parking.
 
 ## Browser build and lifetime
 
