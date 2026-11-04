@@ -1,4 +1,4 @@
-use super::{Lifetime, WakeEndpoint, WakeHost, WakeTarget};
+use super::{Lifetime, WakeEndpoint, WakeHost, WakePeer, WakeTarget};
 use std::{
     marker::PhantomData,
     sync::{
@@ -9,6 +9,7 @@ use std::{
 };
 
 pub(super) type HostBinding<R> = Arc<R>;
+#[derive(Clone, Copy)]
 pub(super) struct Endpoint;
 pub(super) struct Binding;
 
@@ -23,6 +24,11 @@ pub fn wake_connection<R: WakeTarget + Send + Sync>(target: R) -> (WakeHost<R>, 
     (
         WakeHost {
             _lifetime: Lifetime(active.clone()),
+            peer: WakePeer {
+                target: (*target).clone(),
+                endpoint: Endpoint,
+                active: active.clone(),
+            },
             _binding: target,
         },
         WakeEndpoint {

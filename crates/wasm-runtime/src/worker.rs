@@ -8,7 +8,9 @@ use std::future::Future;
 mod executor;
 mod wake;
 pub use executor::Executor;
-pub use wake::{wake_connection, WakeConnection, WakeEndpoint, WakeHost, WakeTarget};
+pub use wake::{
+    wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
+};
 
 /// A typed handle that can be reconstructed on another worker.
 ///

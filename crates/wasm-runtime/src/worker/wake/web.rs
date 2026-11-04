@@ -1,9 +1,9 @@
-use super::{Lifetime, WakeEndpoint, WakeHost, WakeTarget};
+use super::{Lifetime, WakeEndpoint, WakeHost, WakePeer, WakeTarget};
 use std::{
     cell::RefCell,
     collections::HashMap,
     marker::PhantomData,
-    rc::Rc,
+    rc::{Rc, Weak},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
@@ -13,7 +13,7 @@ use std::{
 
 thread_local! {
     // Each thread calls its own reconstructed resource. Wakers carry only IDs.
-    static TARGETS: RefCell<HashMap<usize, Box<dyn Fn()>>> = RefCell::default();
+    static TARGETS: RefCell<HashMap<usize, Weak<LocalTarget>>> = RefCell::default();
 }
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -22,7 +22,14 @@ pub(super) struct HostBinding<R> {
     _target: PhantomData<R>,
 }
 pub(super) type Endpoint = usize;
-pub(super) struct Binding(usize, PhantomData<Rc<()>>);
+pub(super) struct Binding {
+    _target: Rc<LocalTarget>,
+}
+
+struct LocalTarget {
+    id: usize,
+    wake: Box<dyn Fn()>,
+}
 
 /// Installs the host's signal immediately. Capture the endpoint alongside the
 /// resource passed to the worker, then bind that thread's reconstructed handle.
@@ -35,6 +42,11 @@ pub fn wake_connection<R: WakeTarget>(target: R) -> (WakeHost<R>, WakeEndpoint<R
     (
         WakeHost {
             _lifetime: Lifetime(active.clone()),
+            peer: WakePeer {
+                target: target.clone(),
+                endpoint: id,
+                active: active.clone(),
+            },
             _binding: HostBinding {
                 _local: bind(id, target, active.clone()),
                 _target: PhantomData,
@@ -50,28 +62,27 @@ pub fn wake_connection<R: WakeTarget>(target: R) -> (WakeHost<R>, WakeEndpoint<R
 }
 
 pub(super) fn bind<R: WakeTarget>(id: Endpoint, target: R, active: Arc<AtomicBool>) -> Binding {
-    let previous = TARGETS.with_borrow_mut(|targets| {
-        targets.insert(
-            id,
-            Box::new(move || {
-                if active.load(Ordering::SeqCst) {
-                    target.wake();
-                }
-            }),
-        )
+    let existing = TARGETS.with_borrow(|targets| targets.get(&id).and_then(Weak::upgrade));
+    if let Some(existing) = existing {
+        return Binding { _target: existing };
+    }
+    let target = Rc::new(LocalTarget {
+        id,
+        wake: Box::new(move || {
+            if active.load(Ordering::SeqCst) {
+                target.wake();
+            }
+        }),
     });
-    assert!(
-        previous.is_none(),
-        "wake endpoint must bind on its receiving thread"
-    );
-    Binding(id, PhantomData)
+    TARGETS.with_borrow_mut(|targets| targets.insert(id, Rc::downgrade(&target)));
+    Binding { _target: target }
 }
 
-impl Drop for Binding {
+impl Drop for LocalTarget {
     fn drop(&mut self) {
-        let target = TARGETS.with_borrow_mut(|targets| targets.remove(&self.0));
-        // Resource destructors may wake through this connection themselves.
-        drop(target);
+        TARGETS.with_borrow_mut(|targets| targets.remove(&self.id));
+        // The table borrow ends before captured resources are destroyed. Their
+        // destructors may wake through this connection themselves.
     }
 }
 
@@ -81,10 +92,9 @@ impl Wake for Request {
         self.wake_by_ref();
     }
     fn wake_by_ref(self: &Arc<Self>) {
-        TARGETS.with_borrow(|targets| {
-            if let Some(target) = targets.get(&self.0) {
-                target();
-            }
-        });
+        let target = TARGETS.with_borrow(|targets| targets.get(&self.0).and_then(Weak::upgrade));
+        if let Some(target) = target {
+            (target.wake)();
+        }
     }
 }
