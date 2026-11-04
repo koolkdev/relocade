@@ -13,7 +13,7 @@ use std::{
 };
 
 // Literal channel-0 period at the BIOS divisor; production keeps this private.
-const TICK: Duration = Duration::from_nanos(54_925_401);
+const TICK: Duration = Duration::from_nanos(54_925_402);
 
 fn drive_until(mut execution: Pin<&mut impl Future>, condition: impl Fn() -> bool) {
     for _ in 0..20 {

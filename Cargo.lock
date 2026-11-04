@@ -2263,6 +2263,7 @@ dependencies = [
  "relocade-bios",
  "relocade-frontend",
  "relocade-machine",
+ "relocade-pit",
  "relocade-vfs",
  "relocade-vga",
  "relocade-x86",
@@ -2317,6 +2318,14 @@ dependencies = [
  "relocade-x86",
  "wasm-bindgen-test",
  "web-time",
+]
+
+[[package]]
+name = "relocade-pit"
+version = "0.0.0"
+dependencies = [
+ "relocade-machine",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

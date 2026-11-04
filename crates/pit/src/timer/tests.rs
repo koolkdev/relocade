@@ -80,12 +80,12 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
 
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert!(timer.borrow_mut().poll_interrupt(&mut cpu_cx).is_pending());
-    clock.advance_to(1_054_925_400);
+    clock.advance_to(1_054_925_401);
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert!(timer.borrow_mut().poll_interrupt(&mut cpu_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
 
-    clock.advance_to(1_054_925_401);
+    clock.advance_to(1_054_925_402);
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
     assert_eq!(
@@ -102,7 +102,7 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     assert!(timer.borrow_mut().poll_interrupt(&mut cpu_cx).is_pending());
 
     // A delayed host poll creates one pending request and keeps the original phase.
-    clock.advance_to(1_000_000_000 + 10 * 54_925_401 + 1_234);
+    clock.advance_to(1_549_254_012 + 1_234);
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
     assert_eq!(replaced.0.load(Ordering::Relaxed), 1);
@@ -111,10 +111,12 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
         Poll::Ready(0x08)
     );
     assert!(timer.borrow_mut().poll_interrupt(&mut cpu_cx).is_pending());
-    clock.advance_to(1_000_000_000 + 11 * 54_925_401 - 1);
+    // The eleventh boundary is ceil(11 * 65536 * 1e9 / 1193182),
+    // not eleven separately rounded periods.
+    clock.advance_to(1_604_179_412);
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert!(timer.borrow_mut().poll_interrupt(&mut cpu_cx).is_pending());
-    clock.advance_to(1_000_000_000 + 11 * 54_925_401);
+    clock.advance_to(1_604_179_413);
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
     assert_eq!(
@@ -123,9 +125,9 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     );
 
     // Edges also coalesce when the activity runs but the CPU does not acknowledge.
-    clock.advance_to(1_000_000_000 + 12 * 54_925_401);
+    clock.advance_to(1_659_104_814);
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
-    clock.advance_to(1_000_000_000 + 13 * 54_925_401);
+    clock.advance_to(1_714_030_216);
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert_eq!(
         timer.borrow_mut().poll_interrupt(&mut cpu_cx),

@@ -152,7 +152,7 @@ impl<C: Clock> Dos<C> {
         let keyboard = relocade_bios::Keyboard::default();
         let (keyboard_input, keyboard_device) = keyboard.connect(runner);
         let io = IoBus::new([
-            relocade_bios::clock::connect(runner),
+            relocade_pit::connect_channel0(runner),
             runner.connect(
                 vga.clone(),
                 [relocade_vga::MEMORY_RANGE],
