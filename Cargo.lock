@@ -2341,6 +2341,7 @@ dependencies = [
  "futures-timer",
  "pollster",
  "relocade-machine",
+ "relocade-pic",
  "relocade-pit",
  "relocade-x86",
  "wasm-bindgen-test",

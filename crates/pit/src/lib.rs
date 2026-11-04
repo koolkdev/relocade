@@ -1,7 +1,7 @@
 //! Binary 8254 counters and the PC/AT input clock.
 
 mod timer;
-pub use timer::connect_channel0;
+pub use timer::Pit;
 
 mod clock;
 pub use clock::{clocks_at, time_at, INPUT_HZ};
@@ -10,6 +10,8 @@ pub use clock::{clocks_at, time_at, INPUT_HZ};
 pub const CHANNEL_2_PORT: u16 = 0x42;
 /// PC/AT I/O port for PIT control and read-back commands.
 pub const CONTROL_PORT: u16 = 0x43;
+/// Registers decoded by the PIT device.
+pub const PORT_RANGE: std::ops::RangeInclusive<u16> = CHANNEL_2_PORT..=CONTROL_PORT;
 
 /// One counter, advanced in whole input clocks. See the crate README for scope.
 ///
