@@ -5,11 +5,11 @@ use relocade_x86::ExecutionExit;
 #[path = "../../../machine/tests/support/clock.rs"]
 mod manual_clock;
 use manual_clock::ManualClock;
-use relocade_machine::Runner;
+use relocade_machine::ExecutionWorker;
 use std::{
     future::Future,
     pin::{pin, Pin},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 // Literal channel-0 period at the BIOS divisor; production keeps this private.
@@ -94,28 +94,34 @@ fn bios_reads_ticks_and_consumes_midnight_rollover() {
 fn timer_advances_the_clock_during_guest_execution() {
     pollster::block_on(async {
         let clock = ManualClock::default();
-        let runner = Runner::with_clock(clock.clone());
-        let mut dos = relocade_dos::Dos::new(&runner).await.unwrap();
-        dos.launch_com(
-            &[
-                0x80, 0x3e, 0, 3, 0, 0x74, 0xf9, // Wait for byte [0300] != 0.
-                0x31, 0xc0, 0xcd, 0x1a, // Read clock.
-                0x89, 0x16, 2, 3, // Save DX.
-                0xb8, 0, 0x4c, 0xcd, 0x21, // Exit.
-            ],
-            Default::default(),
-        )
-        .unwrap();
-        let memory = dos.cpu().memory();
-        let mut execution = pin!(runner.run(async |runner| dos.run(runner).await));
-        common::assert_pending(execution.as_mut()); // Arms device activities.
-        clock.advance(TICK);
-        drive_until(execution.as_mut(), || {
-            memory.view().read_u32(0x46c).unwrap() == 1
+        let (ready, shared_memory) = futures_channel::oneshot::channel();
+        let worker_clock = clock.clone();
+        let worker = ExecutionWorker::spawn(worker_clock, async move |runner| {
+            let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
+            dos.launch_com(
+                &[
+                    0xc6, 0x06, 0, 3, 1, // Publish that guest execution has started.
+                    0x31, 0xc0, 0x8e, 0xc0, // ES=0.
+                    0x26, 0x83, 0x3e, 0x6c, 4, 0, 0x74, 0xf8, // Wait for BDA tick.
+                    0xcd, 0x1a, // Read clock.
+                    0x89, 0x16, 2, 3, // Save DX.
+                    0xb8, 0, 0x4c, 0xcd, 0x21, // Exit.
+                ],
+                Default::default(),
+            )
+            .unwrap();
+            assert!(ready.send(dos.cpu().memory()).is_ok());
+            assert_eq!(dos.run(runner).await, Ok(0));
+            dos.cpu().memory().view().read_u16(0x10302).unwrap()
         });
-        memory.view().write_u8(0x10300, 1).unwrap();
-        assert_eq!(execution.await, Ok(0));
-        assert_eq!(memory.view().read_u16(0x10302).unwrap(), 1);
+        let memory = shared_memory.await.unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while memory.view().read_u8(0x10300).unwrap() == 0 {
+            assert!(Instant::now() < deadline, "guest execution did not start");
+            std::thread::yield_now();
+        }
+        clock.advance(TICK);
+        assert_eq!(worker.join().await.unwrap(), Some(1));
     });
 }
 
@@ -129,7 +135,7 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
             (0x21, 0x3f00, 2, &b"A\r"[..], &b"A\r\n"[..]),
         ] {
             let clock = ManualClock::default();
-            let runner = Runner::with_clock(clock.clone());
+            let (runner, _host) = common::runner(clock.clone());
             let mut dos = relocade_dos::Dos::new(&runner).await.unwrap();
             dos.launch_com(
                 &[
@@ -175,7 +181,10 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
             memory.view().write_u32(0x46c, 0x18_00ae).unwrap();
             let keyboard = dos.keyboard();
             {
-                let mut execution = pin!(runner.run(async |runner| dos.run(runner).await));
+                let execution = runner.run(std::future::pending::<()>(), async |runner| {
+                    dos.run(runner).await
+                });
+                let mut execution = pin!(execution);
                 common::assert_pending(execution.as_mut());
                 assert!(state.interrupts_enabled());
                 clock.advance(TICK);
@@ -197,7 +206,7 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
                         scan_code: 0x1c,
                     });
                 }
-                assert_eq!(execution.await, Ok(0));
+                assert_eq!(execution.await, Some(Ok(0)));
             }
             let mut result = [0; 7];
             memory.view().read(0x10300, &mut result).unwrap();

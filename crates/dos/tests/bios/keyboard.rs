@@ -224,11 +224,11 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
 #[test]
 fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
     use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
-    use relocade_machine::{timer_service, Runner};
+    use relocade_machine::timer_service;
     pollster::block_on(async {
         let (clock, timers) = timer_service();
         let timer_thread = std::thread::spawn(|| pollster::block_on(timers.run()));
-        let runner = Runner::with_clock(clock);
+        let (runner, _host) = common::runner(clock);
         let mut dos = Dos::new(&runner).await.unwrap();
         // BIOS reads AX into memory; DOS then reads another character and exits with it.
         dos.launch_com(
@@ -242,7 +242,10 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
         let memory = dos.cpu().memory();
         let input = dos.keyboard_input();
         {
-            let mut running = pin!(runner.run(async |runner| dos.run(runner).await));
+            let running = runner.run(std::future::pending::<()>(), async |runner| {
+                dos.run(runner).await
+            });
+            let mut running = pin!(running);
             common::assert_pending(running.as_mut());
             std::thread::spawn(move || {
                 for (code, text) in [(KeyCode::KeyA, "A"), (KeyCode::KeyB, "b")] {
@@ -260,7 +263,7 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
             })
             .join()
             .unwrap();
-            assert_eq!(running.await, Ok(b'b'));
+            assert_eq!(running.await, Some(Ok(b'b')));
         }
         assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 0x1e41);
         drop(dos);

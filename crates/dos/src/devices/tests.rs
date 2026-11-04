@@ -92,11 +92,12 @@ fn character_read_uses_the_transfer_count_to_recognize_eof() {
 #[test]
 fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() {
     use relocade_bios::KeyStroke;
-    use relocade_machine::{timer_service, Runner};
+    use relocade_machine::timer_service;
 
     pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let mut dos = crate::Dos::new(&Runner::with_clock(clock)).await.unwrap();
+        let (runner, _host) = crate::test_runner::runner(clock);
+        let mut dos = crate::Dos::new(&runner).await.unwrap();
         let keyboard = dos.keyboard();
         let original = dos.state.devices().console();
         keyboard.push(KeyStroke {

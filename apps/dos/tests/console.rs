@@ -1,8 +1,8 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use futures_lite::future::{or, zip};
+use futures_lite::future::or;
 use relocade_dos::Dos;
-use relocade_machine::{timer_service, Clock, Runner};
+use relocade_machine::{Clock, ExecutionWorker};
 use std::{
     io::{Read, Write},
     time::Duration,
@@ -11,8 +11,7 @@ use std::{
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
     let prompt_row = 6;
-    let (clock, timers) = timer_service();
-    let console = Runner::with_clock(clock).run(async |runner| {
+    let console = ExecutionWorker::run_until(std::future::pending::<()>(), async move |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
         dos.stdin()
             .write_all(b"eChO hellx\x08o\runknown\r\r")
@@ -63,5 +62,5 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
             "echo executes in Rust without launching guest code"
         );
     });
-    pollster::block_on(zip(console, timers.run()));
+    assert_eq!(pollster::block_on(console).unwrap(), Some(()));
 }

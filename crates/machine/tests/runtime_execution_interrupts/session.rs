@@ -204,20 +204,22 @@ async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
 
 async fn saturated_count() {
     let (clock, _timers) = timer_service();
-    let runner = relocade_machine::Runner::with_clock(clock);
-    let mut cpu = cpu(&[0xeb, 0xfe], true, IoBus::default()).await;
-    let exit = cpu.exit_handle();
-    cpu.install([relocade_machine::Hook::host(0x100, async move || {
-        exit.request()
-    })])
-    .await
-    .unwrap();
-    cpu.cpu_state().set_instruction_count(u64::MAX);
-    assert_eq!(
-        futures_lite::future::poll_once(runner.run_cpu(&mut cpu)).await,
-        Some(ExecutionExit::Host(relocade_x86::HostExit::Return)),
-        "a fresh nonzero quantum must still enter a host service at a saturated count"
-    );
+    let worker = ExecutionWorker::spawn(clock, async |runner| {
+        let mut cpu = cpu_with_runner(&[0xeb, 0xfe], true, IoBus::default(), Some(runner)).await;
+        let exit = cpu.exit_handle();
+        cpu.install([relocade_machine::Hook::host(0x100, async move || {
+            exit.request()
+        })])
+        .await
+        .unwrap();
+        cpu.cpu_state().set_instruction_count(u64::MAX);
+        assert_eq!(
+            runner.run_cpu(&mut cpu).await,
+            ExecutionExit::Host(relocade_x86::HostExit::Return),
+            "a fresh nonzero quantum must still enter a host service at a saturated count"
+        );
+    });
+    assert_eq!(worker.join().await.unwrap(), Some(()));
 }
 
 #[cfg(not(target_arch = "wasm32"))]

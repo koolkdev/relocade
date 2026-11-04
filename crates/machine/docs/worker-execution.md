@@ -32,9 +32,9 @@ main activity drops all device futures on their owner.
 The worker prepares one `CpuStorage` before spawning and posts it through
 `ThreadExt::run_resource`. `runner.create_cpu(memory, config, io).await` consumes
 that storage on the execution thread. `Dos::new(runner)` uses the same factory.
-A connected runner permits one construction attempt, including an attempt that
-fails or is cancelled; later programs reuse that CPU. Standalone runners can
-construct independent CPUs. `run_cpu` checks ownership once at entry, without
+A runner permits one construction attempt, including an attempt that
+fails or is cancelled; later programs reuse that CPU. Independent CPU-level work
+uses `Cpu::new` and `Cpu::run` directly. `run_cpu` checks ownership once at entry, without
 adding checks during hooks or state access. Construction and launch do not
 execute guest instructions.
 
@@ -165,12 +165,19 @@ polling opportunity; it does no installation. The host guard stays alive
 until worker completion.
 
 `WakeConnection` owns only the fixed signal binding. `SessionDriver` owns the
-stable session waker, polling and parking; `Runner` composes the application and
-registered devices. The worker connects these owners directly:
+stable session waker, polling and parking. `Runner` owns that driver and composes
+the application and registered devices under it. Worker startup is:
 
 ```rust,ignore
-driver.run_until(stopped, runner.run(session)).await
+Runner::new(clock, storage, endpoint).run(stopped, session).await
 ```
+
+The constructor consumes prepared storage and binds its wake endpoint on the
+execution owner. There is no partially initialized runner or standalone scheduling
+mode. `run` installs the required driver around the whole session, so callers do
+not separately wrap it. Native fixtures can supply the same resources on their
+test thread; they use the same driver. Browser binding belongs on the receiving
+worker after resource transfer. Direct CPU/device tests do not need a runner.
 
 Each driver turn polls `stopped` first, then the application/device future. A
 ready stop drops that future without polling it again. Runnable work is repolled
