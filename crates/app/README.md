@@ -18,32 +18,25 @@ registers the callbacks and returns immediately; the application remains owned
 by winit until exit. An `Ok` return on the browser does not indicate completion.
 
 The launcher itself creates no workers. CPU/device execution and application
-policy stay with its consumer; the optional graphics and audio hosts own their workers.
+policy stay with its consumer; the optional graphics host owns its worker.
 
 With the `audio` feature, `audio::Audio` opens default CPAL output on main and
-attaches one device task to its own `worker::Thread`. CPAL supplies platform
-types and errors; the attachment receives its `StreamConfig` and an ordinary
-`async_channel::Sender<Vec<f32>>`. It runs once on the audio worker, where its
-device state and future need not be `Send`. Frontend has no audio contract.
+returns its `StreamConfig` and an ordinary `async_channel::Sender<Vec<f32>>`.
+The producer runs on its existing owner, such as a machine device activity.
+Frontend has no audio contract.
 
 ```rust,ignore
-let mut audio = relocade_app::audio::Audio::attach_device(
-    move |config, samples| async move {
-        let device = MyAudioDevice::new(config, source)?;
-        device.run(samples).await
-    },
-    report_audio_error,
-)?;
+let (audio, config, samples) = relocade_app::audio::Audio::open(report_audio_error)?;
+// Pass config and samples to the device on its execution owner.
 audio.play()?; // In a browser, call from the application's user activation.
-// Service the application and observe audio.join() for device/worker errors.
-audio.close().await?;
+// Keep audio alive while playing. Dropping it closes sample submission.
 ```
 
 The device owns synthesis and submits interleaved `f32` buffers directly with
 `samples.send(buffer).await`. The bounded channel wakes submission as output
 consumes buffers. Whole-buffer messages cannot publish partial frames when a
-send is cancelled. The device chooses batch sizes, source waits and source
-changes, and must yield during ongoing work so shutdown can cancel its future.
+send is cancelled. The execution owner manages the device task and its shutdown;
+`Audio` owns only platform playback and the sample queue.
 
 The channel holds 16 buffers, and the callback can retain one partly consumed
 buffer. Devices must bound their buffer sizes. With 128-frame buffers at 48 kHz,
@@ -54,16 +47,9 @@ hardware playback clock or guest-clock synchronization.
 The callback consumes complete frames, clamps samples to [-1, 1], maps NaN to
 silence and converts to the host sample format. It discards an incomplete trailing
 frame from each buffer. An empty or shorter-than-one-frame buffer produces one
-silent output frame. Missing samples produce silence.
-
-`join()` waits for device completion without requesting shutdown, and leaves
-output alive to consume queued samples. `close()` cancels the device, waits for
-cleanup on its worker, then drops output and discards queued samples, including
-when the task returned an error. Both waits can be cancelled and resumed;
-cancelling a close wait retains its shutdown request. Repeated calls return the
-same device result. Keep the `Audio` owner alive through this wait. Dropping it
-early closes sample submission immediately but can skip browser worker cleanup.
-Device completion does not mean the queued audio has played.
+silent output frame. Missing samples produce silence. Dropping `Audio` immediately
+closes submission and discards queued samples; pending sends return an error.
+The producer's completion does not mean the queued audio has played.
 
 CPAL 0.18.2's AudioWorklet backend runs the same Rust callback against shared Wasm
 memory, without serializing PCM batches through messages. CPAL owns the worklet's

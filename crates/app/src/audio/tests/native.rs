@@ -57,7 +57,7 @@ use std::time::{Duration, Instant};
 #[ignore = "requires an audio output; CI uses ALSA null"]
 fn output_starts_on_play_and_drop_closes_submission() {
     let (errors, reported) = std::sync::mpsc::channel();
-    let (output, config, writer) = Output::open(move |error| {
+    let (output, config, writer) = Audio::open(move |error| {
         let _ = errors.send(error);
     })
     .unwrap();
