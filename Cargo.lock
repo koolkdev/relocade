@@ -2183,7 +2183,6 @@ dependencies = [
  "futures-channel",
  "futures-lite",
  "futures-timer",
- "futures-util",
  "js-sys",
  "pollster",
  "raw-window-handle",
