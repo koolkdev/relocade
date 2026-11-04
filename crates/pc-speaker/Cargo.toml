@@ -1,0 +1,19 @@
+[package]
+name = "relocade-pc-speaker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+relocade-pit = { path = "../pit" }
+relocade-machine = { path = "../machine" }
+
+[dev-dependencies]
+relocade-x86 = { path = "../x86" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pollster = "=1.0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"

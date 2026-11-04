@@ -2321,6 +2321,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-pc-speaker"
+version = "0.0.0"
+dependencies = [
+ "pollster",
+ "relocade-machine",
+ "relocade-pit",
+ "relocade-x86",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "relocade-pit"
 version = "0.0.0"
 dependencies = [
