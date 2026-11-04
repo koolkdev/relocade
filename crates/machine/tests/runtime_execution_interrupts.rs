@@ -123,14 +123,11 @@ async fn execution_interrupt_waits_for_the_protected_successor() {
     protected_step().await;
 }
 
-#[cfg(feature = "worker")]
 #[path = "runtime_execution_interrupts/worker.rs"]
 mod worker;
 
-#[cfg(feature = "worker")]
 #[path = "runtime_execution_interrupts/construction.rs"]
 mod construction;
 
-#[cfg(feature = "worker")]
 #[path = "runtime_execution_interrupts/session.rs"]
 mod session;

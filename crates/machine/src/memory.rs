@@ -11,11 +11,10 @@ use std::sync::Arc;
 /// Clones share backing bytes. Reads can overlap guest writes and do not provide
 /// an atomic snapshot of a range.
 /// Devices belong to the execution worker and are not retained by this handle.
-#[derive(Clone)]
-#[cfg_attr(feature = "worker", derive(crate::worker::WorkerResource))]
+#[derive(Clone, crate::worker::WorkerResource)]
 pub struct Memory {
     config: Arc<MachineConfig>,
-    #[cfg_attr(feature = "worker", worker(post))]
+    #[worker(post)]
     backing: SharedMemory,
 }
 

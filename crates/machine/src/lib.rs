@@ -49,13 +49,8 @@ pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::CpuStateAccess;
 pub use io::{Device, DeviceConnection, IoBus};
 pub use memory::{FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
-pub use relocade_wasm_runtime::MemoryAccess;
-#[cfg(feature = "worker")]
-pub use runner::ExecutionWorker;
-pub use runner::{yield_now, Runner};
-
-#[cfg(feature = "worker")]
-pub use relocade_wasm_runtime::worker;
+pub use relocade_wasm_runtime::{worker, MemoryAccess};
+pub use runner::{yield_now, ExecutionWorker, Runner};
 pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, CpuStorage, DispatchEntry, Error, ExecutionInterrupt,
     ExitHandle, Hook, Result,
