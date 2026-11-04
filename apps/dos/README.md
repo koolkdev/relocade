@@ -30,8 +30,8 @@ errors remain visible even when startup ends before the endpoints arrive.
 `AppHost::open_audio` opens and owns CPAL output on main. Only its stream
 configuration and bounded Rust PCM sender go to the execution worker. `Dos::new`
 creates the hardware; `dos.speaker()` exposes it for `attach_audio(config, samples)`.
-Guest writes to PIT channel 2 and port 0x61 produce sound; the console itself
-does not ring a bell yet. Speaker state persists across guest process exits.
+Guest writes to PIT channel 2 and port 0x61 produce sound. BIOS and DOS console
+BEL output uses that same speaker. Speaker state persists across guest process exits.
 
 Native playback starts immediately. The browser console appears immediately;
 the app's browser platform code requests playback once the document has user
@@ -54,6 +54,36 @@ cursor and scrolling use the same VGA state as BIOS and DOS program output.
 It does not create a renderer or a worker. Existing `launch_com` and `launch_mz`
 accept supplied bytes; executable lookup and storage selection are not defined here.
 
+## Bell output
+
+BIOS teletype/string output and DOS CON interpret BEL (`0x07`) as a roughly
+1 kHz tone lasting 100 ms. The service awaits the machine clock while devices and
+guest IRQ handlers continue running. Completion or cancellation clears the speaker
+gate and enable bits. BEL replaces previous channel-2 programming; it does not
+restore a tone left by a guest.
+
+Within the existing execution session, with audio attached, Rust can ring through
+the usual console API:
+
+```rust
+dos.console().write(b"\x07").await?;
+```
+
+A minimal COM program rings through DOS AH=02h and exits:
+
+```rust
+dos.launch_com(&[
+    0xb4, 0x02, 0xb2, 0x07, 0xcd, 0x21, // Write BEL to stdout.
+    0xb8, 0x00, 0x4c, 0xcd, 0x21,       // Exit successfully.
+], Default::default())?;
+dos.run(runner).await?;
+```
+
+DOS writes and input echo ring only when their destination is CON. Redirected
+files receive the BEL byte, and NUL discards it without waiting or playing sound.
+Rust `dos.console()` always addresses CON, independently of stdout redirection.
+Without attached output these services still complete and update speaker ports.
+
 ## Audio validation
 
 `cargo test -p relocade-dos-app --test audio` runs real COM port programming,
@@ -62,3 +92,6 @@ PCM receiver. The same fixture runs in the browser suite against CPAL's actual
 AudioWorklet, measuring the resulting tones and silence. The bundled application
 test separately checks click/key activation and console input. These automated
 checks do not establish physical speaker playback or long-term clock accuracy.
+
+The focused native `bell` tests in `relocade-bios` and `relocade-dos` control time
+to check bell duration, interrupted video output, DOS routing and cancellation.

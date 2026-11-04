@@ -19,6 +19,8 @@ impl Console<'_> {
     /// Writes guest-encoded bytes, with the same tab expansion, cursor movement
     /// and scrolling as cooked DOS output. Use CRLF for a new line. This writes
     /// through CON without adding a duplicate host stdout byte stream.
+    /// With the built-in BIOS CON driver, BEL awaits a 100 ms speaker tone;
+    /// cancellation disables that tone.
     /// Returns the device's output error.
     pub async fn write(&self, bytes: &[u8]) -> Result<(), DosError> {
         let output = CharacterOutput::device(self.stdio, self.devices.console());
