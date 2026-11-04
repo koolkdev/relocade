@@ -53,3 +53,12 @@ The console uses `dos.console().write(bytes).await` and `read_line().await`; its
 cursor and scrolling use the same VGA state as BIOS and DOS program output.
 It does not create a renderer or a worker. Existing `launch_com` and `launch_mz`
 accept supplied bytes; executable lookup and storage selection are not defined here.
+
+## Audio validation
+
+`cargo test -p relocade-dos-app --test audio` runs real COM port programming,
+keyboard waits, process relaunch and execution/output shutdown against a paced
+PCM receiver. The same fixture runs in the browser suite against CPAL's actual
+AudioWorklet, measuring the resulting tones and silence. The bundled application
+test separately checks click/key activation and console input. These automated
+checks do not establish physical speaker playback or long-term clock accuracy.
