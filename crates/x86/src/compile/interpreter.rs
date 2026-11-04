@@ -50,6 +50,7 @@ pub fn compile_interpreter(
 /// without fetching or dispatching the successor.
 /// An inhibiting Real16 STI/MOV SS/POP SS instead returns `InterruptInhibited`,
 /// requesting another protected step before IRQ polling or a budget exit.
+/// Real16 POPF/IRET that enables IF returns `InterruptsEnabled`.
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before returning and retains completed elements on a fault.
 /// This entry checks execution interrupts and the instruction target after retirement.

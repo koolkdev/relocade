@@ -155,9 +155,10 @@ After STI or an SS load's protected successor completes, the driver polls device
 IRQs before continuing. Real-mode POPF/POPFD and IRET/IRETD that change IF from
 clear to set publish their completed effects and return `InterruptsEnabled`.
 The driver consumes this exit at the same IRQ polling site. A queued one-shot IRQ
-therefore needs no second notification after guest code enables IF. STEP suppresses
-this internal eligibility exit. POPF ends a compiled/interpreted block, including
-in protected profiles, so its restored flags are published before continuation.
+therefore needs no second notification after guest code enables IF. STEP returns
+the same eligibility outcome after completing the instruction. POPF ends a
+compiled/interpreted block, including in protected profiles, so its restored flags
+are published before continuation.
 
 ## Callable dispatch
 

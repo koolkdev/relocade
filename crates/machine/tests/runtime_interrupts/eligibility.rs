@@ -7,6 +7,7 @@ async fn queued_irq() {
     for compiled in [false, true] {
         for (code, return_ip, retired) in [
             (&[0xfb, 0x40][..], 0x102, 4), // STI; INC AX (protected successor).
+            (&[0x8e, 0xd0, 0x9d][..], 0x103, 4), // MOV SS, AX; POPF (stepped IF restore).
             (&[0x9d][..], 0x101, 3),       // POPF enables IF.
             (&[0x66, 0x9d][..], 0x102, 3), // POPFD enables IF.
             (&[0xcf][..], 0x200, 3),       // IRET enables IF.
