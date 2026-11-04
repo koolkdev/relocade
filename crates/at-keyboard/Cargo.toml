@@ -9,5 +9,6 @@ publish.workspace = true
 relocade-machine = { path = "../machine" }
 relocade-pic = { path = "../pic" }
 relocade-frontend = { path = "../frontend", features = ["keyboard"] }
-async-channel = "=2.5.0"
+# Keep shared event listeners safe to poll on the browser main thread.
+async-channel = { version = "=2.5.0", default-features = false }
 futures-util = "=0.3.34"
