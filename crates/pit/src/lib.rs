@@ -6,12 +6,14 @@ pub use timer::Pit;
 mod clock;
 pub use clock::{clocks_at, time_at, INPUT_HZ};
 
+/// PC/AT I/O port for the channel-0 count register.
+pub const CHANNEL_0_PORT: u16 = 0x40;
 /// PC/AT I/O port for the channel-2 count register.
 pub const CHANNEL_2_PORT: u16 = 0x42;
 /// PC/AT I/O port for PIT control and read-back commands.
 pub const CONTROL_PORT: u16 = 0x43;
 /// Registers decoded by the PIT device.
-pub const PORT_RANGE: std::ops::RangeInclusive<u16> = CHANNEL_2_PORT..=CONTROL_PORT;
+pub const PORT_RANGE: std::ops::RangeInclusive<u16> = CHANNEL_0_PORT..=CONTROL_PORT;
 
 /// One counter, advanced in whole input clocks. See the crate README for scope.
 ///
@@ -147,6 +149,40 @@ impl Counter {
         } else {
             high + self.advance_periodic(clocks)
         }
+    }
+
+    /// Clocks to the next load or output transition in a running counter.
+    fn next_transition(&self) -> Option<u64> {
+        if self.mode().is_none() || !self.gate {
+            None
+        } else if self.loading {
+            Some(1)
+        } else if self.active == 0 {
+            None
+        } else {
+            let boundary = if self.phase < self.high_clocks() {
+                self.high_clocks()
+            } else {
+                self.active
+            };
+            Some(u64::from(boundary - self.phase))
+        }
+    }
+
+    fn next_rising_edge(&self) -> Option<u64> {
+        let mut counter = self.clone();
+        let mut clocks = 0;
+        // At most an initial load, a falling edge, then a rising edge. Pending
+        // reloads use advance's mode-specific boundary, even across a long pause.
+        while let Some(until) = counter.next_transition() {
+            let high = counter.output();
+            counter.advance(until);
+            clocks += until;
+            if !high && counter.output() {
+                return Some(clocks);
+            }
+        }
+        None
     }
 
     fn mode(&self) -> Option<u8> {

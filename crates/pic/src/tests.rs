@@ -15,6 +15,8 @@ fn poll(pic: &mut Pic) -> Poll<u8> {
 fn masking_preserves_edges_and_eoi_releases_lower_priority_requests() {
     let mut pic = Pic::new(8);
     pic.irq(1).pulse();
+    pic.irq(1).set_initial_level(true);
+    pic.irq(0).set_initial_level(true);
     pic.irq(0).pulse();
     assert_eq!(poll(&mut pic), Poll::Pending);
     assert_eq!(pic.read_port(COMMAND_PORT, 1), 3);
@@ -43,6 +45,11 @@ fn edge_inputs_require_a_new_rising_transition_and_coalesce() {
     let mut pic = Pic::new(8);
     pic.write_port(MASK_PORT, 1, 0xfd); // Unmask IRQ1.
     let line = pic.irq(1);
+    line.set_initial_level(true);
+    assert_eq!(poll(&mut pic), Poll::Pending);
+    line.set_level(true);
+    assert_eq!(poll(&mut pic), Poll::Pending);
+    line.set_level(false);
     line.set_level(true);
     line.set_level(true);
     assert_eq!(poll(&mut pic), Poll::Ready(9));
@@ -98,6 +105,11 @@ fn level_requests_remain_asserted_until_the_device_lowers_them() {
     line.set_level(false);
     pic.write_port(COMMAND_PORT, 1, 0x20); // OCW2: non-specific EOI.
     assert_eq!(poll(&mut pic), Poll::Pending);
+
+    line.set_initial_level(true);
+    assert_eq!(poll(&mut pic), Poll::Ready(9));
+    line.set_level(false);
+    pic.write_port(COMMAND_PORT, 1, 0x20); // OCW2: non-specific EOI.
 
     line.set_level(true);
     for (port, value) in [

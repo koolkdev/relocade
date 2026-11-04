@@ -2,7 +2,7 @@
 
 Emulates the PC speaker control port and synthesizes PIT channel 2. The shared
 [relocade-pit](../pit/README.md) device owns the timer registers, input-clock
-arithmetic and default channel-0 IRQ scheduler. BIOS keeps its IRQ handler and
+arithmetic and programmable channel-0 IRQ scheduler. BIOS keeps its IRQ handler and
 time-of-day data.
 
 `Speaker::initialize(runner, pit).await` connects the speaker to that PIT,
