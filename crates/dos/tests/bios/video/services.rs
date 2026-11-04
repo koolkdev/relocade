@@ -9,6 +9,9 @@ fn rust_video_services_and_interrupts_share_state() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
+        let teletype = relocade_bios::Teletype::new(
+            dos.cpu().memory().with_io(dos.cpu().context().io.clone()),
+        );
         {
             let mut context = dos.cpu().context();
             assert_eq!(
@@ -86,7 +89,7 @@ fn rust_video_services_and_interrupts_share_state() {
                 ScrollDirection::Up,
             );
             assert_eq!(context.memory.read_u16(0xba1e8).unwrap(), 0x1e20);
-            bios::teletype(&mut context.memory, context.io, b'T', 0).unwrap();
+            teletype.write_character(b'T', 0).await.unwrap();
             assert_eq!(context.memory.read_u16(0xba1ea).unwrap(), 0x1e54);
         }
         assert_eq!(

@@ -53,8 +53,11 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
         .await
         .unwrap();
     let keyboard = relocade_bios::Keyboard::default();
-    let dos = Rc::new(DosState::new(
+    let teletype = Rc::new(relocade_bios::Teletype::new(
         memory.clone().with_io(io.clone()),
+    ));
+    let dos = Rc::new(DosState::new(
+        teletype.clone(),
         keyboard.clone(),
         cpu.exit_handle(),
     ));
@@ -62,7 +65,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     relocade_bios::initialize(&mut cpu.context().memory, &io);
     let mut interrupts = relocade_machine::real_mode_interrupt::Interrupts::new(&mut cpu);
     crate::interrupt::register_interrupts(&mut interrupts, dos.clone());
-    relocade_bios::register_interrupts(&mut interrupts, keyboard);
+    relocade_bios::register_interrupts(&mut interrupts, keyboard, teletype);
     interrupts.install().await.unwrap();
     let psp = com::load(
         &mut cpu.context(),

@@ -6,7 +6,7 @@ use crate::{
     process::Process,
     stdio::Stdio,
 };
-use relocade_machine::{ExitHandle, MemoryBus};
+use relocade_machine::ExitHandle;
 use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
@@ -22,14 +22,14 @@ pub(crate) struct DosState {
 
 impl DosState {
     pub(crate) fn new(
-        memory: MemoryBus,
+        teletype: Rc<relocade_bios::Teletype>,
         keyboard: relocade_bios::Keyboard,
         exit: ExitHandle,
     ) -> Self {
         let devices = DeviceChain::default();
         devices.install(Unavailable(*b"PRN     "));
         devices.install(Unavailable(*b"AUX     "));
-        devices.install(BiosConsole::new(memory, keyboard.clone()));
+        devices.install(BiosConsole::new(teletype, keyboard.clone()));
         devices.install(NullDevice);
         Self {
             filesystem: RefCell::default(),

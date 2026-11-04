@@ -1,18 +1,18 @@
 //! BIOS-backed console and the built-in DOS sink/unavailable drivers.
 
 use super::{attributes, input::ConsoleInput, CharacterDriver, DriverFuture};
-use relocade_bios::Keyboard;
-use relocade_machine::MemoryBus;
+use relocade_bios::{Keyboard, Teletype};
+use std::rc::Rc;
 
 pub(crate) struct BiosConsole {
-    memory: MemoryBus,
+    teletype: Rc<Teletype>,
     input: ConsoleInput,
 }
 
 impl BiosConsole {
-    pub fn new(memory: MemoryBus, keyboard: Keyboard) -> Self {
+    pub fn new(teletype: Rc<Teletype>, keyboard: Keyboard) -> Self {
         Self {
-            memory,
+            teletype,
             input: ConsoleInput::new(keyboard),
         }
     }
@@ -49,7 +49,7 @@ impl CharacterDriver for BiosConsole {
     }
     fn write<'a>(&'a self, bytes: &'a [u8]) -> DriverFuture<'a, usize> {
         Box::pin(async move {
-            relocade_bios::write_text(&mut self.memory.view(), self.memory.io(), bytes);
+            self.teletype.write_text(bytes).await;
             Ok(bytes.len())
         })
     }

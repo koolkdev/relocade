@@ -2,16 +2,16 @@
 
 use super::{
     adapter, characters, control, cursor, fonts, graphics, information, modes, palette, scroll,
-    state, strings,
+    state,
 };
-use crate::screen;
+use crate::{screen, Teletype};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext,
 };
 
 #[interrupt(context(call), args(function = ah))]
-pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
+pub(crate) async fn dispatch(call: &mut CpuContext<'_>, teletype: &Teletype, function: u8) {
     interrupt_dispatch!(
         call,
         match function {
@@ -28,12 +28,12 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
             0x0b => legacy_color,
             0x0c => graphics::pixel::write_pixel,
             0x0d => graphics::pixel::read_pixel,
-            0x0e => characters::teletype,
+            0x0e => teletype.write_character,
             0x0f => modes::mode,
             0x10 => palette_services,
             0x11 => font_services,
             0x12 => configuration,
-            0x13 => string_output,
+            0x13 => string_output(teletype),
             0x1a => display_combination,
             0x1b => information::write_report,
             0x1c => state_services,
@@ -43,14 +43,14 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
 }
 
 #[interrupt(context(call), args(function = al))]
-async fn string_output(call: &mut CpuContext<'_>, function: u8) {
+async fn string_output(call: &mut CpuContext<'_>, teletype: &Teletype, function: u8) {
     interrupt_dispatch!(
         call,
         match function {
-            0x00 => strings::write_text,
-            0x01 => strings::write_text_and_move_cursor,
-            0x02 => strings::write_cells,
-            0x03 => strings::write_cells_and_move_cursor,
+            0x00 => teletype.write_string,
+            0x01 => teletype.write_string_and_move_cursor,
+            0x02 => teletype.write_cells,
+            0x03 => teletype.write_cells_and_move_cursor,
             _ => crate::interrupt::unsupported,
         }
     );

@@ -5,7 +5,6 @@ mod geometry;
 mod scroll;
 
 use crate::video::graphics::Page as GraphicsPage;
-pub use characters::write_text;
 pub(super) use characters::{read_cell, Output};
 pub(super) use cursor::{
     cursor_position, set_cursor_emulation_entry, set_cursor_position, set_cursor_shape,

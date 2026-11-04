@@ -1,24 +1,10 @@
 //! BIOS character writes and the output cursor shared by INT 10h and DOS.
 use super::{
-    active_page, cursor_position, geometry::Geometry, is_text_mode, scroll, set_cursor_position,
-    valid_page, ScrollDirection, Window,
+    cursor_position, geometry::Geometry, is_text_mode, scroll, set_cursor_position, valid_page,
+    ScrollDirection, Window,
 };
 use crate::video::{graphics::Page, Glyph, GRAPHICS_640X480_2, MODE};
-use relocade_machine::FarPointer;
 use relocade_machine::{IoBus, MemoryView};
-
-/// Writes guest-encoded bytes to the active page using BIOS teletype behavior.
-/// Text cells retain their attributes; graphics glyphs use foreground color 7.
-/// This updates guest video memory and BIOS cursor data without a host output stream.
-pub fn write_text(memory: &mut MemoryView<'_>, io: &IoBus, bytes: &[u8]) {
-    let page = active_page(memory);
-    if let Some(mut output) = Output::new(memory, io, page) {
-        for &byte in bytes {
-            output.teletype(byte, 7);
-        }
-        output.commit_cursor();
-    }
-}
 
 pub(crate) fn read_cell(memory: &MemoryView<'_>, io: &IoBus, page: u8) -> Option<[u8; 2]> {
     let geometry = Geometry::read(memory);
@@ -164,25 +150,7 @@ impl<'a, 'memory> Output<'a, 'memory> {
         }
     }
 
-    pub fn teletype(&mut self, character: u8, color: u8) {
-        self.write_character(character, color, false);
-    }
-
-    /// `None` reads a character/attribute pair for every character, including
-    /// control characters. Reads stay live when the source aliases video memory.
-    pub fn write_string(&mut self, mut source: FarPointer, count: u16, attribute: Option<u8>) {
-        let bytes_per_character = if attribute.is_some() { 1 } else { 2 };
-        for _ in 0..count {
-            let mut cell = [0; 2];
-            self.memory
-                .read_wrapping(source, &mut cell[..bytes_per_character])
-                .expect("string character");
-            source = source.wrapping_add(bytes_per_character);
-            self.write_character(cell[0], attribute.unwrap_or(cell[1]), true);
-        }
-    }
-
-    fn write_character(&mut self, character: u8, color: u8, with_attribute: bool) {
+    pub fn write_character(&mut self, character: u8, color: u8, with_attribute: bool) {
         let mut position = self.position();
         if !self.geometry.contains(position.row, position.column) {
             return;

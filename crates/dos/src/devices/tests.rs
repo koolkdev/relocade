@@ -1,5 +1,6 @@
 use super::*;
 use crate::files::{FileSystem, Files, Handle};
+use std::rc::Rc;
 
 struct Console;
 impl CharacterDriver for Console {
@@ -114,9 +115,10 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
         assert_eq!(keyboard.peek_key(), None);
 
         let memory = dos.cpu.memory().with_io(dos.cpu.context().io.clone());
-        dos.state
-            .devices()
-            .install(BiosConsole::new(memory, keyboard.clone()));
+        dos.state.devices().install(BiosConsole::new(
+            Rc::new(relocade_bios::Teletype::new(memory)),
+            keyboard.clone(),
+        ));
         let replacement = dos.state.devices().console();
         assert_eq!(replacement.peek_character().await.unwrap(), None);
         assert!(!replacement.input_available().await.unwrap());

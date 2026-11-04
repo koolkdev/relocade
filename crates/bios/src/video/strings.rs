@@ -1,11 +1,8 @@
 //! INT 10h string formats and cursor-update policy.
-use crate::screen::Output;
-use relocade_machine::{
-    real_mode_interrupt::{interrupt, FarPointer},
-    IoBus, MemoryView,
-};
+use crate::{screen::Output, Teletype};
+use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
 
-pub(super) struct StringRun {
+pub(crate) struct StringRun {
     page: u8,
     /// Starting row in the high byte and column in the low byte.
     position: u16,
@@ -13,71 +10,69 @@ pub(super) struct StringRun {
     count: u16,
 }
 
-/// Writes characters with one attribute, preserving the page's stored cursor.
-#[interrupt(context(memory, io),
+impl Teletype {
+    /// Writes characters with one attribute, preserving the page's stored cursor.
+    #[interrupt(
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }, attribute = bl),
     returns { Some(()) => {}, None => crate::interrupt::unsupported },
 )]
-pub(super) fn write_text(
-    memory: &mut MemoryView<'_>,
-    io: &IoBus,
-    run: StringRun,
-    attribute: u8,
-) -> Option<()> {
-    write(memory, io, run, Some(attribute), false)
-}
+    pub(crate) async fn write_string(&self, run: StringRun, attribute: u8) -> Option<()> {
+        self.write(run, Some(attribute), false).await
+    }
 
-/// Writes characters with one attribute and moves the page's stored cursor.
-#[interrupt(context(memory, io),
+    /// Writes characters with one attribute and moves the page's stored cursor.
+    #[interrupt(
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }, attribute = bl),
     returns { Some(()) => {}, None => crate::interrupt::unsupported },
 )]
-pub(super) fn write_text_and_move_cursor(
-    memory: &mut MemoryView<'_>,
-    io: &IoBus,
-    run: StringRun,
-    attribute: u8,
-) -> Option<()> {
-    write(memory, io, run, Some(attribute), true)
-}
+    pub(crate) async fn write_string_and_move_cursor(
+        &self,
+        run: StringRun,
+        attribute: u8,
+    ) -> Option<()> {
+        self.write(run, Some(attribute), true).await
+    }
 
-/// Writes character/attribute pairs, preserving the page's stored cursor.
-#[interrupt(context(memory, io),
+    /// Writes character/attribute pairs, preserving the page's stored cursor.
+    #[interrupt(
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }),
     returns { Some(()) => {}, None => crate::interrupt::unsupported },
 )]
-pub(super) fn write_cells(memory: &mut MemoryView<'_>, io: &IoBus, run: StringRun) -> Option<()> {
-    write(memory, io, run, None, false)
-}
+    pub(crate) async fn write_cells(&self, run: StringRun) -> Option<()> {
+        self.write(run, None, false).await
+    }
 
-/// Writes character/attribute pairs and moves the page's stored cursor.
-#[interrupt(context(memory, io),
+    /// Writes character/attribute pairs and moves the page's stored cursor.
+    #[interrupt(
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }),
     returns { Some(()) => {}, None => crate::interrupt::unsupported },
 )]
-pub(super) fn write_cells_and_move_cursor(
-    memory: &mut MemoryView<'_>,
-    io: &IoBus,
-    run: StringRun,
-) -> Option<()> {
-    write(memory, io, run, None, true)
-}
+    pub(crate) async fn write_cells_and_move_cursor(&self, run: StringRun) -> Option<()> {
+        self.write(run, None, true).await
+    }
 
-fn write(
-    memory: &mut MemoryView<'_>,
-    io: &IoBus,
-    run: StringRun,
-    attribute: Option<u8>,
-    move_cursor: bool,
-) -> Option<()> {
-    if run.count == 0 {
-        return Some(());
+    async fn write(&self, run: StringRun, attribute: Option<u8>, move_cursor: bool) -> Option<()> {
+        if run.count == 0 {
+            return Some(());
+        }
+        let mut memory = self.memory.view();
+        let mut output = Output::new(&mut memory, self.memory.io(), run.page)?;
+        output.set_position(run.position);
+        let bytes_per_character = if attribute.is_some() { 1 } else { 2 };
+        let mut source = run.source;
+        for _ in 0..run.count {
+            let mut cell = [0; 2];
+            // Read each cell live: the source may alias the page being written.
+            self.memory
+                .view()
+                .read_wrapping(source, &mut cell[..bytes_per_character])
+                .expect("string character");
+            source = source.wrapping_add(bytes_per_character);
+            output.write_character(cell[0], attribute.unwrap_or(cell[1]), true);
+        }
+        if move_cursor {
+            output.commit_cursor();
+        }
+        Some(())
     }
-    let mut output = Output::new(memory, io, run.page)?;
-    output.set_position(run.position);
-    output.write_string(run.source, run.count, attribute);
-    if move_cursor {
-        output.commit_cursor();
-    }
-    Some(())
 }
