@@ -2207,6 +2207,7 @@ dependencies = [
  "pollster",
  "relocade-frontend",
  "relocade-machine",
+ "relocade-pic",
  "relocade-vga",
  "relocade-x86",
  "wasm-bindgen-test",
