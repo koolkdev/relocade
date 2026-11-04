@@ -68,7 +68,7 @@
 //! AX=4400h reports file/device information for the object behind a handle.
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
-//! Construct DOS inside [`relocade_machine::Runner::run`] or an execution worker.
+//! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
 //! [`Dos::new`] registers VGA and the timer with that runner and shares its clock.
 //! [`Dos::run`] returns the current program's exit code; devices keep running while
 //! the main session awaits input or another program. [`Dos::frame_source`] exposes
@@ -395,3 +395,7 @@ impl<C: Clock> Dos<C> {
             .clone()
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/common/runner.rs"]
+mod test_runner;

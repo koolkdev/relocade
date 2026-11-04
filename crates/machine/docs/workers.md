@@ -3,8 +3,8 @@
 The machine exposes `worker::Thread` and `ExecutionWorker` without feature flags.
 The Wasm runtime reexports `web-thread-select` and adds `ThreadExt::run_resource`
 for typed resource handles. The application creates workers and keeps them alive
-until their tasks finish. `Runner::with_clock` runs on its caller's thread;
-`ExecutionWorker::spawn` explicitly creates a worker.
+until their tasks finish. `ExecutionWorker::spawn` creates a worker and supplies
+its fully initialized `Runner`; CPU-level work can use `Cpu` directly.
 
 Pass the memory handle directly. Capture CPU configuration and Rust channel
 endpoints in the closure, then construct the CPU inside the worker:
@@ -70,7 +70,7 @@ Both target handles must address the same signal. This reuses the resource's
 existing transfer instead of posting it again through a registration channel.
 `ExecutionWorker` does this automatically with `CpuStorage`; callers construct
 its CPU through `runner.create_cpu` or `Dos::new`. `WakeConnection` retains the
-binding; the separate `SessionDriver` owns polling, stop handling and idle parking.
+binding; the separate `worker::Executor` owns polling, stop handling and idle parking.
 
 ## Browser build and lifetime
 

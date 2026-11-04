@@ -5,9 +5,9 @@ pub use web_thread::*;
 
 use std::future::Future;
 
-mod session;
+mod executor;
 mod wake;
-pub use session::SessionDriver;
+pub use executor::Executor;
 pub use wake::{wake_connection, WakeConnection, WakeEndpoint, WakeHost, WakeTarget};
 
 /// A typed handle that can be reconstructed on another worker.

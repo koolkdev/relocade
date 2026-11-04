@@ -73,7 +73,7 @@ pub struct Cpu {
     machine: Machine,
     exit: ExitHandle,
     // Identifies the owning session once at run entry, never during hooks.
-    pub(crate) session: std::rc::Weak<crate::worker::SessionDriver<ExecutionInterrupt>>,
+    pub(crate) executor: std::rc::Weak<crate::worker::Executor<ExecutionInterrupt>>,
 }
 
 impl Cpu {
@@ -105,7 +105,7 @@ impl Cpu {
             suspended: Vec::new(),
             machine,
             exit: ExitHandle::new(),
-            session: std::rc::Weak::new(),
+            executor: std::rc::Weak::new(),
         })
     }
 

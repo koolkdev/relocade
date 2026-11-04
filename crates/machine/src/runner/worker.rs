@@ -1,12 +1,9 @@
 use super::Runner;
-use crate::worker::{self, wake_connection, SendTask, SessionDriver, Thread, ThreadExt, WakeHost};
+use crate::worker::{self, wake_connection, SendTask, Thread, ThreadExt, WakeHost};
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt};
 use futures_channel::oneshot;
 use futures_lite::future::or;
-use std::{
-    future::{pending, Future},
-    rc::Rc,
-};
+use std::future::{pending, Future};
 
 /// Owns a worker for one CPU session and its registered devices.
 /// Use `runner.create_cpu` (or `Dos::new`) inside the supplied closure. CPU
@@ -65,13 +62,9 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         let thread = Thread::new();
         let (stop, stopped) = oneshot::channel();
         let task = thread.run_resource(storage, move |storage| async move {
-            let driver = Rc::new(SessionDriver::new(
-                endpoint.bind(storage.interrupt_handle()),
-            ));
-            let mut runner = Runner::with_clock(clock);
-            runner.storage = std::cell::RefCell::new(Some(storage));
-            runner.session = Some(driver.clone());
-            driver.run_until(stopped, runner.run(session)).await
+            Runner::new(clock, storage, endpoint)
+                .run(stopped, session)
+                .await
         });
         Self {
             _thread: thread,

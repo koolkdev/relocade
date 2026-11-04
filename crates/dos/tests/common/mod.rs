@@ -1,14 +1,15 @@
 #![allow(dead_code)]
 
 use relocade_dos::{Dos, ProcessStatus};
+mod runner;
+pub use runner::runner;
 
 // Service tests step the CPU directly; worker tests drive registered devices.
 pub async fn dos() -> Dos {
     let (clock, timers) = relocade_machine::timer_service();
     std::thread::spawn(|| pollster::block_on(timers.run()));
-    Dos::new(&relocade_machine::Runner::with_clock(clock))
-        .await
-        .unwrap()
+    let (runner, _host) = runner(clock);
+    Dos::new(&runner).await.unwrap()
 }
 
 /// Poll once and release the waiter while the CPU retains the pending service.

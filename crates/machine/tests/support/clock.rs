@@ -1,26 +1,29 @@
 use relocade_machine::Clock;
 use std::{
-    cell::{Cell, RefCell},
     future::poll_fn,
-    rc::Rc,
+    sync::{Arc, Mutex},
     task::{Poll, Waker},
     time::Duration,
 };
 
 #[derive(Clone, Default)]
-pub struct ManualClock(Rc<State>);
+pub struct ManualClock(Arc<Mutex<State>>);
 
 #[derive(Default)]
 struct State {
-    now: Cell<Duration>,
-    waiters: RefCell<Vec<Waker>>,
+    now: Duration,
+    waiters: Vec<Waker>,
 }
 
 impl ManualClock {
     pub fn advance(&self, now: Duration) {
-        assert!(now >= self.0.now.get());
-        self.0.now.set(now);
-        for waker in self.0.waiters.take() {
+        let waiters = {
+            let mut state = self.0.lock().unwrap();
+            assert!(now >= state.now);
+            state.now = now;
+            std::mem::take(&mut state.waiters)
+        };
+        for waker in waiters {
             waker.wake();
         }
     }
@@ -28,17 +31,21 @@ impl ManualClock {
 
 impl Clock for ManualClock {
     fn now(&self) -> Duration {
-        self.0.now.get()
+        self.0.lock().unwrap().now
     }
 
     async fn wait_until(&self, deadline: Duration) {
         poll_fn(|cx| {
-            if self.now() >= deadline {
+            let mut state = self.0.lock().unwrap();
+            if state.now >= deadline {
                 return Poll::Ready(());
             }
-            let mut waiters = self.0.waiters.borrow_mut();
-            if !waiters.iter().any(|waker| waker.will_wake(cx.waker())) {
-                waiters.push(cx.waker().clone());
+            if !state
+                .waiters
+                .iter()
+                .any(|waker| waker.will_wake(cx.waker()))
+            {
+                state.waiters.push(cx.waker().clone());
             }
             Poll::Pending
         })

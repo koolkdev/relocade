@@ -1,6 +1,6 @@
 use super::*;
 use futures_util::{future::join, stream::FuturesUnordered, StreamExt};
-use relocade_wasm_runtime::worker::SessionDriver;
+use relocade_wasm_runtime::worker::Executor;
 use std::{
     cell::{Cell, RefCell},
     future::{pending, poll_fn, Future},
@@ -39,7 +39,7 @@ async fn busy_session() {
         let worker_drop = dropped.clone();
         let thread = Thread::new();
         let task = thread.run_resource(signal, move |signal| async move {
-            let driver = SessionDriver::new(endpoint.bind(signal.clone()));
+            let executor = Executor::new(endpoint.bind(signal.clone()));
             let session = async {
                 let _dropped = Dropped(worker_drop);
                 let busy = async {
@@ -55,7 +55,7 @@ async fn busy_session() {
                 // Register the ordinary input receiver before entering busy work.
                 join(input, busy).await.0.unwrap()
             };
-            driver.run_until(cancelled, session).await
+            executor.run_until(cancelled, session).await
         });
         running.await.unwrap();
         if cancel {
@@ -86,7 +86,7 @@ async fn composition() {
     let (_host, endpoint) = wake_connection(signal.clone());
     Thread::new()
         .run_resource(signal, move |signal| async move {
-            let driver = SessionDriver::new(endpoint.bind(signal.clone()));
+            let executor = Executor::new(endpoint.bind(signal.clone()));
             for (unordered, during_poll) in [(false, false), (true, false), (false, true)] {
                 let (send, input) = oneshot::channel();
                 let (start, started) = oneshot::channel();
@@ -98,7 +98,7 @@ async fn composition() {
                 let consumed = Cell::new(false);
                 let cpu = async {
                     if during_poll {
-                        driver.yield_now().await;
+                        executor.yield_now().await;
                     } else {
                         started.await.unwrap();
                     }
@@ -107,7 +107,7 @@ async fn composition() {
                         0,
                         "ready input must interrupt CPU-first composition"
                     );
-                    driver.yield_now().await;
+                    executor.yield_now().await;
                     assert!(consumed.get(), "ready sibling must run before CPU resumes");
                     if !unordered {
                         assert_eq!(
@@ -137,7 +137,7 @@ async fn composition() {
                     }
                 };
                 let mut session =
-                    pin!(driver.run_until(pending::<()>(), join(cpu, join(receive, late_send))));
+                    pin!(executor.run_until(pending::<()>(), join(cpu, join(receive, late_send))));
                 let outer = Arc::new(CountWakes::default());
                 let waker = Waker::from(outer.clone());
                 let mut context = Context::from_waker(&waker);
@@ -151,7 +151,7 @@ async fn composition() {
                 assert_eq!(
                     outer.0.load(Ordering::SeqCst),
                     0,
-                    "busy repolling must stay inside the session driver"
+                    "busy repolling must stay inside the worker executor"
                 );
             }
         })
@@ -190,15 +190,15 @@ async fn reentrant_input() {
     let (_host, endpoint) = wake_connection(signal.clone());
     Thread::new()
         .run_resource(signal, move |signal| async move {
-            let driver = SessionDriver::new(endpoint.bind(signal.clone()));
+            let executor = Executor::new(endpoint.bind(signal.clone()));
             let (trigger, triggered) = oneshot::channel();
             let (send, receive) = oneshot::channel();
             let waker = Waker::from(Arc::new(DeliverInput(Mutex::new(Some(send)))));
             let mut context = Context::from_waker(&waker);
             // The parked executor publishes another input synchronously while
-            // the first wake is still unwinding through the session waker.
-            let mut session = pin!(driver.run_until(pending::<()>(), async {
-                driver.yield_now().await;
+            // the first wake is still unwinding through the executor waker.
+            let mut session = pin!(executor.run_until(pending::<()>(), async {
+                executor.yield_now().await;
                 join(triggered, receive).await
             }));
             assert!(session.as_mut().poll(&mut context).is_pending());
@@ -235,7 +235,7 @@ async fn parking_lifetime() {
     let (_host, endpoint) = wake_connection(signal.clone());
     Thread::new()
         .run_resource(signal, move |signal| async move {
-            let driver = SessionDriver::new(endpoint.bind(signal));
+            let executor = Executor::new(endpoint.bind(signal));
             for complete in [false, true] {
                 let (send, input) = oneshot::channel();
                 let mut input = pin!(input);
@@ -249,7 +249,7 @@ async fn parking_lifetime() {
                         if let Some(waker) = &*captured {
                             assert!(
                                 waker.will_wake(cx.waker()),
-                                "session waker must stay stable"
+                                "executor waker must stay stable"
                             );
                         } else {
                             *captured = Some(cx.waker().clone());
@@ -258,7 +258,7 @@ async fn parking_lifetime() {
                     })
                     .await
                 };
-                let mut session = Box::pin(driver.run_until(pending::<()>(), root));
+                let mut session = Box::pin(executor.run_until(pending::<()>(), root));
                 let first = Arc::new(CountWakes::default());
                 let first_weak = Arc::downgrade(&first);
                 let first_waker = Waker::from(first.clone());
@@ -299,7 +299,7 @@ async fn parking_lifetime() {
                 drop(second);
                 assert!(
                     second_weak.upgrade().is_none(),
-                    "escaped session wakers must not retain the outer task"
+                    "escaped executor wakers must not retain the outer task"
                 );
             }
         })
@@ -327,16 +327,16 @@ async fn idle_session() {
     let (parked, idle) = oneshot::channel();
     let thread = Thread::new();
     let task = thread.run_resource(signal, move |signal| async move {
-        let driver = SessionDriver::new(endpoint.bind(signal));
+        let executor = Executor::new(endpoint.bind(signal));
         assert_eq!(
-            driver
+            executor
                 .run_until(std::future::ready(()), async {
                     panic!("a stopped session must not enter application code");
                 })
                 .await,
             None::<()>
         );
-        let mut session = pin!(driver.run_until(pending::<()>(), input));
+        let mut session = pin!(executor.run_until(pending::<()>(), input));
         assert!(poll_fn(|cx| Poll::Ready(session.as_mut().poll(cx)))
             .await
             .is_pending());

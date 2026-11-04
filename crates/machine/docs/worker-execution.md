@@ -32,9 +32,9 @@ main activity drops all device futures on their owner.
 The worker prepares one `CpuStorage` before spawning and posts it through
 `ThreadExt::run_resource`. `runner.create_cpu(memory, config, io).await` consumes
 that storage on the execution thread. `Dos::new(runner)` uses the same factory.
-A connected runner permits one construction attempt, including an attempt that
-fails or is cancelled; later programs reuse that CPU. Standalone runners can
-construct independent CPUs. `run_cpu` checks ownership once at entry, without
+A runner permits one construction attempt, including an attempt that
+fails or is cancelled; later programs reuse that CPU. Independent CPU-level work
+uses `Cpu::new` and `Cpu::run` directly. `run_cpu` checks ownership once at entry, without
 adding checks during hooks or state access. Construction and launch do not
 execute guest instructions.
 
@@ -101,11 +101,11 @@ remain usable afterward or the embedding needs separate control.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
-`ExecutionWorker` owns a stop channel. `SessionDriver` polls its receiver before
+`ExecutionWorker` owns a stop channel. `worker::Executor` polls its receiver before
 the application/device future, so cancellation is registered before any guest
 execution. `stop().await` sends through that channel; dropping the sender also
 requests cancellation. Either wakes the session while a CPU service is pending
-or requests a return from busy guest execution. The driver drops the application
+or requests a return from busy guest execution. The executor drops the application
 and devices on their execution thread before reporting completion. `stop().await`
 waits for that completion before releasing the thread.
 `join().await` waits for ordinary main-activity completion. As with `Thread`, await
@@ -164,15 +164,22 @@ registration channel, return acknowledgment or target replacement. At startup,
 polling opportunity; it does no installation. The host guard stays alive
 until worker completion.
 
-`WakeConnection` owns only the fixed signal binding. `SessionDriver` owns the
-stable session waker, polling and parking; `Runner` composes the application and
-registered devices. The worker connects these owners directly:
+`WakeConnection` owns only the fixed signal binding. `worker::Executor` owns the
+stable executor waker, polling and parking. `Runner` owns that executor and composes
+the application and registered devices under it. Worker startup is:
 
 ```rust,ignore
-driver.run_until(stopped, runner.run(session)).await
+Runner::new(clock, storage, endpoint).run(stopped, session).await
 ```
 
-Each driver turn polls `stopped` first, then the application/device future. A
+The constructor consumes prepared storage and binds its wake endpoint on the
+execution owner. There is no partially initialized runner or standalone scheduling
+mode. `run` installs the required executor around the whole session, so callers do
+not separately wrap it. Native fixtures can supply the same resources on their
+test thread; they use the same executor. Browser binding belongs on the receiving
+worker after resource transfer. Direct CPU/device tests do not need a runner.
+
+Each executor turn polls `stopped` first, then the application/device future. A
 ready stop drops that future without polling it again. Runnable work is repolled
 directly in Rust; only an idle session registers an outer-executor waiter and
 parks. Resumption or cancellation releases that waiter. Cancellation needs no
@@ -194,12 +201,10 @@ through the whole session poll, so CPU-first composition such as
 `join(run_cpu, input)` yields before its ready sibling runs. Acknowledgement
 follows polling and preserves new wakes, including those racing with the exchange.
 The runner resumes with the remainder of the same quantum. The ready queues
-retain coalesced notifications. Before entering the backend, a known pending
-notification gets one Rust polling opportunity without executing a guest block.
-This deferral is bounded: combinators may synthesize a wake on each cooperative
-yield, so waiting for a quiet signal could starve guest execution. A request
-still pending afterward is observed by the ordinary guest checkpoint. This
-check occurs at runner scheduling boundaries, not at hooks or CPU state accesses.
+retain coalesced notifications. Requests already pending at guest reentry use
+the same block/STEP checkpoints as requests arriving during execution. After
+`Interrupted`, the runner yields to Rust work before resuming the CPU. There is
+no additional pre-entry check or yield for an already-pending notification.
 The runner's cooperative yield wakes its current
 child task without requesting another interrupt from its first root notification.
 Separate notifications still request an interrupt, including reentrant input
@@ -215,7 +220,7 @@ Use instruction stepping for bounded guest progress tests. See the
 [connection contract](workers.md#browser-build-and-lifetime).
 
 Continuously ready device loops must also cooperate with the other root futures.
-When the whole session is waiting, including for Wasm compilation, the driver
+When the whole session is waiting, including for Wasm compilation, the executor
 parks through the underlying executor. A Rust cooperative yield does not promise
 a browser event-loop turn: posted resources need an explicit host-wait boundary
 when other session work remains runnable. Arbitrary JavaScript callbacks on a

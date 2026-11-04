@@ -3,7 +3,11 @@
 mod worker;
 pub use worker::ExecutionWorker;
 
-use crate::{Clock, Cpu, CpuConfig, Device, DeviceConnection, IoBus, Memory, Result, TimerHandle};
+use crate::worker::{Executor, WakeEndpoint};
+use crate::{
+    Clock, Cpu, CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory,
+    Result, TimerHandle,
+};
 use futures_channel::mpsc;
 /// Gives other ready Rust activities a polling opportunity without a host timer.
 /// This does not promise a browser event-loop turn.
@@ -13,53 +17,53 @@ use futures_util::{
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
-use std::{cell::RefCell, num::NonZeroU64, ops::RangeInclusive, pin::pin, rc::Rc};
+use std::{cell::RefCell, future::Future, num::NonZeroU64, ops::RangeInclusive, pin::pin, rc::Rc};
 
-/// Drives a main execution activity alongside registered device futures.
-/// All mutable execution state stays on the caller's thread. Connected workers
-/// yield on notifications; instruction quanta remain a temporary fallback.
+/// Owns a worker's execution session, including its CPU storage and device activities.
+/// [`ExecutionWorker`] prepares the resources before starting the owner thread.
+/// Notifications interrupt guest execution; instruction quanta remain temporary.
 pub struct Runner<C = TimerHandle> {
     clock: C,
     /// Requested CPU budget per quantum; checks remain at block boundaries.
     pub instruction_quantum: NonZeroU64,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
-    session: Option<Rc<crate::worker::SessionDriver<crate::ExecutionInterrupt>>>,
-    storage: RefCell<Option<crate::CpuStorage>>,
+    executor: Rc<Executor<ExecutionInterrupt>>,
+    storage: RefCell<Option<CpuStorage>>,
 }
 
 impl<C: Clock> Runner<C> {
-    pub fn with_clock(clock: C) -> Self {
+    /// Binds prepared CPU storage and its wake endpoint on the execution owner.
+    /// Normally called by [`ExecutionWorker`]. The endpoint must come from a
+    /// connection created for this storage; retain its host until the session ends.
+    pub fn new(clock: C, storage: CpuStorage, endpoint: WakeEndpoint<ExecutionInterrupt>) -> Self {
         let (activities, pending) = mpsc::unbounded();
+        let executor = Rc::new(Executor::new(endpoint.bind(storage.interrupt_handle())));
         Self {
             clock,
             instruction_quantum: NonZeroU64::new(10_000).unwrap(),
             activities,
             pending: Some(pending),
-            session: None,
-            storage: RefCell::default(),
+            executor,
+            storage: RefCell::new(Some(storage)),
         }
     }
 
-    /// Constructs a CPU on this owner. An execution worker consumes its prepared
-    /// storage once; subsequent programs reuse that CPU. Standalone runners can
-    /// construct independent CPUs through the ordinary allocation path.
+    /// Constructs the session CPU from its prepared storage once. Subsequent
+    /// programs reuse that CPU. Use [`Cpu::new`] for independent CPU-level work.
     ///
     /// # Panics
-    /// Panics if a connected worker's storage was consumed by an earlier
+    /// Panics if the storage was consumed by an earlier
     /// construction attempt, including one that failed or was cancelled.
     pub async fn create_cpu(&self, memory: Memory, config: CpuConfig, io: IoBus) -> Result<Cpu> {
-        if let Some(session) = &self.session {
-            let storage = self
-                .storage
-                .borrow_mut()
-                .take()
-                .expect("session CPU storage already consumed");
-            let mut cpu = storage.into_cpu(memory, config, io).await?;
-            cpu.session = Rc::downgrade(session);
-            return Ok(cpu);
-        }
-        Cpu::new(memory, config, io).await
+        let storage = self
+            .storage
+            .borrow_mut()
+            .take()
+            .expect("session CPU storage already consumed");
+        let mut cpu = storage.into_cpu(memory, config, io).await?;
+        cpu.executor = Rc::downgrade(&self.executor);
+        Ok(cpu)
     }
 
     pub fn clock(&self) -> &C {
@@ -87,49 +91,48 @@ impl<C: Clock> Runner<C> {
     /// Runs the main activity and devices for one execution lifetime.
     /// Devices remain active while the main activity awaits input or another
     /// process. Completion or cancellation drops every activity on this owner.
-    pub async fn run<R>(mut self, main: impl AsyncFnOnce(&Self) -> R) -> R {
+    /// The stop future is registered before application code runs. It returns
+    /// `None` on cancellation; ordinary main completion returns `Some(result)`.
+    pub async fn run<R>(
+        mut self,
+        stop: impl Future,
+        main: impl AsyncFnOnce(&Self) -> R,
+    ) -> Option<R> {
         let pending = self.pending.take().expect("new runner activity queue");
         let devices = pending.for_each_concurrent(None, |activity| activity);
-        // Poll ready devices before returning to guest execution.
-        match select(pin!(devices), pin!(main(&self))).await {
-            Either::Right((result, _)) => result,
-            Either::Left(_) => unreachable!("runner retains the activity sender"),
-        }
+        self.executor
+            .run_until(stop, async {
+                // Poll ready devices before returning to guest execution.
+                match select(pin!(devices), pin!(main(&self))).await {
+                    Either::Right((result, _)) => result,
+                    Either::Left(_) => unreachable!("runner retains the activity sender"),
+                }
+            })
+            .await
     }
 
-    /// Runs until the guest exits. Connected execution workers cooperate on
+    /// Runs until the guest exits. Execution cooperates on
     /// notifications without replenishing the temporary instruction quantum.
     /// A pending service retains its CPU future and original instruction budget.
+    /// Poll within [`Self::run`], which drives the session's scheduling and devices.
     ///
     /// # Panics
-    /// A connected worker accepts only the CPU created by this runner.
+    /// Panics if the CPU was not created by this runner.
     pub async fn run_cpu(&self, cpu: &mut Cpu) -> ExecutionExit {
-        if let Some(session) = &self.session {
-            assert!(
-                std::ptr::eq(cpu.session.as_ptr(), Rc::as_ptr(session)),
-                "construct the session CPU with runner.create_cpu"
-            );
-            // Give devices registered during application setup a polling
-            // opportunity before the first synchronous guest interval.
-            session.yield_now().await;
-        }
+        assert!(
+            std::ptr::eq(cpu.executor.as_ptr(), Rc::as_ptr(&self.executor)),
+            "construct the session CPU with runner.create_cpu"
+        );
+        // Poll devices registered during application setup before guest entry.
+        self.executor.yield_now().await;
         let quantum = self.instruction_quantum.get();
         let mut remaining = quantum;
         let state = cpu.cpu_state();
-        let interrupt = cpu.interrupt_handle();
         loop {
-            if let Some(session) = &self.session {
-                if interrupt.is_requested() {
-                    // Give already-notified work a Rust poll before entering
-                    // Wasm. Do this once: nested combinators may synthesize a
-                    // wake on each yield, so waiting for silence can starve CPU.
-                    session.yield_now().await;
-                }
-            }
             let before = state.instruction_count();
             match cpu.run(remaining).await {
                 ExecutionExit::BudgetExhausted => remaining = quantum,
-                ExecutionExit::Interrupted if self.session.is_some() => {
+                ExecutionExit::Interrupted => {
                     let spent = state.instruction_count().wrapping_sub(before);
                     remaining = remaining.saturating_sub(spent);
                     if remaining == 0 {
@@ -138,15 +141,7 @@ impl<C: Clock> Runner<C> {
                 }
                 exit => return exit,
             }
-            self.yield_execution().await;
+            self.executor.yield_now().await;
         }
-    }
-
-    async fn yield_execution(&self) {
-        if let Some(session) = &self.session {
-            session.yield_now().await;
-            return;
-        }
-        yield_now().await;
     }
 }

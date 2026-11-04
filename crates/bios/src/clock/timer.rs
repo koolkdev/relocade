@@ -59,3 +59,6 @@ impl<C: Clock + Clone> Device for Timer<C> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
