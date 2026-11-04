@@ -5,7 +5,7 @@ use futures_util::{
     StreamExt,
 };
 use relocade_machine::{
-    timer_service, Clock, CpuStateAccess, Device, ExecutionInterrupt, ExecutionWorker, ExitHandle,
+    timer_service, Clock, Device, ExecutionInterrupt, ExecutionWorker, ExitHandle,
 };
 use std::{
     cell::RefCell,
@@ -171,21 +171,6 @@ fn session_channels_and_timers_interrupt_guest_execution() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn session_channels_and_timers_interrupt_guest_execution() {
     connected_input().await;
-}
-
-struct Stopped {
-    state: CpuStateAccess,
-    report: Option<oneshot::Sender<u64>>,
-}
-
-impl Drop for Stopped {
-    fn drop(&mut self) {
-        let _ = self
-            .report
-            .take()
-            .unwrap()
-            .send(self.state.instruction_count());
-    }
 }
 
 async fn connected_stop() {

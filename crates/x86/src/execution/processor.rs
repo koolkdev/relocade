@@ -1,13 +1,21 @@
-//! CPU capabilities are fixed in snapshot blocks and read from backing in interpreters.
+//! CPU capabilities and processor execution control.
 
 use super::ExecutionBuilder;
 use crate::{
     processor::{self, CpuidValues},
-    CpuFeature,
+    CpuFeature, ExecutionExitValues,
 };
 use relocade_compiler::{BuildError, Val, I1, I32};
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn halt(&mut self, next_ip: &Val<I32>) -> Result<(), BuildError> {
+        self.state
+            .publish(&mut self.body, next_ip, self.completed + 1)?;
+        // The driver must retain the halt before observing host notifications.
+        self.body
+            .block::<()>(|body, _| body.return_(ExecutionExitValues::halted()))
+    }
+
     /// Makes generated interpreter code read feature bits from the guest context.
     /// Snapshot builders leave the model fixed to the compilation target.
     pub(crate) fn with_cpu_features_from_context(mut self) -> Result<Self, BuildError> {

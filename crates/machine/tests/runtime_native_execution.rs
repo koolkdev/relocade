@@ -121,13 +121,13 @@ fn guest_exits_preserve_progress_and_live_code_can_be_replaced() {
     runtime
         .context()
         .memory
-        .write(0x101, &[0x40, 0xf4])
-        .unwrap(); // INC AX; unsupported HLT
+        .write(0x101, &[0x40, 0xf1])
+        .unwrap(); // INC AX; unsupported INT1
     assert_eq!(
         pollster::block_on(runtime.run()),
         ExecutionExit::UnsupportedInstruction {
             eip: 0x102,
-            opcode: 0xf4
+            opcode: 0xf1
         }
     );
     assert_eq!(

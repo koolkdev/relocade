@@ -130,10 +130,10 @@ async fn faults() {
                 ExecutionExit::Exception(Exception::GeneralProtection { error_code: 0 }),
             ),
             (
-                &[0xf4][..],
+                &[0xf1][..],
                 ExecutionExit::UnsupportedInstruction {
                     eip: 0x101,
-                    opcode: 0xf4,
+                    opcode: 0xf1,
                 },
             ),
         ] {

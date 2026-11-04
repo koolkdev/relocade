@@ -204,11 +204,11 @@ fn completed_progress_at_faults(module: &TestModule) {
         (
             "next opcode is unsupported",
             0x1000,
-            &[0xf4][..],
+            &[0xf1][..],
             0x1005,
             Exit::UnsupportedInstruction {
                 eip: 0x1005,
-                opcode: 0xf4,
+                opcode: 0xf1,
             },
         ),
     ] {

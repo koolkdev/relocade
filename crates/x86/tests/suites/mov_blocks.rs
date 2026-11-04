@@ -30,19 +30,19 @@ fn selected_mov_requires_all_five_bytes() {
 
 #[test]
 fn unsupported_selected_opcodes_report_their_instruction_address() {
-    for bytes in [&[0xf4][..], &[0xf0, 0xb8, 0, 0, 0, 0][..]] {
+    for bytes in [&[0xf1][..], &[0xf0, 0xb8, 0, 0, 0, 0][..]] {
         assert!(matches!(
             compile_block_from_bytes(0x1000, bytes, 1),
             Err(BlockError::UnsupportedInstruction { address: 0x1000, opcode }) if opcode == bytes[0]
         ));
     }
     let mut bytes = IMMEDIATE.to_vec();
-    bytes.push(0xf4);
+    bytes.push(0xf1);
     assert!(matches!(
         compile_block_from_bytes(0x1000, &bytes, 2),
         Err(BlockError::UnsupportedInstruction {
             address: 0x1005,
-            opcode: 0xf4
+            opcode: 0xf1
         })
     ));
 }
@@ -50,7 +50,7 @@ fn unsupported_selected_opcodes_report_their_instruction_address() {
 #[test]
 fn instruction_limit_excludes_valid_partial_and_unsupported_suffixes() {
     let expected = compile_block_from_bytes(0x1000, IMMEDIATE, 1).unwrap();
-    for suffix in [&TWO[5..], &[0xbf, 0x12][..], &[0x66][..], &[0xf4][..]] {
+    for suffix in [&TWO[5..], &[0xbf, 0x12][..], &[0x66][..], &[0xf1][..]] {
         let mut bytes = IMMEDIATE.to_vec();
         bytes.extend_from_slice(suffix);
         let block = compile_block_from_bytes(0x1000, &bytes, 1).unwrap();
