@@ -89,18 +89,3 @@ pub fn write_characters(
     output.write_repeated(run.character, run.color, run.count, replace_attribute);
     Some(())
 }
-
-/// Writes one teletype character to the active page and commits its cursor.
-/// Text keeps cell attributes; graphics uses color. Controls, wrapping and
-/// scrolling match INT 10h/AH=0Eh. Invalid firmware page state returns None.
-#[interrupt(
-    context(memory, io), args(character = al, color = bl),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
-)]
-pub fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, character: u8, color: u8) -> Option<()> {
-    let page = screen::active_page(memory);
-    let mut output = screen::Output::new(memory, io, page)?;
-    output.teletype(character, color);
-    output.commit_cursor();
-    Some(())
-}

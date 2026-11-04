@@ -301,11 +301,11 @@ fn teletype_preserves_no_output_but_commits_an_unchanged_cursor_position() {
         }
         let before = dos.vga().borrow().snapshot();
         video(&mut dos, 0x0e07, 0, 0, 0); // BEL has no cursor effect.
-        {
-            let mut context = dos.cpu().context();
-            for bytes in [b"".as_slice(), b"\x07"] {
-                relocade_bios::write_text(&mut context.memory, context.io, bytes);
-            }
+        let teletype = relocade_bios::Teletype::new(
+            dos.cpu().memory().with_io(dos.cpu().context().io.clone()),
+        );
+        for bytes in [b"".as_slice(), b"\x07"] {
+            teletype.write_text(bytes).await;
         }
         assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
         assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0x0200);

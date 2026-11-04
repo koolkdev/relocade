@@ -1,10 +1,11 @@
 //! BIOS interrupt registration and shared return handling.
 
-use crate::{clock, keyboard, video, Keyboard, BIOS_SEGMENT};
+use crate::{clock, keyboard, video, Keyboard, Teletype, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
     CpuContext, FarPointer,
 };
+use std::rc::Rc;
 
 const CLOCK_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
@@ -24,10 +25,15 @@ const TIMER_ENTRY: FarPointer = FarPointer {
 };
 
 /// Registers BIOS vectors and their handlers alongside an environment's interrupts.
-/// The keyboard is retained by its handler and may be shared with console input.
+/// Keyboard and teletype services are retained by their handlers and may be shared
+/// with a console. The teletype must use this CPU's memory and I/O bus.
 /// Entries enable live IF during service execution. Ready services finish in one
 /// poll; pending services allow the driver to deliver device IRQs.
-pub fn register_interrupts(interrupts: &mut Interrupts<'_>, keyboard: Keyboard) {
+pub fn register_interrupts(
+    interrupts: &mut Interrupts<'_>,
+    keyboard: Keyboard,
+    teletype: Rc<Teletype>,
+) {
     register_interrupt(interrupts, 0x08, TIMER_ENTRY, async |call| {
         clock::tick(&mut call.memory);
     });
@@ -47,7 +53,7 @@ pub fn register_interrupts(interrupts: &mut Interrupts<'_>, keyboard: Keyboard) 
         interrupts,
         0x10,
         VIDEO_ENTRY,
-        interrupt_handler!(video::dispatch),
+        interrupt_handler!(video::dispatch(&teletype)),
     );
 }
 

@@ -23,7 +23,7 @@ mod strings;
 mod tables;
 
 pub use characters::{
-    read_character, teletype, write_characters, write_characters_preserving_attributes,
+    read_character, write_characters, write_characters_preserving_attributes,
     write_characters_with_attribute, CharacterCell, CharacterRun,
 };
 pub use control::{set_screen_output, set_video_addressing};

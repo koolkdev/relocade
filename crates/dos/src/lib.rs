@@ -174,11 +174,8 @@ impl<C: Clock> Dos<C> {
         let mut cpu = runner
             .create_cpu(memory.clone(), kernel::cpu(), io.clone())
             .await?;
-        let state = Rc::new(DosState::new(
-            memory.with_io(io),
-            keyboard,
-            cpu.exit_handle(),
-        ));
+        let teletype = Rc::new(relocade_bios::Teletype::new(memory.with_io(io)));
+        let state = Rc::new(DosState::new(teletype.clone(), keyboard, cpu.exit_handle()));
         let keyboard = state.stdio().input.clone();
         {
             let mut context = cpu.context();
@@ -187,7 +184,7 @@ impl<C: Clock> Dos<C> {
         }
         let mut interrupts = Interrupts::new(&mut cpu);
         interrupt::register_interrupts(&mut interrupts, Rc::clone(&state));
-        relocade_bios::register_interrupts(&mut interrupts, keyboard);
+        relocade_bios::register_interrupts(&mut interrupts, keyboard, teletype);
         interrupts.install().await?;
         Ok(Self {
             state,

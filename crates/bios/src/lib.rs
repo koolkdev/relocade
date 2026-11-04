@@ -9,7 +9,7 @@
 //! graphics pixels, with XOR in packed/planar modes and eight, four or two pages
 //! in modes 0Dh, 0Eh or 0Fh/10h respectively.
 //! Graphics page/cursor and scroll services use that same layout. AH=09h/0Ah
-//! draw characters from live BIOS font vectors; AH=0Eh and [`write_text`] share
+//! draw characters from live BIOS font vectors; AH=0Eh and [`Teletype::write_text`] share
 //! teletype wrapping and scrolling in text and graphics modes.
 //! AH=13h writes strings with fixed or inline attributes to a requested page,
 //! sharing those controls and optionally updating the stored cursor.
@@ -41,12 +41,13 @@ pub mod clock;
 mod interrupt;
 mod keyboard;
 mod screen;
+mod teletype;
 pub mod video;
 
 pub use interrupt::register_interrupts;
 pub use keyboard::{KeyStroke, Keyboard, ShiftState};
 use relocade_machine::{IoBus, MemoryView};
-pub use screen::write_text;
+pub use teletype::Teletype;
 
 const BIOS_SEGMENT: u16 = 0xf000;
 

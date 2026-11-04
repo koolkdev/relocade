@@ -91,8 +91,11 @@ async fn machine(keyboard: &Keyboard, timer: &Rc<RefCell<Timer>>) -> Cpu {
     let config = CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), state).unwrap();
     let mut cpu = Cpu::new(memory.clone(), config, io.clone()).await.unwrap();
     relocade_bios::initialize(&mut memory.view().with_io(&io), &io);
+    let teletype = Rc::new(relocade_bios::Teletype::new(
+        cpu.memory().with_io(cpu.context().io.clone()),
+    ));
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone());
+    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), teletype);
     interrupts.install().await.unwrap();
     memory.view().write(8 * 4, &[0, 3, 0, 0]).unwrap();
     // INT 16h; save AX; INT 1Ah/AH=00h; save DX; loop.
@@ -249,8 +252,11 @@ async fn bios_timer_rollover() {
     let timer = Rc::new(RefCell::new(Timer::default()));
     let mut cpu = machine(&keyboard, &timer).await;
     // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
+    let teletype = Rc::new(relocade_bios::Teletype::new(
+        cpu.memory().with_io(cpu.context().io.clone()),
+    ));
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone());
+    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), teletype);
     interrupts.install().await.unwrap();
     let memory = cpu.memory();
     memory.view().write(0x46c, &[0xaf, 0, 0x18, 0, 1]).unwrap();
