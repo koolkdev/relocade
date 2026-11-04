@@ -19,6 +19,8 @@ use std::{
 /// when another worker needs to display or inspect device output.
 pub trait Device {
     /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].
+    /// Connection waits for the first poll, which installs this activity's wake
+    /// path. Bus state must already be initialized before connecting the device.
     /// Release device borrows before awaiting. Continuously ready activities must
     /// cooperate with other work, for example through [`crate::yield_now`].
     fn run(_device: Rc<RefCell<Self>>) -> impl Future<Output = ()>

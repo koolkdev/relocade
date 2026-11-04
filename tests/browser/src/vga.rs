@@ -34,7 +34,9 @@ pub async fn vga_workers() -> Result<(), String> {
             .unwrap(),
         )
         .unwrap();
-        let io = IoBus::new([runner.connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)]);
+        let io = IoBus::new([runner
+            .connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)
+            .await]);
         let memory = Memory::new(config).unwrap();
         memory
             .view()

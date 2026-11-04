@@ -11,7 +11,7 @@ use relocade_frontend::keyboard::{
 use relocade_machine::{Clock, Device, DeviceConnection, Runner};
 use std::{cell::RefCell, rc::Rc};
 
-pub(super) fn connect<C: Clock>(
+pub(super) async fn connect<C: Clock>(
     keyboard: Keyboard,
     runner: &Runner<C>,
 ) -> (KeyboardInput, DeviceConnection) {
@@ -20,7 +20,7 @@ pub(super) fn connect<C: Clock>(
         keyboard,
         events: Some(events),
     }));
-    (input, runner.connect(device, [], []))
+    (input, runner.connect(device, [], []).await)
 }
 
 struct InputAdapter {

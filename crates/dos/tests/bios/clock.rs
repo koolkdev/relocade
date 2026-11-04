@@ -136,100 +136,105 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
         ] {
             let clock = ManualClock::default();
             let (runner, _host) = common::runner(clock.clone());
-            let mut dos = relocade_dos::Dos::new(&runner).await.unwrap();
-            dos.launch_com(
-                &[
-                    0xcd, vector, 0x2e, 0x8c, 0x1e, 0x1c, 3, // Record ISR's DS through CS.
-                    0x0e, 0x1f, // Restore DS=CS for result stores.
-                    0x89, 0x1e, 0x16, 3, 0x89, 0x0e, 0x18, 3, 0x89, 0x16, 0x1a, 3, 0xa3, 0,
-                    3, // Save AX.
-                    0x31, 0xc0, 0xcd, 0x1a, // Read clock and consume rollover.
-                    0x89, 0x0e, 2, 3, 0x89, 0x16, 4, 3, 0xa2, 6, 3, 0xb8, 0, 0x4c, 0xcd, 0x21,
-                ],
-                Default::default(),
-            )
-            .unwrap();
-            let state = dos.cpu().cpu_state();
-            state.set_ax(function);
-            state.set_bx(0);
-            state.set_cx(2);
-            state.set_dx(0x400);
-            state.set_eflags(0x443); // Caller IF clear; only the service enables it.
-            let memory = dos.cpu().memory();
-            let timer_vector = memory.view().read_u32(8 * 4).unwrap();
-            let service_vector = memory.view().read_u32(u32::from(vector) * 4).unwrap();
-            memory.view().write_u32(0x10320, timer_vector).unwrap();
-            memory.view().write(8 * 4, &[0, 6, 0, 0x10]).unwrap();
-            memory.view().write(0x10400, &[4, 0]).unwrap();
-            memory
-                .view()
-                .write(
-                    0x10600,
+            let (ready, prepared) = futures_channel::oneshot::channel();
+            let execution = runner.run(std::future::pending::<()>(), async |runner| {
+                let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
+                dos.launch_com(
                     &[
-                        0x50, 0x89, 0xe5, // PUSH AX; MOV BP,SP.
-                        0x8b, 0x46, 2, 0x2e, 0xa3, 0x10, 3, // Saved IRQ IP.
-                        0x8b, 0x46, 4, 0x2e, 0xa3, 0x12, 3, // Saved IRQ CS.
-                        0x8b, 0x46, 6, 0x2e, 0xa3, 0x14, 3, // Saved IRQ FLAGS.
-                        0xb8, 0, 0x46, 0xbb, 2, 0, 0xb9, 1, 0, 0xcd,
-                        0x21, // stderr to stdout.
-                        0xb8, 0, 0x20, 0x8e, 0xd8, 0x58, // DS=2000; restore AX.
-                        0xbb, 0xef, 0xbe, 0xb9, 0xad, 0xde, 0xba, 0x77, 0x77, 0x2e, 0xff, 0x2e,
-                        0x20, 3, // Far jump through saved BIOS vector.
+                        0xcd, vector, 0x2e, 0x8c, 0x1e, 0x1c,
+                        3, // Record ISR's DS through CS.
+                        0x0e, 0x1f, // Restore DS=CS for result stores.
+                        0x89, 0x1e, 0x16, 3, 0x89, 0x0e, 0x18, 3, 0x89, 0x16, 0x1a, 3, 0xa3, 0,
+                        3, // Save AX.
+                        0x31, 0xc0, 0xcd, 0x1a, // Read clock and consume rollover.
+                        0x89, 0x0e, 2, 3, 0x89, 0x16, 4, 3, 0xa2, 6, 3, 0xb8, 0, 0x4c, 0xcd, 0x21,
                     ],
+                    Default::default(),
                 )
                 .unwrap();
-            memory.view().write_u32(0x46c, 0x18_00ae).unwrap();
-            let keyboard = dos.keyboard();
-            {
-                let execution = runner.run(std::future::pending::<()>(), async |runner| {
-                    dos.run(runner).await
-                });
-                let mut execution = pin!(execution);
-                common::assert_pending(execution.as_mut());
-                assert!(state.interrupts_enabled());
-                clock.advance(TICK);
-                drive_until(execution.as_mut(), || {
-                    memory.view().read_u32(0x46c).unwrap() == 0x18_00af
-                });
-                clock.advance(TICK * 2);
-                drive_until(execution.as_mut(), || {
-                    memory.view().read_u8(0x470).unwrap() == 1
-                });
-                assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
+                let state = dos.cpu().cpu_state();
+                state.set_ax(function);
+                state.set_bx(0);
+                state.set_cx(2);
+                state.set_dx(0x400);
+                state.set_eflags(0x443); // Caller IF clear; only the service enables it.
+                let memory = dos.cpu().memory();
+                let timer_vector = memory.view().read_u32(8 * 4).unwrap();
+                let service_vector = memory.view().read_u32(u32::from(vector) * 4).unwrap();
+                memory.view().write_u32(0x10320, timer_vector).unwrap();
+                memory.view().write(8 * 4, &[0, 6, 0, 0x10]).unwrap();
+                memory.view().write(0x10400, &[4, 0]).unwrap();
+                memory
+                    .view()
+                    .write(
+                        0x10600,
+                        &[
+                            0x50, 0x89, 0xe5, // PUSH AX; MOV BP,SP.
+                            0x8b, 0x46, 2, 0x2e, 0xa3, 0x10, 3, // Saved IRQ IP.
+                            0x8b, 0x46, 4, 0x2e, 0xa3, 0x12, 3, // Saved IRQ CS.
+                            0x8b, 0x46, 6, 0x2e, 0xa3, 0x14, 3, // Saved IRQ FLAGS.
+                            0xb8, 0, 0x46, 0xbb, 2, 0, 0xb9, 1, 0, 0xcd,
+                            0x21, // stderr to stdout.
+                            0xb8, 0, 0x20, 0x8e, 0xd8, 0x58, // DS=2000; restore AX.
+                            0xbb, 0xef, 0xbe, 0xb9, 0xad, 0xde, 0xba, 0x77, 0x77, 0x2e, 0xff, 0x2e,
+                            0x20, 3, // Far jump through saved BIOS vector.
+                        ],
+                    )
+                    .unwrap();
+                memory.view().write_u32(0x46c, 0x18_00ae).unwrap();
+                let keyboard = dos.keyboard();
+                ready
+                    .send((state.clone(), memory.clone(), keyboard))
+                    .ok()
+                    .unwrap();
+                assert_eq!(dos.run(runner).await, Ok(0));
+                let mut result = [0; 7];
+                memory.view().read(0x10300, &mut result).unwrap();
+                let [al, ah] = expected_ax.to_le_bytes();
+                assert_eq!(result, [al, ah, 0, 0, 0, 0, 1]);
+                let mut buffer = vec![0; expected_buffer.len()];
+                memory.view().read(0x10400, &mut buffer).unwrap();
+                assert_eq!(buffer, expected_buffer);
+                assert_eq!(memory.view().read_u8(0x470).unwrap(), 0);
+                assert_eq!(
+                    memory.view().read_u32(0x10310).unwrap(),
+                    service_vector + 1,
+                    "IRQ return points at the suspended service's resume label"
+                );
+                assert_ne!(memory.view().read_u16(0x10314).unwrap() & 0x200, 0);
+                let mut registers = [0; 8];
+                memory.view().read(0x10316, &mut registers).unwrap();
+                assert_eq!(registers, [0xef, 0xbe, 0xad, 0xde, 0x77, 0x77, 0, 0x20]);
+                assert_eq!(common::output(dos.stdout()), expected_output);
+                assert!(
+                    common::output(dos.stderr()).is_empty(),
+                    "echo keeps its destination"
+                );
+            });
+            let mut execution = pin!(execution);
+            common::assert_pending(execution.as_mut());
+            let (state, memory, keyboard) = prepared.await.unwrap();
+            assert!(state.interrupts_enabled());
+            clock.advance(TICK);
+            drive_until(execution.as_mut(), || {
+                memory.view().read_u32(0x46c).unwrap() == 0x18_00af
+            });
+            clock.advance(TICK * 2);
+            drive_until(execution.as_mut(), || {
+                memory.view().read_u8(0x470).unwrap() == 1
+            });
+            assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
+            keyboard.push(relocade_bios::KeyStroke {
+                character: b'A',
+                scan_code: 0x1e,
+            });
+            if !expected_buffer.is_empty() {
                 keyboard.push(relocade_bios::KeyStroke {
-                    character: b'A',
-                    scan_code: 0x1e,
+                    character: b'\r',
+                    scan_code: 0x1c,
                 });
-                if !expected_buffer.is_empty() {
-                    keyboard.push(relocade_bios::KeyStroke {
-                        character: b'\r',
-                        scan_code: 0x1c,
-                    });
-                }
-                assert_eq!(execution.await, Some(Ok(0)));
             }
-            let mut result = [0; 7];
-            memory.view().read(0x10300, &mut result).unwrap();
-            let [al, ah] = expected_ax.to_le_bytes();
-            assert_eq!(result, [al, ah, 0, 0, 0, 0, 1]);
-            let mut buffer = vec![0; expected_buffer.len()];
-            memory.view().read(0x10400, &mut buffer).unwrap();
-            assert_eq!(buffer, expected_buffer);
-            assert_eq!(memory.view().read_u8(0x470).unwrap(), 0);
-            assert_eq!(
-                memory.view().read_u32(0x10310).unwrap(),
-                service_vector + 1,
-                "IRQ return points at the suspended service's resume label"
-            );
-            assert_ne!(memory.view().read_u16(0x10314).unwrap() & 0x200, 0);
-            let mut registers = [0; 8];
-            memory.view().read(0x10316, &mut registers).unwrap();
-            assert_eq!(registers, [0xef, 0xbe, 0xad, 0xde, 0x77, 0x77, 0, 0x20]);
-            assert_eq!(common::output(dos.stdout()), expected_output);
-            assert!(
-                common::output(dos.stderr()).is_empty(),
-                "echo keeps its destination"
-            );
+            assert_eq!(execution.await, Some(()));
         }
     });
 }

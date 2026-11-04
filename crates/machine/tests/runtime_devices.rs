@@ -1,7 +1,7 @@
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{yield_now, Clock, Device, ExecutionWorker, Hook, IoBus, Memory};
+use relocade_machine::{Clock, Device, ExecutionWorker, Hook, IoBus, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -69,9 +69,15 @@ async fn check_devices() {
             clock: runner.clock().clone(),
             ticks: Rc::new(Cell::new(0)),
             report,
-            active: worker_active,
+            active: worker_active.clone(),
         }));
-        let io = IoBus::new([runner.connect(device, [], std::iter::once(0x80..=0x80))]);
+        let io = IoBus::new([runner
+            .connect(device, [], std::iter::once(0x80..=0x80))
+            .await]);
+        assert!(
+            worker_active.load(Ordering::SeqCst),
+            "connect starts activity before returning"
+        );
         let config = support::configuration(
             Compiler::new(ExecutionProfile::Real16).target(),
             CpuState {
@@ -138,10 +144,11 @@ async fn check_devices() {
             clock: runner.clock().clone(),
             ticks: Rc::new(Cell::new(0)),
             report,
-            active: worker_active,
+            active: worker_active.clone(),
         }));
-        let _connection = runner.connect(device, [], std::iter::once(0x80..=0x80));
-        yield_now().await;
+        let _connection = runner
+            .connect(device, [], std::iter::once(0x80..=0x80))
+            .await;
         ready.send(()).unwrap();
         std::future::pending().await
     });

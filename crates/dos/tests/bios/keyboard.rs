@@ -229,44 +229,44 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
         let (clock, timers) = timer_service();
         let timer_thread = std::thread::spawn(|| pollster::block_on(timers.run()));
         let (runner, _host) = common::runner(clock);
-        let mut dos = Dos::new(&runner).await.unwrap();
-        // BIOS reads AX into memory; DOS then reads another character and exits with it.
-        dos.launch_com(
-            &[
-                0xb4, 0, 0xcd, 0x16, 0xa3, 0, 3, 0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21,
-            ],
-            Default::default(),
-        )
-        .unwrap();
-        let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
-        let memory = dos.cpu().memory();
-        let input = dos.keyboard_input();
-        {
-            let running = runner.run(std::future::pending::<()>(), async |runner| {
-                dos.run(runner).await
-            });
-            let mut running = pin!(running);
-            common::assert_pending(running.as_mut());
-            std::thread::spawn(move || {
-                for (code, text) in [(KeyCode::KeyA, "A"), (KeyCode::KeyB, "b")] {
-                    input
-                        .unbounded_send(KeyboardEvent::Key {
-                            physical_key: code.into(),
-                            logical_key: Key::Character(text.into()),
-                            location: KeyLocation::Standard,
-                            text: Some(text.into()),
-                            state: ElementState::Pressed,
-                            repeat: false,
-                        })
-                        .unwrap();
-                }
-            })
-            .join()
+        let (ready, prepared) = futures_channel::oneshot::channel();
+        let running = runner.run(std::future::pending::<()>(), async |runner| {
+            let mut dos = Dos::new(runner).await.unwrap();
+            // BIOS reads AX into memory; DOS then reads another character and exits with it.
+            dos.launch_com(
+                &[
+                    0xb4, 0, 0xcd, 0x16, 0xa3, 0, 3, 0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21,
+                ],
+                Default::default(),
+            )
             .unwrap();
-            assert_eq!(running.await, Some(Ok(b'b')));
-        }
-        assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 0x1e41);
-        drop(dos);
+            let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
+            let memory = dos.cpu().memory();
+            let input = dos.keyboard_input();
+            ready.send(input).unwrap();
+            assert_eq!(dos.run(runner).await, Ok(b'b'));
+            assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 0x1e41);
+        });
+        let mut running = pin!(running);
+        common::assert_pending(running.as_mut());
+        let input = prepared.await.unwrap();
+        std::thread::spawn(move || {
+            for (code, text) in [(KeyCode::KeyA, "A"), (KeyCode::KeyB, "b")] {
+                input
+                    .unbounded_send(KeyboardEvent::Key {
+                        physical_key: code.into(),
+                        logical_key: Key::Character(text.into()),
+                        location: KeyLocation::Standard,
+                        text: Some(text.into()),
+                        state: ElementState::Pressed,
+                        repeat: false,
+                    })
+                    .unwrap();
+            }
+        })
+        .join()
+        .unwrap();
+        assert_eq!(running.await, Some(()));
         timer_thread.join().unwrap();
     });
 }

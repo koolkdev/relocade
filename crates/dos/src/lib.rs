@@ -150,14 +150,16 @@ impl<C: Clock> Dos<C> {
             runner.clock().clone(),
         ))));
         let keyboard = relocade_bios::Keyboard::default();
-        let (keyboard_input, keyboard_device) = keyboard.connect(runner);
+        let (keyboard_input, keyboard_device) = keyboard.connect(runner).await;
         let io = IoBus::new([
-            relocade_pit::connect_channel0(runner),
-            runner.connect(
-                vga.clone(),
-                [relocade_vga::MEMORY_RANGE],
-                relocade_vga::PORT_RANGES,
-            ),
+            relocade_pit::connect_channel0(runner).await,
+            runner
+                .connect(
+                    vga.clone(),
+                    [relocade_vga::MEMORY_RANGE],
+                    relocade_vga::PORT_RANGES,
+                )
+                .await,
             keyboard_device,
         ]);
         let memory = Memory::new(kernel::configuration())?;

@@ -34,14 +34,16 @@ async fn idle_devices() {
         .await
         .unwrap();
         let (send, requests) = mpsc::unbounded();
-        let _device = runner.connect(
-            Rc::new(RefCell::new(IdleDevice {
-                requests: Some(requests),
-                state: state.clone(),
-            })),
-            [],
-            [],
-        );
+        let _device = runner
+            .connect(
+                Rc::new(RefCell::new(IdleDevice {
+                    requests: Some(requests),
+                    state: state.clone(),
+                })),
+                [],
+                [],
+            )
+            .await;
         let probe = async || {
             let (reply, received) = oneshot::channel();
             send.unbounded_send(reply).unwrap();
