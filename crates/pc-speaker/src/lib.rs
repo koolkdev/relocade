@@ -1,5 +1,8 @@
 //! PC speaker hardware and synthesis.
 
+#[cfg(feature = "audio")]
+mod audio;
+
 use relocade_machine::{Clock, Device, TimerHandle};
 use relocade_pit::{clocks_at, Counter, CHANNEL_2_PORT, CONTROL_PORT as PIT_CONTROL_PORT};
 use std::{ops::RangeInclusive, rc::Rc, time::Duration};
@@ -17,6 +20,8 @@ pub struct Speaker<C = TimerHandle> {
     at: Duration,
     counter: Counter,
     control: u8,
+    #[cfg(feature = "audio")]
+    audio: Option<audio::Audio>,
 }
 
 impl<C: Clock> Speaker<C> {
@@ -26,6 +31,8 @@ impl<C: Clock> Speaker<C> {
             clock,
             counter: Counter::default(),
             control: 0,
+            #[cfg(feature = "audio")]
+            audio: None,
         }
     }
 
@@ -43,6 +50,11 @@ impl<C: Clock> Speaker<C> {
 }
 
 impl<C: Clock> Device for Speaker<C> {
+    #[cfg(feature = "audio")]
+    async fn run(device: Rc<std::cell::RefCell<Self>>) {
+        audio::run(device).await;
+    }
+
     fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
         self.sync_to_clock();
         if bytes != 1 {
@@ -55,6 +67,13 @@ impl<C: Clock> Device for Speaker<C> {
         }
     }
 
+    #[cfg_attr(
+        not(feature = "audio"),
+        expect(
+            clippy::needless_return,
+            reason = "early returns skip the optional audio update"
+        )
+    )]
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
         self.sync_to_clock();
         if bytes != 1 {
@@ -63,16 +82,30 @@ impl<C: Clock> Device for Speaker<C> {
         let value = value as u8;
         match port {
             CHANNEL_2_PORT => self.counter.write(value),
-            PIT_CONTROL_PORT if value >> 6 == 2 => self.counter.control(value),
+            PIT_CONTROL_PORT if value >> 6 == 2 => {
+                self.counter.control(value);
+                // Count latching does not change sound.
+                if value & 0x30 == 0 {
+                    return;
+                }
+            }
             // Read-back selects channel 2 with bit 3 high. Requests are low-active.
             PIT_CONTROL_PORT if value >> 6 == 3 && value & 9 == 8 => {
                 self.counter.latch(value & 0x20 == 0, value & 0x10 == 0);
+                return;
             }
             SPEAKER_CONTROL_PORT => {
+                if self.control == value & 3 {
+                    return;
+                }
                 self.control = value & 3;
                 self.counter.set_gate(value & 1 != 0);
             }
-            _ => {}
+            _ => return,
+        }
+        #[cfg(feature = "audio")]
+        if let Some(audio) = &mut self.audio {
+            audio.update(&self.counter);
         }
     }
 }

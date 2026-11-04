@@ -55,6 +55,7 @@ jobs:
           export XDG_RUNTIME_DIR="$RUNNER_TEMP"
           cargo test --workspace --locked
           ALSA_CONFIG_PATH="$GITHUB_WORKSPACE/crates/app/tests/alsa-null.conf" cargo test -p relocade-app --features audio --lib --locked -- --ignored
+          cargo test -p relocade-pc-speaker --features audio --tests --locked
           cargo test -p relocade-app --features audio --lib --locked
           ALSA_CONFIG_PATH="$GITHUB_WORKSPACE/crates/app/tests/alsa-null.conf" cargo test -p relocade-app --features audio --test audio_output --locked -- --ignored
           cargo test -p relocade-app --features graphics --lib --locked
