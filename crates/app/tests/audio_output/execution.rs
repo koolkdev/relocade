@@ -51,7 +51,9 @@ async fn callback_wakes_execution() {
             ready: Some(ready),
             interrupt: None,
         }));
-        let io = IoBus::new([runner.connect(started.clone(), [], [0x80..=0x80]).await]);
+        let io = IoBus::new([runner
+            .connect(started.clone(), [], std::iter::once(0x80..=0x80))
+            .await]);
         let compiler = Compiler::new(ExecutionProfile::Real16);
         let config = CpuConfig::new(
             compiler.target(),
