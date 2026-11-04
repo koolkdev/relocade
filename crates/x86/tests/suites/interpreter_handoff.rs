@@ -76,7 +76,7 @@ fn load_guards_admit_common_values_and_reject_exceptional_pushes() {
                     matches!(actual.events.as_slice(), [
                     Event::Dispatch { snapshot },
                     Event::Return { outcome: Outcome::Returned(values), .. },
-                ] if crate::support::step::decode::<relocade_x86::ExecutionExit>(values) == relocade_x86::ExecutionExit::BudgetExhausted
+                ] if crate::support::step::decode::<relocade_x86::ExecutionExit>(values) == relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return)
                     && CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap()).eip == 0x1006),
                     "{opcode:02x} {bits:016x}"
                 );

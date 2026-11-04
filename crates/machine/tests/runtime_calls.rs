@@ -79,7 +79,7 @@ async fn cpu(irq: &Rc<RefCell<Irq>>, handler: u16) -> Cpu {
         view.write(0x180, &[handler as u8, (handler >> 8) as u8, 0, 0])
             .unwrap();
         view.write(0x200, &real_mode_interrupt::HOOK_STUB).unwrap();
-        // INC word [0500]; JMP 0306; IRET. The jump creates an ISR budget boundary.
+        // INC word [0500]; JMP 0306; IRET. The jump creates an ISR checkpoint.
         view.write(0x300, &[0xff, 0x06, 0, 5, 0xeb, 0, 0xcf])
             .unwrap();
     }
@@ -143,7 +143,7 @@ async fn check_retained_future() {
         .await
         .unwrap();
     {
-        let mut run = pin!(runner.run(20));
+        let mut run = pin!(runner.run());
         let mut cx = Context::from_waker(Waker::noop());
         assert!(run.as_mut().poll(&mut cx).is_pending());
         irq.borrow_mut().raise();
@@ -158,7 +158,7 @@ async fn check_retained_future() {
     let interrupt = runner.interrupt_handle();
     interrupt.request();
     irq.borrow_mut().raise();
-    assert_eq!(runner.run(1).await, ExecutionExit::Interrupted);
+    assert_eq!(runner.run().await, ExecutionExit::Interrupted);
     assert!(interrupt.take());
     assert_eq!((started.get(), completed.get(), dropped.get()), (1, 0, 0));
     assert_eq!(runner.context().cpu.eip(), 0x306);
@@ -171,16 +171,22 @@ async fn check_retained_future() {
         "IRQ return names the service resume position"
     );
     input.send(20);
-    assert_eq!(runner.run(0).await, ExecutionExit::BudgetExhausted);
+    drop(runner.run());
     assert_eq!(input.consumed.get(), 1);
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted); // IRQ IRET only.
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    ); // IRQ IRET only.
     assert_eq!(cpu.eip(), 0x201);
     assert_eq!(
         input.consumed.get(),
         1,
         "ready input cannot resume a parked future"
     );
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted); // Resume, then service IRET.
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    ); // Resume, then service IRET.
     assert_eq!(cpu.ax(), 30);
     assert_eq!(cpu.sp(), 0x8000);
     assert_eq!(cpu.eflags(), 0x243);
@@ -217,21 +223,24 @@ async fn check_nested_calls() {
         }))
         .await
         .unwrap();
-    pending(runner.run(20));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    pending(runner.run(20));
+    pending(runner.run());
     assert_eq!(started.get(), 2);
     inputs[0].send(10);
-    pending(runner.run(20));
+    pending(runner.run());
     assert_eq!(inputs[0].consumed.get(), 0);
     irq.borrow_mut().raise();
-    pending(runner.run(20));
+    pending(runner.run());
     assert_eq!(started.get(), 3);
     inputs[1].send(20);
-    pending(runner.run(20));
+    pending(runner.run());
     assert_eq!(inputs[1].consumed.get(), 0);
     inputs[2].send(30);
-    assert_eq!(runner.run(10).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::run_until(&mut runner, 0x102).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(*finished.borrow(), [(2, 30), (1, 20), (0, 10)]);
     assert_eq!(started.get(), 3);
     assert_eq!(dropped.get(), 3);
@@ -267,15 +276,15 @@ async fn check_live_if_and_ready_awaits() {
         }))
         .await
         .unwrap();
-    pending(runner.run(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    pending(runner.run(10));
+    pending(runner.run());
     assert_eq!(irq.borrow().acknowledged, 0);
     input.send(1);
-    pending(runner.run(10));
+    pending(runner.run());
     assert_eq!(irq.borrow().acknowledged, 1);
     input.send(2);
-    assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runner.cpu_state().ax(), 7);
     assert_eq!(irq.borrow().acknowledged, 1);
 }
@@ -296,7 +305,7 @@ macro_rules! test_backends {
 }
 
 test_backends!(
-    plain_pending_await_retains_locals_across_irqs_and_budget_exits,
+    plain_pending_await_retains_locals_across_irqs_and_execution_interrupts,
     check_retained_future
 );
 test_backends!(

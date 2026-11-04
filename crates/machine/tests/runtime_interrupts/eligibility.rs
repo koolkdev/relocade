@@ -52,10 +52,7 @@ async fn queued_irq() {
             // further wake or periodic budget may be needed to deliver this IRQ.
             runner.interrupt_handle().request();
             assert!(runner.interrupt_handle().take());
-            assert_eq!(
-                runner.run(u64::MAX).await,
-                ExecutionExit::Host(HostExit::Return)
-            );
+            assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
             assert_eq!(
                 irq.borrow().acknowledged,
                 1,

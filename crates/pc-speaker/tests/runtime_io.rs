@@ -1,4 +1,6 @@
 mod common;
+#[path = "../../machine/tests/support/execution.rs"]
+mod execution;
 
 use relocade_machine::{
     Cpu, CpuConfig, DeviceConnection, DispatchEntry, IoBus, MachineConfig, Memory,
@@ -70,11 +72,17 @@ async fn guest_port_io() {
                 .collect();
             cpu.install_module(&module.bytes, &entries).await.unwrap();
         }
-        assert_eq!(cpu.run(9).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            execution::run_until(&mut cpu, 0x112).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(cpu.context().cpu.eax(), 0x23);
         assert_eq!(cpu.context().cpu.eip(), 0x112);
         clock.0.set(Duration::from_micros(5)); // Five PIT clocks: mode-3 count is 2.
-        assert_eq!(cpu.run(5).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            execution::run_until(&mut cpu, 0x11c).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(cpu.context().cpu.eax(), 0x0200);
         assert_eq!(cpu.context().cpu.eip(), 0x11c);
     }

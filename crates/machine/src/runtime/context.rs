@@ -14,7 +14,7 @@ use crate::{CpuStateAccess, IoBus, MemoryView};
 /// async fn overlap(cpu: &mut Cpu) {
 ///     let mut context = cpu.context();
 ///     let view = &context.cpu;
-///     cpu.run(1).await;
+///     cpu.run().await;
 ///     let _ = view.ax();
 /// }
 /// ```

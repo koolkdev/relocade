@@ -29,3 +29,7 @@ pub async fn create_cpu(
     let memory = relocade_machine::Memory::new(config)?;
     relocade_machine::Cpu::new(memory, cpu, Default::default()).await
 }
+
+mod execution;
+#[allow(unused_imports)]
+pub use execution::{checkpoint, run_until, steps};

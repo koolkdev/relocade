@@ -78,9 +78,12 @@ fn pending_console_read_keeps_the_bytes_that_do_not_fit_in_the_segment() {
             cpu.set_cx(3);
             cpu.set_dx(0xffff);
         }
-        crate::common::assert_pending(dos.cpu().run(10));
+        crate::common::assert_pending(dos.cpu().run());
         dos.stdin().write_all(b"abc\r").unwrap();
-        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::common::run_until(dos.cpu(), 0x102).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(dos.cpu().context().cpu.ax(), 1);
         assert_eq!(
             read_memory::<3>(&mut dos, BASE + 0xffff),

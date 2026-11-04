@@ -18,15 +18,13 @@ use futures_util::{
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
-use std::{cell::RefCell, future::Future, num::NonZeroU64, ops::RangeInclusive, pin::pin, rc::Rc};
+use std::{cell::RefCell, future::Future, ops::RangeInclusive, pin::pin, rc::Rc};
 
 /// Owns a worker's execution session, including its CPU storage and device activities.
 /// [`ExecutionWorker`] prepares the resources before starting the owner thread.
-/// Notifications interrupt guest execution; instruction quanta remain temporary.
+/// Notifications interrupt guest execution so ready Rust activities can run.
 pub struct Runner<C = TimerHandle> {
     clock: C,
-    /// Requested CPU budget per quantum; checks remain at block boundaries.
-    pub instruction_quantum: NonZeroU64,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
@@ -42,7 +40,6 @@ impl<C: Clock> Runner<C> {
         let executor = Rc::new(Executor::new(endpoint.bind(storage.interrupt_handle())));
         Self {
             clock,
-            instruction_quantum: NonZeroU64::new(10_000).unwrap(),
             activities,
             pending: Some(pending),
             executor,
@@ -134,9 +131,8 @@ impl<C: Clock> Runner<C> {
             .await
     }
 
-    /// Runs until the guest exits. Execution cooperates on
-    /// notifications without replenishing the temporary instruction quantum.
-    /// A pending service retains its CPU future and original instruction budget.
+    /// Runs until the guest exits, polling ready Rust work on execution interrupts.
+    /// Pending services retain their futures while awaiting input or guest resumption.
     /// Poll within [`Self::run`], which drives the session's scheduling and devices.
     ///
     /// # Panics
@@ -149,23 +145,11 @@ impl<C: Clock> Runner<C> {
         // Let siblings in CPU-first async composition register their waits.
         // Device activities were already started by connect().await.
         self.executor.yield_now().await;
-        let quantum = self.instruction_quantum.get();
-        let mut remaining = quantum;
-        let state = cpu.cpu_state();
         loop {
-            let before = state.instruction_count();
-            match cpu.run(remaining).await {
-                ExecutionExit::BudgetExhausted => remaining = quantum,
-                ExecutionExit::Interrupted => {
-                    let spent = state.instruction_count().wrapping_sub(before);
-                    remaining = remaining.saturating_sub(spent);
-                    if remaining == 0 {
-                        remaining = quantum;
-                    }
-                }
+            match cpu.run().await {
+                ExecutionExit::Interrupted => self.executor.yield_now().await,
                 exit => return exit,
             }
-            self.executor.yield_now().await;
         }
     }
 }

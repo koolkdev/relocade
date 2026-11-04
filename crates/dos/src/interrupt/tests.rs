@@ -1,4 +1,6 @@
 mod device_requests;
+#[path = "../../../machine/tests/support/execution.rs"]
+mod execution;
 mod irqs;
 
 use crate::Dos;
@@ -33,7 +35,7 @@ fn pending_character_and_line_reads_retain_their_echo_destination() {
                 call.cpu.set_dx(0x300);
                 call.memory.write(0x10300, &[8, 0]).unwrap();
             }
-            assert!(pin!(dos.cpu().run(10))
+            assert!(pin!(dos.cpu().run())
                 .as_mut()
                 .poll(&mut Context::from_waker(Waker::noop()))
                 .is_pending());
@@ -46,7 +48,10 @@ fn pending_character_and_line_reads_retain_their_echo_destination() {
             dos.stdin()
                 .write_all(if function == 0x01 { b"a" } else { b"ab\x08c\r" })
                 .unwrap();
-            assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                execution::run_until(dos.cpu(), 0x102).await,
+                ExecutionExit::Interrupted
+            );
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
             dos.stdout().read_to_end(&mut stdout).unwrap();
@@ -90,7 +95,7 @@ fn pending_handle_read_keeps_its_source_and_partial_transfer() {
             call.memory.write(0x10300, &[0xcc; 4]).unwrap();
         }
         dos.stdin().write_all(b"A").unwrap();
-        assert!(pin!(dos.cpu().run(10))
+        assert!(pin!(dos.cpu().run())
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
             .is_pending());
@@ -100,7 +105,10 @@ fn pending_handle_read_keeps_its_source_and_partial_transfer() {
             .force_duplicate(&mut dos.state.filesystem(), 3, 0)
             .unwrap();
         dos.stdin().write_all(b"BC").unwrap();
-        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            execution::run_until(dos.cpu(), 0x102).await,
+            ExecutionExit::Interrupted
+        );
         {
             let call = dos.cpu().context();
             assert_eq!(call.cpu.ax(), 2);

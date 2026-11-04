@@ -70,11 +70,8 @@ impl ExecutionBuilder<'_, '_> {
     ) -> Result<(), BuildError> {
         if self.profile() == ExecutionProfile::Real16 {
             self.body.if_(condition, |mut body| {
-                let count = self
-                    .state
-                    .publish(&mut body, next_ip, self.completed + 1)?
-                    .expect("a completed flag restore retires an instruction");
-                self.state.checkpoint(&mut body, &count)?;
+                self.state.publish(&mut body, next_ip, self.completed + 1)?;
+                self.state.checkpoint(&mut body)?;
                 body.return_(ExecutionExitValues::interrupts_enabled())
             })?;
         }

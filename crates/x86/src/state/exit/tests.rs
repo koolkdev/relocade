@@ -1,7 +1,4 @@
-use super::{
-    budget_exhausted, exception, unsupported, ExecutionExit, ExecutionExitValues, HostExit,
-    HostExitValues,
-};
+use super::{exception, unsupported, ExecutionExit, ExecutionExitValues, HostExit, HostExitValues};
 use crate::test_step::{returned, Argument, Event, Input, Observation, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Exception, ExceptionValues};
 use relocade_compiler::{abi::Function, Program, I8};
@@ -19,7 +16,6 @@ fn exit_module() -> Vec<u8> {
         "floating_point",
         "simd_floating_point",
         "unsupported",
-        "budget_exhausted",
         "interrupt_entered",
         "interrupt_inhibited",
         "interrupted",
@@ -51,7 +47,6 @@ fn exit_module() -> Vec<u8> {
                     "host_resume" => {
                         return body.return_(ExecutionExitValues::host(HostExit::Resume))
                     }
-                    "budget_exhausted" => return budget_exhausted(body),
                     "interrupt_entered" => {
                         return body.return_(ExecutionExitValues::interrupt_entered())
                     }
@@ -113,7 +108,6 @@ fn generated_exits_preserve_payloads() {
                 opcode: detail as u8,
             },
         ),
-        ("budget_exhausted", ExecutionExit::BudgetExhausted),
         ("interrupt_entered", ExecutionExit::InterruptEntered),
         ("interrupt_inhibited", ExecutionExit::InterruptInhibited),
         ("interrupted", ExecutionExit::Interrupted),
@@ -171,25 +165,24 @@ fn execution_exits_share_four_wasm_values() {
             }),
             (0, 1, address as i32, 0),
         ),
-        (ExecutionExit::BudgetExhausted, (1, 0, 0, 0)),
-        (ExecutionExit::InterruptEntered, (4, 0, 0, 0)),
-        (ExecutionExit::InterruptInhibited, (5, 0, 0, 0)),
-        (ExecutionExit::Interrupted, (6, 0, 0, 0)),
-        (ExecutionExit::StepComplete, (7, 0, 0, 0)),
-        (ExecutionExit::InterruptsEnabled, (8, 0, 0, 0)),
+        (ExecutionExit::InterruptEntered, (3, 0, 0, 0)),
+        (ExecutionExit::InterruptInhibited, (4, 0, 0, 0)),
+        (ExecutionExit::Interrupted, (5, 0, 0, 0)),
+        (ExecutionExit::StepComplete, (6, 0, 0, 0)),
+        (ExecutionExit::InterruptsEnabled, (7, 0, 0, 0)),
         (
             ExecutionExit::Exception(Exception::PageFault {
                 linear_address: address,
                 error_code,
             }),
-            (2, 6, address as i32, error_code as i32),
+            (1, 6, address as i32, error_code as i32),
         ),
         (
             ExecutionExit::UnsupportedInstruction {
                 eip: address,
                 opcode: 0xff,
             },
-            (3, address as i32, 255, 0),
+            (2, address as i32, 255, 0),
         ),
     ];
     for (exit, flat) in cases {

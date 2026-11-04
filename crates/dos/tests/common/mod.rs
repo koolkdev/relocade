@@ -3,6 +3,10 @@
 use relocade_dos::{Dos, ProcessStatus};
 mod runner;
 pub use runner::runner;
+#[path = "../../../machine/tests/support/execution.rs"]
+mod execution;
+#[allow(unused_imports)]
+pub use execution::{checkpoint, run_until, steps};
 
 // Service tests step the CPU directly; worker tests drive registered devices.
 pub async fn dos() -> Dos {
@@ -50,8 +54,8 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_dx(dx);
     }
     assert_eq!(
-        pollster::block_on(dos.cpu().run(10)),
-        ExecutionExit::BudgetExhausted
+        pollster::block_on(crate::common::run_until(dos.cpu(), 0x102)),
+        ExecutionExit::Interrupted
     );
     dos.cpu().context().cpu.snapshot()
 }
@@ -64,7 +68,7 @@ pub fn terminate(dos: &mut Dos) {
         execution.cpu.set_ax(0x4c00);
     }
     assert_eq!(
-        pollster::block_on(dos.cpu().run(10)),
+        pollster::block_on(dos.cpu().run()),
         ExecutionExit::Host(relocade_x86::HostExit::Return)
     );
     assert_eq!(

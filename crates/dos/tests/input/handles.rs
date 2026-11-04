@@ -48,7 +48,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
         let mut input = dos.stdin();
         let output = dos.stdout();
         {
-            let mut run = pin!(dos.cpu().run(20));
+            let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"ab\x08C").unwrap();
@@ -57,7 +57,7 @@ fn console_handle_read_waits_for_enter_and_shares_the_remainder() {
             input.write_all(b"\r").unwrap();
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
-                Poll::Ready(ExecutionExit::BudgetExhausted)
+                Poll::Ready(ExecutionExit::Interrupted)
             ));
         }
         {

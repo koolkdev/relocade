@@ -37,10 +37,7 @@ use relocade_x86::{ExecutionExit, HostExit};
 
 async fn run(dos: &mut Dos, program: &[u8]) -> std::sync::Arc<CapturedFrame> {
     dos.launch_com(program, Default::default()).unwrap();
-    assert_eq!(
-        dos.cpu().run(100_000).await,
-        ExecutionExit::Host(HostExit::Return)
-    );
+    assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     common::next_capture(dos).await
 }
 

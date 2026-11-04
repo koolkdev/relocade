@@ -28,7 +28,7 @@
 //!     let memory = Memory::new(config)?;
 //!     memory.view().write(0x100, &[0xb8, 42, 0, 0xeb, 0])?;
 //!     let mut cpu = Cpu::new(memory, cpu_config, Default::default()).await?;
-//!     let exit = cpu.run(100).await;
+//!     let exit = cpu.step();
 //!     let ax = cpu.context().cpu.ax();
 //!     # let _ = (exit, ax);
 //!     Ok(())
@@ -49,6 +49,7 @@ mod io;
 mod machine;
 mod memory;
 pub mod real_mode_interrupt;
+mod step;
 mod storage;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};

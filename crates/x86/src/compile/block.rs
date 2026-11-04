@@ -142,7 +142,7 @@ impl Compiler {
     /// or before another supplied entry reached at an instruction boundary.
     /// Entry points inside an instruction's encoding do not split that instruction.
     /// Unused snapshot bytes are neither decoded nor included in its [`BlockEntry`].
-    /// Success publishes state, checks execution interrupts and budget, then tail-calls
+    /// Success publishes state, checks execution interrupts, then tail-calls
     /// `relocade.dispatch`, including when the successor is in this module.
     /// Faults and interpreter handoffs retain the single-block contract.
     ///

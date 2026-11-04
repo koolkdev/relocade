@@ -44,7 +44,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             cpu.set_ax(0x077b);
             cpu.set_eflags(0x643);
         }
-        crate::common::assert_pending(dos.cpu().run(10));
+        crate::common::assert_pending(dos.cpu().run());
         assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
         let memory = dos.cpu().memory();
         let frame_address = 0x1fff8;
@@ -52,7 +52,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         memory.view().read(frame_address, &mut frame).unwrap();
         assert_eq!(frame, [0x02, 0x01, 0x00, 0x10, 0x43, 0x06]); // IP, CS, FLAGS.
 
-        crate::common::assert_pending(dos.cpu().run(10));
+        crate::common::assert_pending(dos.cpu().run());
         let mut repeated_frame = [0; 6];
         memory
             .view()
@@ -61,7 +61,10 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         assert_eq!(repeated_frame, frame);
 
         dos.stdin().write_all(&[0, 0x48]).unwrap(); // Extended key prefix is data.
-        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::common::run_until(dos.cpu(), 0x102).await,
+            ExecutionExit::Interrupted
+        );
         {
             let machine = dos.cpu().context();
             let cpu = &machine.cpu;
@@ -77,7 +80,7 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
         assert!(common::output(dos.stdout()).is_empty()); // No echo.
 
         dos.cpu().context().cpu.set_eip(0x100);
-        common::assert_pending(dos.cpu().run(10));
+        common::assert_pending(dos.cpu().run());
         let mut suspended_frame = [0; 6];
         memory
             .view()
@@ -97,10 +100,13 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             .read(frame_address, &mut after_rejection)
             .unwrap();
         assert_eq!(after_rejection, suspended_frame);
-        common::assert_pending(dos.cpu().run(10));
+        common::assert_pending(dos.cpu().run());
         let mut input = dos.stdin();
         input.write_all(b"R").unwrap();
-        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::common::run_until(dos.cpu(), 0x102).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(dos.cpu().context().cpu.ax(), 0x0752);
         input.write_all(b"Q").unwrap();
         common::terminate(&mut dos);
@@ -114,9 +120,9 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             0x074e
         );
         dos.cpu().context().cpu.set_eip(0x100);
-        common::assert_pending(dos.cpu().run(10));
+        common::assert_pending(dos.cpu().run());
         {
-            let mut run = pin!(dos.cpu().run(10));
+            let mut run = pin!(dos.cpu().run());
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
         }
@@ -132,14 +138,14 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             Err(LaunchError::ProcessActive)
         );
         input.write_all(b"T").unwrap();
-        assert_eq!(dos.cpu().run(10).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            crate::common::run_until(dos.cpu(), 0x102).await,
+            ExecutionExit::Interrupted
+        );
         assert_eq!(dos.cpu().context().cpu.ax(), 0x0754);
         common::terminate(&mut dos);
         dos.launch_mz(&mz, Default::default()).unwrap();
-        assert_eq!(
-            dos.cpu().run(10).await,
-            ExecutionExit::Host(HostExit::Return)
-        );
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
         assert_eq!(
             dos.process().unwrap().status(),
             ProcessStatus::Exited(Ok(0))
@@ -171,7 +177,7 @@ fn interactive_program_prints_prompt_waits_and_exits_after_input() {
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().run(100));
+            let mut run = pin!(dos.cpu().run());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             assert_eq!(common::output(output.clone()), b"? ");
             input.write_all(b"y").unwrap();
@@ -221,13 +227,13 @@ fn blocking_read_follows_redirected_input_and_waits_at_file_end() {
         success(&service(&mut dos, 0x4600, 6, 0, 0));
         dos.cpu().context().cpu.set_ax(0x0700);
         dos.cpu().context().cpu.set_eip(0x100);
-        crate::common::assert_pending(dos.cpu().run(10));
+        crate::common::assert_pending(dos.cpu().run());
         let mut input = dos.stdin();
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
         {
-            let mut run = pin!(dos.cpu().run(10));
+            let mut run = pin!(dos.cpu().run());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             input.write_all(b"Q").unwrap();
             assert_eq!(wakes.0.load(Ordering::Relaxed), 0);

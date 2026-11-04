@@ -50,13 +50,6 @@ impl CpuStateAccess {
         }
     }
 
-    pub(crate) fn set_instruction_target(&self, target: u64) {
-        self.storage.store(
-            offset_of!(ExecutionContext, instruction_target) as u32,
-            target,
-        );
-    }
-
     #[inline]
     pub fn eip(&self) -> u32 {
         self.load(offset_of!(CpuState, eip))
@@ -176,7 +169,7 @@ impl CpuStateAccess {
     }
 
     /// Restores a compatible CPU snapshot without changing execution controls,
-    /// including the instruction target and pending execution interrupt.
+    /// including the pending execution interrupt.
     ///
     /// # Errors
     /// Returns an error without writing if the snapshot violates this CPU's

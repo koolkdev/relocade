@@ -275,17 +275,17 @@ fn callable_dispatch_resolves_functions_and_fallback() {
 }
 
 #[test]
-fn compiled_blocks_chain_until_budget_or_missing_entry() {
+fn compiled_blocks_chain_until_interrupt_or_missing_entry() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let dispatcher = Module::new(&compiler.compile_dispatcher().unwrap().bytes);
     let mut targets = vec![constant(crate::ExecutionExit::Host(
         crate::HostExit::Return,
     ))];
     let mut table = EntryTable::default();
-    // INC EAX; JMP 0x2000, followed by INC EBX; JMP 0x1000.
+    // INC EAX; JMP 0x2000, followed by INC EBX; JMP 0x3000.
     for (address, code) in [
         (0x1000, [0x40, 0xe9, 0xfa, 0x0f, 0, 0]),
-        (0x2000, [0x43, 0xe9, 0xfa, 0xef, 0xff, 0xff]),
+        (0x2000, [0x43, 0xe9, 0xfa, 0x0f, 0, 0]),
     ] {
         let block = compiler.compile_block(address, &code, 2).unwrap();
         table.insert(address, targets.len() as u32 + 1);
@@ -293,12 +293,18 @@ fn compiled_blocks_chain_until_budget_or_missing_entry() {
     }
     let mut context = ExecutionContext::default();
     context.cpu.eip = 0x1000;
-    context.instruction_target = 5;
     let mut cases = vec![Invocation {
         cpu: context.to_bytes().to_vec(),
         entries: table.to_bytes(),
         export: "dispatch",
     }];
+    context.interrupt_requested = 1;
+    cases.push(Invocation {
+        cpu: context.to_bytes().to_vec(),
+        entries: table.to_bytes(),
+        export: "dispatch",
+    });
+    context.interrupt_requested = 0;
     // The same first block reaches fallback when its successor has no mapping.
     table.remove(0x2000);
     cases.push(Invocation {
@@ -307,9 +313,22 @@ fn compiled_blocks_chain_until_budget_or_missing_entry() {
         export: "dispatch",
     });
     let outputs = execute(&dispatcher, &targets, &cases);
-    for (output, (exit, count, eax, ebx)) in outputs.iter().zip([
-        (crate::ExecutionExit::BudgetExhausted, 6, 2, 1),
-        (crate::ExecutionExit::Host(crate::HostExit::Return), 2, 1, 0),
+    for (output, (exit, eip, count, eax, ebx)) in outputs.iter().zip([
+        (
+            crate::ExecutionExit::Host(crate::HostExit::Return),
+            0x3000,
+            4,
+            1,
+            1,
+        ),
+        (crate::ExecutionExit::Interrupted, 0x2000, 2, 1, 0),
+        (
+            crate::ExecutionExit::Host(crate::HostExit::Return),
+            0x2000,
+            2,
+            1,
+            0,
+        ),
     ]) {
         assert_eq!(output.exit, exit);
         let cpu = CpuState::from_bytes(output.cpu[..CpuState::BYTE_LEN].try_into().unwrap());
@@ -320,7 +339,7 @@ fn compiled_blocks_chain_until_budget_or_missing_entry() {
                 cpu.registers.eax,
                 cpu.registers.ebx
             ),
-            (0x2000, count, eax, ebx)
+            (eip, count, eax, ebx)
         );
     }
 }

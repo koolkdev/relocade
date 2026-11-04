@@ -52,7 +52,10 @@ async fn check_guest_memory() {
         .await
         .unwrap();
     runtime.context().cpu.set_ax(0x1234);
-    assert_eq!(runtime.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runtime).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(runtime.context().cpu.eip(), 0x108);
     assert_eq!(other.context().cpu.eip(), 0x100);
     assert_eq!(other.context().cpu.ax(), 0);

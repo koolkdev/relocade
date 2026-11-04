@@ -256,7 +256,10 @@ impl Machine {
                 Outcome::Returned(values) => {
                     let exit = super::step::decode::<relocade_x86::ExecutionExit>(values);
                     if let Some((eip, _)) = dispatches.last() {
-                        assert_eq!(exit, relocade_x86::ExecutionExit::BudgetExhausted);
+                        assert_eq!(
+                            exit,
+                            relocade_x86::ExecutionExit::Host(relocade_x86::HostExit::Return)
+                        );
                         Exit::Dispatch(*eip)
                     } else {
                         Exit::from_exit(exit)

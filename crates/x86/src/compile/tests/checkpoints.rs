@@ -15,7 +15,7 @@ fn execute(
     code: &[u8],
     instructions: u32,
     cpu: CpuState,
-    target: u64,
+    requested: bool,
 ) -> (ExecutionExit, CpuState, Snapshot) {
     let mut input = Input::new(&cpu.to_bytes());
     input.guest.push((0x1000, code.to_vec()));
@@ -26,8 +26,8 @@ fn execute(
             .push((page * 4, ((page << 12) | 3).to_le_bytes().to_vec()));
     }
     input.patches_before_calls.push(CallPatches::cpu(vec![(
-        std::mem::offset_of!(ExecutionContext, instruction_target) as u32,
-        target.to_le_bytes().to_vec(),
+        std::mem::offset_of!(ExecutionContext, interrupt_requested) as u32,
+        vec![u8::from(requested)],
     )]));
     input.observe_guest = true;
     input.dispatch_return = ExecutionExit::Host(HostExit::Return);
@@ -53,7 +53,7 @@ fn execute(
         panic!("unexpected execution: {:?}", observation.events);
     };
     let exit = decode::<ExecutionExit>(values);
-    if exit == ExecutionExit::BudgetExhausted {
+    if exit == ExecutionExit::Interrupted {
         assert_eq!(observation.events.len(), 1, "yield must precede dispatch");
     }
     (
@@ -73,16 +73,16 @@ fn initial(count: u64) -> CpuState {
 
 fn conditional_boundary(frontend: Frontend) {
     for taken in [false, true] {
-        for target in [41, 43, 44] {
+        for requested in [false, true] {
             let mut cpu = initial(40);
             cpu.registers.eax = if taken { u32::MAX - 1 } else { 0 };
-            let (exit, after, _) = execute(frontend, &[0x40, 0x40, 0x74, 8], 3, cpu, target);
+            let (exit, after, _) = execute(frontend, &[0x40, 0x40, 0x74, 8], 3, cpu, requested);
             assert_eq!(after.instruction_count, 43);
             assert_eq!(after.eip, if taken { 0x100c } else { 0x1004 });
             assert_eq!(
                 exit,
-                if target <= 43 {
-                    ExecutionExit::BudgetExhausted
+                if requested {
+                    ExecutionExit::Interrupted
                 } else {
                     ExecutionExit::Host(HostExit::Return)
                 }
@@ -95,8 +95,8 @@ test_frontends!(conditional_branches, conditional_boundary);
 fn long_block(frontend: Frontend) {
     let mut code = vec![0x90; 1024];
     code.extend([0xeb, 0]);
-    let (exit, cpu, _) = execute(frontend, &code, 1025, initial(0), 1);
-    assert_eq!(exit, ExecutionExit::BudgetExhausted);
+    let (exit, cpu, _) = execute(frontend, &code, 1025, initial(0), true);
+    assert_eq!(exit, ExecutionExit::Interrupted);
     assert_eq!(cpu.instruction_count, 1025);
     assert_eq!(cpu.eip, 0x1402);
 }
@@ -105,8 +105,8 @@ test_frontends!(long_straight_line_block, long_block);
 fn memory_continuations(frontend: Frontend) {
     let mut code = [0x66, 0x8b, 0x05, 0, 0x20, 0, 0].repeat(40);
     code.extend([0xeb, 0]);
-    let (exit, cpu, _) = execute(frontend, &code, 41, initial(0), 1);
-    assert_eq!(exit, ExecutionExit::BudgetExhausted);
+    let (exit, cpu, _) = execute(frontend, &code, 41, initial(0), true);
+    assert_eq!(exit, ExecutionExit::Interrupted);
     assert_eq!(cpu.instruction_count, 41);
     assert_eq!(cpu.registers.eax, 0x0201);
     assert_eq!(cpu.eip, 0x111a);
@@ -114,7 +114,7 @@ fn memory_continuations(frontend: Frontend) {
 test_frontends!(memory_decoder_continuations, memory_continuations);
 
 fn fault_before_boundary(frontend: Frontend) {
-    let (exit, cpu, _) = execute(frontend, &[0x40, 0x40, 0xf7, 0xf1], 3, initial(0), 1);
+    let (exit, cpu, _) = execute(frontend, &[0x40, 0x40, 0xf7, 0xf1], 3, initial(0), true);
     assert_eq!(
         exit,
         ExecutionExit::Exception(crate::Exception::DivideError)
@@ -125,37 +125,27 @@ fn fault_before_boundary(frontend: Frontend) {
 }
 test_frontends!(fault_keeps_its_exit, fault_before_boundary);
 
-fn unsigned_target(frontend: Frontend) {
-    for (count, target, exhausted) in [
-        (0, u64::MAX, false),
-        (0, 1 << 63, false),
-        ((1 << 63) - 2, 1 << 63, true),
-        ((1 << 63) + 1, 1, true),
-        (u64::MAX - 4, u64::MAX, false),
-        (u64::MAX - 3, u64::MAX, true),
-    ] {
-        let (exit, cpu, _) = execute(frontend, &[0x90, 0x90, 0xeb, 0], 3, initial(count), target);
-        assert_eq!(cpu.instruction_count, count + 3);
-        assert_eq!(cpu.eip, 0x1004);
-        assert_eq!(
-            exit,
-            if exhausted {
-                ExecutionExit::BudgetExhausted
-            } else {
-                ExecutionExit::Host(HostExit::Return)
-            }
-        );
-    }
+fn count_wraps(frontend: Frontend) {
+    let (exit, cpu, _) = execute(
+        frontend,
+        &[0x90, 0x90, 0xeb, 0],
+        3,
+        initial(u64::MAX - 1),
+        false,
+    );
+    assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(cpu.instruction_count, 1);
+    assert_eq!(cpu.eip, 0x1004);
 }
-test_frontends!(unsigned_instruction_targets, unsigned_target);
+test_frontends!(retirement_wraps_without_stopping_execution, count_wraps);
 
 fn rep_then_boundary(frontend: Frontend) {
     let mut cpu = initial(0);
     cpu.registers.esi = 0x2000;
     cpu.registers.edi = 0x3000;
     cpu.registers.ecx = 4;
-    let (exit, cpu, snapshot) = execute(frontend, &[0xf3, 0xa4, 0x40, 0xeb, 0], 3, cpu, 1);
-    assert_eq!(exit, ExecutionExit::BudgetExhausted);
+    let (exit, cpu, snapshot) = execute(frontend, &[0xf3, 0xa4, 0x40, 0xeb, 0], 3, cpu, true);
+    assert_eq!(exit, ExecutionExit::Interrupted);
     assert_eq!(cpu.instruction_count, 3);
     assert_eq!(cpu.registers.ecx, 0);
     assert_eq!(cpu.registers.esi, 0x2004);
@@ -170,18 +160,18 @@ fn rep_then_boundary(frontend: Frontend) {
 test_frontends!(rep_retires_once_before_block_boundary, rep_then_boundary);
 
 #[test]
-fn step_checks_budget_after_one_instruction_without_dispatch() {
+fn step_checks_interrupt_after_one_instruction_without_dispatch() {
     for (code, next_eip) in [
         (&[0x40, 0x40, 0xeb, 0][..], 0x1001),
         (&[0x66, 0x40, 0x40, 0xeb, 0][..], 0x1002),
     ] {
-        for target in [41u64, 42] {
+        for requested in [false, true] {
             let mut input = Input::new(&initial(40).to_bytes());
             input.guest.push((0x1000, code.to_vec()));
             input.machine.push((4, 0x1003u32.to_le_bytes().to_vec()));
             input.patches_before_calls.push(CallPatches::cpu(vec![(
-                std::mem::offset_of!(ExecutionContext, instruction_target) as u32,
-                target.to_le_bytes().to_vec(),
+                std::mem::offset_of!(ExecutionContext, interrupt_requested) as u32,
+                vec![u8::from(requested)],
             )]));
             input.dispatch_return = ExecutionExit::Host(HostExit::Return);
             let observation = TestModule::interpreter().observe(&input, 1);
@@ -199,8 +189,8 @@ fn step_checks_budget_after_one_instruction_without_dispatch() {
 
             assert_eq!(
                 decode::<ExecutionExit>(values),
-                if target == 41 {
-                    ExecutionExit::BudgetExhausted
+                if requested {
+                    ExecutionExit::Interrupted
                 } else {
                     ExecutionExit::StepComplete
                 }

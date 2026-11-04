@@ -73,7 +73,7 @@ async fn check_context_lifetime() {
         .await
         .unwrap();
     {
-        let mut run = pin!(runtime.run(1));
+        let mut run = pin!(runtime.run());
         assert!(run
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
@@ -89,14 +89,14 @@ async fn check_context_lifetime() {
         });
     }
     complete.set(true);
-    assert_eq!(runtime.run(1).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runtime.run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(runtime.context().cpu.eax(), 0x1234);
     assert_eq!(observer.upgrade().unwrap().borrow().calls, 1);
     assert!(!dropped.get());
     // Dropping the CPU while another invocation waits releases its owned machine.
     complete.set(false);
     {
-        let mut run = pin!(runtime.run(1));
+        let mut run = pin!(runtime.run());
         assert!(run
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
@@ -147,7 +147,10 @@ async fn check_retained_cpu_state() {
     cpu.set_eax(0xaabb_1234);
     cpu.set_carry(true);
     let clone = cpu.clone();
-    assert_eq!(runner.run(1).await, ExecutionExit::BudgetExhausted);
+    assert_eq!(
+        crate::support::checkpoint(&mut runner).await,
+        ExecutionExit::Interrupted
+    );
     assert_eq!(clone.eax(), 0xaabb_1235);
     assert_eq!(clone.eip(), 0x100);
     assert_eq!(clone.instruction_count(), 2);

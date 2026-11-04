@@ -26,7 +26,7 @@ use super::Compiler;
 /// The host must establish profile compatibility before entry, as described by
 /// the [host integration contract](crate#host-integration).
 ///
-/// Execution interrupts and budgets are checked only before dispatch. Straight-line execution
+/// Execution interrupts are checked only before dispatch. Straight-line execution
 /// continues until a block-ending instruction or guest exit. REP completes its repetition; port
 /// strings dispatch and other strings continue. A fault retains completed elements.
 /// The snapshot compiler's instruction limit does not bound interpreter execution.
@@ -49,11 +49,11 @@ pub fn compile_interpreter(
 /// Success publishes state, retires the instruction and returns `StepComplete`
 /// without fetching or dispatching the successor.
 /// An inhibiting Real16 STI/MOV SS/POP SS instead returns `InterruptInhibited`,
-/// requesting another protected step before IRQ polling or a budget exit.
+/// requesting another protected step before IRQ polling or an execution interrupt.
 /// Real16 POPF/IRET that enables IF returns `InterruptsEnabled`.
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before returning and retains completed elements on a fault.
-/// This entry checks execution interrupts and the instruction target after retirement.
+/// This entry checks execution interrupts after retirement.
 ///
 /// The host must establish profile compatibility before entry. The interpreter
 /// checks instruction fetches at runtime; it does not require a validated snapshot.
@@ -130,13 +130,12 @@ impl Compiler {
                 let single_step = RuntimeDecoder::single_step(body)?;
                 body.if_(single_step, |mut body| {
                     let state = State::new(&before_cpu);
-                    let count = state.instruction_count(&mut body, 0)?;
-                    state.checkpoint(&mut body, &count)?;
+                    state.checkpoint(&mut body)?;
                     body.return_(crate::ExecutionExitValues::step_complete())
                 })
             },
-            move |mut body, decoded, continuation| {
-                let single_step = RuntimeDecoder::single_step(&mut body)?;
+            move |body, decoded, continuation| {
+                let single_step = RuntimeDecoder::single_step(&body)?;
                 let ends_block = decoded.instruction.ends_block();
                 let mut execution =
                     ExecutionBuilder::new(body, &cpu, &memory, runtime, &decoded.eip, target)?

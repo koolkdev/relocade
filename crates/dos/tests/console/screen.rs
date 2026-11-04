@@ -22,7 +22,7 @@ fn dos_output_uses_the_bios_page_cursor_and_guest_cell_attributes() {
         .unwrap();
         dos.cpu().context().memory.write(0x10300, b"DOS$").unwrap();
         assert_eq!(
-            pollster::block_on(dos.cpu().run(100)),
+            pollster::block_on(dos.cpu().run()),
             ExecutionExit::Host(HostExit::Return)
         );
         assert_eq!(
@@ -78,7 +78,7 @@ fn screen_observes_repeated_input_echo_and_survives_session_exit() {
             .unwrap();
         let vga = dos.vga();
         let mut input = dos.stdin();
-        common::assert_pending(dos.cpu().run(100));
+        common::assert_pending(dos.cpu().run());
         let screen = common::screen(&dos);
         assert_eq!(
             screen.cells[..5]
@@ -90,15 +90,12 @@ fn screen_observes_repeated_input_echo_and_survives_session_exit() {
         assert_eq!(screen.cursor.address, 5);
 
         input.write_all(b"X").unwrap();
-        common::assert_pending(dos.cpu().run(100));
+        common::assert_pending(dos.cpu().run());
         let echoed = common::screen(&dos);
         assert_eq!(echoed.cells[5].character, b'X');
         assert_eq!(echoed.cursor.address, 6);
         input.write_all(b"Y").unwrap();
-        assert_eq!(
-            dos.cpu().run(100).await,
-            ExecutionExit::Host(HostExit::Return)
-        );
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
         drop(dos);
         let final_screen = common::inspection::inspect(&vga.borrow().snapshot());
         assert_eq!(final_screen.cells[5].character, b'X');

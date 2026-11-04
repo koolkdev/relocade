@@ -21,7 +21,7 @@ Retain memory access while the CPU executes:
 ```rust
 let memory = runtime.memory();
 let view = memory.view();
-let run = runtime.run(budget);
+let run = runtime.run();
 // A separate host task can read without borrowing runtime or run.
 let value = view.read_u8(0x200)?;
 ```

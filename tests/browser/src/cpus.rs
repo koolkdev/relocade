@@ -92,7 +92,10 @@ pub async fn cpu_worker() -> Result<(), String> {
         })])
         .await
         .unwrap();
-        assert_eq!(cpu.run(1).await, ExecutionExit::BudgetExhausted);
+        let interrupt = cpu.interrupt_handle();
+        interrupt.request();
+        assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
+        assert!(interrupt.take());
         let ax = cpu.context().cpu.ax();
         (ax, completed.get())
     });

@@ -348,12 +348,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         checkpoint: bool,
         continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        let count = self
-            .state
-            .publish(&mut self.body, &self.eip, self.completed)?
-            .expect("successful completion retires an instruction");
+        self.state
+            .publish(&mut self.body, &self.eip, self.completed)?;
         if checkpoint {
-            self.state.checkpoint(&mut self.body, &count)?;
+            self.state.checkpoint(&mut self.body)?;
             self.body.if_(&self.single_step, |body| {
                 body.return_(crate::ExecutionExitValues::step_complete())
             })?;

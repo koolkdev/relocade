@@ -52,7 +52,7 @@ impl Input {
             segment_resolutions: Vec::new(),
             segment_queries: Vec::new(),
             patches_before_calls: Vec::new(),
-            dispatch_return: crate::ExecutionExit::BudgetExhausted,
+            dispatch_return: crate::ExecutionExit::Host(relocade_x86::HostExit::Return),
         }
     }
 }

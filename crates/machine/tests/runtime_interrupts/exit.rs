@@ -46,7 +46,7 @@ async fn exit_during_poll() {
                     .unwrap();
             }
             let before = runner.cpu_state().snapshot();
-            assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+            assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
             assert_eq!(
                 runner.cpu_state().snapshot(),
                 before,
@@ -128,13 +128,13 @@ async fn exit_during_entry() {
                 })])
                 .await
                 .unwrap();
-            assert!(pin!(runner.run(10))
+            assert!(pin!(runner.run())
                 .as_mut()
                 .poll(&mut Context::from_waker(Waker::noop()))
                 .is_pending());
         }
         irq.borrow_mut().raise();
-        assert_eq!(runner.run(10).await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
         assert!(stack.borrow().writes > 0);
         assert_eq!(irq.borrow().acknowledged, 1);
         assert_eq!(cpu.instruction_count(), 0);
@@ -169,7 +169,7 @@ async fn exit_during_protected_successor() {
     // STI; OUT 80h, AL; INC AX; JMP to self.
     let mut runner = cpu(&[0xfb, 0xe6, 0x80, 0x40, 0xeb, 0xfe], 2, &device).await;
     device.borrow_mut().0 = Some(runner.exit_handle());
-    assert_eq!(runner.run(100).await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     let state = runner.cpu_state();
     assert_eq!(state.eip(), 0x103);
     assert_eq!(state.instruction_count(), 2);

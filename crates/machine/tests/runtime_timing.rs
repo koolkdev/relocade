@@ -46,6 +46,7 @@ async fn check_timing() {
         .memory
         .write(0x200, &real_mode_interrupt::HOOK_STUB)
         .unwrap();
+    let interrupt = cpu.interrupt_handle();
     let captured = input.clone();
     cpu.install(real_mode_interrupt::hook(0x200, cpu.cpu_state(), {
         let resources = cpu.memory();
@@ -82,7 +83,7 @@ async fn check_timing() {
         };
         let run = join(
             async {
-                assert_eq!(cpu.run(6).await, ExecutionExit::BudgetExhausted);
+                assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
             },
             timer,
         );
@@ -98,10 +99,12 @@ async fn check_timing() {
         clock.advance(Duration::from_millis(20));
         assert!(run.as_mut().poll(&mut cx).is_pending());
         input.ready.set(true);
-        // The CPU finishes its original run while the sibling future remains pending.
+        interrupt.request();
+        // The CPU stops at the second IRET while its sibling remains pending.
         assert!(run.as_mut().poll(&mut cx).is_pending());
     }
-    // Timer wakes must not replace the run waiter and replenish its budget.
+    assert!(interrupt.take());
+    // Timer wakes preserve the CPU waiter and its retained service.
     assert_eq!(cpu.context().cpu.instruction_count(), 6);
     assert_eq!(cpu.context().cpu.eip(), 0x102);
     assert_eq!(cpu.context().cpu.ax(), 1);
@@ -111,13 +114,13 @@ async fn check_timing() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn deadlines_progress_during_pending_services_without_replenishing_the_cpu_budget() {
+fn deadlines_progress_alongside_retained_cpu_services() {
     pollster::block_on(check_timing());
 }
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn deadlines_progress_during_pending_services_without_replenishing_the_cpu_budget() {
+async fn deadlines_progress_alongside_retained_cpu_services() {
     check_timing().await;
 }

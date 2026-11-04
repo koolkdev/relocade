@@ -16,8 +16,8 @@ fn service(dos: &mut Dos, function: u8, paragraphs: u16, segment: u16) -> CpuSta
         );
     }
     assert_eq!(
-        pollster::block_on(dos.cpu().run(10)),
-        ExecutionExit::BudgetExhausted
+        pollster::block_on(crate::common::run_until(dos.cpu(), 0x102)),
+        ExecutionExit::Interrupted
     );
     dos.cpu().context().cpu.snapshot()
 }
@@ -85,7 +85,7 @@ async fn check_memory_services() {
     common::terminate(&mut dos);
     dos.launch_com(&[0xc3], Default::default()).unwrap(); // The next process can use the released arena.
     assert_eq!(
-        pollster::block_on(dos.cpu().run(10)),
+        pollster::block_on(dos.cpu().run()),
         ExecutionExit::Host(HostExit::Return)
     );
     dos.cpu().context().memory.read(0xfff0, &mut mcb).unwrap();
