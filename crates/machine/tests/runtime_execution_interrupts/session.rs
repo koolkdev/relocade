@@ -84,8 +84,9 @@ async fn connected_input() {
                     exit: None,
                     interrupt: None,
                 }));
-                let io =
-                    IoBus::new([runner.connect(device.clone(), [], std::iter::once(0x80..=0x80))]);
+                let io = IoBus::new([runner
+                    .connect(device.clone(), [], std::iter::once(0x80..=0x80))
+                    .await]);
                 // OUT; JMP 0100. I/O returns through interpreter STEP after OUT.
                 let mut cpu =
                     cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], compiled, io, Some(runner)).await;
@@ -166,7 +167,9 @@ async fn connected_stop() {
             exit: None,
             interrupt: None,
         }));
-        let io = IoBus::new([runner.connect(device.clone(), [], std::iter::once(0x80..=0x80))]);
+        let io = IoBus::new([runner
+            .connect(device.clone(), [], std::iter::once(0x80..=0x80))
+            .await]);
         let mut cpu = cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], true, io, Some(runner)).await;
         device.borrow_mut().interrupt = Some(cpu.interrupt_handle());
         let _stopped = Stopped {
@@ -253,7 +256,9 @@ async fn remaining_quantum() {
             exit: None,
             interrupt: None,
         }));
-        let io = IoBus::new([runner.connect(device.clone(), [], std::iter::once(0x80..=0x80))]);
+        let io = IoBus::new([runner
+            .connect(device.clone(), [], std::iter::once(0x80..=0x80))
+            .await]);
         let mut cpu = cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], true, io, Some(runner)).await;
         device.borrow_mut().interrupt = Some(cpu.interrupt_handle());
         let state = cpu.cpu_state();
@@ -307,11 +312,13 @@ async fn notified_reentry() {
         let (clock, _timers) = timer_service();
         let worker = ExecutionWorker::spawn(clock, async move |runner| {
             let (send, receive) = oneshot::channel();
-            let io = IoBus::new([runner.connect(
-                Rc::new(RefCell::new(PublishInput(Some(send)))),
-                [],
-                std::iter::once(0x80..=0x80),
-            )]);
+            let io = IoBus::new([runner
+                .connect(
+                    Rc::new(RefCell::new(PublishInput(Some(send)))),
+                    [],
+                    std::iter::once(0x80..=0x80),
+                )
+                .await]);
             // OUT publishes input and exits through STEP. The following JMP
             // supplies the next guest checkpoint if input needs another poll.
             let mut cpu = cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], true, io, Some(runner)).await;

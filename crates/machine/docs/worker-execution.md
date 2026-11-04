@@ -14,7 +14,7 @@ the execution worker. `ExecutionWorker` uses the existing
 let (clock, timers) = relocade_machine::timer_service();
 let execution = ExecutionWorker::spawn(clock, async move |runner| {
     let device = create_device(runner.clock().clone());
-    let io = IoBus::new([runner.connect(device, memory_ranges, ports)]);
+    let io = IoBus::new([runner.connect(device, memory_ranges, ports).await]);
     let mut cpu = runner.create_cpu(memory, cpu_config, io).await?;
     runner.run_cpu(&mut cpu).await;
     wait_for_next_program().await;
@@ -23,8 +23,10 @@ let execution = ExecutionWorker::spawn(clock, async move |runner| {
 futures_util::future::join(timers.run(), execution.join()).await;
 ```
 
-`connect` registers the device's ordinary async `Device::run` future and returns
-its bus connection. Passive devices use the default empty activity. Device
+`connect(...).await` registers the device's ordinary async `Device::run` future
+and waits until its first poll before returning the bus connection. Initialize
+device state before connecting; this wait establishes activity readiness, not
+arbitrary asynchronous construction. Passive devices use the default empty activity. Device
 activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `wait_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
@@ -159,9 +161,11 @@ devices, and sleeping devices do not suspend the CPU.
 the whole session's Rust wakers, including cancellation. Host access exists before
 spawning. The worker captures a Send connection token alongside that same storage
 post, then binds its locally reconstructed interrupt handle. Binding needs no
-registration channel, return acknowledgment or target replacement. At startup,
-`run_cpu` yields once before guest entry to give devices registered during setup a
-polling opportunity; it does no installation. The host guard stays alive
+registration channel, return acknowledgment or target replacement.
+`runner.connect(...).await` starts the device activity with its own waker before
+returning its bus connection. Initialize device state before connecting, including
+any asynchronous construction. A new `run_cpu` future yields once so siblings in
+CPU-first async composition can register their waits; it performs no device setup. The host guard stays alive
 until worker completion.
 
 `WakeConnection` owns only the fixed signal binding. `worker::Executor` owns the
@@ -186,9 +190,10 @@ parks. Resumption or cancellation releases that waiter. Cancellation needs no
 startup yield or wrapper around the application.
 
 Participating work belongs inside the application/device future. The runner
-polls registered devices before the main activity, and `run_cpu` yields once for
-devices registered during application setup. Neither preparation, a device wake,
-nor that yield starts CPU execution; only an explicit CPU run future drives it.
+polls registered devices before the main activity. Device setup explicitly awaits
+connection; its activity has started before it can be used for guest execution.
+Neither preparation nor a device wake starts CPU execution; only an explicit CPU
+run future drives it.
 VGA and timers can run while the application waits for a program or after it
 finishes. Guest IRQ delivery still requires an active CPU run and eligible live
 x86 interrupt state.
@@ -230,7 +235,7 @@ Budget checks remain at block boundaries; they provide
 
 ## Video and application rendering
 
-Register VGA through `runner.connect(vga, [MEMORY_RANGE], PORT_RANGES)`.
+Register VGA through `runner.connect(vga, [MEMORY_RANGE], PORT_RANGES).await`.
 Map that complete A0000–BFFFF range as MMIO; VGA registers select which aperture
 responds to each CPU access.
 The runner drives its device activity throughout the main session, including CPU

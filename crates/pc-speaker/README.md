@@ -6,7 +6,7 @@ also owns the default-rate channel-0 IRQ scheduler. BIOS keeps its IRQ handler
 and time-of-day data.
 
 `Speaker::with_clock(Rc<C>)` creates the machine `Device`. Connect it with
-`runner.connect(speaker, [], relocade_pc_speaker::PORTS)`. Mutable state and
+`runner.connect(speaker, [], relocade_pc_speaker::PORTS).await`. Mutable state and
 port reads stay with execution; elapsed time uses the session clock's absolute
 origin, preserving fractional PIT clocks across repeated accesses.
 
@@ -34,7 +34,7 @@ Move `config` and `samples` into the existing execution-worker session:
 let speaker = Speaker::with_clock(Rc::new(runner.clock().clone()))
     .with_audio(config, samples)?;
 let io = IoBus::new([
-    runner.connect(Rc::new(RefCell::new(speaker)), [], PORTS),
+    runner.connect(Rc::new(RefCell::new(speaker)), [], PORTS).await,
 ]);
 // Pass io to runner.create_cpu, then run the guest with runner.run_cpu.
 ```
