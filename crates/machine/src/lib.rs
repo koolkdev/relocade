@@ -37,6 +37,7 @@
 #![deny(unsafe_code)]
 
 mod clock;
+mod compiler;
 mod config;
 mod cpu;
 mod io;
@@ -45,6 +46,7 @@ mod runner;
 pub mod runtime;
 
 pub use clock::{timer_service, Clock, TimerDriver, TimerHandle};
+pub use compiler::{BlockRequest, CompiledCode, CompilerWorker};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::CpuStateAccess;
 pub use io::{Device, DeviceConnection, IoBus};
