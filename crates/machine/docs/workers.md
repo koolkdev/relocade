@@ -62,6 +62,15 @@ flow on native and browser workers: it passes memory handles and captures channe
 constructs local state, waits for input while the caller accesses mapped memory,
 resumes guest execution, and reuses the allocation on a later worker.
 
+`wake_connection(target)` binds a fixed notification resource on the host and
+returns a host guard plus Send endpoint metadata. Capture the endpoint alongside
+an already posted resource, then call `endpoint.bind(local_target)` on execution.
+Both target handles must address the same signal. This reuses the resource's
+existing transfer instead of posting it again through a registration channel.
+`ExecutionWorker` does this automatically with `CpuStorage`; callers construct
+its CPU through `runner.create_cpu` or `Dos::new`. `WakeConnection` retains the
+binding; the separate `SessionDriver` owns polling, stop handling and idle parking.
+
 ## Browser build and lifetime
 
 The browser suite uses one threaded Rust configuration throughout: atomics,

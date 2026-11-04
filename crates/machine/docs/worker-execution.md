@@ -2,8 +2,8 @@
 
 Each execution worker runs one CPU session and its registered device activities.
 `Runner::run` drives them together until the main session finishes or is cancelled.
-`run_cpu` executes finite instruction quanta and retains a pending
-CPU service across device wakeups. Devices keep running while the main activity
+`run_cpu` yields on execution interrupts and retains pending
+CPU services across device wakeups. Devices keep running while the main activity
 awaits input or the next program.
 
 Create the [shared timer service](clock.md) on the host, and pass its clock into
@@ -101,10 +101,13 @@ remain usable afterward or the embedding needs separate control.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
-`ExecutionWorker` wraps the runner in `Abortable`; the runner owns CPU/device
-coordination. `stop().await` sets the cancellation flag and wakes the task even
-while a CPU service is pending. It drops owned CPU and device activities on their
-execution thread, and waits for completion before releasing the thread.
+`ExecutionWorker` owns a stop channel. `SessionDriver` polls its receiver before
+the application/device future, so cancellation is registered before any guest
+execution. `stop().await` sends through that channel; dropping the sender also
+requests cancellation. Either wakes the session while a CPU service is pending
+or requests a return from busy guest execution. The driver drops the application
+and devices on their execution thread before reporting completion. `stop().await`
+waits for that completion before releasing the thread.
 `join().await` waits for ordinary main-activity completion. As with `Thread`, await
 these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
@@ -144,16 +147,79 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-`run_cpu` requests a nonzero instruction quantum (10,000 by default), then
-cooperates with the main/device task set through `yield_now`. This is a Rust
-polling opportunity, with no per-quantum or periodic host timer. The host timer
+`run_cpu` cooperates with the main/device task set when a wake requests an
+execution interrupt. A nonzero instruction quantum (10,000 by default) remains
+as a temporary fallback. Yielding gives a Rust polling opportunity, with no
+per-quantum or periodic host timer. The host timer
 driver delivers deadline notifications through Rust channels even while the
 execution worker stays runnable. CPU services can sleep without suspending
 devices, and sleeping devices do not suspend the CPU.
 
-Continuously ready device loops must also cooperate. Genuine CPU waits, including
-Wasm compilation, can return to the underlying executor. This model does not
-promise periodic processing of arbitrary JavaScript callbacks on a busy worker.
+`ExecutionWorker` connects the prepared storage's `ExecutionInterrupt` handle to
+the whole session's Rust wakers, including cancellation. Host access exists before
+spawning. The worker captures a Send connection token alongside that same storage
+post, then binds its locally reconstructed interrupt handle. Binding needs no
+registration channel, return acknowledgment or target replacement. At startup,
+`run_cpu` yields once before guest entry to give devices registered during setup a
+polling opportunity; it does no installation. The host guard stays alive
+until worker completion.
+
+`WakeConnection` owns only the fixed signal binding. `SessionDriver` owns the
+stable session waker, polling and parking; `Runner` composes the application and
+registered devices. The worker connects these owners directly:
+
+```rust,ignore
+driver.run_until(stopped, runner.run(session)).await
+```
+
+Each driver turn polls `stopped` first, then the application/device future. A
+ready stop drops that future without polling it again. Runnable work is repolled
+directly in Rust; only an idle session registers an outer-executor waiter and
+parks. Resumption or cancellation releases that waiter. Cancellation needs no
+startup yield or wrapper around the application.
+
+Participating work belongs inside the application/device future. The runner
+polls registered devices before the main activity, and `run_cpu` yields once for
+devices registered during application setup. Neither preparation, a device wake,
+nor that yield starts CPU execution; only an explicit CPU run future drives it.
+VGA and timers can run while the application waits for a program or after it
+finishes. Guest IRQ delivery still requires an active CPU run and eligible live
+x86 interrupt state.
+
+An ordinary host channel send or timer completion makes its waiter ready, then
+its waker requests an execution interrupt and marks the session ready on the
+sending thread. It wakes the outer executor only when the session is parked.
+Guest checkpoints return independently of IF. The interrupt remains set
+through the whole session poll, so CPU-first composition such as
+`join(run_cpu, input)` yields before its ready sibling runs. Acknowledgement
+follows polling and preserves new wakes, including those racing with the exchange.
+The runner resumes with the remainder of the same quantum. The ready queues
+retain coalesced notifications. Before entering the backend, a known pending
+notification gets one Rust polling opportunity without executing a guest block.
+This deferral is bounded: combinators may synthesize a wake on each cooperative
+yield, so waiting for a quiet signal could starve guest execution. A request
+still pending afterward is observed by the ordinary guest checkpoint. This
+check occurs at runner scheduling boundaries, not at hooks or CPU state accesses.
+The runner's cooperative yield wakes its current
+child task without requesting another interrupt from its first root notification.
+Separate notifications still request an interrupt, including reentrant input
+delivered while waking a parked executor.
+Pending CPU services keep their original future and IRQ-suspended outer services
+remain parked until guest resumption.
+
+The browser connection covers the spawning host and execution worker. A Rust
+sender moved to a third worker still wakes pending tasks, but needs explicit
+resource setup to interrupt busy execution. Instruction budgets are temporary;
+notification coverage and explicit host waits must replace their scheduling role.
+Use instruction stepping for bounded guest progress tests. See the
+[connection contract](workers.md#browser-build-and-lifetime).
+
+Continuously ready device loops must also cooperate with the other root futures.
+When the whole session is waiting, including for Wasm compilation, the driver
+parks through the underlying executor. A Rust cooperative yield does not promise
+a browser event-loop turn: posted resources need an explicit host-wait boundary
+when other session work remains runnable. Arbitrary JavaScript callbacks on a
+busy execution worker receive no periodic fairness turn.
 Budget checks remain at block boundaries; they provide
 [no exact-stop or elapsed-time guarantee](../../x86/docs/host-integration.md#instruction-budgets).
 

@@ -130,3 +130,7 @@ mod worker;
 #[cfg(feature = "worker")]
 #[path = "runtime_execution_interrupts/construction.rs"]
 mod construction;
+
+#[cfg(feature = "worker")]
+#[path = "runtime_execution_interrupts/session.rs"]
+mod session;

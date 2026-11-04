@@ -29,6 +29,12 @@ impl ExecutionInterrupt {
         self.0.atomic_store(OFFSET, 1_u8);
     }
 
+    /// Observes a pending request without acknowledging it. This is a hint for
+    /// scheduling before guest entry; a producer can request again at any time.
+    pub fn is_requested(&self) -> bool {
+        self.0.atomic_load::<u8>(OFFSET) != 0
+    }
+
     /// Atomically acknowledges prior requests, returning whether any were pending.
     /// Clear before examining runnable work, or track racing wakes separately.
     /// Clearing after draining without that

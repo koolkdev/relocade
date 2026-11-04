@@ -18,8 +18,8 @@ use relocade_x86::ExecutionExit;
 use std::{cell::RefCell, num::NonZeroU64, ops::RangeInclusive, pin::pin, rc::Rc};
 
 /// Drives a main execution activity alongside registered device futures.
-/// All mutable execution state stays on the caller's thread. CPU quanta provide
-/// cooperation, not preemption or an exact elapsed-time bound.
+/// All mutable execution state stays on the caller's thread. Connected workers
+/// yield on notifications; instruction quanta remain a temporary fallback.
 pub struct Runner<C = TimerHandle> {
     clock: C,
     /// Requested CPU budget per quantum; checks remain at block boundaries.
@@ -97,13 +97,15 @@ impl<C: Clock> Runner<C> {
     pub async fn run<R>(mut self, main: impl AsyncFnOnce(&Self) -> R) -> R {
         let pending = self.pending.take().expect("new runner activity queue");
         let devices = pending.for_each_concurrent(None, |activity| activity);
-        match select(pin!(main(&self)), pin!(devices)).await {
-            Either::Left((result, _)) => result,
-            Either::Right(_) => unreachable!("runner retains the activity sender"),
+        // Poll ready devices before returning to guest execution.
+        match select(pin!(devices), pin!(main(&self))).await {
+            Either::Right((result, _)) => result,
+            Either::Left(_) => unreachable!("runner retains the activity sender"),
         }
     }
 
-    /// Runs finite CPU quanta until the first non-budget exit.
+    /// Runs until the guest exits. Connected execution workers cooperate on
+    /// notifications without replenishing the temporary instruction quantum.
     /// A pending service retains its CPU future and original instruction budget.
     ///
     /// # Panics
@@ -115,13 +117,50 @@ impl<C: Clock> Runner<C> {
                 std::ptr::eq(cpu.session.as_ptr(), Rc::as_ptr(session)),
                 "construct the session CPU with runner.create_cpu"
             );
+            // Give devices registered during application setup a polling
+            // opportunity before the first synchronous guest interval.
+            session.yield_now().await;
         }
+        let quantum = self.instruction_quantum.get();
+        let mut remaining = quantum;
+        #[cfg(feature = "worker")]
+        let state = cpu.cpu_state();
+        #[cfg(feature = "worker")]
+        let interrupt = cpu.interrupt_handle();
         loop {
-            let exit = cpu.run(self.instruction_quantum.get()).await;
-            if exit != ExecutionExit::BudgetExhausted {
-                return exit;
+            #[cfg(feature = "worker")]
+            if let Some(session) = &self.session {
+                if interrupt.is_requested() {
+                    // Give already-notified work a Rust poll before entering
+                    // Wasm. Do this once: nested combinators may synthesize a
+                    // wake on each yield, so waiting for silence can starve CPU.
+                    session.yield_now().await;
+                }
             }
-            yield_now().await;
+            #[cfg(feature = "worker")]
+            let before = state.instruction_count();
+            match cpu.run(remaining).await {
+                ExecutionExit::BudgetExhausted => remaining = quantum,
+                #[cfg(feature = "worker")]
+                ExecutionExit::Interrupted if self.session.is_some() => {
+                    let spent = state.instruction_count().wrapping_sub(before);
+                    remaining = remaining.saturating_sub(spent);
+                    if remaining == 0 {
+                        remaining = quantum;
+                    }
+                }
+                exit => return exit,
+            }
+            self.yield_execution().await;
         }
+    }
+
+    async fn yield_execution(&self) {
+        #[cfg(feature = "worker")]
+        if let Some(session) = &self.session {
+            session.yield_now().await;
+            return;
+        }
+        yield_now().await;
     }
 }
