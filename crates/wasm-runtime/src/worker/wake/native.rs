@@ -23,7 +23,10 @@ pub fn wake_connection<R: WakeTarget + Send + Sync>(target: R) -> (WakeHost<R>, 
     }));
     (
         WakeHost {
-            _lifetime: Lifetime(active.clone()),
+            _lifetime: Lifetime {
+                active: active.clone(),
+                on_close: None,
+            },
             peer: WakePeer {
                 target: (*target).clone(),
                 endpoint: Endpoint,
@@ -32,7 +35,10 @@ pub fn wake_connection<R: WakeTarget + Send + Sync>(target: R) -> (WakeHost<R>, 
             _binding: target,
         },
         WakeEndpoint {
-            lifetime: Lifetime(active),
+            lifetime: Lifetime {
+                active,
+                on_close: None,
+            },
             notification,
             binding: Endpoint,
             target: PhantomData,
