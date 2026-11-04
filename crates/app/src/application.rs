@@ -1,5 +1,4 @@
 use crate::{graphics::Graphics, Window};
-use futures_channel::oneshot;
 use std::{
     cell::RefCell,
     future::Future,
@@ -74,7 +73,7 @@ struct Application {
     window: Option<Window>,
     wake: Arc<EventWake>,
     host: Rc<RefCell<HostState>>,
-    closing: Option<oneshot::Sender<Result<(), String>>>,
+    closing: Option<async_channel::Sender<Result<(), String>>>,
     lifecycle: Option<Task>,
     graphics: Option<Graphics>,
     finished: Option<Finished>,
@@ -91,7 +90,7 @@ impl Application {
     ) -> Self {
         let wake = Arc::new(EventWake::new(events));
         let host = Rc::new(RefCell::new(HostState::default()));
-        let (closing, close) = oneshot::channel();
+        let (closing, close) = async_channel::bounded(1);
         let lifecycle = lifecycle(AppHost {
             state: host.clone(),
             closing: close,
@@ -123,10 +122,14 @@ impl Application {
             return;
         }
         host.phase = Phase::Closing;
+        #[cfg(feature = "audio")]
+        {
+            host.audio = None;
+        }
         host.display = None;
         host.keyboard = None;
         if let Some(closing) = self.closing.take() {
-            let _ = closing.send(self.error.clone().map_or(Ok(()), Err));
+            let _ = closing.try_send(self.error.clone().map_or(Ok(()), Err));
         }
         if let Some(graphics) = &mut self.graphics {
             graphics.request_close();

@@ -1,11 +1,10 @@
 use super::{wake::EventWake, Event, Phase};
 use crate::graphics::{Graphics, SurfaceSetup};
-use futures_channel::oneshot;
 use relocade_frontend::{
     display::DisplayRenderer,
     keyboard::{KeyboardEvent, KeyboardInput, ModifiersState},
 };
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::RefCell, future::Future, rc::Rc, sync::Arc};
 use winit::event_loop::EventLoopProxy;
 
 pub(super) type StartGraphics =
@@ -13,6 +12,8 @@ pub(super) type StartGraphics =
 
 #[derive(Default)]
 pub(super) struct HostState {
+    #[cfg(feature = "audio")]
+    pub(super) audio: Option<crate::audio::Audio>,
     pub(super) display: Option<StartGraphics>,
     display_attached: bool,
     pub(super) keyboard: Option<KeyboardInput>,
@@ -38,11 +39,33 @@ impl HostState {
 /// thread. Display factories construct their adapters on graphics.
 pub struct AppHost {
     pub(super) state: Rc<RefCell<HostState>>,
-    pub(super) closing: oneshot::Receiver<Result<(), String>>,
+    pub(super) closing: async_channel::Receiver<Result<(), String>>,
     pub(super) wake: Arc<EventWake>,
 }
 
 impl AppHost {
+    /// Opens default output and retains it until the window starts closing.
+    /// Native playback starts immediately; browsers wait for user activation.
+    /// Pass the returned CPAL configuration and bounded sender to the producer.
+    #[cfg(feature = "audio")]
+    pub fn open_audio(
+        &mut self,
+    ) -> Result<(cpal::StreamConfig, async_channel::Sender<Vec<f32>>), String> {
+        let mut state = self.state.borrow_mut();
+        if state.phase != Phase::Running {
+            return Err("The application is closing".into());
+        }
+        if state.audio.is_some() {
+            return Err("Audio output is already attached".into());
+        }
+        let (audio, config, samples) =
+            crate::audio::Audio::open(crate::platform::application::report_audio_error)
+                .map_err(|error| error.to_string())?;
+        crate::platform::application::start_audio(&audio).map_err(|error| error.to_string())?;
+        state.audio = Some(audio);
+        Ok((config, samples))
+    }
+
     /// Attaches one display to this window. The factory runs on graphics with
     /// the surface's GPU; the display itself need not be `Send`.
     pub fn attach_display<D: DisplayRenderer + 'static>(
@@ -88,10 +111,15 @@ impl AppHost {
     /// Waits for a window close, startup failure or graphics error.
     /// Keep driving host services while shutting down application-owned workers,
     /// then return from the lifecycle future. This wait may be cancelled and
-    /// resumed until it completes; await its result only once.
-    pub async fn closing(&mut self) -> Result<(), String> {
-        (&mut self.closing)
-            .await
-            .unwrap_or_else(|_| Err("Application host was released".into()))
+    /// resumed until it completes; await its result only once. The returned
+    /// future does not borrow the host, so attachment can continue while waiting.
+    pub fn closing(&self) -> impl Future<Output = Result<(), String>> + 'static {
+        let closing = self.closing.clone();
+        async move {
+            closing
+                .recv()
+                .await
+                .unwrap_or_else(|_| Err("Application host was released".into()))
+        }
     }
 }

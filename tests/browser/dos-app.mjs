@@ -32,43 +32,98 @@ try {
     browser = await chromium.launch({
         executablePath: process.env.CHROME_BINARY,
         args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-            "--use-webgpu-adapter=opengles"],
+            "--use-webgpu-adapter=opengles", "--autoplay-policy=document-user-activation-required"],
     });
     const page = await browser.newPage({ viewport: { width: 1040, height: 900 } });
+    const session = await page.context().newCDPSession(page);
+    await page.addInitScript(() => {
+        const NativeContext = globalThis.AudioContext;
+        globalThis.audioContexts = [];
+        globalThis.AudioContext = class extends NativeContext {
+            constructor(...args) {
+                super(...args);
+                this.resumeRequests = 0;
+                globalThis.audioContexts.push(this);
+            }
+            resume(...args) {
+                this.resumeRequests++;
+                return super.resume(...args);
+            }
+        };
+    });
     // The fixture serves no favicon for the browser's automatic request.
     await page.route("**/favicon.ico", route => route.fulfill({ status: 204 }));
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     page.on("console", message => {
-        if (message.type() === "error") errors.push(message.text());
+        if (message.type() === "error" || message.text().startsWith("Audio unavailable:")) {
+            errors.push(message.text());
+        }
     });
     await page.goto(server.resolvedUrls.local[0]);
-    await displayedGlyph(page, 0, promptRow, prompt);
+    await displayedGlyph(session, 0, promptRow, prompt);
+    await assertWaitingForActivation(session);
     await page.locator("#screen").click();
+    await page.waitForFunction(() => audioContexts.at(-1)?.state === "running");
     await page.keyboard.type("echo xy");
     await page.keyboard.press("Backspace");
     await page.keyboard.press("Enter");
-    await displayedGlyph(page, 0, promptRow + 1, xGlyph);
-    await displayedGlyph(page, 0, promptRow + 2, prompt);
+    await displayedGlyph(session, 0, promptRow + 1, xGlyph);
+    await displayedGlyph(session, 0, promptRow + 2, prompt);
     await page.setViewportSize({ width: 960, height: 768 });
-    await displayedGlyph(page, 0, promptRow + 1, xGlyph);
+    await displayedGlyph(session, 0, promptRow + 1, xGlyph);
     await page.keyboard.type("echo x");
     await page.keyboard.press("Enter");
-    await displayedGlyph(page, 0, promptRow + 3, xGlyph);
-    await displayedGlyph(page, 0, promptRow + 4, prompt);
+    await displayedGlyph(session, 0, promptRow + 3, xGlyph);
+    await displayedGlyph(session, 0, promptRow + 4, prompt);
+    assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
+    // Keyboard activation also works when the user never clicks the canvas.
+    await page.reload();
+    await displayedGlyph(session, 0, promptRow, prompt);
+    await assertWaitingForActivation(session);
+    await observe(session, () => document.querySelector("#screen").focus());
+    await page.keyboard.press("x");
+    await page.waitForFunction(() => audioContexts.at(-1)?.state === "running");
+    await page.keyboard.press("y");
+    assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
     assert.deepEqual(errors, []);
-    console.log("DOS console: keyboard editing, displayed echo and resize passed");
+    console.log("DOS console: audio activation, keyboard editing, displayed echo and resize passed");
 } finally {
     await browser?.close();
     await server.close();
 }
 
-async function displayedGlyph(page, column, row, expected) {
+// Playwright evaluation and locator screenshots grant activation. Use CDP for
+// observations so only the fixture's real input enables browser audio.
+async function observe(session, evaluate, argument) {
+    const { result, exceptionDetails } = await session.send("Runtime.evaluate", {
+        expression: `(${evaluate})(${JSON.stringify(argument)})`,
+        userGesture: false,
+        awaitPromise: true,
+        returnByValue: true,
+    });
+    assert.equal(exceptionDetails, undefined);
+    return result.value;
+}
+
+async function assertWaitingForActivation(session) {
+    assert.deepEqual(await observe(session, () => ({
+        activated: navigator.userActivation.hasBeenActive,
+        state: audioContexts.at(-1)?.state,
+        requests: audioContexts.at(-1)?.resumeRequests,
+    })), { activated: false, state: "suspended", requests: 0 });
+}
+
+async function displayedGlyph(session, column, row, expected) {
     const deadline = Date.now() + 30_000;
     let actual;
     do {
-        const png = await page.locator("#screen").screenshot();
-        actual = await page.evaluate(async ({ base64, column, row }) => {
+        const clip = await observe(session, () => {
+            const { x, y, width, height } = document.querySelector("#screen").getBoundingClientRect();
+            return { x, y, width, height, scale: 1 };
+        });
+        const { data: base64 } = await session.send("Page.captureScreenshot", { clip });
+        actual = await observe(session, async ({ base64, column, row }) => {
             const blob = await (await fetch(`data:image/png;base64,${base64}`)).blob();
             const image = await createImageBitmap(blob);
             const canvas = document.createElement("canvas");
@@ -91,7 +146,7 @@ async function displayedGlyph(page, column, row, expected) {
                 }
                 return bits;
             });
-        }, { base64: png.toString("base64"), column, row });
+        }, { base64, column, row });
         if (actual.join() === expected.join()) return;
         await delay(50);
     } while (Date.now() < deadline);

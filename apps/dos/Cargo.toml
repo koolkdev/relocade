@@ -13,9 +13,10 @@ name = "relocade-dos"
 path = "src/main.rs"
 
 [dependencies]
-relocade-app = { path = "../../crates/app", features = ["graphics"] }
+relocade-app = { path = "../../crates/app", features = ["graphics", "audio"] }
 relocade-dos = { path = "../../crates/dos" }
 relocade-machine = { path = "../../crates/machine" }
+relocade-pc-speaker = { path = "../../crates/pc-speaker", features = ["audio"] }
 relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
 futures-lite = "=2.6.1"
 futures-channel = "=0.3.34"

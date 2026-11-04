@@ -2283,6 +2283,7 @@ dependencies = [
  "relocade-app",
  "relocade-dos",
  "relocade-machine",
+ "relocade-pc-speaker",
  "relocade-vga",
  "wasm-bindgen",
  "x11rb",

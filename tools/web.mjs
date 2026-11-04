@@ -53,7 +53,20 @@ export function build(application) {
             fs: { allow: [root] },
             headers: isolationHeaders,
         },
-        build: { outDir: path.join(output, "dist"), emptyOutDir: true },
+        build: {
+            outDir: path.join(output, "dist"),
+            emptyOutDir: true,
+            rolldownOptions: {
+                // CPAL's worklet imports the bindings at their import.meta.url.
+                // Keep their exports and initialization separate from app startup.
+                input: {
+                    app: path.join(root, "crates/app/web/index.html"),
+                    bindings: path.join(output, `pkg/${module}.js`),
+                },
+                preserveEntrySignatures: "strict",
+                output: { preserveModules: true },
+            },
+        },
     };
 }
 

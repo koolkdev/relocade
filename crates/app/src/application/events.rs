@@ -35,7 +35,9 @@ impl ApplicationHandler<Event> for Application {
             return;
         }
         let state = window.state();
-        if self.host.borrow().phase == Phase::Running {
+        if self.host.borrow().phase == Phase::Running && !state.close_requested {
+            #[cfg(feature = "audio")]
+            crate::platform::application::window_event(&mut self.host.borrow_mut().audio);
             if let Some(event) = keyboard::translate(&event) {
                 self.host.borrow_mut().send_key(event);
             }
