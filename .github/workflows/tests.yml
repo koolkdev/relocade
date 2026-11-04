@@ -95,17 +95,6 @@ jobs:
         if: matrix.suite == 'Native integration'
         run: xvfb-run -a cargo test ${{ matrix.packages }} --all-features --locked -- --ignored
 
-  test:
-    # Preserve the required check while reporting each native suite separately.
-    name: Rust tests
-    if: always()
-    needs: native
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Check native suites
-        run: test "${{ needs.native.result }}" = success
-
   web:
     name: Browser tests
     runs-on: ubuntu-latest
