@@ -10,7 +10,7 @@ use std::{
 };
 
 #[derive(Default)]
-struct CountWakes(AtomicUsize);
+pub(super) struct CountWakes(pub(super) AtomicUsize);
 impl Wake for CountWakes {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();

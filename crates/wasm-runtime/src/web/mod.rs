@@ -60,7 +60,7 @@ impl WasmCompiler for Compiler {
 
     async fn compile(&self, bytes: &[u8]) -> Result<Module> {
         let bytes = Uint8Array::from(bytes);
-        JsFuture::from(WebAssembly::compile(&bytes))
+        crate::worker::wait_for_host(JsFuture::from(WebAssembly::compile(&bytes)))
             .await
             .map(|module| Module(module.unchecked_into()))
             .map_err(|error| js_error("compile Wasm", error))

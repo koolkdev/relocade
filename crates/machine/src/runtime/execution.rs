@@ -8,7 +8,7 @@ use std::{
     cell::Cell,
     future::poll_fn,
     rc::Rc,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 /// Requests a return to the embedding after the current guest dispatch or host poll.
@@ -63,6 +63,8 @@ impl Cpu {
     /// A suspended service stays parked until guest reaches a resume entry, even
     /// when its input becomes ready. Reentry starts a separate invocation.
     /// Budget/fault exits and replacement waiters preserve parked calls.
+    /// In an owned worker session, independent host-resource waits pause each
+    /// guest entry. Retained Rust services remain pollable while those waits run.
     pub async fn run(&mut self, instruction_budget: u64) -> ExecutionExit {
         if instruction_budget == 0 {
             return ExecutionExit::BudgetExhausted;
@@ -70,6 +72,10 @@ impl Cpu {
         // A replacement waiter supplies its budget at the next guest dispatch.
         // Re-polling this same waiter never replenishes the budget.
         let mut budget = Some(instruction_budget);
+        let executor = self.executor.upgrade();
+        let mut host = executor
+            .as_ref()
+            .map(|executor| executor.execution_waiter());
         let exit = poll_fn(|cx| {
             if self.exit.0.get() {
                 return Poll::Ready(ExecutionExit::Host(HostExit::Return));
@@ -79,6 +85,14 @@ impl Cpu {
                 self.pending = call.poll(cx);
             }
             loop {
+                if self.exit.0.get() {
+                    return Poll::Ready(ExecutionExit::Host(HostExit::Return));
+                }
+                // A service awaiting host work must remain active. Parking it
+                // behind an ISR would prevent it from releasing that host wait.
+                if let Some(host) = &mut host {
+                    ready!(host.poll_ready(cx));
+                }
                 let interrupt_delivered = match self.try_deliver_interrupt(cx) {
                     Ok(delivered) => delivered,
                     Err(exit) => return Poll::Ready(exit),
@@ -120,9 +134,6 @@ impl Cpu {
     /// Delivers an IRQ at a stopped boundary, whether or not a host call is pending.
     /// Reports success only after entry; the caller then parks any active call.
     fn try_deliver_interrupt(&mut self, cx: &mut Context<'_>) -> Result<bool, ExecutionExit> {
-        if self.exit.0.get() {
-            return Err(ExecutionExit::Host(HostExit::Return));
-        }
         let interrupt = self.machine.poll_interrupt(cx);
         // Device callbacks can request an exit, including when no IRQ is ready.
         if self.exit.0.get() {
