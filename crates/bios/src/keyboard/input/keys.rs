@@ -1,51 +1,85 @@
+use super::super::{KeyStroke, ShiftState};
 use relocade_frontend::keyboard::KeyCode;
 
-pub(super) fn control_character(code: KeyCode, text: Option<&str>) -> Option<u8> {
-    if let Some(text) = text {
-        let mut characters = text.chars();
-        let character = characters.next()?;
-        if characters.next().is_some() {
-            return None;
+/// The default guest layout is the US PC keyboard, independent of host text.
+pub(super) fn keystroke(code: KeyCode, shifts: ShiftState) -> Option<KeyStroke> {
+    use KeyCode::*;
+    let scan_code = scan_code(code)?;
+    let shift = shifts.left_shift || shifts.right_shift;
+    let mut character = match code {
+        Enter | NumpadEnter => b'\r',
+        Escape => 27,
+        Backspace => 8,
+        Tab => b'\t',
+        Space => b' ',
+        NumpadDivide => b'/',
+        NumpadMultiply => b'*',
+        NumpadSubtract => b'-',
+        NumpadAdd => b'+',
+        Numpad0 | Numpad1 | Numpad2 | Numpad3 | Numpad4 | Numpad5 | Numpad6 | Numpad7 | Numpad8
+        | Numpad9 | NumpadDecimal
+            if shifts.num_lock ^ shift =>
+        {
+            match code {
+                Numpad0 => b'0',
+                Numpad1 => b'1',
+                Numpad2 => b'2',
+                Numpad3 => b'3',
+                Numpad4 => b'4',
+                Numpad5 => b'5',
+                Numpad6 => b'6',
+                Numpad7 => b'7',
+                Numpad8 => b'8',
+                Numpad9 => b'9',
+                _ => b'.',
+            }
         }
-        return match character {
-            '\0'..='\x1f' => Some(character as u8),
-            '@'..='_' | 'a'..='z' => Some(character.to_ascii_uppercase() as u8 & 0x1f),
-            ' ' => Some(0),
-            _ => None,
+        _ => match scan_code {
+            0x02..=0x0d => b"1234567890-="[usize::from(scan_code - 2)],
+            0x10..=0x1b => b"qwertyuiop[]"[usize::from(scan_code - 0x10)],
+            0x1e..=0x29 => b"asdfghjkl;'`"[usize::from(scan_code - 0x1e)],
+            0x2b => b'\\',
+            0x2c..=0x35 => b"zxcvbnm,./"[usize::from(scan_code - 0x2c)],
+            _ => 0,
+        },
+    };
+    if shifts.alt {
+        character = 0;
+    } else if shifts.control {
+        character = match character {
+            b'a'..=b'z' | b'['..=b']' => character & 0x1f,
+            b'2' | b' ' => 0,
+            b'6' => 30,
+            b'-' => 31,
+            8 => 127,
+            b'\r' => b'\n',
+            _ => character,
+        };
+    } else if character.is_ascii_alphabetic() {
+        if shift ^ shifts.caps_lock {
+            character = character.to_ascii_uppercase();
+        }
+    } else if shift {
+        // Keypad punctuation is unaffected by Shift.
+        character = match code {
+            Digit0 | Digit1 | Digit2 | Digit3 | Digit4 | Digit5 | Digit6 | Digit7 | Digit8
+            | Digit9 | Minus | Equal => b"!@#$%^&*()_+"[usize::from(scan_code - 2)],
+            BracketLeft => b'{',
+            BracketRight => b'}',
+            Semicolon => b':',
+            Quote => b'"',
+            Backquote => b'~',
+            Backslash => b'|',
+            Comma => b'<',
+            Period => b'>',
+            Slash => b'?',
+            Tab => 0,
+            _ => character,
         };
     }
-    use KeyCode::*;
-    Some(match code {
-        KeyA => 1,
-        KeyB => 2,
-        KeyC => 3,
-        KeyD => 4,
-        KeyE => 5,
-        KeyF => 6,
-        KeyG => 7,
-        KeyH => 8,
-        KeyI => 9,
-        KeyJ => 10,
-        KeyK => 11,
-        KeyL => 12,
-        KeyM => 13,
-        KeyN => 14,
-        KeyO => 15,
-        KeyP => 16,
-        KeyQ => 17,
-        KeyR => 18,
-        KeyS => 19,
-        KeyT => 20,
-        KeyU => 21,
-        KeyV => 22,
-        KeyW => 23,
-        KeyX => 24,
-        KeyY => 25,
-        KeyZ => 26,
-        BracketLeft => 27,
-        Backslash => 28,
-        BracketRight => 29,
-        _ => return None,
+    Some(KeyStroke {
+        character,
+        scan_code,
     })
 }
 

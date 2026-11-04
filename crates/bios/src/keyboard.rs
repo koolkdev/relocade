@@ -73,8 +73,9 @@ impl Keyboard {
     /// Registers keyboard input translation as a device activity on the execution
     /// owner. Add the returned connection to the CPU's bus, even though this
     /// BIOS-level adapter does not yet expose keyboard-controller I/O ports.
-    /// It accepts ASCII text and base navigation/function scan codes. AltGr and
-    /// the enhanced modifier-specific navigation/function codes are not modeled.
+    /// Physical keys use the guest US layout, including Shift/CapsLock and NumLock;
+    /// host layout text does not select guest characters. Enhanced
+    /// modifier-specific navigation/function codes are not modeled.
     pub async fn connect<C: relocade_machine::Clock>(
         &self,
         runner: &relocade_machine::Runner<C>,

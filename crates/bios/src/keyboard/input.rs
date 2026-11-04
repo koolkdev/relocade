@@ -1,15 +1,14 @@
 //! Translate keyboard input events into the BIOS queue on its execution owner.
 
 mod keys;
-use keys::{control_character, scan_code};
+use keys::keystroke;
 
-use super::{KeyStroke, Keyboard, ShiftState};
+use super::{Keyboard, ShiftState};
 use relocade_frontend::keyboard::{
-    self, ElementState, KeyCode, KeyboardEvent, KeyboardEvents, KeyboardInput, ModifiersState,
-    PhysicalKey,
+    self, ElementState, KeyCode, KeyboardEvent, KeyboardEvents, KeyboardInput, PhysicalKey,
 };
 use relocade_machine::{Clock, Device, DeviceConnection, Runner};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
 
 pub(super) async fn connect<C: Clock>(
     keyboard: Keyboard,
@@ -47,10 +46,8 @@ impl Device for InputAdapter {
 
 #[derive(Default)]
 struct Translation {
-    modifiers: ModifiersState,
     shifts: ShiftState,
-    left_shift: bool,
-    right_shift: bool,
+    held: BTreeSet<KeyCode>,
 }
 
 impl Translation {
@@ -58,130 +55,58 @@ impl Translation {
         use KeyCode::*;
         let key = match event {
             KeyboardEvent::Modifiers(modifiers) => {
-                self.modifiers = modifiers;
+                // Attachment and focus regain may supply a snapshot without key
+                // presses. Preserve known sides; use the left key when unknown.
+                for (active, left, right) in [
+                    (modifiers.shift_key(), ShiftLeft, ShiftRight),
+                    (modifiers.control_key(), ControlLeft, ControlRight),
+                    (modifiers.alt_key(), AltLeft, AltRight),
+                ] {
+                    if !active {
+                        self.held.remove(&left);
+                        self.held.remove(&right);
+                    } else if !self.held.contains(&left) && !self.held.contains(&right) {
+                        self.held.insert(left);
+                    }
+                }
                 None
             }
             KeyboardEvent::FocusLost => {
-                self.modifiers = ModifiersState::default();
-                self.left_shift = false;
-                self.right_shift = false;
+                self.held.clear();
                 None
             }
             KeyboardEvent::Key {
                 physical_key,
-                text,
                 state,
-                repeat,
                 ..
             } => {
                 let PhysicalKey::Code(code) = physical_key else {
                     return;
                 };
                 let pressed = state == ElementState::Pressed;
+                let fresh = if pressed {
+                    self.held.insert(code)
+                } else {
+                    self.held.remove(&code);
+                    false
+                };
                 match code {
-                    ShiftLeft => self.left_shift = pressed,
-                    ShiftRight => self.right_shift = pressed,
-                    CapsLock if pressed && !repeat => self.shifts.caps_lock ^= true,
-                    NumLock if pressed && !repeat => self.shifts.num_lock ^= true,
-                    ScrollLock if pressed && !repeat => self.shifts.scroll_lock ^= true,
-                    Insert if pressed && !repeat => self.shifts.insert ^= true,
+                    CapsLock if fresh => self.shifts.caps_lock ^= true,
+                    NumLock if fresh => self.shifts.num_lock ^= true,
+                    ScrollLock if fresh => self.shifts.scroll_lock ^= true,
+                    Insert if fresh => self.shifts.insert ^= true,
                     _ => {}
                 }
-                pressed.then_some((code, text))
+                pressed.then_some(code)
             }
         };
-        self.shifts.left_shift =
-            self.modifiers.shift_key() && (self.left_shift || !self.right_shift);
-        self.shifts.right_shift = self.modifiers.shift_key() && self.right_shift;
-        self.shifts.control = self.modifiers.control_key();
-        self.shifts.alt = self.modifiers.alt_key();
+        self.shifts.left_shift = self.held.contains(&ShiftLeft);
+        self.shifts.right_shift = self.held.contains(&ShiftRight);
+        self.shifts.control = self.held.contains(&ControlLeft) || self.held.contains(&ControlRight);
+        self.shifts.alt = self.held.contains(&AltLeft) || self.held.contains(&AltRight);
         keyboard.set_shift_state(self.shifts);
-        let Some((code, text)) = key else {
-            return;
-        };
-        let Some(scan_code) = scan_code(code) else {
-            return;
-        };
-        if self.modifiers.super_key() {
-            return;
-        }
-        if self.modifiers.alt_key() {
-            keyboard.push(KeyStroke {
-                character: 0,
-                scan_code,
-            });
-            return;
-        }
-        if self.modifiers.control_key() {
-            if let Some(character) = control_character(code, text.as_deref()) {
-                keyboard.push(KeyStroke {
-                    character,
-                    scan_code,
-                });
-                return;
-            }
-        }
-        let character = match code {
-            Enter | NumpadEnter => Some(b'\r'),
-            Backspace => Some(8),
-            Tab => Some(b'\t'),
-            Escape => Some(27),
-            _ => None,
-        };
-        if let Some(character) = character {
-            keyboard.push(KeyStroke {
-                character,
-                scan_code,
-            });
-        } else if let Some(text) = text {
-            // This initial PC adapter accepts ASCII. Layout-provided text is
-            // authoritative; non-ASCII needs an explicit guest code-page policy.
-            for character in text.chars().filter(char::is_ascii) {
-                keyboard.push(KeyStroke {
-                    character: character as u8,
-                    scan_code,
-                });
-            }
-        } else if matches!(
-            code,
-            ArrowLeft
-                | ArrowRight
-                | ArrowUp
-                | ArrowDown
-                | Home
-                | End
-                | PageUp
-                | PageDown
-                | Insert
-                | Delete
-                | F1
-                | F2
-                | F3
-                | F4
-                | F5
-                | F6
-                | F7
-                | F8
-                | F9
-                | F10
-                | F11
-                | F12
-                | Numpad0
-                | Numpad1
-                | Numpad2
-                | Numpad3
-                | Numpad4
-                | Numpad5
-                | Numpad6
-                | Numpad7
-                | Numpad8
-                | Numpad9
-                | NumpadDecimal
-        ) {
-            keyboard.push(KeyStroke {
-                character: 0,
-                scan_code,
-            });
+        if let Some(key) = key.and_then(|code| keystroke(code, self.shifts)) {
+            keyboard.push(key);
         }
     }
 }
