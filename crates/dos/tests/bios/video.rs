@@ -301,8 +301,11 @@ fn teletype_preserves_no_output_but_commits_an_unchanged_cursor_position() {
         }
         let before = dos.vga().borrow().snapshot();
         video(&mut dos, 0x0e07, 0, 0, 0); // BEL has no cursor effect.
+        let (clock, timers) = relocade_machine::timer_service();
+        std::thread::spawn(|| pollster::block_on(timers.run()));
         let teletype = relocade_bios::Teletype::new(
             dos.cpu().memory().with_io(dos.cpu().context().io.clone()),
+            std::rc::Rc::new(clock),
         );
         for bytes in [b"".as_slice(), b"\x07"] {
             teletype.write_text(bytes).await;

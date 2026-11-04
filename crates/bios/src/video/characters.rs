@@ -85,7 +85,7 @@ pub fn write_characters(
     run: CharacterRun,
     replace_attribute: bool,
 ) -> Option<()> {
-    let mut output = screen::Output::new(memory, io, run.page)?;
-    output.write_repeated(run.character, run.color, run.count, replace_attribute);
+    let mut writer = screen::PageWriter::new(memory, io, run.page)?;
+    writer.write_repeated(run.character, run.color, run.count, replace_attribute);
     Some(())
 }

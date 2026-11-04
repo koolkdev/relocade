@@ -6,7 +6,7 @@ use crate::{
     process::Process,
     stdio::Stdio,
 };
-use relocade_machine::ExitHandle;
+use relocade_machine::{Clock, ExitHandle};
 use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
@@ -21,8 +21,8 @@ pub(crate) struct DosState {
 }
 
 impl DosState {
-    pub(crate) fn new(
-        teletype: Rc<relocade_bios::Teletype>,
+    pub(crate) fn new<C: Clock + 'static>(
+        teletype: Rc<relocade_bios::Teletype<C>>,
         keyboard: relocade_bios::Keyboard,
         exit: ExitHandle,
     ) -> Self {

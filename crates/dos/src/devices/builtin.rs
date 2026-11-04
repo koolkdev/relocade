@@ -2,15 +2,16 @@
 
 use super::{attributes, input::ConsoleInput, CharacterDriver, DriverFuture};
 use relocade_bios::{Keyboard, Teletype};
+use relocade_machine::Clock;
 use std::rc::Rc;
 
-pub(crate) struct BiosConsole {
-    teletype: Rc<Teletype>,
+pub(crate) struct BiosConsole<C> {
+    teletype: Rc<Teletype<C>>,
     input: ConsoleInput,
 }
 
-impl BiosConsole {
-    pub fn new(teletype: Rc<Teletype>, keyboard: Keyboard) -> Self {
+impl<C: Clock> BiosConsole<C> {
+    pub fn new(teletype: Rc<Teletype<C>>, keyboard: Keyboard) -> Self {
         Self {
             teletype,
             input: ConsoleInput::new(keyboard),
@@ -18,7 +19,7 @@ impl BiosConsole {
     }
 }
 
-impl CharacterDriver for BiosConsole {
+impl<C: Clock + 'static> CharacterDriver for BiosConsole<C> {
     fn name(&self) -> [u8; 8] {
         *b"CON     "
     }

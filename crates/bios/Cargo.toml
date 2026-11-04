@@ -7,6 +7,8 @@ publish.workspace = true
 
 [dependencies]
 relocade-machine = { path = "../machine" }
+relocade-pit = { path = "../pit" }
+relocade-pc-speaker = { path = "../pc-speaker" }
 relocade-vga = { path = "../vga" }
 relocade-x86 = { path = "../x86" }
 relocade-frontend = { path = "../frontend", features = ["keyboard"] }

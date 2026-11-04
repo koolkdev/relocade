@@ -97,7 +97,7 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
 
     pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let (runner, _host) = crate::test_runner::runner(clock);
+        let (runner, _host) = crate::test_runner::runner(clock.clone());
         let mut dos = runner
             .run(std::future::pending::<()>(), async |runner| {
                 crate::Dos::new(runner).await.unwrap()
@@ -116,7 +116,7 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
 
         let memory = dos.cpu.memory().with_io(dos.cpu.context().io.clone());
         dos.state.devices().install(BiosConsole::new(
-            Rc::new(relocade_bios::Teletype::new(memory)),
+            Rc::new(relocade_bios::Teletype::new(memory, Rc::new(clock))),
             keyboard.clone(),
         ));
         let replacement = dos.state.devices().console();

@@ -3,7 +3,7 @@
 use crate::{clock, keyboard, video, Keyboard, Teletype, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
-    CpuContext, FarPointer,
+    Clock, CpuContext, FarPointer,
 };
 use std::rc::Rc;
 
@@ -29,10 +29,10 @@ const TIMER_ENTRY: FarPointer = FarPointer {
 /// with a console. The teletype must use this CPU's memory and I/O bus.
 /// Entries enable live IF during service execution. Ready services finish in one
 /// poll; pending services allow the driver to deliver device IRQs.
-pub fn register_interrupts(
+pub fn register_interrupts<C: Clock + 'static>(
     interrupts: &mut Interrupts<'_>,
     keyboard: Keyboard,
-    teletype: Rc<Teletype>,
+    teletype: Rc<Teletype<C>>,
 ) {
     register_interrupt(interrupts, 0x08, TIMER_ENTRY, async |call| {
         clock::tick(&mut call.memory);

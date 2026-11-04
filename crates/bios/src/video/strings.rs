@@ -1,6 +1,9 @@
 //! INT 10h string formats and cursor-update policy.
-use crate::{screen::Output, Teletype};
-use relocade_machine::real_mode_interrupt::{interrupt, FarPointer};
+use crate::{screen::PageWriter, Teletype};
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, FarPointer},
+    Clock,
+};
 
 pub(crate) struct StringRun {
     page: u8,
@@ -10,7 +13,7 @@ pub(crate) struct StringRun {
     count: u16,
 }
 
-impl Teletype {
+impl<C: Clock> Teletype<C> {
     /// Writes characters with one attribute, preserving the page's stored cursor.
     #[interrupt(
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }, attribute = bl),
@@ -56,8 +59,8 @@ impl Teletype {
             return Some(());
         }
         let mut memory = self.memory.view();
-        let mut output = Output::new(&mut memory, self.memory.io(), run.page)?;
-        output.set_position(run.position);
+        let mut writer = PageWriter::new(&mut memory, self.memory.io(), run.page)?;
+        writer.set_position(run.position);
         let bytes_per_character = if attribute.is_some() { 1 } else { 2 };
         let mut source = run.source;
         for _ in 0..run.count {
@@ -68,10 +71,11 @@ impl Teletype {
                 .read_wrapping(source, &mut cell[..bytes_per_character])
                 .expect("string character");
             source = source.wrapping_add(bytes_per_character);
-            output.write_character(cell[0], attribute.unwrap_or(cell[1]), true);
+            self.write_to_page(&mut writer, cell[0], attribute.unwrap_or(cell[1]), true)
+                .await;
         }
         if move_cursor {
-            output.commit_cursor();
+            writer.commit_cursor();
         }
         Some(())
     }

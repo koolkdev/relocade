@@ -38,7 +38,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let (clock, _timers) = timer_service();
     let io = IoBus::new([
         DeviceConnection {
-            device: Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock)))),
+            device: Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock.clone())))),
             mmio: vec![relocade_vga::MEMORY_RANGE],
             ports: relocade_vga::PORT_RANGES.into_iter().collect(),
         },
@@ -55,6 +55,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let keyboard = relocade_bios::Keyboard::default();
     let teletype = Rc::new(relocade_bios::Teletype::new(
         memory.clone().with_io(io.clone()),
+        Rc::new(clock),
     ));
     let dos = Rc::new(DosState::new(
         teletype.clone(),

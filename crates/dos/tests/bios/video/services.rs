@@ -9,8 +9,11 @@ fn rust_video_services_and_interrupts_share_state() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
+        let (clock, timers) = relocade_machine::timer_service();
+        std::thread::spawn(|| pollster::block_on(timers.run()));
         let teletype = relocade_bios::Teletype::new(
             dos.cpu().memory().with_io(dos.cpu().context().io.clone()),
+            std::rc::Rc::new(clock),
         );
         {
             let mut context = dos.cpu().context();
