@@ -2324,6 +2324,10 @@ dependencies = [
 name = "relocade-pc-speaker"
 version = "0.0.0"
 dependencies = [
+ "async-channel",
+ "cpal",
+ "futures-lite",
+ "futures-timer",
  "pollster",
  "relocade-machine",
  "relocade-pit",

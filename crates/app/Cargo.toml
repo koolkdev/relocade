@@ -20,10 +20,10 @@ relocade-renderer = { path = "../renderer", optional = true }
 relocade-frontend = { path = "../frontend", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-cpal = { version = "=0.18.2", optional = true }
+cpal = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-cpal = { version = "=0.18.2", features = ["audioworklet"], optional = true }
+cpal = { workspace = true, features = ["audioworklet"], optional = true }
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"], optional = true }
 wasm-bindgen = { version = "=0.2.129", optional = true }
 js-sys = { version = "=0.3.106", optional = true }

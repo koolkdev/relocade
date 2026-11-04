@@ -5,11 +5,23 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+audio = ["dep:cpal", "dep:async-channel"]
+
 [dependencies]
+async-channel = { version = "=2.5.0", default-features = false, optional = true }
 relocade-pit = { path = "../pit" }
 relocade-machine = { path = "../machine" }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = { workspace = true, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { workspace = true, features = ["audioworklet"], optional = true }
+
 [dev-dependencies]
+futures-lite = "=2.6.1"
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 relocade-x86 = { path = "../x86" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -17,3 +29,7 @@ pollster = "=1.0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "=0.3.79"
+
+[[test]]
+name = "audio"
+required-features = ["audio"]
