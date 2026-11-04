@@ -7,12 +7,13 @@
 //! Portable Rust codecs and browser adapters are supplied by
 //! `relocade-wasm-bindings`. That crate owns direct calls, callback lifetimes and
 //! generated return adapters. Native bindings use Wasmtime typed functions.
-//! wasm32 applications must link with `--growable-table` and
-//! `--export=__stack_pointer`, as configured by this workspace. Callbacks retain
-//! their Rust owners through Wasm externrefs until their last engine reference
-//! is collected. Backend state belongs to the Rust backend and is released when
-//! it is dropped; callbacks require that backend to remain alive. Wasm traps and
-//! invalid ABI values are fatal programming errors.
+//! Browser builds use threaded Rust with shared host memory, atomics and TLS;
+//! `tools/web-build.mjs` supplies the configuration used by applications and tests.
+//! They also link with `--growable-table` and `--export=__stack_pointer`.
+//! Callbacks retain their Rust owners through Wasm externrefs until their last
+//! engine reference is collected. Backend state belongs to the Rust backend and
+//! is released when it is dropped. Callbacks require that backend to remain alive.
+//! Wasm traps and invalid ABI values are fatal programming errors.
 //!
 //! ```
 //! use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
@@ -52,15 +53,10 @@ pub use memory::{
 };
 pub use module_cache::ModuleCache;
 
-#[cfg(all(
-    feature = "worker",
-    target_arch = "wasm32",
-    not(target_feature = "atomics")
-))]
-compile_error!("worker requires a threaded browser build; see tests/browser/README.md");
+#[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
+compile_error!("the Wasm runtime requires a threaded browser build; see tests/browser/README.md");
 
 /// Rust async workers with native value transfer and browser resource posting.
-#[cfg(feature = "worker")]
 pub mod worker;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.

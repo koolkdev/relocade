@@ -1,8 +1,6 @@
 //! CPU execution and registered device activities on one owner.
 
-#[cfg(feature = "worker")]
 mod worker;
-#[cfg(feature = "worker")]
 pub use worker::ExecutionWorker;
 
 use crate::{Clock, Cpu, CpuConfig, Device, DeviceConnection, IoBus, Memory, Result, TimerHandle};
@@ -26,9 +24,7 @@ pub struct Runner<C = TimerHandle> {
     pub instruction_quantum: NonZeroU64,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
-    #[cfg(feature = "worker")]
     session: Option<Rc<crate::worker::SessionDriver<crate::ExecutionInterrupt>>>,
-    #[cfg(feature = "worker")]
     storage: RefCell<Option<crate::CpuStorage>>,
 }
 
@@ -40,9 +36,7 @@ impl<C: Clock> Runner<C> {
             instruction_quantum: NonZeroU64::new(10_000).unwrap(),
             activities,
             pending: Some(pending),
-            #[cfg(feature = "worker")]
             session: None,
-            #[cfg(feature = "worker")]
             storage: RefCell::default(),
         }
     }
@@ -55,7 +49,6 @@ impl<C: Clock> Runner<C> {
     /// Panics if a connected worker's storage was consumed by an earlier
     /// construction attempt, including one that failed or was cancelled.
     pub async fn create_cpu(&self, memory: Memory, config: CpuConfig, io: IoBus) -> Result<Cpu> {
-        #[cfg(feature = "worker")]
         if let Some(session) = &self.session {
             let storage = self
                 .storage
@@ -111,7 +104,6 @@ impl<C: Clock> Runner<C> {
     /// # Panics
     /// A connected worker accepts only the CPU created by this runner.
     pub async fn run_cpu(&self, cpu: &mut Cpu) -> ExecutionExit {
-        #[cfg(feature = "worker")]
         if let Some(session) = &self.session {
             assert!(
                 std::ptr::eq(cpu.session.as_ptr(), Rc::as_ptr(session)),
@@ -123,12 +115,9 @@ impl<C: Clock> Runner<C> {
         }
         let quantum = self.instruction_quantum.get();
         let mut remaining = quantum;
-        #[cfg(feature = "worker")]
         let state = cpu.cpu_state();
-        #[cfg(feature = "worker")]
         let interrupt = cpu.interrupt_handle();
         loop {
-            #[cfg(feature = "worker")]
             if let Some(session) = &self.session {
                 if interrupt.is_requested() {
                     // Give already-notified work a Rust poll before entering
@@ -137,11 +126,9 @@ impl<C: Clock> Runner<C> {
                     session.yield_now().await;
                 }
             }
-            #[cfg(feature = "worker")]
             let before = state.instruction_count();
             match cpu.run(remaining).await {
                 ExecutionExit::BudgetExhausted => remaining = quantum,
-                #[cfg(feature = "worker")]
                 ExecutionExit::Interrupted if self.session.is_some() => {
                     let spent = state.instruction_count().wrapping_sub(before);
                     remaining = remaining.saturating_sub(spent);
@@ -156,7 +143,6 @@ impl<C: Clock> Runner<C> {
     }
 
     async fn yield_execution(&self) {
-        #[cfg(feature = "worker")]
         if let Some(session) = &self.session {
             session.yield_now().await;
             return;

@@ -14,7 +14,7 @@ futures-util = { version = "=0.3.34", default-features = false, features = ["std
 relocade-wasm-runtime = { path = "../../crates/wasm-runtime" }
 relocade-compiler = { path = "../../crates/compiler" }
 relocade-dos = { path = "../../crates/dos" }
-relocade-machine = { path = "../../crates/machine", features = ["worker"] }
+relocade-machine = { path = "../../crates/machine" }
 relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
 relocade-renderer = { path = "../../crates/renderer" }
 wgpu.workspace = true

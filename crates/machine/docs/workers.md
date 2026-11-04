@@ -1,9 +1,10 @@
 # Worker tasks and messages
 
-Enable the machine's `worker` feature for `worker::Thread`. The Wasm runtime
-reexports `web-thread-select` and adds `ThreadExt::run_resource` for typed resource
-handles. The application creates workers and keeps them alive until their tasks
-finish.
+The machine exposes `worker::Thread` and `ExecutionWorker` without feature flags.
+The Wasm runtime reexports `web-thread-select` and adds `ThreadExt::run_resource`
+for typed resource handles. The application creates workers and keeps them alive
+until their tasks finish. `Runner::with_clock` runs on its caller's thread;
+`ExecutionWorker::spawn` explicitly creates a worker.
 
 Pass the memory handle directly. Capture CPU configuration and Rust channel
 endpoints in the closure, then construct the CPU inside the worker:
@@ -73,7 +74,7 @@ binding; the separate `SessionDriver` owns polling, stop handling and idle parki
 
 ## Browser build and lifetime
 
-The browser suite uses one threaded Rust configuration throughout: atomics,
+Browser runtime builds use one threaded Rust configuration throughout: atomics,
 bulk memory, mutable globals, rebuilt standard library, shared imported memory,
 and wasm-bindgen's TLS exports. Shared Rust host memory is distinct from shared
 guest memory. Pages must be cross-origin isolated with COOP/COEP headers.

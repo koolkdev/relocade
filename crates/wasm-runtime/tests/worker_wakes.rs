@@ -1,5 +1,3 @@
-#![cfg(feature = "worker")]
-
 use futures_channel::oneshot;
 use relocade_wasm_runtime::{
     worker::{wake_connection, Thread, ThreadExt, WakeTarget, WorkerResource},
