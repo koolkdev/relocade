@@ -96,7 +96,7 @@ fn timer_advances_the_clock_during_guest_execution() {
         let clock = ManualClock::default();
         let (ready, shared_memory) = futures_channel::oneshot::channel();
         let worker_clock = clock.clone();
-        let worker = ExecutionWorker::spawn(worker_clock, async move |runner| {
+        let worker = ExecutionWorker::spawn(worker_clock, (), async move |runner, ()| {
             let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
             dos.launch_com(
                 &[

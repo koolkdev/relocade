@@ -6,7 +6,8 @@ use relocade_x86::{Exception, ExecutionExit};
 fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
     let result = pollster::block_on(ExecutionWorker::run_until(
         std::future::pending::<()>(),
-        async |runner| {
+        (),
+        async |runner, ()| {
             let mut dos = Dos::new(runner).await.unwrap();
             assert_eq!(dos.run(runner).await, Err(RunError::NoProcess));
             dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())

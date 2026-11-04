@@ -22,7 +22,7 @@ impl Device for IdleDevice {
 
 async fn idle_devices() {
     let (clock, _timers) = timer_service();
-    let worker = ExecutionWorker::spawn(clock, async |runner| {
+    let worker = ExecutionWorker::spawn(clock, (), async |runner, ()| {
         // INC AX; JMP 0200, where the host service completes this guest run.
         let mut cpu =
             cpu_with_runner(&[0x40, 0xe9, 0xfc, 0], true, IoBus::default(), Some(runner)).await;

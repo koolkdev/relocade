@@ -31,7 +31,8 @@ pub fn run() -> Result<(), String> {
                 })
                 .await;
             },
-            async move |runner| {
+            (),
+            async move |runner, ()| {
                 let startup = async {
                     let dos = relocade_dos::Dos::new(runner)
                         .await

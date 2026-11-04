@@ -1,5 +1,6 @@
 //! CPU execution and registered device activities on one owner.
 
+mod host;
 mod worker;
 pub use worker::ExecutionWorker;
 

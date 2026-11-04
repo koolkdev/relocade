@@ -144,6 +144,42 @@ Keep the owner alive until shutdown completes. On a browser, call this API from
 a responsive owner; receiving modules alongside busy guest execution needs an
 explicit host-turn policy.
 
+## Session compiler service
+
+`CompilerService` owns the persistent compiler on the responsive host. Create its
+connections before driving `run()`. Each `CompilerConnection` is one typed worker
+resource containing Rust request state and a posted module endpoint:
+
+```rust,ignore
+let mut service = CompilerService::new(CompilerWorker::start(&memory, target).await?);
+let connection = service.connect()?;
+let execution = ExecutionWorker::run_until(
+    stop,
+    (memory.clone(), connection),
+    async move |runner, (memory, connection)| {
+        let mut compiler = connection.bind();
+        run_session(runner, memory, &mut compiler).await
+    },
+);
+futures_lite::future::zip(service.run(), execution).await;
+```
+
+Each local `CompilerClient` requests compilation through Rust channels. Its
+`request(ranges).await` returns `PostedCode` only after the service has posted the
+module to that execution owner. Receive it with
+`runner.wait_for_host(posted.receive()).await` while composing CPU execution and
+the receive activity. Guest execution continues through compilation and between
+browser delivery attempts; see [event-loop scheduling](worker-execution.md#event-loop-scheduling).
+Receiving the resource does not install it or relax installation's stopped-state
+contract. The service retains no CPU or automatic installation policy.
+
+Connections have independent lifetimes. Dropping one client or abandoning a
+result leaves others usable. Request IDs discard abandoned posted results on
+the next receive. Once all connections close, the service drains requests and
+awaits compiler shutdown. Await that completion before releasing the host task.
+One service can outlive successive execution workers sharing the same guest
+memory. Code stability remains the caller's responsibility.
+
 ## Browser build and lifetime
 
 Browser runtime builds use one threaded Rust configuration throughout: atomics,

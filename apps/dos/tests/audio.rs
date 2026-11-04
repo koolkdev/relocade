@@ -46,7 +46,7 @@ impl Session {
         let (keys, input) = async_channel::bounded(1);
         let (done, exits) = async_channel::bounded(1);
         let (launch, next) = async_channel::bounded(1);
-        let worker = ExecutionWorker::spawn(clock, async move |runner| {
+        let worker = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
             let mut dos = Dos::new(runner).await.unwrap();
             dos.speaker()
                 .borrow_mut()

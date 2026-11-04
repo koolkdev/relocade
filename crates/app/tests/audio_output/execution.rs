@@ -32,7 +32,7 @@ async fn callback_wakes_execution() {
     }
     let (ready, registered) = oneshot::channel();
     let (clock, _timers) = timer_service();
-    let worker = ExecutionWorker::spawn(clock, async move |runner| {
+    let worker = ExecutionWorker::spawn(clock, (), async move |runner, ()| {
         let memory = Memory::new(
             MachineConfig::new(
                 4096,
