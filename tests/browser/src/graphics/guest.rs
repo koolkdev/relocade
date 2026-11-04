@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    Cpu, CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, Memory, TimerHandle,
+    CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, Memory, TimerHandle,
 };
 use relocade_vga::{FrameSource, Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
 use relocade_x86::{
@@ -65,7 +65,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         )
         .unwrap();
         let io = IoBus::new([runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES)]);
-        let mut cpu = Cpu::new(memory, cpu_config, io).await.unwrap();
+        let mut cpu = runner.create_cpu(memory, cpu_config, io).await.unwrap();
         cpu.install([Hook::host(0x200, {
             let cpu = cpu.cpu_state();
             async move || {

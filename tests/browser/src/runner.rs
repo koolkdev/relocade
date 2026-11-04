@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    Clock, Cpu, CpuConfig, Device, ExecutionWorker, Hook, IoBus, MachineConfig, Memory, TimerHandle,
+    Clock, CpuConfig, Device, ExecutionWorker, Hook, IoBus, MachineConfig, Memory, TimerHandle,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -110,7 +110,7 @@ pub async fn runner_workers() -> Result<(), String> {
                 local: Rc::new(()),
                 dropped: Some(dropped),
             });
-            let mut cpu = Cpu::new(memory.clone(), config, io).await.unwrap();
+            let mut cpu = runner.create_cpu(memory.clone(), config, io).await.unwrap();
             if pending_service {
                 let probe = probe.clone();
                 cpu.install([Hook::host(0x100, {

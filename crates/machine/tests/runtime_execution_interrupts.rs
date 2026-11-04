@@ -1,6 +1,6 @@
 mod support;
 
-use relocade_machine::{Cpu, DispatchEntry, IoBus, Memory};
+use relocade_machine::{Cpu, DispatchEntry, IoBus, Memory, Runner};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -10,6 +10,10 @@ use relocade_x86::{
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn cpu(code: &[u8], compiled: bool, io: IoBus) -> Cpu {
+    cpu_with_runner(code, compiled, io, None).await
+}
+
+async fn cpu_with_runner(code: &[u8], compiled: bool, io: IoBus, runner: Option<&Runner>) -> Cpu {
     let compiler = Compiler::new(ExecutionProfile::Real16);
     let config = support::configuration(
         compiler.target(),
@@ -24,7 +28,11 @@ async fn cpu(code: &[u8], compiled: bool, io: IoBus) -> Cpu {
     .unwrap();
     let memory = Memory::new(config.machine).unwrap();
     memory.view().write(0x100, code).unwrap();
-    let mut cpu = Cpu::new(memory, config.cpu, io).await.unwrap();
+    let mut cpu = match runner {
+        Some(runner) => runner.create_cpu(memory, config.cpu, io).await,
+        None => Cpu::new(memory, config.cpu, io).await,
+    }
+    .unwrap();
     if compiled {
         let module = compiler.compile_block(0x100, code, 32).unwrap();
         cpu.install_module(
@@ -118,3 +126,7 @@ async fn execution_interrupt_waits_for_the_protected_successor() {
 #[cfg(feature = "worker")]
 #[path = "runtime_execution_interrupts/worker.rs"]
 mod worker;
+
+#[cfg(feature = "worker")]
+#[path = "runtime_execution_interrupts/construction.rs"]
+mod construction;

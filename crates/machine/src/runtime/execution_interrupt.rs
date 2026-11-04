@@ -13,7 +13,7 @@ const OFFSET: u32 = offset_of!(ExecutionContext, interrupt_requested) as u32;
 /// message transport. No access to the rest of the CPU is exposed.
 ///
 /// This signal does not wake a pending Rust future or run device work. Its owner
-/// must arrange those separately and acknowledge before examining runnable work.
+/// must arrange those separately and coordinate acknowledgement with ready work.
 #[derive(Clone)]
 #[cfg_attr(feature = "worker", derive(crate::worker::WorkerResource))]
 pub struct ExecutionInterrupt(#[cfg_attr(feature = "worker", worker(post))] SharedMemory);
@@ -30,10 +30,22 @@ impl ExecutionInterrupt {
     }
 
     /// Atomically acknowledges prior requests, returning whether any were pending.
-    /// The execution owner calls this before examining runnable work, never after
-    /// draining it: clearing afterward could erase a concurrent producer's request.
-    /// A later request stays set. The work queues remain the source of truth.
+    /// Clear before examining runnable work, or track racing wakes separately.
+    /// Clearing after draining without that
+    /// coordination could erase a concurrent producer's request. The work queues
+    /// remain the source of truth.
     pub fn take(&self) -> bool {
         self.0.atomic_swap(OFFSET, 0_u8) != 0
+    }
+}
+
+#[cfg(feature = "worker")]
+impl crate::worker::WakeTarget for ExecutionInterrupt {
+    fn wake(&self) {
+        self.request();
+    }
+
+    fn acknowledge(&self) {
+        self.take();
     }
 }
