@@ -126,6 +126,27 @@ continues the active call or guest ISR. An IRQ-suspended outer call stays parked
 until guest execution reaches a service resume entry, even when its input becomes
 ready. An unpolled run performs no CPU work.
 
+Guest HLT is a wait within active execution. It retires with IP pointing after
+HLT, and `Cpu::run` stays pending until a device IRQ is accepted with live IF set.
+The CPU retains that halt across replacement run waiters. Ordinary Rust wakes
+and execution-interrupt requests let host work run but do not resume guest code.
+`STI; HLT` executes HLT as STI's protected successor before accepting a queued IRQ;
+the interrupt return frame therefore names the instruction after HLT.
+
+Device activities and worker cancellation remain runnable while the guest is
+halted. An outer host service stays parked if its ISR halts, even when that
+service's input becomes ready. Terminal `HostExit::Return` and `UnhandledException`
+clear the halt and release retained calls, allowing another program to use the CPU.
+Stopping a worker drops the CPU and its calls through the existing cancellation path.
+HLT with IF clear waits indefinitely unless the embedding ends execution;
+NMI, reset and debug wake events are not modeled yet.
+
+An idle DOS environment does not execute HLT: it has no active CPU run. Device
+activities can queue IRQs, but guest delivery starts only when execution is
+explicitly driven. Register edits and `CpuState` snapshot restoration do not
+change the driver-owned halt or retained host calls. Public `Cpu::step` reports
+`Halted` and remains halted on later steps; `run` performs IRQ acceptance.
+
 While a host call is actively pending, complete it before using `cpu.context()`.
 The context is available at stopped guest boundaries with outer calls parked.
 Installing modules and hooks requires all retained calls to have completed or

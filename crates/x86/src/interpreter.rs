@@ -39,11 +39,14 @@ use crate::{
 /// An inhibiting Real16 STI/MOV SS/POP SS instead returns `InterruptInhibited`,
 /// requesting another protected step before IRQ polling or an execution interrupt.
 /// Real16 POPF/IRET that enables IF returns `InterruptsEnabled`.
+/// HLT returns `Halted` with IP after the instruction; the host must retain the halt.
 /// Supported Real16 faults enter their IVT handler and return `InterruptEntered`
 /// without executing the handler or retiring the faulting instruction.
 /// Other faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before returning and retains completed elements on a fault.
-/// This entry checks execution interrupts and instruction budgets after retirement.
+/// Completed instructions check execution interrupts and instruction budgets before
+/// returning, except `InterruptInhibited` and `Halted`, whose driver transitions
+/// must happen first.
 ///
 /// The host must establish profile compatibility before entry. The interpreter
 /// checks instruction fetches at runtime; it does not require a validated snapshot.

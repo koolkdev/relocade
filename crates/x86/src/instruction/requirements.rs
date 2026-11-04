@@ -6,6 +6,8 @@ use crate::{processor, CpuFeature, Exception, ExecutionProfile, ExecutionTarget}
 pub(super) enum Availability {
     AllModes,
     ProtectedOnly,
+    /// Requires CPL0; supported protected profiles execute at CPL3.
+    Privileged,
     /// Requires CPL <= IOPL; supported protected profiles fix CPL3/IOPL0.
     IoPrivileged,
 }
@@ -34,9 +36,10 @@ impl Requirements {
             (Availability::ProtectedOnly, ExecutionProfile::Real16) => {
                 Some(Exception::InvalidOpcode)
             }
-            (Availability::IoPrivileged, ExecutionProfile::Protected(_)) => {
-                Some(Exception::GeneralProtection { error_code: 0 })
-            }
+            (
+                Availability::IoPrivileged | Availability::Privileged,
+                ExecutionProfile::Protected(_),
+            ) => Some(Exception::GeneralProtection { error_code: 0 }),
             _ => None,
         }
     }

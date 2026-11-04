@@ -52,6 +52,8 @@ mod flag_control;
 mod flag_transfer;
 #[path = "suites/fxstate.rs"]
 mod fxstate;
+#[path = "suites/halt.rs"]
+mod halt;
 #[path = "suites/instruction_prefixes.rs"]
 mod instruction_prefixes;
 #[path = "suites/interpreter_handoff.rs"]

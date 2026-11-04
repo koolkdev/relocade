@@ -85,7 +85,7 @@ fn instruction_length_counts_prefixes_and_each_required_field_byte() {
         );
     }
     for (prefixes, suffix, opcode) in [
-        (14, &[0xf4][..], 0xf4),
+        (14, &[0xf1][..], 0xf1),
         (13, &[0xc7, 0x0d][..], 0xc7),
         (1, &[0xf0, 0x8b, 0][..], 0xf0),
     ] {
@@ -225,11 +225,11 @@ fn prefix_length_limits_precede_fetch_and_unsupported_checks() {
         (
             "unsupported opcode at last admitted byte",
             14,
-            &[0xf4][..],
+            &[0xf1][..],
             0x1ff1,
             Exit::UnsupportedInstruction {
                 eip: 0x1ff1,
-                opcode: 0xf4,
+                opcode: 0xf1,
             },
         ),
         (

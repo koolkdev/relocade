@@ -18,6 +18,8 @@ impl Cpu {
             let Poll::Ready(vector) = self.poll_irq(cx)? else {
                 return Ok(false);
             };
+            // Interrupt recognition ends HLT even if entering the ISR faults.
+            self.halted = false;
             GuestCall::Interrupt(vector).enter(&mut self.machine)
         };
         // Frame writes and IVT reads may also request an exit. Observe it before

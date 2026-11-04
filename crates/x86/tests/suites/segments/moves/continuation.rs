@@ -55,7 +55,7 @@ fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
 #[test]
 fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() {
     // MOV DS,EAX must end compilation before the unsupported following byte.
-    let code = [0x8e, 0xd8, 0xf4];
+    let code = [0x8e, 0xd8, 0xf1];
     let mut image = Image::new(&code);
     image.cpu.registers.eax = 0xabcd_0003;
     let tables = DescriptorTables::default();

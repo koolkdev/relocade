@@ -364,6 +364,8 @@ async fn terminal_exit_without_ready_work_adds_no_activity_turn() {
     terminal_exit_without_notifications().await;
 }
 
+#[path = "guest_time_scheduling/halt.rs"]
+mod halt;
 #[path = "guest_time_scheduling/host.rs"]
 mod host;
 #[path = "guest_time_scheduling/lag.rs"]

@@ -78,7 +78,7 @@ fn interpreter_run_passes_snapshot_limit_and_stops_at_branch_or_fault() {
         0xd9, 0x05, 0, 0x40, 0, 0, // Only FLD belongs to the compiled snapshot.
         0xd9, 0x1d, 0, 0x50, 0, 0, // FSTP dword [0x5000]
         0xeb, 0,    // JMP ends interpreter run.
-        0xf4, // Unsupported successor must not be fetched.
+        0xf1, // Unsupported successor must not be fetched.
     ];
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap())
         .with_interpreter(interpreter_run());
