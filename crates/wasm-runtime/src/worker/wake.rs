@@ -1,5 +1,8 @@
 //! Notification resources bound once, before a worker session starts.
 
+mod peer;
+pub use peer::{WakeBinding, WakePeer};
+
 use std::{
     marker::PhantomData,
     sync::{
@@ -28,6 +31,7 @@ pub trait WakeTarget: Clone + 'static {
 pub struct WakeHost<R: WakeTarget> {
     _lifetime: Lifetime,
     _binding: platform::HostBinding<R>,
+    peer: WakePeer<R>,
 }
 
 /// Sendable connection metadata, captured alongside an existing posted resource.
@@ -45,6 +49,7 @@ pub struct WakeConnection<R: WakeTarget> {
     _binding: platform::Binding,
     target: R,
     notification: Waker,
+    endpoint: platform::Endpoint,
 }
 
 impl<R: WakeTarget> WakeEndpoint<R> {
@@ -59,6 +64,7 @@ impl<R: WakeTarget> WakeEndpoint<R> {
             _binding: binding,
             target,
             notification: self.notification,
+            endpoint: self.binding,
         }
     }
 }

@@ -3,7 +3,7 @@
 mod worker;
 pub use worker::ExecutionWorker;
 
-use crate::worker::{Executor, WakeEndpoint};
+use crate::worker::{Executor, WakeEndpoint, WakePeer};
 use crate::{
     Clock, Cpu, CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory,
     Result, TimerHandle,
@@ -69,6 +69,12 @@ impl<C: Clock> Runner<C> {
 
     pub fn clock(&self) -> &C {
         &self.clock
+    }
+
+    /// Post this resource to another worker and retain its `bind()` guard there
+    /// before sending ordinary Rust notifications to this execution session.
+    pub fn wake_peer(&self) -> WakePeer<ExecutionInterrupt> {
+        self.executor.peer()
     }
 
     /// Starts a device's activity before returning its bus connection.

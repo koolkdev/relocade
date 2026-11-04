@@ -56,14 +56,23 @@ impl Device for InputDevice {
     }
 }
 
+#[derive(Clone, Copy)]
+enum InputSource {
+    Host,
+    Timer,
+    Peer,
+}
+
 async fn connected_input() {
     for compiled in [false, true] {
-        for timed in [false, true] {
+        for source in [InputSource::Host, InputSource::Timer, InputSource::Peer] {
+            let timed = matches!(source, InputSource::Timer);
             let (clock, timers) = timer_service();
             let (entered, running) = oneshot::channel();
             let sent = Arc::new(AtomicBool::new(false));
             let worker_sent = sent.clone();
             let (send, mut input) = mpsc::unbounded();
+            let (start, started) = oneshot::channel();
             let worker = ExecutionWorker::spawn(clock, async move |runner| {
                 let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
                     let clock = runner.clock().clone();
@@ -92,6 +101,7 @@ async fn connected_input() {
                     cpu_with_runner(&[0xe6, 0x80, 0xeb, 0xfc], compiled, io, Some(runner)).await;
                 device.borrow_mut().exit = Some(cpu.exit_handle());
                 device.borrow_mut().interrupt = Some(cpu.interrupt_handle());
+                started.await.unwrap();
                 assert_eq!(
                     runner.run_cpu(&mut cpu).await,
                     ExecutionExit::Host(relocade_x86::HostExit::Return)
@@ -99,7 +109,30 @@ async fn connected_input() {
                 let values = device.borrow().values.clone();
                 (cpu.cpu_state().instruction_count(), values)
             });
-            // No join polling is needed to install the connection or start CPU.
+            use relocade_machine::worker::{Thread, ThreadExt};
+            let peer_thread = matches!(source, InputSource::Peer).then(Thread::new);
+            let peer_task = if let Some(thread) = &peer_thread {
+                let peer = worker.wake_peer();
+                let send = send.clone();
+                let sent = sent.clone();
+                let (ready, bound) = oneshot::channel();
+                let (publish, published) = oneshot::channel();
+                let task = thread.run_resource(peer, move |peer| async move {
+                    let _binding = peer.bind();
+                    ready.send(()).unwrap();
+                    published.await.unwrap();
+                    send.unbounded_send(4).unwrap();
+                    send.unbounded_send(9).unwrap();
+                    sent.store(true, Ordering::SeqCst);
+                });
+                bound.await.unwrap();
+                Some((publish, task))
+            } else {
+                None
+            };
+            // Finish peer setup before the measured busy interval. Worker startup
+            // latency is independent of notification delivery at a checkpoint.
+            start.send(()).unwrap();
             running.await.unwrap();
             let mut timers = std::pin::pin!(timers.run());
             if timed {
@@ -108,6 +141,9 @@ async fn connected_input() {
                 assert!(futures_lite::future::poll_once(timers.as_mut())
                     .await
                     .is_none());
+            } else if let Some((publish, task)) = peer_task {
+                publish.send(()).unwrap();
+                task.await.unwrap();
             } else {
                 // The second send can coalesce with the first task wake. Both
                 // values must drain before the guest runs another block.
