@@ -6,11 +6,15 @@ fn packed_pairwise_sums_widen_each_adjacent_pair() {
     let left = 0xffff000180007fff_0001ff000201ffff_u128;
     let bytes = left.to_le_bytes();
     let byte_sums: Vec<u8> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .flat_map(|pair| (u16::from(pair[0]) + u16::from(pair[1])).to_le_bytes())
         .collect();
     let word_sums: Vec<u8> = bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pair| {
             let a = u16::from_le_bytes([pair[0], pair[1]]);
             let b = u16::from_le_bytes([pair[2], pair[3]]);

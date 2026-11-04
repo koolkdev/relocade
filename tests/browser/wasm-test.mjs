@@ -4,7 +4,6 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { run } from "./browser-test.mjs";
 
 const [wasm, ...args] = process.argv.slice(2);
 if (args.includes("--bench")) throw new Error("This runner supports tests only; benchmarks require wasm-bindgen-test-runner");
@@ -39,7 +38,22 @@ try {
         tests: JSON.stringify(tests),
         ignored: String(args.includes("--ignored") || args.includes("--include-ignored")),
     });
-    await run(`/wasm-test.html?${parameters}`, path.join(directory, "suite.js"), "#run");
+    const request = {
+        url: `/wasm-test.html?${parameters}`,
+        bindings: path.join(directory, "suite.js"),
+        activation: "#run",
+    };
+    if (process.env.RELOCADE_BROWSER_RUNNER) {
+        const response = await fetch(process.env.RELOCADE_BROWSER_RUNNER, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(request),
+        });
+        if (!response.ok) throw new Error(await response.text());
+    } else {
+        const { run } = await import("./browser-test.mjs");
+        await run(request.url, request.bindings, request.activation);
+    }
 } finally {
     rmSync(directory, { recursive: true, force: true });
 }

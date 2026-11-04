@@ -24,7 +24,7 @@ pub(crate) struct Dispatch {
     dispatch: Function<Backend, abi::ExecutionSignature>,
     interpret: Function<Backend, abi::ExecutionSignature>,
     step: Function<Backend, abi::ExecutionSignature>,
-    interrupt: Option<Function<Backend, fn(u8) -> ExecutionExit>>,
+    interrupt: Option<Function<Backend, abi::InterruptSignature>>,
     table: DispatchTable<Backend>,
     hooks: Hooks,
     host_imports: Vec<Import<'static, Backend>>,

@@ -198,21 +198,21 @@ fn transfers_follow_rust_memory_growth() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn shared_scalars_track_growth_and_owner_drop() {
     for minimum in [0, 1] {
-        let memory = SharedMemory::new(minimum, 2).unwrap();
-        let retained = memory.clone();
-        let mut backend = Backend::new().unwrap();
-        let imported = backend.import_shared_memory(&memory);
-        memory.write(minimum * 65536, &[]);
-        backend.ensure_memory_size(&imported, 2 * 65536).unwrap();
-        // One value straddles the original allocation's page boundary. Existing
-        // handles and views must observe the newly grown bytes too.
-        retained.store(65533, 0xfedc_ba98_7654_3210_u64);
-        assert_eq!(memory.view().load::<u64>(65533), 0xfedc_ba98_7654_3210);
-        memory.write(0, &[0x81]);
-        assert_eq!(retained.load::<u8>(0), 0x81);
-        drop(backend);
-        drop(imported);
-        drop(memory);
+        let retained = {
+            let memory = SharedMemory::new(minimum, 2).unwrap();
+            let retained = memory.clone();
+            let mut backend = Backend::new().unwrap();
+            let imported = backend.import_shared_memory(&memory);
+            memory.write(minimum * 65536, &[]);
+            backend.ensure_memory_size(&imported, 2 * 65536).unwrap();
+            // One value straddles the original allocation's page boundary. Existing
+            // handles and views must observe the newly grown bytes too.
+            retained.store(65533, 0xfedc_ba98_7654_3210_u64);
+            assert_eq!(memory.view().load::<u64>(65533), 0xfedc_ba98_7654_3210);
+            memory.write(0, &[0x81]);
+            assert_eq!(retained.load::<u8>(0), 0x81);
+            retained
+        };
         let clone = retained.clone();
         clone.store(1, 0xfedc_ba98_7654_3210_u64);
         clone.store(3, 0x1234_u16);

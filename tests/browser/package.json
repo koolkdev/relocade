@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "lint": "node lint.mjs",
     "test": "node test.mjs",
+    "test:runner": "node --test runner.test.mjs",
     "test:backends": "node test-backends.mjs",
     "test:workers": "node browser-test.mjs",
     "dev": "vite --host 127.0.0.1"

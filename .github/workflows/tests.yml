@@ -1,6 +1,7 @@
 name: Tests
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -15,12 +16,39 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Keep line-number backtraces while reducing test artifacts and linker work.
+  CARGO_PROFILE_TEST_DEBUG: 1
 
 jobs:
-  test:
-    name: Rust tests
+  native:
+    name: ${{ matrix.name }} tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: Core
+            name: Core
+            packages: >-
+              -p relocade-derive -p relocade-compiler -p relocade-x86
+              -p relocade-interpreter -p relocade-test-support
+              -p relocade-wasm-bindings -p relocade-wasm-runtime
+            system-packages: ''
+          - suite: Native integration
+            name: DOS and application
+            # New workspace members join this suite until assigned to Core.
+            packages: >-
+              --workspace --exclude relocade-derive --exclude relocade-compiler
+              --exclude relocade-x86 --exclude relocade-interpreter
+              --exclude relocade-test-support --exclude relocade-wasm-bindings
+              --exclude relocade-wasm-runtime
+            system-packages: libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
+    env:
+      # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
+      # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
+      GALLIUM_OVERRIDE_CPU_CAPS: avx
+      ALSA_CONFIG_PATH: ${{ github.workspace }}/crates/app/tests/alsa-null.conf
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -30,41 +58,37 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install software graphics driver
+      - name: Configure native test environment
+        run: echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Install native test dependencies
+        if: matrix.system-packages != ''
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
+          sudo apt-get install -y ${{ matrix.system-packages }}
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.suite }}
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Cache compiled Wasm test modules
         uses: actions/cache@v6
         with:
           path: ~/.cache/wasmtime
-          key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: |
-            wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}-
+            wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-
 
-      - name: Run workspace tests
-        env:
-          # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
-          # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
-          GALLIUM_OVERRIDE_CPU_CAPS: avx
-        run: |
-          export XDG_RUNTIME_DIR="$RUNNER_TEMP"
-          cargo test --workspace --locked
-          ALSA_CONFIG_PATH="$GITHUB_WORKSPACE/crates/app/tests/alsa-null.conf" cargo test -p relocade-app --features audio --lib --locked -- --ignored
-          cargo test -p relocade-pc-speaker --features audio --tests --locked
-          cargo test -p relocade-app --features audio --lib --locked
-          ALSA_CONFIG_PATH="$GITHUB_WORKSPACE/crates/app/tests/alsa-null.conf" cargo test -p relocade-app --features audio --test audio_output --locked -- --ignored
-          cargo test -p relocade-app --features graphics --lib --locked
-          xvfb-run -a cargo test -p relocade-app --features graphics --lib --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-app --test window --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-app --features graphics --test surface --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-app --features graphics --test graphics --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-app --features graphics --test recovery --locked -- --ignored
-          xvfb-run -a cargo test -p relocade-dos-app --test window --locked -- --ignored
+      - name: Run tests
+        # Keep package selection and features identical when running ignored tests,
+        # so Cargo can reuse this build instead of resolving another feature graph.
+        run: cargo test ${{ matrix.packages }} --all-features --locked
+
+      - name: Run display and audio integration tests
+        if: matrix.suite == 'Native integration'
+        run: xvfb-run -a cargo test ${{ matrix.packages }} --all-features --locked -- --ignored
 
   web:
     name: Browser tests
@@ -100,15 +124,81 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target/browser
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install Wasm test runner
         run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+
+      - name: Install browser dependencies
+        run: |
+          npm --prefix tests/browser ci
+          npm --prefix tools ci
 
       - name: Run browser tests
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
-          npm --prefix tests/browser ci
-          npm --prefix tools ci
+          npm --prefix tests/browser run test:runner
           npm --prefix tests/browser test
-          node tests/browser/dos-app.mjs
+
+  clippy:
+    name: Workspace Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install audio build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-native
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run strict Clippy
+        run: cargo clippy --workspace --all-targets --all-features --profile test --locked -- -D warnings
+
+  web-clippy:
+    name: Wasm Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target/browser
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-10-20
+          components: rust-src, clippy
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-web
+          workspaces: . -> target/browser
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run strict Clippy
+        # The shared lint command needs no Chrome, wasm-bindgen CLI or npm packages.
+        run: npm --prefix tests/browser run lint

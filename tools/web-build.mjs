@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -24,22 +24,27 @@ const env = {
 };
 
 function run(command, args, extraEnv = {}) {
-    const result = spawnSync(command, args, {
-        cwd: workspace, env: { ...process.env, ...env, ...extraEnv }, stdio: "inherit",
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, {
+            cwd: workspace, env: { ...process.env, ...env, ...extraEnv }, stdio: "inherit",
+        });
+        child.once("error", reject);
+        child.once("close", (code, signal) => {
+            if (code === 0) resolve();
+            else reject(new Error(`${command} exited with ${signal ?? code}`));
+        });
     });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
 }
 
-export function cargo(command, args, runner) {
-    run("cargo", [
+export function cargo(command, args, { runner, env: extraEnv = {} } = {}) {
+    return run("cargo", [
         "+nightly-2026-10-20", command, "--locked",
         "--target", "wasm32-unknown-unknown", "-Z", "build-std=std,panic_abort",
         ...args,
-    ], runner ? { CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: runner } : {});
+    ], { ...extraEnv, ...(runner ? { CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: runner } : {}) });
 }
 
 export function bindgen(wasm, output) {
-    run("wasm-bindgen", [wasm, "--target", "web", "--out-dir", output,
+    return run("wasm-bindgen", [wasm, "--target", "web", "--out-dir", output,
         "--no-typescript"]);
 }

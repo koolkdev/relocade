@@ -25,6 +25,7 @@ pub const PAGE_TABLE: Memory = Memory::new(
 );
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
 pub type ExecutionSignature = fn() -> crate::ExecutionExit;
+pub type InterruptSignature = fn(vector: u8) -> crate::ExecutionExit;
 pub const EXECUTION_FUNCTIONS: Table<ExecutionSignature> =
     Table::new("relocade", "executionFunctions", 2);
 
@@ -34,8 +35,7 @@ pub const RUN: Function<ExecutionSignature> = Function::new("relocade", "run");
 pub const STEP: Function<ExecutionSignature> = Function::new("relocade", "step");
 /// Real16 external entry; success returns InterruptEntered before ISR dispatch.
 /// The embedding owns maskable-interrupt eligibility and acknowledgement.
-pub const INTERRUPT: Function<fn(u8) -> crate::ExecutionExit> =
-    Function::new("relocade", "interrupt");
+pub const INTERRUPT: Function<InterruptSignature> = Function::new("relocade", "interrupt");
 
 pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "readPort");
 pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");

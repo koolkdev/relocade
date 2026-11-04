@@ -1,10 +1,12 @@
-import { build, cargo } from "./build.mjs";
-import { run } from "./browser-test.mjs";
+import { build } from "./build.mjs";
+import { withBrowser } from "./browser-test.mjs";
 import { testBackends } from "./test-backends.mjs";
+import { testApplication } from "./dos-app.mjs";
+import { configure } from "../../tools/web.mjs";
 
-// Backend tests and worker integration use the same threaded Rust build.
-// DOS and BIOS services capture the same retained resources on the browser.
-cargo("check", ["-p", "relocade-dos", "--lib"]);
-testBackends(process.argv.slice(2));
-build();
-await run();
+await build();
+await withBrowser(async browser => {
+    await testBackends(browser, process.argv.slice(2));
+    await browser.run();
+});
+await testApplication(await configure("relocade-dos-app"));

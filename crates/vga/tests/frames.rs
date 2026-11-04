@@ -58,7 +58,7 @@ fn ready_deadlines_leave_a_polling_opportunity_for_other_activities() {
     let clock = Rc::new(LateClock::default());
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
     let source = vga.borrow().frame_source();
-    let mut video = Box::pin(Vga::run(vga));
+    let mut video = std::pin::pin!(Vga::run(vga));
     let wakes = Arc::new(WakeCount::default());
     let waker = waker(wakes.clone());
     let mut cx = Context::from_waker(&waker);
@@ -155,8 +155,8 @@ fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
     let waker_b = waker(wake_b.clone());
     let mut cx_a = Context::from_waker(&waker_a);
     let mut cx_b = Context::from_waker(&waker_b);
-    let mut a = Box::pin(source.next_capture(None));
-    let mut b = Box::pin(source.next_capture(None));
+    let mut a = std::pin::pin!(source.next_capture(None));
+    let mut b = std::pin::pin!(source.next_capture(None));
     assert!(a.as_mut().poll(&mut cx_a).is_pending());
     assert!(b.as_mut().poll(&mut cx_b).is_pending());
     tick(&clock, video.as_mut(), boundary(1));
@@ -169,12 +169,12 @@ fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
         vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 1, index);
         tick(&clock, video.as_mut(), boundary(index));
     }
-    let mut slow = Box::pin(source.next_capture(Some(0)));
+    let mut slow = std::pin::pin!(source.next_capture(Some(0)));
     let Poll::Ready(Some(latest)) = slow.as_mut().poll(&mut cx_a) else {
         panic!("latest frame should be ready");
     };
     assert_eq!(latest.time, boundary(20));
-    let mut next = Box::pin(source.next_capture(Some(latest.sequence)));
+    let mut next = std::pin::pin!(source.next_capture(Some(latest.sequence)));
     assert!(next.as_mut().poll(&mut cx_a).is_pending());
     let wakes = wake_a.0.load(Ordering::Relaxed);
     drop(video);
@@ -189,14 +189,14 @@ fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
 fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     let clock = Rc::new(ManualClock::default());
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
-    let mut video = Box::pin(Vga::run(vga.clone()));
+    let mut video = std::pin::pin!(Vga::run(vga.clone()));
     let source = vga.borrow().frame_source();
     tick(&clock, video.as_mut(), boundary(1));
     let first = source.current_capture().unwrap();
     let wakes = Arc::new(WakeCount::default());
     let change_waker = waker(wakes.clone());
     let mut cx = Context::from_waker(&change_waker);
-    let mut changed = Box::pin(source.next_capture(Some(first.sequence)));
+    let mut changed = std::pin::pin!(source.next_capture(Some(first.sequence)));
     assert!(changed.as_mut().poll(&mut cx).is_pending());
 
     tick(&clock, video.as_mut(), boundary(2));
@@ -217,7 +217,7 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     assert_eq!(latest.display.plane(0)[0], 0xdb);
     assert!(Arc::ptr_eq(&latest, &source.current_capture().unwrap()));
 
-    let mut changed = Box::pin(source.next_capture(Some(latest.sequence)));
+    let mut changed = std::pin::pin!(source.next_capture(Some(latest.sequence)));
     assert!(changed.as_mut().poll(&mut cx).is_pending());
     wakes.0.store(0, Ordering::Relaxed);
     crtc(&mut *vga.borrow_mut(), 0x0f, 1);
@@ -232,7 +232,7 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     // Frame 8 changes only the cursor phase. Skipping to 24 changes only the
     // attribute phase: the cursor has completed a full cycle in between.
     for (frame, cursor_on, attribute_on) in [(8, false, true), (24, false, false)] {
-        let mut changed = Box::pin(source.next_capture(Some(latest.sequence)));
+        let mut changed = std::pin::pin!(source.next_capture(Some(latest.sequence)));
         assert!(changed.as_mut().poll(&mut cx).is_pending());
         wakes.0.store(0, Ordering::Relaxed);
         tick(&clock, video.as_mut(), boundary(frame));

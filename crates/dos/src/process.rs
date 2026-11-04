@@ -33,7 +33,7 @@ pub struct Process {
 }
 
 enum State {
-    Active(Resources),
+    Active(Box<Resources>),
     Exited(Result<u8, ServiceError>),
 }
 
@@ -46,13 +46,13 @@ impl Process {
     pub(crate) fn new(psp_segment: u16, devices: DeviceChain, stdio: &Stdio) -> Self {
         Self {
             psp_segment,
-            state: RefCell::new(State::Active(Resources {
+            state: RefCell::new(State::Active(Box::new(Resources {
                 files: Files::new(devices, stdio),
                 dta: FarPointer {
                     segment: psp_segment,
                     offset: COMMAND_TAIL_OFFSET,
                 },
-            })),
+            }))),
         }
     }
 
@@ -71,7 +71,7 @@ impl Process {
 
     fn resources(&self) -> RefMut<'_, Resources> {
         RefMut::map(self.state.borrow_mut(), |state| match state {
-            State::Active(resources) => resources,
+            State::Active(resources) => resources.as_mut(),
             State::Exited(_) => unreachable!("DOS service requires an active process"),
         })
     }
