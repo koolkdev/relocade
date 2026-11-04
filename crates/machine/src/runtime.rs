@@ -49,6 +49,7 @@ mod io;
 mod machine;
 mod memory;
 pub mod real_mode_interrupt;
+mod storage;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
@@ -61,6 +62,7 @@ pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
 use machine::Machine;
 use memory::RuntimeMemory;
+pub use storage::CpuStorage;
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
@@ -77,8 +79,17 @@ impl Cpu {
     /// Guest bytes are preserved. Host services capture their application resources.
     /// Port and MMIO accesses use the supplied execution-local device bus.
     pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus) -> Result<Self> {
+        CpuStorage::new()?.into_cpu(memory, cpu, io).await
+    }
+
+    async fn with_storage(
+        memory: Memory,
+        cpu: CpuConfig,
+        io: IoBus,
+        storage: CpuStorage,
+    ) -> Result<Self> {
         let mut backend = Backend::with_state(io.clone())?;
-        let bindings = RuntimeMemory::new(&mut backend, memory, cpu)?;
+        let bindings = RuntimeMemory::new(&mut backend, memory, cpu, storage)?;
         let host_imports = io::imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         let machine = Machine {
