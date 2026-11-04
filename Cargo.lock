@@ -799,6 +799,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
 dependencies = [
  "concurrent-queue",
+ "parking",
  "pin-project-lite",
 ]
 
@@ -2311,6 +2312,17 @@ name = "relocade-interpreter"
 version = "0.0.0"
 dependencies = [
  "relocade-x86",
+]
+
+[[package]]
+name = "relocade-keyboard"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+ "futures-util",
+ "relocade-frontend",
+ "relocade-machine",
+ "relocade-pic",
 ]
 
 [[package]]

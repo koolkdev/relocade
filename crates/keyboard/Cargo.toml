@@ -1,0 +1,13 @@
+[package]
+name = "relocade-keyboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+relocade-machine = { path = "../machine" }
+relocade-pic = { path = "../pic" }
+relocade-frontend = { path = "../frontend", features = ["keyboard"] }
+async-channel = "=2.5.0"
+futures-util = "=0.3.34"
