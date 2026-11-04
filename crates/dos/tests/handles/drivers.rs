@@ -134,7 +134,7 @@ fn driver_errors_reach_handle_and_rust_calls_while_dos_character_output_ignores_
         input.borrow_mut().extend(b"A\r");
         // Echo failure is returned even though this driver accepts the final LF.
         assert_eq!(dos.console().read_line().await, Err(DosError::AccessDenied));
-        assert_eq!(&*input.borrow(), &VecDeque::from([b'\r']));
+        assert_eq!(&*input.borrow(), &VecDeque::from(*b"\r"));
 
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu().context().memory.write(0x10400, b"X$").unwrap();

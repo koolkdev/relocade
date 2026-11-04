@@ -99,7 +99,7 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
     vga.borrow_mut().write_mmio(0xb8000, 2, 0x0741);
     let source = vga.borrow().frame_source();
-    let mut video = Box::pin(Vga::run(vga.clone()));
+    let mut video = std::pin::pin!(Vga::run(vga.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     clock.set(boundary(1));
     poll_video(video.as_mut(), &mut cx);

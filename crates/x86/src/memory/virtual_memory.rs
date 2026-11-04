@@ -4,13 +4,13 @@ use std::cell::OnceCell;
 
 use relocade_compiler::{Func, Mem, Program, TypedFunc};
 
-use super::page_table::PageTable;
+use super::page_table::{PageTable, ResolveRange};
 
 /// Module handles for guest memory and its shared access helpers.
 pub(crate) struct VirtualMemory {
     pub(super) guest: Mem,
     pub(super) table: PageTable,
-    pub(super) range_resolver: TypedFunc<fn(u32, u32, u32, u32) -> u32>,
+    pub(super) range_resolver: TypedFunc<ResolveRange>,
     pub(super) scattered_readers: [OnceCell<Func>; 5],
     pub(super) scattered_writers: [OnceCell<Func>; 5],
 }

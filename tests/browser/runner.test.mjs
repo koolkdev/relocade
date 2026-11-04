@@ -37,6 +37,10 @@ test("shared browser switches page and worker bindings and isolates each suite",
                             worker.onerror = reject;
                         });
                         if (actual !== expected) throw new Error("Stale worker bindings");
+                        if (performance.getEntriesByType("resource").some(resource =>
+                            new URL(resource.name).pathname === "/@vite/client")) {
+                            throw new Error("Test page loaded the hot-reload client");
+                        }
                     } finally {
                         worker.terminate();
                     }

@@ -57,6 +57,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Configure native test environment
         run: echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
@@ -80,6 +82,9 @@ jobs:
           key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: |
             wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-
+
+      - name: Run strict Clippy
+        run: cargo clippy ${{ matrix.packages }} --all-targets --all-features --profile test --locked -- -D warnings
 
       - name: Run tests
         # Keep package selection and features identical when running ignored tests,
@@ -117,7 +122,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-10-20
-          components: rust-src
+          components: rust-src, clippy
 
       - uses: actions/setup-node@v6
         with:
@@ -140,11 +145,17 @@ jobs:
       - name: Install Wasm test runner
         run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
 
+      - name: Install browser dependencies
+        run: |
+          npm --prefix tests/browser ci
+          npm --prefix tools ci
+
+      - name: Run strict Clippy
+        run: npm --prefix tests/browser run lint
+
       - name: Run browser tests
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
-          npm --prefix tests/browser ci
-          npm --prefix tools ci
           npm --prefix tests/browser run test:runner
           npm --prefix tests/browser test

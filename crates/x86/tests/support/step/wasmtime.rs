@@ -270,7 +270,7 @@ impl TestModule {
         );
         assert_eq!(store.data().mmio_updates.len(), 0, "unused MMIO updates");
         assert_eq!(store.data().port_reads.len(), 0, "unused port reads");
-        let guest_unchanged = &*guest_before == guest.read(0, 65536);
+        let guest_unchanged = *guest_before == guest.read(0, 65536);
         let machine_unchanged = store.data().machine_unchanged;
         Observation {
             events: store.into_data().events,

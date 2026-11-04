@@ -14,7 +14,15 @@ export async function withBrowser(consume) {
         configFile: fileURLToPath(new URL("./vite.config.mjs", import.meta.url)),
         resolve: { alias: { "relocade:wasm-bindings": bindingsId } },
         plugins: [{
-            name: "relocade-test-bindings",
+            name: "relocade-browser-tests",
+            transformIndexHtml: {
+                order: "post",
+                handler(html) {
+                    // Vite injects its client even with HMR disabled. Test pages
+                    // need module transforms, without a development connection.
+                    return html.replace(/<script\b[^>]*\bsrc=["']\/@vite\/client["'][^>]*><\/script>/g, "");
+                },
+            },
             resolveId(id) {
                 if (id === bindingsId) return id;
             },
@@ -27,7 +35,7 @@ export async function withBrowser(consume) {
         }],
         // Generated bindings and worker shims are local modules, with no npm imports.
         optimizeDeps: { noDiscovery: true, include: [] },
-        server: { host: "127.0.0.1", port: 0, hmr: false },
+        server: { host: "127.0.0.1", port: 0, hmr: false, ws: false },
     });
     let browser;
     let control;

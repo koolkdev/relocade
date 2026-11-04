@@ -30,6 +30,10 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, TypedFunc, Val, 
 const PAGE_SHIFT: u32 = 12;
 const ENTRY_SHIFT: u32 = 2;
 
+/// Wasm helper signature for resolving a span's backing and permissions.
+pub(super) type ResolveRange =
+    fn(start: u32, last_byte_offset: u32, first_entry: u32, required: u32) -> u32;
+
 /// Number of guest bytes covered by one table entry.
 pub const PAGE_BYTES: u32 = 1 << PAGE_SHIFT;
 /// Table size in bytes, covering the entire 32-bit linear address space.
@@ -85,11 +89,8 @@ impl PageTable {
 
     /// Resolves every touched page of a nonempty span. The result carries its
     /// first frame and permissions, plus scattered backing, or the first denial.
-    pub(super) fn range_resolver(
-        self,
-        program: &mut Program,
-    ) -> TypedFunc<fn(u32, u32, u32, u32) -> u32> {
-        program.function::<fn(u32, u32, u32, u32) -> u32>(
+    pub(super) fn range_resolver(self, program: &mut Program) -> TypedFunc<ResolveRange> {
+        program.function::<ResolveRange>(
             move |mut body, (start, last_byte_offset, first_entry, required)| {
                 body.if_(first_entry.and(&required).ne(&required), |arm| {
                     arm.return_(first_entry.and(FRAME_MASK | PRESENT | WRITABLE))

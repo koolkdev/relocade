@@ -23,7 +23,7 @@ fn temporary(dos: &mut Dos, directory: &[u8], attributes: u16) -> (CpuState, Vec
         }
     }
     let cpu = service(dos, 0x5a00, 0, attributes, OFFSET);
-    let mut machine = dos.cpu().context();
+    let machine = dos.cpu().context();
     for (index, byte) in buffer.iter_mut().enumerate() {
         let address = u32::from(SEGMENT) * 16 + u32::from(OFFSET.wrapping_add(index as u16));
         machine

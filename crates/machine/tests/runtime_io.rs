@@ -87,8 +87,8 @@ async fn check_device_access() {
         let device = RecordingDevice::new(0x3000);
         let io = IoBus::new([DeviceConnection {
             device: device.clone(),
-            mmio: vec![0x3000..=0x4fff],
-            ports: vec![0x3d4..=0x3d4],
+            mmio: std::iter::once(0x3000..=0x4fff).collect(),
+            ports: std::iter::once(0x3d4..=0x3d4).collect(),
         }]);
         let compiler = Compiler::new(ExecutionProfile::Real16);
         let mut segments = Segments::real_mode();
@@ -220,8 +220,8 @@ async fn check_retained_memory_bus() {
     let lifetime = Rc::downgrade(&device);
     let io = IoBus::new([DeviceConnection {
         device,
-        mmio: vec![0x3000..=0x4fff],
-        ports: vec![0x3d4..=0x3d4],
+        mmio: std::iter::once(0x3000..=0x4fff).collect(),
+        ports: std::iter::once(0x3d4..=0x3d4).collect(),
     }]);
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
@@ -288,12 +288,12 @@ fn mmio_crosses_device_boundaries_and_open_bus() {
     let io = IoBus::new([
         DeviceConnection {
             device: first.clone(),
-            mmio: vec![0x3000..=0x3002],
+            mmio: std::iter::once(0x3000..=0x3002).collect(),
             ports: vec![],
         },
         DeviceConnection {
             device: second.clone(),
-            mmio: vec![0x3004..=0x3fff],
+            mmio: std::iter::once(0x3004..=0x3fff).collect(),
             ports: vec![],
         },
     ]);
@@ -339,12 +339,12 @@ fn a20_wrap_splits_mmio_at_the_bus_address_discontinuity() {
     let io = IoBus::new([
         DeviceConnection {
             device: low.clone(),
-            mmio: vec![0..=0xfff],
+            mmio: std::iter::once(0..=0xfff).collect(),
             ports: vec![],
         },
         DeviceConnection {
             device: high.clone(),
-            mmio: vec![0xff000..=0xfffff],
+            mmio: std::iter::once(0xff000..=0xfffff).collect(),
             ports: vec![],
         },
     ]);
@@ -394,7 +394,7 @@ fn far_buffers_wrap_offsets_independently_of_a20_and_mapping_policy() {
         let device = RecordingDevice::new(0xf0000);
         let io = IoBus::new([DeviceConnection {
             device: device.clone(),
-            mmio: vec![0xf0000..=0xf0fff],
+            mmio: std::iter::once(0xf0000..=0xf0fff).collect(),
             ports: vec![],
         }]);
         let mut map = PhysicalMemoryMap::new([
