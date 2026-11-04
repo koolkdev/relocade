@@ -72,6 +72,35 @@ existing transfer instead of posting it again through a registration channel.
 its CPU through `runner.create_cpu` or `Dos::new`. `WakeConnection` retains the
 binding; the separate `worker::Executor` owns polling, stop handling and idle parking.
 
+## Persistent resource channels
+
+For repeated resource delivery from a persistent worker, create a
+`worker::channel::<Module>()`. Transfer each `Endpoint` to its final owner with
+`ThreadExt::run_resource`, then call `bind()` to create a local `Port`:
+
+```rust,ignore
+let (sender, receiver) = worker::channel::<Module>()?;
+let compile = compiler_thread.run_resource(sender, move |sender| async move {
+    let sender = sender.bind();
+    while let Some(request) = requests.next().await {
+        sender.send(compile_request(request).await?)?;
+    }
+    Ok::<(), Error>(())
+});
+```
+
+Use Rust channels for requests and readiness notifications; resource ports carry
+engine handles. Sending queues a resource without acknowledging receipt. Bound
+ports own their local listener and cannot be transferred. Cancelling `recv()`
+preserves queued values. Dropping a bound peer closes the stream after its queued
+messages. An unbound endpoint has no close handshake; bind it on its final owner
+before relying on orderly closure. Browser worker termination cannot promise
+that handshake. Await accepted tasks before releasing their workers.
+
+Receiving a posted resource still needs a browser event-loop turn. A Rust
+readiness notification can interrupt guest execution, but cannot itself deliver
+the engine handle. Resource transport does not choose execution scheduling.
+
 ## Browser build and lifetime
 
 Browser runtime builds use one threaded Rust configuration throughout: atomics,
