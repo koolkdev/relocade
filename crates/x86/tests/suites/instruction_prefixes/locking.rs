@@ -337,6 +337,7 @@ test_cases!(atomic_operand_boundaries, atomic_boundaries());
 fn unavailable_lock_forms_reject_before_unused_operand_fields() {
     for code in [
         &[0xf0, 0x90][..],
+        &[0xf0, 0xf4],
         &[0xf0, 0x8b],
         &[0xf0, 0x03],
         &[0xf0, 0x01, 0xc0],

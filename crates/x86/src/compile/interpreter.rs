@@ -51,9 +51,11 @@ pub fn compile_interpreter(
 /// An inhibiting Real16 STI/MOV SS/POP SS instead returns `InterruptInhibited`,
 /// requesting another protected step before IRQ polling or an execution interrupt.
 /// Real16 POPF/IRET that enables IF returns `InterruptsEnabled`.
+/// HLT returns `Halted` with IP after the instruction; the host must retain the halt.
 /// Guest faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before returning and retains completed elements on a fault.
-/// This entry checks execution interrupts after retirement.
+/// Completed instructions check execution interrupts before returning, except
+/// `InterruptInhibited` and `Halted`, whose driver transitions must happen first.
 ///
 /// The host must establish profile compatibility before entry. The interpreter
 /// checks instruction fetches at runtime; it does not require a validated snapshot.

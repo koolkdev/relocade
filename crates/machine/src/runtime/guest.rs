@@ -1,4 +1,4 @@
-//! Explicit interpreter progress for debuggers and bounded instruction tests.
+//! Synchronous guest execution, protected successors and halt transitions.
 
 use super::Cpu;
 use relocade_x86::ExecutionExit;
@@ -15,6 +15,8 @@ impl Cpu {
     /// `InterruptsEnabled` when a flag restore enables IF. An execution-interrupt
     /// request takes precedence and returns `Interrupted` at the completed boundary.
     /// Execution-interrupt requests remain pending for the execution owner.
+    /// HLT returns `Halted`, including when an execution interrupt is pending.
+    /// Further steps remain halted; use `run` to accept a device IRQ and resume.
     ///
     /// # Panics
     /// Panics while a host call is active or suspended. Use `run` to continue
@@ -24,11 +26,27 @@ impl Cpu {
             self.pending.is_none() && self.suspended.is_empty(),
             "complete host calls before instruction stepping"
         );
-        loop {
-            let exit = self.machine.dispatch.step(&mut self.machine.backend);
-            if exit != ExecutionExit::InterruptInhibited {
-                return exit;
-            }
+        if self.halted {
+            return ExecutionExit::Halted;
         }
+        let exit = self.machine.dispatch.step(&mut self.machine.backend);
+        self.finish_guest_exit(exit)
+    }
+
+    pub(super) fn run_guest(&mut self) -> ExecutionExit {
+        let exit = self.machine.dispatch();
+        self.finish_guest_exit(exit)
+    }
+
+    /// Finish protected successors before polling IRQs or returning to Rust.
+    /// Both entry paths retain HLT before exposing a completed guest boundary.
+    fn finish_guest_exit(&mut self, mut exit: ExecutionExit) -> ExecutionExit {
+        while exit == ExecutionExit::InterruptInhibited && !self.exit.is_requested() {
+            exit = self.machine.dispatch.step(&mut self.machine.backend);
+        }
+        if exit == ExecutionExit::Halted {
+            self.halted = true;
+        }
+        exit
     }
 }

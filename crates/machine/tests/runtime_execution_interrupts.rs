@@ -6,6 +6,21 @@ use relocade_x86::{
     Segments,
 };
 
+struct Stopped {
+    state: relocade_machine::CpuStateAccess,
+    report: Option<futures_channel::oneshot::Sender<u64>>,
+}
+
+impl Drop for Stopped {
+    fn drop(&mut self) {
+        let _ = self
+            .report
+            .take()
+            .unwrap()
+            .send(self.state.instruction_count());
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -131,3 +146,6 @@ mod construction;
 
 #[path = "runtime_execution_interrupts/session.rs"]
 mod session;
+
+#[path = "runtime_execution_interrupts/halt.rs"]
+mod halt;

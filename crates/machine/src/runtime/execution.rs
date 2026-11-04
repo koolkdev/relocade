@@ -27,6 +27,10 @@ impl ExitHandle {
         Self(Rc::default())
     }
 
+    pub(super) fn is_requested(&self) -> bool {
+        self.0.get()
+    }
+
     /// Requests an execution exit. The current host poll completes normally.
     pub fn request(&self) {
         self.0.set(true);
@@ -48,7 +52,7 @@ impl Cpu {
     ///
     /// Dropping this waiter preserves active and parked calls and their locals.
     /// A subsequent run continues from the same call or guest position. An observed
-    /// exit request releases retained calls and returns `HostExit::Return`.
+    /// exit request releases retained calls, clears HLT and returns `HostExit::Return`.
     /// Dropping the CPU drops retained calls innermost first, before the machine.
     ///
     /// Real-mode device IRQs are delivered at stopped guest boundaries according
@@ -59,9 +63,12 @@ impl Cpu {
     /// Execution interrupts, guest faults and replacement waiters preserve parked calls.
     /// Guest IF-enabling instructions return to this same IRQ polling loop, so a
     /// request queued while masked needs no later notification to become eligible.
+    /// HLT retires and waits without executing its successor until an eligible
+    /// device IRQ is accepted. Unrelated wakes and replacement run waiters retain
+    /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
         let exit = poll_fn(|cx| {
-            if self.exit.0.get() {
+            if self.exit.is_requested() {
                 return Poll::Ready(ExecutionExit::Host(HostExit::Return));
             }
             // Poll active work once; guest entries below poll new or resumed calls.
@@ -77,12 +84,12 @@ impl Cpu {
                     if let Some(call) = self.pending.take() {
                         self.suspended.push(call);
                     }
-                } else if self.pending.is_some() {
+                } else if self.pending.is_some() || self.halted {
                     return Poll::Pending;
                 }
 
                 let exit = self.run_guest();
-                if self.exit.0.get() {
+                if self.exit.is_requested() {
                     continue;
                 }
                 self.pending = match exit {
@@ -93,7 +100,9 @@ impl Cpu {
                         Ok(call) => call,
                         Err(exit) => return Poll::Ready(exit),
                     },
-                    ExecutionExit::StepComplete | ExecutionExit::InterruptsEnabled => continue,
+                    ExecutionExit::StepComplete
+                    | ExecutionExit::InterruptsEnabled
+                    | ExecutionExit::Halted => continue,
                     exit => return Poll::Ready(exit),
                 };
             }
@@ -102,6 +111,7 @@ impl Cpu {
         if exit == ExecutionExit::Host(HostExit::Return) {
             self.pending.take();
             self.abandon_suspended_calls();
+            self.halted = false;
             // Coalesce any requests made while destroying the retained work.
             self.exit.0.set(false);
         }
@@ -111,37 +121,26 @@ impl Cpu {
     /// Delivers an IRQ at a stopped boundary, whether or not a host call is pending.
     /// Reports success only after entry; the caller then parks any active call.
     fn try_deliver_interrupt(&mut self, cx: &mut Context<'_>) -> Result<bool, ExecutionExit> {
-        if self.exit.0.get() {
+        if self.exit.is_requested() {
             return Err(ExecutionExit::Host(HostExit::Return));
         }
         let interrupt = self.machine.poll_interrupt(cx);
         // Device callbacks can request an exit, including when no IRQ is ready.
-        if self.exit.0.get() {
+        if self.exit.is_requested() {
             return Err(ExecutionExit::Host(HostExit::Return));
         }
         let Poll::Ready(vector) = interrupt else {
             return Ok(false);
         };
+        // Interrupt recognition ends HLT even if entering the ISR faults.
+        self.halted = false;
         let entered = self.machine.enter_interrupt(vector);
         // Frame writes and IVT reads may also request an exit. Observe it before
         // parking a call or executing the ISR, even when IRQ entry faults.
-        if self.exit.0.get() {
+        if self.exit.is_requested() {
             return Err(ExecutionExit::Host(HostExit::Return));
         }
         entered?;
         Ok(true)
-    }
-
-    /// Runs guest code to the next host entry or guest exit, including any
-    /// successor protected by an interrupt-inhibiting instruction.
-    fn run_guest(&mut self) -> ExecutionExit {
-        let machine = &mut self.machine;
-        let mut exit = machine.dispatch();
-        // Finish protected successors before polling IRQs or returning for a
-        // checkpoint. STEP publishes its result without dispatching the target.
-        while exit == ExecutionExit::InterruptInhibited && !self.exit.0.get() {
-            exit = machine.dispatch.step(&mut machine.backend);
-        }
-        exit
     }
 }

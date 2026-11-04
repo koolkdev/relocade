@@ -39,6 +39,9 @@ pub enum ExecutionExit {
     /// Real-mode POPF or IRET enabled interrupts. CPU state is published;
     /// poll pending device IRQs before continuing guest execution.
     InterruptsEnabled,
+    /// HLT completed. IP names its successor; retain the halt until an eligible
+    /// interrupt is accepted. Ordinary host notifications do not resume the guest.
+    Halted,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

@@ -44,12 +44,12 @@ mod dispatch;
 mod error;
 mod execution;
 mod execution_interrupt;
+mod guest;
 mod hooks;
 mod io;
 mod machine;
 mod memory;
 pub mod real_mode_interrupt;
-mod step;
 mod storage;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
@@ -73,6 +73,7 @@ pub struct Cpu {
     suspended: Vec<Call>,
     machine: Machine,
     exit: ExitHandle,
+    halted: bool,
     // Identifies the owning session once at run entry, never during hooks.
     pub(crate) executor: std::rc::Weak<crate::worker::Executor<ExecutionInterrupt>>,
 }
@@ -106,6 +107,7 @@ impl Cpu {
             suspended: Vec::new(),
             machine,
             exit: ExitHandle::new(),
+            halted: false,
             executor: std::rc::Weak::new(),
         })
     }

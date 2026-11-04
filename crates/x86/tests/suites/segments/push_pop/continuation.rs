@@ -80,7 +80,7 @@ fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() 
 fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
     for (segment, opcode) in POP {
         let mut code = opcode.to_vec();
-        code.push(0xf4); // Unsupported next byte must remain undecoded.
+        code.push(0xf1); // Unsupported next byte must remain undecoded.
         let mut image = Image::new(&code);
         image.cpu.registers.esp = 0x4000;
         image.map(4, 0x8000, false);

@@ -322,3 +322,6 @@ mod resumption;
 
 #[path = "runtime_calls/lifecycle.rs"]
 mod lifecycle;
+
+#[path = "runtime_calls/halt.rs"]
+mod halt;

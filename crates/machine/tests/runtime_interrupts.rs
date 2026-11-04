@@ -235,3 +235,6 @@ mod exit;
 
 #[path = "runtime_interrupts/eligibility.rs"]
 mod eligibility;
+
+#[path = "runtime_interrupts/halt.rs"]
+mod halt;

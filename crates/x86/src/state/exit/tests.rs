@@ -21,6 +21,7 @@ fn exit_module() -> Vec<u8> {
         "interrupted",
         "step_complete",
         "interrupts_enabled",
+        "halted",
         "host_return",
         "host_call",
         "host_resume",
@@ -58,6 +59,7 @@ fn exit_module() -> Vec<u8> {
                         return body.return_(ExecutionExitValues::interrupts_enabled())
                     }
                     "step_complete" => return body.return_(ExecutionExitValues::step_complete()),
+                    "halted" => return body.return_(ExecutionExitValues::halted()),
                     "unsupported" => return unsupported(body, &address, detail.truncate::<I8>()),
                     _ => unreachable!(),
                 };
@@ -113,6 +115,7 @@ fn generated_exits_preserve_payloads() {
         ("interrupted", ExecutionExit::Interrupted),
         ("step_complete", ExecutionExit::StepComplete),
         ("interrupts_enabled", ExecutionExit::InterruptsEnabled),
+        ("halted", ExecutionExit::Halted),
         ("host_return", ExecutionExit::Host(HostExit::Return)),
         ("host_resume", ExecutionExit::Host(HostExit::Resume)),
         (
@@ -170,6 +173,7 @@ fn execution_exits_share_four_wasm_values() {
         (ExecutionExit::Interrupted, (5, 0, 0, 0)),
         (ExecutionExit::StepComplete, (6, 0, 0, 0)),
         (ExecutionExit::InterruptsEnabled, (7, 0, 0, 0)),
+        (ExecutionExit::Halted, (8, 0, 0, 0)),
         (
             ExecutionExit::Exception(Exception::PageFault {
                 linear_address: address,
