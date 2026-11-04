@@ -22,6 +22,8 @@ pub struct Speaker<C = TimerHandle> {
     control: u8,
     #[cfg(feature = "audio")]
     audio: Option<audio::Audio>,
+    #[cfg(feature = "audio")]
+    audio_ready: (async_channel::Sender<()>, async_channel::Receiver<()>),
 }
 
 impl<C: Clock> Speaker<C> {
@@ -33,6 +35,8 @@ impl<C: Clock> Speaker<C> {
             control: 0,
             #[cfg(feature = "audio")]
             audio: None,
+            #[cfg(feature = "audio")]
+            audio_ready: async_channel::bounded(1),
         }
     }
 

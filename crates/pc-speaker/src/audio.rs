@@ -5,16 +5,19 @@ use relocade_pit::{Counter, INPUT_HZ};
 use std::{cell::RefCell, rc::Rc};
 
 impl<C: Clock> Speaker<C> {
-    /// Attach output before connecting the device to its runner. Synthesis runs
-    /// in the device activity on the execution worker. Connect a bounded channel
+    /// Attaches output once, including after the device activity has started.
+    /// Synthesis runs on the execution worker. Connect a bounded channel
     /// consumed at the configured playback rate: backpressure provides scheduling
     /// cooperation. Unpaced sinks require external pacing. Muted output submits
     /// silence.
-    pub fn with_audio(
-        mut self,
+    pub fn attach_audio(
+        &mut self,
         config: cpal::StreamConfig,
         samples: Sender<Vec<f32>>,
-    ) -> Result<Self, String> {
+    ) -> Result<(), String> {
+        if self.audio.is_some() {
+            return Err("speaker output is already attached".into());
+        }
         if config.sample_rate == 0 || config.channels == 0 {
             return Err("speaker output needs a nonzero sample rate and channel count".into());
         }
@@ -28,7 +31,8 @@ impl<C: Clock> Speaker<C> {
             counter: self.counter.clone(),
             fraction: 0,
         });
-        Ok(self)
+        self.audio_ready.0.try_send(()).unwrap();
+        Ok(())
     }
 }
 
@@ -73,14 +77,9 @@ impl Audio {
 }
 
 pub(super) async fn run<C: Clock>(device: Rc<RefCell<Speaker<C>>>) {
-    let Some(samples) = device
-        .borrow()
-        .audio
-        .as_ref()
-        .map(|audio| audio.samples.clone())
-    else {
-        return;
-    };
+    let ready = device.borrow().audio_ready.1.clone();
+    ready.recv().await.unwrap();
+    let samples = device.borrow().audio.as_ref().unwrap().samples.clone();
     loop {
         let buffer = {
             let mut device = device.borrow_mut();

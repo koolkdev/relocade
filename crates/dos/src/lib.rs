@@ -69,7 +69,9 @@
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
 //! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
-//! [`Dos::new`] registers VGA and the timer with that runner and shares its clock.
+//! [`Dos::new`] registers VGA, the PIT timer and PC speaker with that runner.
+//! [`Dos::speaker`] exposes its speaker for attaching audio output after startup.
+//! DOS opens no platform output; the device submits PCM on the execution worker.
 //! [`Dos::run`] returns the current program's exit code; devices keep running while
 //! the main session awaits input or another program. [`Dos::frame_source`] exposes
 //! captured display state across launches. The caller chooses the rendering implementation
@@ -126,6 +128,7 @@ pub use process::{Process, ProcessStatus};
 use relocade_machine::{
     real_mode_interrupt::Interrupts, Clock, Cpu, CpuContext, IoBus, Memory, Runner, TimerHandle,
 };
+use relocade_pc_speaker::Speaker;
 use relocade_vga::Vga;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
@@ -136,23 +139,28 @@ pub struct Dos<C = TimerHandle> {
     state: Rc<DosState>,
     cpu: Cpu,
     vga: Rc<RefCell<Vga<C>>>,
+    speaker: Rc<RefCell<Speaker<C>>>,
     keyboard_input: relocade_frontend::keyboard::KeyboardInput,
 }
 
 impl<C: Clock> Dos<C> {
-    /// Prepares memory and services, and registers VGA and the timer with the runner.
+    /// Prepares memory and services, and registers VGA, the PIT timer and a silent
+    /// PC speaker with the runner. Speaker ports work without host audio output.
     /// Launch a program before executing DOS services.
     pub async fn new(runner: &Runner<C>) -> relocade_machine::Result<Self>
     where
         C: Clone + 'static,
     {
-        let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
-            runner.clock().clone(),
-        ))));
+        let clock = Rc::new(runner.clock().clone());
+        let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
+        let speaker = Rc::new(RefCell::new(Speaker::with_clock(clock)));
         let keyboard = relocade_bios::Keyboard::default();
         let (keyboard_input, keyboard_device) = keyboard.connect(runner).await;
         let io = IoBus::new([
             relocade_pit::connect_channel0(runner).await,
+            runner
+                .connect(speaker.clone(), [], relocade_pc_speaker::PORTS)
+                .await,
             runner
                 .connect(
                     vga.clone(),
@@ -185,8 +193,17 @@ impl<C: Clock> Dos<C> {
             state,
             cpu,
             vga,
+            speaker,
             keyboard_input,
         })
+    }
+
+    /// Accesses the session's speaker on its execution owner, like [`Self::vga`].
+    /// With the speaker's `audio` feature, call `attach_audio(config, samples)`
+    /// here to connect output. Hardware state persists across process launches;
+    /// ending the execution session stops synthesis, independently of playback.
+    pub fn speaker(&self) -> Rc<RefCell<Speaker<C>>> {
+        self.speaker.clone()
     }
 
     /// Launches a COM image of 1..=65,278 bytes when no process is active.
