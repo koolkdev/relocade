@@ -75,14 +75,14 @@ impl Keyboard {
     /// BIOS-level adapter does not yet expose keyboard-controller I/O ports.
     /// It accepts ASCII text and base navigation/function scan codes. AltGr and
     /// the enhanced modifier-specific navigation/function codes are not modeled.
-    pub fn connect<C: relocade_machine::Clock>(
+    pub async fn connect<C: relocade_machine::Clock>(
         &self,
         runner: &relocade_machine::Runner<C>,
     ) -> (
         relocade_frontend::keyboard::KeyboardInput,
         relocade_machine::DeviceConnection,
     ) {
-        input::connect(self.clone(), runner)
+        input::connect(self.clone(), runner).await
     }
 
     /// Queues a translated keystroke and wakes a pending guest read.

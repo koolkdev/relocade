@@ -96,16 +96,18 @@ pub async fn runner_workers() -> Result<(), String> {
                 },
             )
             .unwrap();
-            let io = IoBus::new([runner.connect(
-                Rc::new(RefCell::new(ProgressDevice {
-                    clock: runner.clock().clone(),
-                    memory: memory.clone(),
-                    progressed: Some(progressed),
-                    dropped: Some(device_dropped),
-                })),
-                [],
-                [],
-            )]);
+            let io = IoBus::new([runner
+                .connect(
+                    Rc::new(RefCell::new(ProgressDevice {
+                        clock: runner.clock().clone(),
+                        memory: memory.clone(),
+                        progressed: Some(progressed),
+                        dropped: Some(device_dropped),
+                    })),
+                    [],
+                    [],
+                )
+                .await]);
             let probe = Rc::new(DropProbe {
                 local: Rc::new(()),
                 dropped: Some(dropped),

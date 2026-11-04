@@ -39,12 +39,16 @@ async fn exercise_audio_device() {
             )
             .unwrap();
         let io = IoBus::new([
-            runner.connect(Rc::new(RefCell::new(speaker)), [], PORTS),
-            runner.connect(
-                Rc::new(RefCell::new(Started(Some(started)))),
-                [],
-                std::iter::once(0x80..=0x80),
-            ),
+            runner
+                .connect(Rc::new(RefCell::new(speaker)), [], PORTS)
+                .await,
+            runner
+                .connect(
+                    Rc::new(RefCell::new(Started(Some(started)))),
+                    [],
+                    std::iter::once(0x80..=0x80),
+                )
+                .await,
         ]);
         let memory = Memory::new(
             MachineConfig::new(

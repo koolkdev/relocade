@@ -7,9 +7,18 @@ pub use runner::runner;
 // Service tests step the CPU directly; worker tests drive registered devices.
 pub async fn dos() -> Dos {
     let (clock, timers) = relocade_machine::timer_service();
-    std::thread::spawn(|| pollster::block_on(timers.run()));
     let (runner, _host) = runner(clock);
-    Dos::new(&runner).await.unwrap()
+    let mut dos = runner
+        .run(std::future::pending::<()>(), async |runner| {
+            Dos::new(runner).await.unwrap()
+        })
+        .await
+        .unwrap();
+    // CPU-only fixtures must not accumulate timer IRQs during compilation/setup.
+    // Start the clock driver after the session has dropped its device activities.
+    std::thread::spawn(|| pollster::block_on(timers.run()));
+    dos.cpu().interrupt_handle().take();
+    dos
 }
 
 /// Poll once and release the waiter while the CPU retains the pending service.

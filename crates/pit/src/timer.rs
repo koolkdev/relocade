@@ -11,17 +11,17 @@ use std::{
 const CLOCKS_PER_TICK: u64 = 65_536;
 
 /// Registers a timer at the BIOS default rate and returns its bus connection.
-/// The first period starts when the runner polls the activity. Divisor 65,536 at
+/// The first period and its wait are armed before this returns. Divisor 65,536 at
 /// approximately 1.193182 MHz supplies vector 08h every 54.9254 ms, without a PIC.
 /// Unacknowledged edges coalesce; delayed wakes keep phase without replaying
 /// missed edges. Programmable channel-0 ports are not implemented.
-pub fn connect_channel0<C: Clock + Clone + 'static>(runner: &Runner<C>) -> DeviceConnection {
+pub async fn connect_channel0<C: Clock + Clone + 'static>(runner: &Runner<C>) -> DeviceConnection {
     let timer = Rc::new(RefCell::new(Timer {
         clock: runner.clock().clone(),
         pending: false,
         waker: None,
     }));
-    runner.connect(timer, [], [])
+    runner.connect(timer, [], []).await
 }
 
 struct Timer<C> {

@@ -8,7 +8,8 @@ use crate::{
     Clock, Cpu, CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory,
     Result, TimerHandle,
 };
-use futures_channel::mpsc;
+use futures_channel::{mpsc, oneshot};
+use futures_lite::future::poll_once;
 /// Gives other ready Rust activities a polling opportunity without a host timer.
 /// This does not promise a browser event-loop turn.
 pub use futures_lite::future::yield_now;
@@ -70,17 +71,33 @@ impl<C: Clock> Runner<C> {
         &self.clock
     }
 
-    /// Registers a device's activity and creates its bus connection together.
-    /// The returned connection belongs in the CPU's [`crate::IoBus`].
-    pub fn connect<D: Device + 'static>(
+    /// Starts a device's activity before returning its bus connection.
+    /// Await this during setup inside [`Self::run`]. The activity has completed
+    /// its first poll with its device waker before this returns; pending waits
+    /// can therefore notify execution before the first guest instruction.
+    /// Initialize bus state before connecting, including any asynchronous setup.
+    /// Once queued, the activity belongs to the session even if this wait is
+    /// cancelled. The returned connection belongs in the CPU's [`crate::IoBus`].
+    pub async fn connect<D: Device + 'static>(
         &self,
         device: Rc<RefCell<D>>,
         mmio: impl IntoIterator<Item = RangeInclusive<u32>>,
         ports: impl IntoIterator<Item = RangeInclusive<u16>>,
     ) -> DeviceConnection {
+        let (started, ready) = oneshot::channel();
+        let activity_device = device.clone();
+        let activity = async move {
+            let mut run = pin!(D::run(activity_device));
+            let completed = poll_once(run.as_mut()).await.is_some();
+            let _ = started.send(());
+            if !completed {
+                run.await;
+            }
+        };
         self.activities
-            .unbounded_send(Box::pin(D::run(device.clone())))
+            .unbounded_send(Box::pin(activity))
             .unwrap_or_else(|_| panic!("runner must own its device activities"));
+        ready.await.expect("runner must poll registered devices");
         DeviceConnection {
             device,
             mmio: mmio.into_iter().collect(),
@@ -123,7 +140,8 @@ impl<C: Clock> Runner<C> {
             std::ptr::eq(cpu.executor.as_ptr(), Rc::as_ptr(&self.executor)),
             "construct the session CPU with runner.create_cpu"
         );
-        // Poll devices registered during application setup before guest entry.
+        // Let siblings in CPU-first async composition register their waits.
+        // Device activities were already started by connect().await.
         self.executor.yield_now().await;
         let quantum = self.instruction_quantum.get();
         let mut remaining = quantum;
