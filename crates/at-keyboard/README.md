@@ -52,8 +52,9 @@ keyboard buffer. Physical transitions continue while controller output is full;
 an unread byte stays intact and further input can overflow the scan buffer.
 Guest reads and interface commands control when transmission can resume.
 
-Register/translation state, controller firmware, keyboard scanning, keyboard
-firmware and scan-code tables have separate modules. They follow the
+The controller owns its registers, translation and command handling in one module.
+The keyboard owns scanning, repeat timing and async command exchanges in another;
+scan-code tables remain separate. They follow the
 [IBM PC/AT Technical Reference, March 1986](https://ftpmirror.your.org/pub/misc/bitsavers/pdf/ibm/pc/at/6183355_PC_AT_Technical_Reference_Mar86.pdf),
 pp. 1-42–1-54 and 4-39–4-57. This implements the keyboard path used by the DOS
 session. Mouse/auxiliary commands, scan set 3, A20/reset output-pin control,
