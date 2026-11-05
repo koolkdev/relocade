@@ -36,9 +36,9 @@ and wider transfers are unsupported: writes are ignored and reads return open bu
 Read-back can latch both supported channels at the same machine time.
 
 Channel 0 starts in BIOS mode 3, gate high, divisor 65,536 already loaded. The PIT
-sets IRQ0's initial level without creating an edge; the first IRQ arrives after
-a full period (about 54.9254 ms). Guest writes replace that configuration;
-pending divisor loads follow the same mode-specific rules as channel 2.
+connects its IRQ input at OUT0's starting level without creating an edge. The first
+IRQ arrives after a full period (about 54.9254 ms). Guest writes replace that
+configuration; pending divisor loads follow the same mode-specific rules as channel 2.
 
 The device waits for channel-0 transitions or reprogramming. It drives the PIC's
 IRQ0 level and preserves one pending rising edge when a delayed wake spans many
