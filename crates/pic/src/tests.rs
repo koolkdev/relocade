@@ -14,9 +14,9 @@ fn poll(pic: &mut Pic) -> Poll<u8> {
 #[test]
 fn masking_preserves_edges_and_eoi_releases_lower_priority_requests() {
     let mut pic = Pic::new(8);
-    let irq1 = pic.irq(1).connect(false);
+    let irq1 = pic.irq(1, false);
     irq1.pulse();
-    let irq0 = pic.irq(0).connect(true);
+    let irq0 = pic.irq(0, true);
     irq0.pulse();
     assert_eq!(poll(&mut pic), Poll::Pending);
     assert_eq!(pic.read_port(COMMAND_PORT, 1), 3);
@@ -44,7 +44,7 @@ fn masking_preserves_edges_and_eoi_releases_lower_priority_requests() {
 fn edge_inputs_require_a_new_rising_transition_and_coalesce() {
     let mut pic = Pic::new(8);
     pic.write_port(MASK_PORT, 1, 0xfd); // Unmask IRQ1.
-    let line = pic.irq(1).connect(true);
+    let line = pic.irq(1, true);
     assert_eq!(poll(&mut pic), Poll::Pending);
     line.set_level(true);
     assert_eq!(poll(&mut pic), Poll::Pending);
@@ -68,7 +68,7 @@ fn edge_inputs_require_a_new_rising_transition_and_coalesce() {
 #[test]
 fn initialization_remaps_vectors_and_auto_eoi_releases_service() {
     let mut pic = Pic::new(8);
-    let irq1 = pic.irq(1).connect(false);
+    let irq1 = pic.irq(1, false);
     pic.write_port(COMMAND_PORT, 1, 0x11); // ICW1: cascaded, edge-triggered, ICW4 follows.
     pic.write_port(MASK_PORT, 1, 0x20); // ICW2: vector base 20h.
     pic.write_port(MASK_PORT, 1, 4); // ICW3: slave wired to IRQ2.
@@ -89,7 +89,7 @@ fn initialization_remaps_vectors_and_auto_eoi_releases_service() {
 #[test]
 fn level_requests_remain_asserted_until_the_device_lowers_them() {
     let mut pic = Pic::new(8);
-    let line = pic.irq(1).connect(true);
+    let line = pic.irq(1, true);
     for (port, value) in [
         (COMMAND_PORT, 0x1b), // ICW1: level-triggered, single, ICW4 follows.
         (MASK_PORT, 8),       // ICW2: BIOS vector base.
@@ -105,7 +105,7 @@ fn level_requests_remain_asserted_until_the_device_lowers_them() {
     pic.write_port(COMMAND_PORT, 1, 0x20); // OCW2: non-specific EOI.
     assert_eq!(poll(&mut pic), Poll::Pending);
 
-    let irq0 = pic.irq(0).connect(true);
+    let irq0 = pic.irq(0, true);
     assert_eq!(poll(&mut pic), Poll::Ready(8));
     irq0.set_level(false);
     pic.write_port(COMMAND_PORT, 1, 0x20); // OCW2: non-specific EOI.
@@ -132,8 +132,8 @@ fn level_requests_remain_asserted_until_the_device_lowers_them() {
 #[test]
 fn rotation_polling_and_special_mask_use_the_same_arbitration() {
     let mut pic = Pic::new(8);
-    let irq1 = pic.irq(1).connect(false);
-    let irq0 = pic.irq(0).connect(false);
+    let irq1 = pic.irq(1, false);
+    let irq0 = pic.irq(0, false);
     pic.write_port(MASK_PORT, 1, 0);
     irq0.pulse();
     irq1.pulse();
@@ -174,7 +174,7 @@ impl Wake for Wakes {
 #[test]
 fn masked_input_wakes_a_waiting_cpu_when_unmasked() {
     let mut pic = Pic::new(8);
-    let irq1 = pic.irq(1).connect(false);
+    let irq1 = pic.irq(1, false);
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
     assert!(pic
