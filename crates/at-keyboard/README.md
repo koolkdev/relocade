@@ -7,7 +7,8 @@ Correctness does not depend on a scheduler turn between keyboard events.
 
 `connect(&runner, pic.irq(KEYBOARD_IRQ)).await` registers the keyboard activity
 and ports (60h and 64h), returning its host `KeyboardInput` sender and
-`DeviceConnection`. Add the connection to the session bus. Controller firmware
+`DeviceConnection`. It consumes the selected `IrqInput`, connecting IRQ1 low until
+an output byte is ready. Add the connection to the session bus. Controller firmware
 and keyboard firmware run as two async futures in the existing device activity,
 on the execution owner. Physical frontend key positions feed the keyboard;
 characters and host layouts do not enter the hardware protocol. BIOS or a guest

@@ -2,7 +2,7 @@
 
 use crate::{scancodes, DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT};
 use event_listener::Event;
-use relocade_pic::IrqLine;
+use relocade_pic::{IrqInput, IrqLine};
 use std::cell::RefCell;
 
 const IRQ_ENABLED: u8 = 1;
@@ -41,7 +41,7 @@ pub(super) struct Controller {
 }
 
 impl Controller {
-    pub fn new(irq: IrqLine) -> Self {
+    pub fn new(irq: IrqInput) -> Self {
         Self {
             registers: RefCell::new(Registers {
                 input: None,
@@ -51,7 +51,7 @@ impl Controller {
                 break_prefix: false,
             }),
             changed: Event::new(),
-            irq,
+            irq: irq.connect(false),
         }
     }
 

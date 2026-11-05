@@ -60,7 +60,7 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
-    pub fn new(irq: IrqLine) -> Self {
+    pub fn new(irq: IrqInput) -> Self {
         let clock = ManualClock::default();
         let (input, events) = frontend::channel();
         let device = Rc::new(RefCell::new(KeyboardController {
