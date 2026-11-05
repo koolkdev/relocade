@@ -11,4 +11,8 @@ relocade-pic = { path = "../pic" }
 relocade-frontend = { path = "../frontend", features = ["keyboard"] }
 # Keep shared event listeners safe to poll on the browser main thread.
 async-channel = { version = "=2.5.0", default-features = false }
+event-listener = { version = "=5.4.1", default-features = false }
 futures-util = "=0.3.34"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"

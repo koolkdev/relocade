@@ -1,4 +1,9 @@
+#[cfg(target_arch = "wasm32")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+mod fixture;
 use super::*;
+use fixture::Fixture;
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState, NativeKey,
 };
@@ -22,12 +27,11 @@ fn key(code: KeyCode, pressed: bool) -> KeyboardEvent {
     }
 }
 
-fn event(controller: &mut Controller, event: KeyboardEvent) {
-    controller.keyboard.event(event, Duration::ZERO);
-    controller.refill();
+fn event(controller: &mut Fixture, event: KeyboardEvent) {
+    controller.event(event);
 }
 
-fn drain(controller: &mut Controller) -> Vec<u8> {
+fn drain(controller: &mut Fixture) -> Vec<u8> {
     let mut bytes = Vec::new();
     while controller.status() & 1 != 0 {
         bytes.push(controller.read_data());
@@ -35,17 +39,18 @@ fn drain(controller: &mut Controller) -> Vec<u8> {
     bytes
 }
 
-fn controller() -> (Controller, relocade_pic::Pic) {
+fn controller() -> (Fixture, relocade_pic::Pic) {
     let pic = relocade_pic::Pic::default();
     pic.unmask_irq(relocade_pic::KEYBOARD_IRQ);
-    (Controller::new(pic.irq(relocade_pic::KEYBOARD_IRQ)), pic)
+    (Fixture::new(pic.irq(relocade_pic::KEYBOARD_IRQ)), pic)
 }
 
 fn poll(pic: &mut relocade_pic::Pic) -> Poll<u8> {
     pic.poll_interrupt(&mut Context::from_waker(Waker::noop()))
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn each_output_byte_has_an_irq_and_reading_consumes_the_register() {
     let (mut controller, mut pic) = controller();
     event(&mut controller, key(KeyCode::ArrowUp, true));
@@ -67,7 +72,8 @@ fn each_output_byte_has_an_irq_and_reading_consumes_the_register() {
     assert_eq!(drain(&mut controller), [0xe0, 0xc8]);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn disabling_irq_retains_pollable_data_and_interface_disable_buffers_keys() {
     let (mut controller, mut pic) = controller();
     controller.command(0x60);
@@ -90,7 +96,8 @@ fn disabling_irq_retains_pollable_data_and_interface_disable_buffers_keys() {
     assert_eq!(controller.read_data(), 0x9e);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn raw_scan_sets_controller_translation_and_special_sequences_are_distinct() {
     let (mut controller, _) = controller();
     for (code, expected) in [
@@ -120,7 +127,8 @@ fn raw_scan_sets_controller_translation_and_special_sequences_are_distinct() {
     assert_eq!(drain(&mut controller), [0x1e, 0x9e]);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn keyboard_commands_acknowledge_parameters_and_restore_scanning_after_reset() {
     let (mut controller, _) = controller();
     controller.command(0x20);
@@ -166,7 +174,8 @@ fn keyboard_commands_acknowledge_parameters_and_restore_scanning_after_reset() {
     assert_eq!(drain(&mut controller), [0x9e]);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn focus_and_modifier_snapshots_emit_physical_transitions_without_duplicates() {
     let (mut controller, _) = controller();
     event(
@@ -189,10 +198,12 @@ fn focus_and_modifier_snapshots_emit_physical_transitions_without_duplicates() {
     let mut releases = drain(&mut controller);
     releases.sort();
     assert_eq!(releases, [0x9d, 0x9e]);
-    assert_eq!(controller.keyboard.deadline, None);
+    controller.advance(Duration::from_secs(1));
+    assert!(drain(&mut controller).is_empty());
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn guest_typematic_programming_owns_repeat_delay_and_rate() {
     let (mut controller, _) = controller();
     controller.data(0xf3);
@@ -201,24 +212,22 @@ fn guest_typematic_programming_owns_repeat_delay_and_rate() {
     assert_eq!(drain(&mut controller), [0xfa]); // 250ms, 30Hz.
     event(&mut controller, key(KeyCode::KeyA, true));
     assert_eq!(drain(&mut controller), [0x1e]);
-    controller.repeat(Duration::from_millis(249));
-    controller.refill();
+    controller.advance(Duration::from_millis(249));
     assert!(drain(&mut controller).is_empty());
-    controller.repeat(Duration::from_millis(250));
-    controller.refill();
+    controller.advance(Duration::from_millis(250));
     assert_eq!(drain(&mut controller), [0x1e]);
-    assert_eq!(
-        controller.keyboard.deadline,
-        Some(Duration::from_nanos(283_333_334))
-    );
+    controller.advance(Duration::from_nanos(283_333_333));
+    assert!(drain(&mut controller).is_empty());
+    controller.advance(Duration::from_nanos(283_333_334));
+    assert_eq!(drain(&mut controller), [0x1e]);
     event(&mut controller, key(KeyCode::KeyA, false));
     assert_eq!(drain(&mut controller), [0x9e]);
-    controller.repeat(Duration::from_secs(1));
-    controller.refill();
+    controller.advance(Duration::from_secs(1));
     assert!(drain(&mut controller).is_empty());
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn commands_abort_pending_options_and_resend_preserves_them() {
     let (mut controller, _) = controller();
     controller.data(0xed);
@@ -239,25 +248,26 @@ fn commands_abort_pending_options_and_resend_preserves_them() {
     assert_eq!(drain(&mut controller), [0x1e]);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn inhibited_typematic_does_not_accumulate_a_burst_and_modifiers_repeat() {
     let (mut controller, _) = controller();
     controller.command(0xad);
     event(&mut controller, key(KeyCode::KeyA, true));
     for second in 1..20 {
-        controller.repeat(Duration::from_secs(second));
+        controller.advance(Duration::from_secs(second));
     }
     controller.command(0xae);
     assert_eq!(drain(&mut controller), [0x1e]);
     event(&mut controller, key(KeyCode::ShiftLeft, true));
-    controller.repeat(Duration::from_secs(20));
-    controller.repeat(Duration::from_secs(21));
+    controller.advance(Duration::from_secs(20));
+    controller.advance(Duration::from_secs(21));
     assert_eq!(
         drain(&mut controller),
         [0x2a],
         "full output inhibits repeat"
     );
-    controller.repeat(Duration::from_secs(22));
+    controller.advance(Duration::from_secs(22));
     assert_eq!(
         drain(&mut controller),
         [0x2a],
@@ -265,7 +275,7 @@ fn inhibited_typematic_does_not_accumulate_a_burst_and_modifiers_repeat() {
     );
     event(&mut controller, key(KeyCode::Pause, true));
     assert_eq!(drain(&mut controller), [0xe1, 0x1d, 0x45, 0xe1, 0x9d, 0xc5]);
-    controller.repeat(Duration::from_secs(23));
+    controller.advance(Duration::from_secs(23));
     assert_eq!(
         drain(&mut controller),
         [0x2a],
@@ -273,7 +283,8 @@ fn inhibited_typematic_does_not_accumulate_a_burst_and_modifiers_repeat() {
     );
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn overflowing_the_keyboard_fifo_reports_overrun_without_partial_sequences() {
     let (mut controller, _) = controller();
     controller.command(0xad);
@@ -288,4 +299,139 @@ fn overflowing_the_keyboard_fifo_reports_overrun_without_partial_sequences() {
         drain(&mut controller),
         [0x1e, 0x9e, 0x1e, 0x9e, 0x1e, 0x9e, 0x1e, 0x9e, 0x1e, 0x9e, 0xff]
     );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn input_register_stays_busy_until_firmware_consumes_the_accepted_byte() {
+    let (mut controller, _) = controller();
+    controller.write_unpolled(STATUS_COMMAND_PORT, 0x20); // Read command byte.
+    assert_ne!(controller.status() & INPUT_BUFFER_FULL, 0);
+    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+    controller.write_unpolled(DATA_PORT, 0xff); // Busy writes cannot replace it.
+    assert_ne!(controller.status() & INPUT_BUFFER_FULL, 0);
+    controller.settle();
+    assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
+    assert_eq!(controller.read_unpolled(), 0x45);
+    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+    controller.settle();
+    assert!(drain(&mut controller).is_empty());
+
+    controller.command(0x60); // A new controller command replaces its option wait.
+    controller.command(0x20);
+    assert_eq!(drain(&mut controller), [0x45]);
+    controller.data(0xee);
+    assert_eq!(drain(&mut controller), [0xee]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn replies_wait_for_output_space_and_new_commands_interrupt_untransmitted_acks() {
+    let (mut controller, _) = controller();
+    event(&mut controller, key(KeyCode::KeyA, true));
+    controller.data(0xed); // LED ACK waits behind the unread make byte.
+    controller.data(0xee); // ECHO cancels that ACK and option exchange.
+    controller.command(0xad); // Controller commands still run while output waits.
+    assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
+    assert_eq!(controller.read_unpolled(), 0x1e);
+    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+    controller.settle();
+    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+    controller.command(0xae);
+    assert_eq!(drain(&mut controller), [0xee]);
+
+    controller.data(0xf2); // Three-byte ID reply advances only as the guest reads.
+    event(&mut controller, key(KeyCode::KeyB, true));
+    event(&mut controller, key(KeyCode::KeyB, false));
+    assert_eq!(drain(&mut controller), [0xfa, 0xab, 0x41]);
+    event(&mut controller, key(KeyCode::KeyC, true));
+    assert_eq!(drain(&mut controller), [0x2e], "scanning resumes after ID");
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn queued_host_events_do_not_starve_transmission_to_a_reading_guest() {
+    let (mut controller, _) = controller();
+    for _ in 0..32 {
+        controller.queue_event(key(KeyCode::KeyA, true));
+        controller.queue_event(key(KeyCode::KeyA, false));
+    }
+    let mut bytes = Vec::new();
+    for _ in 0..512 {
+        controller.poll_activity();
+        if controller.status() & OUTPUT_BUFFER_FULL != 0 {
+            bytes.push(controller.read_unpolled());
+        }
+        if bytes.len() == 64 {
+            break;
+        }
+    }
+    assert_eq!(bytes, [0x1e, 0x9e].repeat(32));
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn disconnect_releases_held_keys_and_keeps_guest_command_service_alive() {
+    let (mut controller, _) = controller();
+    event(&mut controller, key(KeyCode::KeyA, true));
+    assert_eq!(drain(&mut controller), [0x1e]);
+    controller.disconnect();
+    assert_eq!(drain(&mut controller), [0x9e]);
+    controller.advance(Duration::from_secs(1));
+    assert!(drain(&mut controller).is_empty());
+    controller.data(0xf2);
+    assert_eq!(drain(&mut controller), [0xfa, 0xab, 0x41]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
+    let (mut controller, _) = controller();
+    event(&mut controller, key(KeyCode::KeyA, true));
+    assert_eq!(drain(&mut controller), [0x1e]);
+    controller.command(0x60); // Arm the controller's command-byte write.
+    controller.queue_event(key(KeyCode::KeyA, false));
+    controller.poll_activity(); // Observe the physical release.
+    controller.poll_activity(); // Transmit F0, which translation consumes.
+    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+    controller.data(0x44); // Disable IRQ1 without changing translation.
+    assert_eq!(drain(&mut controller), [0x9e]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn finishing_an_option_exchange_rescans_keys_released_while_scanning_was_paused() {
+    let (mut controller, _) = controller();
+    event(&mut controller, key(KeyCode::ShiftLeft, true));
+    assert_eq!(drain(&mut controller), [0x2a]);
+    controller.data(0xed);
+    assert_eq!(drain(&mut controller), [0xfa]);
+    event(&mut controller, KeyboardEvent::FocusLost);
+    assert!(drain(&mut controller).is_empty());
+    controller.data(0xfe); // Retrying the ACK preserves the suspended exchange.
+    assert_eq!(drain(&mut controller), [0xfa]);
+    controller.data(0);
+    assert_eq!(drain(&mut controller), [0xfa, 0xaa]);
+    controller.advance(Duration::from_secs(1));
+    assert!(drain(&mut controller).is_empty());
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn a_reset_replaced_before_its_ack_preserves_the_programmed_scan_set() {
+    let (mut controller, _) = controller();
+    controller.command(0x60);
+    controller.data(5); // Disable translation to observe the selected scan set.
+    controller.data(0xf0);
+    assert_eq!(drain(&mut controller), [0xfa]);
+    controller.data(1);
+    assert_eq!(drain(&mut controller), [0xfa]);
+    event(&mut controller, key(KeyCode::KeyA, true));
+    controller.data(0xff); // Reset ACK waits behind the unread make byte.
+    controller.data(0xee); // Replace reset before its ACK is transmitted.
+    assert_eq!(drain(&mut controller), [0x1e, 0xee]);
+    controller.data(0xf0);
+    assert_eq!(drain(&mut controller), [0xfa]);
+    controller.data(0);
+    assert_eq!(drain(&mut controller), [0xfa, 1]);
 }

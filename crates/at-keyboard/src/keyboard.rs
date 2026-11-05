@@ -1,4 +1,7 @@
-//! Keyboard scanning, command replies and typematic timing before the 8042.
+//! Physical key state, bounded scan buffering and guest typematic timing.
+
+mod service;
+pub(super) use service::run;
 
 use crate::scancodes;
 use relocade_frontend::keyboard::{ElementState, KeyCode, KeyboardEvent, PhysicalKey};
@@ -7,26 +10,18 @@ use std::{
     time::Duration,
 };
 
-#[derive(Clone, Copy)]
-enum Parameter {
-    Leds,
-    Typematic,
-    ScanSet,
-}
-
 pub(super) struct Keyboard {
     held: BTreeSet<KeyCode>,
     scans: VecDeque<u8>,
-    replies: VecDeque<u8>,
     overflow: bool,
-    parameter: Option<Parameter>,
+    // Physical keys at the last scan before a command suspended scanning.
+    paused: Option<BTreeSet<KeyCode>>,
     scanning: bool,
     set: u8,
     leds: u8,
     typematic: u8,
     repeating: Option<KeyCode>,
-    pub deadline: Option<Duration>,
-    last: u8,
+    deadline: Option<Duration>,
 }
 
 impl Default for Keyboard {
@@ -34,16 +29,14 @@ impl Default for Keyboard {
         Self {
             held: BTreeSet::new(),
             scans: VecDeque::new(),
-            replies: VecDeque::new(),
             overflow: false,
-            parameter: None,
+            paused: None,
             scanning: true,
             set: 2,
             leds: 0,
             typematic: 0x2b,
             repeating: None,
             deadline: None,
-            last: 0xfe,
         }
     }
 }
@@ -95,15 +88,42 @@ impl Keyboard {
         if !changed {
             return;
         } // The guest's typematic settings own repetition.
-        if self.scanning && self.parameter.is_none() {
-            self.emit(key, pressed);
-            if pressed && scancodes::repeatable(key) {
-                self.repeating = Some(key);
-                self.deadline = Some(now.saturating_add(self.delay()));
-            }
+        if self.scanning && self.paused.is_none() {
+            self.scan(key, pressed, now);
         }
         if !pressed && self.repeating == Some(key) {
             self.stop_repeat();
+        }
+    }
+
+    fn scan(&mut self, key: KeyCode, pressed: bool, now: Duration) {
+        self.emit(key, pressed);
+        if pressed && scancodes::repeatable(key) {
+            self.repeating = Some(key);
+            self.deadline = Some(now.saturating_add(self.delay()));
+        }
+    }
+
+    fn pause(&mut self) {
+        if self.paused.is_none() {
+            self.paused = Some(self.held.clone());
+        }
+        self.stop_repeat();
+    }
+
+    fn resume(&mut self, now: Duration) {
+        if let Some(before) = self.paused.take() {
+            if self.scanning {
+                // Rescan the physical matrix: a release during an option or ID
+                // exchange must not leave a previously reported modifier stuck.
+                let held = self.held.clone();
+                for key in before.difference(&held) {
+                    self.scan(*key, false, now);
+                }
+                for key in held.difference(&before) {
+                    self.scan(*key, true, now);
+                }
+            }
         }
     }
 
@@ -148,94 +168,22 @@ impl Keyboard {
 
     fn defaults(&mut self, scanning: bool) {
         self.clear_scans();
-        self.parameter = None;
         self.scanning = scanning;
         self.set = 2;
         self.typematic = 0x2b;
         self.leds = 0;
     }
 
-    pub fn command(&mut self, value: u8) {
-        // A new command aborts an unfinished option-byte exchange. RESEND
-        // repeats the last reply without changing the expected option.
-        if value == 0xfe {
-            self.replies.push_back(self.last);
-            return;
-        }
-        if value >= 0xed {
-            self.parameter = None;
-        }
-        if let Some(parameter) = self.parameter.take() {
-            let valid = match parameter {
-                Parameter::Leds if value < 8 => {
-                    self.leds = value;
-                    true
-                }
-                Parameter::Typematic if value < 128 => {
-                    self.typematic = value;
-                    true
-                }
-                Parameter::ScanSet if value <= 2 => {
-                    if value == 0 {
-                        self.replies.extend([0xfa, self.set]);
-                        return;
-                    }
-                    self.set = value;
-                    true
-                }
-                _ => false,
-            };
-            if !valid {
-                self.parameter = Some(parameter);
-            }
-            self.replies.push_back(if valid { 0xfa } else { 0xfe });
-            return;
-        }
-        match value {
-            0xed | 0xf0 | 0xf3 => {
-                self.stop_repeat();
-                self.parameter = Some(match value {
-                    0xed => Parameter::Leds,
-                    0xf0 => Parameter::ScanSet,
-                    _ => Parameter::Typematic,
-                });
-                if value == 0xf0 {
-                    self.clear_scans();
-                }
-                self.replies.push_back(0xfa);
-            }
-            0xee => self.replies.push_back(0xee),
-            0xf2 => {
-                self.stop_repeat();
-                self.replies.extend([0xfa, 0xab, 0x83]);
-            }
-            0xf4 => {
-                self.clear_scans();
-                self.scanning = true;
-                self.replies.push_back(0xfa);
-            }
-            0xf5 | 0xf6 | 0xff => {
-                self.defaults(value != 0xf5);
-                self.replies.push_back(0xfa);
-                if value == 0xff {
-                    self.replies.push_back(0xaa);
-                }
-            }
-            _ => self.replies.push_back(0xfe),
-        }
+    fn peek_byte(&self) -> Option<u8> {
+        self.scans.front().copied().or_else(|| {
+            self.overflow
+                .then_some(if self.set == 1 { 0xff } else { 0 })
+        })
     }
 
-    pub fn next_byte(&mut self) -> Option<u8> {
-        let byte = self
-            .replies
-            .pop_front()
-            .or_else(|| self.scans.pop_front())
-            .or_else(|| {
-                std::mem::take(&mut self.overflow).then_some(if self.set == 1 { 0xff } else { 0 })
-            })?;
-        if byte != 0xfe {
-            self.last = byte;
+    fn consume_byte(&mut self) {
+        if self.scans.pop_front().is_none() {
+            self.overflow = false;
         }
-        Some(byte)
     }
 }

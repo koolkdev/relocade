@@ -1,112 +1,159 @@
-//! 8042 data register, status, commands and set-2 translation.
+//! 8042 input/output registers and keyboard wire translation.
 
-use crate::{keyboard::Keyboard, scancodes};
+mod service;
+
+use crate::{scancodes, DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT};
+use event_listener::Event;
 use relocade_pic::IrqLine;
+use std::cell::RefCell;
+
+const IRQ_ENABLED: u8 = 1;
+const SYSTEM_INITIALIZED: u8 = 1 << 2;
+const COMMAND_INPUT: u8 = 1 << 3;
+const KEYBOARD_UNLOCKED: u8 = 1 << 4;
+const INTERFACE_DISABLED: u8 = 1 << 4;
+const TRANSLATE_SET_2: u8 = 1 << 6;
 
 #[derive(Clone, Copy)]
-enum Parameter {
-    CommandByte,
-    OutputBuffer,
+enum Input {
+    Command(u8),
+    Data(u8),
+}
+
+struct Registers {
+    input: Option<Input>,
+    output: Option<u8>,
+    command_byte: u8,
+    last_command: bool,
+    break_prefix: bool,
 }
 
 pub(super) struct Controller {
-    pub keyboard: Keyboard,
+    registers: RefCell<Registers>,
+    changed: Event,
     irq: IrqLine,
-    command_byte: u8,
-    parameter: Option<Parameter>,
-    output: Option<u8>,
-    last_command: bool,
-    break_prefix: bool,
 }
 
 impl Controller {
     pub fn new(irq: IrqLine) -> Self {
         Self {
-            keyboard: Keyboard::default(),
+            registers: RefCell::new(Registers {
+                input: None,
+                output: None,
+                command_byte: IRQ_ENABLED | SYSTEM_INITIALIZED | TRANSLATE_SET_2,
+                last_command: false,
+                break_prefix: false,
+            }),
+            changed: Event::new(),
             irq,
-            command_byte: 0x45,
-            parameter: None,
-            output: None,
-            last_command: false,
-            break_prefix: false,
         }
-    }
-
-    pub fn repeat(&mut self, now: std::time::Duration) {
-        self.keyboard
-            .repeat(now, self.output.is_some() || self.command_byte & 0x10 != 0);
-        self.refill();
     }
 
     pub fn status(&self) -> u8 {
-        // Commands complete synchronously, so IBF and transmission errors are clear.
-        0x10 | (self.command_byte & 4)
-            | (u8::from(self.last_command) << 3)
-            | u8::from(self.output.is_some())
+        let registers = self.registers.borrow();
+        KEYBOARD_UNLOCKED
+            | (registers.command_byte & SYSTEM_INITIALIZED)
+            | if registers.last_command {
+                COMMAND_INPUT
+            } else {
+                0
+            }
+            | if registers.input.is_some() {
+                INPUT_BUFFER_FULL
+            } else {
+                0
+            }
+            | if registers.output.is_some() {
+                OUTPUT_BUFFER_FULL
+            } else {
+                0
+            }
     }
 
-    pub fn read_data(&mut self) -> u8 {
-        let byte = self.output.take().unwrap_or(0xff);
+    pub fn read_data(&self) -> u8 {
+        let byte = self.registers.borrow_mut().output.take().unwrap_or(0xff);
         self.irq.set_level(false);
-        self.refill();
+        self.changed.notify(usize::MAX);
         byte
     }
 
-    fn publish(&mut self, byte: u8) {
-        self.output = Some(byte);
-        self.irq.set_level(self.command_byte & 1 != 0);
+    pub fn write(&self, port: u16, value: u8) {
+        let input = match port {
+            DATA_PORT => Input::Data(value),
+            STATUS_COMMAND_PORT => Input::Command(value),
+            _ => return,
+        };
+        {
+            let mut registers = self.registers.borrow_mut();
+            // Software must wait for IBF to clear. A busy write cannot replace
+            // the byte already accepted by the controller's input register.
+            if registers.input.is_some() {
+                return;
+            }
+            registers.input = Some(input);
+            registers.last_command = matches!(input, Input::Command(_));
+        }
+        self.changed.notify(usize::MAX);
     }
 
-    pub fn refill(&mut self) {
-        while self.output.is_none() && self.command_byte & 0x10 == 0 {
-            let Some(mut byte) = self.keyboard.next_byte() else {
-                break;
-            };
-            if self.command_byte & 0x40 != 0 {
-                if byte == 0xf0 {
-                    self.break_prefix = true;
-                    continue;
-                }
-                byte = scancodes::translate(byte);
-                if std::mem::take(&mut self.break_prefix) {
-                    byte |= 0x80;
-                }
-            }
-            self.publish(byte);
-        }
+    pub fn inhibited(&self) -> bool {
+        let registers = self.registers.borrow();
+        registers.output.is_some() || registers.command_byte & INTERFACE_DISABLED != 0
+    }
+
+    fn update_irq(&self) {
+        let registers = self.registers.borrow();
         self.irq
-            .set_level(self.output.is_some() && self.command_byte & 1 != 0);
+            .set_level(registers.output.is_some() && registers.command_byte & IRQ_ENABLED != 0);
     }
 
-    pub fn command(&mut self, value: u8) {
-        self.last_command = true;
-        self.parameter = None;
-        match value {
-            0x20 => self.publish(self.command_byte),
-            0x60 => self.parameter = Some(Parameter::CommandByte),
-            0xaa => {
-                self.command_byte |= 4;
-                self.publish(0x55);
+    async fn receive(&self) -> Input {
+        loop {
+            let changed = self.changed.listen();
+            if let Some(input) = self.registers.borrow_mut().input.take() {
+                return input;
             }
-            0xab => self.publish(0),
-            0xad => self.command_byte |= 0x10,
-            0xae => self.command_byte &= !0x10,
-            0xd2 => self.parameter = Some(Parameter::OutputBuffer),
-            _ => {}
+            changed.await;
         }
-        self.refill();
     }
 
-    pub fn data(&mut self, value: u8) {
-        self.last_command = false;
-        match self.parameter.take() {
-            Some(Parameter::CommandByte) => {
-                self.command_byte = value;
-                self.break_prefix = false;
-            }
-            Some(Parameter::OutputBuffer) => self.publish(value),
-            None => self.keyboard.command(value),
-        }
-        self.refill();
+    pub async fn send_keyboard(&self, byte: u8) {
+        self.send(byte, Source::Keyboard).await;
     }
+
+    async fn send(&self, mut byte: u8, source: Source) {
+        loop {
+            let changed = self.changed.listen();
+            {
+                let mut registers = self.registers.borrow_mut();
+                if registers.output.is_none()
+                    && (matches!(source, Source::Controller)
+                        || registers.command_byte & INTERFACE_DISABLED == 0)
+                {
+                    if matches!(source, Source::Keyboard)
+                        && registers.command_byte & TRANSLATE_SET_2 != 0
+                    {
+                        if byte == 0xf0 {
+                            registers.break_prefix = true;
+                            return;
+                        }
+                        byte = scancodes::translate(byte);
+                        if std::mem::take(&mut registers.break_prefix) {
+                            byte |= 0x80;
+                        }
+                    }
+                    registers.output = Some(byte);
+                    drop(registers);
+                    self.update_irq();
+                    return;
+                }
+            }
+            changed.await;
+        }
+    }
+}
+
+enum Source {
+    Controller,
+    Keyboard,
 }
