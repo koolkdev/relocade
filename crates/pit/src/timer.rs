@@ -4,7 +4,7 @@ use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL
 use event_listener::Event;
 use futures_lite::future::or;
 use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Runner, TimerHandle};
-use relocade_pic::IrqLine;
+use relocade_pic::{IrqInput, IrqLine};
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 /// Execution-owned PIT registers and programmable channel-0 interrupt.
@@ -24,7 +24,7 @@ impl<C: Clock> Pit<C> {
     /// Returns the shared PIT and its register connection for the CPU bus.
     pub async fn initialize(
         runner: &Runner<C>,
-        irq: IrqLine,
+        irq: IrqInput,
     ) -> (Rc<RefCell<Self>>, DeviceConnection)
     where
         C: Clone + 'static,
@@ -38,14 +38,14 @@ impl<C: Clock> Pit<C> {
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
-    pub fn with_clock(clock: Rc<C>, irq: IrqLine) -> Self {
+    pub fn with_clock(clock: Rc<C>, irq: IrqInput) -> Self {
         let mut channel0 = Counter::default();
         channel0.set_gate(true);
         channel0.control(0x36);
         channel0.write(0);
         channel0.write(0);
         channel0.advance(1); // BIOS initialization has already loaded the divisor.
-        irq.set_initial_level(channel0.output());
+        let irq = irq.connect(channel0.output());
         Self {
             at: clock.now(),
             clock,

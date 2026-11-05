@@ -136,10 +136,10 @@ impl Controller {
         if high && self.levels & bit == 0 {
             self.requests |= bit;
         }
-        self.set_initial_level(irq, high);
+        self.record_level(irq, high);
     }
 
-    pub fn set_initial_level(&mut self, irq: u8, high: bool) {
+    pub fn record_level(&mut self, irq: u8, high: bool) {
         let bit = 1 << irq;
         if high {
             self.levels |= bit;

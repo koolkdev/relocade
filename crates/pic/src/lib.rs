@@ -26,7 +26,8 @@ pub fn end_of_interrupt(io: &IoBus) {
 
 /// One execution-owned master PIC with eight interrupt inputs. Clones share
 /// arbitration and guest-visible registers. The machine polls only this device;
-/// peripherals signal its [`IrqLine`] handles instead of supplying CPU vectors.
+/// peripherals connect its [`IrqInput`] endpoints and signal the resulting
+/// [`IrqLine`] handles instead of supplying CPU vectors.
 #[derive(Clone)]
 pub struct Pic(Rc<RefCell<Controller>>);
 
@@ -61,9 +62,10 @@ impl Pic {
         self.update(|state| state.mask &= !(1 << number));
     }
 
-    pub fn irq(&self, number: u8) -> IrqLine {
+    /// Selects an input for a peripheral to connect at its initial output level.
+    pub fn irq(&self, number: u8) -> IrqInput {
         assert!(number < IRQ_COUNT, "master PIC IRQ number");
-        IrqLine {
+        IrqInput {
             pic: self.clone(),
             number,
         }
@@ -81,6 +83,26 @@ impl Pic {
     }
 }
 
+/// An unconnected PIC input, consumed when a peripheral establishes its output.
+pub struct IrqInput {
+    pic: Pic,
+    number: u8,
+}
+
+impl IrqInput {
+    /// Connects the starting level without inventing an edge or clearing pending
+    /// requests. A high input is still eligible in level-triggered mode.
+    /// Subsequent transitions use the returned line's [`IrqLine::set_level`].
+    pub fn connect(self, initial_high: bool) -> IrqLine {
+        self.pic
+            .update(|state| state.record_level(self.number, initial_high));
+        IrqLine {
+            pic: self.pic,
+            number: self.number,
+        }
+    }
+}
+
 /// An IRQ input on the execution owner. A high transition latches an edge even
 /// while masked; lowering it rearms the input. Repeated high levels do not create
 /// additional edges. In level mode the asserted level remains eligible after EOI.
@@ -91,14 +113,6 @@ pub struct IrqLine {
 }
 
 impl IrqLine {
-    /// Establishes a peripheral's initial input level without creating an edge.
-    /// Existing pending edges are preserved; level-triggered inputs still reflect
-    /// the supplied level. Use [`Self::set_level`] for subsequent changes.
-    pub fn set_initial_level(&self, high: bool) {
-        self.pic
-            .update(|state| state.set_initial_level(self.number, high));
-    }
-
     pub fn set_level(&self, high: bool) {
         self.pic.update(|state| state.set_level(self.number, high));
     }

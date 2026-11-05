@@ -2,16 +2,18 @@
 
 `Pic::initialize(runner).await` creates an execution-owned 8259A master and
 registers ports 20h–21h. Add the returned connection to the CPU bus, and pass
-`pic.irq(n)` from the shared controller handle to peripherals. `IrqLine::set_level`
-models a level transition; `pulse` produces a timer edge. The PIC alone supplies
-vectors through the existing machine `Device::poll_interrupt` API. Its initial
-mask is FFh. DOS calls `pic.unmask_irq(TIMER_IRQ)` to enable the timer; the BIOS
+`pic.irq(n)` from the shared controller handle to peripherals as an `IrqInput`.
+The peripheral consumes it with `connect(initial_high)` to obtain an `IrqLine`.
+Its `set_level` models a level transition; `pulse` produces a timer edge. The PIC
+alone supplies vectors through the existing machine `Device::poll_interrupt` API.
+Its initial mask is FFh. DOS calls `pic.unmask_irq(TIMER_IRQ)` to enable the timer; the BIOS
 IRQ0 handler uses `end_of_interrupt(io)` to send EOI through the device bus.
 
-Peripherals use `IrqLine::set_initial_level` when wiring their starting output.
-This establishes the physical level without latching an edge or clearing pending
-edges. Later output changes use `set_level`; level-triggered requests follow the
-input in either case.
+Connection establishes the physical level without latching an edge or clearing
+pending requests. Level-triggered requests reflect the supplied level immediately.
+The unconnected input is consumed; the runtime line exposes only transitions and
+pulses. The peripheral owns its starting level, while machine wiring chooses the
+IRQ number.
 
 The controller supports edge and level inputs, IRR/ISR/IMR, fixed and rotating
 priorities, specific/non-specific EOI, automatic EOI, special mask mode, polling,
