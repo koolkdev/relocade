@@ -65,8 +65,8 @@ prompt. The runner continues its device activities, including display/audio;
 BIOS ticks advance only when guest execution services timer interrupts.
 
 Guest programs instead receive physical events through `dos.keyboard_input()`
-and use the PC's guest I/O path. `launch_com` and `launch_mz` accept supplied images;
-program lookup and input handoff during launch are future application policy.
+and use the AT controller → PIC IRQ1 → guest INT 09h → BIOS buffer path.
+`launch_com` and `launch_mz` accept supplied images; program lookup and input handoff during launch are future application policy.
 There is no mode flag in the CPU, PIC or BIOS. Drop the native console before
 launching or resuming a guest.
 

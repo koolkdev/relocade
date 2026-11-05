@@ -1,12 +1,13 @@
 //! BIOS keystrokes shared by interrupt services and console drivers.
 
 mod data;
-mod input;
 mod layout;
 mod physical;
+mod scan;
 pub use physical::PhysicalKeyboard;
 
 use data::{DataArea, ShiftFlags};
+use scan::Decoder;
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
@@ -69,19 +70,29 @@ impl ShiftState {
         flags.set(ShiftFlags::INSERT, self.insert);
         flags.bits()
     }
+
+    fn shift_pressed(self) -> bool {
+        self.left_shift || self.right_shift
+    }
+
+    fn numeric_keypad(self) -> bool {
+        self.num_lock ^ self.shift_pressed()
+    }
 }
 
 struct Input {
     data: DataArea,
+    decoder: Decoder,
     waker: Option<Waker>,
 }
 
 /// An owned handle to the guest's BIOS keyboard data area.
 ///
-/// INT 16h and DOS consume the same guest-visible ring. Clones share one pending
-/// read registration. The guest RAM ring is the only keystroke queue. `Write`
-/// stores character bytes with scan code zero and reports short writes or
-/// `WouldBlock` when the ring is full.
+/// Physical input reaches the BDA through the default IRQ1 handler. INT 16h and
+/// DOS consume that same guest-visible ring; replacing INT 09h replaces translation.
+/// Clones share one pending read registration. The guest RAM ring is the only
+/// keystroke queue. `Write` stores character bytes with scan code zero and reports
+/// short writes or `WouldBlock` when the ring is full.
 #[derive(Clone)]
 pub struct Keyboard(Rc<RefCell<Input>>);
 
@@ -90,24 +101,24 @@ impl Keyboard {
     pub fn new(memory: Memory) -> Self {
         Self(Rc::new(RefCell::new(Input {
             data: DataArea::new(memory),
+            decoder: Decoder::default(),
             waker: None,
         })))
     }
 
-    /// Registers keyboard input translation as a device activity on the execution
-    /// owner. Add the returned connection to the CPU's bus, even though this
-    /// BIOS-level adapter does not yet expose keyboard-controller I/O ports.
-    /// Physical keys use the guest US layout, including Shift/CapsLock and NumLock;
-    /// host layout text does not select guest characters. Enhanced
-    /// modifier-specific navigation/function codes are not modeled.
-    pub async fn connect<C: relocade_machine::Clock>(
-        &self,
-        runner: &relocade_machine::Runner<C>,
-    ) -> (
-        relocade_frontend::keyboard::KeyboardInput,
-        relocade_machine::DeviceConnection,
-    ) {
-        input::connect(self.clone(), runner).await
+    pub(crate) fn scan_code(&self, byte: u8) {
+        let waker = {
+            let mut input = self.0.borrow_mut();
+            let Input { data, decoder, .. } = &mut *input;
+            if decoder.scan(data, byte) {
+                input.waker.take()
+            } else {
+                None
+            }
+        };
+        if let Some(waker) = waker {
+            waker.wake();
+        }
     }
 
     /// Stores one translated keystroke in the guest ring, as for INT 16h/AH=05h.

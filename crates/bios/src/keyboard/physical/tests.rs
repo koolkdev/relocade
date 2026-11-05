@@ -166,3 +166,23 @@ fn keypad_uses_guest_num_lock_with_shift_override() {
     );
     assert_eq!(keyboard.translate(release(KeyCode::Numpad8)), None);
 }
+
+#[test]
+fn physical_special_keys_use_bios_modifier_codes() {
+    let mut keyboard = PhysicalKeyboard::default();
+    for (modifiers, code, scan_code) in [
+        (ModifiersState::SHIFT, KeyCode::F1, 0x54),
+        (ModifiersState::CONTROL, KeyCode::ArrowLeft, 0x73),
+        (ModifiersState::ALT, KeyCode::Digit1, 0x78),
+        (ModifiersState::CONTROL, KeyCode::NumpadDivide, 0x95),
+    ] {
+        keyboard.translate(KeyboardEvent::Modifiers(modifiers));
+        assert_eq!(
+            keyboard.translate(press(code, None)),
+            Some(KeyStroke {
+                character: 0,
+                scan_code
+            })
+        );
+    }
+}

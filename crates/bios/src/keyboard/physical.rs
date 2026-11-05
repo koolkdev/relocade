@@ -64,6 +64,7 @@ impl PhysicalKeyboard {
                     NumLock if fresh => self.shifts.num_lock ^= true,
                     ScrollLock if fresh => self.shifts.scroll_lock ^= true,
                     Insert if fresh => self.shifts.insert ^= true,
+                    Numpad0 if fresh && !self.shifts.numeric_keypad() => self.shifts.insert ^= true,
                     _ => {}
                 }
                 pressed.then_some(code)
@@ -73,7 +74,8 @@ impl PhysicalKeyboard {
         self.shifts.right_shift = self.held.contains(&ShiftRight);
         self.shifts.control = self.held.contains(&ControlLeft) || self.held.contains(&ControlRight);
         self.shifts.alt = self.held.contains(&AltLeft) || self.held.contains(&AltRight);
-        key.and_then(|code| layout::keystroke(code, self.shifts))
+        key.and_then(layout::Key::from_physical)
+            .and_then(|key| layout::keystroke(key, self.shifts))
     }
 }
 

@@ -23,11 +23,23 @@ const TIMER_ENTRY: FarPointer = FarPointer {
     offset: 0xff30,
 };
 
+const KEYBOARD_IRQ_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xff40,
+};
+
 /// Registers BIOS vectors and their handlers alongside an environment's interrupts.
 /// The keyboard is retained by its handler and may be shared with console input.
-/// Entries enable live IF during service execution. Ready services finish in one
-/// poll; pending services allow the driver to deliver device IRQs.
+/// Software services enable live IF. Ready services finish in one poll; pending
+/// services allow the driver to deliver device IRQs.
 pub fn register_interrupts(interrupts: &mut Interrupts<'_>, keyboard: Keyboard) {
+    let irq_keyboard = keyboard.clone();
+    interrupts.register_interrupt(0x09, KEYBOARD_IRQ_ENTRY, async move |call| {
+        if let Some(byte) = relocade_at_keyboard::read_scan_code(call.io) {
+            irq_keyboard.scan_code(byte);
+        }
+        relocade_pic::end_of_interrupt(call.io);
+    });
     register_interrupt(interrupts, 0x08, TIMER_ENTRY, async |call| {
         clock::tick(&mut call.memory);
         relocade_pic::end_of_interrupt(call.io);

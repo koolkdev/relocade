@@ -145,8 +145,9 @@ pub struct Dos<C = TimerHandle> {
 }
 
 impl<C: Clock> Dos<C> {
-    /// Prepares memory and services, and registers VGA, the PIT timer and a silent
-    /// PC speaker with the runner. Speaker ports work without host audio output.
+    /// Prepares memory and services, and registers VGA, the PIC/PIT, keyboard
+    /// controller and a silent PC speaker with the runner. Speaker ports work
+    /// without host audio output.
     /// Launch a program before executing DOS services.
     pub async fn new(runner: &Runner<C>) -> relocade_machine::Result<Self>
     where
@@ -157,9 +158,8 @@ impl<C: Clock> Dos<C> {
         let (pit, pit_device) = relocade_pit::Pit::initialize(runner, &pic).await;
         pic.unmask_irq(relocade_pic::TIMER_IRQ);
         let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
-        let memory = Memory::new(kernel::configuration())?;
-        let keyboard = relocade_bios::Keyboard::new(memory.clone());
-        let (keyboard_input, keyboard_device) = keyboard.connect(runner).await;
+        pic.unmask_irq(relocade_pic::KEYBOARD_IRQ);
+        let (keyboard_input, keyboard_device) = relocade_at_keyboard::connect(runner, &pic).await;
         let io = IoBus::new([
             pic_device,
             pit_device,
@@ -167,6 +167,8 @@ impl<C: Clock> Dos<C> {
             vga_device,
             keyboard_device,
         ]);
+        let memory = Memory::new(kernel::configuration())?;
+        let keyboard = relocade_bios::Keyboard::new(memory.clone());
         let mut cpu = runner
             .create_cpu(memory.clone(), kernel::cpu(), io.clone())
             .await?;
@@ -347,8 +349,8 @@ impl<C: Clock> Dos<C> {
         self.state.stdio().input.clone()
     }
 
-    /// Thread-safe keyboard event input. The runner translates these events on the
-    /// execution owner into the queue shared by guest BIOS and DOS services.
+    /// Thread-safe physical keyboard input for guest execution. Events reach the
+    /// AT controller and IRQ1; guest INT 09h handlers decide how to consume them.
     pub fn keyboard_input(&self) -> relocade_frontend::keyboard::KeyboardInput {
         self.keyboard_input.clone()
     }

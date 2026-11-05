@@ -2219,6 +2219,7 @@ version = "0.0.0"
 dependencies = [
  "bitflags 2.13.1",
  "pollster",
+ "relocade-at-keyboard",
  "relocade-frontend",
  "relocade-machine",
  "relocade-pic",
@@ -2278,6 +2279,7 @@ version = "0.0.0"
 dependencies = [
  "futures-channel",
  "pollster",
+ "relocade-at-keyboard",
  "relocade-bios",
  "relocade-frontend",
  "relocade-machine",
