@@ -98,8 +98,12 @@ fn buffered_input_reserves_cr_space_and_handles_zero_capacity() {
             let mut buffer = vec![0xaa; usize::from(capacity) + 3];
             buffer[0] = capacity;
             dos.cpu().memory().view().write(0x10300, &buffer).unwrap();
-            dos.stdin().write_all(&input).unwrap();
-            service(&mut dos, 0x0a00, 0, 0, 0x300); // Complete input finishes in this poll.
+            if capacity == 0 {
+                dos.stdin().write_all(&input).unwrap();
+                service(&mut dos, 0x0a00, 0, 0, 0x300);
+            } else {
+                common::service_with_input(&mut dos, 0x0a00, 0, 0, 0x300, &input);
+            }
             let mut actual = vec![0; buffer.len()];
             dos.cpu()
                 .memory()

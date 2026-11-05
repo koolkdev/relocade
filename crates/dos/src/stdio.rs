@@ -14,7 +14,6 @@ pub(crate) enum OutputStream {
     Stderr,
 }
 
-#[derive(Default)]
 pub(crate) struct Stdio {
     pub(crate) input: Keyboard,
     // Unread bytes of a completed AH=3Fh line, shared by all console input handles.
@@ -30,7 +29,10 @@ impl Stdio {
     pub(crate) fn new(input: Keyboard) -> Self {
         Self {
             input,
-            ..Self::default()
+            console_line: RefCell::default(),
+            cooked_column: Cell::default(),
+            stdout: Output::default(),
+            stderr: Output::default(),
         }
     }
 

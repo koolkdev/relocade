@@ -28,7 +28,8 @@
 //! AH=1Bh/BX=0 writes the functionality/state report to ES:DI; other BX values
 //! return AL=0 without writing the buffer. Other unsupported video services or
 //! pixel coordinates/pages return AH=86h with carry set.
-//! INT 16h/AH=00h/01h/02h reads, peeks and queries the shared BIOS keyboard state.
+//! INT 16h/AH=00h/01h/02h/05h reads, peeks, queries flags and stores keystrokes
+//! in the guest BIOS data area. DOS console input consumes the same finite ring.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
 //! Timer hardware supplies vector 08h; INT 1Ch chaining is not implemented yet.

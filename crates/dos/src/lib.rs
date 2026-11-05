@@ -157,7 +157,8 @@ impl<C: Clock> Dos<C> {
         let (pit, pit_device) = relocade_pit::Pit::initialize(runner, &pic).await;
         pic.unmask_irq(relocade_pic::TIMER_IRQ);
         let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
-        let keyboard = relocade_bios::Keyboard::default();
+        let memory = Memory::new(kernel::configuration())?;
+        let keyboard = relocade_bios::Keyboard::new(memory.clone());
         let (keyboard_input, keyboard_device) = keyboard.connect(runner).await;
         let io = IoBus::new([
             pic_device,
@@ -166,7 +167,6 @@ impl<C: Clock> Dos<C> {
             vga_device,
             keyboard_device,
         ]);
-        let memory = Memory::new(kernel::configuration())?;
         let mut cpu = runner
             .create_cpu(memory.clone(), kernel::cpu(), io.clone())
             .await?;
@@ -301,8 +301,11 @@ impl<C: Clock> Dos<C> {
     }
 
     /// Returns an owned console input writer. Bytes use the guest's encoding.
-    /// Writes enqueue bytes immediately and wake a pending console read; flush
-    /// is a no-op. The writer can be cloned and used while `run` is pending.
+    /// Writes store bytes with scan code zero in the BIOS ring and wake a pending
+    /// reader. This is nonblocking: a full ring produces a short write or
+    /// `WouldBlock`. Retry only the unwritten suffix after running the guest;
+    /// `write_all` may accept a prefix before returning `WouldBlock`.
+    /// Flush is a no-op. The writer can be cloned while `run` is pending.
     /// Redirected stdin reads its file instead. Buffered input and output persist
     /// across launches; existing stream handles remain connected to the console.
     ///
@@ -328,16 +331,16 @@ impl<C: Clock> Dos<C> {
         self.state.stdio().input.clone()
     }
 
-    /// Returns the input queue shared by BIOS INT 16h and DOS console reads.
-    /// Host adapters supply translated characters, BIOS scan codes and shift state.
-    /// The handle can be retained while `run` awaits keyboard input.
+    /// Returns the BIOS keyboard ring and modifier state shared with DOS reads.
+    /// `store_key` uses the same finite insertion as INT 16h/AH=05h; physical events
+    /// belong on [`Self::keyboard_input`]. Retain this handle while input is awaited.
     ///
     /// ```no_run
     /// # fn example(dos: &relocade_dos::Dos) {
-    /// dos.keyboard().push(relocade_bios::KeyStroke {
+    /// assert!(dos.keyboard().store_key(relocade_bios::KeyStroke {
     ///     character: b'a',
     ///     scan_code: 0x1e,
-    /// });
+    /// }));
     /// # }
     /// ```
     pub fn keyboard(&self) -> relocade_bios::Keyboard {

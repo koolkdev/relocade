@@ -1,17 +1,19 @@
 //! BIOS keystrokes shared by interrupt services and console drivers.
 
+mod data;
 mod input;
 mod layout;
 mod physical;
 pub use physical::PhysicalKeyboard;
 
+use data::{DataArea, ShiftFlags};
+
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext,
+    CpuContext, Memory,
 };
 use std::{
     cell::RefCell,
-    collections::VecDeque,
     future::Future,
     io::{self, Write},
     pin::Pin,
@@ -41,38 +43,57 @@ pub struct ShiftState {
 }
 
 impl ShiftState {
+    fn from_bits(bits: u8) -> Self {
+        let flags = ShiftFlags::from_bits_retain(bits);
+        Self {
+            right_shift: flags.contains(ShiftFlags::RIGHT_SHIFT),
+            left_shift: flags.contains(ShiftFlags::LEFT_SHIFT),
+            control: flags.contains(ShiftFlags::CONTROL),
+            alt: flags.contains(ShiftFlags::ALT),
+            scroll_lock: flags.contains(ShiftFlags::SCROLL_LOCK),
+            num_lock: flags.contains(ShiftFlags::NUM_LOCK),
+            caps_lock: flags.contains(ShiftFlags::CAPS_LOCK),
+            insert: flags.contains(ShiftFlags::INSERT),
+        }
+    }
+
     fn bits(self) -> u8 {
-        u8::from(self.right_shift)
-            | (u8::from(self.left_shift) << 1)
-            | (u8::from(self.control) << 2)
-            | (u8::from(self.alt) << 3)
-            | (u8::from(self.scroll_lock) << 4)
-            | (u8::from(self.num_lock) << 5)
-            | (u8::from(self.caps_lock) << 6)
-            | (u8::from(self.insert) << 7)
+        let mut flags = ShiftFlags::empty();
+        flags.set(ShiftFlags::RIGHT_SHIFT, self.right_shift);
+        flags.set(ShiftFlags::LEFT_SHIFT, self.left_shift);
+        flags.set(ShiftFlags::CONTROL, self.control);
+        flags.set(ShiftFlags::ALT, self.alt);
+        flags.set(ShiftFlags::SCROLL_LOCK, self.scroll_lock);
+        flags.set(ShiftFlags::NUM_LOCK, self.num_lock);
+        flags.set(ShiftFlags::CAPS_LOCK, self.caps_lock);
+        flags.set(ShiftFlags::INSERT, self.insert);
+        flags.bits()
     }
 }
 
-#[derive(Default)]
 struct Input {
-    keys: VecDeque<KeyStroke>,
-    shifts: ShiftState,
+    data: DataArea,
     waker: Option<Waker>,
 }
 
-/// An owned input handle usable while guest execution awaits a key.
+/// An owned handle to the guest's BIOS keyboard data area.
 ///
-/// Local callers can inject translated keys through [`Self::push`] and update
-/// modifiers with [`Self::set_shift_state`]. [`Self::connect`] accepts keyboard
-/// events across threads and translates them on execution. Clones share one queue.
-/// There may be only one pending guest read, whether it is a BIOS or DOS read.
-///
-/// `std::io::Write` injects character bytes with scan code zero, preserving the
-/// existing DOS stdin interface. Use `push` when BIOS scan codes are required.
-#[derive(Clone, Default)]
+/// INT 16h and DOS consume the same guest-visible ring. Clones share one pending
+/// read registration. The guest RAM ring is the only keystroke queue. `Write`
+/// stores character bytes with scan code zero and reports short writes or
+/// `WouldBlock` when the ring is full.
+#[derive(Clone)]
 pub struct Keyboard(Rc<RefCell<Input>>);
 
 impl Keyboard {
+    /// Initializes keyboard flags and the buffer in a new session's low-memory RAM.
+    pub fn new(memory: Memory) -> Self {
+        Self(Rc::new(RefCell::new(Input {
+            data: DataArea::new(memory),
+            waker: None,
+        })))
+    }
+
     /// Registers keyboard input translation as a device activity on the execution
     /// owner. Add the returned connection to the CPU's bus, even though this
     /// BIOS-level adapter does not yet expose keyboard-controller I/O ports.
@@ -89,31 +110,41 @@ impl Keyboard {
         input::connect(self.clone(), runner).await
     }
 
-    /// Queues a translated keystroke and wakes a pending guest read.
-    pub fn push(&self, key: KeyStroke) {
+    /// Stores one translated keystroke in the guest ring, as for INT 16h/AH=05h.
+    /// Returns false when full, leaving the buffer unchanged. A successful store
+    /// wakes a pending reader. This does not produce scan bytes or hardware IRQs.
+    #[must_use]
+    #[interrupt(
+        args(key = KeyStroke { character: cl, scan_code: ch }),
+        returns { true => { al = 0 }, false => { al = 1 } }
+    )]
+    pub fn store_key(&self, key: KeyStroke) -> bool {
         let waker = {
             let mut input = self.0.borrow_mut();
-            input.keys.push_back(key);
+            if !input.data.push(key) {
+                return false;
+            }
             input.waker.take()
         };
         if let Some(waker) = waker {
             waker.wake();
         }
+        true
     }
 
     /// Returns the modifier and toggle states, as for INT 16h/AH=02h.
     #[interrupt(returns { shifts => { al = shifts.bits() } })]
     pub fn shift_state(&self) -> ShiftState {
-        self.0.borrow().shifts
+        self.0.borrow().data.shift_state()
     }
 
     pub fn set_shift_state(&self, shifts: ShiftState) {
-        self.0.borrow_mut().shifts = shifts;
+        self.0.borrow().data.set_shift_state(shifts);
     }
 
     /// Discards queued keystrokes without changing modifier states.
     pub fn discard_queued(&self) {
-        self.0.borrow_mut().keys.clear();
+        self.0.borrow().data.discard();
     }
 
     /// Reports the next whole keystroke without consuming it, as for INT 16h/AH=01h.
@@ -122,12 +153,12 @@ impl Keyboard {
         None => { zf = true },
     })]
     pub fn peek_key(&self) -> Option<KeyStroke> {
-        self.0.borrow().keys.front().copied()
+        self.0.borrow().data.peek()
     }
 
     /// Consumes the next whole keystroke, or returns None without waiting.
     pub fn try_read_key(&self) -> Option<KeyStroke> {
-        self.0.borrow_mut().keys.pop_front()
+        self.0.borrow().data.read()
     }
 
     /// Waits for and consumes one whole keystroke, as for INT 16h/AH=00h.
@@ -154,6 +185,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, keyboard: &Keyboard, fun
             0x00 => keyboard.read_key,
             0x01 => keyboard.peek_key,
             0x02 => keyboard.shift_state,
+            0x05 => keyboard.store_key,
             _ => crate::interrupt::unsupported,
         }
     );
@@ -161,11 +193,17 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, keyboard: &Keyboard, fun
 
 impl Write for Keyboard {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        for &character in bytes {
-            self.push(KeyStroke {
+        for (written, &character) in bytes.iter().enumerate() {
+            if !self.store_key(KeyStroke {
                 character,
                 scan_code: 0,
-            });
+            }) {
+                return if written == 0 {
+                    Err(io::ErrorKind::WouldBlock.into())
+                } else {
+                    Ok(written)
+                };
+            }
         }
         Ok(bytes.len())
     }
@@ -184,7 +222,7 @@ impl Future for WaitForKey<'_> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         let mut input = self.keyboard.0.borrow_mut();
-        if input.keys.is_empty() {
+        if input.data.peek().is_none() {
             input.waker = Some(cx.waker().clone());
             Poll::Pending
         } else {
@@ -198,3 +236,6 @@ impl Drop for WaitForKey<'_> {
         self.keyboard.0.borrow_mut().waker = None;
     }
 }
+
+#[cfg(test)]
+mod tests;

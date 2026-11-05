@@ -120,9 +120,13 @@ fn console_handle_read_bounds_the_line_and_reports_ctrl_z_eof() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
-        dos.stdin().write_all(&[b'a'; 127]).unwrap();
-        dos.stdin().write_all(b"X\r").unwrap();
-        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 500, 0x400)), 129);
+        let input = [&[b'a'; 127][..], b"X\r"].concat();
+        assert_eq!(
+            success(&common::service_with_input(
+                &mut dos, 0x3f00, 0, 500, 0x400, &input
+            )),
+            129
+        );
         let mut bytes = [0; 129];
         dos.cpu().memory().view().read(0x10400, &mut bytes).unwrap();
         assert_eq!(&bytes[..127], &[b'a'; 127]);

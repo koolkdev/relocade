@@ -48,7 +48,7 @@ fn bios_peeks_reads_and_reports_shift_state_without_echo() {
             character: b'A',
             scan_code: 0x1e,
         };
-        keyboard.push(key);
+        assert!(keyboard.store_key(key));
         // Repeated peeks leave the key available and change only ZF.
         for _ in 0..2 {
             assert_eq!(keyboard.peek_key(), Some(key));
@@ -71,6 +71,56 @@ fn bios_peeks_reads_and_reports_shift_state_without_echo() {
         assert_eq!(cpu.registers.eax as u16, 0x0246);
         assert_eq!(cpu.flags.eflags(), 0x643);
         assert!(common::output(dos.stdout()).is_empty());
+    });
+}
+
+#[test]
+fn bios_store_key_uses_the_guest_ring_and_reports_full_without_modifying_it() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        let memory = dos.cpu().memory();
+        // A guest-relocated three-word ring has two usable entries. Start at its
+        // last slot so the first BIOS store must wrap the tail.
+        for (address, value) in [
+            (0x480, 0x200),
+            (0x482, 0x206),
+            (0x41a, 0x204),
+            (0x41c, 0x204),
+        ] {
+            memory.view().write_u16(address, value).unwrap();
+        }
+        for (word, address, tail) in [(0x1e61, 0x604, 0x200), (0x4800, 0x600, 0x202)] {
+            dos.cpu().context().cpu.set_cx(word);
+            dos.cpu().context().cpu.set_dx(0x1234);
+            let cpu = invoke(&mut dos, 0x100, 0x05aa);
+            assert_eq!(cpu.registers.eax as u16, 0x0500);
+            assert_eq!(cpu.registers.ecx as u16, word);
+            assert_eq!(cpu.registers.edx as u16, 0x1234);
+            assert_eq!(cpu.flags.eflags(), 0x643);
+            assert_eq!(memory.view().read_u16(address).unwrap(), word);
+            assert_eq!(memory.view().read_u16(0x41c).unwrap(), tail);
+            assert_eq!(memory.view().read_u16(0x41a).unwrap(), 0x204);
+        }
+        let mut before = [0; 6];
+        memory.view().read(0x600, &mut before).unwrap();
+        dos.cpu().context().cpu.set_cx(0x3062);
+        let full = invoke(&mut dos, 0x100, 0x05aa);
+        assert_eq!(full.registers.eax as u16, 0x0501);
+        assert_eq!(full.registers.ecx as u16, 0x3062);
+        assert_eq!(full.registers.edx as u16, 0x1234);
+        assert_eq!(full.flags.eflags(), 0x643);
+        let mut after = [0; 6];
+        memory.view().read(0x600, &mut after).unwrap();
+        assert_eq!(after, before);
+        assert_eq!(memory.view().read_u16(0x41a).unwrap(), 0x204);
+        assert_eq!(memory.view().read_u16(0x41c).unwrap(), 0x202);
+        for word in [0x1e61, 0x4800] {
+            assert_eq!(invoke(&mut dos, 0x100, 0).registers.eax as u16, word);
+        }
+        let empty = invoke(&mut dos, 0x100, 0x017b);
+        assert_ne!(empty.flags.eflags() & 0x40, 0);
+        assert_eq!(empty.registers.eax as u16, 0x017b);
     });
 }
 
@@ -97,10 +147,10 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         {
             let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             assert!(run.as_mut().poll(&mut cx).is_pending());
-            keyboard.push(KeyStroke {
+            assert!(keyboard.store_key(KeyStroke {
                 character: 0,
                 scan_code: 0x48, // Up arrow.
-            });
+            }));
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
@@ -125,10 +175,10 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
             let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             assert!(run.as_mut().poll(&mut cx).is_pending());
         }
-        keyboard.push(KeyStroke {
+        assert!(keyboard.store_key(KeyStroke {
             character: b'X',
             scan_code: 0x2d,
-        });
+        }));
         assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
         assert_eq!(
             dos.launch_com(PROGRAM, Default::default()),
@@ -140,10 +190,10 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         );
         assert_eq!(dos.cpu().context().cpu.ax(), 0x2d58);
         // Termination preserves queued BIOS keys, including their scan codes.
-        keyboard.push(KeyStroke {
+        assert!(keyboard.store_key(KeyStroke {
             character: b'Y',
             scan_code: 0x15,
-        });
+        }));
         {
             let execution = dos.cpu().context();
             execution.cpu.set_eip(0x104); // PROGRAM's DOS INT 21h entry.
@@ -163,10 +213,10 @@ fn bios_wait_uses_the_existing_async_interrupt_return() {
         }
         // Dropping the environment releases the pending read's input registration.
         drop(dos);
-        keyboard.push(KeyStroke {
+        assert!(keyboard.store_key(KeyStroke {
             character: b'Z',
             scan_code: 0x2c,
-        });
+        }));
         assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
@@ -180,14 +230,14 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         let keyboard = dos.keyboard();
-        keyboard.push(KeyStroke {
+        assert!(keyboard.store_key(KeyStroke {
             character: 0,
             scan_code: 0x4b, // Left arrow.
-        });
-        keyboard.push(KeyStroke {
+        }));
+        assert!(keyboard.store_key(KeyStroke {
             character: b'B',
             scan_code: 0x30,
-        });
+        }));
         assert_eq!(invoke(&mut dos, 0x104, 0x0700).registers.eax as u8, 0);
         // BIOS sees the next key; DOS retained the first key's second byte.
         assert_eq!(
@@ -212,10 +262,10 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
             u16::from(b'C')
         );
 
-        keyboard.push(KeyStroke {
+        assert!(keyboard.store_key(KeyStroke {
             character: b'D',
             scan_code: 0x20,
-        });
+        }));
         invoke(&mut dos, 0x104, 0x0cff); // DOS input flush also drains BIOS input.
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
     });

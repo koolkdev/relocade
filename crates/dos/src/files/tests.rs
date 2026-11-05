@@ -13,7 +13,9 @@ fn retained_file_handle_keeps_its_cursor_after_handle_replacement_and_reuse() {
     for name in [*b"CON     ", *b"AUX     ", *b"PRN     "] {
         devices.install(crate::devices::Unavailable(name));
     }
-    let mut files = Files::new(devices, &Default::default());
+    let memory = relocade_machine::Memory::new(crate::kernel::configuration()).unwrap();
+    let stdio = crate::stdio::Stdio::new(relocade_bios::Keyboard::new(memory));
+    let mut files = Files::new(devices, &stdio);
     let first = files.open(&filesystem, b"FIRST.TXT", 0x42).unwrap();
     let Handle::File(retained) = files.readable_handle(first).unwrap() else {
         panic!("opened a file");

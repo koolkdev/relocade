@@ -239,15 +239,15 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
                 memory.view().read_u8(0x470).unwrap() == 1
             });
             assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
-            keyboard.push(relocade_bios::KeyStroke {
+            assert!(keyboard.store_key(relocade_bios::KeyStroke {
                 character: b'A',
                 scan_code: 0x1e,
-            });
+            }));
             if !expected_buffer.is_empty() {
-                keyboard.push(relocade_bios::KeyStroke {
+                assert!(keyboard.store_key(relocade_bios::KeyStroke {
                     character: b'\r',
                     scan_code: 0x1c,
-                });
+                }));
             }
             assert_eq!(execution.await, Some(()));
         }

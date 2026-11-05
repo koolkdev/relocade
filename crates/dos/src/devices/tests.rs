@@ -36,7 +36,8 @@ fn installing_a_replacement_affects_new_opens_without_rebinding_open_handles() {
         chain.install(Unavailable(*b"AUX     "));
         chain.install(Unavailable(*b"PRN     "));
         let filesystem = FileSystem::default();
-        let stdio = crate::stdio::Stdio::default();
+        let memory = relocade_machine::Memory::new(crate::kernel::configuration()).unwrap();
+        let stdio = crate::stdio::Stdio::new(relocade_bios::Keyboard::new(memory));
         let mut files = Files::new(chain.clone(), &stdio);
         let original = files.open(&filesystem, b"CON:", 2).unwrap();
         let duplicate = files.duplicate(original).unwrap();
@@ -106,10 +107,10 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
         dos.cpu().interrupt_handle().take();
         let keyboard = dos.keyboard();
         let original = dos.state.devices().console();
-        keyboard.push(KeyStroke {
+        assert!(keyboard.store_key(KeyStroke {
             character: 0,
             scan_code: 0x3b, // F1.
-        });
+        }));
         assert_eq!(original.read_character().await.unwrap(), 0);
         assert_eq!(keyboard.peek_key(), None);
 
@@ -123,16 +124,16 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
         assert_eq!(original.peek_character().await.unwrap(), Some(0x3b));
         assert!(original.input_available().await.unwrap());
 
-        keyboard.push(KeyStroke {
+        assert!(keyboard.store_key(KeyStroke {
             character: 0,
             scan_code: 0x48, // Up arrow.
-        });
+        }));
         assert_eq!(replacement.read_character().await.unwrap(), 0);
         assert_eq!(replacement.peek_character().await.unwrap(), Some(0x48));
-        keyboard.push(KeyStroke {
+        assert!(keyboard.store_key(KeyStroke {
             character: b'Z',
             scan_code: 0x2c,
-        });
+        }));
         replacement.flush_input().await.unwrap();
         assert_eq!(keyboard.peek_key(), None);
         assert_eq!(replacement.peek_character().await.unwrap(), None);
