@@ -98,7 +98,7 @@ async fn connected_activity() {
         .run(pending::<()>(), async |runner| {
             let pic = Pic::default();
             pic.unmask_irq(KEYBOARD_IRQ);
-            let (input, keyboard) = connect(runner, pic.irq(KEYBOARD_IRQ)).await;
+            let (input, keyboard) = connect(runner, &pic).await;
             let pic = runner
                 .connect(Rc::new(RefCell::new(pic)), [], [PORT_RANGE])
                 .await;
