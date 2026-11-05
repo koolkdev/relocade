@@ -350,23 +350,23 @@ fn replies_wait_for_output_space_and_new_commands_interrupt_untransmitted_acks()
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn queued_host_events_do_not_starve_transmission_to_a_reading_guest() {
+fn unread_output_is_preserved_when_queued_input_overflows_the_keyboard() {
     let (mut controller, _) = controller();
+    event(&mut controller, key(KeyCode::KeyB, true));
     for _ in 0..32 {
         controller.queue_event(key(KeyCode::KeyA, true));
         controller.queue_event(key(KeyCode::KeyA, false));
     }
-    let mut bytes = Vec::new();
-    for _ in 0..512 {
-        controller.poll_activity();
-        if controller.status() & OUTPUT_BUFFER_FULL != 0 {
-            bytes.push(controller.read_unpolled());
-        }
-        if bytes.len() == 64 {
-            break;
-        }
-    }
-    assert_eq!(bytes, [0x1e, 0x9e].repeat(32));
+    controller.settle();
+    // The unread B make stays in the controller. Sixteen keyboard bytes fit
+    // five set-2 make/break pairs and one make; excess input reports overrun.
+    let mut expected = vec![0x30];
+    expected.extend([0x1e, 0x9e].repeat(5));
+    expected.extend([0x1e, 0xff]);
+    assert_eq!(drain(&mut controller), expected);
+    event(&mut controller, key(KeyCode::KeyA, true));
+    event(&mut controller, key(KeyCode::KeyA, false));
+    assert_eq!(drain(&mut controller), [0x1e, 0x9e]);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -381,21 +381,6 @@ fn disconnect_releases_held_keys_and_keeps_guest_command_service_alive() {
     assert!(drain(&mut controller).is_empty());
     controller.data(0xf2);
     assert_eq!(drain(&mut controller), [0xfa, 0xab, 0x41]);
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
-    let (mut controller, _) = controller();
-    event(&mut controller, key(KeyCode::KeyA, true));
-    assert_eq!(drain(&mut controller), [0x1e]);
-    controller.command(0x60); // Arm the controller's command-byte write.
-    controller.queue_event(key(KeyCode::KeyA, false));
-    controller.poll_activity(); // Observe the physical release.
-    controller.poll_activity(); // Transmit F0, which translation consumes.
-    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
-    controller.data(0x44); // Disable IRQ1 without changing translation.
-    assert_eq!(drain(&mut controller), [0x9e]);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

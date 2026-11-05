@@ -1,5 +1,10 @@
 # AT keyboard
 
+The compatibility boundary is the PC/AT software interface: scan bytes, port
+status and command replies, IRQ1, repeat timing and buffer overrun. Rust async
+services implement waits for commands, input, output space and clock deadlines.
+Correctness does not depend on a scheduler turn between keyboard events.
+
 `connect(&runner, pic.irq(KEYBOARD_IRQ)).await` registers the keyboard activity
 and ports (60h and 64h), returning its host `KeyboardInput` sender and
 `DeviceConnection`. Add the connection to the session bus. Controller firmware
@@ -41,6 +46,11 @@ repeats. The keyboard buffers up to sixteen scan bytes, admits complete
 sequences, and reports overrun when full. Command replies take priority over queued
 scan data and wait for controller output space. Closing host input releases held
 keys while the firmware continues serving guest commands.
+
+The frontend event channel transports host input independently of the emulated
+keyboard buffer. Physical transitions continue while controller output is full;
+an unread byte stays intact and further input can overflow the scan buffer.
+Guest reads and interface commands control when transmission can resume.
 
 Register/translation state, controller firmware, keyboard scanning, keyboard
 firmware and scan-code tables have separate modules. They follow the
