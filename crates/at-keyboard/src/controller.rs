@@ -157,3 +157,6 @@ enum Source {
     Controller,
     Keyboard,
 }
+
+#[cfg(test)]
+mod tests;

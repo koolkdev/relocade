@@ -206,7 +206,6 @@ impl<C: Clock> Service<'_, C> {
                     .keyboard
                     .repeat(self.clock.now(), self.controller.inhibited()),
             }
-            relocade_machine::yield_now().await;
         }
     }
 }
