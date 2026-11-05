@@ -13,6 +13,11 @@ and ICW initialization. Masking retains pending edges. An acknowledged request
 blocks equal/lower priorities until EOI; higher priorities may nest. IRQ1 uses
 vector 09h with the DOS vector base.
 
+Port accesses and interrupt acknowledgement update this register state directly.
+The PIC has no timed activity of its own; peripherals provide the IRQ transitions.
+Polling, rotation and special masking reuse the same request/service registers and
+priority decision.
+
 Behavior follows the [Intel 8259A datasheet](https://www.scs.stanford.edu/23wi-cs212/pintos/specs/8259A.pdf),
 pp. 9–17. This models a single master in 8086 operation. Standard PC cascade
 initialization is accepted, but a slave controller, cascaded acknowledgement,

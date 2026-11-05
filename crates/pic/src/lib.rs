@@ -2,7 +2,7 @@
 
 mod controller;
 
-use controller::Controller;
+use controller::{Controller, IRQ_COUNT, OCW2_EOI};
 use relocade_machine::{Device, IoBus};
 use std::{
     cell::RefCell,
@@ -17,11 +17,11 @@ pub const PORT_RANGE: RangeInclusive<u16> = COMMAND_PORT..=MASK_PORT;
 /// PC master interrupt wiring.
 pub const TIMER_IRQ: u8 = 0;
 pub const KEYBOARD_IRQ: u8 = 1;
-const NON_SPECIFIC_EOI: u8 = 0x20;
+const BIOS_VECTOR_BASE: u8 = 0x08;
 
 /// Finishes the highest-priority active interrupt through the guest device bus.
 pub fn end_of_interrupt(io: &IoBus) {
-    io.write_port(COMMAND_PORT, 1, u32::from(NON_SPECIFIC_EOI));
+    io.write_port(COMMAND_PORT, 1, u32::from(OCW2_EOI));
 }
 
 /// One execution-owned master PIC with eight interrupt inputs. Clones share
@@ -33,7 +33,7 @@ pub struct Pic(Rc<RefCell<Controller>>);
 impl Default for Pic {
     /// BIOS-initialized PC master vector base, with every IRQ masked.
     fn default() -> Self {
-        Self::new(0x08)
+        Self::new(BIOS_VECTOR_BASE)
     }
 }
 
@@ -41,18 +41,18 @@ impl Pic {
     /// Starts in 8086 edge-triggered mode, with all inputs masked. The vector base
     /// must be aligned to eight; DOS uses 08h and unmasks its connected devices.
     pub fn new(vector_base: u8) -> Self {
-        assert_eq!(vector_base & 7, 0, "PIC vector base alignment");
+        assert_eq!(vector_base % IRQ_COUNT, 0, "PIC vector base alignment");
         Self(Rc::new(RefCell::new(Controller::new(vector_base))))
     }
 
     /// Enables delivery on a connected line without dropping pending requests.
     pub fn unmask_irq(&self, number: u8) {
-        assert!(number < 8, "master PIC IRQ number");
+        assert!(number < IRQ_COUNT, "master PIC IRQ number");
         self.update(|state| state.mask &= !(1 << number));
     }
 
     pub fn irq(&self, number: u8) -> IrqLine {
-        assert!(number < 8, "master PIC IRQ number");
+        assert!(number < IRQ_COUNT, "master PIC IRQ number");
         IrqLine {
             pic: self.clone(),
             number,
