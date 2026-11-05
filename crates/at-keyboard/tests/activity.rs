@@ -78,7 +78,7 @@ async fn next_byte(io: &IoBus) -> u8 {
 }
 
 async fn no_output(io: &IoBus) {
-    // Let queued notifications and the activity's yield complete before observing it.
+    // Let the activity process queued notifications before checking for output.
     for _ in 0..4 {
         relocade_machine::yield_now().await;
     }
