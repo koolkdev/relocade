@@ -12,6 +12,80 @@ use std::{
 };
 
 #[test]
+fn installing_dos_preserves_the_existing_pc_and_bios() {
+    use relocade_machine::timer_service;
+
+    pollster::block_on(async {
+        let (clock, _timers) = timer_service();
+        let (runner, _host) = common::runner(clock.clone());
+        runner
+            .run(
+                futures_timer::Delay::new(std::time::Duration::from_secs(30)),
+                async |runner| {
+                    let mut pc = relocade_pc::Pc::new(runner).await.unwrap();
+                    let vga = pc.vga();
+                    let speaker = pc.speaker();
+                    let mut keyboard = pc.keyboard();
+                    // Preserve a full BIOS ring when attaching DOS to the PC.
+                    keyboard.write_all(b"abcdefghijklmno").unwrap();
+                    let memory = pc.cpu().memory();
+                    let io = pc.cpu().context().io.clone();
+                    io.write_port(0x21, 1, 0xff); // Keep the programmed mask and clock stable.
+                    memory.view().write_u32(0x46c, 12345).unwrap();
+                    pc.cpu()
+                        .context()
+                        .memory
+                        .write_u16(0xb8000, 0x1f58)
+                        .unwrap();
+                    let vectors = [0x08, 0x09, 0x10, 0x16, 0x1a]
+                        .map(|vector| memory.view().read_u32(vector * 4).unwrap());
+                    let cpu = pc.cpu().cpu_state().snapshot();
+
+                    let mut dos = relocade_dos::Dos::from_pc(pc).await.unwrap();
+                    assert!(Rc::ptr_eq(&vga, &dos.vga()));
+                    assert!(Rc::ptr_eq(&speaker, &dos.speaker()));
+                    assert_eq!(dos.cpu().cpu_state().snapshot(), cpu);
+                    assert_eq!(memory.view().read_u32(0x46c).unwrap(), 12345);
+                    assert_eq!(io.read_port(0x21, 1), 0xff);
+                    assert_eq!(
+                        dos.cpu().context().memory.read_u16(0xb8000).unwrap(),
+                        0x1f58
+                    );
+                    assert_eq!(
+                        [0x08, 0x09, 0x10, 0x16, 0x1a]
+                            .map(|vector| memory.view().read_u32(vector * 4).unwrap()),
+                        vectors,
+                    );
+                    assert_eq!(memory.view().read_u8(0xfff0).unwrap(), b'Z');
+
+                    dos.launch_com(
+                        &[
+                            0x31, 0xc0, 0xcd, 0x16, 0xa3, 0, 3, // Read 'a' through BIOS.
+                            0xb4, 7, 0xcd, 0x21, 0xa2, 2, 3, // Read 'b' through DOS.
+                            0xb4, 2, 0xb2, b'Y', 0xcd,
+                            0x21, // Console output through shared VGA MMIO.
+                            0xb8, 5, 0x4c, 0xcd, 0x21,
+                        ],
+                        Default::default(),
+                    )
+                    .unwrap();
+                    assert_eq!(dos.run(runner).await, Ok(5));
+                    assert_eq!(memory.view().read_u16(0x10300).unwrap(), u16::from(b'a'));
+                    assert_eq!(memory.view().read_u8(0x10302).unwrap(), b'b');
+                    assert_eq!(dos.cpu().context().memory.read_u8(0xb8000).unwrap(), b'Y');
+                    let mut remaining = Vec::new();
+                    while let Some(key) = keyboard.try_read_key() {
+                        remaining.push(key.character);
+                    }
+                    assert_eq!(remaining, b"cdefghijklmno");
+                },
+            )
+            .await
+            .expect("DOS guest timed out");
+    });
+}
+
+#[test]
 fn active_process_rejects_launches_without_changing_its_state() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

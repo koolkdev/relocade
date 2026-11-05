@@ -70,7 +70,8 @@
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
 //! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
-//! [`Dos::new`] registers VGA, the PIT timer and PC speaker with that runner.
+//! [`Dos::new`] creates a [`relocade_pc::Pc`] and installs DOS on it.
+//! [`Dos::from_pc`] installs DOS onto an existing BIOS-initialized PC.
 //! [`Dos::speaker`] exposes its speaker for attaching audio output after startup.
 //! DOS opens no platform output; the device submits PCM on the execution worker.
 //! [`Dos::run`] returns the current program's exit code; devices keep running while
@@ -110,7 +111,6 @@ mod error;
 mod execution;
 mod files;
 mod interrupt;
-mod kernel;
 mod load;
 mod memory;
 mod mz;
@@ -127,8 +127,9 @@ pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{
-    real_mode_interrupt::Interrupts, Clock, Cpu, CpuContext, IoBus, Memory, Runner, TimerHandle,
+    real_mode_interrupt::Interrupts, Clock, Cpu, CpuContext, Runner, TimerHandle,
 };
+use relocade_pc::Pc;
 use relocade_pc_speaker::Speaker;
 use relocade_vga::Vga;
 use state::DosState;
@@ -138,62 +139,38 @@ use std::{cell::RefCell, rc::Rc};
 /// Devices share the runner's clock; the default uses the host timer service.
 pub struct Dos<C = TimerHandle> {
     state: Rc<DosState>,
-    cpu: Cpu,
-    vga: Rc<RefCell<Vga<C>>>,
-    speaker: Rc<RefCell<Speaker<C>>>,
-    keyboard_input: relocade_frontend::keyboard::KeyboardInput,
+    pc: Pc<C>,
 }
 
 impl<C: Clock> Dos<C> {
-    /// Prepares memory and services, and registers VGA, the PIC/PIT, keyboard
-    /// controller and a silent PC speaker with the runner. Speaker ports work
-    /// without host audio output.
+    /// Creates a BIOS-initialized PC and installs DOS services on it.
     /// Launch a program before executing DOS services.
     pub async fn new(runner: &Runner<C>) -> relocade_machine::Result<Self>
     where
         C: Clone + 'static,
     {
-        let (vga, vga_device) = Vga::initialize(runner).await;
-        let (pic, pic_device) = relocade_pic::Pic::initialize(runner).await;
-        let (pit, pit_device) = relocade_pit::Pit::initialize(runner, &pic).await;
-        pic.unmask_irq(relocade_pic::TIMER_IRQ);
-        let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
-        pic.unmask_irq(relocade_pic::KEYBOARD_IRQ);
-        let (keyboard_input, keyboard_device) = relocade_at_keyboard::connect(runner, &pic).await;
-        let io = IoBus::new([
-            pic_device,
-            pit_device,
-            speaker_device,
-            vga_device,
-            keyboard_device,
-        ]);
-        let memory = Memory::new(kernel::configuration())?;
-        let keyboard = relocade_bios::Keyboard::new(memory.clone());
-        let mut cpu = runner
-            .create_cpu(memory.clone(), kernel::cpu(), io.clone())
-            .await?;
-        let state = Rc::new(DosState::new(
-            memory.with_io(io),
-            keyboard,
-            cpu.exit_handle(),
-        ));
-        let keyboard = state.stdio().input.clone();
-        {
-            let mut context = cpu.context();
-            memory::reset(&mut context.memory);
-            relocade_bios::initialize(&mut context.memory, context.io);
-        }
-        let mut interrupts = Interrupts::new(&mut cpu);
+        Self::from_pc(Pc::new(runner).await?).await
+    }
+
+    /// Installs the DOS allocator, console devices, filesystem and INT 20h/21h
+    /// services on an existing PC. BIOS, hardware and queued input are preserved.
+    /// Conventional memory from the first MCB onward becomes the DOS process arena.
+    /// Launch a program before executing DOS services.
+    ///
+    /// # Panics
+    /// The CPU must be stopped with no pending or suspended host services.
+    pub async fn from_pc(mut pc: Pc<C>) -> relocade_machine::Result<Self> {
+        let keyboard = pc.keyboard();
+        let cpu = pc.cpu();
+        let memory = cpu.memory();
+        let io = cpu.context().io.clone();
+        let exit = cpu.exit_handle();
+        let mut interrupts = Interrupts::new(cpu);
+        let state = Rc::new(DosState::new(memory.clone().with_io(io), keyboard, exit));
+        memory::reset(&mut memory.view());
         interrupt::register_interrupts(&mut interrupts, Rc::clone(&state));
-        relocade_bios::register_interrupts(&mut interrupts, keyboard);
         interrupts.install().await?;
-        Ok(Self {
-            state,
-            cpu,
-            vga,
-            speaker,
-            keyboard_input,
-        })
+        Ok(Self { state, pc })
     }
 
     /// Accesses the session's speaker on its execution owner, like [`Self::vga`].
@@ -201,7 +178,7 @@ impl<C: Clock> Dos<C> {
     /// here to connect output. Hardware state persists across process launches;
     /// ending the execution session stops synthesis, independently of playback.
     pub fn speaker(&self) -> Rc<RefCell<Speaker<C>>> {
-        self.speaker.clone()
+        self.pc.speaker()
     }
 
     /// Launches a COM image of 1..=65,278 bytes when no process is active.
@@ -239,7 +216,7 @@ impl<C: Clock> Dos<C> {
         {
             return Err(LaunchError::ProcessActive);
         }
-        let psp_segment = load(&mut self.cpu.context())?;
+        let psp_segment = load(&mut self.pc.cpu().context())?;
         self.state.start_process(psp_segment);
         Ok(())
     }
@@ -291,7 +268,7 @@ impl<C: Clock> Dos<C> {
     /// Executing a DOS hook before launch or after process termination is a
     /// programming error and panics. BIOS and custom hooks do not require a DOS process.
     pub fn cpu(&mut self) -> &mut Cpu {
-        &mut self.cpu
+        self.pc.cpu()
     }
 
     /// Returns the current process, or None before the first successful launch.
@@ -352,7 +329,7 @@ impl<C: Clock> Dos<C> {
     /// Thread-safe physical keyboard input for guest execution. Events reach the
     /// AT controller and IRQ1; guest INT 09h handlers decide how to consume them.
     pub fn keyboard_input(&self) -> relocade_frontend::keyboard::KeyboardInput {
-        self.keyboard_input.clone()
+        self.pc.keyboard_input()
     }
 
     /// Opens a native prompt over application-owned physical input and BIOS video.
@@ -367,8 +344,8 @@ impl<C: Clock> Dos<C> {
         &mut self,
         events: relocade_frontend::keyboard::KeyboardEvents,
     ) -> NativeConsole<'_> {
-        let memory = self.cpu.memory();
-        let io = self.cpu.context().io.clone();
+        let memory = self.pc.cpu().memory();
+        let io = self.pc.cpu().context().io.clone();
         NativeConsole::new(memory.with_io(io), self.state.stdio(), events)
     }
 
@@ -393,14 +370,14 @@ impl<C: Clock> Dos<C> {
     /// Immutable captured inputs, reusable across program launches. Rendering is
     /// caller-owned; capture continues independently of application redraws.
     pub fn frame_source(&self) -> relocade_vga::FrameSource {
-        self.vga.borrow().frame_source()
+        self.pc.frame_source()
     }
 
     /// Retains the execution-local device, including while the CPU awaits input.
     /// Give other workers the immutable captures from [`Dos::frame_source`].
     /// End device borrows before polling execution or dropping the session.
     pub fn vga(&self) -> Rc<RefCell<Vga<C>>> {
-        Rc::clone(&self.vga)
+        self.pc.vga()
     }
 
     /// Returns an owned reader that drains currently buffered standard output.
