@@ -42,7 +42,7 @@ fn drain(controller: &mut Fixture) -> Vec<u8> {
 fn controller() -> (Fixture, relocade_pic::Pic) {
     let pic = relocade_pic::Pic::default();
     pic.unmask_irq(relocade_pic::KEYBOARD_IRQ);
-    (Fixture::new(pic.irq(relocade_pic::KEYBOARD_IRQ)), pic)
+    (Fixture::new(&pic), pic)
 }
 
 fn poll(pic: &mut relocade_pic::Pic) -> Poll<u8> {

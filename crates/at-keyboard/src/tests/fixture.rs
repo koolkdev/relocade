@@ -60,11 +60,11 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
-    pub fn new(irq: IrqInput) -> Self {
+    pub fn new(pic: &Pic) -> Self {
         let clock = ManualClock::default();
         let (input, events) = frontend::channel();
         let device = Rc::new(RefCell::new(KeyboardController {
-            controller: Rc::new(Controller::new(irq)),
+            controller: Rc::new(Controller::new(pic)),
             startup: Some((clock.clone(), events)),
         }));
         let mut fixture = Self {

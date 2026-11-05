@@ -7,7 +7,7 @@ mod scancodes;
 use controller::Controller;
 use relocade_frontend::keyboard::{self as frontend, KeyboardEvents, KeyboardInput};
 use relocade_machine::{Clock, Device, DeviceConnection, IoBus, Runner};
-use relocade_pic::IrqInput;
+use relocade_pic::Pic;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 pub const DATA_PORT: u16 = 0x60;
@@ -29,14 +29,14 @@ pub fn read_scan_code(io: &IoBus) -> Option<u8> {
 
 /// Registers the controller ports and its asynchronous firmware and keyboard.
 /// Host text is ignored: physical positions become scan bytes, with guest repeat.
-/// The controller connects the IRQ input low until an output byte is ready.
+/// The controller connects IRQ1 low until an output byte is ready.
 pub async fn connect<C: Clock + Clone + 'static>(
     runner: &Runner<C>,
-    irq: IrqInput,
+    pic: &Pic,
 ) -> (KeyboardInput, DeviceConnection) {
     let (input, events) = frontend::channel();
     let device = Rc::new(RefCell::new(KeyboardController {
-        controller: Rc::new(Controller::new(irq)),
+        controller: Rc::new(Controller::new(pic)),
         startup: Some((runner.clock().clone(), events)),
     }));
     (input, runner.connect(device, [], PORTS).await)

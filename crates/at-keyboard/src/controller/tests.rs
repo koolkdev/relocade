@@ -12,7 +12,7 @@ use std::{
 fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
     let mut pic = Pic::default();
     pic.unmask_irq(KEYBOARD_IRQ);
-    let controller = Controller::new(pic.irq(KEYBOARD_IRQ));
+    let controller = Controller::new(&pic);
     let (commands, _incoming) = async_channel::bounded(1);
     let mut firmware = pin!(controller.run(commands));
     let mut cx = Context::from_waker(Waker::noop());

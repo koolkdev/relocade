@@ -5,9 +5,9 @@ status and command replies, IRQ1, repeat timing and buffer overrun. Rust async
 services implement waits for commands, input, output space and clock deadlines.
 Correctness does not depend on a scheduler turn between keyboard events.
 
-`connect(&runner, pic.irq(KEYBOARD_IRQ)).await` registers the keyboard activity
+`connect(&runner, &pic).await` registers the keyboard activity
 and ports (60h and 64h), returning its host `KeyboardInput` sender and
-`DeviceConnection`. It consumes the selected `IrqInput`, connecting IRQ1 low until
+`DeviceConnection`. The controller connects IRQ1 low until
 an output byte is ready. Add the connection to the session bus. Controller firmware
 and keyboard firmware run as two async futures in the existing device activity,
 on the execution owner. Physical frontend key positions feed the keyboard;
