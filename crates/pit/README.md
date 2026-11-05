@@ -28,7 +28,7 @@ each byte access.
 the shared PC/AT frequency. Deadlines round up, and repeated periods retain
 their fractional remainder.
 
-`Pit::initialize(runner, pic.irq(TIMER_IRQ)).await` creates the execution-owned
+`Pit::initialize(runner, &pic).await` creates the execution-owned
 device on the runner's clock and starts its activity. It returns the shared PIT
 and its connection for the CPU bus. It owns byte transfers at
 channel 0 (0x40), channel 2 (0x42) and control/read-back (0x43). Channel 1 (0x41)
@@ -36,7 +36,7 @@ and wider transfers are unsupported: writes are ignored and reads return open bu
 Read-back can latch both supported channels at the same machine time.
 
 Channel 0 starts in BIOS mode 3, gate high, divisor 65,536 already loaded. The PIT
-connects its IRQ input at OUT0's starting level without creating an edge. The first
+connects IRQ0 at OUT0's starting level without creating an edge. The first
 IRQ arrives after a full period (about 54.9254 ms). Guest writes replace that
 configuration; pending divisor loads follow the same mode-specific rules as channel 2.
 

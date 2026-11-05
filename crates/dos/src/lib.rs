@@ -154,8 +154,7 @@ impl<C: Clock> Dos<C> {
     {
         let (vga, vga_device) = Vga::initialize(runner).await;
         let (pic, pic_device) = relocade_pic::Pic::initialize(runner).await;
-        let (pit, pit_device) =
-            relocade_pit::Pit::initialize(runner, pic.irq(relocade_pic::TIMER_IRQ)).await;
+        let (pit, pit_device) = relocade_pit::Pit::initialize(runner, &pic).await;
         pic.unmask_irq(relocade_pic::TIMER_IRQ);
         let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
         let keyboard = relocade_bios::Keyboard::default();

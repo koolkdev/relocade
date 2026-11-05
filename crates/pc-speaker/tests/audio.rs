@@ -28,11 +28,8 @@ async fn exercise_audio_device() {
     let (started, ready) = async_channel::bounded(1);
     let (clock, _timers) = timer_service();
     let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
-        let (pit, pit_device) = relocade_pit::Pit::initialize(
-            runner,
-            relocade_pic::Pic::default().irq(relocade_pic::TIMER_IRQ),
-        )
-        .await;
+        let (pit, pit_device) =
+            relocade_pit::Pit::initialize(runner, &relocade_pic::Pic::default()).await;
         let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
         let io = IoBus::new([
             pit_device,

@@ -4,7 +4,7 @@ use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL
 use event_listener::Event;
 use futures_lite::future::or;
 use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Runner, TimerHandle};
-use relocade_pic::{IrqInput, IrqLine};
+use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 /// Execution-owned PIT registers and programmable channel-0 interrupt.
@@ -20,32 +20,29 @@ pub struct Pit<C = TimerHandle> {
 }
 
 impl<C: Clock> Pit<C> {
-    /// Creates the timer on the runner's clock and starts its IRQ activity.
+    /// Creates the timer on the runner's clock, connects IRQ0 and starts its activity.
     /// Returns the shared PIT and its register connection for the CPU bus.
-    pub async fn initialize(
-        runner: &Runner<C>,
-        irq: IrqInput,
-    ) -> (Rc<RefCell<Self>>, DeviceConnection)
+    pub async fn initialize(runner: &Runner<C>, pic: &Pic) -> (Rc<RefCell<Self>>, DeviceConnection)
     where
         C: Clone + 'static,
     {
         let pit = Rc::new(RefCell::new(Self::with_clock(
             Rc::new(runner.clock().clone()),
-            irq,
+            pic,
         )));
         let connection = runner.connect(pit.clone(), [], [crate::PORT_RANGE]).await;
         (pit, connection)
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
-    pub fn with_clock(clock: Rc<C>, irq: IrqInput) -> Self {
+    pub fn with_clock(clock: Rc<C>, pic: &Pic) -> Self {
         let mut channel0 = Counter::default();
         channel0.set_gate(true);
         channel0.control(0x36);
         channel0.write(0);
         channel0.write(0);
         channel0.advance(1); // BIOS initialization has already loaded the divisor.
-        let irq = irq.connect(channel0.output());
+        let irq = pic.irq(TIMER_IRQ, channel0.output());
         Self {
             at: clock.now(),
             clock,

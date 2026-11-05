@@ -68,10 +68,7 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     let clock = ManualClock::default();
     clock.advance_to(1_000_000_000);
     let mut pic = relocade_pic::Pic::new(0x08);
-    let timer = Rc::new(RefCell::new(Pit::with_clock(
-        Rc::new(clock.clone()),
-        pic.irq(0),
-    )));
+    let timer = Rc::new(RefCell::new(Pit::with_clock(Rc::new(clock.clone()), &pic)));
     pic.unmask_irq(relocade_pic::TIMER_IRQ);
     let mut activity = pin!(Pit::run(timer.clone()));
     let mut device_cx = Context::from_waker(Waker::noop());
@@ -141,10 +138,7 @@ fn program(pit: &mut impl Device, control: u8, divisor: u16) {
 fn programming_rearms_the_wait_and_preserves_pending_irq0() {
     let clock = ManualClock::default();
     let mut pic = relocade_pic::Pic::new(8);
-    let pit = Rc::new(RefCell::new(Pit::with_clock(
-        Rc::new(clock.clone()),
-        pic.irq(0),
-    )));
+    let pit = Rc::new(RefCell::new(Pit::with_clock(Rc::new(clock.clone()), &pic)));
     pic.unmask_irq(relocade_pic::TIMER_IRQ);
     let mut activity = pin!(Pit::run(pit.clone()));
     let wakes = Arc::new(WakeCount::default());
@@ -180,7 +174,7 @@ fn programming_rearms_the_wait_and_preserves_pending_irq0() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn readback_latches_both_channels_without_changing_speaker_playback() {
     let clock = ManualClock::default();
-    let mut pit = Pit::with_clock(Rc::new(clock.clone()), relocade_pic::Pic::new(8).irq(0));
+    let mut pit = Pit::with_clock(Rc::new(clock.clone()), &relocade_pic::Pic::new(8));
     program(&mut pit, 0x34, 4);
     pit.write_port(CONTROL_PORT, 1, 0xb6);
     pit.write_port(CHANNEL_2_PORT, 1, 6);
@@ -207,10 +201,7 @@ fn readback_latches_both_channels_without_changing_speaker_playback() {
 fn irq0_tracks_output_levels_for_a_level_triggered_pic() {
     let clock = ManualClock::default();
     let mut pic = relocade_pic::Pic::new(8);
-    let pit = Rc::new(RefCell::new(Pit::with_clock(
-        Rc::new(clock.clone()),
-        pic.irq(0),
-    )));
+    let pit = Rc::new(RefCell::new(Pit::with_clock(Rc::new(clock.clone()), &pic)));
     program(&mut *pit.borrow_mut(), 0x36, 4);
     // Guest selects level-triggered operation.
     pic.write_port(0x20, 1, 0x1b);
