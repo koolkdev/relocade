@@ -5,11 +5,10 @@ mod keyboard;
 mod scancodes;
 
 use controller::Controller;
-use futures_util::future::{select, Either};
 use relocade_frontend::keyboard::{self as frontend, KeyboardEvents, KeyboardInput};
 use relocade_machine::{Clock, Device, DeviceConnection, IoBus, Runner};
 use relocade_pic::IrqLine;
-use std::{cell::RefCell, future::pending, ops::RangeInclusive, pin::pin, rc::Rc};
+use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 pub const DATA_PORT: u16 = 0x60;
 pub const STATUS_COMMAND_PORT: u16 = 0x64;
@@ -17,85 +16,50 @@ pub const PORTS: [RangeInclusive<u16>; 2] = [
     DATA_PORT..=DATA_PORT,
     STATUS_COMMAND_PORT..=STATUS_COMMAND_PORT,
 ];
-const OUTPUT_BUFFER_FULL: u32 = 1;
+/// Port 64h: a byte is available for the guest to read from port 60h.
+pub const OUTPUT_BUFFER_FULL: u8 = 1;
+/// Port 64h: firmware has not yet consumed the guest's last port write.
+pub const INPUT_BUFFER_FULL: u8 = 1 << 1;
 
 /// Consumes one controller output byte when available, through the guest bus.
 pub fn read_scan_code(io: &IoBus) -> Option<u8> {
-    (io.read_port(STATUS_COMMAND_PORT, 1) & OUTPUT_BUFFER_FULL != 0)
+    (io.read_port(STATUS_COMMAND_PORT, 1) & u32::from(OUTPUT_BUFFER_FULL) != 0)
         .then(|| io.read_port(DATA_PORT, 1) as u8)
 }
 
-/// Registers an execution-owned keyboard and its event activity. Host text is
-/// ignored: physical positions become scan bytes, with guest-programmed repeat.
+/// Registers the controller ports and its asynchronous firmware and keyboard.
+/// Host text is ignored: physical positions become scan bytes, with guest repeat.
 pub async fn connect<C: Clock + Clone + 'static>(
     runner: &Runner<C>,
     irq: IrqLine,
 ) -> (KeyboardInput, DeviceConnection) {
     let (input, events) = frontend::channel();
     let device = Rc::new(RefCell::new(KeyboardController {
-        clock: runner.clock().clone(),
-        controller: Controller::new(irq),
-        events: Some(events),
-        changed: async_channel::bounded(1),
+        controller: Rc::new(Controller::new(irq)),
+        startup: Some((runner.clock().clone(), events)),
     }));
     (input, runner.connect(device, [], PORTS).await)
 }
 
-/// Port state and activity share one execution owner. Keyboard scanning and
-/// controller register responsibilities are implemented in separate modules.
+/// Port callbacks touch registers only. Both firmware tasks run on the same owner.
 struct KeyboardController<C> {
-    clock: C,
-    controller: Controller,
-    events: Option<KeyboardEvents>,
-    changed: (async_channel::Sender<()>, async_channel::Receiver<()>),
+    controller: Rc<Controller>,
+    startup: Option<(C, KeyboardEvents)>,
 }
 
-impl<C: Clock + Clone> Device for KeyboardController<C> {
+impl<C: Clock> Device for KeyboardController<C> {
     async fn run(device: Rc<RefCell<Self>>) {
-        let (clock, mut events, changed) = {
+        let (controller, clock, events) = {
             let mut device = device.borrow_mut();
-            (
-                device.clock.clone(),
-                device.events.take().expect("one keyboard activity"),
-                device.changed.1.clone(),
-            )
+            let (clock, events) = device.startup.take().expect("one keyboard activity");
+            (device.controller.clone(), clock, events)
         };
-        loop {
-            let deadline = device.borrow().controller.keyboard.deadline;
-            let timer = async {
-                if let Some(deadline) = deadline {
-                    clock.wait_until(deadline).await;
-                } else {
-                    pending::<()>().await;
-                }
-            };
-            let event = match select(
-                pin!(events.recv()),
-                pin!(select(pin!(timer), pin!(changed.recv()))),
-            )
-            .await
-            {
-                Either::Left((event, _)) => Some(event),
-                Either::Right(_) => None,
-            };
-            {
-                let mut device = device.borrow_mut();
-                match event {
-                    Some(Ok(event)) => device.controller.keyboard.event(event, clock.now()),
-                    Some(Err(_)) => {
-                        device
-                            .controller
-                            .keyboard
-                            .event(frontend::KeyboardEvent::FocusLost, clock.now());
-                        device.controller.refill();
-                        return;
-                    }
-                    None => device.controller.repeat(clock.now()),
-                }
-                device.controller.refill();
-            }
-            relocade_machine::yield_now().await;
-        }
+        let (commands, incoming) = async_channel::bounded(1);
+        futures_util::future::join(
+            controller.run(commands),
+            keyboard::run(clock, events, &controller, incoming),
+        )
+        .await;
     }
 
     fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
@@ -110,15 +74,9 @@ impl<C: Clock + Clone> Device for KeyboardController<C> {
     }
 
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
-        if bytes != 1 {
-            return;
+        if bytes == 1 {
+            self.controller.write(port, value as u8);
         }
-        match port {
-            DATA_PORT => self.controller.data(value as u8),
-            STATUS_COMMAND_PORT => self.controller.command(value as u8),
-            _ => return,
-        }
-        let _ = self.changed.0.try_send(());
     }
 }
 
