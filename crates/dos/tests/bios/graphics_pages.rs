@@ -20,21 +20,14 @@ fn graphics_pages_use_plane_offsets_and_keep_cursors_in_bios_memory() {
             let context = dos.cpu().context();
             assert_eq!(context.memory.read_u8(0x462).unwrap(), page as u8);
             assert_eq!(context.memory.read_u16(0x44e).unwrap(), page * 0x2000);
-            let registers = dos
-                .vga()
-                .borrow()
-                .snapshot()
-                .registers
-                .crtc
-                .registers
-                .values;
+            let registers = dos.vga().borrow().snapshot().vga().unwrap().crtc.values;
             assert_eq!(
                 [registers[12], registers[13]],
                 (page * 0x2000).to_be_bytes()
             );
             assert_eq!(
                 &registers[14..16],
-                &before.registers.crtc.registers.values[14..16]
+                &before.vga().unwrap().crtc.values[14..16]
             );
         }
         for (mode, invalid_page) in [
@@ -47,7 +40,7 @@ fn graphics_pages_use_plane_offsets_and_keep_cursors_in_bios_memory() {
             (0x13, 1),
         ] {
             video(&mut dos, mode, 0, 0, 0);
-            let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             for ax in [0x0200, 0x0300, 0x0500 | invalid_page] {
                 assert_eq!(
                     video(&mut dos, ax, invalid_page << 8, 0, 0x1234)
@@ -57,7 +50,7 @@ fn graphics_pages_use_plane_offsets_and_keep_cursors_in_bios_memory() {
                 );
             }
             assert_eq!(dos.cpu().context().memory.read_u8(0x462).unwrap(), 0);
-            assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
         }
     });
 }
@@ -81,14 +74,7 @@ fn planar_scrolls_copy_each_latched_byte_and_fill_without_xor() {
                 dos.cpu().context().memory.read_u16(0x44e).unwrap(),
                 offset as u16
             );
-            let crtc = dos
-                .vga()
-                .borrow()
-                .snapshot()
-                .registers
-                .crtc
-                .registers
-                .values;
+            let crtc = dos.vga().borrow().snapshot().vga().unwrap().crtc.values;
             assert_eq!([crtc[12], crtc[13]], (offset as u16).to_be_bytes());
             {
                 let mut context = dos.cpu().context();
@@ -118,12 +104,15 @@ fn planar_scrolls_copy_each_latched_byte_and_fill_without_xor() {
                 }
             }
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             video(&mut dos, 0x0601, 0x8500, 0x0001, 0x0202);
             let up = dos.vga().borrow().snapshot();
-            assert_eq!(up.registers, before.registers);
+            let up_registers = dos.vga().borrow().registers().clone();
+            assert_eq!(up_registers, before_registers);
             video(&mut dos, 0x0701, 0x8900, 0x0001, 0x0202);
             let down = dos.vga().borrow().snapshot();
-            assert_eq!(down.registers, before.registers);
+            let down_registers = dos.vga().borrow().registers().clone();
+            assert_eq!(down_registers, before_registers);
             for plane in 0..4 {
                 let mut expected_up = before.plane(plane).to_vec();
                 let mut expected_down = expected_up.clone();
@@ -210,9 +199,9 @@ fn indexed_scrolls_move_character_rows_and_keep_all_eight_color_bits() {
             .unwrap();
         assert_eq!(actual, expected);
         // An empty rectangle does not touch pixels or access registers.
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x06ff, 0, 0x0202, 0x0101);
-        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
         dos.cpu()
             .context()
             .memory

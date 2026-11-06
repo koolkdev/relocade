@@ -51,6 +51,7 @@ fn functionality_report_has_the_ibm_layout_and_rom_capabilities() {
             context.io.write_port(0x3c0, 1, 0x27);
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         let bytes = information(&mut dos, 0x5000, 0x200, 0);
         assert_eq!(&bytes[4..0x0b], &[3, 80, 0, 0, 0x10, 0, 0x70]);
         assert_eq!(&bytes[0x0b..0x19], &[0; 14]); // Inactive cursors 0–6.
@@ -78,7 +79,8 @@ fn functionality_report_has_the_ibm_layout_and_rom_capabilities() {
         assert_eq!(context.memory.read_u8(0x501ff).unwrap(), 0xa5);
         assert_eq!(context.memory.read_u8(0x50240).unwrap(), 0xa5);
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(after.registers, before.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
         }

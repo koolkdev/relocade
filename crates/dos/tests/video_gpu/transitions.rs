@@ -42,7 +42,7 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
             ],
         )
         .await;
-        assert_eq!(scrolled.display.registers.crtc.display_start, 0x4000);
+        assert_eq!(scrolled.display.vga().unwrap().display_start, 0x4000);
         // The preset keeps physical rows. Panning exposes only the fourth white
         // pixel, and the lower split starts at cleared memory.
         assert_white_prefix(&gpu.render(&scrolled, [320, 400]).await, 1);
@@ -74,7 +74,7 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
                 ],
             )
             .await;
-            assert_eq!(capture.display.registers.crtc.display_start, 0);
+            assert_eq!(capture.display.vga().unwrap().display_start, 0);
             assert_white_prefix(&gpu.render(&capture, size).await, 8);
             retained.push((capture, size));
         }

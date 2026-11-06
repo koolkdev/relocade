@@ -58,12 +58,12 @@ fn bios_palette_writes_update_only_the_seventeen_dynamic_entries() {
         assert_eq!(changed[16], 0x1c);
         assert_eq!(&changed[17..], &[0xa5; 239]);
         assert_eq!(
-            dos.vga().borrow().snapshot().registers.attribute.values[4],
+            dos.vga().borrow().snapshot().vga().unwrap().attributes[4],
             0x3e
         );
         video(&mut dos, 0x1c02, 0x300, 1, 0);
         assert_eq!(
-            dos.vga().borrow().snapshot().registers.attribute.values[4],
+            dos.vga().borrow().snapshot().vga().unwrap().attributes[4],
             0x2a
         );
         assert_eq!(saved(&mut dos), changed); // Hardware restore does not restore firmware data.
@@ -103,7 +103,7 @@ fn legacy_and_block_palette_services_share_the_dynamic_save_area() {
         assert_eq!(&saved(&mut dos)[..17], &colors);
         assert_eq!(&saved(&mut dos)[17..], &[0xa5; 239]);
         assert_eq!(
-            dos.vga().borrow().snapshot().registers.attribute.values[0x11],
+            dos.vga().borrow().snapshot().vga().unwrap().attributes[0x11],
             0x90
         );
     });

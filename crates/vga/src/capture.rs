@@ -36,8 +36,9 @@ struct Captures {
 /// Captured VGA state. Only the latest capture is retained; slow
 /// consumers skip obsolete inputs without blocking guest execution.
 /// A capture is published when memory, registers or either blink phase change.
-/// The comparison is conservative: hidden memory and register access state can
-/// also count as changes. Hardware timing continues through unchanged refreshes.
+/// The comparison is conservative: hidden memory can also count as a change.
+/// CPU port indices and transfer positions are not display inputs. Hardware
+/// timing continues through unchanged refreshes.
 #[derive(Clone)]
 pub struct FrameSource {
     captures: Arc<Captures>,

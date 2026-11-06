@@ -29,13 +29,15 @@ fn grayscale_uses_ibm_rounding_and_wraps_only_the_requested_dac_range() {
             context.io.write_port(0x3c6, 1, 0x5a);
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         let result = video(&mut dos, 0x101b, 0xa5fc, 8, 0x1234);
         assert_eq!(result.registers.eax as u16, 0x101b);
         assert_eq!(result.registers.ebx as u16, 0xa5fc);
         assert_eq!(result.registers.ecx as u16, 8);
         assert_eq!(result.registers.edx as u16, 0x1234);
         let after = dos.vga().borrow().snapshot();
-        let mut expected = before.registers.dac.colors;
+        let after_registers = dos.vga().borrow().registers().clone();
+        let mut expected = before.dac.colors;
         // Pure red=5 and green/blue=50 round below the decimal half boundary.
         for (index, intensity) in [
             (252, 19),
@@ -49,17 +51,17 @@ fn grayscale_uses_ibm_rounding_and_wraps_only_the_requested_dac_range() {
         ] {
             expected[index] = [intensity; 3];
         }
-        assert_eq!(after.registers.dac.colors, expected);
-        assert_eq!(after.registers.dac.mask, 0x5a);
-        assert_eq!(after.registers.dac.address(), 4);
-        let mut registers = after.registers.clone();
-        registers.dac = before.registers.dac.clone();
-        assert_eq!(registers, before.registers);
+        assert_eq!(after.dac.colors, expected);
+        assert_eq!(after.dac.mask, 0x5a);
+        assert_eq!(after_registers.dac.address(), 4);
+        let mut registers = after_registers.clone();
+        registers.dac = before_registers.dac.clone();
+        assert_eq!(registers, before_registers);
         for plane in 0..4 {
             assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
         }
         // Retained captures keep the original colors after the port writes.
-        assert_eq!(before.registers.dac.colors[252], [63, 0, 0]);
+        assert_eq!(before.dac.colors[252], [63, 0, 0]);
 
         // A full palette uses the high byte of CX, not an eight-bit count.
         {
@@ -73,8 +75,9 @@ fn grayscale_uses_ibm_rounding_and_wraps_only_the_requested_dac_range() {
         }
         video(&mut dos, 0x101b, 0, 256, 0);
         let full = dos.vga().borrow().snapshot();
-        assert_eq!(full.registers.dac.colors, [[1; 3]; 256]);
-        assert_eq!(full.registers.dac.address(), 0);
+        let full_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(full.dac.colors, [[1; 3]; 256]);
+        assert_eq!(full_registers.dac.address(), 0);
     });
 }
 
@@ -95,9 +98,9 @@ fn zero_count_grayscale_preserves_unfinished_dac_reads_and_writes() {
                     context.io.write_port(0x3c9, 1, 17);
                 }
             }
-            let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             video(&mut dos, 0x101b, 255, 0, 0);
-            assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
         }
     });
 }

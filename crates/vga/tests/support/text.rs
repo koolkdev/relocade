@@ -56,10 +56,10 @@ pub struct Scanline {
 
 impl Text {
     pub fn new(snapshot: &DisplaySnapshot) -> Self {
-        let r = &snapshot.registers;
-        let c = &r.crtc.registers.values;
-        let a = &r.attribute.values;
-        let s = &r.sequencer.values;
+        let r = snapshot.vga().unwrap();
+        let c = &r.crtc.values;
+        let a = &r.attributes;
+        let s = &r.sequencer;
         let glyph_width = if s[sequencer::CLOCKING_MODE as usize] & 1 != 0 {
             8
         } else {
@@ -88,9 +88,9 @@ impl Text {
             if mode & 0x80 != 0 {
                 index = (index & 15) | ((select & 3) << 4);
             }
-            index = (index | ((select & 12) << 4)) & r.dac.mask;
-            let rgb =
-                r.dac.colors[usize::from(index)].map(|v| ((u32::from(v) * 255 + 31) / 63) as u8);
+            index = (index | ((select & 12) << 4)) & snapshot.dac.mask;
+            let rgb = snapshot.dac.colors[usize::from(index)]
+                .map(|v| ((u32::from(v) * 255 + 31) / 63) as u8);
             u32::from_le_bytes([rgb[0], rgb[1], rgb[2], 255])
         });
         let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
@@ -113,7 +113,7 @@ impl Text {
                 columns,
                 glyph_width,
                 glyph_height: u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 31) + 1,
-                start_address: snapshot.registers.crtc.display_start,
+                start_address: snapshot.vga().unwrap().display_start,
                 stride: u16::from(c[crtc::OFFSET as usize]) * 2,
                 preset_row: u32::from(c[crtc::PRESET_ROW_SCAN as usize] & 31),
                 byte_panning: u32::from((c[crtc::PRESET_ROW_SCAN as usize] >> 5) & 3),
@@ -148,12 +148,12 @@ impl Text {
             cursor_end: c[crtc::CURSOR_END as usize],
             attribute_mode: mode,
             colors,
-            cursor_blink_on: snapshot.cursor_blink_on,
-            attribute_blink_on: snapshot.attribute_blink_on,
+            cursor_blink_on: snapshot.vga().unwrap().cursor_blink_on,
+            attribute_blink_on: snapshot.vga().unwrap().attribute_blink_on,
             blanked: s[sequencer::CLOCKING_MODE as usize] & 0x20 != 0
-                || r.attribute.address() & attribute::PALETTE_ADDRESS_SOURCE == 0
+                || !r.display_enabled
                 || mode & 1 != 0
-                || r.graphics.values[graphics::MISCELLANEOUS as usize] & 1 != 0,
+                || r.graphics[graphics::MISCELLANEOUS as usize] & 1 != 0,
         }
     }
 }

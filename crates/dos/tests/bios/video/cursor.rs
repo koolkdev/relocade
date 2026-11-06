@@ -11,7 +11,7 @@ fn assert_shape(dos: &mut Dos, requested: u16, hardware: u16) {
     assert_eq!(video(dos, 0x0300, 0, 0, 0).registers.ecx as u16, requested);
     let snapshot = dos.vga().borrow().snapshot();
     assert_eq!(
-        &snapshot.registers.crtc.registers.values[0x0a..0x0c],
+        &snapshot.vga().unwrap().crtc.values[0x0a..0x0c],
         &hardware.to_be_bytes(),
         "requested shape {requested:04x}"
     );
@@ -31,6 +31,7 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
 
         for (selection, control, emulation_flag) in [(0, 0xf6, 0x10), (1, 0xf7, 0)] {
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             let result = video(&mut dos, 0x1200 | selection, 0xa534, 0x5678, 0x9abc);
             assert_eq!(result.registers.eax as u16, 0x1212);
             assert_eq!(result.registers.ebx as u16, 0xa534);
@@ -38,7 +39,8 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
             assert_eq!(result.registers.edx as u16, 0x9abc);
             assert_eq!(dos.cpu().context().memory.read_u8(0x487).unwrap(), control);
             let after = dos.vga().borrow().snapshot();
-            assert_eq!(after.registers, before.registers);
+            let after_registers = dos.vga().borrow().registers().clone();
+            assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
                 assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
             }
@@ -54,7 +56,7 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
         }
 
         video(&mut dos, 0x1200, 0x34, 0, 0);
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         for selection in [2, 255] {
             assert_eq!(
                 video(&mut dos, 0x1200 | selection, 0x34, 0, 0)
@@ -63,7 +65,7 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
                 0x1200
             );
             assert_eq!(dos.cpu().context().memory.read_u8(0x487).unwrap(), 0xf6);
-            assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
         }
         for mode in [0x83, 7, 0x13, 3] {
             video(&mut dos, mode, 0, 0, 0);
@@ -138,13 +140,7 @@ fn font_layout_keeps_its_native_cursor_when_emulation_is_enabled() {
             video(&mut dos, font, 0, 0, 0);
             assert_eq!(dos.cpu().context().memory.read_u16(0x460).unwrap(), native);
             assert_eq!(
-                &dos.vga()
-                    .borrow()
-                    .snapshot()
-                    .registers
-                    .crtc
-                    .registers
-                    .values[0x0a..0x0c],
+                &dos.vga().borrow().snapshot().vga().unwrap().crtc.values[0x0a..0x0c],
                 &native.to_be_bytes()
             );
             assert_shape(&mut dos, 0x0607, emulated);
@@ -154,13 +150,7 @@ fn font_layout_keeps_its_native_cursor_when_emulation_is_enabled() {
         assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 15);
         assert_eq!(dos.cpu().context().memory.read_u16(0x460).unwrap(), 0x0d0e);
         assert_eq!(
-            &dos.vga()
-                .borrow()
-                .snapshot()
-                .registers
-                .crtc
-                .registers
-                .values[0x0a..0x0c],
+            &dos.vga().borrow().snapshot().vga().unwrap().crtc.values[0x0a..0x0c],
             &[13, 14]
         );
         // The same shape supplied through AH=01h must still use IBM's translation.

@@ -241,7 +241,7 @@ fn display_addressing_preserves_high_counter_bits_in_word_and_doubleword_modes()
         set(&mut vga, 0x3d4, 0x17, mode);
         set(&mut vga, 0x3d4, 0x14, underline);
         let mut snapshot = vga.snapshot();
-        snapshot.registers.crtc.display_start = 0xd001;
+        snapshot.vga_mut().unwrap().display_start = 0xd001;
         assert_eq!(
             common::support::inspection::inspect(&snapshot).cells[0].character,
             character

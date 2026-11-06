@@ -50,6 +50,7 @@ fn indexed_reads_use_raw_color_indices_and_programmable_font_heights() {
             video(&mut dos, 0x1121, 0, height, 4);
             video(&mut dos, 0x0200, 0, 0, 0x0102);
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             assert_eq!(read_character(&mut dos, 0), 128, "height {height}");
             {
                 let context = dos.cpu().context();
@@ -57,7 +58,8 @@ fn indexed_reads_use_raw_color_indices_and_programmable_font_heights() {
                 assert_eq!(context.memory.read_u8(0x462).unwrap(), 0);
             }
             let after = dos.vga().borrow().snapshot();
-            assert_eq!(after.registers, before.registers);
+            let after_registers = dos.vga().borrow().registers().clone();
+            assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
                 assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
             }

@@ -183,15 +183,15 @@ fn packed_accesses_share_vga_planes_without_changing_read_latches() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn svga_uses_the_existing_dac_without_resetting_legacy_registers() {
     let mut vga = device();
-    let registers = vga.snapshot().registers;
+    let registers = vga.registers().clone();
     enable(&mut vga);
-    assert_eq!(vga.snapshot().registers, registers);
+    assert_eq!(vga.registers(), &registers);
     vga.write_port(0x3c8, 2, 0x012a); // Index 42 and red component through byte VGA ports.
     vga.write_port(0x3c9, 1, 2);
     vga.write_port(0x3c9, 1, 3);
     set(&mut vga, 4, 0);
-    assert_eq!(vga.snapshot().registers.dac.colors[42], [1, 2, 3]);
-    assert_eq!(vga.snapshot().registers.crtc, registers.crtc);
+    assert_eq!(vga.snapshot().dac.colors[42], [1, 2, 3]);
+    assert_eq!(vga.registers().crtc, registers.crtc);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

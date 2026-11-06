@@ -44,6 +44,7 @@ fn planar_reads_use_each_modes_page_stride_and_full_font() {
                 context.io.write_port(0x3ce, 2, 0x0304);
             }
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             assert_eq!(read_character(&mut dos, page), 128, "mode {mode:02x}");
             {
                 let context = dos.cpu().context();
@@ -57,7 +58,8 @@ fn planar_reads_use_each_modes_page_stride_and_full_font() {
                 );
             }
             let after = dos.vga().borrow().snapshot();
-            assert_eq!(after.registers, before.registers);
+            let after_registers = dos.vga().borrow().registers().clone();
+            assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
                 assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
             }
@@ -106,9 +108,11 @@ fn planar_reads_honor_color_comparison_and_programmable_font_height() {
                 context.io.write_port(0x3ce, 2, care << 8 | 7);
             }
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             assert_eq!(read_character(&mut dos, 0), character);
             let after = dos.vga().borrow().snapshot();
-            assert_eq!(after.registers, before.registers);
+            let after_registers = dos.vga().borrow().registers().clone();
+            assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
                 assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
             }

@@ -49,10 +49,7 @@ fn guest_word_io_banking_and_bios_palette_share_the_production_device() {
         let cpu = dos.cpu().context().cpu.snapshot();
         assert_eq!(cpu.registers.ebx as u16, 0xbeef);
         assert_eq!(cpu.registers.ecx as u16, 0x1234);
-        assert_eq!(
-            dos.vga().borrow().snapshot().registers.dac.colors[42],
-            [63, 5, 7]
-        );
+        assert_eq!(dos.vga().borrow().snapshot().dac.colors[42], [63, 5, 7]);
     });
 }
 

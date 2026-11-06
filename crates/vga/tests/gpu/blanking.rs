@@ -120,7 +120,10 @@ async fn check_vertical() {
             common::crtc(&mut vga, index, value);
         }
         let capture = common::fixture::capture(&vga);
-        assert_eq!(capture.display.geometry().scanline_step, step);
+        assert_eq!(
+            capture.display.vga().unwrap().geometry().scanline_step,
+            step
+        );
         let size = [4, height];
         gpu.expect(
             &capture,

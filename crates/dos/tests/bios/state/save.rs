@@ -14,7 +14,7 @@ fn query_counts_selected_blocks_and_rejects_empty_or_unknown_requests() {
             assert_eq!(result.registers.eax as u16, 0x1c1c);
             assert_eq!(result.registers.ebx as u16, blocks);
         }
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         dos.cpu()
             .context()
             .memory
@@ -26,7 +26,7 @@ fn query_counts_selected_blocks_and_rejects_empty_or_unknown_requests() {
             assert_eq!(result.registers.ebx as u16, 0x200);
         }
         assert_eq!(buffer::<1024>(&mut dos, 0x5000, 0x200), [0xa5; 1024]);
-        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
     });
 }
 
@@ -98,12 +98,12 @@ fn firmware_save_includes_equipment_and_vectors_before_overlapping_output() {
                 context.memory.write(address, &bytes).unwrap();
             }
         }
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         let mut expected = std::array::from_fn::<_, 0x3a, _>(|index| index as u8);
         expected[0] = 0x30;
         state(&mut dos, 1, 2, 0, 0x449);
         assert_eq!(buffer::<0x3a>(&mut dos, 0, 0x469), expected);
-        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
     });
 }
 
@@ -129,17 +129,19 @@ fn hardware_save_reads_monochrome_registers_and_spills_all_four_latches() {
             context.io.write_port(0x3c0, 1, 0x2a);
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         state(&mut dos, 1, 1, 0x5000, 0x200);
         let bytes = buffer::<0x46>(&mut dos, 0x5000, 0x220);
         assert_eq!(&bytes[..5], &[2, 0x0e, 5, 0x2a, 0x55]);
-        assert_eq!(&bytes[5..9], &before.registers.sequencer.values[1..]);
+        assert_eq!(&bytes[5..9], &before.vga().unwrap().sequencer[1..]);
         assert_eq!(bytes[9], 0xe0);
-        assert_eq!(&bytes[0x0a..0x23], &before.registers.crtc.registers.values);
-        assert_eq!(&bytes[0x23..0x37], &before.registers.attribute.values[..20]);
-        assert_eq!(&bytes[0x37..0x40], &before.registers.graphics.values);
+        assert_eq!(&bytes[0x0a..0x23], &before.vga().unwrap().crtc.values);
+        assert_eq!(&bytes[0x23..0x37], &before.vga().unwrap().attributes[..20]);
+        assert_eq!(&bytes[0x37..0x40], &before.vga().unwrap().graphics);
         assert_eq!(&bytes[0x40..], &[0xb4, 3, 0x12, 0x34, 0x56, 0x78]);
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(after.registers, before.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(after_registers, before_registers);
         for (plane, byte) in [0x12, 0x34, 0x56, 0x78].into_iter().enumerate() {
             assert_eq!(
                 &after.plane(plane)[..0xffff],
@@ -204,10 +206,7 @@ fn dac_save_preserves_all_colors_color_select_and_read_or_write_position() {
                 assert_eq!(context.io.read_port(0x3c9, 1), (index * 21 + 3) & 63);
             } else {
                 context.io.write_port(0x3c9, 1, 62);
-                assert_eq!(
-                    dos.vga().borrow().snapshot().registers.dac.colors[42],
-                    [62, 60, 3]
-                );
+                assert_eq!(dos.vga().borrow().snapshot().dac.colors[42], [62, 60, 3]);
             }
         }
     });

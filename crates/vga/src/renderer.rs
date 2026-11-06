@@ -107,7 +107,7 @@ impl VgaRenderer {
                 .expect("VGA dimensions fit the validated device limits");
         }
         let memory_changed = self.memory.upload(queue, &capture.display);
-        let state_changed = self.state.upload(queue, &capture.display, geometry);
+        let state_changed = self.state.upload(queue, &capture.display);
         self.frame = Some(FrameMetadata {
             time: capture.time,
             sequence: capture.sequence,

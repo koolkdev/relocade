@@ -56,6 +56,7 @@ fn packed_reads_recognize_direct_pixels_and_preserve_display_state() {
                 context.io.write_port(0x3c4, 2, 0x0502);
             }
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             assert_eq!(read_character(&mut dos, 0), 65);
             {
                 let context = dos.cpu().context();
@@ -70,7 +71,8 @@ fn packed_reads_recognize_direct_pixels_and_preserve_display_state() {
                 assert_eq!(context.memory.read_u8(0x462).unwrap(), 0);
             }
             let after = dos.vga().borrow().snapshot();
-            assert_eq!(after.registers, before.registers);
+            let after_registers = dos.vga().borrow().registers().clone();
+            assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
                 assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
             }
@@ -148,9 +150,11 @@ fn packed_read_restores_access_before_matching_a_font_in_vram() {
             context.io.write_port(0x3ce, 2, 0x0204); // Caller's font-read plane.
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         assert_eq!(read_character(&mut dos, 0), 65);
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(after.registers, before.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
         }
@@ -172,6 +176,7 @@ fn packed_blank_cells_use_the_font_and_invalid_pages_leave_state_alone() {
         }
         assert_eq!(read_character(&mut dos, 0), 5); // Blank does not imply ASCII space.
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         assert_eq!(read_character(&mut dos, 1), 0x86a5);
         {
             let mut context = dos.cpu().context();
@@ -181,7 +186,8 @@ fn packed_blank_cells_use_the_font_and_invalid_pages_leave_state_alone() {
         }
         assert_eq!(read_character(&mut dos, 0), 0);
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(after.registers, before.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
         }

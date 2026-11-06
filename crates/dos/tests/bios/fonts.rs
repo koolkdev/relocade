@@ -46,11 +46,13 @@ fn guest_font_loading_wraps_the_source_and_preserves_other_memory_and_registers(
             context.memory.write(0x60000, &[0xff; 8]).unwrap(); // Would expose a missing ES wrap.
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         let result = video(&mut dos, 0x1100, 0x0605, 2, 65);
         assert_eq!(result.registers.ebp as u16, 0xfffc);
         assert_eq!(result.segments.es.selector, 0x5000);
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(after.registers, before.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(after_registers, before_registers);
         for plane in [0, 1, 3] {
             assert_eq!(after.plane(plane), before.plane(plane));
         }
@@ -63,7 +65,8 @@ fn guest_font_loading_wraps_the_source_and_preserves_other_memory_and_registers(
         assert_eq!(&before.plane(2)[0x6820..0x6840], &[0xa5; 32]);
         video(&mut dos, 0x1100, 0x0605, 0, 256);
         let unchanged = dos.vga().borrow().snapshot();
-        assert_eq!(unchanged.registers, after.registers);
+        let unchanged_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(unchanged_registers, after_registers);
         assert_eq!(unchanged.plane(2), after.plane(2));
         let context = dos.cpu().context();
         assert_eq!(context.memory.read_u16(0x485).unwrap(), 16);
@@ -92,12 +95,12 @@ fn built_in_font_uploads_leave_geometry_and_bank_selection_to_the_caller() {
                 &snapshot.plane(2)[offset + 219 * 32..offset + 219 * 32 + glyph.len()],
                 vec![255; glyph.len()]
             );
-            assert_eq!(snapshot.registers.sequencer.values[3], 0);
-            assert_eq!(snapshot.registers.crtc.registers.values[9], 0x4f);
+            assert_eq!(snapshot.vga().unwrap().sequencer[3], 0);
+            assert_eq!(snapshot.vga().unwrap().crtc.values[9], 0x4f);
         }
         video(&mut dos, 0x1103, 0xff3b, 0, 0); // Bank A=6, bank B=7.
         let snapshot = dos.vga().borrow().snapshot();
-        assert_eq!(snapshot.registers.sequencer.values[3], 0x3b);
+        assert_eq!(snapshot.vga().unwrap().sequencer[3], 0x3b);
         let context = dos.cpu().context();
         assert_eq!(context.memory.read_u16(0x485).unwrap(), 16);
         assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x0720);
@@ -164,6 +167,7 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         let font_pointer = dos.cpu().context().memory.read_u32(0x10c).unwrap();
         let mut geometry = [0; 3];
         dos.cpu()
@@ -189,6 +193,7 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
             );
         }
         let after = dos.vga().borrow().snapshot();
+        let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(
             dos.cpu().context().memory.read_u32(0x10c).unwrap(),
             font_pointer
@@ -196,7 +201,7 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
         let mut actual = [0; 3];
         dos.cpu().context().memory.read(0x484, &mut actual).unwrap();
         assert_eq!(actual, geometry);
-        assert_eq!(after.registers, before.registers);
+        assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             assert_eq!(after.plane(plane), before.plane(plane));
         }

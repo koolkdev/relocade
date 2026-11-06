@@ -2,7 +2,15 @@
 //! port access, so it leaves read latches and register access phases untouched.
 #[cfg(feature = "renderer")]
 use crate::memory::DirtyPages;
-use crate::{memory::MemorySnapshot, Registers};
+use crate::{memory::MemorySnapshot, DisplayGeometry, Scanout, VgaDisplayState};
+
+/// Shared indexed-color display inputs, without CPU palette-transfer position.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DacSnapshot {
+    /// Six-bit RGB components in DAC address order.
+    pub colors: [[u8; 3]; 256],
+    pub mask: u8,
+}
 
 /// Changes since a known immutable memory version. Published captures accumulate
 /// these until taken for upload. Retains memory references, not earlier captures,
@@ -22,13 +30,8 @@ pub(crate) struct MemoryChanges {
 /// changing it, so retained snapshots remain valid without copying VRAM at capture.
 #[derive(Clone)]
 pub struct DisplaySnapshot {
-    /// A direct clone of the device's register banks, sampled with video memory.
-    /// These settings apply to the whole image under the snapshot approximation.
-    pub registers: Registers,
-    /// Cursor blink phase, toggled every eight retraces before CRTC visibility rules.
-    pub cursor_blink_on: bool,
-    /// Attribute blink phase, toggled every sixteen retraces for text and graphics.
-    pub attribute_blink_on: bool,
+    pub dac: DacSnapshot,
+    pub(crate) scanout: Scanout,
     pub(crate) memory: MemorySnapshot,
     /// Optional transfer hints; complete captured memory remains authoritative.
     /// Keep these with their memory even when a caller replaces CapturedFrame::display.
@@ -37,13 +40,33 @@ pub struct DisplaySnapshot {
 }
 
 impl DisplaySnapshot {
-    // Conservative input comparison, not pixel equivalence. Plane identities
-    // avoid scanning VRAM; register access state can cause harmless extra changes.
+    // Conservative input comparison, not pixel equivalence. Block identities
+    // avoid scanning VRAM; CPU port access state is not captured.
     pub(crate) fn same_inputs(&self, other: &Self) -> bool {
-        self.cursor_blink_on == other.cursor_blink_on
-            && self.attribute_blink_on == other.attribute_blink_on
-            && self.registers == other.registers
+        self.scanout == other.scanout
+            && self.dac == other.dac
             && self.memory.same_blocks(&other.memory)
+    }
+
+    pub fn geometry(&self) -> DisplayGeometry {
+        self.scanout.geometry()
+    }
+
+    /// Display interpretation bound to this capture's physical memory extent.
+    pub fn scanout(&self) -> &Scanout {
+        &self.scanout
+    }
+
+    pub fn vga(&self) -> Option<&VgaDisplayState> {
+        match &self.scanout {
+            Scanout::Vga(state) => Some(state),
+        }
+    }
+
+    pub fn vga_mut(&mut self) -> Option<&mut VgaDisplayState> {
+        match &mut self.scanout {
+            Scanout::Vga(state) => Some(state),
+        }
     }
 
     /// One complete 64-KiB physical plane, including bytes outside the display.

@@ -11,6 +11,7 @@ fn screen_output_changes_only_the_sequencer_bit_and_acknowledges_invalid_selecti
             // Keep nondefault clocking bits to detect an accidental register reset.
             dos.cpu().context().io.write_port(0x3c4, 2, 0x1d01);
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             for (selection, clocking) in [(1, 0x3d), (0, 0x1d)] {
                 dos.cpu().context().io.write_port(0x3c4, 1, 4);
                 let result = video(&mut dos, 0x1200 | selection, 0xa536, 0x5678, 0x9abc);
@@ -19,19 +20,20 @@ fn screen_output_changes_only_the_sequencer_bit_and_acknowledges_invalid_selecti
                 assert_eq!(result.registers.ecx as u16, 0x5678);
                 assert_eq!(result.registers.edx as u16, 0x9abc);
                 let after = dos.vga().borrow().snapshot();
-                let mut expected = before.registers.clone();
+                let after_registers = dos.vga().borrow().registers().clone();
+                let mut expected = before_registers.clone();
                 expected.sequencer.values[1] = clocking;
-                assert_eq!(after.registers, expected); // Includes the final sequencer index.
+                assert_eq!(after_registers, expected); // Includes the final sequencer index.
                 for plane in 0..4 {
                     assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
                 }
             }
             for selection in [2, 255] {
                 dos.cpu().context().io.write_port(0x3c4, 1, 4);
-                let before = dos.vga().borrow().snapshot();
+                let before_registers = dos.vga().borrow().registers().clone();
                 let result = video(&mut dos, 0x1200 | selection, 0x36, 0, 0);
                 assert_eq!(result.registers.eax as u16, 0x1212);
-                assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+                assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
             }
         }
     });
@@ -50,7 +52,7 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
         video(&mut dos, 0x1201, 0x36, 0, 0);
         let blank = common::next_capture(&dos).await;
         assert!(blank.sequence > initial.sequence);
-        assert_eq!(blank.display.registers.sequencer.values[1], 0x20);
+        assert_eq!(blank.display.vga().unwrap().sequencer[1], 0x20);
         for plane in 0..4 {
             assert!(std::ptr::eq(
                 blank.display.plane(plane),
@@ -80,7 +82,7 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
 
         video(&mut dos, 0x1200, 0x36, 0, 0);
         let visible = common::next_capture(&dos).await;
-        assert_eq!(visible.display.registers.sequencer.values[1], 0);
+        assert_eq!(visible.display.vga().unwrap().sequencer[1], 0);
         for plane in 0..4 {
             assert!(std::ptr::eq(
                 visible.display.plane(plane),
@@ -98,7 +100,7 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
         video(&mut dos, 0x1201, 0x36, 0, 0);
         video(&mut dos, 0x83, 0, 0, 0); // A mode set restores output while preserving cells.
         let reset = dos.vga().borrow().snapshot();
-        assert_eq!(reset.registers.sequencer.values[1], 0);
+        assert_eq!(reset.vga().unwrap().sequencer[1], 0);
         assert_eq!(reset.plane(0)[0], b'A');
     });
 }

@@ -6,7 +6,7 @@ struct State {
     graphics: vec4<u32>,
     attributes: array<vec4<u32>, 2>,
     miscellaneous: u32,
-    attribute_address: u32,
+    display_enabled: u32,
     dac_mask: u32,
     attribute_blink_on: u32,
     cursor_blink_on: u32,

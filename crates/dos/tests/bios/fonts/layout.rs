@@ -8,14 +8,14 @@ fn scanline_selection_and_font_height_support_twenty_five_forty_three_and_fifty_
         for (selection, height, rows, control) in
             [(1, 14, 43, 0), (2, 16, 50, 0x10), (0, 8, 50, 0x80)]
         {
-            let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             assert_eq!(
                 video(&mut dos, 0x1200 | selection, 0x30, 0, 0)
                     .registers
                     .eax as u16,
                 0x1212
             );
-            assert_eq!(before.registers, dos.vga().borrow().snapshot().registers);
+            assert_eq!(before_registers, dos.vga().borrow().registers().clone());
             {
                 let mut context = dos.cpu().context();
                 context.memory.write_u16(0xb8000, 0x2e41).unwrap();
@@ -34,11 +34,11 @@ fn scanline_selection_and_font_height_support_twenty_five_forty_three_and_fifty_
             let preset = dos.vga().borrow().snapshot();
             video(&mut dos, 0x1112, 0, 0, 0);
             let expanded = dos.vga().borrow().snapshot();
-            assert_eq!(expanded.registers.crtc.registers.values[9], 0x47);
+            assert_eq!(expanded.vga().unwrap().crtc.values[9], 0x47);
             for register in [0, 1, 6, 7, 0x10, 0x11, 0x12, 0x15, 0x16, 0x17] {
                 assert_eq!(
-                    expanded.registers.crtc.registers.values[register],
-                    preset.registers.crtc.registers.values[register]
+                    expanded.vga().unwrap().crtc.values[register],
+                    preset.vga().unwrap().crtc.values[register]
                 );
             }
             {
@@ -54,7 +54,7 @@ fn scanline_selection_and_font_height_support_twenty_five_forty_three_and_fifty_
             video(&mut dos, 0x0951, 0x031e, 1, 0);
             video(&mut dos, 0x0503, 0, 0, 0);
             let capture = common::next_capture(&dos).await;
-            assert_eq!(capture.display.registers.crtc.display_start, 0x3000);
+            assert_eq!(capture.display.vga().unwrap().display_start, 0x3000);
             assert_eq!(
                 video(&mut dos, 0x0800, 0x0300, 0, 0).registers.eax as u16,
                 0x1e51
@@ -89,12 +89,14 @@ fn geometry_changing_font_calls_validate_before_upload_and_handle_monochrome_crt
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         video(&mut dos, 0x0507, 0, 0, 0);
         let before = common::next_capture(&dos).await;
+        let before_registers = dos.vga().borrow().registers().clone();
         assert_eq!(
             video(&mut dos, 0x1114, 0, 0, 0).registers.eax as u16,
             0x8614
         );
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(before.display.registers, after.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(before_registers, after_registers);
         assert_eq!(before.display.plane(2), after.plane(2));
         video(&mut dos, 0x0500, 0, 0, 0);
         // A one-high font would need 400 BIOS rows, beyond the byte-sized row field.
@@ -108,9 +110,9 @@ fn geometry_changing_font_calls_validate_before_upload_and_handle_monochrome_crt
         }
         video(&mut dos, 0x1110, 0x1000, 0, 0); // Zero glyphs can still change the height.
         let snapshot = dos.vga().borrow().snapshot();
-        assert_eq!(snapshot.registers.crtc.registers.values[9], 0x4f);
-        assert_eq!(&snapshot.registers.crtc.registers.values[10..12], &[14, 15]);
-        assert_eq!(snapshot.registers.miscellaneous, 0x42);
+        assert_eq!(snapshot.vga().unwrap().crtc.values[9], 0x4f);
+        assert_eq!(&snapshot.vga().unwrap().crtc.values[10..12], &[14, 15]);
+        assert_eq!(snapshot.vga().unwrap().miscellaneous, 0x42);
         let context = dos.cpu().context();
         assert_eq!(context.memory.read_u8(0x484).unwrap(), 24);
         assert_eq!(context.memory.read_u16(0x485).unwrap(), 16);

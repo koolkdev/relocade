@@ -1,5 +1,5 @@
 //! VGA register banks and port access. Each bank owns its raw values and CPU
-//! access state; display captures clone the same banks without reading ports.
+//! access state; display captures copy display inputs without reading ports.
 
 pub mod attribute;
 pub mod crtc;
@@ -53,7 +53,7 @@ pub const PORT_RANGES: [RangeInclusive<u16>; 8] = [
     ADAPTER_CONTROL_PORT..=ADAPTER_CONTROL_PORT,
 ];
 
-/// Stored VGA register banks, used by the device and its captures.
+/// Live VGA register banks, inspected on the execution owner.
 /// Bank indices and transfer phases are retained alongside the raw values;
 /// cloning this state never advances a CPU access or evaluates display settings.
 /// The adapter's CPU address-decoding controls live separately on the device.

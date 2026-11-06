@@ -579,19 +579,22 @@ update made after retrace starts appears in the next capture. The snapshot
 approximation does not reproduce the within-blanking ordering used by
 raster-synchronized smooth scrolling.
 
-The device and `DisplaySnapshot::registers` use the same `Registers` type.
-Capture creation clones the complete structure, including bank indices and
-palette-transfer phases. Raw bank values are available through fields such as
-`registers.crtc.registers.values` and `registers.dac.colors`.
-`CrtcRegisters` owns the programmed CRTC bytes and their field decoding; the live
-`Crtc` owns indexed port access, write protection and the effective
-`registers.crtc.display_start` latch. There is no separate display-register
-projection to maintain.
+`DisplaySnapshot` owns shared `DacSnapshot` colors and mask alongside a typed
+`Scanout`. `Scanout::Vga(VgaDisplayState)` retains raw display register values,
+display enable, the effective start-address latch and both blink phases. CPU
+register indices, access phases and DAC transfer position remain on the live
+device; execution-owner inspection uses `Vga::registers()`. Capture creation
+copies display values without advancing any port or memory-access state.
+`CrtcRegisters` keeps programmed CRTC bytes and field decoding together in both
+the live device and its captured VGA payload. Indexed port access, write
+protection and display-start latching remain on the live `Crtc`.
 
 Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
 captures those same inputs immediately without publishing a frame, forcing a
 display-start latch, or changing CPU access phases. `DisplaySnapshot::geometry()`
-derives only image dimensions, scanline spacing and nominal pixel aspect ratio.
+returns common image dimensions and explicit pixel aspect ratio. VGA row
+collapsing and nominal 4:3 proportions belong to `VgaDisplayState::geometry()`,
+whose `VgaGeometry` also records physical scanlines per output row.
 All pixel interpretation uses captured registers and VRAM directly in the shader.
 
 Snapshots share four immutable 64-KiB planes with the device. Capturing or cloning
@@ -605,8 +608,9 @@ observation bookkeeping, and a slow reader can skip any number of captures. The
 capture has no RGBA image. It can cross workers and survive device destruction.
 Waiting for `next_capture` observes changed inputs captured at a refresh boundary,
 not every hardware refresh, pixel output or presentation. Comparison uses plane
-identities, registers and both blink phases without scanning VRAM. It is
-conservative: hidden memory and register access state can also cause a publication. Hardware
+identities, display settings, DAC values and both blink phases without scanning
+VRAM. Hidden memory can conservatively cause publication; CPU port indices and
+transfer positions do not. Hardware
 timing and status-port behavior continue through unchanged refreshes, while the
 CPU waits for input and while the app is not drawing. Destroying VGA closes this
 source and wakes waiters without creating an extra frame.
@@ -618,14 +622,15 @@ embedding owns redraw scheduling, request coalescing, dimensions and presentatio
 Closing the source ends capture production without invalidating retained captures
 or requiring the embedding's GPU resources to close.
 
-`geometry` owns output sizing. `VgaRenderer` owns the common VRAM buffer
+`geometry` defines common output dimensions and aspect; `scanout/vga` owns VGA
+register interpretation and row collapsing. `VgaRenderer` owns the common VRAM buffer
 separately from captured registers and palette.
-`memory/pages` tracks physical writes in a fixed 32-byte bitmap.
+`memory/pages` tracks physical writes across 64 blocks in a fixed 512-byte bitmap.
 `renderer/memory` uploads those pages when their captured baseline matches the
 queued GPU contents, otherwise it restores the affected plane.
 `renderer/state` copies raw register banks, captured blink phases, scanline spacing
-and the unchanged DAC palette into one uniform buffer. The raw Attribute
-Controller address byte is preserved; the shader tests its display-enable bit.
+and the unchanged DAC palette into one uniform buffer. Of the Attribute
+Controller's address byte, only the display-enable bit enters the captured settings.
 The shader interprets memory addresses, font banks, attributes and colors directly.
 `shaders/scanout` dispatches pixels to `text`, `indexed256` or `graphics16`. All use
 the scanline and physical-address logic in `addressing` and the DAC lookup in
@@ -643,7 +648,7 @@ counter. The cursor toggles every eight retraces; text and graphics attributes
 toggle every sixteen. These are the 50% duty-cycle VGA rates in IBM's
 [Video Subsystems Technical Reference](https://ardent-tool.com/docs/pdf/42G2193_PS2_Hardware_Interface_Technical_Reference_Video_Subsystems_Sep92.pdf),
 September 1992, figure 3-3 (p. 3-16). Both phases start on as an emulator convention.
-Each snapshot owns its `cursor_blink_on` and `attribute_blink_on` values, so delayed
+Each VGA payload owns its `cursor_blink_on` and `attribute_blink_on` values, so delayed
 service and retained captures preserve the appropriate phases without another timer.
 
 Four-bit graphics blinking uses the same captured attribute phase as text.

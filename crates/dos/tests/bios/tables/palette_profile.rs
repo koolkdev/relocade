@@ -46,12 +46,12 @@ fn palette_profiles_apply_partial_ranges_grayscale_and_wrapping_sources() {
         video(&mut dos, 0x83, 0, 0, 0);
         let display = dos.vga().borrow().snapshot();
         assert_eq!(
-            &display.registers.attribute.values[4..8],
+            &display.vga().unwrap().attributes[4..8],
             &[4, 0x23, 0x34, 7]
         );
-        assert_eq!(&display.registers.attribute.values[0x10..0x12], &[0x0c, 0]);
-        assert_eq!(display.registers.dac.colors[255], [19; 3]);
-        assert_eq!(display.registers.dac.colors[0], [37; 3]);
+        assert_eq!(&display.vga().unwrap().attributes[0x10..0x12], &[0x0c, 0]);
+        assert_eq!(display.dac.colors[255], [19; 3]);
+        assert_eq!(display.dac.colors[0], [37; 3]);
         assert_eq!(&saved(&mut dos)[5..7], &[0x23, 0x34]);
         assert_eq!(saved(&mut dos)[16], 0);
         assert_eq!(&saved(&mut dos)[17..], &[0xa5; 239]);
@@ -72,13 +72,13 @@ fn palette_profiles_apply_partial_ranges_grayscale_and_wrapping_sources() {
         video(&mut dos, 3, 0, 0, 0);
         let display = dos.vga().borrow().snapshot();
         assert_eq!(
-            &display.registers.attribute.values[0x10..0x12],
+            &display.vga().unwrap().attributes[0x10..0x12],
             &[0x0c, 0x23]
         );
         assert_eq!(saved(&mut dos)[16], 0x23);
         assert_eq!(saved(&mut dos)[5], 5);
-        assert_eq!(display.registers.dac.colors[3], [2; 3]);
-        assert_eq!(display.registers.dac.colors[2], [19; 3]);
+        assert_eq!(display.dac.colors[3], [2; 3]);
+        assert_eq!(display.dac.colors[2], [19; 3]);
     });
 }
 
@@ -110,39 +110,29 @@ fn palette_suppression_still_applies_underline_after_font_overrides() {
         video(&mut dos, 0x1010, 23, 0x0607, 0x0500);
         video(&mut dos, 0x1201, 0x31, 0, 0);
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 3, 0, 0, 0);
         let after = dos.vga().borrow().snapshot();
+        let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(
-            &after.registers.attribute.values[..16],
-            &before.registers.attribute.values[..16]
+            &after.vga().unwrap().attributes[..16],
+            &before.vga().unwrap().attributes[..16]
         );
-        assert_eq!(after.registers.dac, before.registers.dac);
+        assert_eq!(after_registers.dac, before_registers.dac);
         assert_eq!(saved(&mut dos), [0xa5; 256]);
-        assert_eq!(after.registers.crtc.registers.values[0x14], 9); // Uses the overridden 10-high font.
+        assert_eq!(after.vga().unwrap().crtc.values[0x14], 9); // Uses the overridden 10-high font.
         profile[0] = 0xff;
         set_profile(&mut dos, &profile);
         video(&mut dos, 3, 0, 0, 0);
         assert_eq!(
-            dos.vga()
-                .borrow()
-                .snapshot()
-                .registers
-                .crtc
-                .registers
-                .values[0x14],
+            dos.vga().borrow().snapshot().vga().unwrap().crtc.values[0x14],
             31
         );
         profile[0] = 1;
         set_profile(&mut dos, &profile);
         video(&mut dos, 1, 0, 0, 0); // Neither descriptor includes this mode.
         assert_eq!(
-            dos.vga()
-                .borrow()
-                .snapshot()
-                .registers
-                .crtc
-                .registers
-                .values[0x14],
+            dos.vga().borrow().snapshot().vga().unwrap().crtc.values[0x14],
             31
         );
         assert_eq!(information(&mut dos, 0x3000, 0x200, 0)[0x32], 0x16);
@@ -151,13 +141,7 @@ fn palette_suppression_still_applies_underline_after_font_overrides() {
         video(&mut dos, 0x13, 0, 0, 0);
         // IBM writes the whole register, replacing mode 13h's doubleword bit too.
         assert_eq!(
-            dos.vga()
-                .borrow()
-                .snapshot()
-                .registers
-                .crtc
-                .registers
-                .values[0x14],
+            dos.vga().borrow().snapshot().vga().unwrap().crtc.values[0x14],
             7
         );
     });
@@ -169,7 +153,7 @@ fn invalid_palette_ranges_do_not_write_unrelated_registers() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         install(&mut dos);
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         set_profile(
             &mut dos,
             &[
@@ -180,7 +164,7 @@ fn invalid_palette_ranges_do_not_write_unrelated_registers() {
             ],
         );
         video(&mut dos, 3, 0, 0, 0);
-        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
         set_profile(
             &mut dos,
             &[
@@ -188,6 +172,6 @@ fn invalid_palette_ranges_do_not_write_unrelated_registers() {
             ],
         );
         video(&mut dos, 3, 0, 0, 0); // Empty descriptors leave DAC addressing alone.
-        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
     });
 }
