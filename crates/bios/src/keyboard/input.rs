@@ -39,7 +39,6 @@ impl Device for InputAdapter {
         let mut translation = Translation::default();
         while let Ok(event) = events.recv().await {
             translation.apply(&keyboard, event);
-            relocade_machine::yield_now().await;
         }
     }
 }
