@@ -130,8 +130,8 @@ impl Cpu {
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         assert!(
-            self.suspended.is_empty(),
-            "host calls are parked; complete or abandon them before installing"
+            !self.has_pending_host_calls(),
+            "host calls are pending; complete or abandon them before installing"
         );
         let machine = self.machine_mut();
         machine
@@ -156,14 +156,32 @@ impl Cpu {
     /// Panics if a host call is pending or parked. Complete or abandon it first.
     pub async fn install(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
         assert!(
-            self.suspended.is_empty(),
-            "host calls are parked; complete or abandon them before installing"
+            !self.has_pending_host_calls(),
+            "host calls are pending; complete or abandon them before installing"
         );
         let machine = self.machine_mut();
         machine
             .dispatch
             .install(&mut machine.backend, &machine.bindings, hooks)
             .await
+    }
+
+    /// Restores interpreter dispatch at these addresses and releases host handlers.
+    /// Use this before reusing memory occupied by a process's execution hooks.
+    /// Directly linked compiled callers still belong to their installation owner.
+    ///
+    /// # Panics
+    /// Host services must have completed or been abandoned before removal.
+    pub fn remove_entries(&mut self, addresses: impl IntoIterator<Item = u32>) {
+        assert!(!self.has_pending_host_calls(), "host calls are pending");
+        let machine = &mut self.machine;
+        machine.dispatch.remove(&mut machine.backend, addresses);
+    }
+
+    /// Whether a service is awaiting input or parked during guest IRQ execution.
+    /// Finish or abandon it before replacing its guest entry state or stack.
+    pub fn has_pending_host_calls(&self) -> bool {
+        self.pending.is_some() || !self.suspended.is_empty()
     }
 
     /// Borrows the stopped machine. The context and its views must end before

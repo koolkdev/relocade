@@ -1,7 +1,13 @@
 //! Guest storage for a DOS process implemented in Rust.
 
+mod interrupt;
+mod registers;
+pub use interrupt::{InterruptCall, InterruptError, InterruptOutcome, InterruptResult};
+pub use registers::InterruptRegisters;
+
 use crate::{memory, process, LoadError, LoadOptions};
-use relocade_machine::CpuContext;
+use relocade_machine::{Cpu, CpuContext, FarPointer};
+use std::cell::{Cell, RefCell};
 
 // The caller is INT imm8 followed by its return position. Transfer storage and
 // the downward-growing IRQ stack follow it in the process's own allocation.
@@ -15,6 +21,40 @@ const PARAGRAPHS: usize = (STACK_TOP as usize).div_ceil(memory::PARAGRAPH_BYTES 
 
 pub(crate) struct HostProgram {
     pub(crate) segment: u16,
+    installed: Cell<bool>,
+    invocation: RefCell<Option<Invocation>>,
+}
+
+struct Invocation {
+    completed_exits: u64,
+    buffer_len: usize,
+    returned: Option<InterruptRegisters>,
+}
+
+impl HostProgram {
+    fn caller(&self) -> FarPointer {
+        FarPointer {
+            segment: self.segment,
+            offset: CALLER_OFFSET,
+        }
+    }
+
+    fn buffer(&self) -> FarPointer {
+        FarPointer {
+            segment: self.segment,
+            offset: BUFFER_OFFSET,
+        }
+    }
+
+    fn completion(&self) -> u32 {
+        self.caller().address() + u32::from(CALLER_BYTES - 1)
+    }
+
+    pub(crate) fn remove_hook(&self, cpu: &mut Cpu) {
+        if self.installed.replace(false) {
+            cpu.remove_entries([self.completion()]);
+        }
+    }
 }
 
 pub(crate) fn load(
@@ -38,5 +78,9 @@ pub(crate) fn load(
         .cpu
         .restore(&cpu)
         .expect("host process entry satisfies the real-mode execution target");
-    Ok(process::Program::Host(HostProgram { segment }))
+    Ok(process::Program::Host(HostProgram {
+        segment,
+        installed: Cell::new(false),
+        invocation: RefCell::new(None),
+    }))
 }

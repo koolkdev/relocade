@@ -125,6 +125,9 @@ pub use console::Console;
 pub use error::{DosError, LaunchError, LoadError, MountError, ServiceError};
 pub use execution::RunError;
 pub use files::FileAccess;
+pub use host::{
+    InterruptCall, InterruptError, InterruptOutcome, InterruptRegisters, InterruptResult,
+};
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{
@@ -248,7 +251,15 @@ impl<C: Clock> Dos<C> {
         {
             return Err(LaunchError::ProcessActive);
         }
+        if self.cpu.has_pending_host_calls() {
+            return Err(LaunchError::CpuBusy);
+        }
         let program = load(&mut self.cpu.context())?;
+        if let Some(previous) = self.state.process() {
+            if let Some(host) = previous.host_program() {
+                host.remove_hook(&mut self.cpu);
+            }
+        }
         self.state.start_process(program);
         Ok(())
     }

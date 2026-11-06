@@ -4,12 +4,14 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LaunchError {
     ProcessActive,
+    CpuBusy,
     Load(LoadError),
 }
 
 impl fmt::Display for LaunchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::CpuBusy => f.write_str("the CPU has an unfinished host call"),
             Self::ProcessActive => f.write_str("the current DOS process has not terminated"),
             Self::Load(error) => error.fmt(f),
         }
@@ -19,7 +21,7 @@ impl fmt::Display for LaunchError {
 impl std::error::Error for LaunchError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::ProcessActive => None,
+            Self::ProcessActive | Self::CpuBusy => None,
             Self::Load(error) => Some(error),
         }
     }

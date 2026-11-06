@@ -81,6 +81,13 @@ impl Process {
         matches!(self.program, Program::Host(_))
     }
 
+    pub(crate) fn host_program(&self) -> Option<&crate::host::HostProgram> {
+        match &self.program {
+            Program::Host(program) => Some(program),
+            Program::Guest(_) => None,
+        }
+    }
+
     /// Reads this process's current status without retaining an execution borrow.
     pub fn status(&self) -> ProcessStatus {
         match &*self.state.borrow() {

@@ -5,7 +5,7 @@ use relocade_x86::{
     abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
     PhysicalMapping, PhysicalMemoryMap, Segments,
 };
-use std::rc::Rc;
+use std::{cell::Cell, rc::Rc};
 
 async fn cpu() -> Cpu {
     let config = support::configuration(
@@ -213,4 +213,69 @@ fn module_replacement_and_failed_publication_preserve_entry_ownership() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn module_replacement_and_failed_publication_preserve_entry_ownership() {
     module_publication().await;
+}
+
+async fn check_removed_entries() {
+    let mut cpu = cpu().await;
+    cpu.cpu_state().set_eip(0x100);
+    cpu.memory()
+        .view()
+        .write(
+            0x100,
+            &[
+                0xb8, 0x34, 0x12, // MOV AX,1234h.
+                0xe9, 0xfa, 0, // JMP 0200h.
+            ],
+        )
+        .unwrap();
+    let capture = Rc::new(Cell::new(7));
+    let weak = Rc::downgrade(&capture);
+    let state = cpu.cpu_state();
+    let exit = cpu.exit_handle();
+    let finish = exit.clone();
+    let observed = exit.clone();
+    let before = observed.completed_exits();
+    cpu.install([
+        Hook::host(0x100, async move || {
+            state.set_ax(capture.get());
+            exit.request();
+        }),
+        Hook::host(0x200, async move || finish.request()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(cpu.cpu_state().ax(), 7);
+    assert_eq!(observed.completed_exits(), before + 1);
+    cpu.remove_entries([0x100, 0x999]);
+    assert!(
+        weak.upgrade().is_none(),
+        "removal releases handler captures"
+    );
+    assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(cpu.cpu_state().ax(), 0x1234);
+    assert_eq!(observed.completed_exits(), before + 2);
+    let state = cpu.cpu_state();
+    let exit = cpu.exit_handle();
+    cpu.install([Hook::host(0x100, async move || {
+        state.set_ax(9);
+        exit.request();
+    })])
+    .await
+    .unwrap();
+    cpu.cpu_state().set_eip(0x100);
+    assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(cpu.cpu_state().ax(), 9);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn removed_entries_execute_guest_bytes_and_can_be_reinstalled() {
+    pollster::block_on(check_removed_entries());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn removed_entries_execute_guest_bytes_and_can_be_reinstalled() {
+    check_removed_entries().await;
 }

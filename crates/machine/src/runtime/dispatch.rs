@@ -120,6 +120,17 @@ impl Dispatch {
         Ok(())
     }
 
+    pub(crate) fn remove(
+        &mut self,
+        backend: &mut Backend,
+        addresses: impl IntoIterator<Item = u32>,
+    ) {
+        let addresses: Vec<_> = addresses.into_iter().collect();
+        self.table
+            .remove(backend, &self.interpret, addresses.iter().copied());
+        self.hooks.remove(addresses);
+    }
+
     #[inline]
     pub(super) fn handler(&self, id: u32) -> &Rc<dyn Handler> {
         self.hooks.handler(id)

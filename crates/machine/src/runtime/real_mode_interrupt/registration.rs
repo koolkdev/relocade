@@ -16,8 +16,8 @@ impl<'cpu> Interrupts<'cpu> {
     /// Begins registration while no host service is pending or suspended.
     pub fn new(cpu: &'cpu mut Cpu) -> Self {
         assert!(
-            cpu.suspended.is_empty(),
-            "host calls are parked; complete or abandon them before registering interrupts"
+            !cpu.has_pending_host_calls(),
+            "host calls are pending; complete or abandon them before registering interrupts"
         );
         cpu.machine_mut();
         Self {

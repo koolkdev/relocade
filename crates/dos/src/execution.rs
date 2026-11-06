@@ -7,6 +7,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RunError {
     NoProcess,
+    HostProcess,
     Service(ServiceError),
     /// Execution stopped without DOS terminating the current process.
     Execution(ExecutionExit),
@@ -16,6 +17,9 @@ impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoProcess => f.write_str("no DOS program has been launched"),
+            Self::HostProcess => {
+                f.write_str("Rust DOS processes execute through call_interrupt or resume_interrupt")
+            }
             Self::Service(error) => error.fmt(f),
             Self::Execution(exit) => write!(f, "guest execution stopped: {exit:?}"),
         }
@@ -35,7 +39,8 @@ impl<C: Clock> Dos<C> {
     /// Runs the current program and interprets its DOS termination status.
     /// A completed process is not executed again; another launch reuses the same
     /// environment and video output. Unexpected CPU exits leave the process active
-    /// for inspection.
+    /// for inspection. Rust processes use [`Self::call_interrupt`] and
+    /// [`Self::resume_interrupt`]; this entry rejects an active Rust process.
     ///
     /// Process completion leaves the environment alive. Keep the main session
     /// alive to capture the program's final writes and advance idle video.
@@ -44,6 +49,9 @@ impl<C: Clock> Dos<C> {
         let process = self.process().ok_or(RunError::NoProcess)?;
         if let ProcessStatus::Exited(result) = process.status() {
             return result.map_err(RunError::Service);
+        }
+        if process.is_host() {
+            return Err(RunError::HostProcess);
         }
         let exit = runner.run_cpu(&mut self.cpu).await;
         match process.status() {

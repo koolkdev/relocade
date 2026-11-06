@@ -2276,6 +2276,7 @@ name = "relocade-dos"
 version = "0.0.0"
 dependencies = [
  "futures-channel",
+ "futures-util",
  "pollster",
  "relocade-bios",
  "relocade-frontend",

@@ -10,6 +10,7 @@ pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     functions: B::Table,
     addresses: EntryTable,
     next_slot: u32,
+    free_slots: Vec<u32>,
     capacity: u32,
 }
 
@@ -23,6 +24,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             functions: backend.create_table(abi::EXECUTION_FUNCTIONS.minimum)?,
             addresses,
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
+            free_slots: Vec::new(),
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
         })
     }
@@ -56,19 +58,23 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         // Resolve every export before changing existing callable slots.
         let mut addresses = self.addresses.clone();
         let mut next_slot = self.next_slot;
+        let mut free_slots = self.free_slots.clone();
         let mut functions = Vec::with_capacity(entries.len());
         for entry in entries {
             let function = backend.function(
                 instance,
                 Function::<abi::ExecutionSignature>::new("", entry.export),
             )?;
-            let slot = addresses.get(entry.address).unwrap_or_else(|| {
-                let slot = next_slot;
-                next_slot = next_slot
-                    .checked_add(1)
-                    .expect("Wasm function table capacity");
-                slot
-            });
+            let slot = addresses
+                .get(entry.address)
+                .or_else(|| free_slots.pop())
+                .unwrap_or_else(|| {
+                    let slot = next_slot;
+                    next_slot = next_slot
+                        .checked_add(1)
+                        .expect("Wasm function table capacity");
+                    slot
+                });
             addresses.insert(entry.address, slot);
             functions.push((slot, function));
         }
@@ -87,6 +93,28 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         backend.memory(&self.memory).write(0, &bytes);
         self.addresses = addresses;
         self.next_slot = next_slot;
+        self.free_slots = free_slots;
         Ok(())
+    }
+
+    pub(super) fn remove(
+        &mut self,
+        backend: &mut B,
+        interpreter: &relocade_wasm_runtime::Function<B, abi::ExecutionSignature>,
+        addresses: impl IntoIterator<Item = u32>,
+    ) {
+        for address in addresses {
+            if let Some(slot) = self.addresses.remove(address) {
+                // Release the removed module reference and reuse its allocated slot.
+                backend
+                    .set_table_function(&self.functions, slot, interpreter)
+                    .expect("existing execution slot accepts the interpreter signature");
+                self.free_slots.push(slot);
+            }
+        }
+        // Removing entries can only shrink the table's existing memory backing.
+        backend
+            .memory(&self.memory)
+            .write(0, &self.addresses.to_bytes());
     }
 }
