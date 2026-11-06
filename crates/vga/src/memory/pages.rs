@@ -1,10 +1,17 @@
+use super::BLOCKS;
 use std::ops::Range;
 
 const PAGE_BYTES: usize = 1024;
 
 /// One bit for each physical 1-KiB page, independent of the display layout.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct DirtyPages([u64; 4]);
+#[derive(Clone, Copy)]
+pub(crate) struct DirtyPages([u64; BLOCKS]);
+
+impl Default for DirtyPages {
+    fn default() -> Self {
+        Self([0; BLOCKS])
+    }
+}
 
 impl DirtyPages {
     pub fn merge(&mut self, other: Self) {
@@ -13,17 +20,17 @@ impl DirtyPages {
         }
     }
 
-    pub fn mark(&mut self, plane: usize, offset: usize) {
-        self.0[plane] |= 1 << (offset / PAGE_BYTES);
+    pub fn mark(&mut self, block: usize, offset: usize) {
+        self.0[block] |= 1 << (offset / PAGE_BYTES);
     }
 
-    pub fn mark_plane(&mut self, plane: usize) {
-        self.0[plane] = u64::MAX;
+    pub fn mark_block(&mut self, block: usize) {
+        self.0[block] = u64::MAX;
     }
 
-    /// Consecutive dirty pages become one byte range within this plane.
-    pub fn ranges(self, plane: usize) -> impl Iterator<Item = Range<usize>> {
-        let mut pages = self.0[plane];
+    /// Consecutive dirty pages become one byte range within this block.
+    pub fn ranges(self, block: usize) -> impl Iterator<Item = Range<usize>> {
+        let mut pages = self.0[block];
         std::iter::from_fn(move || {
             if pages == 0 {
                 return None;

@@ -95,13 +95,13 @@ impl<C: Clock> Vga<C> {
     /// Unlike [`FrameSource`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
         DisplaySnapshot {
-            planes: self.memory.snapshot(),
+            memory: self.memory.snapshot(memory::VGA_MEMORY_BYTES),
             registers: self.registers.clone(),
             cursor_blink_on: self.raster.cursor_blink_on(),
             attribute_blink_on: self.raster.attribute_blink_on(),
             #[cfg(feature = "renderer")]
             changes: self.frames.current_capture().map(|previous| MemoryChanges {
-                baseline: previous.display.planes.clone(),
+                baseline: previous.display.memory.clone(),
                 pages: self.memory.changed_pages(),
             }),
         }

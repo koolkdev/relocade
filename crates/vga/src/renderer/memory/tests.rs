@@ -19,33 +19,62 @@ impl Clock for TestClock {
 }
 
 struct Uploads {
-    previous: Option<[Arc<[u8]>; 4]>,
+    previous: Option<MemorySnapshot>,
     bytes: Vec<u8>,
 }
 impl Default for Uploads {
     fn default() -> Self {
         Self {
             previous: None,
-            bytes: vec![0; 4 * PLANE_BYTES],
+            bytes: vec![0; crate::VIDEO_MEMORY_BYTES as usize],
         }
     }
 }
 impl Uploads {
     fn update(&mut self, snapshot: &DisplaySnapshot) -> Vec<(usize, usize)> {
         let mut writes = Vec::new();
-        write_planes(self.previous.as_ref(), snapshot, |offset, bytes| {
+        write_blocks(self.previous.as_ref(), snapshot, |offset, bytes| {
             self.bytes[offset..offset + bytes.len()].copy_from_slice(bytes);
             writes.push((offset, bytes.len()));
         });
-        for plane in 0..4 {
+        for (block, bytes) in snapshot.memory.blocks.iter().enumerate() {
             assert_eq!(
-                &self.bytes[plane * PLANE_BYTES..(plane + 1) * PLANE_BYTES],
-                snapshot.plane(plane)
+                &self.bytes[block * BLOCK_BYTES..(block + 1) * BLOCK_BYTES],
+                bytes.as_ref()
             );
         }
-        self.previous = Some(snapshot.planes.clone());
+        self.previous = Some(snapshot.memory.clone());
         writes
     }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
+    let vga = Vga::with_clock(Rc::new(TestClock::default()));
+    let narrow = vga.snapshot();
+    let mut wide = narrow.clone();
+    wide.memory = vga.memory.snapshot(0x80000);
+    wide.changes = Some(crate::snapshot::MemoryChanges {
+        baseline: narrow.memory.clone(),
+        pages: Default::default(),
+    });
+    let mut uploads = Uploads::default();
+    uploads.update(&narrow);
+    let added = [
+        (262144, 65536),
+        (327680, 65536),
+        (393216, 65536),
+        (458752, 65536),
+    ];
+    assert_eq!(uploads.update(&wide), added);
+    assert!(uploads.update(&narrow).is_empty());
+    assert_eq!(uploads.update(&wide), added);
+
+    // The renderer has this block, but the sparse baseline still does not.
+    Arc::make_mut(&mut wide.memory.blocks)[4] = vec![0xa5; 65536].into();
+    assert_eq!(uploads.update(&wide), [(262144, 65536)]);
+    assert_eq!(&uploads.bytes[262144..327680], &[0xa5; 65536]);
 }
 
 fn publish(vga: &mut Vga<TestClock>, clock: &TestClock) -> Arc<CapturedFrame> {

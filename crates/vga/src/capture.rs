@@ -17,7 +17,7 @@ use std::{
 /// Renderers can read this state directly without allocating a CPU pixel image.
 #[derive(Clone)]
 pub struct CapturedFrame {
-    /// Complete physical memory, palette and programmable display settings.
+    /// Complete display memory, palette and programmable display settings.
     pub display: DisplaySnapshot,
     /// Sampling/latch boundary on the device's clock, not presentation time.
     pub time: Duration,
@@ -73,7 +73,7 @@ impl FrameSource {
             current.as_ref().map(|current| {
                 let mut retained = (**current).clone();
                 retained.display.changes = Some(MemoryChanges {
-                    baseline: retained.display.planes.clone(),
+                    baseline: retained.display.memory.clone(),
                     pages: Default::default(),
                 });
                 Arc::new(retained)
