@@ -31,8 +31,11 @@ BIOS-side backlog. A guest flush therefore empties all BIOS keystrokes.
 The decoder ignores key breaks as characters, distinguishes modifier sides,
 suppresses repeated lock toggles and ignores the fake shifts in Print Screen.
 NumLock/Shift select keypad numbers, independently of dedicated navigation keys.
+Ctrl-Break clears the ring and sets the break flag at `0040:0071`, then awaits
+`INT 1Bh` and inserts a zero keystroke on return. The IRQ wrapper owns PIC completion.
+
 Pause and Print Screen are consumed without producing characters; their BIOS
-pause/print actions, Ctrl-Break/Alt-Delete actions, Alt-numpad composition and BIOS
+pause/print actions, Ctrl-Alt-Delete, Alt-numpad composition and BIOS
 LED synchronization are not implemented. The ring retains enhanced BIOS E0/F0
 markers. Legacy INT 16h/AH=00h/01h translates compatible keys and discards
 enhanced-only entries, including during status queries. Enhanced AH=10h/11h

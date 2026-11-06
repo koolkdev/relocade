@@ -2,7 +2,7 @@
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext, MemoryView,
+    registers as reg, CpuContext, MemoryView,
 };
 use relocade_x86::{Segment, SegmentRegister};
 
@@ -18,23 +18,17 @@ pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
 
 /// Services IRQ0 using the AT BIOS register and callback convention.
 pub(crate) async fn timer(call: &mut CpuContext<'_>) {
-    let saved_ax = call.cpu.ax();
-    let saved_dx = call.cpu.dx();
-    let saved_ds = call.cpu.segment(Segment::Ds);
-    call.cpu.set_ax(BIOS_DATA_SEGMENT);
-    call.cpu.set_segment(
-        Segment::Ds,
-        SegmentRegister::real_mode(Segment::Ds, BIOS_DATA_SEGMENT),
-    );
-
-    tick(&mut call.memory);
-    call.call_interrupt(TIMER_CALLBACK).await;
-
-    // Restore only on return. Abandoning this call must leave the running guest
-    // state intact, just as abandoning a guest interrupt frame would.
-    call.cpu.set_ax(saved_ax);
-    call.cpu.set_dx(saved_dx);
-    call.cpu.set_segment(Segment::Ds, saved_ds);
+    call.cpu
+        .with_saved_registers([reg::ax, reg::dx, reg::segment(Segment::Ds)], async {
+            call.cpu.set_ax(BIOS_DATA_SEGMENT);
+            call.cpu.set_segment(
+                Segment::Ds,
+                SegmentRegister::real_mode(Segment::Ds, BIOS_DATA_SEGMENT),
+            );
+            tick(&mut call.memory);
+            call.call_interrupt(TIMER_CALLBACK).await;
+        })
+        .await;
 }
 
 /// Advances time for one delivered IRQ0. Missed timer edges are not reconstructed.

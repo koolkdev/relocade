@@ -1,26 +1,35 @@
-//! Register accessors and their alias ranges share these declarations.
+//! Named registers for selective preservation and interrupt bindings.
 
 use super::CpuStateAccess;
 use relocade_x86::{CpuState, Segment, SegmentRegister};
-use std::{mem::offset_of, ops::Range};
+use std::mem::offset_of;
+
+/// A general-purpose register view or a complete segment register and cache.
+/// Descriptors come from this module's constants and [`segment`]. Their widths
+/// distinguish aliases: saving AX does not save the upper half of EAX.
+#[derive(Clone, Copy, Debug)]
+pub struct Register {
+    pub(super) offset: usize,
+    pub(super) bytes: usize,
+}
 
 macro_rules! register {
     ($get:ident, $set:ident, $type:ty, $field:ident, $byte:expr) => {
         #[allow(non_upper_case_globals)]
-        pub const $get: Range<usize> = {
-            let offset = offset_of!(CpuState, registers.$field) + $byte;
-            offset..offset + size_of::<$type>()
+        pub const $get: Register = Register {
+            offset: offset_of!(CpuState, registers.$field) + $byte,
+            bytes: size_of::<$type>(),
         };
 
         impl CpuStateAccess {
             #[inline]
             pub fn $get(&self) -> $type {
-                self.load($get.start)
+                self.load($get.offset)
             }
 
             #[inline]
             pub fn $set(&self, value: $type) {
-                self.store($get.start, value);
+                self.store($get.offset, value);
             }
         }
     };
@@ -52,19 +61,23 @@ register!(dh, set_dh, u8, edx, 1);
 register!(bh, set_bh, u8, ebx, 1);
 
 /// A segment result writes both the visible selector and its loaded cache.
-pub const fn segment(segment: Segment) -> Range<usize> {
-    let start = super::segment_offset(segment);
-    start..start + size_of::<SegmentRegister>()
+pub const fn segment(segment: Segment) -> Register {
+    Register {
+        offset: super::segment_offset(segment),
+        bytes: size_of::<SegmentRegister>(),
+    }
 }
 
 /// Used by generated bindings in const evaluation, without a second alias table.
-pub const fn assert_disjoint(registers: &[Range<usize>]) {
+#[doc(hidden)]
+pub const fn assert_disjoint(registers: &[Register]) {
     let mut i = 0;
     while i < registers.len() {
         let mut j = i + 1;
         while j < registers.len() {
             assert!(
-                registers[i].end <= registers[j].start || registers[j].end <= registers[i].start,
+                registers[i].offset + registers[i].bytes <= registers[j].offset
+                    || registers[j].offset + registers[j].bytes <= registers[i].offset,
                 "overlapping interrupt registers"
             );
             j += 1;

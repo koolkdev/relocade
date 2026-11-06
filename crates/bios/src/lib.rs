@@ -35,6 +35,9 @@
 //! AH=00h/01h/02h, enhanced AH=10h/11h/12h, and AH=05h buffer insertion. DOS console
 //! input uses enhanced reads from that same ring and modifier flags. Guest IRQ1 handlers
 //! may replace or chain the default handler; port reads consume its input bytes.
+//! Ctrl-Break empties the ring, sets bit 7 at 0040:0071, and awaits INT 1Bh.
+//! After that callback returns, the BIOS inserts a zero keystroke and completes
+//! IRQ1. The default callback returns without taking action.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
 //! Timer hardware supplies vector 08h. After advancing the clock, the BIOS invokes

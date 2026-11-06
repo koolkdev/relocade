@@ -46,7 +46,7 @@ pub mod runtime;
 
 pub use clock::{timer_service, Clock, TimerDriver, TimerHandle};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
-pub use cpu::CpuStateAccess;
+pub use cpu::{registers, CpuStateAccess, SavedRegisters};
 pub use io::{Device, DeviceConnection, IoBus};
 pub use memory::{FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::{worker, MemoryAccess};

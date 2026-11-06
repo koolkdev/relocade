@@ -4,6 +4,9 @@ use relocade_dos::Dos;
 use relocade_machine::IoBus;
 use relocade_x86::ExecutionExit;
 
+#[path = "keyboard_hardware/control_break.rs"]
+mod control_break;
+
 // Freeze time so these tests isolate IRQ1 while the production runner drives
 // controller firmware, keyboard firmware and guest execution.
 #[derive(Clone, Copy)]

@@ -8,6 +8,7 @@ use super::{
 const EXTENDED_PREFIX: u8 = 0xe0;
 const PAUSE_PREFIX: u8 = 0xe1;
 const BREAK_BIT: u8 = 0x80;
+const SCROLL_LOCK_SCAN: u8 = 0x46;
 const PAUSE_SUFFIX: [u8; 5] = [0x1d, 0x45, 0xe1, 0x9d, 0xc5];
 
 #[derive(Default)]
@@ -15,8 +16,15 @@ pub(super) struct Decoder {
     pause_remaining: usize,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Scan {
+    None,
+    Key,
+    ControlBreak,
+}
+
 impl Decoder {
-    pub fn scan(&mut self, data: &DataArea, byte: u8) -> bool {
+    pub fn scan(&mut self, data: &DataArea, byte: u8) -> Scan {
         let mut flags = data.flags();
         if self.pause_remaining != 0 {
             self.pause_remaining -= 1;
@@ -24,7 +32,7 @@ impl Decoder {
                 flags.status.remove(KeyboardStatus::PAUSE_PREFIX);
                 data.set_flags(flags);
             }
-            return false;
+            return Scan::None;
         }
         match byte {
             PAUSE_PREFIX => {
@@ -32,22 +40,28 @@ impl Decoder {
                 flags.status.remove(KeyboardStatus::EXTENDED_PREFIX);
                 flags.status.insert(KeyboardStatus::PAUSE_PREFIX);
                 data.set_flags(flags);
-                return false;
+                return Scan::None;
             }
             EXTENDED_PREFIX => {
                 flags.status.insert(KeyboardStatus::EXTENDED_PREFIX);
                 data.set_flags(flags);
-                return false;
+                return Scan::None;
             }
             _ => {}
         }
         let extended = flags.status.contains(KeyboardStatus::EXTENDED_PREFIX);
         flags.status.remove(KeyboardStatus::EXTENDED_PREFIX);
         let pressed = byte & BREAK_BIT == 0;
-        let Some(key) = Key::from_scan(byte & !BREAK_BIT, extended) else {
-            // Includes fake shifts, Print Screen, Break, GUI keys and device replies.
+        // On the enhanced keyboard Ctrl-Pause emits E0 46 E0 C6. Ordinary
+        // Scroll Lock (including Ctrl-Scroll Lock) still controls the lock.
+        if extended && byte == SCROLL_LOCK_SCAN && flags.shifts.control && !flags.shifts.alt {
             data.set_flags(flags);
-            return false;
+            return Scan::ControlBreak;
+        }
+        let Some(key) = Key::from_scan(byte & !BREAK_BIT, extended) else {
+            // Includes fake shifts, Print Screen, Break release, GUI keys and replies.
+            data.set_flags(flags);
+            return Scan::None;
         };
         match key {
             Key::LeftShift => flags.shifts.left_shift = pressed,
@@ -100,7 +114,11 @@ impl Decoder {
         }
         let shifts = flags.shifts;
         data.set_flags(flags);
-        pressed && layout::keystroke(key, shifts).is_some_and(|key| data.push(key))
+        if pressed && layout::keystroke(key, shifts).is_some_and(|key| data.push(key)) {
+            Scan::Key
+        } else {
+            Scan::None
+        }
     }
 }
 

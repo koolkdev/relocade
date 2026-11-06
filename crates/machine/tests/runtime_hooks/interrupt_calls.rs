@@ -2,6 +2,7 @@ use super::{
     support, Compiler, CpuState, ExecutionExit, ExecutionProfile, FarPointer, Interrupts,
     PhysicalMapping, PhysicalMemoryMap, Segments,
 };
+use relocade_machine::registers as reg;
 use std::{cell::Cell, rc::Rc};
 
 async fn check_interrupt_call() {
@@ -29,7 +30,7 @@ async fn check_interrupt_call() {
     let state = cpu.cpu_state();
     state.set_sp(0xff00);
     state.set_eflags(0x643);
-    state.set_ax(0x1234);
+    state.set_eax(0x5678_1234);
     let memory = cpu.memory();
     memory
         .view()
@@ -46,8 +47,17 @@ async fn check_interrupt_call() {
         assert_eq!(call.cpu.ax(), 0x1234);
         assert_eq!(observed.replace(1), 0);
         assert!(!call.cpu.interrupts_enabled());
-        call.call_interrupt(0x61).await;
-        assert_eq!(call.cpu.ax(), 0x1235);
+        let result = call
+            .cpu
+            .with_saved_registers([reg::ax], async {
+                call.call_interrupt(0x61).await;
+                assert_eq!(call.cpu.ax(), 0x1235);
+                call.cpu.set_eax(0xabcd_1235);
+                42
+            })
+            .await;
+        assert_eq!(result, 42);
+        assert_eq!(call.cpu.eax(), 0xabcd_1234);
         assert_eq!(
             call.cpu.sp(),
             0xfefa,
@@ -71,7 +81,7 @@ async fn check_interrupt_call() {
         ExecutionExit::Interrupted
     );
     assert_eq!(calls.get(), 2);
-    assert_eq!(state.ax(), 0x1235);
+    assert_eq!(state.eax(), 0xabcd_1234);
     assert_eq!(state.sp(), 0xff00);
     assert_eq!(state.eflags(), 0x643);
 }

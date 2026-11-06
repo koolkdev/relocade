@@ -2,14 +2,16 @@
 
 mod data;
 mod encoding;
+mod irq;
 mod layout;
 mod physical;
 mod scan;
 pub use encoding::{KeyMode, KeyStroke};
+pub(crate) use irq::interrupt;
 pub use physical::PhysicalKeyboard;
 
 use data::{DataArea, HeldKeys, KeyboardStatus, ShiftFlags};
-use scan::Decoder;
+use scan::{Decoder, Scan};
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
@@ -100,19 +102,22 @@ impl Keyboard {
         })))
     }
 
-    pub(crate) fn scan_code(&self, byte: u8) {
-        let waker = {
+    fn scan_code(&self, byte: u8) -> Scan {
+        let (scan, waker) = {
             let mut input = self.0.borrow_mut();
             let Input { data, decoder, .. } = &mut *input;
-            if decoder.scan(data, byte) {
+            let scan = decoder.scan(data, byte);
+            let waker = if scan == Scan::Key {
                 input.waker.take()
             } else {
                 None
-            }
+            };
+            (scan, waker)
         };
         if let Some(waker) = waker {
             waker.wake();
         }
+        scan
     }
 
     /// Stores one translated keystroke in the guest ring, as for INT 16h/AH=05h.

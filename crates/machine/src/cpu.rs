@@ -31,6 +31,8 @@ pub struct CpuStateAccess {
 }
 
 pub mod registers;
+mod saved_registers;
+pub use saved_registers::SavedRegisters;
 
 impl CpuStateAccess {
     /// The execution profile and CPU model represented by these registers.
@@ -202,12 +204,17 @@ impl CpuStateAccess {
 
     #[inline]
     fn read<const N: usize>(&self, offset: usize) -> [u8; N] {
+        let mut bytes = [0; N];
+        self.read_into(offset, &mut bytes);
+        bytes
+    }
+
+    #[inline]
+    fn read_into(&self, offset: usize, bytes: &mut [u8]) {
         let address = (offset_of!(ExecutionContext, cpu) + offset) as u32;
         #[cfg(test)]
-        self.reads.borrow_mut().push((address, N));
-        let mut bytes = [0; N];
-        self.storage.read(address, &mut bytes);
-        bytes
+        self.reads.borrow_mut().push((address, bytes.len()));
+        self.storage.read(address, bytes);
     }
 
     #[inline]
