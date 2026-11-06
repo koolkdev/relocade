@@ -1,48 +1,15 @@
-// Captured input bindings. Raw register banks contain four bytes per word;
-// the uniform layout matches GpuState in renderer/state.rs.
-struct State {
-    sequencer: vec4<u32>,
-    crtc: array<vec4<u32>, 2>,
-    graphics: vec4<u32>,
-    attributes: array<vec4<u32>, 2>,
-    miscellaneous: u32,
-    display_enabled: u32,
-    dac_mask: u32,
-    attribute_blink_on: u32,
-    cursor_blink_on: u32,
-    scanline_step: u32,
-    display_start: u32,
-    reserved1: u32,
-    palette: array<vec4<u32>, 48>,
-}
-
-@group(0) @binding(0) var<uniform> state: State;
+// Physical VRAM and fullscreen drawing are independent of pixel decoding.
 @group(0) @binding(1) var<storage, read> memory: array<u32>;
 
 fn packed_byte(packed: u32, index: u32) -> u32 {
     return (packed >> ((index & 3u) * 8u)) & 255u;
 }
 
-fn sequencer(index: u32) -> u32 {
-    return packed_byte(state.sequencer[index / 4u], index);
+fn vram_byte(block: u32, address: u32) -> u32 {
+    return packed_byte(memory[block * 16384u + (address & 0xffffu) / 4u], address);
 }
 
-fn crtc(index: u32) -> u32 {
-    return packed_byte(state.crtc[index / 16u][(index / 4u) % 4u], index);
-}
-
-fn graphics(index: u32) -> u32 {
-    return packed_byte(state.graphics[index / 4u], index);
-}
-
-fn attribute_reg(index: u32) -> u32 {
-    return packed_byte(state.attributes[index / 16u][(index / 4u) % 4u], index);
-}
-
-fn dac_component(index: u32) -> u32 {
-    return packed_byte(state.palette[index / 16u][(index / 4u) % 4u], index);
-}
-
-fn vram_byte(plane: u32, address: u32) -> u32 {
-    return packed_byte(memory[plane * 16384u + (address & 0xffffu) / 4u], address);
+fn fullscreen_position(index: u32) -> vec4<f32> {
+    let positions = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+    return vec4(positions[index], 0.0, 1.0);
 }

@@ -6,7 +6,7 @@
 //! It accepts only 640x480x8; newer interface IDs, enable flags and registers are
 //! unsupported. Invalid requests are ignored instead of trapping the host.
 
-use crate::VIDEO_MEMORY_BYTES;
+use crate::{SvgaLayout, VIDEO_MEMORY_BYTES};
 use std::ops::RangeInclusive;
 
 pub const INDEX_PORT: u16 = 0x01ce;
@@ -67,6 +67,10 @@ impl Dispi {
         self.enabled
     }
 
+    pub fn display_layout(&self) -> Option<SvgaLayout> {
+        self.enabled.then_some(SvgaLayout::INDEXED_640_480)
+    }
+
     pub fn bank_mapping(&self) -> Option<SvgaBankMapping> {
         self.enabled.then_some(SvgaBankMapping {
             vram_start: u32::from(self.bank) * BANK_BYTES,
@@ -112,7 +116,9 @@ impl Dispi {
             ENABLE
                 if value == ENABLED
                     && !self.enabled
-                    && (self.width, self.height, self.bits_per_pixel) == (640, 480, 8) =>
+                    && [u32::from(self.width), u32::from(self.height)]
+                        == SvgaLayout::INDEXED_640_480.size()
+                    && self.bits_per_pixel == 8 =>
             {
                 self.enabled = true;
                 self.bank = 0;

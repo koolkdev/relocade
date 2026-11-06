@@ -13,6 +13,11 @@ pub(crate) struct MemorySnapshot {
 }
 
 impl MemorySnapshot {
+    pub fn read(&self, address: u32) -> Option<u8> {
+        let (block, offset) = Storage::location(address);
+        self.blocks.get(block).map(|bytes| bytes[offset])
+    }
+
     pub fn same_blocks(&self, other: &Self) -> bool {
         self.blocks.len() == other.blocks.len()
             && self

@@ -23,11 +23,10 @@ pub(crate) struct MemoryChanges {
 }
 
 /// A complete display snapshot independent of the live device and other captures.
-/// The four planes retain physical addresses across changes in display layout;
-/// plane two includes all eight font banks. No memory is repacked into visible
-/// cells, and no previous capture is required to interpret this snapshot.
-/// Cloning shares immutable plane storage. Guest writes copy a shared plane before
-/// changing it, so retained snapshots remain valid without copying VRAM at capture.
+/// Retains physical memory covering the active scanout, including complete VGA
+/// planes and font banks. No memory is repacked into visible pixels, and no
+/// previous capture is required to interpret this snapshot. Cloning shares
+/// immutable blocks; guest writes copy a shared block before changing it.
 #[derive(Clone)]
 pub struct DisplaySnapshot {
     pub dac: DacSnapshot,
@@ -60,13 +59,20 @@ impl DisplaySnapshot {
     pub fn vga(&self) -> Option<&VgaDisplayState> {
         match &self.scanout {
             Scanout::Vga(state) => Some(state),
+            Scanout::Svga(_) => None,
         }
     }
 
     pub fn vga_mut(&mut self) -> Option<&mut VgaDisplayState> {
         match &mut self.scanout {
             Scanout::Vga(state) => Some(state),
+            Scanout::Svga(_) => None,
         }
+    }
+
+    /// A physical packed-address byte, or None outside the captured memory extent.
+    pub fn vram_byte(&self, address: u32) -> Option<u8> {
+        self.memory.read(address)
     }
 
     /// One complete 64-KiB physical plane, including bytes outside the display.

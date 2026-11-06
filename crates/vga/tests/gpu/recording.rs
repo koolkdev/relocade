@@ -1,16 +1,21 @@
 use super::{common, pixel, read_pixels, set_cell, text_device};
+use common::support::svga;
 use relocade_renderer::{Image, Rect, Renderer};
 use relocade_vga::VgaRenderer;
 use std::time::Duration;
 
-async fn check_recording() {
+async fn check_recording(packed: bool) {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut vga = VgaRenderer::new(&device).unwrap();
     let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
-    let output = Image::new(&device, [640, 200], (5, 12)).unwrap();
     let mut device_state = text_device();
+    if packed {
+        svga::enable(&mut device_state);
+    }
+    let geometry = device_state.snapshot().geometry();
+    let output = Image::new(&device, geometry.size, geometry.pixel_aspect_ratio()).unwrap();
     let mut previous_image: Option<Image> = None;
     let mut empty = device.create_command_encoder(&Default::default());
     assert!(vga.encode(&mut empty).is_none());
@@ -18,7 +23,11 @@ async fn check_recording() {
     for (attribute, expected, discard_first) in
         [(4, [170, 0, 0, 255], false), (1, [0, 0, 170, 255], true)]
     {
-        set_cell(&mut device_state, 0, 0xdb, attribute);
+        if packed {
+            svga::write_byte(&mut device_state, 0, attribute);
+        } else {
+            set_cell(&mut device_state, 0, 0xdb, attribute);
+        }
         let mut input = common::fixture::capture(&device_state);
         input.sequence += u64::from(attribute);
         input.time += Duration::from_millis(1);
@@ -72,11 +81,23 @@ async fn check_recording() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn records_decode_and_draw_in_one_batch_and_retries_discarded_updates() {
-    pollster::block_on(check_recording());
+    pollster::block_on(check_recording(false));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn records_decode_and_draw_in_one_batch_and_retries_discarded_updates() {
-    check_recording().await;
+    check_recording(false).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn packed_decode_and_draw_share_a_batch_and_retry_discarded_updates() {
+    pollster::block_on(check_recording(true));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn packed_decode_and_draw_share_a_batch_and_retry_discarded_updates() {
+    check_recording(true).await;
 }

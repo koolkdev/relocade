@@ -6,4 +6,5 @@ pub mod inspection;
 pub mod planar16;
 pub mod registers;
 pub mod software;
+pub mod svga;
 mod text;

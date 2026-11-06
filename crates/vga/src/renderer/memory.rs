@@ -1,11 +1,11 @@
-//! Persistent GPU storage for the captured VGA planes.
+//! Persistent GPU storage for captured physical video memory.
 use crate::{
     memory::{MemorySnapshot, BLOCK_BYTES},
-    DisplaySnapshot,
+    DisplaySnapshot, VIDEO_MEMORY_BYTES,
 };
 use std::sync::Arc;
 
-pub(super) const BUFFER_BYTES: u64 = 4 * BLOCK_BYTES as u64;
+pub(super) const BUFFER_BYTES: u64 = VIDEO_MEMORY_BYTES as u64;
 
 pub(super) struct GpuMemory {
     pub buffer: wgpu::Buffer,
@@ -17,7 +17,7 @@ impl GpuMemory {
     pub fn new(device: &wgpu::Device) -> Self {
         Self {
             buffer: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("physical VGA planes"),
+                label: Some("captured video memory"),
                 size: BUFFER_BYTES,
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,

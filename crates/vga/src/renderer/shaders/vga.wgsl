@@ -1,4 +1,4 @@
-// Frame-constant register decoding and pixel-format dispatch.
+// VGA register decoding and text/graphics dispatch.
 // Captured registers are uniform across the triangle. Decode their constant
 // fields at the three vertices and pass them flat to every pixel in this draw.
 // Group scalars into vectors to stay within WebGPU's inter-stage variable limit.
@@ -21,7 +21,8 @@ struct DisplayVertex {
 
 @vertex
 fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
-    let positions = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+    var output: DisplayVertex;
+    output.position = fullscreen_position(index);
     let clocking = sequencer(1u);
     let attribute_mode = attribute_reg(0x10u);
     let maximum_scan_line = crtc(9u);
@@ -70,8 +71,6 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
         colors[color / 4u][color % 4u] = attribute_color(color);
     }
 
-    var output: DisplayVertex;
-    output.position = vec4(positions[index], 0.0, 1.0);
     output.grid = vec4(crtc(1u) + 1u, glyph_width, (maximum_scan_line & 31u) + 1u, count_divisor);
     output.addressing = vec4(state.display_start, crtc(0x13u) * 2u, address_mode, underline);
     output.panning = vec4(preset_row_scan & 31u, (preset_row_scan >> 5u) & 3u, pel_pan, split_scanline);
@@ -90,10 +89,10 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
 
 @fragment
 fn fragment(input: DisplayVertex) -> @location(0) vec4<f32> {
+    let pixel = vec2<u32>(input.position.xy);
     let attribute_mode = input.display.x;
     let blanked = input.display.z != 0u;
     let shift_mode = input.display.w;
-    let pixel = vec2<u32>(input.position.xy);
     if blanked || pixel_blanked(input, pixel) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
