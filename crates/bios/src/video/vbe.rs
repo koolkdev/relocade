@@ -1,9 +1,9 @@
-//! Banked VESA BIOS services. The 1.2 data layouts precede full 1.2 compliance:
-//! state services remain unsupported.
+//! Banked VESA BIOS services for the indexed VBE 1.2 baseline.
 mod information;
 mod layout;
 mod modes;
 mod palette;
+mod state;
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
@@ -28,6 +28,7 @@ pub(super) async fn dispatch<C: Clock + 'static>(
             0x01 => information::mode,
             0x02 => modes::set,
             0x03 => modes::current,
+            0x04 => state::dispatch(vga),
             0x05 => modes::window,
             0x06 => layout::scanline,
             0x07 => layout::display_start(vga),

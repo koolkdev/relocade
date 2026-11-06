@@ -935,16 +935,29 @@ numbers (0101h, 0103h and 0105h) belong to firmware.
 
 The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
 `4F01h` information for the three indexed modes, `4F02h`/`4F03h` mode control,
-`4F05h` bank control, `4F06h` logical scanline control, `4F07h` display-start
-control and `4F08h` DAC-format control, using the VBE 1.2 register and 256-byte
+`4F04h` state save/restore, `4F05h` bank control, `4F06h` logical scanline control,
+`4F07h` display-start control and `4F08h` DAC-format control, using the VBE 1.2 register and 256-byte
 buffer layouts with selected VBE 2.0 extensions. It reports the 4 MiB adapter,
 a terminated ROM mode list, one readable
 and writable 64 KiB window at A000h, and the number of additional complete display
 pages at the reported pitch. No callable bank function or BIOS output functions
-are advertised for these modes. These services are an incremental subset,
-not a complete VBE 1.2 implementation;
-unimplemented functions return AL != 4Fh, while failed supported requests return
-AX=014Fh (or AX=024Fh for an excessively wide scanline). All VBE results preserve flags.
+are advertised for these modes. Unimplemented functions return AL != 4Fh, while
+failed supported requests return AX=014Fh (or AX=024Fh for an excessively wide
+scanline). All VBE results preserve flags.
+
+State service `4F04h` selects hardware, BIOS data, DAC and SVGA through CX bits
+0–3. DL=0 reports the required allocation in 64-byte blocks; DL=1 saves to ES:BX
+and DL=2 restores from it. The opaque buffer uses Relocade's versioned format,
+not the byte layout of a vendor BIOS. Relative offsets support relocation and
+subset restoration; guest offsets wrap within ES. It
+contains no framebuffer bytes. All requested device components are validated
+before restoration; invalid buffers, missing classes, empty or reserved masks,
+and unsupported operations fail without applying state. Capture and restore
+preserve unselected classes and never use scratch VRAM or clear the framebuffer.
+The BIOS-data component shares the existing IBM metadata/vector implementation.
+The hardware, DAC and SVGA components use `VgaCoreState`, `DacState` and
+`DispiState`, respectively. IBM AH=1Ch retains its separate fixed buffer format
+and behavior.
 
 Logical scanlines support setting pixels or bytes, querying the current stride,
 and querying the maximum stride that accommodates the visible height. Eight-bit
