@@ -884,7 +884,7 @@ path.
 
 The device implements a restricted eight-bit subset of the
 [Bochs DISPI display interface](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
-The ID0 register subset uses the modern 01CEh index and 01CFh data ports.
+The ID1 register subset uses the modern 01CEh index and 01CFh data ports.
 Both ports require word transfers: a word at 01CEh selects one complete register
 index, rather than writing two adjacent byte registers. Byte/dword reads return
 all ones and writes are ignored. Unknown register reads return FFFFh; unknown
@@ -892,18 +892,27 @@ register writes and unsupported requests leave the state unchanged.
 
 | Register | Readback and accepted writes |
 | --- | --- |
-| 0: ID | B0C0h; newer IDs are unsupported |
+| 0: ID | B0C1h; newer IDs are unsupported |
 | 1–3: X, Y, bits per pixel | Stage a mode while disabled; active writes are ignored |
 | 4: Enable | 0 disables; 1 or 81h enables a complete supported indexed mode |
 | 5: Bank | 0–63 selects a 64-KiB bank in 4 MiB; out-of-range writes are ignored |
+| 6–7: Virtual width and height | Active byte stride; read-only full-row count in VRAM |
+| 8–9: X and Y offsets | Active viewport origin in pixels; out-of-bounds writes are ignored |
 
 Entering a valid mode selects bank zero and clears all VRAM unless enable bit 7
 requests memory preservation. Readback retains the accepted enable word. Repeating enable
 while active preserves VRAM and the current bank. Disabling preserves VRAM,
 legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
 including LFB combined with no-clear, are ignored as a whole. No-clear is a
-selective ID2 extension; the interface still reports ID0 because virtual layout
-and linear aperture capabilities are unsupported.
+selective ID2 extension; the interface reports ID1 with virtual layout support,
+while the linear aperture remains unsupported.
+
+`SvgaLayout::with_pitch` and `with_origin` validate immutable candidate layouts.
+Pitch changes retain pixel coordinates and fail if the viewport would no longer
+fit. Only complete logical rows count toward virtual height. Layout writes do
+not clear VRAM, change the CPU bank or restart raster timing. Mode entry resets
+to the default pitch and origin. Inactive layout reads return zero and writes
+are ignored. Each retrace captures the layout in effect at that boundary.
 
 `SvgaMode` defines the supported device geometries: 640×480×8, 800×600×8 and
 1024×768×8. DISPI validates against these descriptions, and each mode creates its

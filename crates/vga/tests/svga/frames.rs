@@ -234,3 +234,30 @@ fn indexed_modes_publish_at_their_own_dmt_retrace_boundaries() {
         assert_eq!(capture.display.vram_byte(0), Some(1));
     }
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn pitch_and_origin_updates_preserve_raster_phase_and_completed_captures() {
+    let clock = Rc::new(ManualClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
+    svga::enable(&mut vga);
+    clock.set(svga_boundary(1));
+    vga.read_port(0x3da, 1);
+    let original = vga.frame_source().current_capture().unwrap();
+    clock.set(svga_boundary(2) - Duration::from_nanos(1));
+    svga::set(&mut vga, 6, 1024);
+    svga::set(&mut vga, 8, 32);
+    svga::set(&mut vga, 9, 480);
+    clock.set(svga_boundary(2));
+    vga.read_port(0x3da, 1);
+    let next = vga.frame_source().current_capture().unwrap();
+    assert_eq!(next.sequence, 2);
+    let Scanout::Svga(layout) = next.display.scanout() else {
+        panic!("packed layout")
+    };
+    assert_eq!((layout.pitch(), layout.origin()), (1024, [32, 480]));
+    let Scanout::Svga(old) = original.display.scanout() else {
+        panic!("packed layout")
+    };
+    assert_eq!((old.pitch(), old.origin()), (640, [0, 0]));
+}
