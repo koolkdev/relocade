@@ -27,14 +27,14 @@ pub const BANK_BYTES: u32 = 65536;
 pub const BANK_START: u32 = 0xa0000;
 pub const BANK_RANGE: RangeInclusive<u32> = BANK_START..=BANK_START + BANK_BYTES - 1;
 
-/// A validated bank's view of physical VRAM through the fixed CPU aperture.
+/// Maps the fixed CPU window to a validated SVGA bank in physical VRAM.
 /// Only DISPI constructs these values, after validating its bank register.
 #[derive(Clone, Copy)]
-pub(crate) struct BankedWindow {
+pub(crate) struct SvgaBankMapping {
     vram_start: u32,
 }
 
-impl BankedWindow {
+impl SvgaBankMapping {
     /// Other VGA apertures are closed; accesses never spill into the next bank.
     pub fn memory_offset(self, address: u32) -> Option<u32> {
         BANK_RANGE
@@ -67,8 +67,8 @@ impl Dispi {
         self.enabled
     }
 
-    pub fn banked_window(&self) -> Option<BankedWindow> {
-        self.enabled.then_some(BankedWindow {
+    pub fn bank_mapping(&self) -> Option<SvgaBankMapping> {
+        self.enabled.then_some(SvgaBankMapping {
             vram_start: u32::from(self.bank) * BANK_BYTES,
         })
     }

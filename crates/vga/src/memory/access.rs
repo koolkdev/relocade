@@ -1,7 +1,7 @@
 //! Video memory access selected from adapter gates and the active addressing mechanism.
 
 use crate::registers::{
-    dispi::{BankedWindow, Dispi},
+    dispi::{Dispi, SvgaBankMapping},
     setup::Setup,
     Registers,
 };
@@ -12,15 +12,15 @@ use crate::registers::{
 pub(crate) enum VramAccess<'a> {
     Disabled,
     Vga(&'a Registers),
-    SvgaBank(BankedWindow),
+    SvgaBank(SvgaBankMapping),
 }
 
 impl<'a> VramAccess<'a> {
     pub fn new(setup: &Setup, registers: &'a Registers, dispi: &Dispi) -> Self {
         if !setup.enabled() || !registers.video_memory_enabled() {
             Self::Disabled
-        } else if let Some(window) = dispi.banked_window() {
-            Self::SvgaBank(window)
+        } else if let Some(mapping) = dispi.bank_mapping() {
+            Self::SvgaBank(mapping)
         } else {
             Self::Vga(registers)
         }
