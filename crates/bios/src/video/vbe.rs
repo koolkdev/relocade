@@ -1,8 +1,9 @@
 //! Banked VESA BIOS services. The 1.2 data layouts precede full 1.2 compliance:
-//! state and DAC-format services remain unsupported.
+//! state services remain unsupported.
 mod information;
 mod layout;
 mod modes;
+mod palette;
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
@@ -30,6 +31,7 @@ pub(super) async fn dispatch<C: Clock + 'static>(
             0x05 => modes::window,
             0x06 => layout::scanline,
             0x07 => layout::display_start(vga),
+            0x08 => palette::format,
             _ => unsupported,
         }
     );

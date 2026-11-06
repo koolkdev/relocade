@@ -26,6 +26,9 @@ impl Default for Dac {
 }
 
 impl Dac {
+    /// This VGA-compatible DAC has a fixed width in every display mode.
+    pub const BITS_PER_COMPONENT: u8 = 6;
+
     pub(crate) fn select(&mut self, address: u8, reading: bool) {
         self.address = address;
         self.component = 0;
@@ -61,7 +64,8 @@ impl Dac {
     }
 
     pub(crate) fn write(&mut self, value: u8) {
-        self.colors[usize::from(self.address)][self.component] = value & 0x3f;
+        self.colors[usize::from(self.address)][self.component] =
+            value & ((1 << Self::BITS_PER_COMPONENT) - 1);
         self.step();
     }
 }
