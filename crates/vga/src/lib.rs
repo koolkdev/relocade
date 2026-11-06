@@ -27,7 +27,7 @@ pub use geometry::DisplayGeometry;
 use memory::VideoMemory;
 pub use memory::VIDEO_MEMORY_BYTES;
 use raster::Raster;
-use registers::{setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
+use registers::{dispi, setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, Device, TimerHandle};
 #[cfg(feature = "renderer")]
@@ -56,6 +56,7 @@ pub struct Vga<C = TimerHandle> {
     memory: VideoMemory,
     registers: Registers,
     setup: Setup,
+    dispi: dispi::Dispi,
     clock: Rc<C>,
     raster: Raster,
     timing_changed: Event,
@@ -71,6 +72,7 @@ impl<C: Clock> Vga<C> {
             memory: VideoMemory::default(),
             registers,
             setup: Setup::default(),
+            dispi: dispi::Dispi::default(),
             clock,
             raster,
             timing_changed: Event::new(),
@@ -85,7 +87,9 @@ impl<C: Clock> Vga<C> {
 
     /// Captures current display inputs immediately on the execution owner, without
     /// advancing time, publishing a frame, or changing CPU read/access latches.
-    /// Shares immutable VRAM planes and copies the small register state.
+    /// Shares immutable VGA planes and copies the small legacy register state.
+    /// This remains a legacy VGA projection while banked SVGA is enabled; packed
+    /// SVGA captures and rendering are not yet supported.
     /// The display-start latch stays at the last serviced retrace; this does not
     /// force pending CRTC start-address writes to become effective.
     /// Unlike [`FrameSource`], this does not wait for a refresh boundary.
@@ -108,6 +112,10 @@ impl<C: Clock> Vga<C> {
     fn sync_to_clock(&mut self) {
         if let Some(time) = self.raster.update_to(self.clock.now()) {
             self.registers.crtc.latch_display_start();
+            // Keep the last VGA capture until packed SVGA scanout is supported.
+            if self.dispi.enabled() {
+                return;
+            }
             let display = self.snapshot();
             if self
                 .frames
@@ -160,7 +168,14 @@ impl<C: Clock> Device for Vga<C> {
             return u64::from_le_bytes(value);
         }
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            *byte = self.memory.read(address + index as u32, &self.registers);
+            let address = address + index as u32;
+            *byte = if self.dispi.enabled() {
+                self.dispi
+                    .memory_offset(address)
+                    .map_or(0xff, |offset| self.memory.read_packed(offset))
+            } else {
+                self.memory.read(address, &self.registers)
+            };
         }
         u64::from_le_bytes(value)
     }
@@ -171,13 +186,26 @@ impl<C: Clock> Device for Vga<C> {
             return;
         }
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-            self.memory
-                .write(address + index as u32, *byte, &self.registers);
+            let address = address + index as u32;
+            if self.dispi.enabled() {
+                if let Some(offset) = self.dispi.memory_offset(address) {
+                    self.memory.write_packed(offset, *byte);
+                }
+            } else {
+                self.memory.write(address, *byte, &self.registers);
+            }
         }
     }
 
     fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
         self.sync_to_clock();
+        if dispi::PORT_RANGE.contains(&port) {
+            return if self.setup.enabled() {
+                self.dispi.read_port(port, bytes)
+            } else {
+                u32::MAX >> ((4 - bytes) * 8)
+            };
+        }
         let mut value = [0; 4];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
             let port = port.wrapping_add(index as u16);
@@ -194,6 +222,12 @@ impl<C: Clock> Device for Vga<C> {
 
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
         self.sync_to_clock();
+        if dispi::PORT_RANGE.contains(&port) {
+            if self.setup.enabled() && self.dispi.write_port(port, bytes, value) {
+                self.memory.clear_packed();
+            }
+            return;
+        }
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             match port.wrapping_add(index as u16) {
                 ADAPTER_CONTROL_PORT => self.setup.write_control(*byte),

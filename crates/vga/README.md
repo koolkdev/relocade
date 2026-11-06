@@ -1,7 +1,8 @@
 # VGA compatibility
 
-`Vga` owns four 64-KiB memory planes, registers and programmable timing on the execution
-worker. BIOS and direct guest writes reach the same MMIO memory. Text decoding
+`Vga` owns 4 MiB of shared video memory, registers and programmable timing on the
+execution worker. The first 256 KiB supplies the four 64-KiB legacy VGA planes.
+BIOS and direct guest writes reach the same MMIO memory. Text decoding
 uses captured geometry, row stride, physical address mapping, 8/9-dot characters,
 font banks and heights, attribute/DAC colors, cursor shape/skew, underline,
 blinking, blanking, panning and split-display settings. Startup BIOS mode 03h
@@ -852,3 +853,47 @@ The fixture services input uploads while presentation is idle, owns its output
 pass, and submits decoding and drawing together. Resize-only requests reuse the
 last decoded image. The software fixture separately verifies the CPU-image upload
 path.
+
+## Banked SVGA device
+
+The device implements a restricted eight-bit subset of the
+[Bochs DISPI display interface](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
+The ID0 register subset uses the modern 01CEh index and 01CFh data ports.
+Both ports require word transfers: a word at 01CEh selects one complete register
+index, rather than writing two adjacent byte registers. Byte/dword reads return
+all ones and writes are ignored. Unknown register reads return FFFFh; unknown
+register writes and unsupported requests leave the state unchanged.
+
+| Register | Readback and accepted writes |
+| --- | --- |
+| 0: ID | B0C0h; newer IDs are unsupported |
+| 1–3: X, Y, bits per pixel | Stage a mode while disabled; active writes are ignored |
+| 4: Enable | 0 disables; 1 enables only the complete 640×480×8 request |
+| 5: Bank | 0–63 selects a 64-KiB bank in 4 MiB; out-of-range writes are ignored |
+
+Entering a valid mode clears all VRAM and selects bank zero. Repeating enable
+while active preserves VRAM and the current bank. Disabling preserves VRAM,
+legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
+including LFB and no-clear, are ignored as a whole. No newer DISPI capability,
+virtual layout, VBE BIOS service or linear aperture is advertised.
+
+While enabled, A0000h–AFFFFh reads and writes consecutive packed bytes in the
+selected bank; other VGA windows return FFh and ignore writes. Multi-byte
+accesses crossing AFFFFh do not spill into the next bank. Adapter setup and
+Miscellaneous Output memory gating still apply. The existing six-bit VGA DAC
+ports program the shared palette, with their existing byte-transfer rules.
+Embeddings use the same `PORT_RANGES` and `MEMORY_RANGE` registrations.
+
+Packed byte addresses interleave physical VGA planes: addresses 0, 1, 2 and 3
+are byte zero of planes 0, 1, 2 and 3; address 4 is byte one of plane zero.
+That mapping repeats in each 256-KiB group throughout VRAM. Legacy VGA accesses
+remain within the first group, including their existing chain-4 address mapping.
+Changing addressing modes never repacks memory. Packed accesses bypass VGA
+latches and write masks. Immutable 64-KiB storage blocks preserve retained
+VGA snapshots and avoid allocating unused extended memory until written.
+
+Packed SVGA capture, timing and rendering are a subsequent capability. While
+SVGA is enabled, the frame source retains its last VGA capture and publishes no
+new ones; legacy raster/status timing continues. `Vga::snapshot()` still returns
+the current legacy planes and registers, not a packed SVGA image. Disabling
+resumes VGA publication at the next normal capture boundary.
