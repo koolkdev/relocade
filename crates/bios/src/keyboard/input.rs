@@ -36,7 +36,7 @@ impl Device for InputAdapter {
             let key = translation.translate(event);
             keyboard.set_shift_state(translation.shift_state());
             if let Some(key) = key {
-                keyboard.push(key);
+                let _ = keyboard.store_key(key); // Physical input is dropped when full.
             }
         }
     }

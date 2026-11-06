@@ -117,10 +117,10 @@ fn peeking_console_input_preserves_both_bytes_of_an_extended_key() {
     pollster::block_on(async {
         let dos = common::dos().await;
         let device = dos.device(b"CON").unwrap();
-        dos.keyboard().push(relocade_bios::KeyStroke {
+        assert!(dos.keyboard().store_key(relocade_bios::KeyStroke {
             character: 0,
             scan_code: 0x4b,
-        });
+        }));
         for expected in [0, 0x4b] {
             for _ in 0..2 {
                 assert_eq!(device.peek_character().await.unwrap(), Some(expected));

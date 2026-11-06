@@ -235,10 +235,10 @@ fn bios_input_can_complete_before_the_first_process_launch() {
         }
         common::assert_pending(dos.cpu().run());
         assert!(dos.process().is_none());
-        dos.keyboard().push(relocade_bios::KeyStroke {
+        assert!(dos.keyboard().store_key(relocade_bios::KeyStroke {
             character: b'X',
             scan_code: 0x2d,
-        });
+        }));
         assert_eq!(
             crate::common::run_until(dos.cpu(), 0x7002).await,
             ExecutionExit::Interrupted

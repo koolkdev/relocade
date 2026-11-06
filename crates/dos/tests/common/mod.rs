@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use relocade_dos::{Dos, ProcessStatus};
+mod input;
 mod runner;
 pub use runner::runner;
 #[path = "../../../machine/tests/support/execution.rs"]
@@ -44,6 +45,18 @@ use relocade_x86::{CpuState, ExecutionExit};
 pub const SERVICE_PROGRAM: &[u8] = &[0xcd, 0x21, 0xeb, 0xfe];
 
 pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
+    service_with_input(dos, ax, bx, cx, dx, &[])
+}
+
+/// Invoke a DOS service while supplying a script at the BIOS buffer's capacity.
+pub fn service_with_input(
+    dos: &mut Dos,
+    ax: u16,
+    bx: u16,
+    cx: u16,
+    dx: u16,
+    bytes: &[u8],
+) -> CpuState {
     {
         let mut machine = dos.cpu().context();
         let cpu = &mut machine.cpu;
@@ -54,7 +67,11 @@ pub fn service(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
         cpu.set_dx(dx);
     }
     assert_eq!(
-        pollster::block_on(crate::common::run_until(dos.cpu(), 0x102)),
+        pollster::block_on(input::feed_input(
+            dos.stdin(),
+            bytes,
+            crate::common::run_until(dos.cpu(), 0x102)
+        )),
         ExecutionExit::Interrupted
     );
     dos.cpu().context().cpu.snapshot()

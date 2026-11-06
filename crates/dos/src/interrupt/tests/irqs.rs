@@ -52,7 +52,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let mut cpu = Cpu::new(memory.clone(), kernel::cpu(), io.clone())
         .await
         .unwrap();
-    let keyboard = relocade_bios::Keyboard::default();
+    let keyboard = relocade_bios::Keyboard::new(memory.clone());
     let dos = Rc::new(DosState::new(
         memory.clone().with_io(io.clone()),
         keyboard.clone(),

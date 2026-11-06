@@ -55,7 +55,7 @@ impl Device for Timer {
     }
 }
 
-async fn machine(keyboard: &Keyboard, timer: &Rc<RefCell<Timer>>) -> Cpu {
+async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard) {
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
         (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
@@ -68,6 +68,7 @@ async fn machine(keyboard: &Keyboard, timer: &Rc<RefCell<Timer>>) -> Cpu {
     ])
     .unwrap();
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
+    let keyboard = Keyboard::new(memory.clone());
     let (clock, _timers) = relocade_machine::timer_service();
     let io = IoBus::new([
         DeviceConnection {
@@ -118,7 +119,7 @@ async fn machine(keyboard: &Keyboard, timer: &Rc<RefCell<Timer>>) -> Cpu {
             ],
         )
         .unwrap();
-    cpu
+    (cpu, keyboard)
 }
 
 fn pending(future: impl Future) {
@@ -129,9 +130,8 @@ fn pending(future: impl Future) {
 }
 
 async fn clock_during_wait() {
-    let keyboard = Keyboard::default();
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let mut cpu = machine(&keyboard, &timer).await;
+    let (mut cpu, keyboard) = machine(&timer).await;
     let state = cpu.cpu_state();
     let memory = cpu.memory();
     let entry = memory.view().read_u32(0x16 * 4).unwrap();
@@ -158,7 +158,7 @@ async fn clock_during_wait() {
         execution::checkpoint(&mut cpu).await,
         ExecutionExit::Interrupted
     );
-    keyboard.push(KEY);
+    assert!(keyboard.store_key(KEY));
     // Finish the nested clock call, then the IRQ's IRET. Readiness alone must not
     // consume the key while the guest ISR or its nested BIOS call owns execution.
     assert_eq!(
@@ -196,15 +196,14 @@ async fn clock_during_wait() {
 }
 
 async fn ready_services() {
-    let keyboard = Keyboard::default();
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let mut cpu = machine(&keyboard, &timer).await;
+    let (mut cpu, keyboard) = machine(&timer).await;
     // After the keyboard read and clock query, query video state before looping.
     cpu.memory()
         .view()
         .write(0x10d, &[0xb4, 0x0f, 0xcd, 0x10, 0xeb, 0xfe])
         .unwrap();
-    keyboard.push(KEY);
+    assert!(keyboard.store_key(KEY));
     timer.borrow_mut().tick();
     assert_eq!(
         execution::run_until(&mut cpu, 0x111).await,
@@ -221,9 +220,8 @@ async fn ready_services() {
 }
 
 async fn abandon_during_irq() {
-    let keyboard = Keyboard::default();
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let mut cpu = machine(&keyboard, &timer).await;
+    let (mut cpu, keyboard) = machine(&timer).await;
     let state = cpu.cpu_state();
     // STI; JMP to self. Live ISR IF must differ from the outer wrapper's saved IF.
     cpu.memory()
@@ -236,7 +234,7 @@ async fn abandon_during_irq() {
         execution::checkpoint(&mut cpu).await,
         ExecutionExit::Interrupted
     );
-    keyboard.push(KEY);
+    assert!(keyboard.store_key(KEY));
     let before = state.snapshot();
     assert!(state.interrupts_enabled());
     drop(cpu);
@@ -245,9 +243,8 @@ async fn abandon_during_irq() {
 }
 
 async fn bios_timer_rollover() {
-    let keyboard = Keyboard::default();
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let mut cpu = machine(&keyboard, &timer).await;
+    let (mut cpu, keyboard) = machine(&timer).await;
     // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
     let mut interrupts = Interrupts::new(&mut cpu);
     relocade_bios::register_interrupts(&mut interrupts, keyboard.clone());
@@ -271,7 +268,7 @@ async fn bios_timer_rollover() {
     assert_eq!(after.eip, before.eip);
     assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
     assert_eq!(memory.view().read_u8(0x470).unwrap(), 2);
-    keyboard.push(KEY);
+    assert!(keyboard.store_key(KEY));
     assert_eq!(
         execution::run_until(&mut cpu, 0x10d).await,
         ExecutionExit::Interrupted
