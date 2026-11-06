@@ -38,9 +38,14 @@ fn guest_word_io_banking_and_bios_palette_share_the_production_device() {
         code.extend([0x26, 0xc7, 0x06, 0xfe, 0xff, 0xef, 0xbe]); // ES:[FFFE] = BEEFh
         code.extend([0x26, 0x8b, 0x1e, 0xfe, 0xff]); // MOV BX, ES:[FFFE]
         dispi(&mut code, 5, 0);
-        code.extend([0x26, 0x8b, 0x0e, 0xfe, 0xff, 0xeb, 0xfe]); // MOV CX, ES:[FFFE]; JMP $
+        code.extend([0x26, 0x8b, 0x0e, 0xfe, 0xff]); // MOV CX, ES:[FFFE]
+        let completion_eip = 0x100 + code.len() as u32;
+        code.extend([0xeb, 0xfe]); // JMP $
         dos.launch_com(&code, Default::default()).unwrap();
-        assert_eq!(dos.cpu().run(200).await, ExecutionExit::BudgetExhausted);
+        assert_eq!(
+            common::run_until(dos.cpu(), completion_eip).await,
+            ExecutionExit::Interrupted
+        );
         let cpu = dos.cpu().context().cpu.snapshot();
         assert_eq!(cpu.registers.ebx as u16, 0xbeef);
         assert_eq!(cpu.registers.ecx as u16, 0x1234);
@@ -63,9 +68,13 @@ fn bios_leaves_svga_only_for_a_valid_legacy_mode_request() {
             if request == 3 {
                 code.extend([0xb8, b'A', 0x0e, 0xcd, 0x10]); // Text teletype.
             }
-            code.extend([0xeb, 0xfe]);
+            let completion_eip = 0x100 + code.len() as u32;
+            code.extend([0xeb, 0xfe]); // JMP $
             dos.launch_com(&code, Default::default()).unwrap();
-            assert_eq!(dos.cpu().run(200).await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                common::run_until(dos.cpu(), completion_eip).await,
+                ExecutionExit::Interrupted
+            );
             let context = dos.cpu().context();
             context.io.write_port(0x1ce, 2, 4);
             assert_eq!(context.io.read_port(0x1cf, 2), u32::from(request != 3));
