@@ -5,8 +5,9 @@
 //! MZ executables use their header's memory request, relocation table and CS:IP/SS:SP.
 //! Both formats receive a separate environment block through PSP:002C, containing
 //! the supplied variables and executable path. Its storage comes from conventional RAM.
-//! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock. A fixed-rate timer raises
-//! IRQ0 about 18.2 times per second; the BIOS handler advances the clock.
+//! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock. PIT channel 0 raises
+//! IRQ0 about 18.2 times per second by default; guest programming can change its
+//! rate. The BIOS handler advances the clock on each delivered interrupt.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. CON output is buffered as guest
@@ -153,8 +154,7 @@ impl<C: Clock> Dos<C> {
     {
         let (vga, vga_device) = Vga::initialize(runner).await;
         let (pic, pic_device) = relocade_pic::Pic::initialize(runner).await;
-        let (pit, pit_device) =
-            relocade_pit::Pit::initialize(runner, pic.irq(relocade_pic::TIMER_IRQ)).await;
+        let (pit, pit_device) = relocade_pit::Pit::initialize(runner, &pic).await;
         pic.unmask_irq(relocade_pic::TIMER_IRQ);
         let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
         let keyboard = relocade_bios::Keyboard::default();

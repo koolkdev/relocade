@@ -26,7 +26,7 @@ pub fn end_of_interrupt(io: &IoBus) {
 
 /// One execution-owned master PIC with eight interrupt inputs. Clones share
 /// arbitration and guest-visible registers. The machine polls only this device;
-/// peripherals signal its [`IrqLine`] handles instead of supplying CPU vectors.
+/// peripherals signal [`IrqLine`] handles instead of supplying CPU vectors.
 #[derive(Clone)]
 pub struct Pic(Rc<RefCell<Controller>>);
 
@@ -61,8 +61,13 @@ impl Pic {
         self.update(|state| state.mask &= !(1 << number));
     }
 
-    pub fn irq(&self, number: u8) -> IrqLine {
+    /// Connects a peripheral's IRQ line at its starting output level without
+    /// inventing an edge or clearing pending requests. A high input is still
+    /// eligible in level-triggered mode. Reuse or clone the returned line for
+    /// runtime transitions.
+    pub fn irq(&self, number: u8, initial_high: bool) -> IrqLine {
         assert!(number < IRQ_COUNT, "master PIC IRQ number");
+        self.update(|state| state.record_level(number, initial_high));
         IrqLine {
             pic: self.clone(),
             number,

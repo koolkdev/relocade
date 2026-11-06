@@ -1,6 +1,6 @@
 # Programmable interval timer
 
-`Counter` models the binary 8254 modes used for PC speaker tones: mode 2
+`Counter` models the binary 8254 modes used for periodic IRQ0 and PC speaker tones: mode 2
 (rate generator) and mode 3 (square wave), including aliases 6/7, byte access
 formats, count/status latches, gate transitions and deferred divisor loading.
 `advance` accepts whole input clocks and integrates OUT high time, so audio
@@ -19,8 +19,8 @@ gate starts a fresh high phase on the next clock. A zero divisor means 65,536.
 
 Modes 0/1/4/5 and BCD are deferred. Programming them stops the previous oscillator
 and returns OUT low. Count 1 is invalid for modes 2/3; loading it stops oscillation
-with OUT high. Power-up count/output are undefined by hardware; this model starts
-with count zero and OUT low. Read counts through latches when stable multi-byte
+with OUT high. Power-up count/output are undefined by hardware; a default `Counter`
+starts with count zero and OUT low. Read counts through latches when stable multi-byte
 observations are needed. Reads without latching observe the current counter at
 each byte access.
 
@@ -28,15 +28,26 @@ each byte access.
 the shared PC/AT frequency. Deadlines round up, and repeated periods retain
 their fractional remainder.
 
-`Pit::initialize(runner, pic.irq(TIMER_IRQ)).await` creates the execution-owned
+`Pit::initialize(runner, &pic).await` creates the execution-owned
 device on the runner's clock and starts its activity. It returns the shared PIT
-and its connection for the CPU bus. It owns channel-2 count and
-control/read-back ports and supplies the default channel-0 IRQ0 every 65,536
-input clocks. Unacknowledged edges coalesce in the PIC. DOS connects both devices;
-BIOS keeps the IRQ0 handler, tick data, midnight rollover and INT 1Ah service.
-Programmable channel-0 ports are not implemented yet.
+and its connection for the CPU bus. It owns byte transfers at
+channel 0 (0x40), channel 2 (0x42) and control/read-back (0x43). Channel 1 (0x41)
+and wider transfers are unsupported: writes are ignored and reads return open bus.
+Read-back can latch both supported channels at the same machine time.
 
-The speaker retains the same PIT through `Speaker::new(pit.clone())` and owns
+Channel 0 starts in BIOS mode 3, gate high, divisor 65,536 already loaded. The PIT
+connects IRQ0 at OUT0's starting level without creating an edge. The first
+IRQ arrives after a full period (about 54.9254 ms). Guest writes replace that
+configuration; pending divisor loads follow the same mode-specific rules as channel 2.
+
+The device waits for channel-0 transitions or reprogramming. It drives the PIC's
+IRQ0 level and preserves one pending rising edge when a delayed wake spans many
+periods. Unacknowledged edges coalesce in the PIC. No IRQ is generated merely
+because an obsolete wait completed. BIOS keeps its handler, tick data, midnight
+rollover and INT 1Ah service: it counts delivered IRQ0 interrupts, so changing the
+timer frequency also changes BIOS time unless guest software compensates.
+
+The speaker retains the same PIT through `Speaker::initialize(runner, pit)` and owns
 port 0x61. Its gate changes and OUT2 reads use the PIT's channel 2. Playback
 consumes the latest channel-2 programming state captured at a sound-changing
 write; reads and latches leave playback phase untouched.

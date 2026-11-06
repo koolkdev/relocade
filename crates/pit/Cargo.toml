@@ -6,6 +6,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+event-listener = { version = "=5.4.1", default-features = false }
+futures-lite = { version = "=2.6.1", default-features = false }
 relocade-pic = { path = "../pic" }
 relocade-machine = { path = "../machine" }
 

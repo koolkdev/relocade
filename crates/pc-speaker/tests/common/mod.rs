@@ -24,7 +24,7 @@ impl Clock for ManualClock {
 pub fn hardware(clock: Rc<ManualClock>) -> (IoBus, Rc<RefCell<Speaker<ManualClock>>>) {
     let pit = Rc::new(RefCell::new(Pit::with_clock(
         clock,
-        relocade_pic::Pic::new(0x08).irq(0),
+        &relocade_pic::Pic::new(0x08),
     )));
     let speaker = Rc::new(RefCell::new(Speaker::new(pit.clone())));
     let io = IoBus::new([

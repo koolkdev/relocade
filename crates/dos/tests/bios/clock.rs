@@ -93,35 +93,46 @@ fn bios_reads_ticks_and_consumes_midnight_rollover() {
 #[test]
 fn timer_advances_the_clock_during_guest_execution() {
     pollster::block_on(async {
-        let clock = ManualClock::default();
-        let (ready, shared_memory) = futures_channel::oneshot::channel();
-        let worker_clock = clock.clone();
-        let worker = ExecutionWorker::spawn(worker_clock, async move |runner| {
-            let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
-            dos.launch_com(
+        // Default BIOS timing, then guest mode 2/divisor 1193: the first IRQ
+        // follows the initial load plus 1193 clocks, about one millisecond.
+        for (prefix, period) in [
+            (&[][..], TICK),
+            (
                 &[
+                    0xb0, 0x34, 0xe6, 0x43, 0xb0, 0xa9, 0xe6, 0x40, 0xb0, 4, 0xe6, 0x40,
+                ][..],
+                Duration::from_nanos(1_000_686),
+            ),
+        ] {
+            let clock = ManualClock::default();
+            let (ready, shared_memory) = futures_channel::oneshot::channel();
+            let worker_clock = clock.clone();
+            let worker = ExecutionWorker::spawn(worker_clock, async move |runner| {
+                let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
+                let mut program = prefix.to_vec();
+                program.extend_from_slice(&[
                     0xc6, 0x06, 0, 3, 1, // Publish that guest execution has started.
                     0x31, 0xc0, 0x8e, 0xc0, // ES=0.
                     0x26, 0x83, 0x3e, 0x6c, 4, 0, 0x74, 0xf8, // Wait for BDA tick.
                     0xcd, 0x1a, // Read clock.
                     0x89, 0x16, 2, 3, // Save DX.
                     0xb8, 0, 0x4c, 0xcd, 0x21, // Exit.
-                ],
-                Default::default(),
-            )
-            .unwrap();
-            assert!(ready.send(dos.cpu().memory()).is_ok());
-            assert_eq!(dos.run(runner).await, Ok(0));
-            dos.cpu().memory().view().read_u16(0x10302).unwrap()
-        });
-        let memory = shared_memory.await.unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while memory.view().read_u8(0x10300).unwrap() == 0 {
-            assert!(Instant::now() < deadline, "guest execution did not start");
-            std::thread::yield_now();
+                ]);
+                dos.launch_com(&program, Default::default()).unwrap();
+                assert!(ready.send(dos.cpu().memory()).is_ok());
+                assert_eq!(dos.run(runner).await, Ok(0));
+                dos.cpu().memory().view().read_u16(0x10302).unwrap()
+            });
+            let memory = shared_memory.await.unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while memory.view().read_u8(0x10300).unwrap() == 0 {
+                assert!(Instant::now() < deadline, "guest execution did not start");
+                std::thread::yield_now();
+            }
+            assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
+            clock.advance(period);
+            assert_eq!(worker.join().await.unwrap(), Some(1));
         }
-        clock.advance(TICK);
-        assert_eq!(worker.join().await.unwrap(), Some(1));
     });
 }
 
