@@ -1,15 +1,13 @@
 //! The driver alternates guest execution with polling retained host services.
 
+mod interrupts;
 mod suspended;
 
 use super::{call::Call, Cpu};
+pub(super) use interrupts::InterruptCalls;
 use relocade_x86::{ExecutionExit, HostExit};
-use std::{
-    cell::Cell,
-    future::poll_fn,
-    rc::Rc,
-    task::{Context, Poll},
-};
+use std::{cell::Cell, future::poll_fn, rc::Rc, task::Poll};
+pub(super) use suspended::SuspendedCall;
 
 /// Requests a return to the embedding after the current guest dispatch or host poll.
 /// Capture this with a service's other resources, for example when DOS terminates
@@ -59,6 +57,8 @@ impl Cpu {
     /// Execution interrupts, guest faults and replacement waiters preserve parked calls.
     /// Guest IF-enabling instructions return to this same IRQ polling loop, so a
     /// request queued while masked needs no later notification to become eligible.
+    /// Awaited Rust interrupt calls use the same entry and resume machinery,
+    /// taking precedence over device IRQ polling and entering regardless of IF.
     pub async fn run(&mut self) -> ExecutionExit {
         let exit = poll_fn(|cx| {
             if self.exit.0.get() {
@@ -73,11 +73,7 @@ impl Cpu {
                     Ok(delivered) => delivered,
                     Err(exit) => return Poll::Ready(exit),
                 };
-                if interrupt_delivered {
-                    if let Some(call) = self.pending.take() {
-                        self.suspended.push(call);
-                    }
-                } else if self.pending.is_some() {
+                if !interrupt_delivered && self.pending.is_some() {
                     return Poll::Pending;
                 }
 
@@ -106,30 +102,6 @@ impl Cpu {
             self.exit.0.set(false);
         }
         exit
-    }
-
-    /// Delivers an IRQ at a stopped boundary, whether or not a host call is pending.
-    /// Reports success only after entry; the caller then parks any active call.
-    fn try_deliver_interrupt(&mut self, cx: &mut Context<'_>) -> Result<bool, ExecutionExit> {
-        if self.exit.0.get() {
-            return Err(ExecutionExit::Host(HostExit::Return));
-        }
-        let interrupt = self.machine.poll_interrupt(cx);
-        // Device callbacks can request an exit, including when no IRQ is ready.
-        if self.exit.0.get() {
-            return Err(ExecutionExit::Host(HostExit::Return));
-        }
-        let Poll::Ready(vector) = interrupt else {
-            return Ok(false);
-        };
-        let entered = self.machine.enter_interrupt(vector);
-        // Frame writes and IVT reads may also request an exit. Observe it before
-        // parking a call or executing the ISR, even when IRQ entry faults.
-        if self.exit.0.get() {
-            return Err(ExecutionExit::Host(HostExit::Return));
-        }
-        entered?;
-        Ok(true)
     }
 
     /// Runs guest code to the next host entry or guest exit, including any

@@ -4,18 +4,42 @@ use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, MemoryView,
 };
+use relocade_x86::{Segment, SegmentRegister};
 
 const CLOCK_TICKS: u32 = 0x46c;
 const MIDNIGHT_ROLLOVER: u32 = 0x470;
 const TICKS_PER_DAY: u32 = 0x18_00b0;
+const TIMER_CALLBACK: u8 = 0x1c;
+const BIOS_DATA_SEGMENT: u16 = 0x40;
 
 pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
     memory.write(CLOCK_TICKS, &[0; 5]).expect("BIOS clock data");
 }
 
+/// Services IRQ0 using the AT BIOS register and callback convention.
+pub(crate) async fn timer(call: &mut CpuContext<'_>) {
+    let saved_ax = call.cpu.ax();
+    let saved_dx = call.cpu.dx();
+    let saved_ds = call.cpu.segment(Segment::Ds);
+    call.cpu.set_ax(BIOS_DATA_SEGMENT);
+    call.cpu.set_segment(
+        Segment::Ds,
+        SegmentRegister::real_mode(Segment::Ds, BIOS_DATA_SEGMENT),
+    );
+
+    tick(&mut call.memory);
+    call.call_interrupt(TIMER_CALLBACK).await;
+
+    // Restore only on return. Abandoning this call must leave the running guest
+    // state intact, just as abandoning a guest interrupt frame would.
+    call.cpu.set_ax(saved_ax);
+    call.cpu.set_dx(saved_dx);
+    call.cpu.set_segment(Segment::Ds, saved_ds);
+}
+
 /// Advances time for one delivered IRQ0. Missed timer edges are not reconstructed.
 /// The midnight byte counts rollovers until INT 1Ah consumes it.
-pub(crate) fn tick(memory: &mut MemoryView<'_>) {
+fn tick(memory: &mut MemoryView<'_>) {
     let ticks = memory.read_u32(CLOCK_TICKS).expect("BIOS clock ticks");
     if ticks >= TICKS_PER_DAY - 1 {
         memory.write_u32(CLOCK_TICKS, 0).expect("BIOS clock ticks");

@@ -322,3 +322,6 @@ mod resumption;
 
 #[path = "runtime_calls/lifecycle.rs"]
 mod lifecycle;
+
+#[path = "runtime_calls/interrupt_calls.rs"]
+mod interrupt_calls;

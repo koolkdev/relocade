@@ -34,7 +34,10 @@
 //! may replace or chain the default handler; port reads consume its input bytes.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
-//! Timer hardware supplies vector 08h; INT 1Ch chaining is not implemented yet.
+//! Timer hardware supplies vector 08h. After advancing the clock, the BIOS invokes
+//! the guest's INT 1Ch callback, then acknowledges the PIC and returns. The default
+//! callback simply returns; guests may replace it or chain to it. The Rust timer
+//! handler awaits the guest callback through the machine's ordinary resume hook.
 //! These service entries enable live IF. Pending handlers admit device IRQs;
 //! ready handlers finish in one poll. Guest IRET preserves the caller's saved IF,
 //! while abandonment leaves live CPU state untouched.
