@@ -1,9 +1,7 @@
 //! Captured display interpretation, independent of CPU port access state.
-mod svga;
 mod vga;
 use crate::memory::VGA_MEMORY_BYTES;
-use crate::DisplayGeometry;
-pub use svga::SvgaLayout;
+use crate::{DisplayGeometry, SvgaLayout};
 pub use vga::{VgaDisplayState, VgaGeometry};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

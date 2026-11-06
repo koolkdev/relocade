@@ -1,4 +1,4 @@
-//! Guest-visible programming of the initial banked DISPI mode.
+//! Guest-visible programming of banked DISPI modes.
 use relocade_machine::Device;
 
 pub fn set(vga: &mut impl Device, index: u16, value: u16) {
@@ -12,7 +12,12 @@ pub fn get(vga: &mut impl Device, index: u16) -> u32 {
 }
 
 pub fn enable(vga: &mut impl Device) {
-    for (index, value) in [(1, 640), (2, 480), (3, 8), (4, 1)] {
+    set_mode(vga, 640, 480);
+}
+
+pub fn set_mode(vga: &mut impl Device, width: u16, height: u16) {
+    set(vga, 4, 0);
+    for (index, value) in [(1, width), (2, height), (3, 8), (4, 1)] {
         set(vga, index, value);
     }
     assert_eq!(get(vga, 4), 1);

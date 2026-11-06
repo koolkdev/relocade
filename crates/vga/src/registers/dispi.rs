@@ -3,10 +3,10 @@
 //! Register numbers and word transfers follow the Bochs VBE Display API:
 //! https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt
 //! This adapter exposes the ID0 register subset at the modern 01CE/01CF ports.
-//! It accepts only 640x480x8 and the no-clear enable flag from ID2. Newer interface
+//! It accepts three indexed modes and the no-clear enable flag from ID2. Newer interface
 //! IDs, other enable flags and registers are unsupported. Invalid requests are ignored.
 
-use crate::{SvgaLayout, VIDEO_MEMORY_BYTES};
+use crate::{SvgaLayout, SvgaMode, VIDEO_MEMORY_BYTES};
 use std::ops::RangeInclusive;
 
 pub const INDEX_PORT: u16 = 0x01ce;
@@ -59,17 +59,22 @@ pub(crate) struct Dispi {
     width: u16,
     height: u16,
     bits_per_pixel: u16,
-    enable: u16,
+    active: Option<ActiveMode>,
     bank: u16,
+}
+
+struct ActiveMode {
+    layout: SvgaLayout,
+    flags: u16,
 }
 
 impl Dispi {
     fn enabled(&self) -> bool {
-        self.enable & ENABLED != 0
+        self.active.is_some()
     }
 
     pub fn display_layout(&self) -> Option<SvgaLayout> {
-        self.enabled().then_some(SvgaLayout::INDEXED_640_480)
+        self.active.as_ref().map(|active| active.layout)
     }
 
     pub fn bank_mapping(&self) -> Option<SvgaBankMapping> {
@@ -90,7 +95,7 @@ impl Dispi {
                 X_RESOLUTION => self.width,
                 Y_RESOLUTION => self.height,
                 BITS_PER_PIXEL => self.bits_per_pixel,
-                ENABLE => self.enable,
+                ENABLE => self.active.as_ref().map_or(DISABLED, |active| active.flags),
                 BANK => self.bank,
                 _ => u16::MAX,
             },
@@ -113,15 +118,17 @@ impl Dispi {
             X_RESOLUTION if !self.enabled() => self.width = value,
             Y_RESOLUTION if !self.enabled() => self.height = value,
             BITS_PER_PIXEL if !self.enabled() => self.bits_per_pixel = value,
-            ENABLE if value == DISABLED => self.enable = DISABLED,
-            ENABLE
-                if value & !NO_CLEAR_MEMORY == ENABLED
-                    && !self.enabled()
-                    && [u32::from(self.width), u32::from(self.height)]
-                        == SvgaLayout::INDEXED_640_480.size()
-                    && self.bits_per_pixel == 8 =>
-            {
-                self.enable = value;
+            ENABLE if value == DISABLED => self.active = None,
+            ENABLE if value & !NO_CLEAR_MEMORY == ENABLED && !self.enabled() => {
+                let Some(mode) =
+                    SvgaMode::from_registers(self.width, self.height, self.bits_per_pixel)
+                else {
+                    return WriteEffect::None;
+                };
+                self.active = Some(ActiveMode {
+                    layout: mode.layout(),
+                    flags: value,
+                });
                 self.bank = 0;
                 return if value & NO_CLEAR_MEMORY == 0 {
                     WriteEffect::ClearVram

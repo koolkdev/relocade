@@ -75,9 +75,9 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
         let mut name = [0; 21];
         context.memory.read_wrapping(oem, &mut name).unwrap();
         assert_eq!(&name, b"Relocade banked SVGA\0");
-        let mut list = [0; 4];
+        let mut list = [0; 8];
         context.memory.read_wrapping(modes, &mut list).unwrap();
-        assert_eq!(list, [1, 1, 0xff, 0xff]);
+        assert_eq!(list, [1, 1, 3, 1, 5, 1, 0xff, 0xff]);
         assert_eq!(dos.vga().borrow().registers(), &registers);
     });
 }
@@ -100,7 +100,7 @@ fn vbe_mode_information_describes_only_the_supported_banked_layout() {
         assert_eq!(&bytes[31..], &[0; 225]);
         for (function, mode) in [
             (1, 0x13),
-            (1, 0x103),
+            (1, 0x107),
             (1, 0x4101),
             (1, 0x8101),
             (0xff, 0x101),
@@ -109,6 +109,33 @@ fn vbe_mode_information_describes_only_the_supported_banked_layout() {
             assert_eq!(status, if function == 1 { 0x014f } else { 0x0100 });
             assert_eq!(&bytes[..4], b"VBE2");
             assert_eq!(&bytes[4..], &[0xa5; 252]);
+        }
+    });
+}
+
+#[test]
+fn advertised_resolutions_match_mode_information_and_current_mode() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        for (number, width, height) in [
+            (0x101, 640u16, 480u16),
+            (0x103, 800, 600),
+            (0x105, 1024, 768),
+        ] {
+            let (status, bytes) = information(&mut dos, 1, number, 0x200);
+            assert_eq!(status, 0x4f);
+            assert_eq!(&bytes[16..18], &width.to_le_bytes());
+            assert_eq!(&bytes[18..20], &width.to_le_bytes());
+            assert_eq!(&bytes[20..22], &height.to_le_bytes());
+            assert_eq!(
+                video(&mut dos, 0x4f02, number, 0, 0).registers.eax as u16,
+                0x4f
+            );
+            assert_eq!(
+                video(&mut dos, 0x4f03, 0, 0, 0).registers.ebx as u16,
+                number
+            );
         }
     });
 }

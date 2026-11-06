@@ -7,38 +7,62 @@ use crate::video::{
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 use relocade_vga::{
     registers::{dispi, MISC_OUTPUT_READ_PORT, MISC_OUTPUT_WRITE_PORT},
-    VIDEO_MEMORY_BYTES,
+    SvgaMode, VIDEO_MEMORY_BYTES,
 };
 
 // Outside the supported legacy modes: their output/font paths reject this marker.
 const VBE_MODE_MARKER: u8 = 0x7f;
 
-/// BIOS mode numbers and geometry belong here; DISPI owns hardware validation.
+/// Firmware maps VESA mode numbers to the device's supported display modes.
+#[derive(Clone, Copy)]
 pub(super) struct Mode {
     pub(super) number: u16,
-    pub(super) width: u16,
-    pub(super) height: u16,
-    pub(super) bits_per_pixel: u8,
+    pub(super) display: SvgaMode,
 }
 
 impl Mode {
-    pub(super) const INDEXED_640_480: Self = Self {
-        number: 0x101,
-        width: 640,
-        height: 480,
-        bits_per_pixel: 8,
-    };
+    pub(super) const ALL: [Self; 3] = [
+        Self {
+            number: 0x101,
+            display: SvgaMode::Indexed640x480,
+        },
+        Self {
+            number: 0x103,
+            display: SvgaMode::Indexed800x600,
+        },
+        Self {
+            number: 0x105,
+            display: SvgaMode::Indexed1024x768,
+        },
+    ];
 
     pub(super) fn from_number(number: u16) -> Option<Self> {
-        (number == Self::INDEXED_640_480.number).then_some(Self::INDEXED_640_480)
+        Self::ALL.into_iter().find(|mode| mode.number == number)
+    }
+
+    pub(super) fn active(io: &IoBus) -> Option<Self> {
+        if read_register(io, dispi::ENABLE) & dispi::ENABLED == 0 {
+            return None;
+        }
+        let display = SvgaMode::from_registers(
+            read_register(io, dispi::X_RESOLUTION),
+            read_register(io, dispi::Y_RESOLUTION),
+            read_register(io, dispi::BITS_PER_PIXEL),
+        )?;
+        Self::ALL.into_iter().find(|mode| mode.display == display)
     }
 
     fn activate(self, memory: &mut MemoryView<'_>, io: &IoBus, preserve: bool) {
+        let [width, height] = self.display.size().map(|value| value as u16);
         // A new BIOS mode set re-enters the device mode, even if its geometry is unchanged.
         write_register(io, dispi::ENABLE, dispi::DISABLED);
-        write_register(io, dispi::X_RESOLUTION, self.width);
-        write_register(io, dispi::Y_RESOLUTION, self.height);
-        write_register(io, dispi::BITS_PER_PIXEL, u16::from(self.bits_per_pixel));
+        write_register(io, dispi::X_RESOLUTION, width);
+        write_register(io, dispi::Y_RESOLUTION, height);
+        write_register(
+            io,
+            dispi::BITS_PER_PIXEL,
+            u16::from(self.display.bits_per_pixel()),
+        );
         let flags = dispi::ENABLED | if preserve { dispi::NO_CLEAR_MEMORY } else { 0 };
         write_register(io, dispi::ENABLE, flags);
         let miscellaneous = io.read_port(MISC_OUTPUT_READ_PORT, 1);
@@ -46,11 +70,9 @@ impl Mode {
         presets::INDEXED256.load_palette(io, PaletteLoad::for_mode_set(memory));
 
         memory.write_u8(MODE, VBE_MODE_MARKER).expect("video mode");
+        memory.write_u16(COLUMNS, width / 8).expect("video columns");
         memory
-            .write_u16(COLUMNS, self.width / 8)
-            .expect("video columns");
-        memory
-            .write_u8(LAST_ROW, (self.height / 16 - 1) as u8)
+            .write_u8(LAST_ROW, (height / 16 - 1) as u8)
             .expect("video rows");
         memory.write_u16(CHARACTER_HEIGHT, 16).expect("font height");
         // The packed frame exceeds a 16-bit legacy page size; no legacy pages exist.
@@ -94,8 +116,8 @@ pub(super) fn current(memory: &MemoryView<'_>, io: &IoBus) -> Option<u16> {
     if !available(io) {
         return None;
     }
-    if read_register(io, dispi::ENABLE) & dispi::ENABLED != 0 {
-        Some(Mode::INDEXED_640_480.number)
+    if let Some(mode) = Mode::active(io) {
+        Some(mode.number)
     } else {
         // VBE 1.2 returns the mode alone, without the memory-preservation flag.
         let number = legacy::mode(memory).mode & 0x7f;

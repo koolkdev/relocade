@@ -195,3 +195,42 @@ fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(source.current_capture().unwrap().sequence, 1_000_002);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn indexed_modes_publish_at_their_own_dmt_retrace_boundaries() {
+    for (width, height, clock_hz, line_dots, total_lines, retrace_start, retrace_end) in [
+        (640, 480, 25_175_000, 800, 525, 490, 492),
+        (800, 600, 40_000_000, 1056, 628, 601, 605),
+        (1024, 768, 65_000_000, 1344, 806, 771, 777),
+    ] {
+        let clock = Rc::new(common::ManualClock::default());
+        let mut vga = Vga::with_clock(clock.clone());
+        common::support::svga::set_mode(&mut vga, width, height);
+        let start = common::dots(line_dots * retrace_start, clock_hz);
+        clock.set(start - std::time::Duration::from_nanos(1));
+        assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
+        assert!(vga.frame_source().current_capture().is_none());
+        clock.set(start);
+        assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
+        let capture = vga.frame_source().current_capture().unwrap();
+        assert_eq!(capture.sequence, 1);
+        assert_eq!(
+            capture.display.geometry().size,
+            [u32::from(width), u32::from(height)]
+        );
+        let end = common::dots(line_dots * retrace_end, clock_hz);
+        clock.set(end);
+        assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
+        vga.write_mmio(0xa0000, 1, 1);
+        let second = common::dots(line_dots * (total_lines + retrace_start), clock_hz);
+        clock.set(second - std::time::Duration::from_nanos(1));
+        assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
+        assert_eq!(vga.frame_source().current_capture().unwrap().sequence, 1);
+        clock.set(second);
+        assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
+        let capture = vga.frame_source().current_capture().unwrap();
+        assert_eq!(capture.sequence, 2);
+        assert_eq!(capture.display.vram_byte(0), Some(1));
+    }
+}
