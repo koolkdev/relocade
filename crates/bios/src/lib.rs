@@ -28,8 +28,10 @@
 //! AH=1Bh/BX=0 writes the functionality/state report to ES:DI; other BX values
 //! return AL=0 without writing the buffer. Other unsupported video services or
 //! pixel coordinates/pages return AH=86h with carry set.
-//! INT 16h/AH=00h/01h/02h/05h reads, peeks, queries flags and stores keystrokes
-//! in the guest BIOS data area. DOS console input consumes the same finite ring.
+//! INT 09h consumes controller scan bytes and translates the default US layout into
+//! the guest-visible BIOS keyboard ring at 0040:001E. INT 16h/AH=00h/01h/02h and
+//! DOS console input read the same ring and modifier flags. Guest IRQ1 handlers
+//! may replace or chain the default handler; port reads consume its input bytes.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
 //! Timer hardware supplies vector 08h; INT 1Ch chaining is not implemented yet.

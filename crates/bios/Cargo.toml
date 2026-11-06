@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+relocade-at-keyboard = { path = "../at-keyboard" }
 bitflags = "=2.13.1"
 relocade-pic = { path = "../pic" }
 relocade-machine = { path = "../machine" }
