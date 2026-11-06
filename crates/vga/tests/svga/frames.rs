@@ -146,7 +146,10 @@ fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(clock.deadline.get(), None);
     let source = vga.borrow().frame_source();
-    svga::enable(&mut *vga.borrow_mut());
+    // No-clear entry changes timing even though DISPI requests no memory effect.
+    for (index, value) in [(1, 640), (2, 480), (3, 8), (4, 0x81)] {
+        svga::set(&mut *vga.borrow_mut(), index, value);
+    }
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(clock.deadline.get(), Some(origin + svga_boundary(1)));
 

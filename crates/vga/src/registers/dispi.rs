@@ -3,8 +3,8 @@
 //! Register numbers and word transfers follow the Bochs VBE Display API:
 //! https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt
 //! This adapter exposes the ID0 register subset at the modern 01CE/01CF ports.
-//! It accepts only 640x480x8; newer interface IDs, enable flags and registers are
-//! unsupported. Invalid requests are ignored instead of trapping the host.
+//! It accepts only 640x480x8 and the no-clear enable flag from ID2. Newer interface
+//! IDs, other enable flags and registers are unsupported. Invalid requests are ignored.
 
 use crate::{SvgaLayout, VIDEO_MEMORY_BYTES};
 use std::ops::RangeInclusive;
@@ -23,6 +23,7 @@ pub const BANK: u16 = 5;
 pub const INTERFACE_ID: u16 = 0xb0c0;
 pub const DISABLED: u16 = 0;
 pub const ENABLED: u16 = 1;
+pub const NO_CLEAR_MEMORY: u16 = 0x80;
 pub const BANK_BYTES: u32 = 65536;
 pub const BANK_START: u32 = 0xa0000;
 pub const BANK_RANGE: RangeInclusive<u32> = BANK_START..=BANK_START + BANK_BYTES - 1;
@@ -58,17 +59,21 @@ pub(crate) struct Dispi {
     width: u16,
     height: u16,
     bits_per_pixel: u16,
-    enabled: bool,
+    enable: u16,
     bank: u16,
 }
 
 impl Dispi {
+    fn enabled(&self) -> bool {
+        self.enable & ENABLED != 0
+    }
+
     pub fn display_layout(&self) -> Option<SvgaLayout> {
-        self.enabled.then_some(SvgaLayout::INDEXED_640_480)
+        self.enabled().then_some(SvgaLayout::INDEXED_640_480)
     }
 
     pub fn bank_mapping(&self) -> Option<SvgaBankMapping> {
-        self.enabled.then_some(SvgaBankMapping {
+        self.enabled().then_some(SvgaBankMapping {
             vram_start: u32::from(self.bank) * BANK_BYTES,
         })
     }
@@ -85,7 +90,7 @@ impl Dispi {
                 X_RESOLUTION => self.width,
                 Y_RESOLUTION => self.height,
                 BITS_PER_PIXEL => self.bits_per_pixel,
-                ENABLE => u16::from(self.enabled),
+                ENABLE => self.enable,
                 BANK => self.bank,
                 _ => u16::MAX,
             },
@@ -93,7 +98,7 @@ impl Dispi {
         })
     }
 
-    /// Entering a valid mode requests a clear of the shared video memory.
+    /// Entering a valid mode clears shared video memory unless no-clear is set.
     /// Repeated enable writes do not clear memory or reset the bank.
     pub fn write_port(&mut self, port: u16, bytes: u8, value: u32) -> WriteEffect {
         if bytes != 2 {
@@ -105,20 +110,24 @@ impl Dispi {
             return WriteEffect::None;
         }
         match self.index {
-            X_RESOLUTION if !self.enabled => self.width = value,
-            Y_RESOLUTION if !self.enabled => self.height = value,
-            BITS_PER_PIXEL if !self.enabled => self.bits_per_pixel = value,
-            ENABLE if value == DISABLED => self.enabled = false,
+            X_RESOLUTION if !self.enabled() => self.width = value,
+            Y_RESOLUTION if !self.enabled() => self.height = value,
+            BITS_PER_PIXEL if !self.enabled() => self.bits_per_pixel = value,
+            ENABLE if value == DISABLED => self.enable = DISABLED,
             ENABLE
-                if value == ENABLED
-                    && !self.enabled
+                if value & !NO_CLEAR_MEMORY == ENABLED
+                    && !self.enabled()
                     && [u32::from(self.width), u32::from(self.height)]
                         == SvgaLayout::INDEXED_640_480.size()
                     && self.bits_per_pixel == 8 =>
             {
-                self.enabled = true;
+                self.enable = value;
                 self.bank = 0;
-                return WriteEffect::ClearVram;
+                return if value & NO_CLEAR_MEMORY == 0 {
+                    WriteEffect::ClearVram
+                } else {
+                    WriteEffect::None
+                };
             }
             BANK if u32::from(value) < VIDEO_MEMORY_BYTES / BANK_BYTES => self.bank = value,
             _ => {}
