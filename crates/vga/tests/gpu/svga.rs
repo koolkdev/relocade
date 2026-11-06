@@ -1,7 +1,8 @@
 use super::{common, pixel, read_pixels};
 use common::support::{planar16, registers::palette, svga};
+use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
-use relocade_vga::{Vga, VgaRenderer};
+use relocade_vga::{Vga, VgaDisplay, VgaRenderer};
 use std::rc::Rc;
 
 async fn check_packed_pixels() {
@@ -133,4 +134,76 @@ fn packed_pixels_palette_and_retained_captures_render_independently_of_vga_contr
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn packed_pixels_palette_and_retained_captures_render_independently_of_vga_controls() {
     check_packed_pixels().await;
+}
+
+async fn check_published_display() {
+    let instance = wgpu::Instance::default();
+    let adapter = instance.request_adapter(&Default::default()).await.unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let clock = Rc::new(common::ManualClock::default());
+    let mut vga = common::text_vga(clock.clone());
+    common::crtc(&mut vga, 0x0a, 0x20);
+    common::fixture::set_cell(&mut vga, 0, 0xdb, 4);
+    let source = vga.frame_source();
+    let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
+    let entered = common::boundary(1);
+    clock.set(entered);
+    vga.read_port(0x3da, 1);
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let legacy = display.encode_image(&queue, &mut encoder).unwrap().clone();
+    queue.submit([encoder.finish()]);
+    assert_eq!(legacy.size(), [640, 200]);
+
+    svga::enable(&mut vga);
+    palette(&mut vga, 6, [42, 21, 0]);
+    svga::write_byte(&mut vga, 0, 4);
+    svga::write_byte(&mut vga, 0x40000, 1);
+    clock.set(entered + common::svga_boundary(1));
+    vga.read_port(0x3da, 1);
+    // Let two more publications pass without any service or GPU work.
+    svga::write_byte(&mut vga, 0x40000, 5);
+    clock.set(entered + common::svga_boundary(2));
+    vga.read_port(0x3da, 1);
+    svga::write_byte(&mut vga, 307199, 6);
+    clock.set(entered + common::svga_boundary(3));
+    vga.read_port(0x3da, 1);
+    assert_eq!(source.current_capture().unwrap().sequence, 4);
+    assert_eq!(display.service(&queue).await, Some(true));
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let packed = display.encode_image(&queue, &mut encoder).unwrap().clone();
+    queue.submit([encoder.finish()]);
+    let pixels = read_pixels(&device, &queue, packed.texture()).await;
+    assert_eq!(packed.size(), [640, 480]);
+    assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
+    assert_eq!(pixel(&pixels, 384, 409), [170, 0, 170, 255]);
+    assert_eq!(pixel(&pixels, 639, 479), [170, 85, 0, 255]);
+    assert_eq!(display.current_frame().unwrap().sequence, 4);
+
+    // New GPU resources reconstruct the latest complete packed state after the
+    // producer is gone, even though the first renderer consumed its dirty hints.
+    drop(vga);
+    assert_eq!(display.service(&queue).await, None);
+    display.device_lost();
+    display.attach_device(&device, &queue).unwrap();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let restored = display.encode_image(&queue, &mut encoder).unwrap().clone();
+    queue.submit([encoder.finish()]);
+    assert_eq!(
+        read_pixels(&device, &queue, restored.texture()).await,
+        pixels
+    );
+    let legacy_pixels = read_pixels(&device, &queue, legacy.texture()).await;
+    assert_eq!(pixel(&legacy_pixels, 0, 0), [170, 0, 0, 255]);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn display_connection_handles_skipped_packed_captures_and_recovers_after_device_drop() {
+    pollster::block_on(check_published_display());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn display_connection_handles_skipped_packed_captures_and_recovers_after_device_drop() {
+    check_published_display().await;
 }

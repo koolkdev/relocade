@@ -54,6 +54,11 @@ pub fn boundary(frame: u64) -> Duration {
     dots((412 + (frame - 1) * 449) * 800, 25_175_000)
 }
 
+// Elapsed time since entering the fixed 640x480 DISPI mode.
+pub fn svga_boundary(frame: u64) -> Duration {
+    dots((490 + (frame - 1) * 525) * 800, 25_175_000)
+}
+
 // Finish a cooperative yield before inspecting the device's next wait.
 pub fn poll_video(
     mut video: std::pin::Pin<&mut impl std::future::Future<Output = ()>>,

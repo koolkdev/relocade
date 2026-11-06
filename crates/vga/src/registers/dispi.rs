@@ -63,10 +63,6 @@ pub(crate) struct Dispi {
 }
 
 impl Dispi {
-    pub fn enabled(&self) -> bool {
-        self.enabled
-    }
-
     pub fn display_layout(&self) -> Option<SvgaLayout> {
         self.enabled.then_some(SvgaLayout::INDEXED_640_480)
     }
