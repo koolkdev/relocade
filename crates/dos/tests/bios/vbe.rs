@@ -1,3 +1,6 @@
+#[path = "vbe/modes.rs"]
+mod modes;
+
 use super::video::{video, PROGRAM};
 use crate::common;
 use relocade_dos::Dos;

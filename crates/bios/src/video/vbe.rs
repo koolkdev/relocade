@@ -1,6 +1,7 @@
 //! Banked VESA BIOS services. The 1.2 data layouts precede full 1.2 compliance:
 //! state, logical scanline, display-start and DAC-format services remain unsupported.
 mod information;
+mod modes;
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
@@ -9,27 +10,7 @@ use relocade_machine::{
 use relocade_vga::registers::dispi;
 
 pub(super) use information::initialize;
-
-/// BIOS mode numbers and geometry belong here; DISPI owns hardware validation.
-struct Mode {
-    number: u16,
-    width: u16,
-    height: u16,
-    bits_per_pixel: u8,
-}
-
-impl Mode {
-    const INDEXED_640_480: Self = Self {
-        number: 0x101,
-        width: 640,
-        height: 480,
-        bits_per_pixel: 8,
-    };
-
-    fn from_number(number: u16) -> Option<Self> {
-        (number == Self::INDEXED_640_480.number).then_some(Self::INDEXED_640_480)
-    }
-}
+use modes::Mode;
 
 #[interrupt(context(call), args(function = al))]
 pub(super) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
@@ -38,6 +19,9 @@ pub(super) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
         match function {
             0x00 => information::controller,
             0x01 => information::mode,
+            0x02 => modes::set,
+            0x03 => modes::current,
+            0x05 => modes::window,
             _ => unsupported,
         }
     );
@@ -57,4 +41,9 @@ fn read_register(io: &IoBus, register: u16) -> u16 {
 
 fn available(io: &IoBus) -> bool {
     read_register(io, dispi::ID) == dispi::INTERFACE_ID
+}
+
+fn write_register(io: &IoBus, register: u16, value: u16) {
+    io.write_port(dispi::INDEX_PORT, 2, u32::from(register));
+    io.write_port(dispi::DATA_PORT, 2, u32::from(value));
 }

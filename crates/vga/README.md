@@ -906,13 +906,24 @@ selective ID2 extension; the interface still reports ID0 because newer geometry,
 virtual layout and linear aperture capabilities are unsupported.
 
 The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
-`4F01h` information for mode `0101h` (640×480×8), using the 256-byte VBE 1.2
-layouts. It reports the 4 MiB adapter, a terminated ROM mode list, one readable
+`4F01h` information for mode `0101h` (640×480×8), `4F02h`/`4F03h` mode control,
+and `4F05h` bank control, using the VBE 1.2 register and 256-byte buffer layouts.
+It reports the 4 MiB adapter, a terminated ROM mode list, one readable
 and writable 64 KiB window at A000h, and no callable bank function or additional
 display pages. BIOS output functions are not advertised for this mode. These
 services are an incremental subset, not a complete VBE 1.2 implementation;
 unimplemented functions return AL != 4Fh, while failed supported requests return
 AX=014Fh. All VBE results preserve flags.
+
+Mode sets validate the request before changing hardware or BIOS data. Bit 15
+preserves VRAM; every successful packed mode set resets the CPU window to bank
+zero. Get-mode returns the mode number without that flag, as specified by VBE
+1.2. Window A supports positions 0–63 while packed mode is active; window B,
+unsupported operations and out-of-range positions fail without changing the bank.
+The BIOS stores a 7Fh legacy mode marker so existing text, font and pixel services
+avoid accessing packed VRAM: scrolling does nothing, and output/font requests fail.
+Legacy mode 3 restores their normal operation. VBE mode setting also accepts
+supported legacy modes and translates its preservation flag.
 
 A supported legacy BIOS mode set disables SVGA after validating the request and
 before loading fonts or writing the VGA aperture. Unsupported mode requests leave
