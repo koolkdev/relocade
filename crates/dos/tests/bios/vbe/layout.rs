@@ -75,3 +75,44 @@ fn rejected_scanlines_preserve_viewport_banking_and_memory() {
         assert_eq!(context.memory.read_u8(0xaffff).unwrap(), 0xa5);
     });
 }
+
+#[test]
+fn display_start_validates_the_viewport_and_reports_layout_capacity() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        assert_eq!(request(&mut dos, 7, 1, 0, 0).registers.eax as u16, 0x14f);
+        video(&mut dos, 0x4f02, 0x101, 0, 0);
+        scanline(&mut dos, 0, 1024, [0x4f, 1024, 1024, 4096]);
+        for (operation, x, y) in [(0, 384, 3616), (0x80, 32, 480)] {
+            let result = request(&mut dos, 7, operation, x, y).registers;
+            assert_eq!(
+                [result.eax, result.ebx, result.ecx, result.edx].map(|value| value as u16),
+                [0x4f, operation, x, y]
+            );
+            let result = request(&mut dos, 7, 1, 0xffff, 0xffff).registers;
+            assert_eq!(
+                [result.eax, result.ebx, result.ecx, result.edx].map(|value| value as u16),
+                [0x4f, 1, x, y]
+            );
+            let (_, bytes) = information(&mut dos, 1, 0x101, 0x200);
+            assert_eq!(bytes[29], 7); // Total capacity, independent of current origin.
+        }
+        for (operation, x, y) in [(0, 385, 0), (0x80, 0, 3617), (0x100, 0, 0), (2, 0, 0)] {
+            let result = request(&mut dos, 7, operation, x, y).registers;
+            assert_eq!(
+                [result.eax, result.ebx, result.ecx, result.edx].map(|value| value as u16),
+                [0x14f, operation, x, y]
+            );
+        }
+        let result = request(&mut dos, 7, 1, 0, 0).registers;
+        assert_eq!((result.ecx, result.edx), (32, 480));
+        scanline(&mut dos, 2, 1280, [0x4f, 1280, 1280, 3276]);
+        let (_, bytes) = information(&mut dos, 1, 0x101, 0x200);
+        assert_eq!(bytes[29], 5); // Six full 480-line pages at the new pitch.
+        video(&mut dos, 0x4f02, 0x8101, 0, 0);
+        let result = request(&mut dos, 7, 1, 0xffff, 0xffff).registers;
+        assert_eq!((result.ecx, result.edx), (0, 0));
+        scanline(&mut dos, 1, 0, [0x4f, 640, 640, 6553]);
+    });
+}

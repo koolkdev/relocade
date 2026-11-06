@@ -16,7 +16,7 @@ use syn::{
     braced, parenthesized,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
-    token, Expr, FnArg, Ident, ItemFn, Pat, ReturnType, Token, Type, Visibility,
+    token, Expr, FnArg, GenericParam, Ident, ItemFn, Pat, ReturnType, Token, Type, Visibility,
 };
 
 pub(super) struct Binding {
@@ -139,11 +139,10 @@ pub(super) fn expand(binding: Binding, function: ItemFn) -> syn::Result<Tokens> 
         || signature.unsafety.is_some()
         || signature.abi.is_some()
         || signature.variadic.is_some()
-        || !signature.generics.params.is_empty()
     {
         return Err(syn::Error::new_spanned(
             signature,
-            "interrupt bindings require a concrete Rust function",
+            "interrupt bindings require a safe, non-const Rust function without an explicit ABI or variadic parameters",
         ));
     }
     let mut parameters = BTreeMap::new();
@@ -274,10 +273,30 @@ pub(super) fn expand(binding: Binding, function: ItemFn) -> syn::Result<Tokens> 
         arms.push(quote!(#pattern => #action));
     }
     let name = &signature.ident;
+    // Forward type and const parameters even when the call arguments cannot
+    // infer them. Rust infers lifetimes, including late-bound lifetimes.
+    let generic_arguments: Vec<_> = signature
+        .generics
+        .params
+        .iter()
+        .filter_map(|parameter| match parameter {
+            GenericParam::Lifetime(_) => None,
+            GenericParam::Type(parameter) => {
+                let name = &parameter.ident;
+                Some(quote!(#name))
+            }
+            GenericParam::Const(parameter) => {
+                let name = &parameter.ident;
+                Some(quote!({ #name }))
+            }
+        })
+        .collect();
+    let specialization =
+        (!generic_arguments.is_empty()).then(|| quote!(::<#(#generic_arguments),*>));
     let invoke = if method {
-        quote!(self.#name(#(#arguments),*))
+        quote!(self.#name #specialization (#(#arguments),*))
     } else {
-        quote!(self::#name(#(#arguments),*))
+        quote!(self::#name #specialization (#(#arguments),*))
     };
     let await_call = signature.asyncness.map(|_| quote!(.await));
     let visibility = match &function.vis {

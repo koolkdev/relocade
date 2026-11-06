@@ -55,7 +55,7 @@ impl Device for Timer {
     }
 }
 
-async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard) {
+async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>) {
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
         (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
@@ -70,9 +70,10 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard) {
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let keyboard = Keyboard::new(memory.clone());
     let (clock, _timers) = relocade_machine::timer_service();
+    let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock))));
     let io = IoBus::new([
         DeviceConnection {
-            device: Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock)))),
+            device: vga.clone(),
             mmio: vec![relocade_vga::MEMORY_RANGE],
             ports: relocade_vga::PORT_RANGES.into_iter().collect(),
         },
@@ -100,7 +101,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard) {
         },
     );
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone());
+    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga.clone());
     interrupts.install().await.unwrap();
     memory.view().write(8 * 4, &[0, 3, 0, 0]).unwrap();
     // INT 16h; save AX; INT 1Ah/AH=00h; save DX; loop.
@@ -126,7 +127,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard) {
             ],
         )
         .unwrap();
-    (cpu, keyboard)
+    (cpu, keyboard, vga)
 }
 
 fn pending(future: impl Future) {
@@ -138,7 +139,7 @@ fn pending(future: impl Future) {
 
 async fn clock_during_wait() {
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let (mut cpu, keyboard) = machine(&timer).await;
+    let (mut cpu, keyboard, _) = machine(&timer).await;
     let state = cpu.cpu_state();
     let memory = cpu.memory();
     let entry = memory.view().read_u32(0x16 * 4).unwrap();
@@ -204,7 +205,7 @@ async fn clock_during_wait() {
 
 async fn ready_services() {
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let (mut cpu, keyboard) = machine(&timer).await;
+    let (mut cpu, keyboard, _) = machine(&timer).await;
     // After the keyboard read and clock query, query video state before looping.
     cpu.memory()
         .view()
@@ -228,7 +229,7 @@ async fn ready_services() {
 
 async fn abandon_during_irq() {
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let (mut cpu, keyboard) = machine(&timer).await;
+    let (mut cpu, keyboard, _) = machine(&timer).await;
     let state = cpu.cpu_state();
     // STI; JMP to self. Live ISR IF must differ from the outer wrapper's saved IF.
     cpu.memory()
@@ -251,10 +252,10 @@ async fn abandon_during_irq() {
 
 async fn bios_timer_rollover() {
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let (mut cpu, keyboard) = machine(&timer).await;
+    let (mut cpu, keyboard, vga) = machine(&timer).await;
     // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone());
+    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga);
     interrupts.install().await.unwrap();
     let memory = cpu.memory();
     memory.view().write(0x46c, &[0xaf, 0, 0x18, 0, 1]).unwrap();

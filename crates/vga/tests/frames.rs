@@ -1,11 +1,11 @@
 use futures_util::task::{waker, ArcWake};
-use relocade_machine::{Clock, Device};
+use relocade_machine::Device;
 mod common;
 use common::support::software;
 use common::{boundary, crtc, poll_video, ManualClock};
 use relocade_vga::{Vga, CRTC_INDEX_PORT, TEXT_MEMORY_START};
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     future::Future,
     pin::Pin,
     rc::Rc,
@@ -31,43 +31,6 @@ impl ArcWake for WakeCount {
     fn wake_by_ref(this: &Arc<Self>) {
         this.0.fetch_add(1, Ordering::Relaxed);
     }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn ready_deadlines_leave_a_polling_opportunity_for_other_activities() {
-    #[derive(Default)]
-    struct LateClock {
-        now: Cell<Duration>,
-        waits: Cell<u32>,
-    }
-    impl Clock for LateClock {
-        fn now(&self) -> Duration {
-            self.now.get()
-        }
-        async fn wait_until(&self, deadline: Duration) {
-            let waits = self.waits.get() + 1;
-            assert!(
-                waits <= 2,
-                "video must return before another ready deadline"
-            );
-            self.waits.set(waits);
-            self.now.set(deadline);
-        }
-    }
-    let clock = Rc::new(LateClock::default());
-    let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
-    let source = vga.borrow().frame_source();
-    let mut video = std::pin::pin!(Vga::run(vga));
-    let wakes = Arc::new(WakeCount::default());
-    let waker = waker(wakes.clone());
-    let mut cx = Context::from_waker(&waker);
-    assert!(video.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(clock.waits.get(), 1);
-    assert!(wakes.0.load(Ordering::Relaxed) > 0);
-    assert!(video.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(source.current_capture().unwrap().time, boundary(1));
-    assert_eq!(clock.waits.get(), 2);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -126,12 +89,13 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     assert_eq!(&first_pixels.pixels[..4], [255, 255, 85, 255]);
 
     crtc(&mut *vga.borrow_mut(), 0x0f, 2);
-    tick(
-        &clock,
-        video.as_mut(),
-        boundary(100) + Duration::from_micros(1),
-    );
+    clock.set(boundary(100) + Duration::from_micros(1));
+    let wakes = Arc::new(WakeCount::default());
+    let waker = waker(wakes.clone());
+    poll_video(video.as_mut(), &mut Context::from_waker(&waker));
     assert_eq!(source.current_capture().unwrap().time, boundary(100));
+    assert_eq!(clock.deadline.get(), Some(boundary(101)));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
     vga.borrow_mut()
         .write_mmio(TEXT_MEMORY_START + 2, 1, u64::from(b'X'));
     drop(video);

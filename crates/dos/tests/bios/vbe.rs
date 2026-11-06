@@ -97,7 +97,7 @@ fn vbe_mode_information_describes_only_the_supported_banked_layout() {
         );
         assert_eq!(
             &bytes[16..31],
-            &[0x80, 2, 0x80, 2, 0xe0, 1, 8, 16, 1, 8, 1, 4, 0, 0, 1]
+            &[0x80, 2, 0x80, 2, 0xe0, 1, 8, 16, 1, 8, 1, 4, 0, 12, 1]
         );
         assert_eq!(&bytes[31..], &[0; 225]);
         for (function, mode) in [
@@ -130,6 +130,14 @@ fn advertised_resolutions_match_mode_information_and_current_mode() {
             assert_eq!(&bytes[16..18], &width.to_le_bytes());
             assert_eq!(&bytes[18..20], &width.to_le_bytes());
             assert_eq!(&bytes[20..22], &height.to_le_bytes());
+            assert_eq!(
+                bytes[29],
+                match number {
+                    0x101 => 12,
+                    0x103 => 7,
+                    _ => 4,
+                }
+            );
             assert_eq!(
                 video(&mut dos, 0x4f02, number, 0, 0).registers.eax as u16,
                 0x4f
