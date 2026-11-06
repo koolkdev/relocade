@@ -1,6 +1,8 @@
 mod common;
 #[path = "svga/frames.rs"]
 mod frames;
+#[path = "svga/layout.rs"]
+mod layout;
 
 use common::support::svga::{enable, get, set};
 use common::ManualClock;
@@ -19,9 +21,9 @@ fn device() -> Vga<ManualClock> {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dispi_ports_accept_whole_words_and_keep_full_register_indices() {
     let mut vga = device();
-    assert_eq!(get(&mut vga, 0), 0xb0c0);
+    assert_eq!(get(&mut vga, 0), 0xb0c1);
     set(&mut vga, 0, 0xb0c5);
-    assert_eq!(get(&mut vga, 0), 0xb0c0);
+    assert_eq!(get(&mut vga, 0), 0xb0c1);
     set(&mut vga, 0x104, 1); // Must not alias the enable register.
     assert_eq!(vga.read_port(0x1ce, 2), 0x104);
     assert_eq!(vga.read_port(0x1cf, 2), 0xffff);

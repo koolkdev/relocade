@@ -55,6 +55,62 @@ async fn indexed_resolutions_render_their_full_extent() {
     check_indexed_resolutions().await;
 }
 
+async fn check_virtual_layout() {
+    let adapter = wgpu::Instance::default()
+        .request_adapter(&Default::default())
+        .await
+        .unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let mut renderer = VgaRenderer::new(&device).unwrap();
+    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+    svga::enable(&mut vga);
+    palette(&mut vga, 0, [0, 0, 0]);
+    palette(&mut vga, 1, [63, 0, 0]);
+    palette(&mut vga, 2, [0, 63, 0]);
+    svga::set(&mut vga, 6, 1024);
+    svga::set(&mut vga, 8, 384);
+    svga::set(&mut vga, 9, 3616);
+    let start = 3616 * 1024 + 384;
+    for address in [start, start + 639, start + 1024, 4194303] {
+        svga::write_byte(&mut vga, address, 1);
+    }
+    svga::write_byte(&mut vga, start - 1, 2); // Row padding must not enter the image.
+    let corner = common::fixture::capture(&vga);
+    svga::set(&mut vga, 8, 0);
+    svga::set(&mut vga, 9, 0);
+    let origin = common::fixture::capture(&vga);
+    drop(vga);
+    for (capture, visible) in [(&corner, true), (&origin, false), (&corner, true)] {
+        renderer.upload(&queue, capture);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let image = renderer.encode(&mut encoder).unwrap().image;
+        queue.submit([encoder.finish()]);
+        let pixels = read_pixels(&device, &queue, image.texture()).await;
+        for (offset, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
+            assert_eq!(
+                *pixel,
+                if visible && [0, 639, 640, 307199].contains(&offset) {
+                    [255, 0, 0, 255]
+                } else {
+                    [0, 0, 0, 255]
+                }
+            );
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn virtual_layout_renders_pitch_origin_and_the_last_vram_byte() {
+    pollster::block_on(check_virtual_layout());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn virtual_layout_renders_pitch_origin_and_the_last_vram_byte() {
+    check_virtual_layout().await;
+}
+
 async fn check_packed_pixels() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();

@@ -2,7 +2,7 @@
 //!
 //! Register numbers and word transfers follow the Bochs VBE Display API:
 //! https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt
-//! This adapter exposes the ID0 register subset at the modern 01CE/01CF ports.
+//! This adapter exposes the ID1 register subset at the modern 01CE/01CF ports.
 //! It accepts three indexed modes and the no-clear enable flag from ID2. Newer interface
 //! IDs, other enable flags and registers are unsupported. Invalid requests are ignored.
 
@@ -19,8 +19,12 @@ pub const Y_RESOLUTION: u16 = 2;
 pub const BITS_PER_PIXEL: u16 = 3;
 pub const ENABLE: u16 = 4;
 pub const BANK: u16 = 5;
+pub const VIRTUAL_WIDTH: u16 = 6;
+pub const VIRTUAL_HEIGHT: u16 = 7;
+pub const X_OFFSET: u16 = 8;
+pub const Y_OFFSET: u16 = 9;
 
-pub const INTERFACE_ID: u16 = 0xb0c0;
+pub const INTERFACE_ID: u16 = 0xb0c1;
 pub const DISABLED: u16 = 0;
 pub const ENABLED: u16 = 1;
 pub const NO_CLEAR_MEMORY: u16 = 0x80;
@@ -97,6 +101,18 @@ impl Dispi {
                 BITS_PER_PIXEL => self.bits_per_pixel,
                 ENABLE => self.active.as_ref().map_or(DISABLED, |active| active.flags),
                 BANK => self.bank,
+                VIRTUAL_WIDTH => self
+                    .display_layout()
+                    .map_or(0, |layout| layout.pitch() as u16),
+                VIRTUAL_HEIGHT => self
+                    .display_layout()
+                    .map_or(0, |layout| layout.virtual_height() as u16),
+                X_OFFSET => self
+                    .display_layout()
+                    .map_or(0, |layout| layout.origin()[0] as u16),
+                Y_OFFSET => self
+                    .display_layout()
+                    .map_or(0, |layout| layout.origin()[1] as u16),
                 _ => u16::MAX,
             },
             _ => u16::MAX,
@@ -137,6 +153,21 @@ impl Dispi {
                 };
             }
             BANK if u32::from(value) < VIDEO_MEMORY_BYTES / BANK_BYTES => self.bank = value,
+            VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET => {
+                if let Some(active) = &mut self.active {
+                    let layout = active.layout;
+                    let value = u32::from(value);
+                    let next = match self.index {
+                        VIRTUAL_WIDTH => layout.with_pitch(value),
+                        X_OFFSET => layout.with_origin([value, layout.origin()[1]]),
+                        Y_OFFSET => layout.with_origin([layout.origin()[0], value]),
+                        _ => unreachable!(),
+                    };
+                    if let Some(next) = next {
+                        active.layout = next;
+                    }
+                }
+            }
             _ => {}
         }
         WriteEffect::None

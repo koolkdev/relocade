@@ -251,12 +251,13 @@ impl<C: Clock> Device for Vga<C> {
             Some(layout) => Timing::svga(layout),
             None => Timing::vga(&self.registers),
         };
-        let timing_changed = if layout != previous_layout {
-            self.raster.restart(timing);
-            true
-        } else {
-            self.raster.set_timing(timing)
-        };
+        let timing_changed =
+            if layout.map(SvgaLayout::mode) != previous_layout.map(SvgaLayout::mode) {
+                self.raster.restart(timing);
+                true
+            } else {
+                self.raster.set_timing(timing)
+            };
         if timing_changed {
             self.timing_changed.notify(usize::MAX);
         }
