@@ -889,6 +889,13 @@ Miscellaneous Output memory gating still apply. The existing six-bit VGA DAC
 ports program the shared palette, with their existing byte-transfer rules.
 Embeddings use the same `PORT_RANGES` and `MEMORY_RANGE` registrations.
 
+Each CPU transfer resolves its adapter gates and addressing mode into `VramAccess`:
+disabled, legacy VGA registers, or a validated `SvgaBankMapping` supplied by DISPI.
+`VideoMemory` applies that policy to every byte, retaining ownership of VGA
+latches, aperture bounds and shared storage. The device applies explicit
+`WriteEffect` actions from DISPI, including `ClearVram` on mode entry. Both
+register banks remain stored on the device across addressing-mode changes.
+
 Packed byte addresses interleave physical VGA planes: addresses 0, 1, 2 and 3
 are byte zero of planes 0, 1, 2 and 3; address 4 is byte one of plane zero.
 That mapping repeats in each 256-KiB group throughout VRAM. Legacy VGA accesses

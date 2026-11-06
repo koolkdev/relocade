@@ -27,6 +27,29 @@ pub const BANK_BYTES: u32 = 65536;
 pub const BANK_START: u32 = 0xa0000;
 pub const BANK_RANGE: RangeInclusive<u32> = BANK_START..=BANK_START + BANK_BYTES - 1;
 
+/// Maps the fixed CPU window to a validated SVGA bank in physical VRAM.
+/// Only DISPI constructs these values, after validating its bank register.
+#[derive(Clone, Copy)]
+pub(crate) struct SvgaBankMapping {
+    vram_start: u32,
+}
+
+impl SvgaBankMapping {
+    /// Other VGA apertures are closed; accesses never spill into the next bank.
+    pub fn memory_offset(self, address: u32) -> Option<u32> {
+        BANK_RANGE
+            .contains(&address)
+            .then(|| self.vram_start + address - BANK_START)
+    }
+}
+
+/// An action the device must apply after the register write.
+#[must_use = "DISPI write effects must be applied by the device"]
+pub(crate) enum WriteEffect {
+    None,
+    ClearVram,
+}
+
 /// Geometry writes stage a request while disabled. Only a supported complete
 /// request can enable the packed aperture; active geometry writes are ignored.
 #[derive(Default)]
@@ -44,11 +67,10 @@ impl Dispi {
         self.enabled
     }
 
-    /// Packed address in shared VRAM. Other VGA apertures are closed while active.
-    pub fn memory_offset(&self, address: u32) -> Option<u32> {
-        BANK_RANGE
-            .contains(&address)
-            .then(|| u32::from(self.bank) * BANK_BYTES + address - BANK_START)
+    pub fn bank_mapping(&self) -> Option<SvgaBankMapping> {
+        self.enabled.then_some(SvgaBankMapping {
+            vram_start: u32::from(self.bank) * BANK_BYTES,
+        })
     }
 
     pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
@@ -71,16 +93,16 @@ impl Dispi {
         })
     }
 
-    /// Returns true only when entering a valid mode, requiring a VRAM clear.
+    /// Entering a valid mode requests a clear of the shared video memory.
     /// Repeated enable writes do not clear memory or reset the bank.
-    pub fn write_port(&mut self, port: u16, bytes: u8, value: u32) -> bool {
+    pub fn write_port(&mut self, port: u16, bytes: u8, value: u32) -> WriteEffect {
         if bytes != 2 {
-            return false;
+            return WriteEffect::None;
         }
         let value = value as u16;
         if port == INDEX_PORT {
             self.index = value;
-            return false;
+            return WriteEffect::None;
         }
         match self.index {
             X_RESOLUTION if !self.enabled => self.width = value,
@@ -94,11 +116,11 @@ impl Dispi {
             {
                 self.enabled = true;
                 self.bank = 0;
-                return true;
+                return WriteEffect::ClearVram;
             }
             BANK if u32::from(value) < VIDEO_MEMORY_BYTES / BANK_BYTES => self.bank = value,
             _ => {}
         }
-        false
+        WriteEffect::None
     }
 }
