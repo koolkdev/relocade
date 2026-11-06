@@ -179,8 +179,8 @@ fn guest_combines_shift_load_with_chain_four_then_restores_bios_modes() {
             .await;
             let registers = &capture.display.registers;
             assert_eq!(registers.sequencer.values[1] & 0x14, 0);
-            assert_eq!(registers.crtc.values[0x14] & 0x20, 0);
-            assert_eq!(registers.crtc.values[0x17] & 8, 0);
+            assert_eq!(registers.crtc.registers.values[0x14] & 0x20, 0);
+            assert_eq!(registers.crtc.registers.values[0x17] & 8, 0);
             let image = gpu.render(&capture, size).await;
             assert_eq!(&image[..white_pixels * 4], &[255; 4].repeat(white_pixels));
             assert!(image[white_pixels * 4..]

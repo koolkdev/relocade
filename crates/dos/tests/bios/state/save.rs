@@ -134,7 +134,7 @@ fn hardware_save_reads_monochrome_registers_and_spills_all_four_latches() {
         assert_eq!(&bytes[..5], &[2, 0x0e, 5, 0x2a, 0x55]);
         assert_eq!(&bytes[5..9], &before.registers.sequencer.values[1..]);
         assert_eq!(bytes[9], 0xe0);
-        assert_eq!(&bytes[0x0a..0x23], &before.registers.crtc.values);
+        assert_eq!(&bytes[0x0a..0x23], &before.registers.crtc.registers.values);
         assert_eq!(&bytes[0x23..0x37], &before.registers.attribute.values[..20]);
         assert_eq!(&bytes[0x37..0x40], &before.registers.graphics.values);
         assert_eq!(&bytes[0x40..], &[0xb4, 3, 0x12, 0x34, 0x56, 0x78]);

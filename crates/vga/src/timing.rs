@@ -29,7 +29,7 @@ pub(super) struct Timing {
 
 impl Timing {
     pub fn new(registers: &Registers) -> Self {
-        let crtc = &registers.crtc;
+        let crtc = &registers.crtc.registers;
         let sequencer = &registers.sequencer;
         let reset_active = sequencer.reset_active();
         Self {

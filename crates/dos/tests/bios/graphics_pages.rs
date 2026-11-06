@@ -20,12 +20,22 @@ fn graphics_pages_use_plane_offsets_and_keep_cursors_in_bios_memory() {
             let context = dos.cpu().context();
             assert_eq!(context.memory.read_u8(0x462).unwrap(), page as u8);
             assert_eq!(context.memory.read_u16(0x44e).unwrap(), page * 0x2000);
-            let registers = dos.vga().borrow().snapshot().registers.crtc.values;
+            let registers = dos
+                .vga()
+                .borrow()
+                .snapshot()
+                .registers
+                .crtc
+                .registers
+                .values;
             assert_eq!(
                 [registers[12], registers[13]],
                 (page * 0x2000).to_be_bytes()
             );
-            assert_eq!(&registers[14..16], &before.registers.crtc.values[14..16]);
+            assert_eq!(
+                &registers[14..16],
+                &before.registers.crtc.registers.values[14..16]
+            );
         }
         for (mode, invalid_page) in [
             (0x0d, 8),
@@ -71,7 +81,14 @@ fn planar_scrolls_copy_each_latched_byte_and_fill_without_xor() {
                 dos.cpu().context().memory.read_u16(0x44e).unwrap(),
                 offset as u16
             );
-            let crtc = dos.vga().borrow().snapshot().registers.crtc.values;
+            let crtc = dos
+                .vga()
+                .borrow()
+                .snapshot()
+                .registers
+                .crtc
+                .registers
+                .values;
             assert_eq!([crtc[12], crtc[13]], (offset as u16).to_be_bytes());
             {
                 let mut context = dos.cpu().context();

@@ -57,7 +57,7 @@ pub struct Scanline {
 impl Text {
     pub fn new(snapshot: &DisplaySnapshot) -> Self {
         let r = &snapshot.registers;
-        let c = &r.crtc.values;
+        let c = &r.crtc.registers.values;
         let a = &r.attribute.values;
         let s = &r.sequencer.values;
         let glyph_width = if s[sequencer::CLOCKING_MODE as usize] & 1 != 0 {
