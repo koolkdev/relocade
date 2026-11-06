@@ -2207,6 +2207,7 @@ dependencies = [
  "async-channel",
  "event-listener",
  "futures-util",
+ "pollster",
  "relocade-frontend",
  "relocade-machine",
  "relocade-pic",
@@ -2369,6 +2370,7 @@ name = "relocade-pic"
 version = "0.0.0"
 dependencies = [
  "relocade-machine",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

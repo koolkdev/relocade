@@ -1,3 +1,6 @@
+#[cfg(target_arch = "wasm32")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
 use super::*;
 use std::{
     sync::{
@@ -11,7 +14,8 @@ fn poll(pic: &mut Pic) -> Poll<u8> {
     pic.poll_interrupt(&mut Context::from_waker(Waker::noop()))
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn masking_preserves_edges_and_eoi_releases_lower_priority_requests() {
     let mut pic = Pic::new(8);
     let irq1 = pic.irq(1, false);
@@ -40,7 +44,8 @@ fn masking_preserves_edges_and_eoi_releases_lower_priority_requests() {
     assert_eq!(pic.read_port(COMMAND_PORT, 1), 0);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn edge_inputs_require_a_new_rising_transition_and_coalesce() {
     let mut pic = Pic::new(8);
     pic.write_port(MASK_PORT, 1, 0xfd); // Unmask IRQ1.
@@ -65,7 +70,8 @@ fn edge_inputs_require_a_new_rising_transition_and_coalesce() {
     assert_eq!(poll(&mut pic), Poll::Pending);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn initialization_remaps_vectors_and_auto_eoi_releases_service() {
     let mut pic = Pic::new(8);
     let irq1 = pic.irq(1, false);
@@ -86,7 +92,8 @@ fn initialization_remaps_vectors_and_auto_eoi_releases_service() {
     assert_eq!(pic.read_port(COMMAND_PORT, 1), 0);
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn level_requests_remain_asserted_until_the_device_lowers_them() {
     let mut pic = Pic::new(8);
     let line = pic.irq(1, true);
@@ -129,7 +136,8 @@ fn level_requests_remain_asserted_until_the_device_lowers_them() {
     assert_eq!(poll(&mut pic), Poll::Ready(9));
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn rotation_polling_and_special_mask_use_the_same_arbitration() {
     let mut pic = Pic::new(8);
     let irq1 = pic.irq(1, false);
@@ -171,7 +179,8 @@ impl Wake for Wakes {
     }
 }
 
-#[test]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn masked_input_wakes_a_waiting_cpu_when_unmasked() {
     let mut pic = Pic::new(8);
     let irq1 = pic.irq(1, false);
