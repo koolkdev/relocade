@@ -2279,14 +2279,15 @@ name = "relocade-dos"
 version = "0.0.0"
 dependencies = [
  "futures-channel",
+ "futures-timer",
  "pollster",
  "relocade-at-keyboard",
  "relocade-bios",
  "relocade-frontend",
  "relocade-machine",
+ "relocade-pc",
  "relocade-pc-speaker",
  "relocade-pic",
- "relocade-pit",
  "relocade-vfs",
  "relocade-vga",
  "relocade-x86",
@@ -2347,6 +2348,24 @@ dependencies = [
  "relocade-x86",
  "wasm-bindgen-test",
  "web-time",
+]
+
+[[package]]
+name = "relocade-pc"
+version = "0.0.0"
+dependencies = [
+ "futures-timer",
+ "pollster",
+ "relocade-at-keyboard",
+ "relocade-bios",
+ "relocade-frontend",
+ "relocade-machine",
+ "relocade-pc-speaker",
+ "relocade-pic",
+ "relocade-pit",
+ "relocade-vga",
+ "relocade-x86",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

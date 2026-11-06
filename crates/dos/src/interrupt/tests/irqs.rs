@@ -1,8 +1,10 @@
 use super::*;
-use crate::{com, files::Handle, kernel, state::DosState, stdio::OutputStream};
-use relocade_machine::{Cpu, Device, DeviceConnection, IoBus, Memory};
+use crate::{com, files::Handle, state::DosState, stdio::OutputStream};
+use relocade_machine::{Cpu, CpuConfig, Device, DeviceConnection, IoBus, MachineConfig, Memory};
 use relocade_vga::Vga;
-use relocade_x86::Segment;
+use relocade_x86::{
+    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
+};
 use std::{cell::RefCell, rc::Rc, task::Poll};
 
 #[derive(Default)]
@@ -48,10 +50,27 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
             ports: vec![],
         },
     ]);
-    let memory = Memory::new(kernel::configuration()).unwrap();
-    let mut cpu = Cpu::new(memory.clone(), kernel::cpu(), io.clone())
-        .await
-        .unwrap();
+    let map = PhysicalMemoryMap::new([
+        (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
+        (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
+        (
+            0xf0000..=0xfffff,
+            PhysicalMapping::Rom {
+                backing_offset: 0xf0000,
+            },
+        ),
+    ])
+    .unwrap();
+    let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
+    let config = CpuConfig::new(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    let mut cpu = Cpu::new(memory.clone(), config, io.clone()).await.unwrap();
     let keyboard = relocade_bios::Keyboard::new(memory.clone());
     let dos = Rc::new(DosState::new(
         memory.clone().with_io(io.clone()),

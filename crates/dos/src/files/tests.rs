@@ -1,4 +1,6 @@
 use super::{FileAccess, FileSystem, Files, Handle};
+use relocade_machine::{MachineConfig, Memory};
+use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 #[test]
 fn retained_file_handle_keeps_its_cursor_after_handle_replacement_and_reuse() {
@@ -13,7 +15,9 @@ fn retained_file_handle_keeps_its_cursor_after_handle_replacement_and_reuse() {
     for name in [*b"CON     ", *b"AUX     ", *b"PRN     "] {
         devices.install(crate::devices::Unavailable(name));
     }
-    let memory = relocade_machine::Memory::new(crate::kernel::configuration()).unwrap();
+    let map =
+        PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
+    let memory = Memory::new(MachineConfig::new(4096, map).unwrap()).unwrap();
     let stdio = crate::stdio::Stdio::new(relocade_bios::Keyboard::new(memory));
     let mut files = Files::new(devices, &stdio);
     let first = files.open(&filesystem, b"FIRST.TXT", 0x42).unwrap();

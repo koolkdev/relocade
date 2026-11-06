@@ -1,5 +1,7 @@
 use super::*;
 use crate::files::{FileSystem, Files, Handle};
+use relocade_machine::{MachineConfig, Memory};
+use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 struct Console;
 impl CharacterDriver for Console {
@@ -36,7 +38,9 @@ fn installing_a_replacement_affects_new_opens_without_rebinding_open_handles() {
         chain.install(Unavailable(*b"AUX     "));
         chain.install(Unavailable(*b"PRN     "));
         let filesystem = FileSystem::default();
-        let memory = relocade_machine::Memory::new(crate::kernel::configuration()).unwrap();
+        let map = PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
+            .unwrap();
+        let memory = Memory::new(MachineConfig::new(4096, map).unwrap()).unwrap();
         let stdio = crate::stdio::Stdio::new(relocade_bios::Keyboard::new(memory));
         let mut files = Files::new(chain.clone(), &stdio);
         let original = files.open(&filesystem, b"CON:", 2).unwrap();
@@ -114,7 +118,7 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
         assert_eq!(original.read_character().await.unwrap(), 0);
         assert_eq!(keyboard.peek_key(), None);
 
-        let memory = dos.cpu.memory().with_io(dos.cpu.context().io.clone());
+        let memory = dos.cpu().memory().with_io(dos.cpu().context().io.clone());
         dos.state
             .devices()
             .install(BiosConsole::new(memory, keyboard.clone()));

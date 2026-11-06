@@ -6,10 +6,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-relocade-at-keyboard = { path = "../at-keyboard" }
-relocade-pic = { path = "../pic" }
 relocade-bios = { path = "../bios" }
-relocade-pit = { path = "../pit" }
+relocade-pc = { path = "../pc" }
 relocade-pc-speaker = { path = "../pc-speaker" }
 relocade-vfs = { path = "../vfs" }
 relocade-x86 = { path = "../x86" }
@@ -18,6 +16,9 @@ relocade-vga = { path = "../vga" }
 relocade-frontend = { path = "../frontend", features = ["keyboard"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+futures-timer = "=3.0.4"
+relocade-at-keyboard = { path = "../at-keyboard" }
+relocade-pic = { path = "../pic" }
 pollster = "=1.0.1"
 relocade-vga = { path = "../vga", features = ["renderer"] }
 wgpu.workspace = true

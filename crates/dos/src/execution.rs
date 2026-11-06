@@ -45,7 +45,7 @@ impl<C: Clock> Dos<C> {
         if let ProcessStatus::Exited(result) = process.status() {
             return result.map_err(RunError::Service);
         }
-        let exit = runner.run_cpu(&mut self.cpu).await;
+        let exit = runner.run_cpu(self.pc.cpu()).await;
         match process.status() {
             ProcessStatus::Exited(result) => result.map_err(RunError::Service),
             ProcessStatus::Active => Err(RunError::Execution(exit)),

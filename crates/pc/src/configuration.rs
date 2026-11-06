@@ -1,27 +1,27 @@
+use crate::CONVENTIONAL_MEMORY_SIZE;
 use relocade_machine::{CpuConfig, MachineConfig};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
 
-pub(crate) fn configuration() -> MachineConfig {
-    const CONVENTIONAL_RAM_SIZE: u32 = 640 * 1024;
+pub(crate) fn memory() -> MachineConfig {
     const MEMORY_SIZE: u32 = 1024 * 1024;
-    let kernel_rom_start = 0xf0000;
+    const BIOS_ROM_START: u32 = 0xf0000;
     let map = PhysicalMemoryMap::new([
         (
-            0..=CONVENTIONAL_RAM_SIZE - 1,
+            0..=CONVENTIONAL_MEMORY_SIZE - 1,
             PhysicalMapping::Ram { backing_offset: 0 },
         ),
         (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
         (
-            kernel_rom_start..=MEMORY_SIZE - 1,
+            BIOS_ROM_START..=MEMORY_SIZE - 1,
             PhysicalMapping::Rom {
-                backing_offset: kernel_rom_start,
+                backing_offset: BIOS_ROM_START,
             },
         ),
     ])
-    .expect("fixed DOS memory map");
-    MachineConfig::new(u64::from(MEMORY_SIZE), map).expect("fixed DOS memory map")
+    .expect("fixed PC memory map");
+    MachineConfig::new(u64::from(MEMORY_SIZE), map).expect("fixed PC memory map")
 }
 
 pub(crate) fn cpu() -> CpuConfig {
@@ -32,5 +32,5 @@ pub(crate) fn cpu() -> CpuConfig {
             ..CpuState::default()
         },
     )
-    .expect("fixed real-mode DOS CPU")
+    .expect("fixed real-mode PC CPU")
 }

@@ -7,7 +7,8 @@ pub(crate) const PARAGRAPH_BYTES: u32 = 16;
 // Keep the IVT and DOS workspace below the single root process.
 pub(crate) const FIRST_SEGMENT: u16 = 0x1000;
 const FIRST_MCB: u16 = FIRST_SEGMENT - 1;
-pub(crate) const END_SEGMENT: u16 = 0xa000; // End of 640-KiB conventional RAM.
+pub(crate) const END_SEGMENT: u16 =
+    (relocade_pc::CONVENTIONAL_MEMORY_SIZE / PARAGRAPH_BYTES) as u16;
 pub(crate) const AVAILABLE_PARAGRAPHS: u16 = END_SEGMENT - FIRST_SEGMENT;
 
 struct Block {
