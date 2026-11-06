@@ -2,6 +2,7 @@ use async_channel::Sender;
 #[cfg(not(target_arch = "wasm32"))]
 use relocade_app::audio::cpal::BufferSize;
 use relocade_app::audio::cpal::StreamConfig;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 pub struct Output {
@@ -11,6 +12,8 @@ pub struct Output {
     audio: relocade_app::audio::Audio,
     #[cfg(target_arch = "wasm32")]
     observer: browser::Observer,
+    #[cfg(target_arch = "wasm32")]
+    buffered_frames: u32,
 }
 
 impl Output {
@@ -32,7 +35,18 @@ impl Output {
             let observer = browser::observe_output();
             let (audio, config, samples) =
                 relocade_app::audio::Audio::open(|error| panic!("{error}")).unwrap();
-            (Self { audio, observer }, config, samples)
+            // Speaker batches hold at most 256 frames. Include the channel,
+            // the producer's pending send and the consumer's partial batch.
+            let buffered_frames = (samples.capacity().unwrap() as u32 + 2) * 256;
+            (
+                Self {
+                    audio,
+                    observer,
+                    buffered_frames,
+                },
+                config,
+                samples,
+            )
         }
     }
 
@@ -41,7 +55,7 @@ impl Output {
         self.audio.play().unwrap();
     }
 
-    pub async fn check(&self, rate: u32, frequency: u32) {
+    pub async fn check(&self, rate: u32, frequency: u32) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let mut capture = Vec::new();
@@ -55,27 +69,30 @@ impl Output {
                 }
             }
             if frequency == 0 {
-                assert!(capture.iter().all(|sample| *sample == 0.0));
+                if capture.iter().any(|sample| *sample != 0.0) {
+                    return Err("expected silence".into());
+                }
             } else {
                 let crossings = capture
                     .windows(2)
                     .filter(|s| s[0] <= 0.1 && s[1] > 0.1)
                     .count();
                 let measured = crossings as f64 * f64::from(rate) / capture.len() as f64;
-                assert!(
-                    (measured - f64::from(frequency)).abs() < 15.0,
-                    "tone {measured} Hz"
-                );
-                assert!(capture.iter().all(|sample| (0.0..=0.2).contains(sample)));
+                if (measured - f64::from(frequency)).abs() >= 15.0 {
+                    return Err(format!("expected {frequency} Hz, measured {measured} Hz"));
+                }
+                if capture.iter().any(|sample| !(0.0..=0.2).contains(sample)) {
+                    return Err("speaker samples exceed 0.0..=0.2".into());
+                }
             }
+            Ok(())
         }
         #[cfg(target_arch = "wasm32")]
         {
-            while !self.observer.ready() {
-                futures_timer::Delay::new(Duration::from_millis(5)).await;
-            }
-            futures_timer::Delay::new(Duration::from_millis(300)).await;
-            self.observer.check(rate, frequency).unwrap();
+            self.observer
+                .check(rate, frequency, self.buffered_frames)
+                .await
+                .map_err(|error| format!("{error:?}"))
         }
     }
 }
@@ -96,10 +113,13 @@ mod browser {
         pub type Observer;
         #[wasm_bindgen(js_name = observeOutput)]
         pub fn observe_output() -> Observer;
-        #[wasm_bindgen(method, getter)]
-        pub fn ready(this: &Observer) -> bool;
         #[wasm_bindgen(method, catch)]
-        pub fn check(this: &Observer, rate: u32, frequency: u32) -> Result<(), JsValue>;
+        pub async fn check(
+            this: &Observer,
+            rate: u32,
+            frequency: u32,
+            buffered_frames: u32,
+        ) -> Result<(), JsValue>;
         #[wasm_bindgen(method)]
         pub fn finish(this: &Observer);
     }

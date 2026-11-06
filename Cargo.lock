@@ -2191,6 +2191,7 @@ dependencies = [
  "relocade-renderer",
  "relocade-x86",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
  "web-thread-select",
@@ -2288,6 +2289,7 @@ dependencies = [
  "relocade-pc-speaker",
  "relocade-vga",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "x11rb",
 ]

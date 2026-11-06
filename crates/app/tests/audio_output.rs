@@ -47,6 +47,8 @@ async fn exercise_output() {
     let (audio, config, samples) = Audio::open(|error| panic!("{error}")).unwrap();
     let submission = samples.clone();
     let initial_frames = (samples.capacity().unwrap() + 1) * 128;
+    #[cfg(target_arch = "wasm32")]
+    let buffered_frames = (initial_frames + 128) as u32;
     let _rate = config.sample_rate;
     let (frequencies, updates) = async_channel::bounded(1);
     let rendered = Arc::new(AtomicUsize::new(0));
@@ -97,9 +99,8 @@ async fn exercise_output() {
     );
     audio.play().unwrap();
     until(|| rendered.load(SeqCst) > initial_frames).await;
-    delay(200).await;
     #[cfg(target_arch = "wasm32")]
-    observer.check(_rate, 440).unwrap();
+    observer.check(_rate, 440, buffered_frames).await.unwrap();
 
     // The platform callback drains to silence while the producer is stalled.
     hold.store(true, SeqCst);
@@ -108,12 +109,11 @@ async fn exercise_output() {
     delay(200).await;
     assert_eq!(rendered.load(SeqCst), stalled);
     #[cfg(target_arch = "wasm32")]
-    observer.check(_rate, 0).unwrap();
+    observer.check(_rate, 0, buffered_frames).await.unwrap();
     hold.store(false, SeqCst);
     until(|| rendered.load(SeqCst) > stalled).await;
-    delay(200).await;
     #[cfg(target_arch = "wasm32")]
-    observer.check(_rate, 440).unwrap();
+    observer.check(_rate, 440, buffered_frames).await.unwrap();
 
     frequencies.send(660).await.unwrap();
     #[cfg(target_arch = "wasm32")]
@@ -122,9 +122,8 @@ async fn exercise_output() {
         let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
         memory.grow(2);
     }
-    delay(200).await;
     #[cfg(target_arch = "wasm32")]
-    observer.check(_rate, 660).unwrap();
+    observer.check(_rate, 660, buffered_frames).await.unwrap();
 
     drop(audio);
     assert!(submission.is_closed());
@@ -162,7 +161,12 @@ mod browser {
         #[wasm_bindgen(method, getter)]
         pub fn ready(this: &Observer) -> bool;
         #[wasm_bindgen(method, catch)]
-        pub fn check(this: &Observer, rate: u32, frequency: u32) -> Result<(), JsValue>;
+        pub async fn check(
+            this: &Observer,
+            rate: u32,
+            frequency: u32,
+            buffered_frames: u32,
+        ) -> Result<(), JsValue>;
         #[wasm_bindgen(method)]
         pub fn finish(this: &Observer);
     }
