@@ -656,6 +656,10 @@ pages 3-78–3-79. Eight-bit graphics bypass this attribute palette operation;
 text keeps its foreground/background blink behavior. Phase changes update the
 sixteen vertex-decoded colors without copying VRAM or changing pixel addressing.
 
+`Vga::initialize(runner).await` creates VGA on the session clock, registers its
+memory aperture and ports, and starts display capture. It returns the device
+handle and a connection to include in the CPU bus.
+
 DOS supplies this same capture source through `dos.frame_source()`. Construct
 `Dos::new(runner)` inside the execution session; its VGA registration persists
 through input waits, process exits and later launches. Keep the session alive

@@ -1,7 +1,7 @@
 use relocade_machine::{
     timer_service, CpuConfig, Device, ExecutionWorker, IoBus, MachineConfig, Memory,
 };
-use relocade_pc_speaker::{Speaker, PORTS};
+use relocade_pc_speaker::Speaker;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
@@ -28,11 +28,15 @@ async fn exercise_audio_device() {
     let (started, ready) = async_channel::bounded(1);
     let (clock, _timers) = timer_service();
     let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
-        let speaker = Rc::new(RefCell::new(Speaker::with_clock(Rc::new(
-            runner.clock().clone(),
-        ))));
+        let (pit, pit_device) = relocade_pit::Pit::initialize(
+            runner,
+            relocade_pic::Pic::default().irq(relocade_pic::TIMER_IRQ),
+        )
+        .await;
+        let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
         let io = IoBus::new([
-            runner.connect(speaker.clone(), [], PORTS).await,
+            pit_device,
+            speaker_device,
             runner
                 .connect(
                     Rc::new(RefCell::new(Started(Some(started)))),

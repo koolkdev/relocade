@@ -69,11 +69,11 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     clock.advance_to(1_000_000_000);
     let mut pic = relocade_pic::Pic::new(0x08);
     pic.write_port(0x21, 1, 0xfe);
-    let timer = Rc::new(RefCell::new(Timer {
-        clock: clock.clone(),
-        irq: pic.irq(0),
-    }));
-    let mut activity = pin!(Timer::run(timer.clone()));
+    let timer = Rc::new(RefCell::new(Pit::with_clock(
+        Rc::new(clock.clone()),
+        pic.irq(0),
+    )));
+    let mut activity = pin!(Pit::run(timer.clone()));
     let mut device_cx = Context::from_waker(Waker::noop());
     let wakes = Arc::new(WakeCount::default());
     let waker = Waker::from(wakes.clone());

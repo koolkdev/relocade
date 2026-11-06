@@ -2,15 +2,13 @@ mod common;
 #[path = "../../machine/tests/support/execution.rs"]
 mod execution;
 
-use relocade_machine::{
-    Cpu, CpuConfig, DeviceConnection, DispatchEntry, IoBus, MachineConfig, Memory,
-};
-use relocade_pc_speaker::{Speaker, PORTS};
+use relocade_machine::{Cpu, CpuConfig, DispatchEntry, MachineConfig, Memory};
+use relocade_pc_speaker::{Speaker, PORT_RANGE};
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
 };
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{rc::Rc, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -18,12 +16,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 async fn guest_port_io() {
     for compiled in [false, true] {
         let clock = common::ManualClock::default();
-        let speaker = Rc::new(RefCell::new(Speaker::with_clock(Rc::new(clock.clone()))));
-        let io = IoBus::new([DeviceConnection {
-            device: speaker,
-            mmio: Vec::new(),
-            ports: PORTS.to_vec(),
-        }]);
+        let (io, _speaker) = common::hardware(Rc::new(clock.clone()));
         let compiler = Compiler::new(ExecutionProfile::Real16);
         let memory = Memory::new(
             MachineConfig::new(

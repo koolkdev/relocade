@@ -28,9 +28,15 @@ each byte access.
 the shared PC/AT frequency. Deadlines round up, and repeated periods retain
 their fractional remainder.
 
-`connect_channel0(&runner, pic.irq(0)).await` registers the default-rate channel-0 timer with the
-machine runner. It pulses IRQ0 every 65,536 input clocks and
-coalesces unacknowledged edges in the PIC. DOS connects both devices; BIOS keeps
-the IRQ0 handler, tick data, midnight rollover and INT 1Ah time-of-day service.
-Programmable channel-0 ports are not implemented yet. Channel 2 uses `Counter`
-in the PC speaker device.
+`Pit::initialize(runner, pic.irq(TIMER_IRQ)).await` creates the execution-owned
+device on the runner's clock and starts its activity. It returns the shared PIT
+and its connection for the CPU bus. It owns channel-2 count and
+control/read-back ports and supplies the default channel-0 IRQ0 every 65,536
+input clocks. Unacknowledged edges coalesce in the PIC. DOS connects both devices;
+BIOS keeps the IRQ0 handler, tick data, midnight rollover and INT 1Ah service.
+Programmable channel-0 ports are not implemented yet.
+
+The speaker retains the same PIT through `Speaker::new(pit.clone())` and owns
+port 0x61. Its gate changes and OUT2 reads use the PIT's channel 2. Playback
+consumes the latest channel-2 programming state captured at a sound-changing
+write; reads and latches leave playback phase untouched.

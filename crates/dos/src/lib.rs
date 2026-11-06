@@ -151,30 +151,19 @@ impl<C: Clock> Dos<C> {
     where
         C: Clone + 'static,
     {
-        let clock = Rc::new(runner.clock().clone());
-        let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
-        let speaker = Rc::new(RefCell::new(Speaker::with_clock(clock)));
+        let (vga, vga_device) = Vga::initialize(runner).await;
+        let (pic, pic_device) = relocade_pic::Pic::initialize(runner).await;
+        let (pit, pit_device) =
+            relocade_pit::Pit::initialize(runner, pic.irq(relocade_pic::TIMER_IRQ)).await;
+        pic.unmask_irq(relocade_pic::TIMER_IRQ);
+        let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
         let keyboard = relocade_bios::Keyboard::default();
         let (keyboard_input, keyboard_device) = keyboard.connect(runner).await;
-        let pic = relocade_pic::Pic::default();
-        pic.unmask_irq(relocade_pic::TIMER_IRQ);
-        let timer = relocade_pit::connect_channel0(runner, pic.irq(relocade_pic::TIMER_IRQ)).await;
-        let pic = runner
-            .connect(Rc::new(RefCell::new(pic)), [], [relocade_pic::PORT_RANGE])
-            .await;
         let io = IoBus::new([
-            pic,
-            timer,
-            runner
-                .connect(speaker.clone(), [], relocade_pc_speaker::PORTS)
-                .await,
-            runner
-                .connect(
-                    vga.clone(),
-                    [relocade_vga::MEMORY_RANGE],
-                    relocade_vga::PORT_RANGES,
-                )
-                .await,
+            pic_device,
+            pit_device,
+            speaker_device,
+            vga_device,
             keyboard_device,
         ]);
         let memory = Memory::new(kernel::configuration())?;
