@@ -1,6 +1,7 @@
 //! A launched DOS process and the resources released when it terminates.
 
 mod startup;
+mod vectors;
 pub(crate) use startup::{allocate, initial_cpu, COMMAND_TAIL_OFFSET, PSP_BYTES, PSP_PARAGRAPHS};
 
 use crate::{
@@ -95,8 +96,10 @@ impl Process {
         let State::Active(resources) = previous else {
             unreachable!("DOS service requires an active process");
         };
+        vectors::restore(memory, self.psp_segment);
         resources.files.close_all(filesystem);
         // Only the root process is supported; its exit releases the whole arena.
+        // Its caller is the host, so the restored INT 22h is not executed.
         memory::reset(memory);
     }
 }

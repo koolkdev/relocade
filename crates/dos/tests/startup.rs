@@ -85,3 +85,51 @@ async fn check_command_tails() {
 fn com_and_mz_receive_command_tails() {
     pollster::block_on(check_command_tails());
 }
+
+#[test]
+fn com_and_mz_read_the_inherited_interrupt_vectors_from_their_psp() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        let memory = dos.cpu().memory();
+        // Copy the six saved PSP words through DS/ES into the unused command
+        // tail, which PSP initialization clears again for each launch.
+        let program = [
+            0xbe, 0x0a, 0, 0xbf, 0x80, 0, 0xb9, 6, 0, 0xf3, 0xa5, // REP MOVSW.
+            0xb8, 0, 0x4c, 0xcd, 0x21,
+        ];
+        let inherited = [0x1357_2468, 0x2345_1357, 0x3456_4321];
+        for mz in [false, true] {
+            for (index, &pointer) in inherited.iter().enumerate() {
+                memory
+                    .view()
+                    .write_u32((0x22 + index as u32) * 4, pointer)
+                    .unwrap();
+            }
+            if mz {
+                dos.launch_mz(&common::mz_image(&program), Default::default())
+                    .unwrap();
+            } else {
+                dos.launch_com(&program, Default::default()).unwrap();
+            }
+            let psp = u32::from(dos.process().unwrap().psp_segment()) << 4;
+            assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
+            assert_eq!(
+                dos.process().unwrap().status(),
+                ProcessStatus::Exited(Ok(0))
+            );
+            for (index, &pointer) in inherited.iter().enumerate() {
+                assert_eq!(
+                    memory
+                        .view()
+                        .read_u32(psp + 0x80 + index as u32 * 4)
+                        .unwrap(),
+                    pointer
+                );
+                assert_eq!(
+                    memory.view().read_u32((0x22 + index as u32) * 4).unwrap(),
+                    pointer
+                );
+            }
+        }
+    });
+}
