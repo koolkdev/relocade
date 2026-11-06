@@ -38,7 +38,7 @@ fn mode_13h_restores_memory_routing_geometry_and_default_palette() {
         video(&mut dos, 0x0013, 0, 0, 0);
         let display = dos.vga().borrow().snapshot();
         assert_eq!(display.geometry().size, [320, 200]);
-        assert_eq!(display.geometry().scanline_step, 2);
+        assert_eq!(display.vga().unwrap().geometry().scanline_step, 2);
         assert_eq!(display.geometry().pixel_aspect_ratio(), (5, 6));
         let mode = video(&mut dos, 0x0f00, 0xffa5, 0, 0);
         assert_eq!(mode.registers.eax as u16, 0x2813);
@@ -134,11 +134,8 @@ fn preserve_memory_flag_queries_and_text_return_follow_bios_bookkeeping() {
         for plane in 0..4 {
             assert_eq!(display.plane(plane), retained.plane(plane));
         }
-        assert_eq!(
-            display.registers.crtc.registers.values,
-            retained.registers.crtc.registers.values
-        );
-        assert_eq!(display.registers.dac.colors, retained.registers.dac.colors);
+        assert_eq!(display.vga().unwrap().crtc, retained.vga().unwrap().crtc);
+        assert_eq!(display.dac.colors, retained.dac.colors);
 
         video(&mut dos, 0x0003, 0, 0, 0);
         assert_eq!(

@@ -41,8 +41,15 @@ fn blink_dividers_follow_retraces_at_different_dot_clocks() {
             clock.set(dots((412 + (frame - 1) * 449) * 800, frequency));
             vga.read_port(0x3da, 1);
             let capture = source.current_capture().unwrap();
-            assert_eq!(capture.display.cursor_blink_on, cursor_on, "frame {frame}");
-            assert_eq!(capture.display.attribute_blink_on, attribute_on);
+            assert_eq!(
+                capture.display.vga().unwrap().cursor_blink_on,
+                cursor_on,
+                "frame {frame}"
+            );
+            assert_eq!(
+                capture.display.vga().unwrap().attribute_blink_on,
+                attribute_on
+            );
         }
     }
 }

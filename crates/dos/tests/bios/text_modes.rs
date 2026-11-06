@@ -8,7 +8,7 @@ fn startup_uses_the_400_line_color_profile_without_overriding_later_guest_choice
         let mut dos = common::dos().await;
         let initial = common::next_capture(&dos).await;
         assert_eq!(initial.display.geometry().size, [720, 400]);
-        assert_eq!(initial.display.geometry().scanline_step, 1);
+        assert_eq!(initial.display.vga().unwrap().geometry().scanline_step, 1);
         assert_eq!(initial.display.geometry().pixel_aspect_ratio(), (20, 27));
         assert_eq!(
             &initial.display.plane(2)[65 * 32..65 * 32 + 16],
@@ -62,11 +62,11 @@ fn color_text_modes_apply_scanline_profiles_and_report_their_page_geometry() {
                     [u32::from(columns) * cell_width, lines]
                 );
                 let clocking = u8::from(columns == 40) * 8 + u8::from(profile != 2);
-                assert_eq!(display.registers.sequencer.values[1], clocking);
+                assert_eq!(display.vga().unwrap().sequencer[1], clocking);
                 if profile == 2 {
-                    assert_eq!(display.registers.miscellaneous, 0x67);
-                    assert_eq!(display.registers.attribute.values[0x13], 8);
-                    let crtc = &display.registers.crtc.registers.values;
+                    assert_eq!(display.vga().unwrap().miscellaneous, 0x67);
+                    assert_eq!(display.vga().unwrap().attributes[0x13], 8);
+                    let crtc = &display.vga().unwrap().crtc.values;
                     let retrace = if columns == 40 {
                         [0x2b, 0xa0]
                     } else {
@@ -76,17 +76,11 @@ fn color_text_modes_apply_scanline_profiles_and_report_their_page_geometry() {
                     assert_eq!([crtc[0x0a], crtc[0x0b]], [13, 14]);
                     assert_eq!(crtc[0x11], 0x8e);
                 }
-                assert_eq!(
-                    display.registers.crtc.registers.values[1],
-                    columns as u8 - 1
-                );
-                assert_eq!(
-                    display.registers.crtc.registers.values[0x13],
-                    columns as u8 / 2
-                );
-                assert_eq!(display.registers.graphics.values[6], 0x0e);
-                assert_eq!(display.registers.attribute.values[6], 0x14);
-                assert_eq!(display.registers.dac.colors[0x14], [42, 21, 0]);
+                assert_eq!(display.vga().unwrap().crtc.values[1], columns as u8 - 1);
+                assert_eq!(display.vga().unwrap().crtc.values[0x13], columns as u8 / 2);
+                assert_eq!(display.vga().unwrap().graphics[6], 0x0e);
+                assert_eq!(display.vga().unwrap().attributes[6], 0x14);
+                assert_eq!(display.dac.colors[0x14], [42, 21, 0]);
                 let context = dos.cpu().context();
                 assert_eq!(context.memory.read_u16(0x44c).unwrap(), page_bytes);
                 assert_eq!(context.memory.read_u8(0x484).unwrap(), 24);
@@ -123,8 +117,8 @@ fn forty_column_pages_wrap_scroll_and_preserve_text_on_mode_changes() {
             0x2a20
         );
         let capture = common::next_capture(&dos).await;
-        assert_eq!(capture.display.registers.crtc.display_start, 0x1c00);
-        let crtc = &capture.display.registers.crtc.registers.values;
+        assert_eq!(capture.display.vga().unwrap().display_start, 0x1c00);
+        let crtc = &capture.display.vga().unwrap().crtc.values;
         assert_eq!([crtc[14], crtc[15]], [0x1f, 0xc0]);
         {
             let context = dos.cpu().context();

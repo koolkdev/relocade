@@ -62,7 +62,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     let font_b = (((font_maps & 3u) * 0x4000u)
         + (((font_maps >> 4u) & 1u) * 0x2000u)) & font_mask;
 
-    let blanked = (clocking & 0x20u) != 0u || (state.attribute_address & 0x20u) == 0u
+    let blanked = (clocking & 0x20u) != 0u || state.display_enabled == 0u
         || (graphics_mode && !indexed256 && !graphics16)
         || (!graphics_mode && (graphics(6u) & 1u) != 0u);
     var colors: array<vec4<u32>, 4>;

@@ -299,7 +299,7 @@ fn teletype_preserves_no_output_but_commits_an_unchanged_cursor_position() {
             context.io.write_port(0x3d4, 2, 0x120e);
             context.io.write_port(0x3d4, 2, 0x340f);
         }
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x0e07, 0, 0, 0); // BEL has no cursor effect.
         {
             let mut context = dos.cpu().context();
@@ -307,7 +307,7 @@ fn teletype_preserves_no_output_but_commits_an_unchanged_cursor_position() {
                 relocade_bios::write_text(&mut context.memory, context.io, bytes);
             }
         }
-        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
         assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0x0200);
 
         // Backspace at column zero still reapplies the BIOS cursor to hardware.

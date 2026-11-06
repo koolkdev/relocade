@@ -21,6 +21,7 @@ fn full_restore_returns_to_programmed_text_after_a_graphics_mode_with_a_wrapped_
             0x1c1c
         );
         let saved = dos.vga().borrow().snapshot();
+        let saved_registers = dos.vga().borrow().registers().clone();
         let firmware = buffer::<0x42>(&mut dos, 0, 0x449);
 
         video(&mut dos, 0x93, 0, 0, 0); // Change interpretation, preserve pixels/fonts.
@@ -36,7 +37,7 @@ fn full_restore_returns_to_programmed_text_after_a_graphics_mode_with_a_wrapped_
             original.display.geometry().size
         );
         assert_eq!(common::screen(&dos), expected_screen);
-        assert_eq!(restored.display.registers, saved.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), saved_registers);
         assert_eq!(buffer::<0x42>(&mut dos, 0, 0x449), firmware);
         for plane in 0..4 {
             assert_eq!(restored.display.plane(plane), saved.plane(plane));
@@ -70,7 +71,7 @@ fn hardware_restore_unlocks_monochrome_timing_and_reloads_latches_from_hostile_a
             context.io.write_port(0x3c0, 1, 0x17); // PAS clear and an unused index.
         }
         state(&mut dos, 1, 1, 0x5000, 0x200);
-        let saved = dos.vga().borrow().snapshot();
+        let saved_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x13, 0, 0, 0);
         {
             let context = dos.cpu().context();
@@ -84,13 +85,15 @@ fn hardware_restore_unlocks_monochrome_timing_and_reloads_latches_from_hostile_a
             context.io.write_port(0x3c2, 1, 0x61); // Also disable RAM on entry.
         }
         let current = dos.vga().borrow().snapshot();
+        let current_registers = dos.vga().borrow().registers().clone();
         let firmware = buffer::<0x42>(&mut dos, 0, 0x449);
         state(&mut dos, 2, 1, 0x5000, 0x200);
         let restored = dos.vga().borrow().snapshot();
-        let mut expected = saved.registers.clone();
-        expected.dac = current.registers.dac.clone(); // Hardware selection excludes DAC.
-        expected.attribute.values[0x14] = current.registers.attribute.values[0x14];
-        assert_eq!(restored.registers, expected);
+        let restored_registers = dos.vga().borrow().registers().clone();
+        let mut expected = saved_registers.clone();
+        expected.dac = current_registers.dac.clone(); // Hardware selection excludes DAC.
+        expected.attribute.values[0x14] = current.vga().unwrap().attributes[0x14];
+        assert_eq!(restored_registers, expected);
         assert_eq!(buffer::<0x42>(&mut dos, 0, 0x449), firmware);
         for plane in 0..4 {
             assert_eq!(
@@ -139,6 +142,7 @@ fn firmware_subset_restores_metadata_vectors_and_only_video_equipment_bits() {
             }
         }
         let current = dos.vga().borrow().snapshot();
+        let current_registers = dos.vga().borrow().registers().clone();
         state(&mut dos, 2, 2, 0x5000, 0x200);
         assert_eq!(buffer::<0x1e>(&mut dos, 0, 0x449), firmware[..0x1e]);
         assert_eq!(buffer::<7>(&mut dos, 0, 0x484), firmware[0x3b..0x42]);
@@ -151,7 +155,8 @@ fn firmware_subset_restores_metadata_vectors_and_only_video_equipment_bits() {
             );
         }
         let restored = dos.vga().borrow().snapshot();
-        assert_eq!(restored.registers, current.registers);
+        let restored_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(restored_registers, current_registers);
         for plane in 0..4 {
             assert!(std::ptr::eq(restored.plane(plane), current.plane(plane)));
         }
@@ -171,22 +176,21 @@ fn dac_subset_restores_raw_colors_and_transfer_position_on_the_live_port_bank() 
             video(&mut dos, 0x1018, 0x5a, 0, 0);
             dos.cpu().context().io.write_port(port, 1, u32::from(index));
             state(&mut dos, 1, 7, 0x5000, 0x200);
-            let saved = dos.vga().borrow().snapshot();
+            let saved_registers = dos.vga().borrow().registers().clone();
             video(&mut dos, 7, 0, 0, 0);
             video(&mut dos, 0x1200, 0x33, 0, 0); // Restore must bypass this policy.
             dos.cpu().context().memory.write_u16(0x463, 0x3d4).unwrap(); // Stale BDA.
             let firmware = buffer::<0x42>(&mut dos, 0, 0x449);
             let current = dos.vga().borrow().snapshot();
+            let current_registers = dos.vga().borrow().registers().clone();
             state(&mut dos, 2, 4, 0x5000, 0x200);
             let restored = dos.vga().borrow().snapshot();
-            let mut expected = current.registers.clone();
-            expected.dac = saved.registers.dac.clone();
+            let restored_registers = dos.vga().borrow().registers().clone();
+            let mut expected = current_registers.clone();
+            expected.dac = saved_registers.dac.clone();
             expected.attribute.values[0x14] = 13;
-            assert_eq!(restored.registers, expected);
-            assert_eq!(
-                restored.registers.dac.colors[usize::from(index)],
-                [7, 21, 49]
-            );
+            assert_eq!(restored_registers, expected);
+            assert_eq!(restored.dac.colors[usize::from(index)], [7, 21, 49]);
             assert_eq!(buffer::<0x42>(&mut dos, 0, 0x449), firmware);
             for plane in 0..4 {
                 assert!(std::ptr::eq(restored.plane(plane), current.plane(plane)));
@@ -197,10 +201,7 @@ fn dac_subset_restores_raw_colors_and_transfer_position_on_the_live_port_bank() 
                 assert_eq!(context.io.read_port(0x3c9, 1), 7);
             } else {
                 context.io.write_port(0x3c9, 1, 62);
-                assert_eq!(
-                    dos.vga().borrow().snapshot().registers.dac.colors[42],
-                    [62, 21, 49]
-                );
+                assert_eq!(dos.vga().borrow().snapshot().dac.colors[42], [62, 21, 49]);
             }
         }
     });
@@ -215,7 +216,7 @@ fn relocated_blocks_are_collected_before_firmware_restore_overwrites_the_dac_sou
         state(&mut dos, 1, 6, 0x5000, 0x200);
         let firmware = buffer::<0x3a>(&mut dos, 0x5000, 0x220);
         let dac = buffer::<0x304>(&mut dos, 0x5000, 0x25a);
-        let saved = dos.vga().borrow().snapshot();
+        let saved_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x1010, 0, 0, 0);
         {
             let mut context = dos.cpu().context();
@@ -228,8 +229,8 @@ fn relocated_blocks_are_collected_before_firmware_restore_overwrites_the_dac_sou
         }
         state(&mut dos, 2, 6, 0, 0x900);
         assert_eq!(
-            dos.vga().borrow().snapshot().registers.dac,
-            saved.registers.dac
+            dos.vga().borrow().registers().clone().dac,
+            saved_registers.dac
         );
         assert_eq!(buffer::<0x1e>(&mut dos, 0, 0x449), firmware[1..0x1f]);
         assert_eq!(buffer::<7>(&mut dos, 0, 0x484), firmware[0x1f..0x26]);

@@ -30,8 +30,9 @@ fn attribute_services_handle_both_ports_and_preserve_display_enable() {
                     let read = video(&mut dos, 0x1007, 0xa502, 0, 0);
                     assert_eq!(read.registers.ebx as u16, 0x3f02);
                     let capture = dos.vga().borrow().snapshot();
-                    assert_eq!(capture.registers.attribute.values[2], 63);
-                    assert_eq!(u32::from(capture.registers.attribute.address()), address);
+                    let capture_registers = dos.vga().borrow().registers().clone();
+                    assert_eq!(capture.vga().unwrap().attributes[2], 63);
+                    assert_eq!(u32::from(capture_registers.attribute.address()), address);
                     video(&mut dos, 0x1001, 0x2a00, 0, 0);
                     assert_eq!(
                         video(&mut dos, 0x1008, 0x005a, 0, 0).registers.ebx as u16,
@@ -63,11 +64,11 @@ fn attribute_blocks_wrap_es_offsets_and_keep_overscan_separate() {
         let before = dos.vga().borrow().snapshot();
         video(&mut dos, 0x1002, 0, 0, 0xfff8);
         let capture = dos.vga().borrow().snapshot();
-        assert_eq!(&capture.registers.attribute.values[..16], &values[..16]);
-        assert_eq!(capture.registers.attribute.values[0x11], 42);
+        assert_eq!(&capture.vga().unwrap().attributes[..16], &values[..16]);
+        assert_eq!(capture.vga().unwrap().attributes[0x11], 42);
         assert_eq!(
-            capture.registers.attribute.values[0x10],
-            before.registers.attribute.values[0x10]
+            capture.vga().unwrap().attributes[0x10],
+            before.vga().unwrap().attributes[0x10]
         );
         video(&mut dos, 0x1009, 0, 0, 0xfffc);
         let context = dos.cpu().context();
@@ -129,7 +130,7 @@ fn blink_paging_and_dac_mask_services_update_only_their_fields() {
             video(&mut dos, 0x1019, 0xa500, 0, 0).registers.ebx as u16,
             0xa57f
         );
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         // Invalid paging modes, paging selectors and read indices fail independently.
         for (ax, bx) in [(0x1013, 0x0200), (0x1013, 0x0002), (0x1007, 0xa515)] {
             let result = video(&mut dos, ax, bx, 0xa5c3, 0x1234);
@@ -138,9 +139,9 @@ fn blink_paging_and_dac_mask_services_update_only_their_fields() {
             assert_eq!(result.registers.ecx as u16, 0xa5c3);
             assert_eq!(result.registers.edx as u16, 0x1234);
         }
-        assert_eq!(before.registers, dos.vga().borrow().snapshot().registers);
+        assert_eq!(before_registers, dos.vga().borrow().registers().clone());
         video(&mut dos, 0x0013, 0, 0, 0);
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         for (ax, bx) in [
             (0x1013, 0),
             (0x1013, 1),
@@ -153,7 +154,7 @@ fn blink_paging_and_dac_mask_services_update_only_their_fields() {
                 0x8600 | (ax & 255)
             );
         }
-        assert_eq!(before.registers, dos.vga().borrow().snapshot().registers);
+        assert_eq!(before_registers, dos.vga().borrow().registers().clone());
     });
 }
 
@@ -179,9 +180,9 @@ fn dac_calls_mask_components_and_wrap_palette_and_segment_addresses() {
         }
         video(&mut dos, 0x1012, 255, 3, 0xffff);
         let capture = dos.vga().borrow().snapshot();
-        assert_eq!(capture.registers.dac.colors[255], [63, 0, 21]);
-        assert_eq!(capture.registers.dac.colors[0], [0, 63, 42]);
-        assert_eq!(capture.registers.dac.colors[1], [7, 9, 11]);
+        assert_eq!(capture.dac.colors[255], [63, 0, 21]);
+        assert_eq!(capture.dac.colors[0], [0, 63, 42]);
+        assert_eq!(capture.dac.colors[1], [7, 9, 11]);
         video(&mut dos, 0x1017, 255, 3, 0xfffe);
         {
             let context = dos.cpu().context();
@@ -196,16 +197,16 @@ fn dac_calls_mask_components_and_wrap_palette_and_segment_addresses() {
             assert_eq!(guard, [0xa5; 9]);
         }
         // Reads and writes of zero colors preserve even DAC streaming state.
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         for ax in [0x1012, 0x1017] {
             video(&mut dos, ax, 42, 0, 0xffff);
         }
         assert_eq!(
-            before.registers.dac,
-            dos.vga().borrow().snapshot().registers.dac
+            before_registers.dac,
+            dos.vga().borrow().registers().clone().dac
         );
         // A later palette write cannot alter a retained capture.
         video(&mut dos, 0x1010, 0, 0, 0);
-        assert_eq!(capture.registers.dac.colors[0], [0, 63, 42]);
+        assert_eq!(capture.dac.colors[0], [0, 63, 42]);
     });
 }

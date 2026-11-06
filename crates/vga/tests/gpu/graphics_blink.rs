@@ -27,7 +27,7 @@ async fn check_blink() {
     vga.read_port(0x3da, 1);
     let source = vga.frame_source();
     let on = source.current_capture().unwrap();
-    assert!(on.display.attribute_blink_on);
+    assert!(on.display.vga().unwrap().attribute_blink_on);
     let color_on = pixels([8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7]);
     gpu.expect(&on, [16, 1], &color_on).await;
 
@@ -38,13 +38,13 @@ async fn check_blink() {
     clock.set(common::dots((490 + 7 * 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let cursor_off = source.current_capture().unwrap();
-    assert!(!cursor_off.display.cursor_blink_on);
-    assert!(cursor_off.display.attribute_blink_on);
+    assert!(!cursor_off.display.vga().unwrap().cursor_blink_on);
+    assert!(cursor_off.display.vga().unwrap().attribute_blink_on);
     gpu.expect(&cursor_off, [16, 1], &color_on).await;
     clock.set(common::dots((490 + 15 * 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let off = source.current_capture().unwrap();
-    assert!(!off.display.attribute_blink_on);
+    assert!(!off.display.vga().unwrap().attribute_blink_on);
     for plane in 0..4 {
         assert!(std::ptr::eq(
             on.display.plane(plane),
@@ -60,7 +60,7 @@ async fn check_blink() {
     clock.set(common::dots((490 + 31 * 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let mono_on = source.current_capture().unwrap();
-    assert!(mono_on.display.attribute_blink_on);
+    assert!(mono_on.display.vga().unwrap().attribute_blink_on);
     gpu.expect(
         &mono_on,
         [16, 1],

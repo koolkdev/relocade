@@ -16,12 +16,13 @@ fn indexed_pixel_access_restores_hostile_guest_write_settings() {
         ] {
             dos.cpu().context().io.write_port(port, 2, word);
         }
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x0c85, 0, 0, 0);
         assert_eq!(video(&mut dos, 0x0d00, 0, 0, 0).registers.eax as u8, 0x85);
         let after = dos.vga().borrow().snapshot();
+        let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after.plane(0)[0], 0x85);
-        assert_eq!(after.registers, before.registers);
+        assert_eq!(after_registers, before_registers);
     });
 }
 
@@ -71,12 +72,12 @@ fn planar_pixel_calls_preserve_neighbors_and_restore_access_registers() {
             assert_eq!(video(&mut dos, 0x0d00, 0, 8, 2).registers.eax as u8, 0);
             let after = dos.vga().borrow().snapshot();
             assert_eq!(
-                before.registers.graphics.values,
-                after.registers.graphics.values
+                before.vga().unwrap().graphics,
+                after.vga().unwrap().graphics
             );
             assert_eq!(
-                before.registers.sequencer.values,
-                after.registers.sequencer.values
+                before.vga().unwrap().sequencer,
+                after.vga().unwrap().sequencer
             );
             let offset = if mode == 0x0d { 80 } else { 160 };
             for (plane, byte) in [3, 2, 3, 2].into_iter().enumerate() {
@@ -176,6 +177,7 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
         ] {
             video(&mut dos, mode, 0, 0, 0);
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             for function in [0x0c5a, 0x0d5a] {
                 assert_eq!(
                     video(&mut dos, function, page << 8, x, y).registers.eax as u16,
@@ -183,10 +185,11 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
                 );
             }
             let after = dos.vga().borrow().snapshot();
+            let after_registers = dos.vga().borrow().registers().clone();
             for plane in 0..4 {
                 assert_eq!(before.plane(plane), after.plane(plane));
             }
-            assert_eq!(before.registers, after.registers);
+            assert_eq!(before_registers, after_registers);
         }
         // Unlike the normal helper, enter with carry clear to observe failure
         // status being written into the interrupt return frame.

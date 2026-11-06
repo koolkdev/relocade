@@ -8,6 +8,7 @@ fn graphics_font_selection_changes_bios_metadata_without_uploading_fonts() {
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         video(&mut dos, 0x13, 0, 0, 0);
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         let mut mode_data = [0; 30];
         dos.cpu()
             .context()
@@ -53,17 +54,20 @@ fn graphics_font_selection_changes_bios_metadata_without_uploading_fonts() {
         assert_eq!(actual, mode_data); // Pages, columns and cursors are unchanged.
         assert_eq!(context.memory.read_u32(0x7c).unwrap(), high_font);
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(after.registers, before.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
         }
         // Geometry-changing graphics font calls are also metadata-only in text.
         video(&mut dos, 3, 0, 0, 0);
         let text = dos.vga().borrow().snapshot();
+        let text_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x1122, 2, 0, 0);
         assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 14);
         let selected = dos.vga().borrow().snapshot();
-        assert_eq!(selected.registers, text.registers);
+        let selected_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(selected_registers, text_registers);
         assert!(std::ptr::eq(selected.plane(2), text.plane(2)));
     });
 }
@@ -83,9 +87,11 @@ fn graphics_font_vectors_are_live_and_user_glyphs_wrap_the_segment_offset() {
             context.memory.write(0x24000, &[0xff; 8]).unwrap();
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x1120, 0xffff, 0, 0xffff); // Geometry arguments are ignored.
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(after.registers, before.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(after_registers, before_registers);
         assert_eq!(after.plane(2), before.plane(2));
         assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 16);
         video(&mut dos, 0x0d, 0, 0, 0);

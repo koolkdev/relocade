@@ -42,7 +42,7 @@ fn cga_modes_restore_b8000_routing_and_honor_memory_preservation() {
                 assert_eq!(preserved.plane(plane), retained.plane(plane));
             }
             assert_eq!(preserved.geometry().size, [width, 200]);
-            assert_eq!(preserved.geometry().scanline_step, 2);
+            assert_eq!(preserved.vga().unwrap().geometry().scanline_step, 2);
             assert_eq!(
                 video(&mut dos, 0x0f00, 0, 0, 0).registers.eax as u16,
                 ((width as u16 / 8) << 8) | mode | 0x80
@@ -105,6 +105,7 @@ fn packed_pixels_preserve_neighbors_banks_and_guest_access_registers() {
                 }
             }
             let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             let writes = if mode == 4 {
                 [
                     (0, 0, 3),
@@ -144,7 +145,8 @@ fn packed_pixels_preserve_neighbors_banks_and_guest_access_registers() {
                 );
             }
             let after = dos.vga().borrow().snapshot();
-            assert_eq!(after.registers, before.registers);
+            let after_registers = dos.vga().borrow().registers().clone();
+            assert_eq!(after_registers, before_registers);
             let bytes = if mode == 4 {
                 [
                     (0, 0xd6),

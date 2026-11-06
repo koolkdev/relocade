@@ -27,16 +27,16 @@ fn monochrome_profiles_route_ports_and_preserve_the_shared_text_planes() {
             );
             let mono = dos.vga().borrow().snapshot();
             assert_eq!(mono.geometry().size, [720, lines]);
-            assert_eq!(mono.registers.miscellaneous, miscellaneous);
-            assert_eq!(mono.registers.sequencer.values[1], 0);
-            assert_eq!(mono.registers.graphics.values[6], 0x0a);
-            assert_eq!(mono.registers.crtc.registers.values[0x14], height as u8 - 1);
+            assert_eq!(mono.vga().unwrap().miscellaneous, miscellaneous);
+            assert_eq!(mono.vga().unwrap().sequencer[1], 0);
+            assert_eq!(mono.vga().unwrap().graphics[6], 0x0a);
+            assert_eq!(mono.vga().unwrap().crtc.values[0x14], height as u8 - 1);
             assert_eq!(
-                &mono.registers.attribute.values[..16],
+                &mono.vga().unwrap().attributes[..16],
                 &[0, 8, 8, 8, 8, 8, 8, 8, 0x10, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18]
             );
-            assert_eq!(mono.registers.attribute.values[0x10], 0x0e);
-            assert_eq!(mono.registers.attribute.values[0x13], 8);
+            assert_eq!(mono.vga().unwrap().attributes[0x10], 0x0e);
+            assert_eq!(mono.vga().unwrap().attributes[0x13], 8);
             for (index, level) in [
                 (0, 0),
                 (7, 0),
@@ -46,7 +46,7 @@ fn monochrome_profiles_route_ports_and_preserve_the_shared_text_planes() {
                 (0x3f, 63),
                 (0x40, 0),
             ] {
-                assert_eq!(mono.registers.dac.colors[index], [level; 3]);
+                assert_eq!(mono.dac.colors[index], [level; 3]);
             }
             for plane in 0..2 {
                 assert_eq!(mono.plane(plane), color.plane(plane));
@@ -67,19 +67,19 @@ fn monochrome_profiles_route_ports_and_preserve_the_shared_text_planes() {
                 context.io.write_port(0x3b4, 1, 4);
                 assert_eq!(context.io.read_port(0x3b5, 1), 0x55);
             }
-            let before = dos.vga().borrow().snapshot();
+            let before_registers = dos.vga().borrow().registers().clone();
             for bx in [0x001f, 0x0100, 0xffaa] {
                 assert_eq!(
                     video(&mut dos, 0x0b00, bx, 0, 0).registers.eax as u16,
                     0x0b00
                 );
             }
-            assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
             assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), 0x30);
             // VGA palette services still work through the monochrome status port.
             video(&mut dos, 0x1000, 0x1801, 0, 0);
             assert_eq!(
-                dos.vga().borrow().snapshot().registers.attribute.values[1],
+                dos.vga().borrow().snapshot().vga().unwrap().attributes[1],
                 0x18
             );
             video(&mut dos, 7, 0, 0, 0);
@@ -122,9 +122,9 @@ fn monochrome_pages_scroll_and_font_changes_keep_the_mono_aperture_and_underline
         );
         video(&mut dos, 0x0507, 0, 0, 0);
         let capture = common::next_capture(&dos).await;
-        assert_eq!(capture.display.registers.crtc.display_start, 0x3800);
+        assert_eq!(capture.display.vga().unwrap().display_start, 0x3800);
         assert_eq!(
-            &capture.display.registers.crtc.registers.values[14..16],
+            &capture.display.vga().unwrap().crtc.values[14..16],
             &[0x3f, 0xcf]
         );
         video(&mut dos, 0x0e5a, 0, 0, 0);
@@ -151,17 +151,17 @@ fn monochrome_pages_scroll_and_font_changes_keep_the_mono_aperture_and_underline
             let before = dos.vga().borrow().snapshot();
             video(&mut dos, function, 0, 0, 0);
             let after = dos.vga().borrow().snapshot();
-            assert_eq!(after.registers.crtc.registers.values[0x14], height - 1);
-            assert_eq!(after.registers.crtc.registers.values[9] & 31, height - 1);
+            assert_eq!(after.vga().unwrap().crtc.values[0x14], height - 1);
+            assert_eq!(after.vga().unwrap().crtc.values[9] & 31, height - 1);
             assert_eq!(
-                after.registers.graphics.values,
-                before.registers.graphics.values
+                after.vga().unwrap().graphics,
+                before.vga().unwrap().graphics
             );
             assert_eq!(
-                after.registers.sequencer.values,
-                before.registers.sequencer.values
+                after.vga().unwrap().sequencer,
+                before.vga().unwrap().sequencer
             );
-            assert_eq!(after.registers.miscellaneous, 0xa6);
+            assert_eq!(after.vga().unwrap().miscellaneous, 0xa6);
             for plane in 0..2 {
                 assert_eq!(after.plane(plane), before.plane(plane));
             }

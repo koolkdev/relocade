@@ -59,7 +59,7 @@ fn blinking_uses_the_captured_frame_phase() {
     set_cell(&mut vga, 1, 0xdb, 0x14);
     let mut snapshot = vga.snapshot();
     for (blink_on, blinking_color) in [(true, [170, 0, 0, 255]), (false, [0, 0, 170, 255])] {
-        snapshot.attribute_blink_on = blink_on;
+        snapshot.vga_mut().unwrap().attribute_blink_on = blink_on;
         let pixels = render(&snapshot);
         assert_eq!(pixel(&pixels, 0, 0), blinking_color);
         assert_eq!(pixel(&pixels, 8, 0), [170, 0, 0, 255]);
@@ -70,23 +70,23 @@ fn blinking_uses_the_captured_frame_phase() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cursor_shape_visibility_and_blink() {
     let mut snapshot = text_device().snapshot();
-    snapshot.registers.crtc.registers.values[14] = 0;
-    snapshot.registers.crtc.registers.values[15] = 82;
-    snapshot.registers.crtc.registers.values[10] = 6;
-    snapshot.registers.crtc.registers.values[11] = 7;
+    snapshot.vga_mut().unwrap().crtc.values[14] = 0;
+    snapshot.vga_mut().unwrap().crtc.values[15] = 82;
+    snapshot.vga_mut().unwrap().crtc.values[10] = 6;
+    snapshot.vga_mut().unwrap().crtc.values[11] = 7;
     let pixels = render(&snapshot);
     assert_eq!(pixel(&pixels, 16, 13), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 16, 14), [170, 170, 170, 255]);
     assert_eq!(pixel(&pixels, 23, 15), [170, 170, 170, 255]);
-    snapshot.cursor_blink_on = false;
+    snapshot.vga_mut().unwrap().cursor_blink_on = false;
     assert_eq!(pixel(&render(&snapshot), 16, 14), [0, 0, 0, 255]);
-    snapshot.cursor_blink_on = true;
+    snapshot.vga_mut().unwrap().cursor_blink_on = true;
     for (address, start, end) in [(82u16, 0x26, 7), (82, 7, 6), (82, 8, 31), (2002, 6, 7)] {
         let [high, low] = address.to_be_bytes();
-        snapshot.registers.crtc.registers.values[14] = high;
-        snapshot.registers.crtc.registers.values[15] = low;
-        snapshot.registers.crtc.registers.values[10] = start;
-        snapshot.registers.crtc.registers.values[11] = end;
+        snapshot.vga_mut().unwrap().crtc.values[14] = high;
+        snapshot.vga_mut().unwrap().crtc.values[15] = low;
+        snapshot.vga_mut().unwrap().crtc.values[10] = start;
+        snapshot.vga_mut().unwrap().crtc.values[11] = end;
         assert!(render(&snapshot)
             .as_chunks::<4>()
             .0
@@ -99,21 +99,21 @@ fn cursor_shape_visibility_and_blink() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cursor_follows_display_start_address_wrap_and_skew() {
     let mut snapshot = text_device().snapshot();
-    snapshot.registers.crtc.display_start = 0xffff;
-    snapshot.registers.crtc.registers.values[10] = 6;
-    snapshot.registers.crtc.registers.values[11] = 7;
+    snapshot.vga_mut().unwrap().display_start = 0xffff;
+    snapshot.vga_mut().unwrap().crtc.values[10] = 6;
+    snapshot.vga_mut().unwrap().crtc.values[11] = 7;
     let pixels = render(&snapshot);
     assert_eq!(pixel(&pixels, 0, 6), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 8, 6), [170, 170, 170, 255]);
-    snapshot.registers.crtc.registers.values[11] = 0x27;
+    snapshot.vga_mut().unwrap().crtc.values[11] = 0x27;
     let pixels = render(&snapshot);
     assert_eq!(pixel(&pixels, 8, 6), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 16, 6), [170, 170, 170, 255]);
-    snapshot.registers.crtc.display_start = 0;
+    snapshot.vga_mut().unwrap().display_start = 0;
     for address in [79u16, 0xffff] {
         let [high, low] = address.to_be_bytes();
-        snapshot.registers.crtc.registers.values[14] = high;
-        snapshot.registers.crtc.registers.values[15] = low;
+        snapshot.vga_mut().unwrap().crtc.values[14] = high;
+        snapshot.vga_mut().unwrap().crtc.values[15] = low;
         assert!(render(&snapshot)
             .as_chunks::<4>()
             .0

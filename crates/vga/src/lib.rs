@@ -15,6 +15,7 @@ mod raster;
 pub mod registers;
 #[cfg(feature = "renderer")]
 mod renderer;
+mod scanout;
 mod snapshot;
 mod timing;
 
@@ -32,9 +33,10 @@ pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE,
 use relocade_machine::{Clock, Device, DeviceConnection, Runner, TimerHandle};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
-pub use snapshot::DisplaySnapshot;
+pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
 #[cfg(feature = "renderer")]
 use snapshot::MemoryChanges;
+pub use snapshot::{DacSnapshot, DisplaySnapshot};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 use timing::Timing;
 
@@ -100,9 +102,15 @@ impl<C: Clock> Vga<C> {
         self.frames.clone()
     }
 
+    /// Inspect live VGA register banks on the execution owner, including CPU
+    /// port access state. Display captures retain only display inputs.
+    pub fn registers(&self) -> &Registers {
+        &self.registers
+    }
+
     /// Captures current display inputs immediately on the execution owner, without
     /// advancing time, publishing a frame, or changing CPU read/access latches.
-    /// Shares immutable VGA planes and copies the small legacy register state.
+    /// Shares immutable VGA planes and copies display settings and DAC values.
     /// This remains a legacy VGA projection while banked SVGA is enabled; packed
     /// SVGA captures and rendering are not yet supported.
     /// The display-start latch stays at the last serviced retrace; this does not
@@ -111,9 +119,15 @@ impl<C: Clock> Vga<C> {
     pub fn snapshot(&self) -> DisplaySnapshot {
         DisplaySnapshot {
             memory: self.memory.snapshot(memory::VGA_MEMORY_BYTES),
-            registers: self.registers.clone(),
-            cursor_blink_on: self.raster.cursor_blink_on(),
-            attribute_blink_on: self.raster.attribute_blink_on(),
+            dac: DacSnapshot {
+                colors: self.registers.dac.colors,
+                mask: self.registers.dac.mask,
+            },
+            scanout: Scanout::Vga(VgaDisplayState::capture(
+                &self.registers,
+                self.raster.cursor_blink_on(),
+                self.raster.attribute_blink_on(),
+            )),
             #[cfg(feature = "renderer")]
             changes: self.frames.current_capture().map(|previous| MemoryChanges {
                 baseline: previous.display.memory.clone(),

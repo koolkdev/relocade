@@ -163,9 +163,6 @@ async fn check_display_state_changes() {
     common::crtc(&mut vga, crtc::CURSOR_ADDRESS_LOW, 1);
     common::crtc(&mut vga, crtc::CURSOR_START, 6);
     common::crtc(&mut vga, crtc::CURSOR_END, 7);
-    // Reset the attribute access phase before the first capture. The source's
-    // conservative input comparison includes register access state.
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     let mut display = VgaDisplay::new(&device, vga.frame_source()).unwrap();
 
     // Only blink phases change; no guest writes occur between captures.
@@ -207,7 +204,7 @@ async fn check_display_state_changes() {
     assert_eq!(pixel(&pixels, 0, 0), [0, 0, 255, 255]);
 
     let retrace_end =
-        vga.snapshot().registers.crtc.registers.values[crtc::VERTICAL_RETRACE_END as usize];
+        vga.snapshot().vga().unwrap().crtc.values[crtc::VERTICAL_RETRACE_END as usize];
     common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end & 0x7f);
     common::crtc(&mut vga, crtc::HORIZONTAL_DISPLAY_END, 39);
     common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end);

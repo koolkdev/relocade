@@ -69,6 +69,7 @@ fn planar_characters_replace_or_xor_glyph_bits_without_moving_the_cursor() {
             }
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x0a07, 0x0783, 3, 0);
         let xor_background = dos.vga().borrow().snapshot();
         video(&mut dos, 0x0a07, 0x0783, 3, 0); // Undo XOR before replacement.
@@ -78,7 +79,8 @@ fn planar_characters_replace_or_xor_glyph_bits_without_moving_the_cursor() {
         let xor = dos.vga().borrow().snapshot();
         video(&mut dos, 0x0a07, 0x0783, 3, 0);
         let restored = dos.vga().borrow().snapshot();
-        assert_eq!(restored.registers, before.registers);
+        let restored_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(restored_registers, before_registers);
         assert_eq!(dos.cpu().context().memory.read_u16(0x45e).unwrap(), 39);
         for plane in 0..4 {
             let mut expected = before.plane(plane).to_vec();
@@ -185,9 +187,11 @@ fn tall_graphics_fonts_use_int43_and_read_vram_before_remapping_access() {
             }
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x0a80, 9, 1, 0);
         let after = dos.vga().borrow().snapshot();
-        assert_eq!(after.registers, before.registers);
+        let after_registers = dos.vga().borrow().registers().clone();
+        assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             let mut expected = before.plane(plane).to_vec();
             for (y, &byte) in glyph.iter().enumerate() {
@@ -214,10 +218,10 @@ fn graphics_teletype_wraps_and_scrolls_the_bios_grid_with_black_fill() {
             context.memory.write(0xa0000, &[0x55; 65536]).unwrap();
         }
         video(&mut dos, 0x0200, 0, 0, 0x0102);
-        let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         video(&mut dos, 0x0e41, 0xff85, 0, 0); // AH=0Eh uses the active page, not BH.
         assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0x0100);
-        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
         let mut expected = vec![0x55; 65536];
         for y in 0..8 {
             expected[y * 320 + 16..y * 320 + 24].fill(0x85);

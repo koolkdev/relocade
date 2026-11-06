@@ -1,82 +1,14 @@
-//! Output geometry needed to allocate an image from captured display state.
-use crate::{
-    registers::{attribute, crtc, graphics, sequencer},
-    DisplaySnapshot,
-};
+//! Output geometry shared by display decoders and presentation.
 
-/// Image dimensions and the relationship between output rows and VGA scanlines.
-/// Pixel interpretation belongs to the renderer and uses the captured registers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayGeometry {
     pub size: [u32; 2],
-    /// Physical scanlines represented by each image row. Identical repeated
-    /// rows share storage unless panning, a split or blanking separates them.
-    pub scanline_step: u32,
-}
-
-impl DisplaySnapshot {
-    /// Output geometry for text, four-bit and eight-bit graphics layouts.
-    pub fn geometry(&self) -> DisplayGeometry {
-        let crtc = &self.registers.crtc.registers;
-        let c = &crtc.values;
-        let clocking_mode = self.registers.sequencer.values[sequencer::CLOCKING_MODE as usize];
-        let glyph_width = if clocking_mode & 1 != 0 { 8 } else { 9 };
-        let attribute_mode = self.registers.attribute.values[attribute::MODE_CONTROL as usize];
-        let graphics_mode = self.registers.graphics.values[graphics::MODE as usize];
-        let indexed256 = attribute_mode & 0x41 == 0x41 && graphics_mode & 0x40 != 0;
-        let graphics16 = attribute_mode & 0x41 == 1 && graphics_mode & 0x40 == 0;
-        let columns = u32::from(c[crtc::HORIZONTAL_DISPLAY_END as usize]) + 1;
-        let vertical_divisor = crtc.scanlines_per_vertical_count() as u32;
-        let last_line = crtc.vertical_display() as u32 * vertical_divisor - 1;
-        let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
-            | (u32::from(c[crtc::OVERFLOW as usize] & 0x10) << 4)
-            | (u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x40) << 3);
-        let line_compare = (line_compare + 1) * vertical_divisor - 1;
-        let maximum_scan_line = c[crtc::MAXIMUM_SCAN_LINE as usize];
-        let row_height = u32::from(maximum_scan_line & 31) + 1;
-        let mut repeat = 1 << (maximum_scan_line >> 7);
-        // Graphics repeats a memory row while the row-scan counter advances.
-        // Collapse it only when row-scan bits cannot change the memory address
-        // and the preset does not begin partway through that row.
-        if (indexed256 || graphics16)
-            && c[crtc::MODE_CONTROL as usize] & 3 == 3
-            && u32::from(c[crtc::PRESET_ROW_SCAN as usize] & 31) % row_height == 0
-        {
-            repeat *= row_height;
-        }
-        let split_repeat = line_compare < last_line && !(line_compare + 1).is_multiple_of(repeat);
-        let partial_repeat = !(last_line + 1).is_multiple_of(repeat);
-        let blanking_repeat = crtc.vertical_blanking().iter().any(|range| {
-            !range.is_empty()
-                && [range.start, range.end].into_iter().any(|count| {
-                    let line = count * vertical_divisor;
-                    line <= last_line && !line.is_multiple_of(repeat)
-                })
-        });
-        let scanline_step = if split_repeat || partial_repeat || blanking_repeat {
-            1
-        } else {
-            repeat
-        };
-        DisplayGeometry {
-            size: [
-                (columns * glyph_width).div_ceil(if indexed256 { 2 } else { 1 }),
-                (last_line + 1).div_ceil(scanline_step),
-            ],
-            scanline_step,
-        }
-    }
+    /// Pixel width / height, chosen by the active display interpretation.
+    pub pixel_aspect_ratio: (u32, u32),
 }
 
 impl DisplayGeometry {
-    /// Nominal 4:3 VGA display proportions. Physical monitor reconstruction is
-    /// separate from the frame-snapshot approximation.
     pub fn pixel_aspect_ratio(&self) -> (u32, u32) {
-        let (width, height) = (self.size[1] * 4, self.size[0] * 3);
-        let (mut a, mut b) = (width, height);
-        while b != 0 {
-            (a, b) = (b, a % b);
-        }
-        (width / a, height / a)
+        self.pixel_aspect_ratio
     }
 }

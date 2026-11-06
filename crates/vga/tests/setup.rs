@@ -17,6 +17,7 @@ fn disabled_addressing_preserves_registers_memory_and_access_phases() {
     vga.read_port(0x3da, 1);
     vga.write_port(0x3c0, 1, 0x01); // Palette writes enabled; leave it expecting data.
     let before = vga.snapshot();
+    let registers = vga.registers().clone();
 
     vga.write_port(0x46e8, 1, 0);
     // Exercise every normal port: blocked reads must not advance DAC transfer
@@ -31,7 +32,9 @@ fn disabled_addressing_preserves_registers_memory_and_access_phases() {
     assert_eq!(vga.read_mmio(0xb8000, 8), u64::MAX);
     vga.write_mmio(0xb8000, 8, 0);
     let blocked = vga.snapshot();
-    assert_eq!(blocked.registers, before.registers);
+    assert_eq!(vga.registers(), &registers);
+    assert_eq!(blocked.scanout(), before.scanout());
+    assert_eq!(blocked.dac, before.dac);
     for plane in 0..4 {
         assert!(std::ptr::eq(blocked.plane(plane), before.plane(plane)));
     }
@@ -44,8 +47,8 @@ fn disabled_addressing_preserves_registers_memory_and_access_phases() {
     vga.write_port(0x3c9, 1, 34);
     vga.write_port(0x3c0, 1, 5);
     let resumed = vga.snapshot();
-    assert_eq!(resumed.registers.dac.colors[4], [12, 23, 34]);
-    assert_eq!(resumed.registers.attribute.values[1], 5);
+    assert_eq!(resumed.dac.colors[4], [12, 23, 34]);
+    assert_eq!(resumed.vga().unwrap().attributes[1], 5);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -104,6 +107,7 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     clock.set(boundary(1));
     poll_video(video.as_mut(), &mut cx);
     let first = source.current_capture().unwrap();
+    let registers = vga.borrow().registers().clone();
     vga.borrow_mut().write_port(0x46e8, 1, 0);
     clock.set(boundary(2));
     poll_video(video.as_mut(), &mut cx);
@@ -115,10 +119,11 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     let blinking = source.current_capture().unwrap();
     assert_eq!(blinking.sequence, 16);
     assert_ne!(
-        blinking.display.attribute_blink_on,
-        first.display.attribute_blink_on
+        blinking.display.vga().unwrap().attribute_blink_on,
+        first.display.vga().unwrap().attribute_blink_on
     );
-    assert_eq!(blinking.display.registers, first.display.registers);
+    assert_eq!(vga.borrow().registers(), &registers);
+    assert_eq!(blinking.display.dac, first.display.dac);
     for plane in 0..4 {
         assert!(std::ptr::eq(
             blinking.display.plane(plane),

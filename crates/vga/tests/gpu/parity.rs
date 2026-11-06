@@ -47,7 +47,7 @@ async fn check_parity() {
         set_cell(&mut vga, 600, 0xdb, 0x94);
         set_cell(&mut vga, 601, 0xdb, 0x14);
         let mut input = common::fixture::capture(&vga);
-        input.display.attribute_blink_on = blink_on;
+        input.display.vga_mut().unwrap().attribute_blink_on = blink_on;
         let pixels = compare(&mut renderer, &device, &queue, Arc::new(input)).await;
         assert_eq!(
             pixel(&pixels, 320, 56),
@@ -71,12 +71,12 @@ async fn check_parity() {
         (0, 2000, 6, 7, None),               // Below the screen.
     ] {
         let mut input = capture();
-        input.display.registers.crtc.display_start = display_start;
+        input.display.vga_mut().unwrap().display_start = display_start;
         let [high, low] = (address as u16).to_be_bytes();
-        input.display.registers.crtc.registers.values[14] = high;
-        input.display.registers.crtc.registers.values[15] = low;
-        input.display.registers.crtc.registers.values[10] = start_row;
-        input.display.registers.crtc.registers.values[11] = end_row;
+        input.display.vga_mut().unwrap().crtc.values[14] = high;
+        input.display.vga_mut().unwrap().crtc.values[15] = low;
+        input.display.vga_mut().unwrap().crtc.values[10] = start_row;
+        input.display.vga_mut().unwrap().crtc.values[11] = end_row;
         let pixels = compare(&mut renderer, &device, &queue, Arc::new(input)).await;
         if let Some((x, y)) = lit_pixel {
             assert_eq!(pixel(&pixels, x, y), [170, 170, 170, 255]);
@@ -90,8 +90,8 @@ async fn check_parity() {
         }
     }
     let mut cursor_off = capture();
-    cursor_off.display.cursor_blink_on = false;
-    cursor_off.display.registers.crtc.registers.values[10] = 6;
+    cursor_off.display.vga_mut().unwrap().cursor_blink_on = false;
+    cursor_off.display.vga_mut().unwrap().crtc.values[10] = 6;
     let pixels = compare(&mut renderer, &device, &queue, Arc::new(cursor_off)).await;
     assert!(pixels
         .as_chunks::<4>()

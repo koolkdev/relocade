@@ -199,6 +199,16 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     let mut changed = std::pin::pin!(source.next_capture(Some(first.sequence)));
     assert!(changed.as_mut().poll(&mut cx).is_pending());
 
+    // Port indices and transfer positions do not change captured display inputs.
+    for (port, value) in [
+        (0x3c4, 3),
+        (0x3ce, 4),
+        (0x3d4, 0x13),
+        (0x3c8, 42),
+        (0x3c0, 0x35),
+    ] {
+        vga.borrow_mut().write_port(port, 1, value);
+    }
     tick(&clock, video.as_mut(), boundary(2));
     assert_eq!(clock.deadline.get(), Some(boundary(3)));
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
@@ -244,8 +254,11 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
             panic!("either blink phase must wake the consumer");
         };
         assert_eq!((capture.sequence, capture.time), (frame, boundary(frame)));
-        assert_eq!(capture.display.cursor_blink_on, cursor_on);
-        assert_eq!(capture.display.attribute_blink_on, attribute_on);
+        assert_eq!(capture.display.vga().unwrap().cursor_blink_on, cursor_on);
+        assert_eq!(
+            capture.display.vga().unwrap().attribute_blink_on,
+            attribute_on
+        );
         latest = capture;
     }
 }
@@ -265,8 +278,8 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
     let source = vga.borrow().frame_source();
     tick(&clock, video.as_mut(), boundary(1));
     let on = source.current_capture().unwrap();
-    assert!(on.display.cursor_blink_on);
-    assert!(on.display.attribute_blink_on);
+    assert!(on.display.vga().unwrap().cursor_blink_on);
+    assert!(on.display.vga().unwrap().attribute_blink_on);
     let on_text = common::support::inspection::inspect(&on.display);
     assert_eq!(on_text.cursor.start_scan_line, 6);
     assert_eq!(on_text.cursor.end_scan_line, 7);
@@ -284,8 +297,11 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
         tick(&clock, video.as_mut(), boundary(frame));
         let capture = source.current_capture().unwrap();
         assert_eq!(capture.sequence, frame);
-        assert_eq!(capture.display.cursor_blink_on, cursor_on);
-        assert_eq!(capture.display.attribute_blink_on, attribute_on);
+        assert_eq!(capture.display.vga().unwrap().cursor_blink_on, cursor_on);
+        assert_eq!(
+            capture.display.vga().unwrap().attribute_blink_on,
+            attribute_on
+        );
         for plane in 0..4 {
             assert!(std::ptr::eq(
                 on.display.plane(plane),
@@ -312,8 +328,8 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
     }
     drop(video);
     drop(vga);
-    assert!(on.display.cursor_blink_on);
-    assert!(on.display.attribute_blink_on);
+    assert!(on.display.vga().unwrap().cursor_blink_on);
+    assert!(on.display.vga().unwrap().attribute_blink_on);
     assert_eq!(&*software::rasterize(&on).pixels, pixels);
 }
 
@@ -338,8 +354,8 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     clock.set(boundary(6));
     vga.read_port(0x3da, 1);
     let blank = source.current_capture().unwrap();
-    assert_ne!(blank.display.registers.sequencer.values[1] & 0x20, 0);
-    assert_eq!(before.display.registers.sequencer.values[1] & 0x20, 0);
+    assert_ne!(blank.display.vga().unwrap().sequencer[1] & 0x20, 0);
+    assert_eq!(before.display.vga().unwrap().sequencer[1] & 0x20, 0);
     assert!(software::rasterize(&blank)
         .pixels
         .as_chunks::<4>()

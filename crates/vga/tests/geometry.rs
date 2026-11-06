@@ -40,8 +40,8 @@ fn doubled_rows_share_storage_unless_a_split_separates_them() {
     }
     for (split, height, step) in [(0, 4, 1), (1, 2, 2), (2, 4, 1), (3, 2, 2)] {
         crtc(&mut vga, 0x18, split);
-        let geometry = vga.snapshot().geometry();
-        assert_eq!(geometry.size, [640, height]);
+        let geometry = vga.snapshot().vga().unwrap().geometry();
+        assert_eq!(geometry.output.size, [640, height]);
         assert_eq!(geometry.scanline_step, step);
     }
     crtc(&mut vga, 0x18, 0);
@@ -79,8 +79,8 @@ fn graphics_geometry_preserves_partial_repeats_and_row_address_changes() {
             crtc(&mut vga, 0x18, split);
             crtc(&mut vga, 0x17, mode);
             crtc(&mut vga, 0x12, last);
-            let geometry = vga.snapshot().geometry();
-            assert_eq!(geometry.size, [width, expected_height]);
+            let geometry = vga.snapshot().vga().unwrap().geometry();
+            assert_eq!(geometry.output.size, [width, expected_height]);
             assert_eq!(geometry.scanline_step, expected_step);
         }
     }
@@ -99,9 +99,9 @@ fn planar_geometry_uses_character_clocks_and_double_scanning() {
     // Divide Dot Clock changes the oscillator rate, not the pixel count.
     for clocking in [1, 9] {
         common::support::registers::indexed(&mut vga, 0x3c4, 1, clocking);
-        let geometry = vga.snapshot().geometry();
-        assert_eq!(geometry.size, [320, 200]);
+        let geometry = vga.snapshot().vga().unwrap().geometry();
+        assert_eq!(geometry.output.size, [320, 200]);
         assert_eq!(geometry.scanline_step, 2);
-        assert_eq!(geometry.pixel_aspect_ratio(), (5, 6));
+        assert_eq!(geometry.output.pixel_aspect_ratio(), (5, 6));
     }
 }

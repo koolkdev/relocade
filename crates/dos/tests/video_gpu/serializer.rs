@@ -63,7 +63,7 @@ fn guest_pans_chained_serializers_across_a_split() {
         }
         program.push(0xc3);
         let reset_pan = run(&mut dos, &program).await;
-        assert_eq!(reset_pan.display.registers.crtc.display_start, 0x40);
+        assert_eq!(reset_pan.display.vga().unwrap().display_start, 0x40);
         // Each upper row begins at the final dot of a four-clock load.
         let upper = colors(&[
             (2, 1),
@@ -177,10 +177,10 @@ fn guest_combines_shift_load_with_chain_four_then_restores_bios_modes() {
                 ],
             )
             .await;
-            let registers = &capture.display.registers;
-            assert_eq!(registers.sequencer.values[1] & 0x14, 0);
-            assert_eq!(registers.crtc.registers.values[0x14] & 0x20, 0);
-            assert_eq!(registers.crtc.registers.values[0x17] & 8, 0);
+            let registers = capture.display.vga().unwrap();
+            assert_eq!(registers.sequencer[1] & 0x14, 0);
+            assert_eq!(registers.crtc.values[0x14] & 0x20, 0);
+            assert_eq!(registers.crtc.values[0x17] & 8, 0);
             let image = gpu.render(&capture, size).await;
             assert_eq!(&image[..white_pixels * 4], &[255; 4].repeat(white_pixels));
             assert!(image[white_pixels * 4..]

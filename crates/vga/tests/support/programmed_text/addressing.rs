@@ -39,7 +39,7 @@ pub(super) fn append(cases: &mut Vec<Case>) {
         indexed(&mut vga, 0x3d4, 0x17, mode);
         indexed(&mut vga, 0x3d4, 0x14, underline);
         let mut display = vga.snapshot();
-        display.registers.crtc.display_start = 0xd001; // Already latched fixture input.
+        display.vga_mut().unwrap().display_start = 0xd001; // Already latched fixture input.
         cases.push(Case {
             name,
             display,
@@ -64,7 +64,7 @@ pub(super) fn append(cases: &mut Vec<Case>) {
     attribute(&mut vga, 0x13, 2);
     attribute(&mut vga, 0x10, 0x2c);
     let mut display = vga.snapshot();
-    display.registers.crtc.display_start = 0x1234;
+    display.vga_mut().unwrap().display_start = 0x1234;
     cases.push(Case {
         name: "split resets byte and pel panning after preset and stride",
         display,
@@ -80,7 +80,7 @@ pub(super) fn append(cases: &mut Vec<Case>) {
     });
     attribute(&mut vga, 0x10, 0x0c);
     let mut display = vga.snapshot();
-    display.registers.crtc.display_start = 0x1234;
+    display.vga_mut().unwrap().display_start = 0x1234;
     cases.push(Case {
         name: "split preserves both pans when compatibility is disabled",
         display,
@@ -167,7 +167,7 @@ pub(super) fn append(cases: &mut Vec<Case>) {
     indexed(&mut vga, 0x3d4, 0x0d, 1);
     indexed(&mut vga, 0x3d4, 0x18, 0);
     let mut display = vga.snapshot();
-    display.registers.crtc.display_start = 1;
+    display.vga_mut().unwrap().display_start = 1;
     cases.push(Case {
         name: "split between scan-doubled rows",
         display,

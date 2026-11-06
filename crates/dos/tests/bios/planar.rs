@@ -8,15 +8,15 @@ fn monochrome_planar_palette_ports_and_no_clear_preservation() {
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         video(&mut dos, 0x000f, 0, 0, 0);
         let initial = dos.vga().borrow().snapshot();
-        assert_eq!(initial.registers.miscellaneous, 0xa2);
-        assert_eq!(initial.registers.attribute.values[0x10], 0x0b);
-        assert_eq!(initial.registers.attribute.values[0x12], 5);
+        assert_eq!(initial.vga().unwrap().miscellaneous, 0xa2);
+        assert_eq!(initial.vga().unwrap().attributes[0x10], 0x0b);
+        assert_eq!(initial.vga().unwrap().attributes[0x12], 5);
         assert_eq!(
-            &initial.registers.attribute.values[..16],
+            &initial.vga().unwrap().attributes[..16],
             &[0, 8, 0, 0, 24, 24, 0, 0, 0, 8, 0, 0, 0, 24, 0, 0]
         );
         for (index, level) in [(0, 0), (8, 42), (24, 63)] {
-            assert_eq!(initial.registers.dac.colors[index], [level; 3]);
+            assert_eq!(initial.dac.colors[index], [level; 3]);
         }
         {
             let mut context = dos.cpu().context();
@@ -33,24 +33,25 @@ fn monochrome_planar_palette_ports_and_no_clear_preservation() {
             }
         }
         let before = dos.vga().borrow().snapshot();
+        let before_registers = dos.vga().borrow().registers().clone();
         // Mono mode's CGA color call is a no-op, but VGA palette calls use 3BA.
         video(&mut dos, 0x0b00, 0x001f, 0, 0);
-        assert_eq!(dos.vga().borrow().snapshot().registers, before.registers);
+        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
         video(&mut dos, 0x1000, 0x1801, 0, 0);
         video(&mut dos, 0x1010, 24, 0, 0);
         video(&mut dos, 0x1003, 0, 0, 0);
         let modified = dos.vga().borrow().snapshot();
-        assert_eq!(modified.registers.attribute.values[1], 24);
-        assert_eq!(modified.registers.attribute.values[0x10], 3);
-        assert_eq!(modified.registers.dac.colors[24], [0; 3]);
+        assert_eq!(modified.vga().unwrap().attributes[1], 24);
+        assert_eq!(modified.vga().unwrap().attributes[0x10], 3);
+        assert_eq!(modified.dac.colors[24], [0; 3]);
 
         video(&mut dos, 0x008f, 0, 0, 0);
         let preserved = dos.vga().borrow().snapshot();
         assert_eq!(
-            preserved.registers.attribute.values,
-            initial.registers.attribute.values
+            preserved.vga().unwrap().attributes,
+            initial.vga().unwrap().attributes
         );
-        assert_eq!(preserved.registers.dac.colors, initial.registers.dac.colors);
+        assert_eq!(preserved.dac.colors, initial.dac.colors);
         for plane in 0..4 {
             assert_eq!(preserved.plane(plane), before.plane(plane));
         }
@@ -62,9 +63,9 @@ fn monochrome_planar_palette_ports_and_no_clear_preservation() {
         video(&mut dos, 0x0010, 0, 0, 0);
         assert_eq!(dos.cpu().context().memory.read_u16(0x463).unwrap(), 0x3d4);
         let color = dos.vga().borrow().snapshot();
-        assert_eq!(color.registers.attribute.values[0x10], 1);
-        assert_eq!(color.registers.attribute.values[0x12], 15);
-        assert_eq!(color.registers.dac.colors[1], [0, 0, 42]);
+        assert_eq!(color.vga().unwrap().attributes[0x10], 1);
+        assert_eq!(color.vga().unwrap().attributes[0x12], 15);
+        assert_eq!(color.dac.colors[1], [0, 0, 42]);
     });
 }
 
@@ -208,16 +209,13 @@ fn planar_no_clear_preserves_each_plane_and_restores_mode_specific_palettes() {
             for plane in 0..4 {
                 assert_eq!(preserved.plane(plane), before.plane(plane));
             }
-            assert_eq!(&preserved.registers.attribute.values[..16], &palette);
+            assert_eq!(&preserved.vga().unwrap().attributes[..16], &palette);
             let brown = palette[6] as usize;
-            assert_eq!(preserved.registers.dac.colors[brown], [42, 21, 0]);
-            assert_eq!(
-                preserved.registers.dac.colors[palette[9] as usize],
-                [21, 21, 63]
-            );
+            assert_eq!(preserved.dac.colors[brown], [42, 21, 0]);
+            assert_eq!(preserved.dac.colors[palette[9] as usize], [21, 21, 63]);
             // These entries differ even though both default palettes show brown.
             assert_eq!(
-                preserved.registers.dac.colors[6],
+                preserved.dac.colors[6],
                 if matches!(mode, 0x0d | 0x0e) {
                     [42, 21, 0]
                 } else {
@@ -225,7 +223,7 @@ fn planar_no_clear_preserves_each_plane_and_restores_mode_specific_palettes() {
                 }
             );
             assert_eq!(
-                preserved.registers.dac.colors[0x14],
+                preserved.dac.colors[0x14],
                 if matches!(mode, 0x0d | 0x0e) {
                     [63, 21, 21]
                 } else {

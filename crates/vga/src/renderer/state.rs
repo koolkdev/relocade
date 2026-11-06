@@ -1,5 +1,5 @@
 //! Captured register bytes, palette and geometry shared with the shader.
-use crate::{DisplayGeometry, DisplaySnapshot};
+use crate::{DisplaySnapshot, Scanout};
 
 // The shader's State layout: padded raw banks, controls, geometry, then DAC RGB.
 const HEADER_BYTES: usize = 128;
@@ -46,19 +46,14 @@ impl GpuState {
         }
     }
 
-    pub fn upload(
-        &mut self,
-        queue: &wgpu::Queue,
-        snapshot: &DisplaySnapshot,
-        geometry: DisplayGeometry,
-    ) -> bool {
-        let header = header(snapshot, geometry);
+    pub fn upload(&mut self, queue: &wgpu::Queue, snapshot: &DisplaySnapshot) -> bool {
+        let header = header(snapshot);
         let header_changed = self.previous_header.as_ref() != Some(&header);
         if header_changed {
             queue.write_buffer(&self.buffer, 0, &header);
             self.previous_header = Some(header);
         }
-        let palette = &snapshot.registers.dac.colors;
+        let palette = &snapshot.dac.colors;
         let palette_changed = self.previous_palette.as_ref() != Some(palette);
         if palette_changed {
             queue.write_buffer(&self.buffer, HEADER_BYTES as u64, palette.as_flattened());
@@ -68,25 +63,25 @@ impl GpuState {
     }
 }
 
-fn header(snapshot: &DisplaySnapshot, geometry: DisplayGeometry) -> [u8; HEADER_BYTES] {
-    let r = &snapshot.registers;
+fn header(snapshot: &DisplaySnapshot) -> [u8; HEADER_BYTES] {
+    let Scanout::Vga(r) = &snapshot.scanout;
     let mut bytes = [0; HEADER_BYTES];
     for (offset, bank) in [
-        (0, r.sequencer.values.as_slice()),
-        (16, r.crtc.registers.values.as_slice()),
-        (48, r.graphics.values.as_slice()),
-        (64, r.attribute.values.as_slice()),
+        (0, r.sequencer.as_slice()),
+        (16, r.crtc.values.as_slice()),
+        (48, r.graphics.as_slice()),
+        (64, r.attributes.as_slice()),
     ] {
         bytes[offset..offset + bank.len()].copy_from_slice(bank);
     }
     for (slot, word) in bytes[96..124].as_chunks_mut::<4>().0.iter_mut().zip([
         u32::from(r.miscellaneous),
-        u32::from(r.attribute.address()),
-        u32::from(r.dac.mask),
-        u32::from(snapshot.attribute_blink_on),
-        u32::from(snapshot.cursor_blink_on),
-        geometry.scanline_step,
-        u32::from(r.crtc.display_start),
+        u32::from(r.display_enabled),
+        u32::from(snapshot.dac.mask),
+        u32::from(r.attribute_blink_on),
+        u32::from(r.cursor_blink_on),
+        r.geometry().scanline_step,
+        u32::from(r.display_start),
     ]) {
         slot.copy_from_slice(&word.to_le_bytes());
     }

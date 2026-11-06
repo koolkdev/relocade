@@ -33,7 +33,7 @@ fn snapshots_own_fonts_palette_and_programmed_geometry_after_device_destruction(
     indexed(&mut vga, 0x3d4, 0x13, 20);
     vga.write_port(0x3c0, 1, 0x12);
     vga.write_port(0x3c0, 1, 5);
-    vga.write_port(0x3c0, 1, 0x34); // Keep the raw index together with display enable.
+    vga.write_port(0x3c0, 1, 0x34); // Enable display independently of the CPU index.
     vga.write_port(0x3da, 1, 0x5a);
     vga.write_port(0x3c6, 1, 0x7f);
     vga.write_port(0x3c8, 1, 123);
@@ -51,20 +51,15 @@ fn snapshots_own_fonts_palette_and_programmed_geometry_after_device_destruction(
     assert_eq!(snapshot.plane(2).len(), 65536);
     assert_eq!(snapshot.plane(2)[0xe821], 0xa5);
     assert_eq!(snapshot.geometry().size, [320, 400]);
-    let registers = snapshot.registers;
-    assert_eq!(registers.sequencer.values[3], 0x35);
-    assert_eq!(registers.crtc.registers.values[1], 39);
-    assert_eq!(registers.crtc.registers.values[9], 15);
-    assert_eq!(registers.crtc.registers.values[0x13], 20);
-    assert_eq!(registers.attribute.values[0x12], 5);
-    assert_eq!(registers.sequencer.index(), 3);
-    assert_eq!(registers.crtc.index(), 0x13);
-    assert_eq!(registers.graphics.index(), 4);
-    assert_eq!(registers.attribute.address(), 0x34);
-    assert_eq!(registers.feature_control, 0x5a);
-    assert_eq!(registers.dac.mask, 0x7f);
-    assert_eq!(registers.dac.address(), 124);
-    assert_eq!(registers.dac.colors[123], [63, 21, 7]);
+    let state = snapshot.vga().unwrap();
+    assert_eq!(state.sequencer[3], 0x35);
+    assert_eq!(state.crtc.values[1], 39);
+    assert_eq!(state.crtc.values[9], 15);
+    assert_eq!(state.crtc.values[0x13], 20);
+    assert_eq!(state.attributes[0x12], 5);
+    assert!(state.display_enabled);
+    assert_eq!(snapshot.dac.mask, 0x7f);
+    assert_eq!(snapshot.dac.colors[123], [63, 21, 7]);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -79,16 +74,18 @@ fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
     vga.write_port(0x3c0, 1, 4); // Pending Attribute data write.
     vga.write_port(0x3c8, 1, 42);
     vga.write_port(0x3c9, 1, 11); // Pending green and blue components.
+    let registers = vga.registers().clone();
     let snapshot = vga.snapshot();
+    assert_eq!(vga.registers(), &registers);
     assert!(source.current_capture().is_none());
     assert_eq!(snapshot.plane(2)[0x20], 0xa5);
     vga.write_port(0x3c0, 1, 0x31);
     assert_eq!(vga.read_port(0x3c1, 1), 0x31);
     vga.write_port(0x3c9, 1, 22);
     vga.write_port(0x3c9, 1, 33);
-    assert_eq!(vga.snapshot().registers.dac.colors[42], [11, 22, 33]);
-    assert_eq!(snapshot.registers.attribute.address(), 4);
-    assert_eq!(snapshot.registers.dac.address(), 42);
+    assert_eq!(vga.snapshot().dac.colors[42], [11, 22, 33]);
+    assert!(!snapshot.vga().unwrap().display_enabled);
+    assert_eq!(snapshot.dac.colors[42][0], 11);
     indexed(&mut vga, 0x3ce, 5, 1); // Copy the original read latch.
     vga.write_mmio(0xa0020, 1, 0);
     assert_eq!(vga.read_mmio(0xa0020, 1), 0x5a);

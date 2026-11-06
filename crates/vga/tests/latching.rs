@@ -29,7 +29,7 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
         };
         clock.set(change_time);
         start(&mut vga, 0x100);
-        assert_eq!(vga.snapshot().registers.crtc.display_start, 0);
+        assert_eq!(vga.snapshot().vga().unwrap().display_start, 0);
         vga.write_port(0x3d4, 1, 12);
         assert_eq!(vga.read_port(0x3d5, 1), 1); // Programmed readback is immediate.
 
@@ -49,9 +49,9 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
         clock.set(boundary(2));
         vga.read_port(0x3da, 1);
         let second = source.current_capture().unwrap();
-        assert_eq!(second.display.registers.crtc.display_start, 0x100);
+        assert_eq!(second.display.vga().unwrap().display_start, 0x100);
         assert_eq!(
-            first.display.registers.crtc.display_start,
+            first.display.vga().unwrap().display_start,
             first_text.start_address
         );
     }
@@ -68,17 +68,17 @@ fn separate_start_bytes_can_straddle_the_latch_edge() {
     clock.set(boundary(1));
     crtc(&mut vga, 13, 0x34);
     let first = source.current_capture().unwrap();
-    assert_eq!(first.display.registers.crtc.display_start, 0x1200);
+    assert_eq!(first.display.vga().unwrap().display_start, 0x1200);
     assert_eq!(
-        &first.display.registers.crtc.registers.values[12..14],
+        &first.display.vga().unwrap().crtc.values[12..14],
         &[0x12, 0]
     );
     assert_eq!(vga.read_port(0x3d5, 1), 0x34);
-    assert_eq!(vga.snapshot().registers.crtc.display_start, 0x1200);
+    assert_eq!(vga.snapshot().vga().unwrap().display_start, 0x1200);
     clock.set(boundary(2));
     vga.read_port(0x3da, 1);
     let next = source.current_capture().unwrap();
-    assert_eq!(next.display.registers.crtc.display_start, 0x1234);
+    assert_eq!(next.display.vga().unwrap().display_start, 0x1234);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -92,13 +92,13 @@ fn late_service_latches_preceding_programming_before_a_new_write() {
     start(&mut vga, 0x200);
     let latest = source.current_capture().unwrap();
     assert_eq!((latest.sequence, latest.time), (100, boundary(100)));
-    assert_eq!(latest.display.registers.crtc.display_start, 0x100);
-    assert_eq!(vga.snapshot().registers.crtc.display_start, 0x100);
+    assert_eq!(latest.display.vga().unwrap().display_start, 0x100);
+    assert_eq!(vga.snapshot().vga().unwrap().display_start, 0x100);
     clock.set(boundary(101));
     vga.read_port(0x3da, 1);
     let next = source.current_capture().unwrap();
-    assert_eq!(next.display.registers.crtc.display_start, 0x200);
-    assert_eq!(latest.display.registers.crtc.display_start, 0x100);
+    assert_eq!(next.display.vga().unwrap().display_start, 0x200);
+    assert_eq!(latest.display.vga().unwrap().display_start, 0x100);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -110,14 +110,11 @@ fn immediate_snapshots_copy_the_effective_latch_without_servicing_time() {
     start(&mut vga, 0x1234);
     clock.set(boundary(1));
     let snapshot = vga.snapshot();
-    assert_eq!(
-        &snapshot.registers.crtc.registers.values[12..14],
-        &[0x12, 0x34]
-    );
-    assert_eq!(snapshot.registers.crtc.display_start, 0);
+    assert_eq!(&snapshot.vga().unwrap().crtc.values[12..14], &[0x12, 0x34]);
+    assert_eq!(snapshot.vga().unwrap().display_start, 0);
     assert!(source.current_capture().is_none());
     vga.read_port(0x3da, 1);
     let next = source.current_capture().unwrap();
-    assert_eq!(next.display.registers.crtc.display_start, 0x1234);
-    assert_eq!(snapshot.registers.crtc.display_start, 0);
+    assert_eq!(next.display.vga().unwrap().display_start, 0x1234);
+    assert_eq!(snapshot.vga().unwrap().display_start, 0);
 }
