@@ -85,3 +85,58 @@ async fn check_command_tails() {
 fn com_and_mz_receive_command_tails() {
     pollster::block_on(check_command_tails());
 }
+
+#[test]
+fn host_process_owns_a_small_dos_allocation_and_terminates_normally() {
+    use relocade_dos::LaunchError;
+    use relocade_x86::Segment;
+
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_host(LoadOptions {
+            command_tail: b" /P",
+            environment: &[b"COMSPEC=C:\\COMMAND.COM"],
+            program_path: b"C:\\COMMAND.COM",
+        })
+        .unwrap();
+        let process = dos.process().unwrap();
+        assert!(process.is_host());
+        assert_eq!(process.status(), ProcessStatus::Active);
+        let segment = process.psp_segment();
+        let address = u32::from(segment) * 16;
+        let cpu = dos.cpu().cpu_state().snapshot();
+        for register in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
+            assert_eq!(cpu.segments[register].selector, segment);
+        }
+        assert_eq!(cpu.eip, 0x100);
+        let memory = dos.cpu().memory();
+        let mut psp = [0; 256];
+        memory.view().read(address, &mut psp).unwrap();
+        assert_eq!(&psp[..2], &[0xcd, 0x20]);
+        assert_eq!(u16::from_le_bytes([psp[0x16], psp[0x17]]), segment);
+        assert_eq!(&psp[0x80..0x85], b"\x03 /P\r");
+        let end = u16::from_le_bytes([psp[2], psp[3]]);
+        let allocated_bytes = u32::from(end - segment) * 16;
+        assert!(cpu.registers.esp <= allocated_bytes);
+        assert!(allocated_bytes < 16 * 1024, "leave RAM for DOS allocations");
+        let environment = u16::from_le_bytes([psp[0x2c], psp[0x2d]]);
+        let expected = b"COMSPEC=C:\\COMMAND.COM\0\0\x01\0C:\\COMMAND.COM\0";
+        let mut actual = vec![0; expected.len()];
+        memory
+            .view()
+            .read(u32::from(environment) * 16, &mut actual)
+            .unwrap();
+        assert_eq!(actual, expected);
+
+        assert_eq!(
+            dos.launch_com(&[0xc3], Default::default()),
+            Err(LaunchError::ProcessActive)
+        );
+        assert_eq!(dos.cpu().cpu_state().snapshot(), cpu);
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(process.status(), ProcessStatus::Exited(Ok(0)));
+        dos.launch_com(&[0xc3], Default::default()).unwrap();
+        assert!(!dos.process().unwrap().is_host());
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
+    });
+}

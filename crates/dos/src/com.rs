@@ -10,7 +10,7 @@ pub(crate) fn load(
     machine: &mut CpuContext<'_>,
     image: &[u8],
     options: &LoadOptions<'_>,
-) -> Result<u16, LoadError> {
+) -> Result<process::Program, LoadError> {
     if image.is_empty() {
         return Err(LoadError::EmptyImage);
     }
@@ -42,5 +42,5 @@ pub(crate) fn load(
         .cpu
         .restore(&cpu)
         .expect("COM entry state satisfies the real-mode execution target");
-    Ok(psp_segment)
+    Ok(process::Program::Guest(psp_segment))
 }

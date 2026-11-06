@@ -109,6 +109,7 @@ pub mod devices;
 mod error;
 mod execution;
 mod files;
+mod host;
 mod interrupt;
 mod kernel;
 mod load;
@@ -224,9 +225,19 @@ impl<C: Clock> Dos<C> {
         self.launch(|execution| mz::load(execution, image, &options))
     }
 
+    /// Starts a DOS process whose command logic is supplied by Rust.
+    /// Its PSP, environment and standard handles use the ordinary process setup.
+    /// A small conventional-memory block owns its guest caller, transfer buffer
+    /// and interrupt stack. It remains active until DOS reports termination;
+    /// dropping a Rust waiter does not end the process. Child execution is not
+    /// supported yet. The initial guest entry terminates through INT 20h.
+    pub fn launch_host(&mut self, options: LoadOptions<'_>) -> Result<(), LaunchError> {
+        self.launch(|execution| host::load(execution, &options))
+    }
+
     fn launch(
         &mut self,
-        load: impl FnOnce(&mut CpuContext<'_>) -> Result<u16, LoadError>,
+        load: impl FnOnce(&mut CpuContext<'_>) -> Result<process::Program, LoadError>,
     ) -> Result<(), LaunchError> {
         // Reject before touching CPU state, including a pending input call.
         if self
@@ -237,8 +248,8 @@ impl<C: Clock> Dos<C> {
         {
             return Err(LaunchError::ProcessActive);
         }
-        let psp_segment = load(&mut self.cpu.context())?;
-        self.state.start_process(psp_segment);
+        let program = load(&mut self.cpu.context())?;
+        self.state.start_process(program);
         Ok(())
     }
 

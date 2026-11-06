@@ -13,6 +13,20 @@ use crate::{
 use relocade_machine::{FarPointer, MemoryView};
 use std::cell::{RefCell, RefMut};
 
+pub(crate) enum Program {
+    Guest(u16),
+    Host(crate::host::HostProgram),
+}
+
+impl Program {
+    pub(crate) fn psp_segment(&self) -> u16 {
+        match self {
+            Self::Guest(segment) => *segment,
+            Self::Host(program) => program.segment,
+        }
+    }
+}
+
 /// The lifecycle of one successfully launched DOS process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProcessStatus {
@@ -28,7 +42,7 @@ pub enum ProcessStatus {
 /// Dropping the DOS session does not report a process exit; retained handles can
 /// keep the last active state and its resources alive.
 pub struct Process {
-    psp_segment: u16,
+    pub(crate) program: Program,
     state: RefCell<State>,
 }
 
@@ -43,9 +57,10 @@ struct Resources {
 }
 
 impl Process {
-    pub(crate) fn new(psp_segment: u16, devices: DeviceChain, stdio: &Stdio) -> Self {
+    pub(crate) fn new(program: Program, devices: DeviceChain, stdio: &Stdio) -> Self {
+        let psp_segment = program.psp_segment();
         Self {
-            psp_segment,
+            program,
             state: RefCell::new(State::Active(Box::new(Resources {
                 files: Files::new(devices, stdio),
                 dta: FarPointer {
@@ -58,7 +73,12 @@ impl Process {
 
     /// The PSP segment assigned at launch. Its memory may be reused after exit.
     pub fn psp_segment(&self) -> u16 {
-        self.psp_segment
+        self.program.psp_segment()
+    }
+
+    /// Whether Rust supplies this process's command logic and guest service calls.
+    pub fn is_host(&self) -> bool {
+        matches!(self.program, Program::Host(_))
     }
 
     /// Reads this process's current status without retaining an execution borrow.

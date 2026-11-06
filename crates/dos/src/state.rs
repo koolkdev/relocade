@@ -3,7 +3,7 @@
 use crate::{
     devices::{BiosConsole, DeviceChain, NullDevice, Unavailable},
     files::FileSystem,
-    process::Process,
+    process::{Process, Program},
     stdio::Stdio,
 };
 use relocade_machine::{ExitHandle, MemoryBus};
@@ -60,9 +60,9 @@ impl DosState {
         self.process.borrow().clone()
     }
 
-    pub(crate) fn start_process(&self, psp_segment: u16) {
+    pub(crate) fn start_process(&self, program: Program) {
         *self.process.borrow_mut() = Some(Rc::new(Process::new(
-            psp_segment,
+            program,
             self.devices.clone(),
             &self.stdio,
         )));

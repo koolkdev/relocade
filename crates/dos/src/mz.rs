@@ -75,7 +75,7 @@ pub(crate) fn load(
     machine: &mut CpuContext<'_>,
     file: &[u8],
     options: &LoadOptions<'_>,
-) -> Result<u16, LoadError> {
+) -> Result<process::Program, LoadError> {
     let image = Image::parse(file)?;
     let module_paragraphs = image
         .module
@@ -123,7 +123,7 @@ pub(crate) fn load(
         .cpu
         .restore(&cpu)
         .expect("MZ entry state satisfies the real-mode execution target");
-    Ok(psp_segment)
+    Ok(process::Program::Guest(psp_segment))
 }
 
 fn word(bytes: &[u8], offset: usize) -> u16 {
