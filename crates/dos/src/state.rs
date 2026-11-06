@@ -1,5 +1,7 @@
 //! Resources shared by successive DOS processes.
 
+pub(crate) mod indos;
+
 use crate::{
     devices::{BiosConsole, DeviceChain, NullDevice, Unavailable},
     files::FileSystem,
@@ -13,6 +15,7 @@ use std::{
 };
 
 pub(crate) struct DosState {
+    indos: indos::InDos,
     filesystem: RefCell<FileSystem>,
     stdio: Stdio,
     devices: DeviceChain,
@@ -29,9 +32,10 @@ impl DosState {
         let devices = DeviceChain::default();
         devices.install(Unavailable(*b"PRN     "));
         devices.install(Unavailable(*b"AUX     "));
-        devices.install(BiosConsole::new(memory, keyboard.clone()));
+        devices.install(BiosConsole::new(memory.clone(), keyboard.clone()));
         devices.install(NullDevice);
         Self {
+            indos: indos::InDos::new(memory),
             filesystem: RefCell::default(),
             stdio: Stdio::new(keyboard),
             devices,
@@ -42,6 +46,10 @@ impl DosState {
 
     pub(crate) fn request_exit(&self) {
         self.exit.request();
+    }
+
+    pub(crate) fn indos(&self) -> &indos::InDos {
+        &self.indos
     }
 
     pub(crate) fn filesystem(&self) -> RefMut<'_, FileSystem> {

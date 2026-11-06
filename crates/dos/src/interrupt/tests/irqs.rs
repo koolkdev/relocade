@@ -8,6 +8,8 @@ use relocade_x86::{
 };
 use std::{cell::RefCell, rc::Rc, task::Poll};
 
+mod indos;
+
 #[derive(Default)]
 struct Irq {
     pending: bool,

@@ -63,6 +63,9 @@
 //! AH=1Ah/2Fh select/query the DTA; AH=4Eh/4Fh find matching 8.3 names.
 //! Search dates are initially fixed at 1980-01-01; long-name aliases are not generated.
 //! AH=30h reports DOS 5.00; AH=25h/35h set/query the real interrupt vector table.
+//! AH=34h returns ES:BX pointing to the resident InDOS byte. It counts active
+//! INT 21h calls, including suspended input and nested services, and returns to
+//! zero when those calls complete or are abandoned. Its address survives loads.
 //! AH=71h reports long-filename services unavailable, allowing 8.3 fallback.
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! AH=43h queries or changes read-only, hidden, system and archive attributes.

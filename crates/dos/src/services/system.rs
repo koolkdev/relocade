@@ -1,6 +1,11 @@
-//! DOS version and interrupt-vector services used during program startup.
+//! DOS version, resident data and interrupt-vector services.
 
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
+
+#[interrupt(returns { address => { ptr(es, bx) = address } })]
+pub(super) fn indos() -> FarPointer {
+    crate::state::indos::ADDRESS
+}
 
 pub(super) struct Version {
     major: u8,
