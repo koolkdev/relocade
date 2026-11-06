@@ -894,14 +894,16 @@ register writes and unsupported requests leave the state unchanged.
 | --- | --- |
 | 0: ID | B0C0h; newer IDs are unsupported |
 | 1–3: X, Y, bits per pixel | Stage a mode while disabled; active writes are ignored |
-| 4: Enable | 0 disables; 1 enables only the complete 640×480×8 request |
+| 4: Enable | 0 disables; 1 or 81h enables only the complete 640×480×8 request |
 | 5: Bank | 0–63 selects a 64-KiB bank in 4 MiB; out-of-range writes are ignored |
 
-Entering a valid mode clears all VRAM and selects bank zero. Repeating enable
+Entering a valid mode selects bank zero and clears all VRAM unless enable bit 7
+requests memory preservation. Readback retains the accepted enable word. Repeating enable
 while active preserves VRAM and the current bank. Disabling preserves VRAM,
 legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
-including LFB and no-clear, are ignored as a whole. No newer DISPI capability,
-virtual layout or linear aperture is advertised.
+including LFB combined with no-clear, are ignored as a whole. No-clear is a
+selective ID2 extension; the interface still reports ID0 because newer geometry,
+virtual layout and linear aperture capabilities are unsupported.
 
 The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
 `4F01h` information for mode `0101h` (640×480×8), using the 256-byte VBE 1.2

@@ -55,7 +55,7 @@ fn mode_enable_requires_supported_geometry_and_preserves_active_programming() {
     assert_eq!(get(&mut vga, 4), 0);
     set(&mut vga, 3, 8);
     vga.write_mmio(0xb8000, 2, 0x0741);
-    for flags in [0x41, 0x81, 0x02] {
+    for flags in [0x41, 0xc1, 0x80, 0x02] {
         set(&mut vga, 4, flags);
         assert_eq!(get(&mut vga, 4), 0);
         assert_eq!(vga.read_mmio(0xb8000, 2), 0x0741);
@@ -78,6 +78,42 @@ fn mode_enable_requires_supported_geometry_and_preserves_active_programming() {
     assert_eq!(get(&mut vga, 5), 0);
     set(&mut vga, 5, 7);
     assert_eq!(vga.read_mmio(0xa0000, 1), 0);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn no_clear_mode_entry_preserves_all_banks_and_resets_only_the_window() {
+    let mut vga = device();
+    enable(&mut vga);
+    for bank in [0, 1, 63] {
+        set(&mut vga, 5, bank);
+        vga.write_mmio(0xa0000, 2, 0x1234 + u64::from(bank));
+        vga.write_mmio(0xaffff, 1, 0xa5);
+    }
+    set(&mut vga, 4, 0);
+    set(&mut vga, 4, 0x81);
+    assert_eq!(get(&mut vga, 4), 0x81);
+    assert_eq!(get(&mut vga, 5), 0);
+    for bank in [0, 1, 63] {
+        set(&mut vga, 5, bank);
+        assert_eq!(vga.read_mmio(0xa0000, 2), 0x1234 + u64::from(bank));
+        assert_eq!(vga.read_mmio(0xaffff, 1), 0xa5);
+    }
+    // Repeated enables and unsupported flag combinations leave the active mode alone.
+    for flags in [1, 0x81, 0xc1, 0x80] {
+        set(&mut vga, 4, flags);
+        assert_eq!(get(&mut vga, 4), 0x81);
+        assert_eq!(get(&mut vga, 5), 63);
+        assert_eq!(vga.read_mmio(0xa0000, 2), 0x1273);
+    }
+    set(&mut vga, 4, 0);
+    assert_eq!(get(&mut vga, 4), 0);
+    set(&mut vga, 4, 1);
+    for bank in [0, 1, 63] {
+        set(&mut vga, 5, bank);
+        assert_eq!(vga.read_mmio(0xa0000, 2), 0);
+        assert_eq!(vga.read_mmio(0xaffff, 1), 0);
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
