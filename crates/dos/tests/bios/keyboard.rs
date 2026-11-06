@@ -1,5 +1,5 @@
 use crate::common;
-use relocade_bios::{KeyStroke, ShiftState};
+use relocade_bios::{KeyMode, KeyStroke, ShiftState};
 use relocade_dos::{Dos, LaunchError};
 use relocade_x86::{CpuState, ExecutionExit, HostExit};
 use std::{
@@ -15,6 +15,9 @@ use std::{
 
 // BIOS INT 16h/JMP $, followed by DOS INT 21h/JMP $.
 const PROGRAM: &[u8] = &[0xcd, 0x16, 0xeb, 0xfe, 0xcd, 0x21, 0xeb, 0xfe];
+
+#[path = "keyboard/enhanced.rs"]
+mod enhanced;
 
 fn invoke(dos: &mut Dos, ip: u32, ax: u16) -> CpuState {
     {
@@ -51,7 +54,7 @@ fn bios_peeks_reads_and_reports_shift_state_without_echo() {
         assert!(keyboard.store_key(key));
         // Repeated peeks leave the key available and change only ZF.
         for _ in 0..2 {
-            assert_eq!(keyboard.peek_key(), Some(key));
+            assert_eq!(keyboard.peek_key(KeyMode::Enhanced), Some(key));
             let cpu = invoke(&mut dos, 0x100, 0x0100);
             assert_eq!(cpu.registers.eax as u16, 0x1e41);
             assert_eq!(cpu.flags.eflags(), 0x603);
@@ -59,7 +62,7 @@ fn bios_peeks_reads_and_reports_shift_state_without_echo() {
         let cpu = invoke(&mut dos, 0x100, 0);
         assert_eq!(cpu.registers.eax as u16, 0x1e41);
         assert_eq!(cpu.flags.eflags(), 0x643);
-        assert_eq!(keyboard.peek_key(), None);
+        assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
         keyboard.set_shift_state(ShiftState {
             left_shift: true,
@@ -241,7 +244,7 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
         assert_eq!(invoke(&mut dos, 0x104, 0x0700).registers.eax as u8, 0);
         // BIOS sees the next key; DOS retained the first key's second byte.
         assert_eq!(
-            keyboard.peek_key(),
+            keyboard.peek_key(KeyMode::Enhanced),
             Some(KeyStroke {
                 character: b'B',
                 scan_code: 0x30,
@@ -249,7 +252,7 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
         );
         assert_eq!(invoke(&mut dos, 0x100, 0x0100).registers.eax as u16, 0x3042);
         assert_eq!(invoke(&mut dos, 0x100, 0).registers.eax as u16, 0x3042);
-        assert_eq!(keyboard.peek_key(), None);
+        assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
         assert_eq!(invoke(&mut dos, 0x104, 0x0700).registers.eax as u8, 0x4b);
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);

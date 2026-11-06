@@ -3,6 +3,7 @@ mod common;
 mod screen;
 
 use common::{path_service, service, success, SERVICE_PROGRAM};
+use relocade_bios::KeyMode;
 use relocade_dos::{FileAccess, ProcessStatus};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::io::{Read, Write};
@@ -44,8 +45,14 @@ fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
             assert_eq!(console.read_line().await, None);
         }
         assert!(dos.process().is_none());
-        assert_eq!(dos.keyboard().try_read_key().unwrap().character, b'G');
-        assert_eq!(dos.keyboard().peek_key(), None);
+        assert_eq!(
+            dos.keyboard()
+                .try_read_key(KeyMode::Enhanced)
+                .unwrap()
+                .character,
+            b'G'
+        );
+        assert_eq!(dos.keyboard().peek_key(KeyMode::Enhanced), None);
         let com = [0xb4, 2, 0xb2, b'C', 0xcd, 0x21, 0xb8, 7, 0x4c, 0xcd, 0x21];
         dos.launch_com(&com, Default::default()).unwrap();
         assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));

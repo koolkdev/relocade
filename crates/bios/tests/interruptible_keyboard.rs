@@ -1,6 +1,6 @@
 #[path = "../../machine/tests/support/execution.rs"]
 mod execution;
-use relocade_bios::{KeyStroke, Keyboard};
+use relocade_bios::{KeyMode, KeyStroke, Keyboard};
 use relocade_machine::{
     real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, DeviceConnection, IoBus,
     MachineConfig, Memory,
@@ -173,26 +173,26 @@ async fn clock_during_wait() {
         ExecutionExit::Interrupted
     );
     assert_eq!(state.eip(), 0x30a);
-    assert_eq!(keyboard.peek_key(), Some(KEY));
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), Some(KEY));
     assert_eq!(
         execution::run_until(&mut cpu, 0x313).await,
         ExecutionExit::Interrupted
     );
     assert_eq!(state.eip(), 0x313);
-    assert_eq!(keyboard.peek_key(), Some(KEY));
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), Some(KEY));
     assert_eq!(
         execution::checkpoint(&mut cpu).await,
         ExecutionExit::Interrupted
     );
     assert_eq!(state.segment(Segment::Cs).selector, (entry >> 16) as u16);
     assert_eq!(state.eip(), u32::from(entry as u16 + 1));
-    assert_eq!(keyboard.peek_key(), Some(KEY));
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), Some(KEY));
 
     assert_eq!(
         execution::run_until(&mut cpu, 0x10d).await,
         ExecutionExit::Interrupted
     );
-    assert_eq!(keyboard.peek_key(), None);
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
     assert_eq!(memory.view().read_u16(0x500).unwrap(), 0x254b);
     assert_eq!(memory.view().read_u16(0x502).unwrap(), 2);
     assert_eq!(memory.view().read_u16(0x504).unwrap(), 2);
@@ -246,7 +246,7 @@ async fn abandon_during_irq() {
     assert!(state.interrupts_enabled());
     drop(cpu);
     assert_eq!(state.snapshot(), before);
-    assert_eq!(keyboard.peek_key(), Some(KEY));
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), Some(KEY));
 }
 
 async fn bios_timer_rollover() {

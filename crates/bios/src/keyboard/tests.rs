@@ -2,6 +2,8 @@ use super::*;
 use relocade_machine::MachineConfig;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 
+mod enhanced;
+
 fn keyboard() -> (Keyboard, Memory) {
     let map =
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
@@ -23,11 +25,15 @@ fn guest_ring_and_shift_edits_are_authoritative() {
     assert_eq!(memory.view().read_u16(0x41c).unwrap(), 0x20);
     assert_eq!(memory.view().read_u16(0x41e).unwrap(), 0x1e61);
     memory.view().write_u16(0x41a, 0x20).unwrap();
-    assert_eq!(keyboard.peek_key(), None, "guest can flush the buffer");
+    assert_eq!(
+        keyboard.peek_key(KeyMode::Enhanced),
+        None,
+        "guest can flush the buffer"
+    );
     memory.view().write_u16(0x420, 0x2c5a).unwrap();
     memory.view().write_u16(0x41c, 0x22).unwrap();
     assert_eq!(
-        keyboard.try_read_key(),
+        keyboard.try_read_key(KeyMode::Enhanced),
         Some(KeyStroke {
             character: b'Z',
             scan_code: 0x2c
@@ -35,7 +41,10 @@ fn guest_ring_and_shift_edits_are_authoritative() {
     );
     memory.view().write_u8(0x417, 0x40).unwrap();
     scans(&keyboard, &[0x1e]);
-    assert_eq!(keyboard.try_read_key().unwrap().character, b'A');
+    assert_eq!(
+        keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+        b'A'
+    );
     assert!(keyboard.shift_state().caps_lock);
 }
 
@@ -46,14 +55,23 @@ fn physical_input_drops_on_full_ring_then_wraps_and_honors_relocation() {
         scans(&keyboard, &[0x1e, 0x9e]);
     }
     assert_eq!(memory.view().read_u16(0x41c).unwrap(), 0x3c);
-    assert_eq!(keyboard.try_read_key().unwrap().character, b'a');
+    assert_eq!(
+        keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+        b'a'
+    );
     scans(&keyboard, &[0x30, 0xb0]);
     assert_eq!(memory.view().read_u16(0x41c).unwrap(), 0x1e);
     for _ in 0..14 {
-        assert_eq!(keyboard.try_read_key().unwrap().character, b'a');
+        assert_eq!(
+            keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+            b'a'
+        );
     }
-    assert_eq!(keyboard.try_read_key().unwrap().character, b'b');
-    assert_eq!(keyboard.try_read_key(), None);
+    assert_eq!(
+        keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+        b'b'
+    );
+    assert_eq!(keyboard.try_read_key(KeyMode::Enhanced), None);
     for (address, value) in [
         (0x480, 0x200),
         (0x482, 0x206),
@@ -65,7 +83,10 @@ fn physical_input_drops_on_full_ring_then_wraps_and_honors_relocation() {
     scans(&keyboard, &[0x2e]);
     assert_eq!(memory.view().read_u16(0x604).unwrap(), 0x2e63);
     assert_eq!(memory.view().read_u16(0x41c).unwrap(), 0x200);
-    assert_eq!(keyboard.try_read_key().unwrap().character, b'c');
+    assert_eq!(
+        keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+        b'c'
+    );
     assert_eq!(memory.view().read_u16(0x41a).unwrap(), 0x200);
 }
 
@@ -77,9 +98,15 @@ fn modifier_sides_locks_and_special_sequences_update_bda_without_phantom_keys() 
     assert_eq!(memory.view().read_u8(0x418).unwrap() & 3, 0);
     assert_eq!(memory.view().read_u8(0x496).unwrap() & 0x0c, 4);
     scans(&keyboard, &[0x10]);
-    assert_eq!(keyboard.try_read_key().unwrap().character, 17);
+    assert_eq!(
+        keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+        17
+    );
     scans(&keyboard, &[0xe0, 0x9d, 0x36, 0x3a, 0x3a, 0x1e]);
-    assert_eq!(keyboard.try_read_key().unwrap().character, b'a');
+    assert_eq!(
+        keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+        b'a'
+    );
     assert_eq!(keyboard.shift_state().bits(), 0x41);
     scans(&keyboard, &[0xb6, 0xba]);
     assert_eq!(
@@ -90,7 +117,7 @@ fn modifier_sides_locks_and_special_sequences_update_bda_without_phantom_keys() 
     scans(&keyboard, &[0xe0, 0x2a, 0xe0, 0x37, 0xe0, 0xb7, 0xe0, 0xaa]);
     scans(&keyboard, &[0xe1, 0x1d, 0x45, 0xe1, 0x9d, 0xc5]);
     assert_eq!(keyboard.shift_state().bits(), 0x40);
-    assert_eq!(keyboard.peek_key(), None);
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
     assert_eq!(memory.view().read_u8(0x496).unwrap() & 3, 0);
 }
 
@@ -102,23 +129,23 @@ fn us_layout_distinguishes_keypad_navigation_and_shifted_punctuation() {
         (&[0x28][..], b'\'', 0x28),
         (&[0x2a, 0x03][..], b'@', 3),
         (&[0xb6, 0xaa, 0x45, 0xc5, 0x48][..], b'8', 0x48),
-        (&[0xe0, 0x48][..], 0, 0x48),
+        (&[0xe0, 0x48][..], 0xe0, 0x48),
         (&[0x2a, 0x48][..], 0, 0x48),
-        (&[0xe0, 0x35][..], b'/', 0x35),
-        (&[0xaa, 0xe0, 0x1c][..], b'\r', 0x1c),
+        (&[0xe0, 0x35][..], b'/', 0xe0),
+        (&[0xaa, 0xe0, 0x1c][..], b'\r', 0xe0),
         (&[0x57][..], 0, 0x85),
         (&[0x2a, 0x3b][..], 0, 0x54),
         (&[0xaa, 0x38, 0x3b][..], 0, 0x68),
     ] {
         scans(&keyboard, bytes);
         assert_eq!(
-            keyboard.try_read_key(),
+            keyboard.try_read_key(KeyMode::Enhanced),
             Some(KeyStroke {
                 character,
                 scan_code
             })
         );
-        assert_eq!(keyboard.peek_key(), None);
+        assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
     }
 }
 
@@ -138,28 +165,31 @@ fn buffer_writes_report_capacity_and_guest_flush_leaves_no_hidden_input() {
         scan_code: 0x2d
     }));
     assert_eq!(memory.view().read_u16(0x41c).unwrap(), 0x3c);
-    assert_eq!(keyboard.try_read_key().unwrap().character, 0);
+    assert_eq!(
+        keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+        0
+    );
     assert_eq!(keyboard.write(&bytes[15..]).unwrap(), 1); // Retry only the unwritten suffix.
     assert_eq!(memory.view().read_u16(0x41c).unwrap(), 0x1e);
 
     // Flushing by editing RAM must not let peek/read resurrect rejected input.
     memory.view().write_u16(0x41a, 0x1e).unwrap();
     for _ in 0..2 {
-        assert_eq!(keyboard.peek_key(), None);
-        assert_eq!(keyboard.try_read_key(), None);
+        assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
+        assert_eq!(keyboard.try_read_key(KeyMode::Enhanced), None);
         assert_eq!(memory.view().read_u16(0x41c).unwrap(), 0x1e);
     }
     keyboard.write_all(&bytes[16..]).unwrap();
     for character in &bytes[16..] {
         assert_eq!(
-            keyboard.try_read_key(),
+            keyboard.try_read_key(KeyMode::Enhanced),
             Some(KeyStroke {
                 character: *character,
                 scan_code: 0
             })
         );
     }
-    assert_eq!(keyboard.peek_key(), None);
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
 
     // write_all can accept a prefix before encountering WouldBlock.
     assert_eq!(
@@ -167,18 +197,21 @@ fn buffer_writes_report_capacity_and_guest_flush_leaves_no_hidden_input() {
         io::ErrorKind::WouldBlock
     );
     for _ in 0..15 {
-        assert_eq!(keyboard.try_read_key().unwrap().character, b'X');
+        assert_eq!(
+            keyboard.try_read_key(KeyMode::Enhanced).unwrap().character,
+            b'X'
+        );
     }
-    assert_eq!(keyboard.try_read_key(), None);
+    assert_eq!(keyboard.try_read_key(KeyMode::Enhanced), None);
     keyboard.write_all(b"clear me").unwrap();
     keyboard.discard_queued();
-    assert_eq!(keyboard.peek_key(), None);
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
 }
 
 #[test]
 fn control_and_alt_select_bios_codes_instead_of_plain_characters() {
     for (bytes, character, scan_code) in [
-        (&[0x1d, 0xe0, 0x47][..], 0, 0x77),       // Ctrl+Home.
+        (&[0x1d, 0xe0, 0x47][..], 0xe0, 0x77),    // Ctrl+Home.
         (&[0x1d, 0x45, 0xc5, 0x47][..], 0, 0x77), // Ctrl overrides NumLock.
         (&[0x1d, 0x0f][..], 0, 0x94),             // Ctrl+Tab.
         (&[0x1d, 0xe0, 0x35][..], 0, 0x95),       // Ctrl+keypad divide.
@@ -192,19 +225,19 @@ fn control_and_alt_select_bios_codes_instead_of_plain_characters() {
         let (keyboard, _) = keyboard();
         scans(&keyboard, bytes);
         assert_eq!(
-            keyboard.try_read_key(),
+            keyboard.try_read_key(KeyMode::Enhanced),
             Some(KeyStroke {
                 character,
                 scan_code
             })
         );
-        assert_eq!(keyboard.peek_key(), None);
+        assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
     }
     for bytes in [&[0x1d, 0x02][..], &[0x1d, 0x35], &[0x38, 0x47]] {
         let (keyboard, _) = keyboard();
         scans(&keyboard, bytes);
         assert_eq!(
-            keyboard.peek_key(),
+            keyboard.peek_key(KeyMode::Enhanced),
             None,
             "unsupported combination {bytes:x?}"
         );
@@ -219,7 +252,7 @@ fn scan_updates_preserve_guest_flag_bits_and_use_guest_shift_state() {
     memory.view().write_u8(0x496, 0xf0).unwrap(); // Enhanced keyboard and other BIOS bits.
     scans(&keyboard, &[0x1e]);
     assert_eq!(
-        keyboard.try_read_key(),
+        keyboard.try_read_key(KeyMode::Enhanced),
         Some(KeyStroke {
             character: 1,
             scan_code: 0x1e

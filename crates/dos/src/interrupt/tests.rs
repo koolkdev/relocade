@@ -4,6 +4,7 @@ mod execution;
 mod irqs;
 
 use crate::Dos;
+use relocade_bios::KeyMode;
 use relocade_machine::timer_service;
 use relocade_x86::ExecutionExit;
 use std::{
@@ -118,7 +119,7 @@ fn pending_handle_read_keeps_its_source_and_partial_transfer() {
             assert_eq!(bytes, [b'A', b'B', 0xcc, 0xcc]);
         }
         assert_eq!(
-            dos.keyboard().try_read_key(),
+            dos.keyboard().try_read_key(KeyMode::Enhanced),
             Some(relocade_bios::KeyStroke {
                 character: b'C',
                 scan_code: 0,

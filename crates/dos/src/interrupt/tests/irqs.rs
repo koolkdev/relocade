@@ -1,5 +1,6 @@
 use super::*;
 use crate::{com, files::Handle, state::DosState, stdio::OutputStream};
+use relocade_bios::KeyMode;
 use relocade_machine::{Cpu, CpuConfig, Device, DeviceConnection, IoBus, MachineConfig, Memory};
 use relocade_vga::Vga;
 use relocade_x86::{
@@ -173,7 +174,7 @@ fn irq_reentry_preserves_dos_input_resources_and_arguments() {
                 execution::checkpoint(&mut cpu).await,
                 ExecutionExit::Interrupted
             );
-            assert!(input.peek_key().is_some());
+            assert!(input.peek_key(KeyMode::Enhanced).is_some());
             assert_eq!(
                 execution::run_until(&mut cpu, 0x102).await,
                 ExecutionExit::Interrupted
@@ -212,11 +213,14 @@ fn irq_reentry_preserves_dos_input_resources_and_arguments() {
                     memory.view().read(buffer, &mut bytes).unwrap();
                     assert_eq!(bytes, [b'A', b'B', 0xcc, 0xcc]);
                     assert_eq!(state.ax(), 2);
-                    assert_eq!(input.try_read_key().unwrap().character, b'C');
+                    assert_eq!(
+                        input.try_read_key(KeyMode::Enhanced).unwrap().character,
+                        b'C'
+                    );
                 }
                 _ => assert_eq!(state.al(), b'K'),
             }
-            assert_eq!(input.peek_key(), None);
+            assert_eq!(input.peek_key(KeyMode::Enhanced), None);
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
             dos.stdio()

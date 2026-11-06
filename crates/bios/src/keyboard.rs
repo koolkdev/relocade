@@ -1,12 +1,14 @@
 //! BIOS keystrokes shared by interrupt services and console drivers.
 
 mod data;
+mod encoding;
 mod layout;
 mod physical;
 mod scan;
+pub use encoding::{KeyMode, KeyStroke};
 pub use physical::PhysicalKeyboard;
 
-use data::{DataArea, ShiftFlags};
+use data::{DataArea, HeldKeys, KeyboardStatus, ShiftFlags};
 use scan::Decoder;
 
 use relocade_machine::{
@@ -21,14 +23,6 @@ use std::{
     rc::Rc,
     task::{Context, Poll, Waker},
 };
-
-/// One translated PC keystroke. The character uses the guest's encoding.
-/// A zero character with a nonzero scan code represents a function or cursor key.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct KeyStroke {
-    pub character: u8,
-    pub scan_code: u8,
-}
 
 /// Modifier and toggle states reported by INT 16h/AH=02h.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -149,6 +143,24 @@ impl Keyboard {
         self.0.borrow().data.shift_state()
     }
 
+    #[interrupt(returns { flags => { ax = flags } })]
+    fn enhanced_shift_state(&self) -> u16 {
+        let flags = self.0.borrow().data.flags();
+        let held = flags.held
+            & (HeldKeys::LEFT_CONTROL
+                | HeldKeys::LEFT_ALT
+                | HeldKeys::SCROLL_LOCK
+                | HeldKeys::NUM_LOCK
+                | HeldKeys::CAPS_LOCK);
+        let right = flags.status & (KeyboardStatus::RIGHT_CONTROL | KeyboardStatus::RIGHT_ALT);
+        // AH bit 7 means SysRq held, not the Insert-held bit at BDA 0040:0018.
+        let sys_request = u8::from(flags.held.contains(HeldKeys::SYS_REQUEST)) << 7;
+        u16::from_le_bytes([
+            flags.shifts.bits(),
+            held.bits() | right.bits() | sys_request,
+        ])
+    }
+
     pub fn set_shift_state(&self, shifts: ShiftState) {
         self.0.borrow().data.set_shift_state(shifts);
     }
@@ -158,25 +170,35 @@ impl Keyboard {
         self.0.borrow().data.discard();
     }
 
-    /// Reports the next whole keystroke without consuming it, as for INT 16h/AH=01h.
+    /// Reports the next keystroke for INT 16h/AH=01h or AH=11h without consuming it.
+    /// Legacy status discards incompatible entries preceding that key.
     #[interrupt(returns {
         Some(key) => { al = key.character, ah = key.scan_code, zf = false },
         None => { zf = true },
     })]
-    pub fn peek_key(&self) -> Option<KeyStroke> {
-        self.0.borrow().data.peek()
+    pub fn peek_key(&self, mode: KeyMode) -> Option<KeyStroke> {
+        let input = self.0.borrow();
+        loop {
+            let key = input.data.peek()?;
+            if let Some(key) = mode.translate(key) {
+                return Some(key);
+            }
+            input.data.read();
+        }
     }
 
     /// Consumes the next whole keystroke, or returns None without waiting.
-    pub fn try_read_key(&self) -> Option<KeyStroke> {
-        self.0.borrow().data.read()
+    pub fn try_read_key(&self, mode: KeyMode) -> Option<KeyStroke> {
+        let key = self.peek_key(mode)?;
+        self.0.borrow().data.read();
+        Some(key)
     }
 
-    /// Waits for and consumes one whole keystroke, as for INT 16h/AH=00h.
+    /// Waits for and consumes one keystroke for INT 16h/AH=00h or AH=10h.
     #[interrupt(returns { key => { al = key.character, ah = key.scan_code } })]
-    pub async fn read_key(&self) -> KeyStroke {
+    pub async fn read_key(&self, mode: KeyMode) -> KeyStroke {
         loop {
-            if let Some(key) = self.try_read_key() {
+            if let Some(key) = self.try_read_key(mode) {
                 return key;
             }
             self.wait_for_key().await;
@@ -193,10 +215,13 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, keyboard: &Keyboard, fun
     interrupt_dispatch!(
         call,
         match function {
-            0x00 => keyboard.read_key,
-            0x01 => keyboard.peek_key,
+            0x00 => keyboard.read_key(KeyMode::Legacy),
+            0x01 => keyboard.peek_key(KeyMode::Legacy),
             0x02 => keyboard.shift_state,
             0x05 => keyboard.store_key,
+            0x10 => keyboard.read_key(KeyMode::Enhanced),
+            0x11 => keyboard.peek_key(KeyMode::Enhanced),
+            0x12 => keyboard.enhanced_shift_state,
             _ => crate::interrupt::unsupported,
         }
     );
