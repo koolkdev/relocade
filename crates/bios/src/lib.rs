@@ -28,8 +28,10 @@
 //! AH=12h/BL=10h reports adapter configuration; AX=1A00h/1A01h get/set the
 //! BIOS display-combination description without changing hardware or rendering.
 //! AH=1Bh/BX=0 writes the functionality/state report to ES:DI; other BX values
-//! return AL=0 without writing the buffer. Other unsupported video services or
-//! pixel coordinates/pages return AH=86h with carry set.
+//! return AL=0 without writing the buffer. AX=4F00h/4F01h return VBE controller
+//! and mode information using the 1.2 layouts. VBE calls preserve flags and return
+//! status in AX; remaining unsupported video services or pixel coordinates/pages
+//! return AH=86h with carry set.
 //! INT 09h consumes controller scan bytes and translates the default US layout into
 //! the guest-visible BIOS keyboard ring at 0040:001E. INT 16h provides legacy
 //! AH=00h/01h/02h, enhanced AH=10h/11h/12h, and AH=05h buffer insertion. DOS console
