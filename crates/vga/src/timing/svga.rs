@@ -1,22 +1,27 @@
-//! Fixed raster for the validated initial DISPI display layout.
+//! VESA DMT 60-Hz rasters for the supported packed modes.
+//! https://glenwing.github.io/docs/VESA-DMT-1.13.pdf (DMT IDs 04h, 09h, 10h).
 use super::Timing;
-use crate::SvgaLayout;
+use crate::{SvgaLayout, SvgaMode};
 
 impl Timing {
     pub fn svga(layout: SvgaLayout) -> Self {
-        // 25.175 MHz / (800 dots * 525 lines), about 59.94 Hz.
+        let (oscillator_hz, horizontal_total, vertical_total, retrace) = match layout.mode() {
+            SvgaMode::Indexed640x480 => (25_175_000, 800, 525, 490..492),
+            SvgaMode::Indexed800x600 => (40_000_000, 1056, 628, 601..605),
+            SvgaMode::Indexed1024x768 => (65_000_000, 1344, 806, 771..777),
+        };
         Self {
-            oscillator_hz: 25_175_000,
+            oscillator_hz,
             dot_clock_divisor: 1,
             dots_per_horizontal_count: 1,
-            horizontal_total: 800,
+            horizontal_total,
             horizontal_display: u64::from(layout.size()[0]),
             horizontal_display_skew: 0,
-            vertical_total: 525,
+            vertical_total,
             vertical_display: u64::from(layout.size()[1]),
             scanlines_per_vertical_count: 1,
-            vertical_retrace_start: 490,
-            vertical_retrace_end: 492,
+            vertical_retrace_start: retrace.start,
+            vertical_retrace_end: retrace.end,
             wrapped_retrace_end: 0,
             reset_active: false,
             sync_enabled: true,

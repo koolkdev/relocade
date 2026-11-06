@@ -19,8 +19,11 @@ pub(in super::super) fn initialize(memory: &mut MemoryView<'_>) {
     memory
         .write_backing(OEM.address(), b"Relocade banked SVGA\0")
         .expect("VBE OEM string");
-    let mut modes = [0xff; 4];
-    modes[..2].copy_from_slice(&Mode::INDEXED_640_480.number.to_le_bytes());
+    let mut modes = Vec::new();
+    for mode in Mode::ALL {
+        modes.extend(mode.number.to_le_bytes());
+    }
+    modes.extend(0xffffu16.to_le_bytes());
     memory
         .write_backing(MODES.address(), &modes)
         .expect("VBE mode list");
@@ -59,6 +62,7 @@ pub(super) fn mode(
     let Some(mode) = Mode::from_number(number).filter(|_| available(io)) else {
         return false;
     };
+    let [width, height] = mode.display.size().map(|value| value as u16);
     let mut bytes = [0; 256];
     // Supported color graphics, extended information, no BIOS text/pixel output.
     bytes[..2].copy_from_slice(&0x001bu16.to_le_bytes());
@@ -68,10 +72,10 @@ pub(super) fn mode(
     bytes[6..8].copy_from_slice(&window_kib.to_le_bytes());
     bytes[8..10].copy_from_slice(&((dispi::BANK_START >> 4) as u16).to_le_bytes());
     // Null WinFuncPtr directs callers to INT 10h/4F05h.
-    bytes[16..18].copy_from_slice(&mode.width.to_le_bytes()); // Eight-bit pixel pitch.
-    bytes[18..20].copy_from_slice(&mode.width.to_le_bytes());
-    bytes[20..22].copy_from_slice(&mode.height.to_le_bytes());
-    bytes[22..28].copy_from_slice(&[8, 16, 1, mode.bits_per_pixel, 1, 4]);
+    bytes[16..18].copy_from_slice(&width.to_le_bytes()); // Eight-bit pixel pitch.
+    bytes[18..20].copy_from_slice(&width.to_le_bytes());
+    bytes[20..22].copy_from_slice(&height.to_le_bytes());
+    bytes[22..28].copy_from_slice(&[8, 16, 1, mode.display.bits_per_pixel(), 1, 4]);
     // No interleaved scanline banks or additional display pages.
     bytes[30] = 1; // VBE 1.2's reserved page-function byte.
     memory

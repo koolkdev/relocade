@@ -894,7 +894,7 @@ register writes and unsupported requests leave the state unchanged.
 | --- | --- |
 | 0: ID | B0C0h; newer IDs are unsupported |
 | 1–3: X, Y, bits per pixel | Stage a mode while disabled; active writes are ignored |
-| 4: Enable | 0 disables; 1 or 81h enables only the complete 640×480×8 request |
+| 4: Enable | 0 disables; 1 or 81h enables a complete supported indexed mode |
 | 5: Bank | 0–63 selects a 64-KiB bank in 4 MiB; out-of-range writes are ignored |
 
 Entering a valid mode selects bank zero and clears all VRAM unless enable bit 7
@@ -902,11 +902,16 @@ requests memory preservation. Readback retains the accepted enable word. Repeati
 while active preserves VRAM and the current bank. Disabling preserves VRAM,
 legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
 including LFB combined with no-clear, are ignored as a whole. No-clear is a
-selective ID2 extension; the interface still reports ID0 because newer geometry,
-virtual layout and linear aperture capabilities are unsupported.
+selective ID2 extension; the interface still reports ID0 because virtual layout
+and linear aperture capabilities are unsupported.
+
+`SvgaMode` defines the supported device geometries: 640×480×8, 800×600×8 and
+1024×768×8. DISPI validates against these descriptions, and each mode creates its
+default `SvgaLayout`. BIOS metadata uses the same geometry; only the VESA mode
+numbers (0101h, 0103h and 0105h) belong to firmware.
 
 The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
-`4F01h` information for mode `0101h` (640×480×8), `4F02h`/`4F03h` mode control,
+`4F01h` information for the three indexed modes, `4F02h`/`4F03h` mode control,
 and `4F05h` bank control, using the VBE 1.2 register and 256-byte buffer layouts.
 It reports the 4 MiB adapter, a terminated ROM mode list, one readable
 and writable 64 KiB window at A000h, and no callable bank function or additional
@@ -963,9 +968,11 @@ capture's baseline, and uploads a complete block when that baseline is absent.
 render after mode changes or device destruction. Automatic publication uses the
 same shared frame source for both modes.
 
-The fixed SVGA raster runs at 25.175 MHz with 800 dots per line and 525 lines per
-frame, about 59.94 Hz. Visible output is 640×480; vertical retrace begins at line
-490 and ends at line 492. Input Status 1 and capture deadlines use the same raster.
+SVGA uses the VESA DMT 60-Hz rasters. The 640×480 mode uses 25.175 MHz,
+800×525 total dots, and retrace lines 490–492; 800×600 uses 40 MHz,
+1056×628 totals and lines 601–605; 1024×768 uses 65 MHz, 1344×806 totals
+and lines 771–777. Retrace ends are exclusive. Input Status 1 and capture
+deadlines use the same raster.
 Legacy clock selection, sequencer reset, CRTC totals and sync controls remain
 stored but do not affect this mode. The legacy display-start latch updates only
 at VGA retraces.

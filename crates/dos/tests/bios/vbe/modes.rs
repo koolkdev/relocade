@@ -43,7 +43,7 @@ fn mode_and_window_requests_preserve_memory_only_when_requested() {
         let registers = dos.vga().borrow().registers().clone();
         let mut bda = [0; 0x50];
         dos.cpu().context().memory.read(0x449, &mut bda).unwrap();
-        for mode in [0x103, 0x4101, 0xc101, 0x8103, 0x83, 0x7f] {
+        for mode in [0x107, 0x4101, 0xc101, 0x8107, 0x83, 0x7f] {
             request(&mut dos, 2, mode, 0x1234, 0x14f);
         }
         for (operation, bank) in [(1, 2), (0x101, 2), (0x200, 2), (0, 64), (0, 0xffff)] {

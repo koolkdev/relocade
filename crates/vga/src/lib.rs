@@ -17,6 +17,7 @@ pub mod registers;
 mod renderer;
 mod scanout;
 mod snapshot;
+mod svga;
 mod timing;
 
 pub use capture::{CapturedFrame, FrameSource};
@@ -33,11 +34,12 @@ pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE,
 use relocade_machine::{Clock, Device, DeviceConnection, Runner, TimerHandle};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
-pub use scanout::{Scanout, SvgaLayout, VgaDisplayState, VgaGeometry};
+pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
 #[cfg(feature = "renderer")]
 use snapshot::MemoryChanges;
 pub use snapshot::{DacSnapshot, DisplaySnapshot};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
+pub use svga::{SvgaLayout, SvgaMode};
 use timing::Timing;
 
 /// The color text aperture selected by the BIOS text preset.

@@ -5,6 +5,56 @@ use relocade_machine::Device;
 use relocade_vga::{Vga, VgaDisplay, VgaRenderer};
 use std::rc::Rc;
 
+async fn check_indexed_resolutions() {
+    let adapter = wgpu::Instance::default()
+        .request_adapter(&Default::default())
+        .await
+        .unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let mut renderer = VgaRenderer::new(&device).unwrap();
+    for (width, height) in [(800, 600), (1024, 768)] {
+        let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+        svga::set_mode(&mut vga, width, height);
+        palette(&mut vga, 0, [0, 0, 0]);
+        palette(&mut vga, 1, [63, 0, 0]);
+        let [width, height] = [u32::from(width), u32::from(height)];
+        let edges = [0, width - 1, width, width * height - 1];
+        for address in edges {
+            svga::write_byte(&mut vga, address, 1);
+        }
+        let capture = common::fixture::capture(&vga);
+        drop(vga);
+        renderer.upload(&queue, &capture);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let image = renderer.encode(&mut encoder).unwrap().image;
+        queue.submit([encoder.finish()]);
+        assert_eq!(image.size(), [width, height]);
+        let pixels = read_pixels(&device, &queue, image.texture()).await;
+        for (offset, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
+            assert_eq!(
+                *pixel,
+                if edges.contains(&(offset as u32)) {
+                    [255, 0, 0, 255]
+                } else {
+                    [0, 0, 0, 255]
+                }
+            );
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn indexed_resolutions_render_their_full_extent() {
+    pollster::block_on(check_indexed_resolutions());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn indexed_resolutions_render_their_full_extent() {
+    check_indexed_resolutions().await;
+}
+
 async fn check_packed_pixels() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
