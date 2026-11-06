@@ -1,9 +1,9 @@
 use crate::registers::Registers;
-use std::sync::Arc;
 
 mod access;
 pub(crate) use access::VramAccess;
 mod storage;
+pub(crate) use storage::MemorySnapshot;
 use storage::Storage;
 
 #[cfg(feature = "renderer")]
@@ -11,10 +11,12 @@ mod pages;
 #[cfg(feature = "renderer")]
 pub(crate) use pages::DirtyPages;
 
-pub(crate) const PLANE_BYTES: usize = 65536;
+pub(crate) const BLOCK_BYTES: usize = 65536;
 
 /// Physical video memory shared by legacy VGA planes and packed SVGA addressing.
 pub const VIDEO_MEMORY_BYTES: u32 = 4 * 1024 * 1024;
+pub(crate) const BLOCKS: usize = VIDEO_MEMORY_BYTES as usize / BLOCK_BYTES;
+pub(crate) const VGA_MEMORY_BYTES: u32 = 4 * BLOCK_BYTES as u32;
 
 /// Shared video memory with VGA access latches. Legacy CPU reads latch all four
 /// planes; packed accesses and scanout do not disturb those latches. VGA plane
@@ -62,8 +64,8 @@ impl VideoMemory {
         self.storage.clear();
     }
 
-    pub fn snapshot(&self) -> [Arc<[u8]>; 4] {
-        self.storage.planes()
+    pub fn snapshot(&self, bytes: u32) -> MemorySnapshot {
+        self.storage.snapshot(bytes)
     }
 
     #[cfg(feature = "renderer")]

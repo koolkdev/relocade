@@ -2,16 +2,15 @@
 //! port access, so it leaves read latches and register access phases untouched.
 #[cfg(feature = "renderer")]
 use crate::memory::DirtyPages;
-use crate::Registers;
-use std::sync::Arc;
+use crate::{memory::MemorySnapshot, Registers};
 
 /// Changes since a known immutable memory version. Published captures accumulate
-/// these until taken for upload. Retains plane references, not earlier captures,
+/// these until taken for upload. Retains memory references, not earlier captures,
 /// so the latest snapshot cannot keep a capture history.
 #[derive(Clone)]
 #[cfg(feature = "renderer")]
 pub(crate) struct MemoryChanges {
-    pub baseline: [Arc<[u8]>; 4],
+    pub baseline: MemorySnapshot,
     pub pages: DirtyPages,
 }
 
@@ -30,9 +29,9 @@ pub struct DisplaySnapshot {
     pub cursor_blink_on: bool,
     /// Attribute blink phase, toggled every sixteen retraces for text and graphics.
     pub attribute_blink_on: bool,
-    pub(crate) planes: [Arc<[u8]>; 4],
-    /// Optional transfer hints; complete planes remain authoritative. Keep these
-    /// with their memory even when a caller replaces CapturedFrame::display.
+    pub(crate) memory: MemorySnapshot,
+    /// Optional transfer hints; complete captured memory remains authoritative.
+    /// Keep these with their memory even when a caller replaces CapturedFrame::display.
     #[cfg(feature = "renderer")]
     pub(crate) changes: Option<MemoryChanges>,
 }
@@ -44,16 +43,12 @@ impl DisplaySnapshot {
         self.cursor_blink_on == other.cursor_blink_on
             && self.attribute_blink_on == other.attribute_blink_on
             && self.registers == other.registers
-            && self
-                .planes
-                .iter()
-                .zip(&other.planes)
-                .all(|(a, b)| Arc::ptr_eq(a, b))
+            && self.memory.same_blocks(&other.memory)
     }
 
     /// One complete 64-KiB physical plane, including bytes outside the display.
     /// Panics when `plane` is outside 0–3.
     pub fn plane(&self, plane: usize) -> &[u8] {
-        &self.planes[plane]
+        &self.memory.blocks[..4][plane]
     }
 }

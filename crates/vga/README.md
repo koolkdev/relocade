@@ -908,6 +908,12 @@ Changing addressing modes never repacks memory. Packed accesses bypass VGA
 latches and write masks. Immutable 64-KiB storage blocks preserve retained
 VGA snapshots and avoid allocating unused extended memory until written.
 
+Immutable memory snapshots retain the blocks covering a display's physical
+memory extent, rounded to complete groups of four interleaved blocks. Legacy
+VGA captures retain the first four blocks. Dirty pages are tracked throughout
+VRAM; an upload uses sparse ranges only when its prior block matches the
+capture's baseline, and uploads a complete block when that baseline is absent.
+
 Packed SVGA capture, timing and rendering are a subsequent capability. While
 SVGA is enabled, the frame source retains its last VGA capture and publishes no
 new ones; legacy raster/status timing continues. `Vga::snapshot()` still returns
