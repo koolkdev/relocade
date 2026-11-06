@@ -2,8 +2,7 @@
 
 use super::{Backend, CpuContext, Dispatch, RuntimeMemory};
 use crate::IoBus;
-use relocade_x86::{ExecutionExit, ExecutionProfile};
-use std::task::{Context, Poll};
+use relocade_x86::ExecutionExit;
 
 pub(super) struct Machine {
     pub backend: Backend,
@@ -18,24 +17,7 @@ impl Machine {
             cpu: &self.bindings.cpu,
             memory: self.bindings.guest.view().with_io(&self.io),
             io: &self.io,
-        }
-    }
-
-    pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
-        let cpu = &self.bindings.cpu;
-        if self.io.is_empty()
-            || cpu.execution_target().profile != ExecutionProfile::Real16
-            || !cpu.interrupts_enabled()
-        {
-            return Poll::Pending;
-        }
-        self.io.poll_interrupt(cx)
-    }
-
-    pub fn enter_interrupt(&mut self, vector: u8) -> Result<(), ExecutionExit> {
-        match self.dispatch.enter_interrupt(&mut self.backend, vector) {
-            ExecutionExit::InterruptEntered => Ok(()),
-            exit => Err(exit),
+            interrupt_calls: None,
         }
     }
 

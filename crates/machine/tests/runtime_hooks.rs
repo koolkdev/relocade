@@ -1,3 +1,5 @@
+#[path = "runtime_hooks/interrupt_calls.rs"]
+mod interrupt_calls;
 mod support;
 
 use relocade_compiler::Program;

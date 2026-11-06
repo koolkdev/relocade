@@ -6,7 +6,8 @@
 //! which restores IP, CS and FLAGS. Handlers can update saved flags with
 //! [`set_carry`] or [`set_zero`] before returning.
 //!
-//! The second byte resumes the top suspended host call after guest IRQ execution.
+//! The second byte resumes the top suspended host call after a device IRQ or an
+//! awaited [`crate::CpuContext::call_interrupt`] handler returns.
 
 mod bindings;
 mod registration;

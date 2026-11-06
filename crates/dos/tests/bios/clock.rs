@@ -113,14 +113,58 @@ fn timer_advances_the_clock_during_guest_execution() {
                 program.extend_from_slice(&[
                     0xc6, 0x06, 0, 3, 1, // Publish that guest execution has started.
                     0x31, 0xc0, 0x8e, 0xc0, // ES=0.
+                    0xb8, 0x34, 0x12, 0xba, 0x78, 0x56, // AX/DX sentinels.
                     0x26, 0x83, 0x3e, 0x6c, 4, 0, 0x74, 0xf8, // Wait for BDA tick.
-                    0xcd, 0x1a, // Read clock.
+                    0x2e, 0xa3, 0x0a, 3, // Record BIOS-preserved AX, DX and DS.
+                    0x2e, 0x89, 0x16, 0x0c, 3, 0x2e, 0x8c, 0x1e, 0x0e, 3, 0x31, 0xc0, 0xcd,
+                    0x1a, // Read clock.
                     0x89, 0x16, 2, 3, // Save DX.
                     0xb8, 0, 0x4c, 0xcd, 0x21, // Exit.
                 ]);
                 dos.launch_com(&program, Default::default()).unwrap();
+                let memory = dos.cpu().memory();
+                let callback = memory.view().read_u32(0x1c * 4).unwrap();
+                memory.view().write_u32(0x10320, callback).unwrap();
+                memory.view().write(0x1c * 4, &[0, 6, 0, 0x10]).unwrap();
+                memory
+                    .view()
+                    .write(
+                        0x10600,
+                        &[
+                            0xa1, 0x6c, 0, // Read the tick through BIOS-supplied DS.
+                            0x2e, 0xa3, 4, 3, // Save through CS, independent of caller DS.
+                            0x2e, 0x8c, 0x1e, 8, 3, // Record callback DS.
+                            0x55, 0x89, 0xe5, // PUSH BP; MOV BP,SP.
+                            0x9c, 0x58, 0x2e, 0xa3, 0x10, 3, // Live FLAGS.
+                            0x8b, 0x46, 6, 0x2e, 0xa3, 0x12, 3,    // Saved FLAGS.
+                            0x5d, // POP BP.
+                            0xb0, 0x0b, 0xe6, 0x20, 0xe4, 0x20, // Read master PIC ISR.
+                            0x2e, 0xa2, 6, 3, 0xb8, 0, 0x20, 0x8e,
+                            0xd8, // Clobber DS, AX, DX.
+                            0xb8, 0xad, 0xde, 0xba, 0xef, 0xbe, 0x2e, 0xff, 0x2e, 0x20,
+                            3, // Chain to the original INT 1Ch.
+                        ],
+                    )
+                    .unwrap();
                 assert!(ready.send(dos.cpu().memory()).is_ok());
                 assert_eq!(dos.run(runner).await, Ok(0));
+                assert_eq!(memory.view().read_u16(0x10304).unwrap(), 1);
+                assert_eq!(memory.view().read_u16(0x10308).unwrap(), 0x40);
+                assert_eq!(memory.view().read_u16(0x1030a).unwrap(), 0x1234);
+                assert_eq!(memory.view().read_u16(0x1030c).unwrap(), 0x5678);
+                assert_eq!(memory.view().read_u16(0x1030e).unwrap(), 0x1000);
+                assert_eq!(memory.view().read_u16(0x10310).unwrap() & 0x200, 0);
+                assert_eq!(memory.view().read_u16(0x10312).unwrap() & 0x200, 0x200);
+                assert_eq!(
+                    memory.view().read_u8(0x10306).unwrap(),
+                    1,
+                    "IRQ0 remains in service throughout INT 1Ch"
+                );
+                assert_eq!(
+                    dos.cpu().context().io.read_port(0x20, 1),
+                    0,
+                    "the BIOS acknowledges IRQ0 after the callback"
+                );
                 dos.cpu().memory().view().read_u16(0x10302).unwrap()
             });
             let memory = shared_memory.await.unwrap();
@@ -173,6 +217,19 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
                 let timer_vector = memory.view().read_u32(8 * 4).unwrap();
                 let service_vector = memory.view().read_u32(u32::from(vector) * 4).unwrap();
                 memory.view().write_u32(0x10320, timer_vector).unwrap();
+                let callback = memory.view().read_u32(0x1c * 4).unwrap();
+                memory.view().write_u32(0x10328, callback).unwrap();
+                memory.view().write(0x1c * 4, &[0x80, 6, 0, 0x10]).unwrap();
+                memory
+                    .view()
+                    .write(
+                        0x10680,
+                        &[
+                            0x2e, 0xff, 0x06, 0x24, 3, // INC word CS:[0324].
+                            0x2e, 0xff, 0x2e, 0x28, 3, // Chain original INT 1Ch.
+                        ],
+                    )
+                    .unwrap();
                 memory.view().write(8 * 4, &[0, 6, 0, 0x10]).unwrap();
                 memory.view().write(0x10400, &[4, 0]).unwrap();
                 memory
@@ -233,10 +290,12 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
             clock.advance(TICK);
             drive_until(execution.as_mut(), || {
                 memory.view().read_u32(0x46c).unwrap() == 0x18_00af
+                    && memory.view().read_u16(0x10324).unwrap() == 1
             });
             clock.advance(TICK * 2);
             drive_until(execution.as_mut(), || {
                 memory.view().read_u8(0x470).unwrap() == 1
+                    && memory.view().read_u16(0x10324).unwrap() == 2
             });
             assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
             assert!(keyboard.store_key(relocade_bios::KeyStroke {
