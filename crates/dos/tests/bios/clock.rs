@@ -7,7 +7,7 @@ mod manual_clock;
 use manual_clock::ManualClock;
 use relocade_machine::ExecutionWorker;
 use std::{
-    future::Future,
+    future::{poll_fn, Future},
     pin::{pin, Pin},
     time::{Duration, Instant},
 };
@@ -136,7 +136,7 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
         ] {
             let clock = ManualClock::default();
             let (runner, _host) = common::runner(clock.clone());
-            let (ready, prepared) = futures_channel::oneshot::channel();
+            let (ready, mut prepared) = futures_channel::oneshot::channel();
             let execution = runner.run(std::future::pending::<()>(), async |runner| {
                 let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
                 dos.launch_com(
@@ -212,8 +212,12 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
                 );
             });
             let mut execution = pin!(execution);
-            common::assert_pending(execution.as_mut());
-            let (state, memory, keyboard) = prepared.await.unwrap();
+            let (state, memory, keyboard) = poll_fn(|cx| {
+                assert!(execution.as_mut().poll(cx).is_pending());
+                Pin::new(&mut prepared).poll(cx)
+            })
+            .await
+            .unwrap();
             assert!(state.interrupts_enabled());
             clock.advance(TICK);
             drive_until(execution.as_mut(), || {

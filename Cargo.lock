@@ -2207,6 +2207,7 @@ dependencies = [
  "pollster",
  "relocade-frontend",
  "relocade-machine",
+ "relocade-pic",
  "relocade-vga",
  "relocade-x86",
  "wasm-bindgen-test",
@@ -2267,6 +2268,7 @@ dependencies = [
  "relocade-frontend",
  "relocade-machine",
  "relocade-pc-speaker",
+ "relocade-pic",
  "relocade-pit",
  "relocade-vfs",
  "relocade-vga",
@@ -2345,10 +2347,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-pic"
+version = "0.0.0"
+dependencies = [
+ "relocade-machine",
+]
+
+[[package]]
 name = "relocade-pit"
 version = "0.0.0"
 dependencies = [
  "relocade-machine",
+ "relocade-pic",
  "wasm-bindgen-test",
 ]
 

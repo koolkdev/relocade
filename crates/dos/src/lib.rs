@@ -156,8 +156,15 @@ impl<C: Clock> Dos<C> {
         let speaker = Rc::new(RefCell::new(Speaker::with_clock(clock)));
         let keyboard = relocade_bios::Keyboard::default();
         let (keyboard_input, keyboard_device) = keyboard.connect(runner).await;
+        let pic = relocade_pic::Pic::default();
+        pic.unmask_irq(relocade_pic::TIMER_IRQ);
+        let timer = relocade_pit::connect_channel0(runner, pic.irq(relocade_pic::TIMER_IRQ)).await;
+        let pic = runner
+            .connect(Rc::new(RefCell::new(pic)), [], [relocade_pic::PORT_RANGE])
+            .await;
         let io = IoBus::new([
-            relocade_pit::connect_channel0(runner).await,
+            pic,
+            timer,
             runner
                 .connect(speaker.clone(), [], relocade_pc_speaker::PORTS)
                 .await,

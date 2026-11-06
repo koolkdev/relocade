@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+relocade-pic = { path = "../pic" }
 relocade-machine = { path = "../machine" }
 relocade-vga = { path = "../vga" }
 relocade-x86 = { path = "../x86" }
