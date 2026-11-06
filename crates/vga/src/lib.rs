@@ -69,7 +69,7 @@ impl<C: Clock> Vga<C> {
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Rc<C>) -> Self {
         let registers = Registers::default();
-        let raster = Raster::new(clock.now(), Timing::new(&registers));
+        let raster = Raster::new(clock.now(), Timing::vga(&registers));
         Self {
             memory: VideoMemory::default(),
             registers,
@@ -97,7 +97,7 @@ impl<C: Clock> Vga<C> {
     /// advancing time, publishing a frame, or changing CPU read/access latches.
     /// Shares immutable memory and copies the active display settings and DAC.
     /// Packed SVGA captures own their layout independently of the CPU bank.
-    /// The display-start latch stays at the last serviced retrace; this does not
+    /// The display-start latch stays at the last serviced VGA retrace; this does not
     /// force pending CRTC start-address writes to become effective.
     /// Unlike [`FrameSource`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
@@ -105,8 +105,7 @@ impl<C: Clock> Vga<C> {
             Some(layout) => Scanout::Svga(layout),
             None => Scanout::Vga(VgaDisplayState::capture(
                 &self.registers,
-                self.raster.cursor_blink_on(),
-                self.raster.attribute_blink_on(),
+                self.raster.retrace_count,
             )),
         };
         DisplaySnapshot {
@@ -128,10 +127,8 @@ impl<C: Clock> Vga<C> {
     /// Guest writes call this first, while the preceding registers and VRAM still apply.
     fn sync_to_clock(&mut self) {
         if let Some(time) = self.raster.update_to(self.clock.now()) {
-            self.registers.crtc.latch_display_start();
-            // Keep the last VGA capture until fixed SVGA timing is available.
-            if self.dispi.enabled() {
-                return;
+            if self.dispi.display_layout().is_none() {
+                self.registers.crtc.latch_display_start();
             }
             let display = self.snapshot();
             if self
@@ -214,6 +211,7 @@ impl<C: Clock> Device for Vga<C> {
 
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
         self.sync_to_clock();
+        let previous_layout = self.dispi.display_layout();
         if dispi::PORT_RANGE.contains(&port) {
             if self.setup.enabled() {
                 match self.dispi.write_port(port, bytes, value) {
@@ -221,17 +219,28 @@ impl<C: Clock> Device for Vga<C> {
                     dispi::WriteEffect::ClearVram => self.memory.clear_vram(),
                 }
             }
-            return;
-        }
-        for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-            match port.wrapping_add(index as u16) {
-                ADAPTER_CONTROL_PORT => self.setup.write_control(*byte),
-                OPTION_SELECT_PORT => self.setup.write_option(*byte),
-                port if self.setup.enabled() => self.registers.write_port(port, *byte),
-                _ => {}
+        } else {
+            for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
+                match port.wrapping_add(index as u16) {
+                    ADAPTER_CONTROL_PORT => self.setup.write_control(*byte),
+                    OPTION_SELECT_PORT => self.setup.write_option(*byte),
+                    port if self.setup.enabled() => self.registers.write_port(port, *byte),
+                    _ => {}
+                }
             }
         }
-        if self.raster.set_timing(Timing::new(&self.registers)) {
+        let layout = self.dispi.display_layout();
+        let timing = match layout {
+            Some(layout) => Timing::svga(layout),
+            None => Timing::vga(&self.registers),
+        };
+        let timing_changed = if layout != previous_layout {
+            self.raster.restart(timing);
+            true
+        } else {
+            self.raster.set_timing(timing)
+        };
+        if timing_changed {
             self.timing_changed.notify(usize::MAX);
         }
     }

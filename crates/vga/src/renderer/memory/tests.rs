@@ -77,6 +77,45 @@ fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
     assert_eq!(&uploads.bytes[262144..327680], &[0xa5; 65536]);
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn packed_publications_accumulate_extended_pages_and_clear_them_on_mode_entry() {
+    let clock = Rc::new(TestClock::default());
+    let mut vga = Vga::with_clock(clock.clone());
+    let mut uploads = Uploads::default();
+    uploads.update(&take(&mut vga, &clock).display);
+    for (index, value) in [(1, 640), (2, 480), (3, 8), (4, 1)] {
+        vga.write_port(0x1ce, 2, index);
+        vga.write_port(0x1cf, 2, value);
+    }
+    assert_eq!(uploads.update(&take(&mut vga, &clock).display).len(), 8);
+    vga.write_port(0x1ce, 2, 5);
+    vga.write_port(0x1cf, 2, 4);
+    vga.write_mmio(0xa0000, 1, 1);
+    let skipped = publish(&mut vga, &clock);
+    vga.write_mmio(0xa1000, 1, 2);
+    vga.write_mmio(0xa2003, 1, 3);
+    let latest = take(&mut vga, &clock);
+    assert_eq!(
+        uploads.update(&latest.display),
+        [(262144, 2048), (460800, 1024)]
+    );
+    assert_eq!(skipped.display.vram_byte(0x40000), Some(1));
+    assert_eq!(skipped.display.vram_byte(0x41000), Some(0));
+
+    vga.write_port(0x1ce, 2, 4);
+    vga.write_port(0x1cf, 2, 0);
+    vga.write_mmio(0xb8000, 1, u64::from(b'A'));
+    assert_eq!(uploads.update(&take(&mut vga, &clock).display), [(0, 1024)]);
+    vga.write_port(0x1cf, 2, 1);
+    let cleared = take(&mut vga, &clock);
+    let writes = uploads.update(&cleared.display);
+    assert_eq!(writes.len(), 8);
+    assert!(writes.iter().all(|(_, bytes)| *bytes == 65536));
+    assert_eq!(cleared.display.vram_byte(0x42003), Some(0));
+    assert_eq!(latest.display.vram_byte(0x42003), Some(3));
+}
+
 fn publish(vga: &mut Vga<TestClock>, clock: &TestClock) -> Arc<CapturedFrame> {
     clock.0.set(clock.now() + Duration::from_millis(20));
     vga.read_port(0x3da, 1);

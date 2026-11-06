@@ -27,11 +27,7 @@ pub struct VgaDisplayState {
 }
 
 impl VgaDisplayState {
-    pub(crate) fn capture(
-        registers: &Registers,
-        cursor_blink_on: bool,
-        attribute_blink_on: bool,
-    ) -> Self {
+    pub(crate) fn capture(registers: &Registers, retrace_count: u64) -> Self {
         Self {
             sequencer: registers.sequencer.values,
             crtc: registers.crtc.registers,
@@ -40,8 +36,9 @@ impl VgaDisplayState {
             miscellaneous: registers.miscellaneous,
             display_enabled: registers.attribute.address() & 0x20 != 0,
             display_start: registers.crtc.display_start,
-            cursor_blink_on,
-            attribute_blink_on,
+            // IBM VGA: cursor VSYNC/16 and attribute VSYNC/32, both 50% duty.
+            cursor_blink_on: (retrace_count / 8).is_multiple_of(2),
+            attribute_blink_on: (retrace_count / 16).is_multiple_of(2),
         }
     }
 }

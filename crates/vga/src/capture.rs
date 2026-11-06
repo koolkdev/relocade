@@ -11,9 +11,10 @@ use std::{
     time::Duration,
 };
 
-/// Immutable rasterizer input sampled at the start of vertical retrace, after
-/// latching the start address for the following active display. It preserves
-/// coherent display state, not pixel history throughout the preceding refresh.
+/// Immutable rasterizer input sampled at the start of vertical retrace. VGA
+/// latches its start address before sampling the following active display.
+/// This preserves coherent display state, not pixel history throughout the
+/// preceding refresh.
 /// Renderers can read this state directly without allocating a CPU pixel image.
 #[derive(Clone)]
 pub struct CapturedFrame {
@@ -33,9 +34,10 @@ struct Captures {
     closed: AtomicBool,
 }
 
-/// Captured VGA state. Only the latest capture is retained; slow
+/// Captured VGA or SVGA state. Only the latest capture is retained; slow
 /// consumers skip obsolete inputs without blocking guest execution.
-/// A capture is published when memory, registers or either blink phase change.
+/// A capture is published when inputs used by the active display change.
+/// VGA includes registers and blink phases; SVGA uses its layout, DAC and memory.
 /// The comparison is conservative: hidden memory can also count as a change.
 /// CPU port indices and transfer positions are not display inputs. Hardware
 /// timing continues through unchanged refreshes.
@@ -65,7 +67,7 @@ impl FrameSource {
     /// Use one consuming renderer per source. Upload every taken capture before
     /// taking another; skipped publications are already included in its dirty map.
     /// A new GPU still needs a full upload. Independent readers can render retained
-    /// captures using the renderer's full-plane fallback when baselines differ.
+    /// captures using the renderer's full-block fallback when baselines differ.
     #[cfg(feature = "renderer")]
     pub fn take_capture(&self) -> Option<Arc<CapturedFrame>> {
         // Swap the snapshot and hints together. A concurrent publication retries

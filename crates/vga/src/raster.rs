@@ -3,9 +3,6 @@ use std::time::Duration;
 
 const DISPLAY_DISABLED: u8 = 1 << 0;
 const VERTICAL_RETRACE: u8 = 1 << 3;
-// IBM VGA: VSYNC/16 for the cursor, VSYNC/32 for attributes, both at 50% duty.
-const CURSOR_BLINK_HALF_PERIOD: u64 = 8;
-const ATTRIBUTE_BLINK_HALF_PERIOD: u64 = 16;
 
 /// Raster position at `updated`. Register writes advance using the old timing
 /// before reconfiguring, so programming cannot retime completed frames.
@@ -49,8 +46,8 @@ impl Raster {
             }
             self.retrace_count = self
                 .retrace_count
-                .checked_add(u64::try_from(frames).expect("VGA frame count fits in u64"))
-                .expect("VGA frame sequence exhausted");
+                .checked_add(u64::try_from(frames).expect("Display frame count fits in u64"))
+                .expect("Display frame sequence exhausted");
             let since_latest_boundary = (advanced % u128::from(frame_dots)) as u64;
             Some(now - timing.elapsed_for_dots(since_latest_boundary, self.dot_remainder))
         });
@@ -76,8 +73,10 @@ impl Raster {
             let line = vertical_count * new.scanlines_per_vertical_count
                 + subline * new.scanlines_per_vertical_count / old.scanlines_per_vertical_count;
             let horizontal = self.dot % old.horizontal_total;
-            let horizontal = horizontal / old.dots_per_character * new.dots_per_character
-                + (horizontal % old.dots_per_character).min(new.dots_per_character - 1);
+            let horizontal = horizontal / old.dots_per_horizontal_count
+                * new.dots_per_horizontal_count
+                + (horizontal % old.dots_per_horizontal_count)
+                    .min(new.dots_per_horizontal_count - 1);
             self.dot = (line * new.horizontal_total + horizontal % new.horizontal_total)
                 % new.frame_dots();
             self.dot_remainder = new.rescale_remainder(self.dot_remainder, old);
@@ -85,12 +84,12 @@ impl Raster {
         true
     }
 
-    pub fn cursor_blink_on(&self) -> bool {
-        (self.retrace_count / CURSOR_BLINK_HALF_PERIOD).is_multiple_of(2)
-    }
-
-    pub fn attribute_blink_on(&self) -> bool {
-        (self.retrace_count / ATTRIBUTE_BLINK_HALF_PERIOD).is_multiple_of(2)
+    /// Begin a new display mode at the already serviced clock time. Preserve
+    /// the lifetime retrace count so consumers can wait across mode switches.
+    pub fn restart(&mut self, timing: Timing) {
+        self.timing = timing;
+        self.dot = 0;
+        self.dot_remainder = 0;
     }
 
     pub fn next_retrace_at(&self) -> Option<Duration> {

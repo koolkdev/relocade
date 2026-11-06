@@ -63,12 +63,14 @@ counters determine Input Status 1 and capture deadlines. Mode 12h uses 800×525
 at about 59.94 Hz. The vertical-counter divider scales display height and split
 position independently of character height and repeated scanlines.
 
-`Timing` decodes the register fields and converts between time and oscillator
-ticks. `Raster` retains the current position, fractional progress and retrace
-count. `Vga::sync_to_clock()` updates that state and publishes the latest due
-capture before a guest write changes registers or VRAM. Timing changes replace
-the pending deadline; sequencer reset holds the raster, and the disconnected
-external or reserved clock selections stop it. Screen-off continues to generate
+`timing/vga` decodes programmable register fields, including the four-bit retrace
+end comparison and its wrap across the vertical counter reset. `timing/svga`
+supplies the fixed preset. Both produce common `Timing` counts, explicit retrace
+intervals and clock rates. `Raster` retains position, fractional progress and
+the lifetime retrace count; it knows no CRTC encoding or VGA blink divider.
+`Vga::sync_to_clock()` publishes due inputs before a guest mutation. Timing
+changes replace the pending deadline. In VGA, sequencer reset holds the raster,
+and disconnected external or reserved clock selections stop it. Screen-off continues to generate
 retraces. Disabling CRTC sync suppresses the status pulse while internal sampling
 continues. Integer arithmetic carries fractional progress so repeated polling
 cannot accumulate drift.
@@ -564,10 +566,11 @@ normal ports, and restores register indices and display enable. Display-start ch
 still latch at vertical retrace. BIOS-only restore changes metadata and vectors
 without setting a mode; DAC restore bypasses grayscale and default-palette policy.
 
-At the start of vertical retrace the device latches the programmed display start,
-then captures a complete `DisplaySnapshot` for the following active display:
-four physical memory planes (including fonts), sequencer/CRTC/graphics/attribute
-settings, DAC colors and mask, the effective start address, and both blink phases.
+At the start of vertical retrace the device captures a complete `DisplaySnapshot`
+for the following active display: shared physical memory blocks, the active
+scanout settings, and DAC colors and mask. VGA first latches its display start
+and also captures sequencer/CRTC/graphics/attribute settings, font memory,
+the effective start address, and both blink phases.
 When these inputs change, a `CapturedFrame` is published with that boundary's
 time and hardware retrace count. Unchanged refreshes retain the previous capture,
 including its timestamp; sequence numbers can have gaps. Late service
@@ -613,10 +616,11 @@ can therefore retain many versions of a block.
 observation bookkeeping, and a slow reader can skip any number of captures. The
 capture has no RGBA image. It can cross workers and survive device destruction.
 Waiting for `next_capture` observes changed inputs captured at a refresh boundary,
-not every hardware refresh, pixel output or presentation. Comparison uses plane
-identities, display settings, DAC values and both blink phases without scanning
-VRAM. Hidden memory can conservatively cause publication; CPU port indices and
-transfer positions do not. Hardware
+not every hardware refresh, pixel output or presentation. Comparison uses block
+identities and inputs consumed by the active display without scanning VRAM.
+VGA includes display registers and blink phases; SVGA uses its layout and the
+shared DAC. Hidden captured memory can conservatively cause publication;
+CPU port indices and transfer positions do not. Hardware
 timing and status-port behavior continue through unchanged refreshes, while the
 CPU waits for input and while the app is not drawing. Destroying VGA closes this
 source and wakes waiters without creating an extra frame.
@@ -929,9 +933,23 @@ Dirty pages are tracked throughout
 VRAM; an upload uses sparse ranges only when its prior block matches the
 capture's baseline, and uploads a complete block when that baseline is absent.
 
-`Vga::snapshot()` captures the active VGA or packed SVGA inputs immediately;
-retained captures render after mode changes or device destruction. Fixed SVGA
-timing and publication are a subsequent capability. While SVGA is enabled, the
-frame source retains its last VGA capture and publishes no new ones; legacy
-raster/status timing continues. Disabling resumes VGA publication at the next
-normal capture boundary.
+`Vga::snapshot()` captures active display inputs immediately; retained captures
+render after mode changes or device destruction. Automatic publication uses the
+same shared frame source for both modes.
+
+The fixed SVGA raster runs at 25.175 MHz with 800 dots per line and 525 lines per
+frame, about 59.94 Hz. Visible output is 640×480; vertical retrace begins at line
+490 and ends at line 492. Input Status 1 and capture deadlines use the same raster.
+Legacy clock selection, sequencer reset, CRTC totals and sync controls remain
+stored but do not affect this mode. The legacy display-start latch updates only
+at VGA retraces.
+
+Entering or leaving SVGA first services elapsed time under the old mode, before
+clearing memory or changing scanout. The new raster begins at dot zero at the
+mode-switch time, while the lifetime retrace count stays monotonic. The previous
+capture remains readable until changed inputs are published at the new mode's
+first retrace. Repeating enable, changing the CPU bank or rejected requests do
+not restart timing. Disabling restores timing from the stored VGA registers,
+including a stopped clock or held reset. Mode changes wake the device activity
+to replace its timer deadline. Slow consumers take the latest complete capture
+with accumulated dirty pages; worker and presentation scheduling stay shared.

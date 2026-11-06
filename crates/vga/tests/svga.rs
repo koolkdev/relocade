@@ -1,7 +1,9 @@
 mod common;
+#[path = "svga/frames.rs"]
+mod frames;
 
 use common::support::svga::{enable, get, set};
-use common::{boundary, ManualClock};
+use common::ManualClock;
 use relocade_machine::Device;
 use relocade_vga::Vga;
 use std::rc::Rc;
@@ -175,29 +177,4 @@ fn svga_uses_the_existing_dac_without_resetting_legacy_registers() {
     set(&mut vga, 4, 0);
     assert_eq!(vga.snapshot().dac.colors[42], [1, 2, 3]);
     assert_eq!(vga.registers().crtc, registers.crtc);
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn unsupported_svga_scanout_retains_the_last_vga_capture() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
-    let source = vga.frame_source();
-    vga.write_mmio(0xb8000, 2, 0x0741);
-    clock.set(boundary(1));
-    vga.read_port(0x3da, 1);
-    let before = source.current_capture().unwrap();
-    enable(&mut vga);
-    vga.write_mmio(0xa0000, 4, 0x4433_2211);
-    clock.set(boundary(2));
-    vga.read_port(0x3da, 1);
-    assert_eq!(source.current_capture().unwrap().sequence, before.sequence);
-    assert_eq!(before.display.plane(0)[0], b'A');
-    set(&mut vga, 4, 0);
-    clock.set(boundary(3));
-    vga.read_port(0x3da, 1);
-    let after = source.current_capture().unwrap();
-    assert_eq!(after.sequence, 3);
-    assert_eq!(after.display.plane(0)[0], 0x11);
-    assert_eq!(before.display.plane(0)[0], b'A');
 }

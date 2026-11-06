@@ -1,20 +1,22 @@
 //! Decoded raster counts and exact conversion between time and dot clocks.
-//! Register encodings are interpreted by the register owners.
+//! VGA decoding and fixed SVGA timing supply the same normalized counters.
+mod svga;
+mod vga;
 
-use crate::registers::Registers;
 use std::time::Duration;
 
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 
 /// Horizontal values count dot clocks; vertical values count increments
 /// of the vertical counter. `scanlines_per_vertical_count` relates that counter
-/// to physical scanlines. Character height does not multiply the totals.
+/// to physical scanlines.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct Timing {
     /// Zero while reset holds the counters or the selected input is disconnected.
     oscillator_hz: u64,
     dot_clock_divisor: u64,
-    pub dots_per_character: u64,
+    /// Physical dots per increment of the horizontal counter.
+    pub dots_per_horizontal_count: u64,
     pub horizontal_total: u64,
     pub horizontal_display: u64,
     pub horizontal_display_skew: u64,
@@ -22,38 +24,14 @@ pub(super) struct Timing {
     pub vertical_display: u64,
     pub scanlines_per_vertical_count: u64,
     vertical_retrace_start: u64,
-    vertical_retrace_end_low_bits: u64,
+    vertical_retrace_end: u64,
+    /// End of a pulse continuing from the preceding frame, or zero.
+    wrapped_retrace_end: u64,
     pub reset_active: bool,
     sync_enabled: bool,
 }
 
 impl Timing {
-    pub fn new(registers: &Registers) -> Self {
-        let crtc = &registers.crtc.registers;
-        let sequencer = &registers.sequencer;
-        let reset_active = sequencer.reset_active();
-        Self {
-            oscillator_hz: if reset_active {
-                0
-            } else {
-                registers.oscillator_hz()
-            },
-            dot_clock_divisor: sequencer.dot_clock_divisor(),
-            dots_per_character: sequencer.dots_per_character(),
-            horizontal_total: crtc.horizontal_total() * sequencer.dots_per_character(),
-            horizontal_display: crtc.horizontal_display() * sequencer.dots_per_character(),
-            horizontal_display_skew: crtc.horizontal_display_skew()
-                * sequencer.dots_per_character(),
-            vertical_total: crtc.vertical_total(),
-            vertical_display: crtc.vertical_display(),
-            scanlines_per_vertical_count: crtc.scanlines_per_vertical_count(),
-            vertical_retrace_start: crtc.vertical_retrace_start(),
-            vertical_retrace_end_low_bits: crtc.vertical_retrace_end_low_bits(),
-            reset_active,
-            sync_enabled: crtc.sync_enabled(),
-        }
-    }
-
     pub fn clock_running(self) -> bool {
         self.oscillator_hz != 0
     }
@@ -113,16 +91,7 @@ impl Timing {
         if self.reset_active || !self.sync_enabled || start >= self.vertical_total {
             return false;
         }
-        // CRTC compares only the low four counter bits at retrace end. Find the
-        // first match after the start; if the counter resets first, comparison
-        // resumes from zero (IBM VGA Function p2-70).
-        let end_low_bits = self.vertical_retrace_end_low_bits;
-        let first_end_match =
-            start + ((end_low_bits.wrapping_sub(start).wrapping_sub(1) & 0x0f) + 1);
-        if vertical_count >= start {
-            vertical_count < first_end_match
-        } else {
-            first_end_match >= self.vertical_total && vertical_count < end_low_bits
-        }
+        (vertical_count >= start && vertical_count < self.vertical_retrace_end)
+            || vertical_count < self.wrapped_retrace_end
     }
 }
