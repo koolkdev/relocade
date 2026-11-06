@@ -26,6 +26,10 @@ impl InDos {
         Call(self)
     }
 
+    pub(crate) fn count(&self) -> u8 {
+        self.0.view().read_u8(ADDRESS.address()).unwrap()
+    }
+
     fn add(&self, delta: i8) {
         let mut memory = self.0.view();
         let count = memory.read_u8(ADDRESS.address()).unwrap();

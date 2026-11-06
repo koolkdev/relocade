@@ -1,7 +1,6 @@
 //! BIOS-backed console and the built-in DOS sink/unavailable drivers.
 
 use super::{attributes, input::ConsoleInput, CharacterDriver, DriverFuture};
-use relocade_bios::Keyboard;
 use relocade_machine::MemoryBus;
 
 pub(crate) struct BiosConsole {
@@ -10,11 +9,8 @@ pub(crate) struct BiosConsole {
 }
 
 impl BiosConsole {
-    pub fn new(memory: MemoryBus, keyboard: Keyboard) -> Self {
-        Self {
-            memory,
-            input: ConsoleInput::new(keyboard),
-        }
+    pub fn new(memory: MemoryBus, input: ConsoleInput) -> Self {
+        Self { memory, input }
     }
 }
 

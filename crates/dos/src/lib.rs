@@ -8,7 +8,7 @@
 //! Their PSP saves INT 22h/23h/24h at 000Ah/000Eh/0012h. Termination restores those
 //! vectors from guest RAM, including guest edits, while preserving unrelated IVT
 //! entries. The root process returns to its host caller; it does not execute
-//! INT 22h. Child EXEC and Ctrl-Break/critical-error dispatch are not implemented.
+//! INT 22h. Child EXEC and critical-error dispatch are not implemented.
 //! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock. PIT channel 0 raises
 //! IRQ0 about 18.2 times per second by default; guest programming can change its
 //! rate. The BIOS handler advances the clock on each delivered interrupt.
@@ -19,10 +19,23 @@
 //! Graphics-mode console bytes remain buffered but do not draw glyphs yet.
 //! AH=06h polls stdin without echo or writes one byte to stdout.
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
+//! AH=01h/02h/08h/09h/0Ah/0Bh and cooked console handle I/O check Ctrl-C.
+//! DOS's INT 1Bh converts physical Ctrl-Break to console Ctrl-C. CON skips the
+//! BIOS's 0000h dummy keys; extended keys still produce zero followed by a scan byte.
+//! A top-level checked call prints ^C and invokes the live INT 23h with the
+//! original user registers and stack and InDOS clear. The default handler terminates.
+//! Operations await that callback directly, then retry character input or restart
+//! their line/string from the beginning. Continuing handlers preserve registers.
+//! IRET and RETF 2 continue regardless of carry; ordinary RETF uses carry to
+//! choose continuation or termination.
+//! AH=33h/AL=00h/01h/02h gets, sets or exchanges BREAK checking. BREAK ON extends
+//! console checks to other INT 21h calls, even with redirected stdin. AH=06h/07h
+//! bypass those checks; AH=33h itself bypasses InDOS and break checking.
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
 //! eight-column stops. [`Cpu::run`] awaits an empty input source and resumes
 //! the pending read when input becomes available.
-//! AH=0Bh and IOCTL AX=4406h query input without consuming it; AX=4407h reports
+//! AH=0Bh checks for a break, then queries input availability. IOCTL AX=4406h
+//! queries input without consuming it; AX=4407h reports
 //! output readiness. Console status describes queued keys, not a buffered line.
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
 //! Its capacity includes the terminating CR; the returned count excludes it.
@@ -160,8 +173,8 @@ impl<C: Clock> Dos<C> {
         Self::from_pc(Pc::new(runner).await?).await
     }
 
-    /// Installs the DOS allocator, console devices, filesystem and INT 20h/21h
-    /// services on an existing PC. BIOS, hardware and queued input are preserved.
+    /// Installs the DOS allocator, console devices, filesystem and interrupt
+    /// handlers on an existing PC. Hardware and queued input are preserved.
     /// Conventional memory from the first MCB onward becomes the DOS process arena.
     /// Launch a program before executing DOS services.
     ///

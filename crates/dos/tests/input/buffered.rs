@@ -28,6 +28,7 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             cpu.set_eflags(0x643);
         }
         let mut input = dos.stdin();
+        let keyboard = dos.keyboard();
         let output = dos.stdout();
         input.write_all(b"ab").unwrap();
         crate::common::assert_pending(dos.cpu().run());
@@ -45,10 +46,14 @@ fn buffered_input_keeps_editing_across_waits_and_returns_through_iret() {
             let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             let mut cx = Context::from_waker(Waker::noop());
             assert!(run.as_mut().poll(&mut cx).is_pending());
-            input.write_all(b"\x08\0").unwrap(); // Backspace; split extended key.
+            input.write_all(b"\x08").unwrap();
+            assert!(keyboard.store_key(relocade_bios::KeyStroke {
+                character: 0,
+                scan_code: 0x48
+            }));
             assert!(run.as_mut().poll(&mut cx).is_pending());
             assert_eq!(common::output(output.clone()), b"\x08 \x08");
-            input.write_all(b"\x48c\rN").unwrap();
+            input.write_all(b"c\rN").unwrap();
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
                 Poll::Ready(ExecutionExit::Interrupted)

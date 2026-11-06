@@ -22,7 +22,6 @@ mod short_name;
 #[cfg(test)]
 mod tests;
 pub(crate) use create::CreateMode;
-pub(crate) use devices::DeviceHandle;
 use file_handle::FileHandle;
 pub(crate) use handles::Handle;
 use handles::HANDLE_COUNT;

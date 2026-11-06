@@ -155,4 +155,17 @@ impl FileHandle {
         let open = self.0.borrow();
         u64::from(open.position) < open.file.len()
     }
+
+    pub(super) fn peek_character(&self) -> Result<Option<u8>, DosError> {
+        let open = self.0.borrow();
+        if !open.access.can_read() {
+            return Err(DosError::AccessDenied);
+        }
+        let mut byte = [0];
+        let count = open
+            .file
+            .read_at(&mut byte, u64::from(open.position))
+            .map_err(|_| DosError::AccessDenied)?;
+        Ok((count != 0).then_some(byte[0]))
+    }
 }

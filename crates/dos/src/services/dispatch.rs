@@ -1,28 +1,33 @@
 //! INT 21h selection; each service owns its argument and return mapping.
 
-use super::{console, directories, files, ioctl, memory, search, system, Services};
+use super::{console, control, directories, files, ioctl, memory, search, system, Services};
 use crate::ServiceError;
-use console::Input;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, MemoryView,
 };
 
-#[interrupt(context(call), args(function = ah))]
-pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
-    let _in_dos = services.dos.indos().enter();
+#[interrupt(context(call))]
+pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
+    if call.cpu.ah() == 0x33 {
+        interrupt_dispatch!(
+            call,
+            match () {
+                () => control::break_setting(services),
+            }
+        );
+        return;
+    }
+    let mut request = control::Request::new(call, services);
+    if request.function > 0x0c && services.dos.check_break.get() {
+        while console::check_console_break(services).await {
+            request.handle_break(call).await;
+        }
+    }
     interrupt_dispatch!(
         call,
-        match function {
-            0x01 => console::read_character_echo(Input::new(services)),
-            0x02 => console::write_character(services),
-            0x06 => console::direct_io(Input::new(services)),
-            0x07 => console::read_character(Input::new(services)),
-            0x08 => console::read_character_check_break(Input::new(services)),
-            0x09 => console::write_string(services),
-            0x0a => console::read_buffered(Input::new(services)),
-            0x0b => console::input_status(services),
-            0x0c => console::flush_input(services),
+        match request.function {
+            0x01..=0x0c => console::dispatch(&mut request),
             0x0e => directories::select_drive(services),
             0x19 => directories::get_drive(services),
             0x1a => search::set_dta(services),
@@ -37,8 +42,8 @@ pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>, fu
             0x3c => files::create_or_truncate(services),
             0x3d => files::open(services),
             0x3e => files::close(services),
-            0x3f => files::io::read(services),
-            0x40 => files::io::write(services),
+            0x3f => files::io::read(&mut request),
+            0x40 => files::io::write(&mut request),
             0x41 => files::metadata::delete(services),
             0x42 => files::seek(services),
             0x43 => files::metadata::attributes(services),

@@ -6,7 +6,6 @@ use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 
 pub(super) mod io;
 pub(super) mod metadata;
-mod transfer;
 
 #[interrupt(returns { error => crate::interrupt::return_error(error) })]
 pub(super) fn long_filename() -> DosError {

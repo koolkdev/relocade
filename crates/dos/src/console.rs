@@ -2,7 +2,7 @@
 
 mod line;
 mod output;
-pub(crate) use line::edit_line;
+pub(crate) use line::{edit_line, LineEditor};
 pub(crate) use output::CharacterOutput;
 
 use crate::{devices::dos_bytes, stdio::Stdio};
