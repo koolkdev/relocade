@@ -43,5 +43,7 @@ mod strings;
 mod tables;
 #[path = "bios/text_modes.rs"]
 mod text_modes;
+#[path = "bios/vbe.rs"]
+mod vbe;
 #[path = "bios/video.rs"]
 mod video;

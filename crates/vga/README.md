@@ -901,7 +901,16 @@ Entering a valid mode clears all VRAM and selects bank zero. Repeating enable
 while active preserves VRAM and the current bank. Disabling preserves VRAM,
 legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
 including LFB and no-clear, are ignored as a whole. No newer DISPI capability,
-virtual layout, VBE BIOS service or linear aperture is advertised.
+virtual layout or linear aperture is advertised.
+
+The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
+`4F01h` information for mode `0101h` (640×480×8), using the 256-byte VBE 1.2
+layouts. It reports the 4 MiB adapter, a terminated ROM mode list, one readable
+and writable 64 KiB window at A000h, and no callable bank function or additional
+display pages. BIOS output functions are not advertised for this mode. These
+services are an incremental subset, not a complete VBE 1.2 implementation;
+unimplemented functions return AL != 4Fh, while failed supported requests return
+AX=014Fh. All VBE results preserve flags.
 
 A supported legacy BIOS mode set disables SVGA after validating the request and
 before loading fonts or writing the VGA aperture. Unsupported mode requests leave

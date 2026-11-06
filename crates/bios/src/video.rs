@@ -2,7 +2,8 @@
 //!
 //! Direct calls take memory, I/O and ordinary values; they never access CPU
 //! registers. Invalid mode/page requests return None. The interrupt adapter maps
-//! that outcome to AH=86h/CF and writes declared successful results.
+//! that outcome to AH=86h/CF and writes declared successful results. VBE uses its
+//! separate AX status convention and preserves flags.
 //! BIOS bookkeeping never selects host rendering.
 
 mod adapter;
@@ -21,6 +22,7 @@ mod scroll;
 mod state;
 mod strings;
 mod tables;
+mod vbe;
 
 pub use characters::{
     read_character, teletype, write_characters, write_characters_preserving_attributes,
@@ -62,6 +64,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     fonts::initialize(memory);
     information::initialize(memory);
     tables::initialize(memory);
+    vbe::initialize(memory);
     // VGA color startup uses 80×25 nine-dot cells and the 16-high font.
     assert!(
         modes::select_scanlines(memory, 2),

@@ -2,7 +2,7 @@
 
 use super::{
     adapter, characters, control, cursor, fonts, graphics, information, modes, palette, scroll,
-    state, strings,
+    state, strings, vbe,
 };
 use crate::screen;
 use relocade_machine::{
@@ -37,6 +37,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
             0x1a => display_combination,
             0x1b => information::write_report,
             0x1c => state_services,
+            0x4f => vbe::dispatch,
             _ => crate::interrupt::unsupported,
         }
     );
