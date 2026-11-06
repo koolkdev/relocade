@@ -1,18 +1,21 @@
 //! The guest-visible keyboard flags and circular buffer in the BIOS data area.
 
 use super::{KeyStroke, ShiftState};
-use relocade_machine::{Memory, MemoryView};
+use relocade_machine::{FarPointer, Memory, MemoryView};
 
 // IBM PC/AT keyboard RAM, segment 0040h. Head/tail and bounds are 16-bit
 // offsets within that segment, not linear addresses. The end is exclusive.
-const BDA: u32 = 0x0040 * 16;
-const SHIFT_FLAGS: u32 = BDA + 0x17;
-const HELD_KEYS: u32 = BDA + 0x18;
-const HEAD: u32 = BDA + 0x1a;
-const TAIL: u32 = BDA + 0x1c;
-const BUFFER_START: u32 = BDA + 0x80;
-const BUFFER_END: u32 = BDA + 0x82;
-const KEYBOARD_STATUS: u32 = BDA + 0x96;
+const BDA: FarPointer = FarPointer {
+    segment: 0x0040,
+    offset: 0,
+};
+const SHIFT_FLAGS: FarPointer = BDA.wrapping_add(0x17);
+const HELD_KEYS: FarPointer = BDA.wrapping_add(0x18);
+const HEAD: FarPointer = BDA.wrapping_add(0x1a);
+const TAIL: FarPointer = BDA.wrapping_add(0x1c);
+const BUFFER_START: FarPointer = BDA.wrapping_add(0x80);
+const BUFFER_END: FarPointer = BDA.wrapping_add(0x82);
+const KEYBOARD_STATUS: FarPointer = BDA.wrapping_add(0x96);
 
 const DEFAULT_BUFFER_START: u16 = 0x1e;
 const DEFAULT_BUFFER_END: u16 = 0x3e;
@@ -65,19 +68,24 @@ impl DataArea {
     pub fn new(memory: Memory) -> Self {
         {
             let mut view = memory.view();
-            for (address, value) in [
+            for (pointer, value) in [
                 (HEAD, DEFAULT_BUFFER_START),
                 (TAIL, DEFAULT_BUFFER_START),
                 (BUFFER_START, DEFAULT_BUFFER_START),
                 (BUFFER_END, DEFAULT_BUFFER_END),
             ] {
-                view.write_u16(address, value)
+                view.write_u16(pointer.address(), value)
                     .expect("BIOS keyboard buffer");
             }
-            view.write_u8(SHIFT_FLAGS, 0).expect("BIOS keyboard flags");
-            view.write_u8(HELD_KEYS, 0).expect("BIOS keyboard flags");
-            view.write_u8(KEYBOARD_STATUS, KeyboardStatus::ENHANCED_KEYBOARD.bits())
-                .expect("enhanced keyboard installed");
+            view.write_u8(SHIFT_FLAGS.address(), 0)
+                .expect("BIOS keyboard flags");
+            view.write_u8(HELD_KEYS.address(), 0)
+                .expect("BIOS keyboard flags");
+            view.write_u8(
+                KEYBOARD_STATUS.address(),
+                KeyboardStatus::ENHANCED_KEYBOARD.bits(),
+            )
+            .expect("enhanced keyboard installed");
         }
         Self(memory)
     }
@@ -86,11 +94,11 @@ impl DataArea {
         let next = offset.wrapping_add(KEYSTROKE_BYTES);
         if next
             == memory
-                .read_u16(BUFFER_END)
+                .read_u16(BUFFER_END.address())
                 .expect("BIOS keyboard buffer end")
         {
             memory
-                .read_u16(BUFFER_START)
+                .read_u16(BUFFER_START.address())
                 .expect("BIOS keyboard buffer start")
         } else {
             next
@@ -100,26 +108,31 @@ impl DataArea {
     /// IRQ input is dropped when full, as with the BIOS's fifteen-word buffer.
     pub fn push(&self, key: KeyStroke) -> bool {
         let mut memory = self.0.view();
-        let tail = memory.read_u16(TAIL).expect("BIOS keyboard tail");
+        let tail = memory.read_u16(TAIL.address()).expect("BIOS keyboard tail");
         let next = Self::advance(&memory, tail);
-        if next == memory.read_u16(HEAD).expect("BIOS keyboard head") {
+        if next == memory.read_u16(HEAD.address()).expect("BIOS keyboard head") {
             return false;
         }
         memory
-            .write(BDA + u32::from(tail), &[key.character, key.scan_code])
+            .write(
+                BDA.wrapping_add(usize::from(tail)).address(),
+                &[key.character, key.scan_code],
+            )
             .expect("BIOS keystroke");
-        memory.write_u16(TAIL, next).expect("BIOS keyboard tail");
+        memory
+            .write_u16(TAIL.address(), next)
+            .expect("BIOS keyboard tail");
         true
     }
 
     pub fn peek(&self) -> Option<KeyStroke> {
         let memory = self.0.view();
-        let head = memory.read_u16(HEAD).expect("BIOS keyboard head");
-        if head == memory.read_u16(TAIL).expect("BIOS keyboard tail") {
+        let head = memory.read_u16(HEAD.address()).expect("BIOS keyboard head");
+        if head == memory.read_u16(TAIL.address()).expect("BIOS keyboard tail") {
             return None;
         }
         let word = memory
-            .read_u16(BDA + u32::from(head))
+            .read_u16(BDA.wrapping_add(usize::from(head)).address())
             .expect("BIOS keystroke");
         let [character, scan_code] = word.to_le_bytes();
         Some(KeyStroke {
@@ -131,26 +144,36 @@ impl DataArea {
     pub fn read(&self) -> Option<KeyStroke> {
         let key = self.peek()?;
         let mut memory = self.0.view();
-        let head = memory.read_u16(HEAD).expect("BIOS keyboard head");
+        let head = memory.read_u16(HEAD.address()).expect("BIOS keyboard head");
         let next = Self::advance(&memory, head);
-        memory.write_u16(HEAD, next).expect("BIOS keyboard head");
+        memory
+            .write_u16(HEAD.address(), next)
+            .expect("BIOS keyboard head");
         Some(key)
     }
 
     pub fn discard(&self) {
         let mut memory = self.0.view();
-        let tail = memory.read_u16(TAIL).expect("BIOS keyboard tail");
-        memory.write_u16(HEAD, tail).expect("BIOS keyboard head");
+        let tail = memory.read_u16(TAIL.address()).expect("BIOS keyboard tail");
+        memory
+            .write_u16(HEAD.address(), tail)
+            .expect("BIOS keyboard head");
     }
 
     pub fn flags(&self) -> Flags {
         let memory = self.0.view();
         Flags {
-            shifts: ShiftState::from_bits(memory.read_u8(SHIFT_FLAGS).expect("BIOS shift flags")),
-            held: HeldKeys::from_bits_retain(memory.read_u8(HELD_KEYS).expect("BIOS held keys")),
+            shifts: ShiftState::from_bits(
+                memory
+                    .read_u8(SHIFT_FLAGS.address())
+                    .expect("BIOS shift flags"),
+            ),
+            held: HeldKeys::from_bits_retain(
+                memory.read_u8(HELD_KEYS.address()).expect("BIOS held keys"),
+            ),
             status: KeyboardStatus::from_bits_retain(
                 memory
-                    .read_u8(KEYBOARD_STATUS)
+                    .read_u8(KEYBOARD_STATUS.address())
                     .expect("BIOS keyboard status"),
             ),
         }
@@ -159,13 +182,13 @@ impl DataArea {
     pub fn set_flags(&self, flags: Flags) {
         let mut memory = self.0.view();
         memory
-            .write_u8(SHIFT_FLAGS, flags.shifts.bits())
+            .write_u8(SHIFT_FLAGS.address(), flags.shifts.bits())
             .expect("BIOS keyboard flags");
         memory
-            .write_u8(HELD_KEYS, flags.held.bits())
+            .write_u8(HELD_KEYS.address(), flags.held.bits())
             .expect("BIOS keyboard pressed flags");
         memory
-            .write_u8(KEYBOARD_STATUS, flags.status.bits())
+            .write_u8(KEYBOARD_STATUS.address(), flags.status.bits())
             .expect("BIOS enhanced keyboard flags");
     }
 
