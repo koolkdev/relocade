@@ -9,6 +9,7 @@
 mod builtin;
 mod chain;
 mod input;
+pub(crate) use input::dos_bytes;
 
 use crate::DosError;
 pub(crate) use builtin::{BiosConsole, NullDevice, Unavailable};

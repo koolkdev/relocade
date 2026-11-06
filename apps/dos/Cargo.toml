@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 relocade-app = { path = "../../crates/app", features = ["graphics", "audio"] }
+relocade-frontend = { path = "../../crates/frontend", features = ["keyboard"] }
 relocade-dos = { path = "../../crates/dos" }
 relocade-machine = { path = "../../crates/machine" }
 relocade-pc-speaker = { path = "../../crates/pc-speaker", features = ["audio"] }

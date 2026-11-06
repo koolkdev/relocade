@@ -3,33 +3,79 @@
 use futures_lite::future::or;
 use relocade_dos::Dos;
 use relocade_machine::{Clock, ExecutionWorker};
-use std::{
-    io::{Read, Write},
-    time::Duration,
-};
+use std::{io::Read, time::Duration};
 
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
     let prompt_row = 6;
     let console = ExecutionWorker::run_until(std::future::pending::<()>(), async move |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
-        dos.stdin()
-            .write_all(b"eChO hellx\x08o\runknown\r\r")
-            .unwrap();
+        use relocade_frontend::keyboard::{
+            self, ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState, NativeKey,
+        };
+        let (input, events) = keyboard::channel();
+        for (index, code) in [
+            KeyCode::KeyE,
+            KeyCode::KeyC,
+            KeyCode::KeyH,
+            KeyCode::KeyO,
+            KeyCode::Space,
+            KeyCode::KeyH,
+            KeyCode::KeyE,
+            KeyCode::KeyL,
+            KeyCode::KeyL,
+            KeyCode::KeyX,
+            KeyCode::Backspace,
+            KeyCode::KeyO,
+            KeyCode::Enter,
+            KeyCode::KeyU,
+            KeyCode::KeyN,
+            KeyCode::KeyK,
+            KeyCode::KeyN,
+            KeyCode::KeyO,
+            KeyCode::KeyW,
+            KeyCode::KeyN,
+            KeyCode::Enter,
+            KeyCode::Enter,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let modifiers = if matches!(index, 1 | 3) {
+                ModifiersState::SHIFT
+            } else {
+                ModifiersState::empty()
+            };
+            input
+                .unbounded_send(KeyboardEvent::Modifiers(modifiers))
+                .unwrap();
+            input
+                .unbounded_send(KeyboardEvent::Key {
+                    physical_key: code.into(),
+                    logical_key: Key::Unidentified(NativeKey::Unidentified),
+                    location: KeyLocation::Standard,
+                    text: Some("ש".into()),
+                    state: ElementState::Pressed,
+                    repeat: false,
+                })
+                .unwrap();
+        }
         let video = dos.vga();
         let inspect = async {
             for _ in 0..1000 {
                 // Startup text addressing retains even physical plane addresses.
                 if video.borrow().snapshot().plane(0)[(prompt_row + 5) * 80 * 2] == b'>' {
-                    return Ok::<(), relocade_dos::DosError>(());
+                    return;
                 }
                 runner.clock().sleep(Duration::from_millis(1)).await;
             }
             panic!("console did not return to its prompt");
         };
-        or(relocade_dos_app::run_console(&mut dos), inspect)
-            .await
-            .unwrap();
+        or(
+            relocade_dos_app::run_console(dos.native_console(events)),
+            inspect,
+        )
+        .await;
         let screen = video.borrow().snapshot();
         for (row, text) in [
             b"> eChO hello".as_slice(),

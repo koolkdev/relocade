@@ -1,4 +1,4 @@
-use super::super::{KeyStroke, ShiftState};
+use super::{KeyStroke, ShiftState};
 use relocade_frontend::keyboard::KeyCode;
 
 /// The default guest layout is the US PC keyboard, independent of host text.

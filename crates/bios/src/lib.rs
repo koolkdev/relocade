@@ -44,7 +44,7 @@ mod screen;
 pub mod video;
 
 pub use interrupt::register_interrupts;
-pub use keyboard::{KeyStroke, Keyboard, ShiftState};
+pub use keyboard::{KeyStroke, Keyboard, PhysicalKeyboard, ShiftState};
 use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;
 

@@ -1,10 +1,8 @@
-use crate::error::DosError;
-
-pub(crate) async fn edit_line(
-    mut read: impl AsyncFnMut() -> Result<u8, DosError>,
+pub(crate) async fn edit_line<E>(
+    mut read: impl AsyncFnMut() -> Result<u8, E>,
     capacity: u8,
-    write: impl AsyncFn(u8) -> Result<(), DosError>,
-) -> Result<Vec<u8>, DosError> {
+    write: impl AsyncFn(u8) -> Result<(), E>,
+) -> Result<Vec<u8>, E> {
     let mut editor = LineEditor {
         bytes: Vec::new(),
         capacity,
@@ -29,8 +27,11 @@ struct LineEditor<W> {
     first: bool,
 }
 
-impl<W: AsyncFn(u8) -> Result<(), DosError>> LineEditor<W> {
-    async fn accept(&mut self, byte: u8) -> Result<bool, DosError> {
+impl<W> LineEditor<W> {
+    async fn accept<E>(&mut self, byte: u8) -> Result<bool, E>
+    where
+        W: AsyncFn(u8) -> Result<(), E>,
+    {
         if self.extended_key {
             self.extended_key = false;
             return Ok(false);
@@ -72,7 +73,10 @@ impl<W: AsyncFn(u8) -> Result<(), DosError>> LineEditor<W> {
         Ok(false)
     }
 
-    async fn echo(&self, bytes: &[u8]) -> Result<(), DosError> {
+    async fn echo<E>(&self, bytes: &[u8]) -> Result<(), E>
+    where
+        W: AsyncFn(u8) -> Result<(), E>,
+    {
         for &byte in bytes {
             (self.write)(byte).await?;
         }

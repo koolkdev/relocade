@@ -11,9 +11,41 @@ use std::io::{Read, Write};
 fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
-        dos.console().write(b"> ").await.unwrap();
-        dos.stdin().write_all(b"abx\x08c\r").unwrap();
-        assert_eq!(dos.console().read_line().await.unwrap(), b"abc");
+        use relocade_frontend::keyboard::{
+            self, ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, NativeKey,
+        };
+        let (input, events) = keyboard::channel();
+        for code in [
+            KeyCode::KeyA,
+            KeyCode::KeyB,
+            KeyCode::KeyX,
+            KeyCode::Backspace,
+            KeyCode::ArrowUp,
+            KeyCode::KeyC,
+            KeyCode::Enter,
+        ] {
+            input
+                .unbounded_send(KeyboardEvent::Key {
+                    physical_key: code.into(),
+                    logical_key: Key::Unidentified(NativeKey::Unidentified),
+                    location: KeyLocation::Standard,
+                    text: Some("ש".into()),
+                    state: ElementState::Pressed,
+                    repeat: false,
+                })
+                .unwrap();
+        }
+        dos.stdin().write_all(b"G").unwrap();
+        {
+            let mut console = dos.native_console(events);
+            console.write(b"> ");
+            assert_eq!(console.read_line().await.unwrap(), b"abc");
+            drop(input);
+            assert_eq!(console.read_line().await, None);
+        }
+        assert!(dos.process().is_none());
+        assert_eq!(dos.keyboard().try_read_key().unwrap().character, b'G');
+        assert_eq!(dos.keyboard().peek_key(), None);
         let com = [0xb4, 2, 0xb2, b'C', 0xcd, 0x21, 0xb8, 7, 0x4c, 0xcd, 0x21];
         dos.launch_com(&com, Default::default()).unwrap();
         assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
@@ -22,7 +54,8 @@ fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
         dos.launch_mz(&common::mz_image(&exe), Default::default())
             .unwrap();
         assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
-        dos.console().write(b"> ").await.unwrap();
+        dos.native_console(relocade_frontend::keyboard::channel().1)
+            .write(b"> ");
         let screen = common::screen(&dos);
         assert_eq!(
             screen.cells[..5]

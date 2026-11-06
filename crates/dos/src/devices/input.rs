@@ -14,7 +14,7 @@ use std::{cell::RefCell, iter::Peekable};
 type DosBytes = std::iter::Flatten<std::array::IntoIter<Option<u8>, 2>>;
 
 /// A BIOS keystroke becomes one DOS character byte, or a zero/scan-code pair.
-fn dos_bytes(key: KeyStroke) -> DosBytes {
+pub(crate) fn dos_bytes(key: KeyStroke) -> DosBytes {
     [
         Some(key.character),
         (key.character == 0 && key.scan_code != 0).then_some(key.scan_code),

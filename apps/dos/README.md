@@ -20,8 +20,8 @@ headers. Use a host that honors `_headers`, or configure those headers explicitl
 The shared host owns the canvas.
 
 The application entrypoint connects existing owners. One execution worker owns
-DOS/keyboard/VGA/speaker and the Rust command loop. It sends `dos.keyboard_input()` and
-`dos.frame_source()` through a startup channel. Main attaches those endpoints to
+DOS/keyboard/VGA/speaker and the Rust command loop. It sends the native console's
+input sender and `dos.frame_source()` through a startup channel. Main attaches those endpoints to
 its `AppHost` while driving the application and timer service; the graphics worker
 constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
 a pending console read, and waits for execution and graphics cleanup. Execution
@@ -42,17 +42,33 @@ cleanup, closing any pending PCM submission. No extra synthesis worker is create
 
 ## Console
 
-`run_console(&mut dos).await` runs on the execution owner. It prints the Relocade
-banner once through the same VGA console, then presents a `> ` prompt,
-reads an edited line through the shared DOS console, and implements `echo` with
-case-insensitive command matching. Enter, Backspace, blank lines and unknown
-commands return to the next prompt. This is a small Rust command loop, not a
-COMMAND.COM compatibility implementation.
+The application owns a physical-event channel and runs the prompt on the execution
+owner:
 
-The console uses `dos.console().write(bytes).await` and `read_line().await`; its text,
-cursor and scrolling use the same VGA state as BIOS and DOS program output.
-It does not create a renderer or a worker. Existing `launch_com` and `launch_mz`
-accept supplied bytes; executable lookup and storage selection are not defined here.
+```rust,ignore
+let (input, events) = relocade_frontend::keyboard::channel();
+// Send `input` to AppHost::attach_keyboard on the UI owner.
+run_console(dos.native_console(events)).await;
+```
+
+`NativeConsole::read_line().await` consumes physical events using the BIOS US
+keyboard layout, independent of the host language. It reuses DOS's line editor
+for Enter, Backspace and control characters. `write(bytes)` is synchronous: it
+uses cooked tab stops and the shared BIOS/VGA text, cursor and scrolling code.
+The prompt implements `echo`, with case-insensitive matching, and reports unknown
+commands. It creates no DOS process and writes no duplicate stdout capture.
+
+Native input belongs to the prompt. It does not enter the controller or the BIOS
+keyboard buffer; native output bypasses DOS handles, redirection and installed
+CON drivers. No guest code, IRQ handlers or resident utilities execute at the
+prompt. The runner continues its device activities, including display/audio;
+BIOS ticks advance only when guest execution services timer interrupts.
+
+Guest programs instead receive physical events through `dos.keyboard_input()`
+and use the PC's guest I/O path. `launch_com` and `launch_mz` accept supplied images;
+program lookup and input handoff during launch are future application policy.
+There is no mode flag in the CPU, PIC or BIOS. Drop the native console before
+launching or resuming a guest.
 
 ## Audio validation
 

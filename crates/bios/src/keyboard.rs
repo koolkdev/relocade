@@ -1,6 +1,9 @@
 //! BIOS keystrokes shared by interrupt services and console drivers.
 
 mod input;
+mod layout;
+mod physical;
+pub use physical::PhysicalKeyboard;
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
