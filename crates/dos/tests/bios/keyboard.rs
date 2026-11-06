@@ -3,7 +3,7 @@ use relocade_bios::{KeyStroke, ShiftState};
 use relocade_dos::{Dos, LaunchError};
 use relocade_x86::{CpuState, ExecutionExit, HostExit};
 use std::{
-    future::Future,
+    future::{poll_fn, Future},
     io::Write,
     pin::pin,
     sync::{
@@ -229,7 +229,7 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
         let (clock, timers) = timer_service();
         let timer_thread = std::thread::spawn(|| pollster::block_on(timers.run()));
         let (runner, _host) = common::runner(clock);
-        let (ready, prepared) = futures_channel::oneshot::channel();
+        let (ready, mut prepared) = futures_channel::oneshot::channel();
         let running = runner.run(std::future::pending::<()>(), async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             // BIOS reads AX into memory; DOS then reads another character and exits with it.
@@ -245,13 +245,17 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
             let input = dos.keyboard_input();
             ready.send(input).unwrap();
             assert_eq!(dos.run(runner).await, Ok(b'b'));
-            assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 0x1e41);
+            assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 0x1e61);
         });
         let mut running = pin!(running);
-        common::assert_pending(running.as_mut());
-        let input = prepared.await.unwrap();
+        let input = poll_fn(|cx| {
+            assert!(running.as_mut().poll(cx).is_pending());
+            std::pin::Pin::new(&mut prepared).poll(cx)
+        })
+        .await
+        .unwrap();
         std::thread::spawn(move || {
-            for (code, text) in [(KeyCode::KeyA, "A"), (KeyCode::KeyB, "b")] {
+            for (code, text) in [(KeyCode::KeyA, "ש"), (KeyCode::KeyB, "נ")] {
                 input
                     .unbounded_send(KeyboardEvent::Key {
                         physical_key: code.into(),
