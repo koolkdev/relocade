@@ -24,7 +24,37 @@ export function observeOutput() {
 class Observer {
     get ready() { return this.node !== undefined; }
 
-    check(sampleRate, frequency) {
+    async check(sampleRate, frequency, bufferedFrames) {
+        const deadline = performance.now() + 5000;
+        let started, nextWindow, measured;
+        while (performance.now() < deadline) {
+            if (this.ready && this.context.state === "running") {
+                started ??= this.context.currentTime;
+                // Flush queued PCM and collect a full new analyser window.
+                // Wall time alone cannot establish progress while suspended.
+                nextWindow ??= started + (bufferedFrames + this.analyser.fftSize) / sampleRate;
+                if (this.context.currentTime >= nextWindow) {
+                    measured = this.measure(sampleRate);
+                    const matches = frequency === 0
+                        ? measured.rms <= 0.0001
+                        : measured.rms >= 0.12 && measured.rms <= 0.16
+                            && Math.abs(measured.frequency - frequency) <= 20;
+                    if (matches) {
+                        console.log(`audio ${sampleRate} Hz: tone=${measured.frequency.toFixed(1)} Hz RMS=${measured.rms.toFixed(4)}`);
+                        return;
+                    }
+                    nextWindow = this.context.currentTime + this.analyser.fftSize / sampleRate;
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        const advanced = started === undefined ? 0 : this.context.currentTime - started;
+        const output = measured ? `${measured.frequency} Hz, RMS ${measured.rms}` : "no fresh samples";
+        throw new Error(`Audio check timed out: expected ${frequency} Hz; observed ${output}; `
+            + `context=${this.context?.state ?? "missing"}, node=${this.ready}, audio advanced=${advanced}s`);
+    }
+
+    measure(sampleRate) {
         const data = new Float32Array(4096);
         this.analyser.getFloatTimeDomainData(data);
         let energy = 0, crossings = 0;
@@ -34,17 +64,12 @@ class Observer {
         }
         const rms = Math.sqrt(energy / data.length);
         const measured = crossings * sampleRate / data.length;
-        if (frequency === 0) {
-            if (rms > 0.0001) throw new Error(`Expected silence, RMS ${rms}`);
-        } else if (rms < 0.12 || rms > 0.16 || Math.abs(measured - frequency) > 20) {
-            throw new Error(`Unexpected tone: ${measured} Hz, RMS ${rms}`);
-        }
-        console.log(`audio ${sampleRate} Hz: tone=${measured.toFixed(1)} Hz RMS=${rms.toFixed(4)}`);
+        return { frequency: measured, rms };
     }
 
     finish() {
-        this.analyser.disconnect();
-        this.silence.disconnect();
+        this.analyser?.disconnect();
+        this.silence?.disconnect();
     }
 }
 

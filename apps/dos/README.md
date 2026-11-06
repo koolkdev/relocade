@@ -56,9 +56,11 @@ accept supplied bytes; executable lookup and storage selection are not defined h
 
 ## Audio validation
 
-`cargo test -p relocade-dos-app --test audio` runs real COM port programming,
-keyboard waits, process relaunch and execution/output shutdown against a paced
-PCM receiver. The same fixture runs in the browser suite against CPAL's actual
-AudioWorklet, measuring the resulting tones and silence. The bundled application
-test separately checks click/key activation and console input. These automated
-checks do not establish physical speaker playback or long-term clock accuracy.
+`cargo test -p relocade-dos-app --test audio` runs a COM program that enables the
+speaker, waits for a DOS key, then disables the speaker and waits again. A paced
+PCM receiver checks tone and silence while execution remains active. The browser
+suite uses CPAL's actual AudioWorklet and waits for fresh analyser samples on the
+audio clock, with a bounded timeout and playback diagnostics. Output lifecycle
+and backpressure remain covered by the app audio and speaker tests. The bundled
+application test separately checks click/key activation and console input. These
+automated checks do not establish physical speaker playback or long-term clock accuracy.
