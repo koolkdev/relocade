@@ -1,8 +1,8 @@
 //! BIOS adapter metadata. Identification never changes VGA registers or memory.
 use super::{tables, MODESET_CONTROL, VIDEO_CONTROL, VIDEO_SWITCHES};
+use crate::information::{DISPLAY_MASK, EQUIPMENT, MONOCHROME_DISPLAY};
 use relocade_machine::{FarPointer, MemoryView};
 
-const EQUIPMENT: u32 = 0x410;
 const DISPLAY_COMBINATION: u32 = 0x48a;
 
 // IBM's display-combination table. Each entry describes a pair of adapters;
@@ -119,7 +119,11 @@ pub(super) fn display_codes(memory: &MemoryView<'_>) -> [u8; 2] {
         codes.swap(0, 1);
     }
     if codes[1] != 0 {
-        let monochrome = memory.read_u8(EQUIPMENT).expect("equipment flags") & 0x30 == 0x30;
+        let monochrome = memory
+            .read_u8(EQUIPMENT.address())
+            .expect("equipment flags")
+            & DISPLAY_MASK
+            == MONOCHROME_DISPLAY;
         if (codes[0] & 1 != 0) != monochrome {
             codes.swap(0, 1);
         }

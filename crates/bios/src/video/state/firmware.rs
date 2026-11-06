@@ -1,4 +1,5 @@
 //! The IBM BIOS-data block, including guest-replaceable interrupt vectors.
+use crate::information::{DISPLAY_MASK, EQUIPMENT};
 use relocade_machine::MemoryView;
 
 pub(super) const SIZE: usize = 0x3a;
@@ -16,7 +17,7 @@ const FIELDS: [(u32, usize, usize); 7] = [
 
 pub(super) fn save(memory: &MemoryView<'_>) -> [u8; SIZE] {
     let mut bytes = [0; SIZE];
-    bytes[0] = memory.read_u8(0x410).expect("equipment byte") & 0x30;
+    bytes[0] = memory.read_u8(EQUIPMENT.address()).expect("equipment byte") & DISPLAY_MASK;
     for (address, offset, count) in FIELDS {
         memory
             .read(address, &mut bytes[offset..offset + count])
@@ -26,9 +27,12 @@ pub(super) fn save(memory: &MemoryView<'_>) -> [u8; SIZE] {
 }
 
 pub(super) fn restore(memory: &mut MemoryView<'_>, bytes: &[u8; SIZE]) {
-    let equipment = memory.read_u8(0x410).expect("equipment byte");
+    let equipment = memory.read_u8(EQUIPMENT.address()).expect("equipment byte");
     memory
-        .write_u8(0x410, (equipment & !0x30) | (bytes[0] & 0x30))
+        .write_u8(
+            EQUIPMENT.address(),
+            (equipment & !DISPLAY_MASK) | (bytes[0] & DISPLAY_MASK),
+        )
         .expect("equipment byte");
     for (address, offset, count) in FIELDS {
         memory

@@ -78,7 +78,14 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
         cpu.exit_handle(),
     ));
     crate::memory::reset(&mut cpu.context().memory);
-    relocade_bios::initialize(&mut cpu.context().memory, &io);
+    relocade_bios::initialize(
+        &mut cpu.context().memory,
+        &io,
+        relocade_bios::Configuration {
+            conventional_memory_kib: 640,
+            math_coprocessor: true,
+        },
+    );
     let mut interrupts = relocade_machine::real_mode_interrupt::Interrupts::new(&mut cpu);
     crate::interrupt::register_interrupts(&mut interrupts, dos.clone());
     relocade_bios::register_interrupts(&mut interrupts, keyboard);

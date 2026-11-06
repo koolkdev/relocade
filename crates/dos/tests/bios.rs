@@ -7,6 +7,8 @@ mod character_reads;
 #[path = "bios/clock.rs"]
 mod clock;
 mod common;
+#[path = "bios/equipment.rs"]
+mod equipment;
 #[path = "bios/fonts.rs"]
 mod fonts;
 #[path = "bios/geometry.rs"]

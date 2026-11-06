@@ -20,6 +20,7 @@ use relocade_pc_speaker::Speaker;
 use relocade_pic::{Pic, KEYBOARD_IRQ, TIMER_IRQ};
 use relocade_pit::Pit;
 use relocade_vga::{FrameSource, Vga};
+use relocade_x86::CpuFeature;
 use std::{cell::RefCell, rc::Rc};
 
 /// Conventional RAM below the VGA aperture in the fixed PC memory map.
@@ -59,7 +60,15 @@ impl<C: Clock> Pc<C> {
         let mut cpu = runner.create_cpu(memory, configuration::cpu(), io).await?;
         {
             let mut context = cpu.context();
-            relocade_bios::initialize(&mut context.memory, context.io);
+            let cpu_model = context.cpu.execution_target().cpu_model;
+            relocade_bios::initialize(
+                &mut context.memory,
+                context.io,
+                relocade_bios::Configuration {
+                    conventional_memory_kib: (CONVENTIONAL_MEMORY_SIZE / 1024) as u16,
+                    math_coprocessor: cpu_model.supports(CpuFeature::Fpu),
+                },
+            );
         }
         let mut interrupts = Interrupts::new(&mut cpu);
         relocade_bios::register_interrupts(&mut interrupts, keyboard.clone());

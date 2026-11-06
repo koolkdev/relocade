@@ -1,6 +1,6 @@
 //! BIOS interrupt registration and shared return handling.
 
-use crate::{clock, keyboard, video, Keyboard, BIOS_SEGMENT};
+use crate::{clock, information, keyboard, video, Keyboard, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
     CpuContext, FarPointer,
@@ -26,6 +26,14 @@ const TIMER_CALLBACK_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xff50,
 };
+const EQUIPMENT_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xff80,
+};
+const MEMORY_SIZE_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xff90,
+};
 
 const KEYBOARD_IRQ_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
@@ -45,6 +53,18 @@ pub fn register_interrupts(interrupts: &mut Interrupts<'_>, keyboard: Keyboard) 
     });
     register_irq(interrupts, 0x08, TIMER_ENTRY, clock::timer);
     interrupts.register_interrupt(0x1c, TIMER_CALLBACK_ENTRY, async |_| {});
+    register_service(
+        interrupts,
+        0x11,
+        EQUIPMENT_ENTRY,
+        interrupt_handler!(information::equipment),
+    );
+    register_service(
+        interrupts,
+        0x12,
+        MEMORY_SIZE_ENTRY,
+        interrupt_handler!(information::conventional_memory),
+    );
     register_service(
         interrupts,
         0x1a,
