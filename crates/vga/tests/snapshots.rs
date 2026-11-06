@@ -153,3 +153,58 @@ fn snapshots_share_planes_until_a_final_physical_byte_changes() {
         assert!(std::ptr::eq(changed.plane(plane), unchanged.plane(plane)));
     }
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn packed_snapshots_retain_pixels_palette_and_layout_across_mode_changes() {
+    use common::support::{registers::palette, svga};
+    use relocade_vga::Scanout;
+
+    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    svga::enable(&mut vga);
+    for (address, value) in [
+        (0, 1),
+        (0xffff, 2),
+        (0x10000, 3),
+        (0x3ffff, 4),
+        (0x40000, 5),
+        (307199, 6),
+    ] {
+        svga::write_byte(&mut vga, address, value);
+    }
+    palette(&mut vga, 5, [21, 42, 63]);
+    vga.write_port(0x3c6, 1, 0x7f);
+    let before = vga.snapshot();
+    let Scanout::Svga(layout) = *before.scanout() else {
+        panic!("expected packed scanout")
+    };
+    assert_eq!(layout.size(), [640, 480]);
+    assert_eq!(layout.pitch(), 640);
+    assert_eq!(layout.display_start(), 0);
+    assert_eq!(before.geometry().size, [640, 480]);
+    assert_eq!(before.geometry().pixel_aspect_ratio(), (1, 1));
+    assert_eq!(before.vram_byte(0x80000), None);
+    assert_eq!(before.vram_byte(u32::MAX), None);
+
+    svga::write_byte(&mut vga, 0x40000, 7);
+    palette(&mut vga, 5, [0, 0, 0]);
+    svga::set(&mut vga, 4, 0);
+    assert!(matches!(vga.snapshot().scanout(), Scanout::Vga(_)));
+    svga::enable(&mut vga); // Mode entry clears current VRAM, including extended blocks.
+    assert_eq!(vga.snapshot().vram_byte(0x40000), Some(0));
+    drop(vga);
+
+    for (address, value) in [
+        (0, 1),
+        (0xffff, 2),
+        (0x10000, 3),
+        (0x3ffff, 4),
+        (0x40000, 5),
+        (307199, 6),
+    ] {
+        assert_eq!(before.vram_byte(address), Some(value));
+    }
+    assert_eq!(before.dac.colors[5], [21, 42, 63]);
+    assert_eq!(before.dac.mask, 0x7f);
+    assert_eq!(before.scanout(), &Scanout::Svga(layout));
+}

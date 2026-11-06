@@ -24,6 +24,8 @@ mod recording;
 mod serializer;
 #[path = "gpu/shift_interleave.rs"]
 mod shift_interleave;
+#[path = "gpu/svga.rs"]
+mod svga;
 #[path = "gpu/unchained256.rs"]
 mod unchained256;
 use common::support::software;

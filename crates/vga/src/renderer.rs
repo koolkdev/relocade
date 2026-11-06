@@ -1,9 +1,11 @@
 mod memory;
+mod pipelines;
 mod shaders;
 mod state;
 
-use crate::CapturedFrame;
+use crate::{CapturedFrame, Scanout};
 use memory::GpuMemory;
+use pipelines::DecodePipelines;
 use relocade_renderer::{FrameError, Image};
 use state::GpuState;
 use std::time::Duration;
@@ -18,32 +20,34 @@ pub struct VgaImage {
     pub sequence: u64,
 }
 
-/// GPU VGA decoding recorded into a caller-owned command encoder.
+/// GPU VGA and packed SVGA decoding recorded into a caller-owned command encoder.
 /// Owns captured-input resources and one reusable output image. Accesses no live
 /// VGA state and owns no host output pass, surface, worker, or submission schedule.
 pub struct VgaRenderer {
     device: wgpu::Device,
-    pipeline: wgpu::RenderPipeline,
+    pipelines: DecodePipelines,
     memory: GpuMemory,
     state: GpuState,
     image: Image,
-    frame: Option<FrameMetadata>,
+    frame: Option<UploadedFrame>,
 }
 
-struct FrameMetadata {
+struct UploadedFrame {
+    scanout: Scanout,
     time: Duration,
     sequence: u64,
 }
 
 impl VgaRenderer {
     /// Requires a 2D texture limit of at least 2304 pixels, covering every VGA
-    /// text width, 13 flat inter-stage variables, and one 256-KiB fragment storage
-    /// buffer for physical VRAM.
+    /// text width, 13 flat inter-stage variables for VGA, two uniform buffers,
+    /// and one 4-MiB fragment storage buffer. Uploads cover only captured blocks.
     pub fn new(device: &wgpu::Device) -> Result<Self, FrameError> {
         // The CRTC can select 256 nine-dot columns and 2048 physical scanlines.
         let limits = device.limits();
         if limits.max_texture_dimension_2d < 256 * 9
             || limits.max_inter_stage_shader_variables < 13
+            || limits.max_uniform_buffers_per_shader_stage < 2
             || limits.max_storage_buffers_per_shader_stage < 1
             || limits.max_storage_buffer_binding_size < memory::BUFFER_BYTES
             || limits.max_buffer_size < memory::BUFFER_BYTES
@@ -51,36 +55,12 @@ impl VgaRenderer {
             return Err(FrameError::InvalidSize);
         }
         let image = Image::new(device, [640, 200], (5, 12))?;
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("VGA decoding"),
-            source: wgpu::ShaderSource::Wgsl(shaders::DISPLAY.into()),
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("VGA decoding"),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vertex"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fragment"),
-                compilation_options: Default::default(),
-                targets: &[Some(Image::FORMAT.into())],
-            }),
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
         let memory = GpuMemory::new(device);
-        let state = GpuState::new(device, &pipeline.get_bind_group_layout(0), &memory.buffer);
+        let state = GpuState::new(device, &memory.buffer);
+        let pipelines = DecodePipelines::new(device, &state.layout);
         Ok(Self {
             device: device.clone(),
-            pipeline,
+            pipelines,
             memory,
             state,
             image,
@@ -90,7 +70,7 @@ impl VgaRenderer {
 
     /// Synchronizes captured inputs into persistent GPU resources without
     /// decoding or presenting an image. Uploads changed pages when their baseline
-    /// matches, otherwise complete planes. Call `queue.submit([])` when no drawing
+    /// matches, otherwise complete blocks. Call `queue.submit([])` when no drawing
     /// follows. Captures can be uploaded independently of redraws.
     /// Complete retained captures can also restore older input state.
     /// Use `FrameSource::take_capture` to accumulate dirty pages across skipped
@@ -98,21 +78,27 @@ impl VgaRenderer {
     /// Returns whether rendering inputs or output geometry changed. Capture time
     /// and sequence alone do not require decoding another image.
     pub fn upload(&mut self, queue: &wgpu::Queue, capture: &CapturedFrame) -> bool {
+        let scanout = *capture.display.scanout();
+        let scanout_changed = self
+            .frame
+            .as_ref()
+            .is_none_or(|frame| frame.scanout != scanout);
         let geometry = capture.display.geometry();
         let aspect = geometry.pixel_aspect_ratio();
         let geometry_changed =
             self.image.size() != geometry.size || self.image.pixel_aspect_ratio() != aspect;
         if geometry_changed {
             self.image = Image::new(&self.device, geometry.size, aspect)
-                .expect("VGA dimensions fit the validated device limits");
+                .expect("Captured dimensions fit the validated device limits");
         }
         let memory_changed = self.memory.upload(queue, &capture.display);
         let state_changed = self.state.upload(queue, &capture.display);
-        self.frame = Some(FrameMetadata {
+        self.frame = Some(UploadedFrame {
+            scanout,
             time: capture.time,
             sequence: capture.sequence,
         });
-        geometry_changed || memory_changed || state_changed
+        scanout_changed || geometry_changed || memory_changed || state_changed
     }
 
     /// Records decoding of the latest uploaded inputs. Returns `None` before the
@@ -125,7 +111,7 @@ impl VgaRenderer {
         let frame = self.frame.as_ref()?;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("VGA decoding"),
+                label: Some("display decoding"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: self.image.view(),
                     depth_slice: None,
@@ -137,7 +123,7 @@ impl VgaRenderer {
                 })],
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(self.pipelines.for_scanout(frame.scanout));
             pass.set_bind_group(0, &self.state.binding, &[]);
             pass.draw(0..3, 0..1);
         }

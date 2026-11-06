@@ -588,6 +588,9 @@ copies display values without advancing any port or memory-access state.
 `CrtcRegisters` keeps programmed CRTC bytes and field decoding together in both
 the live device and its captured VGA payload. Indexed port access, write
 protection and display-start latching remain on the live `Crtc`.
+`Scanout::Svga(SvgaLayout)` owns a validated packed layout with size, byte pitch
+and physical display origin. It carries no legacy VGA registers or blink phases.
+The scanout variant is read-only so it stays paired with its captured memory extent.
 
 Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
 captures those same inputs immediately without publishing a frame, forcing a
@@ -595,13 +598,16 @@ display-start latch, or changing CPU access phases. `DisplaySnapshot::geometry()
 returns common image dimensions and explicit pixel aspect ratio. VGA row
 collapsing and nominal 4:3 proportions belong to `VgaDisplayState::geometry()`,
 whose `VgaGeometry` also records physical scanlines per output row.
-All pixel interpretation uses captured registers and VRAM directly in the shader.
+SVGA owns its square pixel aspect explicitly. All pixel interpretation uses
+captured display settings and VRAM directly in the shader.
 
-Snapshots share four immutable 64-KiB planes with the device. Capturing or cloning
+Snapshots share immutable 64-KiB blocks with the device: four for VGA, eight for
+the supported packed image. Capturing or cloning
 a snapshot copies references and register values, not VRAM bytes. A guest write
-copies a shared plane only when its final byte changes after VGA write modes and
-masks; subsequent writes reuse the device's private plane until the next capture.
-Retaining many distinct captures can therefore retain many versions of a plane.
+copies a shared block only when its final physical byte changes; VGA routing,
+write modes and masks apply before that comparison. Subsequent writes reuse the
+device's private block until the next capture. Retaining many distinct captures
+can therefore retain many versions of a block.
 
 `FrameSource` retains just the latest immutable `CapturedFrame`. Readers have no
 observation bookkeeping, and a slow reader can skip any number of captures. The
@@ -627,19 +633,25 @@ register interpretation and row collapsing. `VgaRenderer` owns the common VRAM b
 separately from captured registers and palette.
 `memory/pages` tracks physical writes across 64 blocks in a fixed 512-byte bitmap.
 `renderer/memory` uploads those pages when their captured baseline matches the
-queued GPU contents, otherwise it restores the affected plane.
-`renderer/state` copies raw register banks, captured blink phases, scanline spacing
-and the unchanged DAC palette into one uniform buffer. Of the Attribute
-Controller's address byte, only the display-enable bit enters the captured settings.
-The shader interprets memory addresses, font banks, attributes and colors directly.
-`shaders/scanout` dispatches pixels to `text`, `indexed256` or `graphics16`. All use
-the scanline and physical-address logic in `addressing` and the DAC lookup in
-`palette`. Graphics layouts also share load alignment and chained output in
+queued GPU contents, otherwise it restores the affected block.
+`renderer/state` uploads mode-specific settings separately from the shared DAC.
+`renderer/pipelines` builds two cached pipelines with one explicit input layout;
+the uploaded scanout selects which decoder `encode` records, even when geometry
+and capture metadata stay the same. There is no per-pixel mode branch.
+Both shaders share physical VRAM reads, DAC lookup and fullscreen drawing.
+VGA alone owns raw register decoding, blink, blanking, fonts and row interpretation.
+Of the Attribute Controller's address byte, only display enable is captured.
+`shaders/vga` dispatches pixels to `text`, `indexed256` or `graphics16`. All use
+the scanline and physical-address logic in `addressing`. Graphics layouts also
+share load alignment and chained output in
 `serializer`, independently of CRTC address counting. The vertex stage decodes
 frame-constant settings and the 16 attribute
 colors, passing them flat to fragments in the same draw. There is no preparation
 pass or intermediate GPU buffer. Further graphics decoders can read the same physical
 buffer without mode-specific upload tracking or application changes.
+`shaders/packed` reads eight-bit pixels using only pitch and display origin,
+then applies the shared DAC mask and palette. CPU bank selection does not scroll
+the image, and legacy VGA blanking, panning and reset do not affect it.
 The generic `relocade-renderer` owns image storage and attachment drawing and knows
 nothing about VGA, BIOS or DOS.
 
@@ -705,12 +717,12 @@ preset produces 640×200; standard mode-13h registers produce 320×200 with a 5:
 pixel aspect ratio.
 
 The renderer requires a 2D texture limit of at least 2304 pixels for the largest
-nine-dot text width, 13 flat inter-stage variables and one 256-KiB fragment
-storage buffer. The first upload fills all four physical planes and 896 bytes
-of state: a 128-byte register/geometry header and the 768-byte DAC palette. With
-the renderer feature enabled, actual memory changes mark fixed 1-KiB pages after
-VGA routing and write modes have produced the final byte. Consecutive dirty pages
-in each plane become one upload. Character,
+nine-dot text width, 13 flat inter-stage variables, two uniform buffers and one
+4-MiB fragment storage buffer. Uploads cover only captured blocks. The settings
+buffer is 128 bytes; packed scanout uses two words. The shared DAC buffer holds
+a four-byte mask and 768 palette bytes at offset 16. With
+the renderer feature enabled, final physical writes mark fixed 1-KiB pages.
+Consecutive dirty pages in each block become one upload. Character,
 attribute and font planes update independently. Hidden memory is included, so
 changing the display start or font bank requires no residency bookkeeping.
 
@@ -719,25 +731,25 @@ private transfer hints until `FrameSource::take_capture()` hands them to the
 uploading renderer. Taking atomically returns the capture with all pending changes
 and starts a fresh bitmap for later writes. The latest capture remains readable;
 `current_capture()` and `next_capture()` never consume its hints. Retained captures
-stay immutable. Only plane versions and one fixed bitmap are retained, not a queue
+stay immutable. Only block versions and one fixed bitmap are retained, not a queue
 of captures. Publication clears the device's local bitmap; immediate snapshots
-leave it alone. The renderer compares plane identities and walks the bitmap,
+leave it alone. The renderer compares block identities and walks the bitmap,
 without scanning VRAM or maintaining a separate CPU shadow.
-The raw register header and palette are compared and uploaded independently
-when changed. Blink, cursor or geometry updates do not resend the palette;
-palette-only updates do not resend the header or font memory.
+Settings, DAC mask and palette are compared and uploaded independently when
+changed. Blink, cursor or geometry updates do not resend the palette;
+palette-only updates do not resend settings or font memory.
 
-If a captured plane already matches the last queued GPU version, no memory upload
+If a captured block already matches the last queued GPU version, no memory upload
 is needed. If its change baseline matches, the renderer uploads dirty pages.
 Skipped publications retain their dirty pages, so a slower uploading renderer
-does not need full-plane transfers just because it missed captures. Use one
+does not need full-block transfers just because it missed captures. Use one
 consuming renderer per source, and upload each taken capture before taking the
 next. New renderers, independent readers, other sources, immediate snapshots and
 reverse playback can have a different baseline; they restore the affected 64-KiB
-plane instead. Taking requires no GPU-completion acknowledgement or update queue.
+block instead. Taking requires no GPU-completion acknowledgement or update queue.
 
 The device never waits for GPU mapping or completion. Snapshot storage still
-uses shared CPU planes with copy-on-write, so a changed retained plane can copy
+uses shared CPU blocks with copy-on-write, so a changed retained block can copy
 64 KiB even for a one-byte guest write. Dirty pages limit GPU transfers; they do
 not change CPU copy-on-write granularity. Device-only builds omit transfer hints
 and dirty tracking along with the optional renderer.
@@ -912,12 +924,14 @@ VGA snapshots and avoid allocating unused extended memory until written.
 
 Immutable memory snapshots retain the blocks covering a display's physical
 memory extent, rounded to complete groups of four interleaved blocks. Legacy
-VGA captures retain the first four blocks. Dirty pages are tracked throughout
+VGA captures retain the first four blocks; 640×480 packed captures retain eight.
+Dirty pages are tracked throughout
 VRAM; an upload uses sparse ranges only when its prior block matches the
 capture's baseline, and uploads a complete block when that baseline is absent.
 
-Packed SVGA capture, timing and rendering are a subsequent capability. While
-SVGA is enabled, the frame source retains its last VGA capture and publishes no
-new ones; legacy raster/status timing continues. `Vga::snapshot()` still returns
-the current legacy planes and registers, not a packed SVGA image. Disabling
-resumes VGA publication at the next normal capture boundary.
+`Vga::snapshot()` captures the active VGA or packed SVGA inputs immediately;
+retained captures render after mode changes or device destruction. Fixed SVGA
+timing and publication are a subsequent capability. While SVGA is enabled, the
+frame source retains its last VGA capture and publishes no new ones; legacy
+raster/status timing continues. Disabling resumes VGA publication at the next
+normal capture boundary.

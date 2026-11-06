@@ -33,7 +33,7 @@ pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE,
 use relocade_machine::{Clock, Device, TimerHandle};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
-pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
+pub use scanout::{Scanout, SvgaLayout, VgaDisplayState, VgaGeometry};
 #[cfg(feature = "renderer")]
 use snapshot::MemoryChanges;
 pub use snapshot::{DacSnapshot, DisplaySnapshot};
@@ -95,24 +95,27 @@ impl<C: Clock> Vga<C> {
 
     /// Captures current display inputs immediately on the execution owner, without
     /// advancing time, publishing a frame, or changing CPU read/access latches.
-    /// Shares immutable VGA planes and copies display settings and DAC values.
-    /// This remains a legacy VGA projection while banked SVGA is enabled; packed
-    /// SVGA captures and rendering are not yet supported.
+    /// Shares immutable memory and copies the active display settings and DAC.
+    /// Packed SVGA captures own their layout independently of the CPU bank.
     /// The display-start latch stays at the last serviced retrace; this does not
     /// force pending CRTC start-address writes to become effective.
     /// Unlike [`FrameSource`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
-        DisplaySnapshot {
-            memory: self.memory.snapshot(memory::VGA_MEMORY_BYTES),
-            dac: DacSnapshot {
-                colors: self.registers.dac.colors,
-                mask: self.registers.dac.mask,
-            },
-            scanout: Scanout::Vga(VgaDisplayState::capture(
+        let scanout = match self.dispi.display_layout() {
+            Some(layout) => Scanout::Svga(layout),
+            None => Scanout::Vga(VgaDisplayState::capture(
                 &self.registers,
                 self.raster.cursor_blink_on(),
                 self.raster.attribute_blink_on(),
             )),
+        };
+        DisplaySnapshot {
+            memory: self.memory.snapshot(scanout.memory_bytes()),
+            dac: DacSnapshot {
+                colors: self.registers.dac.colors,
+                mask: self.registers.dac.mask,
+            },
+            scanout,
             #[cfg(feature = "renderer")]
             changes: self.frames.current_capture().map(|previous| MemoryChanges {
                 baseline: previous.display.memory.clone(),
@@ -126,7 +129,7 @@ impl<C: Clock> Vga<C> {
     fn sync_to_clock(&mut self) {
         if let Some(time) = self.raster.update_to(self.clock.now()) {
             self.registers.crtc.latch_display_start();
-            // Keep the last VGA capture until packed SVGA scanout is supported.
+            // Keep the last VGA capture until fixed SVGA timing is available.
             if self.dispi.enabled() {
                 return;
             }

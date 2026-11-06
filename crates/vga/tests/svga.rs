@@ -1,5 +1,6 @@
 mod common;
 
+use common::support::svga::{enable, get, set};
 use common::{boundary, ManualClock};
 use relocade_machine::Device;
 use relocade_vga::Vga;
@@ -7,24 +8,6 @@ use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-fn set(vga: &mut impl Device, index: u16, value: u16) {
-    vga.write_port(0x1ce, 2, u32::from(index));
-    vga.write_port(0x1cf, 2, u32::from(value));
-}
-
-fn get(vga: &mut impl Device, index: u16) -> u32 {
-    vga.write_port(0x1ce, 2, u32::from(index));
-    vga.read_port(0x1cf, 2)
-}
-
-fn enable(vga: &mut impl Device) {
-    set(vga, 1, 640);
-    set(vga, 2, 480);
-    set(vga, 3, 8);
-    set(vga, 4, 1);
-    assert_eq!(get(vga, 4), 1);
-}
 
 fn device() -> Vga<ManualClock> {
     Vga::with_clock(Rc::new(ManualClock::default()))
