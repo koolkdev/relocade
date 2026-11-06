@@ -582,10 +582,11 @@ raster-synchronized smooth scrolling.
 The device and `DisplaySnapshot::registers` use the same `Registers` type.
 Capture creation clones the complete structure, including bank indices and
 palette-transfer phases. Raw bank values are available through fields such as
-`registers.crtc.values` and `registers.dac.colors`; `registers.crtc.display_start`
-holds the effective latch alongside the programmed bytes. Port-access operations
-remain inside the device. There is no separate display-register projection to
-maintain.
+`registers.crtc.registers.values` and `registers.dac.colors`.
+`CrtcRegisters` owns the programmed CRTC bytes and their field decoding; the live
+`Crtc` owns indexed port access, write protection and the effective
+`registers.crtc.display_start` latch. There is no separate display-register
+projection to maintain.
 
 Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
 captures those same inputs immediately without publishing a frame, forcing a

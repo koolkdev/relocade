@@ -11,7 +11,7 @@ fn assert_shape(dos: &mut Dos, requested: u16, hardware: u16) {
     assert_eq!(video(dos, 0x0300, 0, 0, 0).registers.ecx as u16, requested);
     let snapshot = dos.vga().borrow().snapshot();
     assert_eq!(
-        &snapshot.registers.crtc.values[0x0a..0x0c],
+        &snapshot.registers.crtc.registers.values[0x0a..0x0c],
         &hardware.to_be_bytes(),
         "requested shape {requested:04x}"
     );
@@ -138,7 +138,13 @@ fn font_layout_keeps_its_native_cursor_when_emulation_is_enabled() {
             video(&mut dos, font, 0, 0, 0);
             assert_eq!(dos.cpu().context().memory.read_u16(0x460).unwrap(), native);
             assert_eq!(
-                &dos.vga().borrow().snapshot().registers.crtc.values[0x0a..0x0c],
+                &dos.vga()
+                    .borrow()
+                    .snapshot()
+                    .registers
+                    .crtc
+                    .registers
+                    .values[0x0a..0x0c],
                 &native.to_be_bytes()
             );
             assert_shape(&mut dos, 0x0607, emulated);
@@ -148,7 +154,13 @@ fn font_layout_keeps_its_native_cursor_when_emulation_is_enabled() {
         assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 15);
         assert_eq!(dos.cpu().context().memory.read_u16(0x460).unwrap(), 0x0d0e);
         assert_eq!(
-            &dos.vga().borrow().snapshot().registers.crtc.values[0x0a..0x0c],
+            &dos.vga()
+                .borrow()
+                .snapshot()
+                .registers
+                .crtc
+                .registers
+                .values[0x0a..0x0c],
             &[13, 14]
         );
         // The same shape supplied through AH=01h must still use IBM's translation.

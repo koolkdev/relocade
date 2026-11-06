@@ -135,8 +135,8 @@ fn preserve_memory_flag_queries_and_text_return_follow_bios_bookkeeping() {
             assert_eq!(display.plane(plane), retained.plane(plane));
         }
         assert_eq!(
-            display.registers.crtc.values,
-            retained.registers.crtc.values
+            display.registers.crtc.registers.values,
+            retained.registers.crtc.registers.values
         );
         assert_eq!(display.registers.dac.colors, retained.registers.dac.colors);
 
@@ -158,9 +158,7 @@ fn preserve_memory_flag_queries_and_text_return_follow_bios_bookkeeping() {
         let text = dos.vga().borrow().snapshot();
         assert_eq!(
             &text.plane(2)[65 * 32..65 * 32 + 16],
-            &[
-                0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
-            ]
+            &[0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,]
         );
         assert_eq!(text.geometry().size, [720, 400]);
         // Loading the text font cannot modify a retained graphics capture.

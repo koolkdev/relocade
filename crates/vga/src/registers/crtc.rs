@@ -33,40 +33,39 @@ pub const LINE_COMPARE: u8 = 0x18;
 pub const PROTECT_TIMING_REGISTERS: u8 = 1 << 7;
 const LINE_COMPARE_OVERFLOW: u8 = 1 << 4;
 
-/// Programmed CRTC values, the CPU register index and the display-start latch.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Crtc {
-    index: u8,
+/// Programmed CRTC register values and their decoded display fields.
+/// CPU port selection and the display-start latch belong to the live CRTC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CrtcRegisters {
     pub values: [u8; 0x19],
-    /// Start address selected at the last vertical retrace. CPU reads of 0C/0D
-    /// still return the programmed bytes, which can differ until the next edge.
-    pub display_start: u16,
 }
 
-impl Default for Crtc {
+impl Default for CrtcRegisters {
     fn default() -> Self {
         let mut values = [0; 0x19];
         for &(index, value) in text_mode::CRTC_REGISTERS {
             values[usize::from(index)] = value;
         }
-        Self {
-            index: 0,
-            values,
-            display_start: 0,
-        }
+        Self { values }
     }
+}
+
+/// Live CRTC registers, the CPU register index and the display-start latch.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Crtc {
+    index: u8,
+    pub registers: CrtcRegisters,
+    /// Start address selected at the last vertical retrace. CPU reads of 0C/0D
+    /// still return the programmed bytes, which can differ until the next edge.
+    pub display_start: u16,
 }
 
 impl Crtc {
     pub(crate) fn latch_display_start(&mut self) {
         self.display_start = u16::from_be_bytes([
-            self.register(START_ADDRESS_HIGH),
-            self.register(START_ADDRESS_LOW),
+            self.registers.register(START_ADDRESS_HIGH),
+            self.registers.register(START_ADDRESS_LOW),
         ]);
-    }
-
-    fn register(&self, index: u8) -> u8 {
-        self.values[usize::from(index)]
     }
 
     pub fn index(&self) -> u8 {
@@ -79,18 +78,19 @@ impl Crtc {
 
     pub(crate) fn read(&self) -> u8 {
         match self.index {
-            HORIZONTAL_TOTAL..=LINE_COMPARE => self.register(self.index),
+            HORIZONTAL_TOTAL..=LINE_COMPARE => self.registers.register(self.index),
             _ => 0xff,
         }
     }
 
     pub(crate) fn write(&mut self, mut value: u8) {
         let index = self.index;
-        if index <= OVERFLOW && self.register(VERTICAL_RETRACE_END) & PROTECT_TIMING_REGISTERS != 0
+        if index <= OVERFLOW
+            && self.registers.register(VERTICAL_RETRACE_END) & PROTECT_TIMING_REGISTERS != 0
         {
             // CRTC 11 bit 7 protects 00–07 except the line-compare overflow bit.
             if index == OVERFLOW {
-                self.values[usize::from(OVERFLOW)] = (self.register(OVERFLOW)
+                self.registers.values[usize::from(OVERFLOW)] = (self.registers.register(OVERFLOW)
                     & !LINE_COMPARE_OVERFLOW)
                     | (value & LINE_COMPARE_OVERFLOW);
             }
@@ -103,7 +103,13 @@ impl Crtc {
             HORIZONTAL_TOTAL..=LINE_COMPARE => {}
             _ => return,
         }
-        self.values[usize::from(index)] = value;
+        self.registers.values[usize::from(index)] = value;
+    }
+}
+
+impl CrtcRegisters {
+    fn register(&self, index: u8) -> u8 {
+        self.values[usize::from(index)]
     }
 
     /// CRTC 00 stores the total character clocks per scanline minus five.

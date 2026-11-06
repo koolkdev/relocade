@@ -93,7 +93,7 @@ fn built_in_font_uploads_leave_geometry_and_bank_selection_to_the_caller() {
                 vec![255; glyph.len()]
             );
             assert_eq!(snapshot.registers.sequencer.values[3], 0);
-            assert_eq!(snapshot.registers.crtc.values[9], 0x4f);
+            assert_eq!(snapshot.registers.crtc.registers.values[9], 0x4f);
         }
         video(&mut dos, 0x1103, 0xff3b, 0, 0); // Bank A=6, bank B=7.
         let snapshot = dos.vga().borrow().snapshot();

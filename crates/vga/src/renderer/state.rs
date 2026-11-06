@@ -73,7 +73,7 @@ fn header(snapshot: &DisplaySnapshot, geometry: DisplayGeometry) -> [u8; HEADER_
     let mut bytes = [0; HEADER_BYTES];
     for (offset, bank) in [
         (0, r.sequencer.values.as_slice()),
-        (16, r.crtc.values.as_slice()),
+        (16, r.crtc.registers.values.as_slice()),
         (48, r.graphics.values.as_slice()),
         (64, r.attribute.values.as_slice()),
     ] {

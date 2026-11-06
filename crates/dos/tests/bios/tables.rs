@@ -135,10 +135,10 @@ fn mode_setting_consumes_replacement_parameters_including_cursor_and_display_sta
         let display = dos.vga().borrow().snapshot();
         assert_eq!(display.registers.sequencer.values[3], 0x15);
         assert_eq!(
-            &display.registers.crtc.values[0x0a..0x10],
+            &display.registers.crtc.registers.values[0x0a..0x10],
             &[2, 5, 0x12, 0x34, 0x23, 0x45]
         );
-        assert_eq!(display.registers.crtc.values[0x13], 30);
+        assert_eq!(display.registers.crtc.registers.values[0x13], 30);
         assert_eq!(display.registers.attribute.values[2], 0x12);
         let context = dos.cpu().context();
         assert_eq!(context.memory.read_u16(0x44c).unwrap(), 0x1800);

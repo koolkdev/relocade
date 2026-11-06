@@ -48,7 +48,7 @@ fn text_overrides_apply_ranges_geometry_and_the_matching_alternate_bank() {
         assert_eq!(&display.plane(2)[0x682a..0x6840], &[0; 22]);
         assert_eq!(display.registers.sequencer.values[3], 0x13); // Loading bank 5 did not select it.
         assert_eq!(&display.plane(2)[0xa820..0xa82a], &[0; 10]);
-        assert_eq!(display.registers.crtc.values[9], 0x49);
+        assert_eq!(display.registers.crtc.registers.values[9], 0x49);
         {
             let mut context = dos.cpu().context();
             assert_eq!(context.memory.read_u16(0x485).unwrap(), 10);

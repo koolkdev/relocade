@@ -69,7 +69,10 @@ fn separate_start_bytes_can_straddle_the_latch_edge() {
     crtc(&mut vga, 13, 0x34);
     let first = source.current_capture().unwrap();
     assert_eq!(first.display.registers.crtc.display_start, 0x1200);
-    assert_eq!(&first.display.registers.crtc.values[12..14], &[0x12, 0]);
+    assert_eq!(
+        &first.display.registers.crtc.registers.values[12..14],
+        &[0x12, 0]
+    );
     assert_eq!(vga.read_port(0x3d5, 1), 0x34);
     assert_eq!(vga.snapshot().registers.crtc.display_start, 0x1200);
     clock.set(boundary(2));
@@ -107,7 +110,10 @@ fn immediate_snapshots_copy_the_effective_latch_without_servicing_time() {
     start(&mut vga, 0x1234);
     clock.set(boundary(1));
     let snapshot = vga.snapshot();
-    assert_eq!(&snapshot.registers.crtc.values[12..14], &[0x12, 0x34]);
+    assert_eq!(
+        &snapshot.registers.crtc.registers.values[12..14],
+        &[0x12, 0x34]
+    );
     assert_eq!(snapshot.registers.crtc.display_start, 0);
     assert!(source.current_capture().is_none());
     vga.read_port(0x3da, 1);

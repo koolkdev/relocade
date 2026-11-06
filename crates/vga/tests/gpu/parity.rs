@@ -73,10 +73,10 @@ async fn check_parity() {
         let mut input = capture();
         input.display.registers.crtc.display_start = display_start;
         let [high, low] = (address as u16).to_be_bytes();
-        input.display.registers.crtc.values[14] = high;
-        input.display.registers.crtc.values[15] = low;
-        input.display.registers.crtc.values[10] = start_row;
-        input.display.registers.crtc.values[11] = end_row;
+        input.display.registers.crtc.registers.values[14] = high;
+        input.display.registers.crtc.registers.values[15] = low;
+        input.display.registers.crtc.registers.values[10] = start_row;
+        input.display.registers.crtc.registers.values[11] = end_row;
         let pixels = compare(&mut renderer, &device, &queue, Arc::new(input)).await;
         if let Some((x, y)) = lit_pixel {
             assert_eq!(pixel(&pixels, x, y), [170, 170, 170, 255]);
@@ -91,7 +91,7 @@ async fn check_parity() {
     }
     let mut cursor_off = capture();
     cursor_off.display.cursor_blink_on = false;
-    cursor_off.display.registers.crtc.values[10] = 6;
+    cursor_off.display.registers.crtc.registers.values[10] = 6;
     let pixels = compare(&mut renderer, &device, &queue, Arc::new(cursor_off)).await;
     assert!(pixels
         .as_chunks::<4>()

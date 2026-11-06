@@ -118,19 +118,31 @@ fn palette_suppression_still_applies_underline_after_font_overrides() {
         );
         assert_eq!(after.registers.dac, before.registers.dac);
         assert_eq!(saved(&mut dos), [0xa5; 256]);
-        assert_eq!(after.registers.crtc.values[0x14], 9); // Uses the overridden 10-high font.
+        assert_eq!(after.registers.crtc.registers.values[0x14], 9); // Uses the overridden 10-high font.
         profile[0] = 0xff;
         set_profile(&mut dos, &profile);
         video(&mut dos, 3, 0, 0, 0);
         assert_eq!(
-            dos.vga().borrow().snapshot().registers.crtc.values[0x14],
+            dos.vga()
+                .borrow()
+                .snapshot()
+                .registers
+                .crtc
+                .registers
+                .values[0x14],
             31
         );
         profile[0] = 1;
         set_profile(&mut dos, &profile);
         video(&mut dos, 1, 0, 0, 0); // Neither descriptor includes this mode.
         assert_eq!(
-            dos.vga().borrow().snapshot().registers.crtc.values[0x14],
+            dos.vga()
+                .borrow()
+                .snapshot()
+                .registers
+                .crtc
+                .registers
+                .values[0x14],
             31
         );
         assert_eq!(information(&mut dos, 0x3000, 0x200, 0)[0x32], 0x16);
@@ -138,7 +150,16 @@ fn palette_suppression_still_applies_underline_after_font_overrides() {
         set_profile(&mut dos, &profile);
         video(&mut dos, 0x13, 0, 0, 0);
         // IBM writes the whole register, replacing mode 13h's doubleword bit too.
-        assert_eq!(dos.vga().borrow().snapshot().registers.crtc.values[0x14], 7);
+        assert_eq!(
+            dos.vga()
+                .borrow()
+                .snapshot()
+                .registers
+                .crtc
+                .registers
+                .values[0x14],
+            7
+        );
     });
 }
 

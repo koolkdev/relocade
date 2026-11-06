@@ -17,7 +17,8 @@ pub struct DisplayGeometry {
 impl DisplaySnapshot {
     /// Output geometry for text, four-bit and eight-bit graphics layouts.
     pub fn geometry(&self) -> DisplayGeometry {
-        let c = &self.registers.crtc.values;
+        let crtc = &self.registers.crtc.registers;
+        let c = &crtc.values;
         let clocking_mode = self.registers.sequencer.values[sequencer::CLOCKING_MODE as usize];
         let glyph_width = if clocking_mode & 1 != 0 { 8 } else { 9 };
         let attribute_mode = self.registers.attribute.values[attribute::MODE_CONTROL as usize];
@@ -25,8 +26,8 @@ impl DisplaySnapshot {
         let indexed256 = attribute_mode & 0x41 == 0x41 && graphics_mode & 0x40 != 0;
         let graphics16 = attribute_mode & 0x41 == 1 && graphics_mode & 0x40 == 0;
         let columns = u32::from(c[crtc::HORIZONTAL_DISPLAY_END as usize]) + 1;
-        let vertical_divisor = self.registers.crtc.scanlines_per_vertical_count() as u32;
-        let last_line = self.registers.crtc.vertical_display() as u32 * vertical_divisor - 1;
+        let vertical_divisor = crtc.scanlines_per_vertical_count() as u32;
+        let last_line = crtc.vertical_display() as u32 * vertical_divisor - 1;
         let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
             | (u32::from(c[crtc::OVERFLOW as usize] & 0x10) << 4)
             | (u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x40) << 3);
@@ -45,7 +46,7 @@ impl DisplaySnapshot {
         }
         let split_repeat = line_compare < last_line && !(line_compare + 1).is_multiple_of(repeat);
         let partial_repeat = !(last_line + 1).is_multiple_of(repeat);
-        let blanking_repeat = self.registers.crtc.vertical_blanking().iter().any(|range| {
+        let blanking_repeat = crtc.vertical_blanking().iter().any(|range| {
             !range.is_empty()
                 && [range.start, range.end].into_iter().any(|count| {
                     let line = count * vertical_divisor;

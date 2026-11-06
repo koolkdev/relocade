@@ -30,7 +30,7 @@ fn monochrome_profiles_route_ports_and_preserve_the_shared_text_planes() {
             assert_eq!(mono.registers.miscellaneous, miscellaneous);
             assert_eq!(mono.registers.sequencer.values[1], 0);
             assert_eq!(mono.registers.graphics.values[6], 0x0a);
-            assert_eq!(mono.registers.crtc.values[0x14], height as u8 - 1);
+            assert_eq!(mono.registers.crtc.registers.values[0x14], height as u8 - 1);
             assert_eq!(
                 &mono.registers.attribute.values[..16],
                 &[0, 8, 8, 8, 8, 8, 8, 8, 0x10, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18]
@@ -124,7 +124,7 @@ fn monochrome_pages_scroll_and_font_changes_keep_the_mono_aperture_and_underline
         let capture = common::next_capture(&dos).await;
         assert_eq!(capture.display.registers.crtc.display_start, 0x3800);
         assert_eq!(
-            &capture.display.registers.crtc.values[14..16],
+            &capture.display.registers.crtc.registers.values[14..16],
             &[0x3f, 0xcf]
         );
         video(&mut dos, 0x0e5a, 0, 0, 0);
@@ -151,8 +151,8 @@ fn monochrome_pages_scroll_and_font_changes_keep_the_mono_aperture_and_underline
             let before = dos.vga().borrow().snapshot();
             video(&mut dos, function, 0, 0, 0);
             let after = dos.vga().borrow().snapshot();
-            assert_eq!(after.registers.crtc.values[0x14], height - 1);
-            assert_eq!(after.registers.crtc.values[9] & 31, height - 1);
+            assert_eq!(after.registers.crtc.registers.values[0x14], height - 1);
+            assert_eq!(after.registers.crtc.registers.values[9] & 31, height - 1);
             assert_eq!(
                 after.registers.graphics.values,
                 before.registers.graphics.values

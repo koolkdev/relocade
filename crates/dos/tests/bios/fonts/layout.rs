@@ -34,11 +34,11 @@ fn scanline_selection_and_font_height_support_twenty_five_forty_three_and_fifty_
             let preset = dos.vga().borrow().snapshot();
             video(&mut dos, 0x1112, 0, 0, 0);
             let expanded = dos.vga().borrow().snapshot();
-            assert_eq!(expanded.registers.crtc.values[9], 0x47);
+            assert_eq!(expanded.registers.crtc.registers.values[9], 0x47);
             for register in [0, 1, 6, 7, 0x10, 0x11, 0x12, 0x15, 0x16, 0x17] {
                 assert_eq!(
-                    expanded.registers.crtc.values[register],
-                    preset.registers.crtc.values[register]
+                    expanded.registers.crtc.registers.values[register],
+                    preset.registers.crtc.registers.values[register]
                 );
             }
             {
@@ -108,8 +108,8 @@ fn geometry_changing_font_calls_validate_before_upload_and_handle_monochrome_crt
         }
         video(&mut dos, 0x1110, 0x1000, 0, 0); // Zero glyphs can still change the height.
         let snapshot = dos.vga().borrow().snapshot();
-        assert_eq!(snapshot.registers.crtc.values[9], 0x4f);
-        assert_eq!(&snapshot.registers.crtc.values[10..12], &[14, 15]);
+        assert_eq!(snapshot.registers.crtc.registers.values[9], 0x4f);
+        assert_eq!(&snapshot.registers.crtc.registers.values[10..12], &[14, 15]);
         assert_eq!(snapshot.registers.miscellaneous, 0x42);
         let context = dos.cpu().context();
         assert_eq!(context.memory.read_u8(0x484).unwrap(), 24);

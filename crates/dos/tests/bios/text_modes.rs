@@ -12,9 +12,7 @@ fn startup_uses_the_400_line_color_profile_without_overriding_later_guest_choice
         assert_eq!(initial.display.geometry().pixel_aspect_ratio(), (20, 27));
         assert_eq!(
             &initial.display.plane(2)[65 * 32..65 * 32 + 16],
-            &[
-                0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
-            ]
+            &[0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,]
         );
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         assert_eq!(
@@ -68,7 +66,7 @@ fn color_text_modes_apply_scanline_profiles_and_report_their_page_geometry() {
                 if profile == 2 {
                     assert_eq!(display.registers.miscellaneous, 0x67);
                     assert_eq!(display.registers.attribute.values[0x13], 8);
-                    let crtc = &display.registers.crtc.values;
+                    let crtc = &display.registers.crtc.registers.values;
                     let retrace = if columns == 40 {
                         [0x2b, 0xa0]
                     } else {
@@ -78,8 +76,14 @@ fn color_text_modes_apply_scanline_profiles_and_report_their_page_geometry() {
                     assert_eq!([crtc[0x0a], crtc[0x0b]], [13, 14]);
                     assert_eq!(crtc[0x11], 0x8e);
                 }
-                assert_eq!(display.registers.crtc.values[1], columns as u8 - 1);
-                assert_eq!(display.registers.crtc.values[0x13], columns as u8 / 2);
+                assert_eq!(
+                    display.registers.crtc.registers.values[1],
+                    columns as u8 - 1
+                );
+                assert_eq!(
+                    display.registers.crtc.registers.values[0x13],
+                    columns as u8 / 2
+                );
                 assert_eq!(display.registers.graphics.values[6], 0x0e);
                 assert_eq!(display.registers.attribute.values[6], 0x14);
                 assert_eq!(display.registers.dac.colors[0x14], [42, 21, 0]);
@@ -120,7 +124,7 @@ fn forty_column_pages_wrap_scroll_and_preserve_text_on_mode_changes() {
         );
         let capture = common::next_capture(&dos).await;
         assert_eq!(capture.display.registers.crtc.display_start, 0x1c00);
-        let crtc = &capture.display.registers.crtc.values;
+        let crtc = &capture.display.registers.crtc.registers.values;
         assert_eq!([crtc[14], crtc[15]], [0x1f, 0xc0]);
         {
             let context = dos.cpu().context();

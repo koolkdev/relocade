@@ -206,7 +206,8 @@ async fn check_display_state_changes() {
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 0, 255, 255]);
 
-    let retrace_end = vga.snapshot().registers.crtc.values[crtc::VERTICAL_RETRACE_END as usize];
+    let retrace_end =
+        vga.snapshot().registers.crtc.registers.values[crtc::VERTICAL_RETRACE_END as usize];
     common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end & 0x7f);
     common::crtc(&mut vga, crtc::HORIZONTAL_DISPLAY_END, 39);
     common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end);
