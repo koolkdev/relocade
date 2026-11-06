@@ -1,8 +1,13 @@
 //! Retained input and echo handles for DOS character and line operations.
 
 use crate::{
-    console::CharacterOutput, devices::CONTROL_C, files::Handle, services::Services, DosError,
+    console::CharacterOutput,
+    devices::CONTROL_C,
+    files::Handle,
+    services::{control::Request, Services},
+    DosError,
 };
+use relocade_machine::CpuContext;
 use std::{
     future::{poll_fn, Future},
     pin::pin,
@@ -36,27 +41,46 @@ impl<'a> Input<'a> {
 
     /// A checked read also observes CON when stdin is redirected. The returned
     /// Ctrl-C byte lets the operation invoke INT23 and restart its own state.
-    pub(in crate::services) async fn character(&self, checked: bool) -> Result<u8, DosError> {
+    pub(in crate::services) async fn character(
+        &self,
+        call: &mut CpuContext<'_>,
+        request: &Request<'_>,
+        checked: bool,
+    ) -> Result<u8, DosError> {
         let handle = self.source.as_ref().map_err(|error| *error)?;
         handle.check_read_access()?;
         let mut read = pin!(read_character(handle));
         let mut check = pin!(self.break_pending());
-        poll_fn(|cx| {
-            if checked {
-                match check.as_mut().poll(cx) {
-                    Poll::Ready(true) => return Poll::Ready(Ok(CONTROL_C)),
-                    Poll::Ready(false) => {}
-                    Poll::Pending => return Poll::Pending,
+        loop {
+            let byte = poll_fn(|cx| {
+                if checked {
+                    match check.as_mut().poll(cx) {
+                        Poll::Ready(true) => return Poll::Ready(Ok(Some(CONTROL_C))),
+                        Poll::Ready(false) => {}
+                        Poll::Pending => return Poll::Pending,
+                    }
                 }
-            }
-            let result = read.as_mut().poll(cx);
-            if result.is_pending() {
-                // Keep the driver request, but observe CON again after an IRQ.
+                match read.as_mut().poll(cx) {
+                    Poll::Ready(Ok(Some(byte))) => return Poll::Ready(Ok(Some(byte))),
+                    Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                    // An EOF file may grow during the callback. Retry completed
+                    // reads, while retaining pending device requests.
+                    Poll::Ready(Ok(None)) => read.set(read_character(handle)),
+                    Poll::Pending => {}
+                }
                 check.set(self.break_pending());
+                if request.has_idle_callback(call) {
+                    Poll::Ready(Ok(None))
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await?;
+            if let Some(byte) = byte {
+                return Ok(byte);
             }
-            result
-        })
-        .await
+            request.idle(call).await;
+        }
     }
 
     pub(in crate::services) async fn break_pending(&self) -> bool {
@@ -74,8 +98,8 @@ impl<'a> Input<'a> {
         false
     }
 
-    pub(super) async fn status(&self) -> bool {
-        match &self.source {
+    pub(super) async fn status(&self, call: &mut CpuContext<'_>, request: &Request<'_>) -> bool {
+        let available = match &self.source {
             Ok(input) => input.input_available().await,
             Err(_) => {
                 self.services
@@ -86,20 +110,37 @@ impl<'a> Input<'a> {
                     .await
             }
         }
-        .unwrap_or(false)
+        .unwrap_or(false);
+        if !available {
+            request.idle(call).await;
+        }
+        available
     }
 
-    pub(super) async fn poll_character(&self) -> Result<Option<u8>, DosError> {
+    pub(super) async fn poll_character(
+        &self,
+        call: &mut CpuContext<'_>,
+        request: &Request<'_>,
+    ) -> Result<Option<u8>, DosError> {
         let input = self.source.as_ref().map_err(|error| *error)?;
         input.check_read_access()?;
-        try_read_character(input).await
+        let byte = try_read_character(input).await?;
+        if byte.is_none() {
+            request.idle(call).await;
+        }
+        Ok(byte)
     }
 
     pub(super) async fn write_raw(&self, byte: u8) {
         let _ = self.output.write(&[byte]).await;
     }
 
-    pub(in crate::services) async fn write(&self, byte: u8) {
+    pub(super) async fn write(&self, call: &mut CpuContext<'_>, request: &Request<'_>, byte: u8) {
+        self.status(call, request).await;
+        self.echo(byte).await;
+    }
+
+    pub(in crate::services) async fn echo(&self, byte: u8) {
         let _ = self.output.write_cooked(byte).await;
     }
 }
@@ -128,13 +169,9 @@ async fn try_read_character(input: &Handle) -> Result<Option<u8>, DosError> {
     }
 }
 
-async fn read_character(input: &Handle) -> Result<u8, DosError> {
+async fn read_character(input: &Handle) -> Result<Option<u8>, DosError> {
     if let Handle::Device(handle) = input {
-        return handle.device.read_character().await;
+        return handle.device.read_character().await.map(Some);
     }
-    match try_read_character(input).await? {
-        Some(byte) => Ok(byte),
-        // Character reads have no EOF result. File growth has no notification yet.
-        None => std::future::pending().await,
-    }
+    try_read_character(input).await
 }

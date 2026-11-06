@@ -46,13 +46,13 @@ pub(super) async fn dispatch(
         match function {
             0x01 | 0x07 | 0x08 => {
                 let checked = function != 0x07;
-                let byte = input.character(checked).await?;
+                let byte = input.character(call, request, checked).await?;
                 if checked && byte == CONTROL_C {
                     request.handle_break(call).await;
                     continue;
                 }
                 if function == 0x01 {
-                    input.write(byte).await;
+                    input.echo(byte).await;
                 }
                 cpu.set_al(byte);
             }
@@ -61,11 +61,11 @@ pub(super) async fn dispatch(
                     request.handle_break(call).await;
                     continue;
                 }
-                input.write(byte).await;
+                input.write(call, request, byte).await;
                 cpu.set_al(if byte == b'\t' { b' ' } else { byte });
             }
             0x06 if byte == 0xff => {
-                let byte = input.poll_character().await?;
+                let byte = input.poll_character(call, request).await?;
                 cpu.set_al(byte.unwrap_or(0));
                 set_zero(cpu, &mut call.memory, byte.is_none());
             }
@@ -87,7 +87,7 @@ pub(super) async fn dispatch(
                         request.handle_break(call).await;
                         continue 'operation;
                     }
-                    input.write(byte[0]).await;
+                    input.write(call, request, byte[0]).await;
                 }
                 request
                     .services
@@ -97,11 +97,11 @@ pub(super) async fn dispatch(
                 let capacity = call.memory.read_u8(buffer.address()).unwrap();
                 if capacity != 0 {
                     let mut editor = LineEditor::new(capacity, async |byte| {
-                        input.write(byte).await;
+                        input.echo(byte).await;
                         Ok::<_, DosError>(())
                     });
                     loop {
-                        let byte = input.character(true).await?;
+                        let byte = input.character(call, request, true).await?;
                         if byte == CONTROL_C {
                             request.handle_break(call).await;
                             continue 'operation;
@@ -125,7 +125,11 @@ pub(super) async fn dispatch(
                     request.handle_break(call).await;
                     continue;
                 }
-                cpu.set_al(if input.status().await { 0xff } else { 0 });
+                cpu.set_al(if input.status(call, request).await {
+                    0xff
+                } else {
+                    0
+                });
             }
             _ => request.services.exit(
                 &mut call.memory,

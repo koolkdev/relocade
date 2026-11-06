@@ -23,8 +23,14 @@ const INT1B_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x130,
 };
+pub(crate) const IDLE_VECTOR: u8 = 0x28;
+pub(crate) const IDLE_ENTRY: FarPointer = FarPointer {
+    segment: 0xf000,
+    offset: 0x140,
+};
 
 pub(crate) fn register_interrupts(interrupts: &mut Interrupts<'_>, session: Rc<DosState>) {
+    interrupts.register_interrupt(IDLE_VECTOR, IDLE_ENTRY, async |_| {});
     let console = session.clone();
     interrupts.register_interrupt(0x1b, INT1B_ENTRY, async move |_| {
         console.control_break();
