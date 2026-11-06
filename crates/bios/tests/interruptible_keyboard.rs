@@ -91,7 +91,14 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard) {
     state.flags.set_eflags(2); // The caller has IF clear, independently of INT entry.
     let config = CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), state).unwrap();
     let mut cpu = Cpu::new(memory.clone(), config, io.clone()).await.unwrap();
-    relocade_bios::initialize(&mut memory.view().with_io(&io), &io);
+    relocade_bios::initialize(
+        &mut memory.view().with_io(&io),
+        &io,
+        relocade_bios::Configuration {
+            conventional_memory_kib: 640,
+            math_coprocessor: true,
+        },
+    );
     let mut interrupts = Interrupts::new(&mut cpu);
     relocade_bios::register_interrupts(&mut interrupts, keyboard.clone());
     interrupts.install().await.unwrap();

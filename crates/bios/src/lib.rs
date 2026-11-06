@@ -1,5 +1,7 @@
 //! BIOS services for a real-mode PC, reached through ordinary runtime hooks.
 //!
+//! INT 11h/12h return the equipment word and conventional-memory size directly
+//! from guest RAM at 0040:0010 and 0040:0013, initialized from PC configuration.
 //! INT 10h sets text modes 00h–03h and 07h with output, cursors, pages and scrolling.
 //! Mode 07h uses the VGA monochrome palette, nine-dot cells and B0000 aperture.
 //! Graphics modes 04h–06h and 0Dh–13h program VGA for direct guest pixel
@@ -44,11 +46,13 @@
 #![forbid(unsafe_code)]
 
 pub mod clock;
+mod information;
 mod interrupt;
 mod keyboard;
 mod screen;
 pub mod video;
 
+pub use information::Configuration;
 pub use interrupt::register_interrupts;
 pub use keyboard::{KeyStroke, Keyboard, PhysicalKeyboard, ShiftState};
 use relocade_machine::{IoBus, MemoryView};
@@ -56,13 +60,14 @@ pub use screen::write_text;
 
 const BIOS_SEGMENT: u16 = 0xf000;
 
-/// Initializes clock/video data and ROM fonts. Use [`register_interrupts`] to bind
+/// Initializes machine/clock/video data and ROM fonts. Use [`register_interrupts`] to bind
 /// BIOS interrupt vectors and their handlers to a CPU.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
 /// Map [`relocade_vga::MEMORY_RANGE`] as MMIO and connect VGA to that memory
 /// range and [`relocade_vga::PORT_RANGES`] on the supplied bus. Font loading uses
 /// the A0000 aperture before mode setup restores the color text aperture.
-pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
+pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus, configuration: Configuration) {
+    information::initialize(memory, configuration);
     video::initialize(memory, io);
     clock::initialize(memory);
 }
