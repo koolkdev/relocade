@@ -2201,6 +2201,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-at-keyboard"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+ "event-listener",
+ "futures-util",
+ "relocade-frontend",
+ "relocade-machine",
+ "relocade-pic",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
