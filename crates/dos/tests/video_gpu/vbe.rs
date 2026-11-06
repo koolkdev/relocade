@@ -1,4 +1,5 @@
 use super::{common, run, Gpu, TEXT_WITH_RED_BLOCK};
+use relocade_machine::FarPointer;
 use relocade_x86::{ExecutionExit, HostExit};
 
 #[test]
@@ -80,7 +81,7 @@ fn guest_pans_to_a_second_image_with_a_wider_logical_scanline() {
 }
 
 #[test]
-fn guest_discovers_vbe_draws_across_banks_and_returns_to_text() {
+fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
     pollster::block_on(async {
         let mut gpu = Gpu::new().await;
         let mut dos = common::dos().await;
@@ -104,22 +105,49 @@ fn guest_discovers_vbe_draws_across_banks_and_returns_to_text() {
             0xb8, 5, 0x4f, 0xbb, 0, 1, 0xcd, 0x10, 0xa3, 0x0c, 6, // Query window A.
             0x89, 0x16, 0x12, 6, // Save queried bank.
         ];
+        let graphics_eip = 0x100 + program.len() as u32;
+        program.extend([
+            0xeb, 0xfe, // Pause to render the original image.
+            0x0e, 0x07, // ES = CS; state buffer at 0800h.
+            0xb8, 4, 0x4f, 0xb9, 15, 0, 0x31, 0xd2, 0xcd, 0x10, 0xa3, 0x20, 6, // Query size.
+            0x89, 0x1e, 0x30, 6, // Save required 64-byte block count.
+            0xb8, 4, 0x4f, 0xbb, 0, 8, 0xb2, 1, 0xcd, 0x10, 0xa3, 0x22, 6, // Save all state.
+            0xb8, 2, 0x4f, 0xbb, 3, 0x81, 0xcd, 0x10, 0xa3, 0x24,
+            6, // 800x600, preserve VRAM.
+        ]);
+        let changed_eip = 0x100 + program.len() as u32;
+        program.extend([
+            0xeb, 0xfe, // Render the changed mode and palette before restoring.
+            0xb8, 4, 0x4f, 0xbb, 0, 8, 0xb2, 2, 0xcd, 0x10, 0xa3, 0x26,
+            6, // Restore all state.
+            0xb8, 3, 0x4f, 0xcd, 0x10, 0xa3, 0x28, 6, // Query restored mode.
+            0x89, 0x1e, 0x32, 6, // Save the restored mode number.
+            0xb8, 5, 0x4f, 0xbb, 0, 1, 0xcd, 0x10, 0xa3, 0x2a, 6, // Query restored bank.
+            0x89, 0x16, 0x34, 6, // Save the restored bank.
+            0xb8, 8, 0x4f, 0xbb, 1, 0, 0xcd, 0x10, 0xa3, 0x2c, 6, // Query DAC width.
+            0x89, 0x1e, 0x36, 6,
+        ]);
         let completion_eip = 0x100 + program.len() as u32;
         program.extend([0xeb, 0xfe, 0xc3]); // JMP $ gives run_until a boundary; RET follows.
         dos.launch_com(&program, Default::default()).unwrap();
         assert_eq!(
-            common::run_until(dos.cpu(), completion_eip).await,
+            common::run_until(dos.cpu(), graphics_eip).await,
             ExecutionExit::Interrupted
         );
-        {
-            let context = dos.cpu().context();
+        let (oem, modes) = {
+            let mut context = dos.cpu().context();
             let base = u32::from(context.cpu.snapshot().segments.ds.selector) << 4;
             for offset in (0x600..0x60e).step_by(2) {
                 assert_eq!(context.memory.read_u16(base + offset).unwrap(), 0x004f);
             }
             assert_eq!(context.memory.read_u16(base + 0x610).unwrap(), 0x101);
             assert_eq!(context.memory.read_u16(base + 0x612).unwrap(), 4);
-        }
+            let oem = FarPointer::from_packed(context.memory.read_u32(base + 0x406).unwrap());
+            let modes = FarPointer::from_packed(context.memory.read_u32(base + 0x40e).unwrap());
+            // Discovery pointers must not depend on retaining the query buffers.
+            context.memory.write(base + 0x400, &[0xcc; 512]).unwrap();
+            (oem, modes)
+        };
         // The trailing BIOS queries may already have published the final write.
         // A static packed frame will not publish again without a change.
         let graphics = match dos
@@ -139,6 +167,52 @@ fn guest_discovers_vbe_draws_across_banks_and_returns_to_text() {
             };
             assert_eq!(*pixel, expected, "VBE guest pixel {offset}");
         }
+        dos.cpu().context().cpu.set_eip(graphics_eip + 2);
+        assert_eq!(
+            common::run_until(dos.cpu(), changed_eip).await,
+            ExecutionExit::Interrupted
+        );
+        {
+            let context = dos.cpu().context();
+            let base = u32::from(context.cpu.snapshot().segments.ds.selector) << 4;
+            for offset in (0x620..0x626).step_by(2) {
+                assert_eq!(context.memory.read_u16(base + offset).unwrap(), 0x4f);
+            }
+            assert_eq!(context.memory.read_u16(base + 0x630).unwrap(), 15);
+        }
+        let changed = match dos.frame_source().current_capture().filter(|capture| {
+            capture.display.geometry().size == [800, 600]
+                && capture.display.dac.colors[1] != [63, 0, 0]
+        }) {
+            Some(capture) => capture,
+            None => common::next_capture(&dos).await,
+        };
+        let changed_pixels = gpu.render(&changed, [800, 600]).await;
+        assert_ne!(&changed_pixels[65535 * 4..65536 * 4], &[255, 0, 0, 255]);
+
+        dos.cpu().context().cpu.set_eip(changed_eip + 2);
+        assert_eq!(
+            common::run_until(dos.cpu(), completion_eip).await,
+            ExecutionExit::Interrupted
+        );
+        {
+            let context = dos.cpu().context();
+            let base = u32::from(context.cpu.snapshot().segments.ds.selector) << 4;
+            for offset in (0x626..0x62e).step_by(2) {
+                assert_eq!(context.memory.read_u16(base + offset).unwrap(), 0x4f);
+            }
+            for (offset, value) in [(0x632, 0x101), (0x634, 4), (0x636, 0x0601)] {
+                assert_eq!(context.memory.read_u16(base + offset).unwrap(), value);
+            }
+        }
+        let restored_graphics = match dos.frame_source().current_capture().filter(|capture| {
+            capture.display.scanout() == graphics.display.scanout()
+                && capture.display.dac.colors[1] == [63, 0, 0]
+        }) {
+            Some(capture) => capture,
+            None => common::next_capture(&dos).await,
+        };
+        assert_eq!(gpu.render(&restored_graphics, [640, 480]).await, pixels);
         dos.cpu().context().cpu.set_eip(completion_eip + 2);
         assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
@@ -147,5 +221,14 @@ fn guest_discovers_vbe_draws_across_banks_and_returns_to_text() {
         assert_eq!(&restored[9 * 4..10 * 4], &[0, 0, 0, 255]);
         // The banked capture stays usable after mode 3 overwrites live video memory.
         assert_eq!(gpu.render(&graphics, [640, 480]).await, pixels);
+        assert_eq!(gpu.render(&restored_graphics, [640, 480]).await, pixels);
+        // The old guest's discovery pointers remain valid after exit and mode changes.
+        let context = dos.cpu().context();
+        let mut name = [0; 21];
+        context.memory.read_wrapping(oem, &mut name).unwrap();
+        assert_eq!(&name, b"Relocade banked SVGA\0");
+        let mut list = [0; 8];
+        context.memory.read_wrapping(modes, &mut list).unwrap();
+        assert_eq!(list, [1, 1, 3, 1, 5, 1, 0xff, 0xff]);
     });
 }
