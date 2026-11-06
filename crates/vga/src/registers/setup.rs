@@ -3,6 +3,7 @@
 const SETUP_MODE: u8 = 0x10;
 const ADDRESSING_ENABLE: u8 = 0x08;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Setup {
     control: u8,
     option: u8,
@@ -19,6 +20,15 @@ impl Default for Setup {
 }
 
 impl Setup {
+    pub(crate) fn to_bytes(&self) -> [u8; 2] {
+        [self.control, self.option]
+    }
+
+    pub(crate) fn from_bytes([control, option]: [u8; 2]) -> Option<Self> {
+        (control & !(SETUP_MODE | ADDRESSING_ENABLE) == 0 && option <= 1)
+            .then_some(Self { control, option })
+    }
+
     pub(crate) fn enabled(&self) -> bool {
         self.control == ADDRESSING_ENABLE && self.option != 0
     }

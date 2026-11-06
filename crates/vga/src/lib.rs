@@ -18,6 +18,7 @@ mod renderer;
 mod retrace;
 mod scanout;
 mod snapshot;
+mod state;
 mod svga;
 mod timing;
 
@@ -39,6 +40,7 @@ pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
 #[cfg(feature = "renderer")]
 use snapshot::MemoryChanges;
 pub use snapshot::{DacSnapshot, DisplaySnapshot};
+pub use state::{DacState, DispiState, VgaCoreState};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 pub use svga::{SvgaLayout, SvgaMode};
 use timing::Timing;
@@ -241,25 +243,7 @@ impl<C: Clock + 'static> Device for Vga<C> {
                 }
             }
         }
-        let layout = self.dispi.display_layout();
-        let timing = match layout {
-            Some(layout) => Timing::svga(layout),
-            None => Timing::vga(&self.registers),
-        };
-        let timing_changed =
-            if layout.map(SvgaLayout::mode) != previous_layout.map(SvgaLayout::mode) {
-                self.raster.restart(timing);
-                true
-            } else {
-                self.raster.set_timing(timing)
-            };
-        if timing_changed
-            || layout != previous_layout
-            || self.registers.status_port() != previous_status_port
-            || self.setup.enabled() != was_enabled
-        {
-            self.programming_changed.notify(usize::MAX);
-        }
+        self.reconfigure(previous_layout, previous_status_port, was_enabled);
     }
 }
 

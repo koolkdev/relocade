@@ -29,6 +29,33 @@ impl Dac {
     /// This VGA-compatible DAC has a fixed width in every display mode.
     pub const BITS_PER_COMPONENT: u8 = 6;
 
+    pub(crate) fn to_state_bytes(&self) -> [u8; 772] {
+        let mut bytes = [0; 772];
+        bytes[..4].copy_from_slice(&[
+            self.mask,
+            self.address,
+            self.component as u8,
+            u8::from(self.reading),
+        ]);
+        bytes[4..].copy_from_slice(self.colors.as_flattened());
+        bytes
+    }
+
+    pub(crate) fn from_state_bytes(bytes: &[u8; 772]) -> Option<Self> {
+        if bytes[2] >= 3 || bytes[3] > 1 || bytes[4..].iter().any(|&value| value >= 64) {
+            return None;
+        }
+        let mut colors = [[0; 3]; 256];
+        colors.as_flattened_mut().copy_from_slice(&bytes[4..]);
+        Some(Self {
+            mask: bytes[0],
+            address: bytes[1],
+            component: usize::from(bytes[2]),
+            reading: bytes[3] != 0,
+            colors,
+        })
+    }
+
     pub(crate) fn select(&mut self, address: u8, reading: bool) {
         self.address = address;
         self.component = 0;

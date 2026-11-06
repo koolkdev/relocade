@@ -28,6 +28,14 @@ pub(super) struct VideoMemory {
 }
 
 impl VideoMemory {
+    pub fn latches(&self) -> [u8; 4] {
+        self.latches
+    }
+
+    pub fn restore_latches(&mut self, latches: [u8; 4]) {
+        self.latches = latches;
+    }
+
     /// Reads each byte through the selected aperture; unmapped bytes return FF.
     pub fn read(&mut self, address: u32, bytes: u8, access: VramAccess<'_>) -> u64 {
         let mut value = [0; 8];
