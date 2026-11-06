@@ -183,8 +183,9 @@ fn interactive_program_prints_prompt_waits_and_exits_after_input() {
             let mut run = pin!(dos.cpu().run());
             assert!(run.as_mut().poll(&mut cx).is_pending());
             assert_eq!(common::output(output.clone()), b"? ");
+            let wakes_before_input = wakes.0.load(Ordering::Relaxed);
             input.write_all(b"y").unwrap();
-            assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
+            assert_eq!(wakes.0.load(Ordering::Relaxed), wakes_before_input + 1);
             assert!(matches!(
                 run.as_mut().poll(&mut cx),
                 Poll::Ready(ExecutionExit::Host(HostExit::Return))

@@ -1,4 +1,4 @@
-//! One DOS invocation and its awaited break and idle callbacks.
+//! DOS entry scope and the return convention for an awaited break callback.
 
 use super::Services;
 use crate::state::indos;
@@ -9,8 +9,7 @@ use relocade_machine::{
 use relocade_x86::Segment;
 
 const BREAK_INTERRUPT: u8 = 0x23;
-const DIRECTION_FLAG: u32 = 1 << 10;
-const CALLBACK_CLEARED_FLAGS: u32 = DIRECTION_FLAG | (1 << 9) | 1; // CLD, CLI, CLC.
+const CALLBACK_CLEARED_FLAGS: u32 = (1 << 10) | (1 << 9) | 1; // CLD, CLI, CLC.
 
 /// Owns the caller state and DOS entry scope across I/O and nested interrupts.
 pub(super) struct Request<'call> {
@@ -23,10 +22,11 @@ pub(super) struct Request<'call> {
 }
 
 impl<'call> Request<'call> {
-    pub(super) fn new(context: &CpuContext<'_>, services: &'call Services<'call>) -> Self {
-        let cpu = context.cpu;
-        Self {
-            function: cpu.ah(),
+    pub(super) async fn enter(call: &mut CpuContext<'_>, services: &'call Services<'call>) -> Self {
+        let cpu = call.cpu;
+        let function = cpu.ah();
+        let mut request = Self {
+            function,
             registers: cpu.save_registers([
                 reg::ax,
                 reg::bx,
@@ -40,9 +40,16 @@ impl<'call> Request<'call> {
             ]),
             stack: cpu.save_registers([reg::sp, reg::segment(Segment::Ss)]),
             sp: cpu.sp(),
-            in_dos: Some(services.dos.indos().enter()),
+            // AH=33h neither enters DOS nor performs the BREAK ON precheck.
+            in_dos: (function != 0x33).then(|| services.dos.indos().enter()),
             services,
+        };
+        if function != 0x33 && function > 0x0c && services.dos.check_break.get() {
+            while super::io::check_console_break(services).await {
+                request.handle_break(call).await;
+            }
         }
+        request
     }
 
     /// Returns only when the operation may restart. Process termination abandons
@@ -69,23 +76,6 @@ impl<'call> Request<'call> {
         }
         self.in_dos = Some(self.services.dos.indos().enter());
         call.cpu.set_interrupts_enabled(true);
-    }
-
-    pub(super) fn has_idle_callback(&self, call: &CpuContext<'_>) -> bool {
-        // The registered empty handler lets input sleep. Recheck the live vector
-        // after every wake or callback, including a handler replacing itself.
-        (0x01..=0x0c).contains(&self.function)
-            && self.services.dos.indos().allows_idle()
-            && super::system::get_vector(&call.memory, crate::interrupt::IDLE_VECTOR).address()
-                != crate::interrupt::IDLE_ENTRY.address()
-    }
-
-    pub(super) async fn idle(&self, call: &mut CpuContext<'_>) {
-        if self.has_idle_callback(call) {
-            // DOS runs with CLD; the original INT21 frame preserves the caller's DF.
-            call.cpu.set_eflags(call.cpu.eflags() & !DIRECTION_FLAG);
-            call.call_interrupt(crate::interrupt::IDLE_VECTOR).await;
-        }
     }
 }
 

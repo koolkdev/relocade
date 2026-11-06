@@ -9,31 +9,26 @@ use relocade_machine::{
 
 #[interrupt(context(call))]
 pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    if call.cpu.ah() == 0x33 {
-        interrupt_dispatch!(
-            call,
-            match () {
-                () => control::break_setting(services),
-            }
-        );
-        return;
-    }
-    let mut request = control::Request::new(call, services);
-    if request.function > 0x0c && services.dos.check_break.get() {
-        while console::check_console_break(services).await {
-            request.handle_break(call).await;
-        }
-    }
+    let mut request = control::Request::enter(call, services).await;
     interrupt_dispatch!(
         call,
         match request.function {
-            0x01..=0x0c => console::dispatch(&mut request),
+            0x01 => console::read_character_echo(&mut request),
+            0x02 => console::write_character(&mut request),
+            0x06 => console::direct_io(&mut request),
+            0x07 => console::read_character(&mut request),
+            0x08 => console::read_character_check_break(&mut request),
+            0x09 => console::write_string(&mut request),
+            0x0a => console::read_buffered(&mut request),
+            0x0b => console::input_status(&mut request),
+            0x0c => console::flush_input(&mut request),
             0x0e => directories::select_drive(services),
             0x19 => directories::get_drive(services),
             0x1a => search::set_dta(services),
             0x25 => system::set_vector,
             0x2f => search::get_dta(services),
             0x30 => system::version,
+            0x33 => control::break_setting(services),
             0x34 => system::indos,
             0x35 => system::get_vector,
             0x39 => directories::create_directory(services),
