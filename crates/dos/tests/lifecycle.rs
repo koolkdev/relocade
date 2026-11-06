@@ -1,4 +1,6 @@
 mod common;
+#[path = "lifecycle/vectors.rs"]
+mod vectors;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_bios::KeyMode;

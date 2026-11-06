@@ -46,6 +46,7 @@ pub(crate) fn allocate(
     psp[..2].copy_from_slice(&[0xcd, 0x20]);
     // PSP:0002 stores the first paragraph beyond the process allocation.
     psp[2..4].copy_from_slice(&(segment + paragraphs).to_le_bytes());
+    super::vectors::save(memory, &mut psp);
     // PSP:0016 is the parent's PSP segment. The root process is its own parent.
     psp[0x16..0x18].copy_from_slice(&segment.to_le_bytes());
     // PSP:002C points to the separately allocated environment block.
