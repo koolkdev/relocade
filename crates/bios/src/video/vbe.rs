@@ -1,20 +1,25 @@
 //! Banked VESA BIOS services. The 1.2 data layouts precede full 1.2 compliance:
-//! state, display-start and DAC-format services remain unsupported.
+//! state and DAC-format services remain unsupported.
 mod information;
 mod layout;
 mod modes;
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext, IoBus,
+    Clock, CpuContext, IoBus,
 };
-use relocade_vga::registers::dispi;
+use relocade_vga::{registers::dispi, Vga};
+use std::cell::RefCell;
 
 pub(super) use information::initialize;
 use modes::Mode;
 
 #[interrupt(context(call), args(function = al))]
-pub(super) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
+pub(super) async fn dispatch<C: Clock + 'static>(
+    call: &mut CpuContext<'_>,
+    vga: &RefCell<Vga<C>>,
+    function: u8,
+) {
     interrupt_dispatch!(
         call,
         match function {
@@ -24,6 +29,7 @@ pub(super) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
             0x03 => modes::current,
             0x05 => modes::window,
             0x06 => layout::scanline,
+            0x07 => layout::display_start(vga),
             _ => unsupported,
         }
     );

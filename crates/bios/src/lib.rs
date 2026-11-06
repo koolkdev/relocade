@@ -30,9 +30,9 @@
 //! AH=1Bh/BX=0 writes the functionality/state report to ES:DI; other BX values
 //! return AL=0 without writing the buffer. AX=4F00h/4F01h return VBE controller
 //! and mode information using the 1.2 layouts; 4F02h/4F03h set/get the mode and
-//! 4F05h controls the banked window and 4F06h sets/gets logical scanlines.
-//! VBE calls preserve flags and return
-//! status in AX; remaining unsupported video services or pixel coordinates/pages
+//! 4F05h controls the banked window, 4F06h sets/gets logical scanlines and 4F07h
+//! sets/gets display start. VBE calls preserve flags and return status in AX;
+//! remaining unsupported video services or pixel coordinates/pages
 //! return AH=86h with carry set.
 //! INT 09h consumes controller scan bytes and translates the default US layout into
 //! the guest-visible BIOS keyboard ring at 0040:001E. INT 16h provides legacy

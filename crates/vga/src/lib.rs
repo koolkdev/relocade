@@ -15,6 +15,7 @@ mod raster;
 pub mod registers;
 #[cfg(feature = "renderer")]
 mod renderer;
+mod retrace;
 mod scanout;
 mod snapshot;
 mod svga;
@@ -24,7 +25,6 @@ pub use capture::{CapturedFrame, FrameSource};
 #[cfg(feature = "renderer")]
 pub use display::VgaDisplay;
 use event_listener::Event;
-use futures_lite::future::{or, yield_now};
 pub use geometry::DisplayGeometry;
 pub use memory::VIDEO_MEMORY_BYTES;
 use memory::{VideoMemory, VramAccess};
@@ -34,6 +34,7 @@ pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE,
 use relocade_machine::{Clock, Device, DeviceConnection, Runner, TimerHandle};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
+pub use retrace::RetraceEvent;
 pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
 #[cfg(feature = "renderer")]
 use snapshot::MemoryChanges;
@@ -63,7 +64,7 @@ pub struct Vga<C = TimerHandle> {
     dispi: dispi::Dispi,
     clock: Rc<C>,
     raster: Raster,
-    timing_changed: Event,
+    programming_changed: Event,
     frames: FrameSource,
 }
 
@@ -94,7 +95,7 @@ impl<C: Clock> Vga<C> {
             dispi: dispi::Dispi::default(),
             clock,
             raster,
-            timing_changed: Event::new(),
+            programming_changed: Event::new(),
             frames: FrameSource::new(),
         }
     }
@@ -168,27 +169,19 @@ impl<C: Clock> Vga<C> {
     }
 }
 
-impl<C: Clock> Device for Vga<C> {
+impl<C: Clock + 'static> Device for Vga<C> {
     /// Capture display inputs while the CPU is busy, idle, or awaiting a service.
     /// The runner polls this activity alongside CPU execution. No device borrow
-    /// spans a wait; ordinary Rust yielding handles a timer that is already late.
+    /// spans a wait. Late service coalesces missed retraces before preparing the
+    /// next deadline.
     async fn run(device: Rc<RefCell<Self>>) {
-        let clock = device.borrow().clock.clone();
         loop {
-            let (deadline, changed) = {
+            let wait = {
                 let mut device = device.borrow_mut();
                 device.sync_to_clock();
-                (
-                    device.raster.next_retrace_at(),
-                    device.timing_changed.listen(),
-                )
+                device.retrace_wait(device.raster.next_retrace_at())
             };
-            if let Some(deadline) = deadline {
-                or(clock.wait_until(deadline), changed).await;
-            } else {
-                changed.await;
-            }
-            yield_now().await;
+            wait.await;
         }
     }
 
@@ -229,6 +222,8 @@ impl<C: Clock> Device for Vga<C> {
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
         self.sync_to_clock();
         let previous_layout = self.dispi.display_layout();
+        let previous_status_port = self.registers.status_port();
+        let was_enabled = self.setup.enabled();
         if dispi::PORT_RANGE.contains(&port) {
             if self.setup.enabled() {
                 match self.dispi.write_port(port, bytes, value) {
@@ -258,14 +253,19 @@ impl<C: Clock> Device for Vga<C> {
             } else {
                 self.raster.set_timing(timing)
             };
-        if timing_changed {
-            self.timing_changed.notify(usize::MAX);
+        if timing_changed
+            || layout != previous_layout
+            || self.registers.status_port() != previous_status_port
+            || self.setup.enabled() != was_enabled
+        {
+            self.programming_changed.notify(usize::MAX);
         }
     }
 }
 
 impl<C> Drop for Vga<C> {
     fn drop(&mut self) {
+        self.programming_changed.notify(usize::MAX);
         self.frames.close();
     }
 }

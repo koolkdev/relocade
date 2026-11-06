@@ -2,8 +2,12 @@
 //! VBE 2.0 sections 4.9–4.10 define the extended selectors and error results:
 //! https://www.phatcode.net/res/221/files/vbe20.pdf
 use super::{available, read_register, write_register, Mode};
-use relocade_machine::{real_mode_interrupt::interrupt, IoBus};
-use relocade_vga::{registers::dispi, SvgaLayout};
+use relocade_machine::{real_mode_interrupt::interrupt, Clock, IoBus};
+use relocade_vga::{registers::dispi, RetraceEvent, SvgaLayout, Vga};
+use std::cell::RefCell;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn active(io: &IoBus) -> Option<SvgaLayout> {
     if !available(io) {
@@ -55,5 +59,42 @@ pub(super) fn scanline(io: &IoBus, operation: u8, width: u16) -> Result<SvgaLayo
             .with_pitch(layout.mode().max_pitch())
             .ok_or(ScanlineError::Failed),
         _ => Err(ScanlineError::Failed),
+    }
+}
+
+#[interrupt(context(io), args(operation = bx, x = cx, y = dx), returns {
+    Some([x, y]) => { ax = 0x004f, bh = 0, cx = x, dx = y },
+    None => { ax = 0x014f },
+})]
+pub(super) async fn display_start<C: Clock + 'static>(
+    io: &IoBus,
+    vga: &RefCell<Vga<C>>,
+    operation: u16,
+    x: u16,
+    y: u16,
+) -> Option<[u16; 2]> {
+    let layout = active(io)?;
+    match operation {
+        1 => Some(layout.origin().map(|value| value as u16)),
+        0 | 0x80 => {
+            layout.with_origin([u32::from(x), u32::from(y)])?;
+            if operation == 0x80 {
+                loop {
+                    let wait = { vga.borrow_mut().wait_for_retrace()? };
+                    let event = wait.await;
+                    // Revalidation services the completed boundary before the origin changes.
+                    if active(io) != Some(layout) {
+                        return None;
+                    }
+                    if event == RetraceEvent::Started {
+                        break;
+                    }
+                }
+            }
+            write_register(io, dispi::X_OFFSET, x);
+            write_register(io, dispi::Y_OFFSET, y);
+            Some([x, y])
+        }
+        _ => None, // BH is reserved; only the three complete BX values are valid.
     }
 }

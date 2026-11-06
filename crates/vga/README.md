@@ -921,12 +921,13 @@ numbers (0101h, 0103h and 0105h) belong to firmware.
 
 The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
 `4F01h` information for the three indexed modes, `4F02h`/`4F03h` mode control,
-`4F05h` bank control and `4F06h` logical scanline control, using the VBE 1.2
-register and 256-byte buffer layouts with selected VBE 2.0 extensions.
-It reports the 4 MiB adapter, a terminated ROM mode list, one readable
-and writable 64 KiB window at A000h, and no callable bank function or additional
-display pages. BIOS output functions are not advertised for this mode. These
-services are an incremental subset, not a complete VBE 1.2 implementation;
+`4F05h` bank control, `4F06h` logical scanline control and `4F07h` display-start
+control, using the VBE 1.2 register and 256-byte buffer layouts with selected
+VBE 2.0 extensions. It reports the 4 MiB adapter, a terminated ROM mode list, one readable
+and writable 64 KiB window at A000h, and the number of additional complete display
+pages at the reported pitch. No callable bank function or BIOS output functions
+are advertised for these modes. These services are an incremental subset,
+not a complete VBE 1.2 implementation;
 unimplemented functions return AL != 4Fh, while failed supported requests return
 AX=014Fh (or AX=024Fh for an excessively wide scanline). All VBE results preserve flags.
 
@@ -936,6 +937,32 @@ pixels make the byte and pixel lengths identical. Requests below the visible
 width round up; changes that invalidate the current viewport fail. Successful
 calls return the actual stride and number of complete rows in VRAM. `4F01h`
 reports the active mode's current pitch and other modes' default pitches.
+
+Display-start control supports immediate updates, position queries and BL=80h
+retrace synchronization. Requests validate the whole visible rectangle;
+invalid coordinates or reserved selectors leave state unchanged. The retrace
+variant uses `Vga::wait_for_retrace` on the same device passed by `Pc` to BIOS
+interrupt registration. The method prepares an owned future from VGA's clock
+and programming notifications; BIOS releases the device borrow before awaiting
+it. `RetraceEvent::Started` reports a retrace occurrence, while `Reprogrammed`
+asks the caller to revalidate and prepare another wait. BIOS keeps that short
+async loop and validates its mode/layout after every completion. Register access
+continues through the existing synchronous `IoBus`.
+
+Mode, layout, status-routing or adapter-decoding changes wake the wait to
+revalidate the request and recalculate its deadline; index and bank writes do
+not. Disabled VGA cannot prepare a wait. Suppressed sync waits for
+programming to restore the signal, while internal capture boundaries continue.
+Both capture activity and the retrace wait use the same timing and
+notification mechanism. Waiting works without a running capture task and through
+unchanged-frame suppression.
+
+The wait reports a retrace occurrence even when a late host timer resumes after
+the narrow status pulse. Revalidation services that completed boundary before
+the origin changes; the following retrace captures the new origin. Immediate
+updates appear at the next capture boundary. Neither path changes the CPU bank,
+VRAM or an already published capture. Image-page capacity depends on pitch and
+visible height, independently of the current origin.
 
 Mode sets validate the request before changing hardware or BIOS data. Bit 15
 preserves VRAM; every successful packed mode set resets the CPU window to bank

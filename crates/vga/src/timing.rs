@@ -48,6 +48,14 @@ impl Timing {
         )
     }
 
+    /// The observable status pulse can be suppressed while internal capture continues.
+    pub fn retrace_pulse_dot(self) -> Option<u64> {
+        if !self.vertical_retrace_active(self.vertical_retrace_start) {
+            return None;
+        }
+        self.retrace_dot()
+    }
+
     // Fractional dot position is numerator / phase_denominator(). An
     // elapsed nanosecond adds oscillator_hz to that numerator. Keeping the
     // division remainder avoids rounding every dot period to nanoseconds.

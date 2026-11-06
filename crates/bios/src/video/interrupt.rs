@@ -7,11 +7,17 @@ use super::{
 use crate::screen;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext,
+    Clock, CpuContext,
 };
+use relocade_vga::Vga;
+use std::cell::RefCell;
 
 #[interrupt(context(call), args(function = ah))]
-pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
+pub(crate) async fn dispatch<C: Clock + 'static>(
+    call: &mut CpuContext<'_>,
+    vga: &RefCell<Vga<C>>,
+    function: u8,
+) {
     interrupt_dispatch!(
         call,
         match function {
@@ -37,7 +43,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
             0x1a => display_combination,
             0x1b => information::write_report,
             0x1c => state_services,
-            0x4f => vbe::dispatch,
+            0x4f => vbe::dispatch(vga),
             _ => crate::interrupt::unsupported,
         }
     );

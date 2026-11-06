@@ -64,6 +64,9 @@
 //! at registration, use `interrupt_handler!(keyboard::dispatch(&keyboard))` or
 //! `interrupt_handler!(keyboard.read_key)`. These forms produce an async move
 //! closure that owns its captures and evaluates its arguments on each invocation.
+//! Generic services retain their bounds and `where` clauses. Type and const
+//! arguments can be supplied explicitly, as in `service::<_, 3>(&resource)`;
+//! the adapter forwards them to the service while Rust infers lifetimes.
 //!
 //! Register arguments are captured before borrowing service resources or awaiting.
 //! Scalar names use the existing CPU accessors; `(cx, dx)` represents a u32 with

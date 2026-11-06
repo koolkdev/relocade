@@ -12,13 +12,13 @@ use std::{
 pub struct ManualClock {
     now: Cell<Duration>,
     pub deadline: Cell<Option<Duration>>,
-    waker: RefCell<Option<Waker>>,
+    wakers: RefCell<Vec<Waker>>,
 }
 impl ManualClock {
     pub fn set(&self, now: Duration) {
         assert!(now >= self.now.get());
         self.now.set(now);
-        if let Some(waker) = self.waker.borrow_mut().take() {
+        for waker in self.wakers.borrow_mut().drain(..) {
             waker.wake();
         }
     }
@@ -33,7 +33,10 @@ impl Clock for ManualClock {
             if self.now() >= deadline {
                 Poll::Ready(())
             } else {
-                *self.waker.borrow_mut() = Some(cx.waker().clone());
+                let mut wakers = self.wakers.borrow_mut();
+                if !wakers.iter().any(|waker| waker.will_wake(cx.waker())) {
+                    wakers.push(cx.waker().clone());
+                }
                 Poll::Pending
             }
         })
@@ -59,21 +62,19 @@ pub fn svga_boundary(frame: u64) -> Duration {
     dots((490 + (frame - 1) * 525) * 800, 25_175_000)
 }
 
-// Finish a cooperative yield before inspecting the device's next wait.
+// Service pending display work and register its next wait.
 pub fn poll_video(
-    mut video: std::pin::Pin<&mut impl std::future::Future<Output = ()>>,
+    video: std::pin::Pin<&mut impl std::future::Future<Output = ()>>,
     cx: &mut std::task::Context<'_>,
 ) {
-    for _ in 0..2 {
-        assert!(video.as_mut().poll(cx).is_pending());
-    }
+    assert!(video.poll(cx).is_pending());
 }
 
 #[path = "../support/mod.rs"]
 pub mod support;
 pub use support::fixture;
 
-pub fn text_vga<C: Clock>(clock: std::rc::Rc<C>) -> relocade_vga::Vga<C> {
+pub fn text_vga<C: Clock + 'static>(clock: std::rc::Rc<C>) -> relocade_vga::Vga<C> {
     let mut vga = relocade_vga::Vga::with_clock(clock);
     fixture::initialize_font(&mut vga);
     vga

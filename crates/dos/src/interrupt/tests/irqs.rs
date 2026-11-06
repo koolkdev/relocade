@@ -39,9 +39,10 @@ impl Device for Irq {
 /// Use the production loader, DOS services and BIOS resources with a controlled IRQ source.
 async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let (clock, _timers) = timer_service();
+    let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock))));
     let io = IoBus::new([
         DeviceConnection {
-            device: Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock)))),
+            device: vga.clone(),
             mmio: vec![relocade_vga::MEMORY_RANGE],
             ports: relocade_vga::PORT_RANGES.into_iter().collect(),
         },
@@ -89,7 +90,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     );
     let mut interrupts = relocade_machine::real_mode_interrupt::Interrupts::new(&mut cpu);
     crate::interrupt::register_interrupts(&mut interrupts, dos.clone());
-    relocade_bios::register_interrupts(&mut interrupts, keyboard);
+    relocade_bios::register_interrupts(&mut interrupts, keyboard, vga);
     interrupts.install().await.unwrap();
     let psp = com::load(
         &mut cpu.context(),

@@ -10,9 +10,21 @@ use relocade_x86::{
 use std::{cell::Cell, rc::Rc};
 
 #[interrupt(args(value = ax), returns { value => { ax = value, cf = false } })]
-async fn advance(value: u16, increment: &Cell<u16>) -> u16 {
-    increment.set(increment.get() + 1);
-    value + increment.get()
+#[allow(clippy::needless_lifetimes)] // Exercise named lifetimes in the generated adapter.
+async fn advance<'a, T, const STEP: u16>(value: u16, increment: &'a Cell<T>) -> u16
+where
+    T: Copy + From<u16> + Into<u16>,
+{
+    let next = increment.get().into() + STEP;
+    increment.set(T::from(next));
+    value + next
+}
+
+impl Adjustment {
+    #[interrupt(args(value = ax), returns { value => { ax = value } })]
+    fn add_constant<const AMOUNT: u16>(&self, value: u16) -> u16 {
+        value + self.0 + AMOUNT
+    }
 }
 
 async fn check_handlers() {
@@ -45,7 +57,7 @@ async fn check_handlers() {
         .unwrap();
 
     // Captures may be non-Send and share a name with the generated context.
-    let call = Rc::new(Cell::new(0));
+    let call = Rc::new(Cell::new(0u16));
     let calls = call.clone();
     let adjustment = Adjustment(0x10);
     let mut interrupts = Interrupts::new(&mut runtime);
@@ -63,7 +75,7 @@ async fn check_handlers() {
             segment: 0,
             offset: 0x410,
         },
-        interrupt_handler!(advance(&call)),
+        interrupt_handler!(advance::<_, 1>(&call)),
     );
     interrupts.register_interrupt(
         0x62,
@@ -71,7 +83,7 @@ async fn check_handlers() {
             segment: 0,
             offset: 0x420,
         },
-        interrupt_handler!(adjustment.add(3)),
+        interrupt_handler!(adjustment.add_constant::<3>()),
     );
     interrupts.install().await.unwrap();
 

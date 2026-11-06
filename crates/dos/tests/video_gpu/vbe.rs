@@ -2,6 +2,84 @@ use super::{common, run, Gpu, TEXT_WITH_RED_BLOCK};
 use relocade_x86::{ExecutionExit, HostExit};
 
 #[test]
+fn guest_pans_to_a_second_image_with_a_wider_logical_scanline() {
+    pollster::block_on(async {
+        let mut gpu = Gpu::new().await;
+        let mut dos = common::dos().await;
+        let mut program = vec![
+            0xb8, 2, 0x4f, 0xbb, 3, 1, 0xcd, 0x10, // 800x600 indexed mode.
+            0xb8, 6, 0x4f, 0x31, 0xdb, 0xb9, 0, 4, 0xcd, 0x10, 0xa3, 0, 6, // Pitch 1024.
+            0xb8, 0x10, 0x10, 0xbb, 1, 0, 0x31, 0xc9, 0xba, 0, 63, 0xcd, 0x10, // Red 1.
+            0xb8, 0x10, 0x10, 0xbb, 2, 0, 0xb9, 0, 63, 0x31, 0xd2, 0xcd, 0x10, // Green 2.
+            0xb8, 0, 0xa0, 0x8e, 0xc0, // ES = A000h.
+            0x26, 0xc6, 6, 0, 0, 2, // Original viewport: one green pixel.
+            0xb8, 5, 0x4f, 0x31, 0xdb, 0xba, 9, 0, 0xcd, 0x10, 0xa3, 2, 6, // Bank 9.
+            0x26, 0xc6, 6, 0x18, 0x60, 1, // (24, 600), the panned top-left.
+            0x26, 0xc6, 6, 0x37, 0x63, 1, // Top-right.
+            0x26, 0xc6, 6, 0x18, 0x64, 1, // Next logical row.
+            0xb8, 5, 0x4f, 0xba, 18, 0, 0xcd, 0x10, // Bank 18.
+            0x26, 0xc6, 6, 0x37, 0xbf, 1, // Last visible pixel in the panned image.
+        ];
+        let first_eip = 0x100 + program.len() as u32;
+        program.extend([
+            0xeb, 0xfe, // Pause before panning.
+            0xb8, 7, 0x4f, 0xbb, 0x80, 0, 0xb9, 24, 0, 0xba, 0x58, 2, 0xcd, 0x10, 0xa3, 4,
+            6, // Pan to (24, 600) during retrace; save status.
+            0xb8, 7, 0x4f, 0xbb, 1, 0, 0xcd, 0x10, 0xa3, 6, 6, // Query origin.
+            0x89, 0x0e, 8, 6, 0x89, 0x16, 10, 6, // Save CX, DX.
+            0xb8, 5, 0x4f, 0xbb, 0, 1, 0xcd, 0x10, 0x89, 0x16, 12, 6, // Query bank.
+        ]);
+        let second_eip = 0x100 + program.len() as u32;
+        program.extend([0xeb, 0xfe]);
+        dos.launch_com(&program, Default::default()).unwrap();
+        let mut captures = Vec::new();
+        for (entry, stop, origin) in [
+            (0x100, first_eip, [0, 0]),
+            (first_eip + 2, second_eip, [24, 600]),
+        ] {
+            dos.cpu().context().cpu.set_eip(entry);
+            assert_eq!(
+                common::run_until(dos.cpu(), stop).await,
+                ExecutionExit::Interrupted
+            );
+            let current = dos.frame_source().current_capture().filter(|capture| {
+                matches!(capture.display.scanout(), relocade_vga::Scanout::Svga(layout)
+                    if layout.pitch() == 1024 && layout.origin() == origin)
+                    && capture.display.vram_byte(0) == Some(2)
+            });
+            captures.push(match current {
+                Some(capture) => capture,
+                None => common::next_capture(&dos).await,
+            });
+        }
+        {
+            let context = dos.cpu().context();
+            let base = u32::from(context.cpu.snapshot().segments.ds.selector) << 4;
+            for offset in (0x600..0x608).step_by(2) {
+                assert_eq!(context.memory.read_u16(base + offset).unwrap(), 0x4f);
+            }
+            for (offset, value) in [(0x608, 24), (0x60a, 600), (0x60c, 18)] {
+                assert_eq!(context.memory.read_u16(base + offset).unwrap(), value);
+            }
+        }
+        drop(dos);
+        for index in [0, 1, 0] {
+            let pixels = gpu.render(&captures[index], [800, 600]).await;
+            for (offset, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
+                let expected = if index == 0 && offset == 0 {
+                    [0, 255, 0, 255]
+                } else if index == 1 && [0, 799, 800, 479999].contains(&offset) {
+                    [255, 0, 0, 255]
+                } else {
+                    [0, 0, 0, 255]
+                };
+                assert_eq!(*pixel, expected, "image {index}, pixel {offset}");
+            }
+        }
+    });
+}
+
+#[test]
 fn guest_discovers_vbe_draws_across_banks_and_returns_to_text() {
     pollster::block_on(async {
         let mut gpu = Gpu::new().await;

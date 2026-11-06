@@ -93,15 +93,21 @@ impl Raster {
     }
 
     pub fn next_retrace_at(&self) -> Option<Duration> {
-        let timing = self.timing;
-        let boundary = timing.retrace_dot()?;
-        let total = timing.frame_dots();
+        self.next_dot_at(self.timing.retrace_dot()?)
+    }
+
+    pub fn next_retrace_pulse_at(&self) -> Option<Duration> {
+        self.next_dot_at(self.timing.retrace_pulse_dot()?)
+    }
+
+    fn next_dot_at(&self, boundary: u64) -> Option<Duration> {
+        let total = self.timing.frame_dots();
         let mut dots = (boundary + total - self.dot) % total;
         if dots == 0 {
             dots = total;
         }
         self.updated
-            .checked_add(timing.remaining_for_dots(dots, self.dot_remainder))
+            .checked_add(self.timing.remaining_for_dots(dots, self.dot_remainder))
     }
 
     pub fn input_status_1(&self) -> u8 {
@@ -118,9 +124,15 @@ impl Raster {
         {
             status |= DISPLAY_DISABLED;
         }
-        if timing.vertical_retrace_active(vertical) {
+        if self.in_retrace() {
             status |= VERTICAL_RETRACE;
         }
         status
+    }
+
+    pub fn in_retrace(&self) -> bool {
+        let vertical =
+            self.dot / self.timing.horizontal_total / self.timing.scanlines_per_vertical_count;
+        self.timing.vertical_retrace_active(vertical)
     }
 }

@@ -3,8 +3,10 @@
 use crate::{clock, information, keyboard, video, Keyboard, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
-    CpuContext, FarPointer,
+    Clock, CpuContext, FarPointer,
 };
+use relocade_vga::Vga;
+use std::{cell::RefCell, rc::Rc};
 
 const CLOCK_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
@@ -42,9 +44,14 @@ const KEYBOARD_IRQ_ENTRY: FarPointer = FarPointer {
 
 /// Registers BIOS vectors and their handlers alongside an environment's interrupts.
 /// The keyboard is retained by its handler and may be shared with console input.
+/// Video retains the same VGA device connected to the CPU's I/O bus.
 /// BIOS services and IRQ handlers enable live IF while their work runs. IRQ
 /// completion disables IF and acknowledges the PIC before returning through IRET.
-pub fn register_interrupts(interrupts: &mut Interrupts<'_>, keyboard: Keyboard) {
+pub fn register_interrupts<C: Clock + 'static>(
+    interrupts: &mut Interrupts<'_>,
+    keyboard: Keyboard,
+    vga: Rc<RefCell<Vga<C>>>,
+) {
     let irq_keyboard = keyboard.clone();
     register_irq(interrupts, 0x09, KEYBOARD_IRQ_ENTRY, async move |call| {
         if let Some(byte) = relocade_at_keyboard::read_scan_code(call.io) {
@@ -81,7 +88,7 @@ pub fn register_interrupts(interrupts: &mut Interrupts<'_>, keyboard: Keyboard) 
         interrupts,
         0x10,
         VIDEO_ENTRY,
-        interrupt_handler!(video::dispatch),
+        interrupt_handler!(video::dispatch(&vga)),
     );
 }
 

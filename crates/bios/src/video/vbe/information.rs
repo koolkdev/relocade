@@ -79,7 +79,8 @@ pub(super) fn mode(
     bytes[18..20].copy_from_slice(&width.to_le_bytes());
     bytes[20..22].copy_from_slice(&height.to_le_bytes());
     bytes[22..28].copy_from_slice(&[8, 16, 1, mode.display.bits_per_pixel(), 1, 4]);
-    // No interleaved scanline banks or additional display pages.
+    // No interleaved scanline banks. VBE counts additional complete display pages.
+    bytes[29] = (layout.image_pages() - 1) as u8;
     bytes[30] = 1; // VBE 1.2's reserved page-function byte.
     memory
         .write_wrapping(destination, &bytes)
