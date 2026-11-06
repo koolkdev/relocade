@@ -29,7 +29,7 @@ fn physical_keys_ignore_host_language_text_and_composition() {
         (KeyCode::KeyE, Some("é"), b'e', 0x12),
         (KeyCode::KeyE, Some("e\u{301}"), b'e', 0x12),
         (KeyCode::Quote, None, b'\'', 0x28),
-        (KeyCode::ArrowUp, Some("8"), 0, 0x48),
+        (KeyCode::ArrowUp, Some("8"), 0xe0, 0x48),
         (KeyCode::Enter, None, b'\r', 0x1c),
     ] {
         assert_eq!(
@@ -170,17 +170,18 @@ fn keypad_uses_guest_num_lock_with_shift_override() {
 #[test]
 fn physical_special_keys_use_bios_modifier_codes() {
     let mut keyboard = PhysicalKeyboard::default();
-    for (modifiers, code, scan_code) in [
-        (ModifiersState::SHIFT, KeyCode::F1, 0x54),
-        (ModifiersState::CONTROL, KeyCode::ArrowLeft, 0x73),
-        (ModifiersState::ALT, KeyCode::Digit1, 0x78),
-        (ModifiersState::CONTROL, KeyCode::NumpadDivide, 0x95),
+    for (modifiers, code, character, scan_code) in [
+        (ModifiersState::SHIFT, KeyCode::F1, 0, 0x54),
+        (ModifiersState::CONTROL, KeyCode::ArrowLeft, 0xe0, 0x73),
+        (ModifiersState::ALT, KeyCode::Digit1, 0, 0x78),
+        (ModifiersState::ALT, KeyCode::Enter, 0, 0x1c),
+        (ModifiersState::CONTROL, KeyCode::NumpadDivide, 0, 0x95),
     ] {
         keyboard.translate(KeyboardEvent::Modifiers(modifiers));
         assert_eq!(
             keyboard.translate(press(code, None)),
             Some(KeyStroke {
-                character: 0,
+                character,
                 scan_code
             })
         );

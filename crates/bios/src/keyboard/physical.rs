@@ -4,7 +4,7 @@ use super::{layout, KeyStroke, ShiftState};
 use relocade_frontend::keyboard::{ElementState, KeyCode, KeyboardEvent, PhysicalKey};
 use std::collections::BTreeSet;
 
-/// Translates physical events with the BIOS US layout, without touching guest RAM.
+/// Translates physical events into enhanced BIOS keys, without touching guest RAM.
 /// A native input reader owns one translator across successive lines. Host text
 /// and composition do not select characters; host repeats produce repeated keys.
 #[derive(Default)]
@@ -76,6 +76,7 @@ impl PhysicalKeyboard {
         self.shifts.alt = self.held.contains(&AltLeft) || self.held.contains(&AltRight);
         key.and_then(layout::Key::from_physical)
             .and_then(|key| layout::keystroke(key, self.shifts))
+            .and_then(|key| super::KeyMode::Enhanced.translate(key))
     }
 }
 

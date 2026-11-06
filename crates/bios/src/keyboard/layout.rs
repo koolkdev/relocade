@@ -5,6 +5,7 @@
 //! unrelated BIOS code ranges. Source: IBM PC/AT Technical Reference (March 1986),
 //! KYBD and ORGS keyboard tables; see README.md for the supported subset.
 
+use super::encoding::{ENHANCED_ONLY_MARKER, EXTENDED_MARKER};
 use super::{KeyStroke, ShiftState};
 use relocade_frontend::keyboard::KeyCode;
 
@@ -197,7 +198,13 @@ pub(super) fn keystroke(key: Key, shifts: ShiftState) -> Option<KeyStroke> {
                 return Some(character_key(key, character));
             }
         }
-        return Some(function_key(codes, shifts));
+        let mut result = function_key(codes, shifts);
+        if !shifts.alt && digit.is_none() {
+            result.character = EXTENDED_MARKER;
+        } else if key == Keypad5 && !shifts.control {
+            result.character = ENHANCED_ONLY_MARKER;
+        }
+        return Some(result);
     }
 
     // Character columns: unmodified, Shift. CapsLock affects only letters.
@@ -282,7 +289,13 @@ pub(super) fn keystroke(key: Key, shifts: ShiftState) -> Option<KeyStroke> {
             Tab => 0xa5,
             KeypadEnter => 0xa6,
             KeypadDivide => 0xa4,
-            _ => key.make_code(),
+            _ if plain.is_ascii_alphabetic() => key.make_code(),
+            _ => {
+                return Some(KeyStroke {
+                    character: ENHANCED_ONLY_MARKER,
+                    scan_code: key.make_code(),
+                })
+            }
         };
         return Some(special_key(scan_code));
     }
@@ -323,7 +336,11 @@ pub(super) fn keystroke(key: Key, shifts: ShiftState) -> Option<KeyStroke> {
 fn character_key(key: Key, character: u8) -> KeyStroke {
     KeyStroke {
         character,
-        scan_code: key.make_code(),
+        scan_code: if matches!(key, Key::KeypadEnter | Key::KeypadDivide) {
+            EXTENDED_MARKER
+        } else {
+            key.make_code()
+        },
     }
 }
 

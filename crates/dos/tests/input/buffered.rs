@@ -1,4 +1,5 @@
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
+use relocade_bios::KeyMode;
 use relocade_x86::ExecutionExit;
 use std::{
     future::Future,
@@ -173,7 +174,7 @@ fn buffered_input_follows_stdin_and_stdout_redirection() {
         dos.cpu().context().cpu.set_dx(0x400);
         dos.stdin().write_all(b"K").unwrap();
         common::assert_pending(dos.cpu().run());
-        assert!(dos.keyboard().peek_key().is_some());
+        assert!(dos.keyboard().peek_key(KeyMode::Enhanced).is_some());
     });
 }
 

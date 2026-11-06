@@ -1,6 +1,7 @@
 mod common;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
+use relocade_bios::KeyMode;
 use relocade_dos::{FileAccess, LaunchError, LoadError, ProcessStatus, ServiceError};
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 use std::{
@@ -74,7 +75,7 @@ fn installing_dos_preserves_the_existing_pc_and_bios() {
                     assert_eq!(memory.view().read_u8(0x10302).unwrap(), b'b');
                     assert_eq!(dos.cpu().context().memory.read_u8(0xb8000).unwrap(), b'Y');
                     let mut remaining = Vec::new();
-                    while let Some(key) = keyboard.try_read_key() {
+                    while let Some(key) = keyboard.try_read_key(KeyMode::Enhanced) {
                         remaining.push(key.character);
                     }
                     assert_eq!(remaining, b"cdefghijklmno");

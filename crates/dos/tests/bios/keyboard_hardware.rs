@@ -1,4 +1,5 @@
 use crate::common;
+use relocade_bios::KeyMode;
 use relocade_dos::Dos;
 use relocade_machine::IoBus;
 use relocade_x86::ExecutionExit;
@@ -77,7 +78,7 @@ fn cli_allows_guest_port_polling_without_bios_consuming_the_scan_byte() {
         assert_ne!(memory.view().read_u8(base + 0x300).unwrap() & 1, 0);
         assert_eq!(memory.view().read_u8(base + 0x301).unwrap(), 0x1e);
         assert_eq!(memory.view().read_u8(base + 0x302).unwrap() & 1, 0);
-        assert_eq!(dos.keyboard().peek_key(), None);
+        assert_eq!(dos.keyboard().peek_key(KeyMode::Enhanced), None);
     });
 }
 
@@ -153,7 +154,7 @@ fn replacing_irq1_owns_scan_consumption_and_guest_eoi_releases_the_next_irq() {
         assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 2);
         assert_eq!(memory.view().read_u16(base + 0x302).unwrap(), 0x9e1e);
         assert_eq!(
-            dos.keyboard().peek_key(),
+            dos.keyboard().peek_key(KeyMode::Enhanced),
             None,
             "replacement ISR bypasses BIOS translation"
         );
@@ -197,7 +198,7 @@ fn a_guest_irq1_hook_chains_to_bios_and_wakes_both_input_services() {
             );
         }
         assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 2);
-        assert_eq!(dos.keyboard().peek_key(), None);
+        assert_eq!(dos.keyboard().peek_key(KeyMode::Enhanced), None);
         // INT16 reads a word inserted by guest software into the same ring.
         let tail = memory.view().read_u16(0x41c).unwrap();
         memory
@@ -212,6 +213,6 @@ fn a_guest_irq1_hook_chains_to_bios_and_wakes_both_input_services() {
             ExecutionExit::Interrupted
         );
         assert_eq!(dos.cpu().cpu_state().ax(), 0x2c5a);
-        assert_eq!(dos.keyboard().peek_key(), None);
+        assert_eq!(dos.keyboard().peek_key(KeyMode::Enhanced), None);
     });
 }

@@ -8,16 +8,18 @@
 //! byte iterator across reads and awaits another key only when it is exhausted.
 //! Peeking observes pending bytes or the next untouched BIOS key.
 
-use relocade_bios::{KeyStroke, Keyboard};
+use relocade_bios::{KeyMode, KeyStroke, Keyboard};
 use std::{cell::RefCell, iter::Peekable};
 
 type DosBytes = std::iter::Flatten<std::array::IntoIter<Option<u8>, 2>>;
 
 /// A BIOS keystroke becomes one DOS character byte, or a zero/scan-code pair.
 pub(crate) fn dos_bytes(key: KeyStroke) -> DosBytes {
+    // Enhanced navigation keys carry E0h; a scan-zero OEM character does not.
+    let special = matches!(key.character, 0 | 0xe0) && key.scan_code != 0;
     [
-        Some(key.character),
-        (key.character == 0 && key.scan_code != 0).then_some(key.scan_code),
+        Some(if special { 0 } else { key.character }),
+        special.then_some(key.scan_code),
     ]
     .into_iter()
     .flatten()
@@ -44,7 +46,7 @@ impl ConsoleInput {
         }
         // Do not consume a BIOS key merely to populate the byte iterator.
         self.keyboard
-            .peek_key()
+            .peek_key(KeyMode::Enhanced)
             .and_then(|key| dos_bytes(key).next())
     }
 
@@ -68,7 +70,7 @@ impl ConsoleInput {
             }
             // No iterator borrow spans the wait. Once BIOS supplies a key,
             // encoding it and returning its first byte complete without yielding.
-            let key = self.keyboard.read_key().await;
+            let key = self.keyboard.read_key(KeyMode::Enhanced).await;
             *self.pending_bytes.borrow_mut() = dos_bytes(key).peekable();
         }
     }

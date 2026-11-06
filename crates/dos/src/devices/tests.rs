@@ -1,5 +1,6 @@
 use super::*;
 use crate::files::{FileSystem, Files, Handle};
+use relocade_bios::KeyMode;
 use relocade_machine::{MachineConfig, Memory};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 
@@ -116,7 +117,7 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
             scan_code: 0x3b, // F1.
         }));
         assert_eq!(original.read_character().await.unwrap(), 0);
-        assert_eq!(keyboard.peek_key(), None);
+        assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
 
         let memory = dos.cpu().memory().with_io(dos.cpu().context().io.clone());
         dos.state
@@ -139,7 +140,7 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
             scan_code: 0x2c,
         }));
         replacement.flush_input().await.unwrap();
-        assert_eq!(keyboard.peek_key(), None);
+        assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
         assert_eq!(replacement.peek_character().await.unwrap(), None);
         assert_eq!(original.read_character().await.unwrap(), 0x3b);
         assert_eq!(original.peek_character().await.unwrap(), None);

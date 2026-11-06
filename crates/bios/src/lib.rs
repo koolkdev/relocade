@@ -31,8 +31,9 @@
 //! return AL=0 without writing the buffer. Other unsupported video services or
 //! pixel coordinates/pages return AH=86h with carry set.
 //! INT 09h consumes controller scan bytes and translates the default US layout into
-//! the guest-visible BIOS keyboard ring at 0040:001E. INT 16h/AH=00h/01h/02h and
-//! DOS console input read the same ring and modifier flags. Guest IRQ1 handlers
+//! the guest-visible BIOS keyboard ring at 0040:001E. INT 16h provides legacy
+//! AH=00h/01h/02h, enhanced AH=10h/11h/12h, and AH=05h buffer insertion. DOS console
+//! input uses enhanced reads from that same ring and modifier flags. Guest IRQ1 handlers
 //! may replace or chain the default handler; port reads consume its input bytes.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
@@ -54,7 +55,7 @@ pub mod video;
 
 pub use information::Configuration;
 pub use interrupt::register_interrupts;
-pub use keyboard::{KeyStroke, Keyboard, PhysicalKeyboard, ShiftState};
+pub use keyboard::{KeyMode, KeyStroke, Keyboard, PhysicalKeyboard, ShiftState};
 use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;
 

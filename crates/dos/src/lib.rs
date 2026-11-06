@@ -44,7 +44,8 @@
 //! [`Dos::stdout`] and [`Dos::stderr`] using `std::io` traits. Owned stream handles
 //! remain usable while an asynchronous run waits for input.
 //! [`Dos::keyboard`] also accepts translated keystrokes and modifier state.
-//! BIOS INT 16h/AH=00h/01h/02h consumes, peeks and queries that same keyboard.
+//! BIOS INT 16h provides legacy AH=00h/01h/02h and enhanced AH=10h/11h/12h
+//! interfaces to that same keyboard; the DOS console uses enhanced reads.
 //! AH=48h/49h/4Ah allocate, free and resize conventional-memory blocks.
 //! [`Dos::mount`] supplies a filesystem at a drive letter; C: starts empty.
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
