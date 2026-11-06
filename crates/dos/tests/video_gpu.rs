@@ -30,6 +30,8 @@ mod serializer;
 mod transitions;
 #[path = "video_gpu/unchained256.rs"]
 mod unchained256;
+#[path = "video_gpu/vbe.rs"]
+mod vbe;
 
 use relocade_dos::Dos;
 use relocade_vga::{CapturedFrame, VgaRenderer};
