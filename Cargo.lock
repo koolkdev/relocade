@@ -2300,6 +2300,7 @@ dependencies = [
  "pollster",
  "relocade-app",
  "relocade-dos",
+ "relocade-frontend",
  "relocade-machine",
  "relocade-pc-speaker",
  "relocade-vga",

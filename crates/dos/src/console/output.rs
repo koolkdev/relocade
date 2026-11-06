@@ -1,33 +1,17 @@
 //! Output routing and cooked characters over retained console resources.
 
-use crate::{devices::CharacterDevice, error::DosError, files::Handle, stdio::Stdio};
-use std::rc::Rc;
+use crate::{error::DosError, files::Handle, stdio::Stdio};
 
 impl<'a> CharacterOutput<'a> {
     pub(crate) fn handle(stdio: &'a Stdio, destination: Result<Handle, DosError>) -> Self {
-        Self {
-            stdio,
-            destination: Destination::Handle(destination),
-        }
+        Self { stdio, destination }
     }
-
-    pub(crate) fn device(stdio: &'a Stdio, device: Rc<CharacterDevice>) -> Self {
-        Self {
-            stdio,
-            destination: Destination::Device(device),
-        }
-    }
-}
-
-enum Destination {
-    Device(Rc<CharacterDevice>),
-    Handle(Result<Handle, DosError>),
 }
 
 /// An output destination resolved before a service waits for input.
 pub(crate) struct CharacterOutput<'a> {
     stdio: &'a Stdio,
-    destination: Destination,
+    destination: Result<Handle, DosError>,
 }
 
 impl CharacterOutput<'_> {
@@ -41,9 +25,8 @@ impl CharacterOutput<'_> {
     /// Character output preserves console EOF; only handle writes clear it.
     pub(crate) async fn write(&self, bytes: &[u8]) -> Result<usize, DosError> {
         match &self.destination {
-            Destination::Device(device) => device.write(bytes).await,
-            Destination::Handle(Err(error)) => Err(*error),
-            Destination::Handle(Ok(handle)) => {
+            Err(error) => Err(*error),
+            Ok(handle) => {
                 if bytes.is_empty() {
                     // Character output does not use AH=40h's file truncation rule.
                     Ok(0)

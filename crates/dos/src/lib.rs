@@ -120,7 +120,7 @@ mod services;
 mod state;
 mod stdio;
 
-pub use console::Console;
+pub use console::NativeConsole;
 pub use error::{DosError, LaunchError, LoadError, MountError, ServiceError};
 pub use execution::RunError;
 pub use files::FileAccess;
@@ -345,18 +345,26 @@ impl<C: Clock> Dos<C> {
     }
 
     /// Thread-safe keyboard event input. The runner translates these events on the
-    /// execution owner into the queue shared by BIOS, DOS and the Rust console.
+    /// execution owner into the queue shared by guest BIOS and DOS services.
     pub fn keyboard_input(&self) -> relocade_frontend::keyboard::KeyboardInput {
         self.keyboard_input.clone()
     }
 
-    /// Execution-local console access for Rust code, including between programs.
-    /// Resolves the current CON device, sharing BIOS keyboard and video state.
-    pub fn console(&self) -> Console<'_> {
-        Console {
-            stdio: self.state.stdio(),
-            devices: self.state.devices(),
-        }
+    /// Opens a native prompt over application-owned physical input and BIOS video.
+    /// It shares line editing and cooked output with DOS, but executes no guest
+    /// code and uses neither DOS handles nor the guest keyboard queue. Drop the
+    /// console before launching or resuming a guest program.
+    ///
+    /// # Panics
+    /// Panics if a guest host service is still pending. Open the prompt at startup
+    /// or after guest execution has completed, rather than after cancelling a read.
+    pub fn native_console(
+        &mut self,
+        events: relocade_frontend::keyboard::KeyboardEvents,
+    ) -> NativeConsole<'_> {
+        let memory = self.cpu.memory();
+        let io = self.cpu.context().io.clone();
+        NativeConsole::new(memory.with_io(io), self.state.stdio(), events)
     }
 
     /// Installs a driver as a named character device at the front of DOS's chain.
@@ -372,7 +380,7 @@ impl<C: Clock> Dos<C> {
 
     /// Resolves a character device by its unpadded DOS name, ignoring ASCII case.
     /// The returned device keeps its driver binding after another installation.
-    /// Its I/O bypasses DOS editing and cooked output; use [`Dos::console`] for those.
+    /// Its I/O calls the driver directly, without DOS line editing or cooked output.
     pub fn device(&self, name: &[u8]) -> Option<Rc<devices::CharacterDevice>> {
         self.state.devices().find(name)
     }

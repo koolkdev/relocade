@@ -1,4 +1,4 @@
-//! Rust DOS command console, sharing the guest's keyboard and VGA state.
+//! Native Rust command console, sharing the PC's keyboard layout and VGA state.
 #![forbid(unsafe_code)]
 
 use futures_channel::oneshot;
@@ -42,16 +42,16 @@ pub fn run() -> Result<(), String> {
                     Ok::<_, String>(dos)
                 }
                 .await;
+                let (keyboard, events) = relocade_frontend::keyboard::channel();
                 let _ = endpoints.send(
                     startup
                         .as_ref()
-                        .map(|dos| (dos.keyboard_input(), dos.frame_source()))
+                        .map(|dos| (keyboard, dos.frame_source()))
                         .map_err(Clone::clone),
                 );
                 let mut dos = startup?;
-                run_console(&mut dos)
-                    .await
-                    .map_err(|error| error.to_string())
+                run_console(dos.native_console(events)).await;
+                Ok(())
             },
         )
         .await

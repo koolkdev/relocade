@@ -124,17 +124,11 @@ impl CharacterDriver for RejectingConsole {
 }
 
 #[test]
-fn driver_errors_reach_handle_and_rust_calls_while_dos_character_output_ignores_them() {
+fn driver_errors_reach_handles_while_dos_character_output_ignores_them() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         let input = Rc::new(RefCell::new(VecDeque::new()));
         dos.install_driver(RejectingConsole(input.clone()));
-        assert_eq!(dos.console().write(b"X").await, Err(DosError::AccessDenied));
-        assert_eq!(dos.console().read_line().await, Err(DosError::AccessDenied));
-        input.borrow_mut().extend(b"A\r");
-        // Echo failure is returned even though this driver accepts the final LF.
-        assert_eq!(dos.console().read_line().await, Err(DosError::AccessDenied));
-        assert_eq!(&*input.borrow(), &VecDeque::from(*b"\r"));
 
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
         dos.cpu().context().memory.write(0x10400, b"X$").unwrap();
@@ -232,7 +226,6 @@ fn cooked_output_completes_short_writes_and_reports_zero_progress() {
             output: output.clone(),
             max_transfer: 0,
         }));
-        assert_eq!(dos.console().write(b"X").await, Err(DosError::WriteFault));
         let zero = success(&path_service(&mut dos, b"CON", 0x3d02, 0));
         common::error(&service(&mut dos, 0x4000, zero, 1, 0x401), 29);
         // A raw write reports the actual zero count instead of retrying forever.
