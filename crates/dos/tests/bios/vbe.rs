@@ -1,3 +1,5 @@
+#[path = "vbe/layout.rs"]
+mod layout;
 #[path = "vbe/modes.rs"]
 mod modes;
 

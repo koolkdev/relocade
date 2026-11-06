@@ -1,6 +1,6 @@
 //! Guest byte layouts from the VESA Super VGA BIOS Extension standard, version 1.2.
 //! https://mircosoft.mzf.cz/texty/VESA12sp.htm (functions 00h and 01h).
-use super::{available, Mode};
+use super::{available, layout, Mode};
 use crate::BIOS_SEGMENT;
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, IoBus, MemoryView};
 use relocade_vga::{registers::dispi, VIDEO_MEMORY_BYTES};
@@ -63,6 +63,9 @@ pub(super) fn mode(
         return false;
     };
     let [width, height] = mode.display.size().map(|value| value as u16);
+    let layout = layout::active(io)
+        .filter(|layout| layout.mode() == mode.display)
+        .unwrap_or_else(|| mode.display.layout());
     let mut bytes = [0; 256];
     // Supported color graphics, extended information, no BIOS text/pixel output.
     bytes[..2].copy_from_slice(&0x001bu16.to_le_bytes());
@@ -72,7 +75,7 @@ pub(super) fn mode(
     bytes[6..8].copy_from_slice(&window_kib.to_le_bytes());
     bytes[8..10].copy_from_slice(&((dispi::BANK_START >> 4) as u16).to_le_bytes());
     // Null WinFuncPtr directs callers to INT 10h/4F05h.
-    bytes[16..18].copy_from_slice(&width.to_le_bytes()); // Eight-bit pixel pitch.
+    bytes[16..18].copy_from_slice(&(layout.pitch() as u16).to_le_bytes());
     bytes[18..20].copy_from_slice(&width.to_le_bytes());
     bytes[20..22].copy_from_slice(&height.to_le_bytes());
     bytes[22..28].copy_from_slice(&[8, 16, 1, mode.display.bits_per_pixel(), 1, 4]);

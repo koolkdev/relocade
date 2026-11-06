@@ -921,13 +921,21 @@ numbers (0101h, 0103h and 0105h) belong to firmware.
 
 The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
 `4F01h` information for the three indexed modes, `4F02h`/`4F03h` mode control,
-and `4F05h` bank control, using the VBE 1.2 register and 256-byte buffer layouts.
+`4F05h` bank control and `4F06h` logical scanline control, using the VBE 1.2
+register and 256-byte buffer layouts with selected VBE 2.0 extensions.
 It reports the 4 MiB adapter, a terminated ROM mode list, one readable
 and writable 64 KiB window at A000h, and no callable bank function or additional
 display pages. BIOS output functions are not advertised for this mode. These
 services are an incremental subset, not a complete VBE 1.2 implementation;
 unimplemented functions return AL != 4Fh, while failed supported requests return
-AX=014Fh. All VBE results preserve flags.
+AX=014Fh (or AX=024Fh for an excessively wide scanline). All VBE results preserve flags.
+
+Logical scanlines support setting pixels or bytes, querying the current stride,
+and querying the maximum stride that accommodates the visible height. Eight-bit
+pixels make the byte and pixel lengths identical. Requests below the visible
+width round up; changes that invalidate the current viewport fail. Successful
+calls return the actual stride and number of complete rows in VRAM. `4F01h`
+reports the active mode's current pitch and other modes' default pitches.
 
 Mode sets validate the request before changing hardware or BIOS data. Bit 15
 preserves VRAM; every successful packed mode set resets the CPU window to bank

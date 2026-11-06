@@ -1,6 +1,7 @@
 //! Banked VESA BIOS services. The 1.2 data layouts precede full 1.2 compliance:
-//! state, logical scanline, display-start and DAC-format services remain unsupported.
+//! state, display-start and DAC-format services remain unsupported.
 mod information;
+mod layout;
 mod modes;
 
 use relocade_machine::{
@@ -22,6 +23,7 @@ pub(super) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
             0x02 => modes::set,
             0x03 => modes::current,
             0x05 => modes::window,
+            0x06 => layout::scanline,
             _ => unsupported,
         }
     );
