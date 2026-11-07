@@ -21,7 +21,7 @@ pub(super) struct Mode {
 }
 
 impl Mode {
-    pub(super) const ALL: [Self; 3] = [
+    pub(super) const ALL: [Self; 9] = [
         Self {
             number: 0x101,
             display: SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Indexed8),
@@ -33,6 +33,31 @@ impl Mode {
         Self {
             number: 0x105,
             display: SvgaMode::new(SvgaResolution::R1024x768, PixelFormat::Indexed8),
+        },
+        Self {
+            number: 0x111,
+            display: SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Rgb565),
+        },
+        Self {
+            number: 0x114,
+            display: SvgaMode::new(SvgaResolution::R800x600, PixelFormat::Rgb565),
+        },
+        Self {
+            number: 0x117,
+            display: SvgaMode::new(SvgaResolution::R1024x768, PixelFormat::Rgb565),
+        },
+        // Bochs OEM numbers identify 32-bit storage without reusing 24-bit modes.
+        Self {
+            number: 0x142,
+            display: SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Bgrx8888),
+        },
+        Self {
+            number: 0x143,
+            display: SvgaMode::new(SvgaResolution::R800x600, PixelFormat::Bgrx8888),
+        },
+        Self {
+            number: 0x144,
+            display: SvgaMode::new(SvgaResolution::R1024x768, PixelFormat::Bgrx8888),
         },
     ];
 
@@ -67,7 +92,9 @@ impl Mode {
         write_register(io, dispi::ENABLE, flags);
         let miscellaneous = io.read_port(MISC_OUTPUT_READ_PORT, 1);
         io.write_port(MISC_OUTPUT_WRITE_PORT, 1, miscellaneous | 2); // Enable CPU VRAM access.
-        presets::INDEXED256.load_palette(io, PaletteLoad::for_mode_set(memory));
+        if self.display.format() == PixelFormat::Indexed8 {
+            presets::INDEXED256.load_palette(io, PaletteLoad::for_mode_set(memory));
+        }
 
         memory.write_u8(MODE, VBE_MODE_MARKER).expect("video mode");
         memory.write_u16(COLUMNS, width / 8).expect("video columns");

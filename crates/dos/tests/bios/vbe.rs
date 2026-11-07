@@ -81,9 +81,17 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
         let mut name = [0; 21];
         context.memory.read_wrapping(oem, &mut name).unwrap();
         assert_eq!(&name, b"Relocade banked SVGA\0");
-        let mut list = [0; 8];
+        let mut list = [0; 20];
         context.memory.read_wrapping(modes, &mut list).unwrap();
-        assert_eq!(list, [1, 1, 3, 1, 5, 1, 0xff, 0xff]);
+        assert_eq!(
+            list.as_chunks::<2>()
+                .0
+                .iter()
+                .copied()
+                .map(u16::from_le_bytes)
+                .collect::<Vec<_>>(),
+            [0x101, 0x103, 0x105, 0x111, 0x114, 0x117, 0x142, 0x143, 0x144, 0xffff]
+        );
         assert_eq!(dos.vga().borrow().registers(), &registers);
     });
 }
@@ -124,24 +132,33 @@ fn advertised_resolutions_match_mode_information_and_current_mode() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        for (number, width, height) in [
-            (0x101, 640u16, 480u16),
-            (0x103, 800, 600),
-            (0x105, 1024, 768),
+        for (number, width, height, bits, pages) in [
+            (0x101, 640u16, 480u16, 8u8, 12),
+            (0x103, 800, 600, 8, 7),
+            (0x105, 1024, 768, 8, 4),
+            (0x111, 640, 480, 16, 5),
+            (0x114, 800, 600, 16, 3),
+            (0x117, 1024, 768, 16, 1),
+            (0x142, 640, 480, 32, 2),
+            (0x143, 800, 600, 32, 1),
+            (0x144, 1024, 768, 32, 0),
         ] {
             let (status, bytes) = information(&mut dos, 1, number, 0x200);
             assert_eq!(status, 0x4f);
-            assert_eq!(&bytes[16..18], &width.to_le_bytes());
+            assert_eq!(&bytes[16..18], &(width * u16::from(bits / 8)).to_le_bytes());
             assert_eq!(&bytes[18..20], &width.to_le_bytes());
             assert_eq!(&bytes[20..22], &height.to_le_bytes());
-            assert_eq!(
-                bytes[29],
-                match number {
-                    0x101 => 12,
-                    0x103 => 7,
-                    _ => 4,
-                }
-            );
+            assert_eq!(bytes[25], bits);
+            assert_eq!(bytes[27], if bits == 8 { 4 } else { 6 });
+            assert_eq!(bytes[29], pages);
+            let masks = match bits {
+                8 => [0; 9],
+                16 => [5, 11, 6, 5, 5, 0, 0, 0, 0],
+                32 => [8, 16, 8, 8, 8, 0, 8, 24, 2],
+                _ => unreachable!(),
+            };
+            assert_eq!(bytes[31..40], masks);
+            assert_eq!(&bytes[40..], &[0; 216]); // No linear framebuffer.
             assert_eq!(
                 video(&mut dos, 0x4f02, number, 0, 0).registers.eax as u16,
                 0x4f

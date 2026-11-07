@@ -32,7 +32,7 @@ pub(super) enum ScanlineError {
     Ok(layout) => {
         ax = 0x004f,
         bx = layout.pitch() as u16,
-        cx = layout.pitch() as u16,
+        cx = layout.virtual_width() as u16,
         dx = layout.virtual_height() as u16
     },
     Err(ScanlineError::TooWide) => { ax = 0x024f },
@@ -41,14 +41,19 @@ pub(super) enum ScanlineError {
 pub(super) fn scanline(io: &IoBus, operation: u8, width: u16) -> Result<SvgaLayout, ScanlineError> {
     let layout = active(io).ok_or(ScanlineError::Failed)?;
     match operation {
-        // In eight-bit modes the byte stride and pixel width are identical.
         0 | 2 => {
-            let pitch = u32::from(width).max(layout.size()[0]);
+            let pixel_bytes = layout.format().bytes_per_pixel();
+            let pixels = if operation == 2 {
+                u32::from(width).div_ceil(pixel_bytes)
+            } else {
+                u32::from(width)
+            };
+            let pitch = pixels.max(layout.size()[0]) * pixel_bytes;
             if pitch > layout.mode().max_pitch() {
                 return Err(ScanlineError::TooWide);
             }
             let next = layout.with_pitch(pitch).ok_or(ScanlineError::Failed)?;
-            write_register(io, dispi::VIRTUAL_WIDTH, next.pitch() as u16);
+            write_register(io, dispi::VIRTUAL_WIDTH, next.virtual_width() as u16);
             Ok(next)
         }
         1 => Ok(layout),
