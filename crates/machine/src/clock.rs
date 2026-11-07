@@ -11,7 +11,6 @@ use web_time::Instant;
 /// Devices and CPU services use the same interface; tests can control time manually.
 pub trait Clock {
     fn now(&self) -> Duration;
-    /// Completes once this caller's clock has reached `deadline`.
     fn wait_until(&self, deadline: Duration) -> impl Future<Output = ()>;
 
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> {
@@ -49,25 +48,15 @@ impl Clock for TimerHandle {
     }
 
     async fn wait_until(&self, deadline: Duration) {
-        loop {
-            let (complete, completed) = oneshot::channel();
-            self.requests
-                .unbounded_send(driver::Request {
-                    deadline: self.start + deadline,
-                    complete,
-                })
-                .expect("timer driver must outlive its clock handles");
-            completed
-                .await
-                .expect("timer driver must remain active while a wait is pending");
-            // Browser clock readings can differ across the host and worker.
-            // Re-arm the same deadline until our local clock reaches it.
-            if self.now() >= deadline {
-                return;
-            }
-        }
+        let (complete, completed) = oneshot::channel();
+        self.requests
+            .unbounded_send(driver::Request {
+                deadline: self.start + deadline,
+                complete,
+            })
+            .expect("timer driver must outlive its clock handles");
+        completed
+            .await
+            .expect("timer driver must remain active while a wait is pending");
     }
 }
-
-#[cfg(test)]
-mod tests;

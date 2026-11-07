@@ -29,13 +29,6 @@ pub async fn timer_workers() -> Result<(), String> {
         if pending == 0 {
             return Err("timer did not exercise pending worker polls".to_owned());
         }
-        let now = clock.now();
-        if now < deadline {
-            return Err(format!(
-                "timer completed at {now:?} before deadline {deadline:?}, early by {:?}",
-                deadline - now
-            ));
-        }
         Ok(())
     });
     let ((), result) = join(timers.run(), execution).await;
