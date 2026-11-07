@@ -63,7 +63,7 @@ pub(in crate::video) fn select_palette(memory: &mut MemoryView<'_>, io: &IoBus, 
 
 /// Monochrome routing ignores every legacy color request, even unknown selectors.
 #[relocade_machine::real_mode_interrupt::interrupt(context(memory), returns {
-    true => {}, false => crate::interrupt::unsupported,
+    true => {}, false => crate::interrupts::unsupported,
 })]
 pub(in crate::video) fn ignore_unknown_selector(memory: &MemoryView<'_>) -> bool {
     monochrome_crtc(memory)

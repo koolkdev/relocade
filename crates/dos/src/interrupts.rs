@@ -7,47 +7,63 @@ use relocade_machine::{
 };
 use std::rc::Rc;
 
-const INT20_ENTRY: FarPointer = FarPointer {
+/// Program termination (INT 20h).
+pub const TERMINATE: u8 = 0x20;
+/// DOS service dispatcher (INT 21h).
+pub const SERVICES: u8 = 0x21;
+/// Parent continuation saved in the PSP (INT 22h).
+pub const TERMINATION_ADDRESS: u8 = 0x22;
+/// Ctrl-C/Ctrl-Break callback (INT 23h).
+pub const CONTROL_BREAK: u8 = 0x23;
+/// Critical-error callback (INT 24h).
+pub const CRITICAL_ERROR: u8 = 0x24;
+/// Idle callback during DOS character I/O (INT 28h).
+pub const IDLE: u8 = 0x28;
+
+const TERMINATE_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x100,
 };
-const INT21_ENTRY: FarPointer = FarPointer {
+const SERVICES_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x110,
 };
-const INT23_ENTRY: FarPointer = FarPointer {
+const CONTROL_BREAK_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x120,
 };
-const INT1B_ENTRY: FarPointer = FarPointer {
+const KEYBOARD_BREAK_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x130,
 };
-pub(crate) const IDLE_VECTOR: u8 = 0x28;
 pub(crate) const IDLE_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x140,
 };
 
 pub(crate) fn register_interrupts(interrupts: &mut Interrupts<'_>, session: Rc<DosState>) {
-    interrupts.register_interrupt(IDLE_VECTOR, IDLE_ENTRY, async |_| {});
+    interrupts.register_interrupt(IDLE, IDLE_ENTRY, async |_| {});
     let console = session.clone();
-    interrupts.register_interrupt(0x1b, INT1B_ENTRY, async move |_| {
-        console.control_break();
-    });
     interrupts.register_interrupt(
-        0x23,
-        INT23_ENTRY,
+        relocade_bios::interrupts::CONTROL_BREAK,
+        KEYBOARD_BREAK_ENTRY,
+        async move |_| {
+            console.control_break();
+        },
+    );
+    interrupts.register_interrupt(
+        CONTROL_BREAK,
+        CONTROL_BREAK_ENTRY,
         for_process(session.clone(), services::int20),
     );
     interrupts.register_interrupt(
-        0x20,
-        INT20_ENTRY,
+        TERMINATE,
+        TERMINATE_ENTRY,
         for_process(session.clone(), services::int20),
     );
     interrupts.register_interrupt(
-        0x21,
-        INT21_ENTRY,
+        SERVICES,
+        SERVICES_ENTRY,
         for_process(session, interrupt_handler!(services::int21)),
     );
 }

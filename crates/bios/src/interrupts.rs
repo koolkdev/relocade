@@ -8,6 +8,25 @@ use relocade_machine::{
 use relocade_vga::Vga;
 use std::{cell::RefCell, rc::Rc};
 
+/// Default PC IRQ0 vector. Guest PIC remapping can select a different vector.
+pub const TIMER_IRQ: u8 = 0x08;
+/// Default PC IRQ1 vector. Guest PIC remapping can select a different vector.
+pub const KEYBOARD_IRQ: u8 = 0x09;
+/// Video services (INT 10h).
+pub const VIDEO: u8 = 0x10;
+/// Installed equipment (INT 11h).
+pub const EQUIPMENT: u8 = 0x11;
+/// Conventional memory size (INT 12h).
+pub const MEMORY_SIZE: u8 = 0x12;
+/// Keyboard services (INT 16h).
+pub const KEYBOARD: u8 = 0x16;
+/// Time-of-day services (INT 1Ah).
+pub const TIME_OF_DAY: u8 = 0x1a;
+/// Ctrl-Break callback invoked by the keyboard IRQ handler (INT 1Bh).
+pub const CONTROL_BREAK: u8 = 0x1b;
+/// Timer callback invoked by the timer IRQ handler (INT 1Ch).
+pub const TIMER_TICK: u8 = 0x1c;
+
 const CLOCK_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xff00,
@@ -57,39 +76,44 @@ pub fn register_interrupts<C: Clock + 'static>(
     vga: Rc<RefCell<Vga<C>>>,
 ) {
     let irq_keyboard = keyboard.clone();
-    register_irq(interrupts, 0x09, KEYBOARD_IRQ_ENTRY, async move |call| {
-        keyboard::interrupt(call, &irq_keyboard).await;
-    });
-    interrupts.register_interrupt(0x1b, BREAK_CALLBACK_ENTRY, async |_| {});
-    register_irq(interrupts, 0x08, TIMER_ENTRY, clock::timer);
-    interrupts.register_interrupt(0x1c, TIMER_CALLBACK_ENTRY, async |_| {});
+    register_irq(
+        interrupts,
+        KEYBOARD_IRQ,
+        KEYBOARD_IRQ_ENTRY,
+        async move |call| {
+            keyboard::interrupt(call, &irq_keyboard).await;
+        },
+    );
+    interrupts.register_interrupt(CONTROL_BREAK, BREAK_CALLBACK_ENTRY, async |_| {});
+    register_irq(interrupts, TIMER_IRQ, TIMER_ENTRY, clock::timer);
+    interrupts.register_interrupt(TIMER_TICK, TIMER_CALLBACK_ENTRY, async |_| {});
     register_service(
         interrupts,
-        0x11,
+        EQUIPMENT,
         EQUIPMENT_ENTRY,
         interrupt_handler!(information::equipment),
     );
     register_service(
         interrupts,
-        0x12,
+        MEMORY_SIZE,
         MEMORY_SIZE_ENTRY,
         interrupt_handler!(information::conventional_memory),
     );
     register_service(
         interrupts,
-        0x1a,
+        TIME_OF_DAY,
         CLOCK_ENTRY,
         interrupt_handler!(clock::dispatch),
     );
     register_service(
         interrupts,
-        0x16,
+        KEYBOARD,
         KEYBOARD_ENTRY,
         interrupt_handler!(keyboard::dispatch(&keyboard)),
     );
     register_service(
         interrupts,
-        0x10,
+        VIDEO,
         VIDEO_ENTRY,
         interrupt_handler!(video::dispatch(&vga)),
     );

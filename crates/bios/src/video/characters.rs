@@ -15,7 +15,7 @@ pub struct CharacterCell {
 /// Unsupported modes and invalid pages return None.
 #[interrupt(context(memory, io), args(page = bh), returns {
     Some(cell) => { al = cell.character, ah = cell.attribute },
-    None => crate::interrupt::unsupported,
+    None => crate::interrupts::unsupported,
 })]
 pub fn read_character(memory: &MemoryView<'_>, io: &IoBus, page: u8) -> Option<CharacterCell> {
     if !screen::valid_page(memory, page) {
@@ -47,7 +47,7 @@ pub struct CharacterRun {
             page: bh, character: al, color: bl, count: cx,
         },
     ),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub fn write_characters_with_attribute(
     memory: &mut MemoryView<'_>,
@@ -66,7 +66,7 @@ pub fn write_characters_with_attribute(
             page: bh, character: al, color: bl, count: cx,
         },
     ),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub fn write_characters_preserving_attributes(
     memory: &mut MemoryView<'_>,
@@ -95,7 +95,7 @@ pub fn write_characters(
 /// scrolling match INT 10h/AH=0Eh. Invalid firmware page state returns None.
 #[interrupt(
     context(memory, io), args(character = al, color = bl),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub fn teletype(memory: &mut MemoryView<'_>, io: &IoBus, character: u8, color: u8) -> Option<()> {
     let page = screen::active_page(memory);

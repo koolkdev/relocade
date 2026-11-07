@@ -16,7 +16,7 @@ pub(super) struct StringRun {
 /// Writes characters with one attribute, preserving the page's stored cursor.
 #[interrupt(context(memory, io),
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }, attribute = bl),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(super) fn write_text(
     memory: &mut MemoryView<'_>,
@@ -30,7 +30,7 @@ pub(super) fn write_text(
 /// Writes characters with one attribute and moves the page's stored cursor.
 #[interrupt(context(memory, io),
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }, attribute = bl),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(super) fn write_text_and_move_cursor(
     memory: &mut MemoryView<'_>,
@@ -44,7 +44,7 @@ pub(super) fn write_text_and_move_cursor(
 /// Writes character/attribute pairs, preserving the page's stored cursor.
 #[interrupt(context(memory, io),
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(super) fn write_cells(memory: &mut MemoryView<'_>, io: &IoBus, run: StringRun) -> Option<()> {
     write(memory, io, run, None, false)
@@ -53,7 +53,7 @@ pub(super) fn write_cells(memory: &mut MemoryView<'_>, io: &IoBus, run: StringRu
 /// Writes character/attribute pairs and moves the page's stored cursor.
 #[interrupt(context(memory, io),
     args(run = StringRun { page: bh, position: dx, source: ptr(es, bp), count: cx }),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(super) fn write_cells_and_move_cursor(
     memory: &mut MemoryView<'_>,

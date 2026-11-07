@@ -14,7 +14,7 @@ use std::ops::ControlFlow;
 /// AH=01h waits for a checked character and echoes through the retained stdout.
 #[interrupt(context(call), returns {
     Ok(byte) => { al = byte },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) async fn read_character_echo(
     call: &mut CpuContext<'_>,
@@ -26,7 +26,7 @@ pub(super) async fn read_character_echo(
 /// AH=07h reads without echo or break checking.
 #[interrupt(context(call), returns {
     Ok(byte) => { al = byte },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) async fn read_character(
     call: &mut CpuContext<'_>,
@@ -41,7 +41,7 @@ pub(super) async fn read_character(
 /// AH=08h reads with break checking and without echo.
 #[interrupt(context(call), returns {
     Ok(byte) => { al = byte },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) async fn read_character_check_break(
     call: &mut CpuContext<'_>,
@@ -84,7 +84,7 @@ pub(super) async fn direct_io(call: &mut CpuContext<'_>, request: &Request<'_>, 
 #[interrupt(context(call), returns {
     Ok(Some(byte)) => { al = byte, zf = false },
     Ok(None) => { al = 0u8, zf = true },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 async fn poll_character(
     call: &mut CpuContext<'_>,
@@ -134,7 +134,7 @@ pub(super) async fn write_string(
 /// AH=0Ah edits a line; buffer capacity includes the final carriage return.
 #[interrupt(context(call), args(buffer = ptr(ds, dx)), returns {
     Ok(()) => {},
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) async fn read_buffered(
     call: &mut CpuContext<'_>,

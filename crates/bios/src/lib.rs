@@ -57,13 +57,13 @@
 
 pub mod clock;
 mod information;
-mod interrupt;
+pub mod interrupts;
 mod keyboard;
 mod screen;
 pub mod video;
 
 pub use information::Configuration;
-pub use interrupt::register_interrupts;
+pub use interrupts::register_interrupts;
 pub use keyboard::{KeyMode, KeyStroke, Keyboard, PhysicalKeyboard, ShiftState};
 use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;

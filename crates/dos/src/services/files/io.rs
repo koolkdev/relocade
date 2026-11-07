@@ -14,7 +14,7 @@ fn transfer_count(buffer: FarPointer, count: u16) -> usize {
 
 #[interrupt(context(call), args(handle = bx, buffer = ptr(ds, dx), count = cx), returns {
     Ok(count) => { ax = count, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(in crate::services) async fn read(
     call: &mut CpuContext<'_>,
@@ -41,7 +41,7 @@ pub(in crate::services) async fn read(
 /// A zero-length AH=40h write truncates or extends a file at its current cursor.
 #[interrupt(context(call), args(handle = bx, buffer = ptr(ds, dx), count = cx), returns {
     Ok(count) => { ax = count, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(in crate::services) async fn write(
     call: &mut CpuContext<'_>,

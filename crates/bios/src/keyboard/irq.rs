@@ -4,7 +4,6 @@ use super::{KeyStroke, Keyboard, Scan};
 use relocade_machine::{registers as reg, CpuContext};
 use relocade_x86::{Segment, SegmentRegister};
 
-pub(crate) const BREAK_CALLBACK: u8 = 0x1b;
 const DIRECTION_FLAG: u32 = 1 << 10;
 
 pub(crate) async fn interrupt(call: &mut CpuContext<'_>, keyboard: &Keyboard) {
@@ -34,7 +33,7 @@ pub(crate) async fn interrupt(call: &mut CpuContext<'_>, keyboard: &Keyboard) {
                 call.cpu
                     .set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x40));
                 call.cpu.set_eflags(call.cpu.eflags() & !DIRECTION_FLAG);
-                call.call_interrupt(BREAK_CALLBACK).await;
+                call.call_interrupt(crate::interrupts::CONTROL_BREAK).await;
                 let _ = keyboard.store_key(KeyStroke {
                     character: 0,
                     scan_code: 0,

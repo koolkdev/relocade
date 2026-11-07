@@ -1,7 +1,7 @@
 //! Software interrupt entry through the canonical real-mode vector table.
 
 use super::*;
-use crate::{flags::Flag, ExecutionProfile};
+use crate::{flags::Flag, ExceptionVector, ExecutionProfile};
 
 instruction_families! {
     INT {
@@ -12,7 +12,7 @@ instruction_families! {
     INT3 {
         execute: interrupt(0xcc);
         effects: [control_transfer, segment_load];
-        forms { 0xCC => byte(constant(3)); }
+        forms { 0xCC => byte(constant(ExceptionVector::Breakpoint as u32)); }
     }
     INTO {
         execute: overflow_interrupt;
@@ -50,7 +50,10 @@ fn overflow_interrupt(
         ExecutionProfile::Real16 => {
             let overflow = execution.read_flag(Flag::OF)?;
             execution.dispatch_if(overflow, |taken| {
-                taken.enter_interrupt(4.into(), fallthrough.clone())
+                taken.enter_interrupt(
+                    (ExceptionVector::Overflow as u32).into(),
+                    fallthrough.clone(),
+                )
             })?;
         }
     }

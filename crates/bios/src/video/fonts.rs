@@ -24,7 +24,7 @@ pub(super) struct FontInformation {
 
 #[interrupt(context(memory), args(selector = bh), returns {
     Some(info) => { ptr(es, bp) = info.pointer, cx = info.height, dl = info.last_row },
-    None => crate::interrupt::unsupported,
+    None => crate::interrupts::unsupported,
 })]
 pub(super) fn information(memory: &MemoryView<'_>, selector: u8) -> Option<FontInformation> {
     Some(FontInformation {

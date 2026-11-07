@@ -136,7 +136,7 @@ pub mod devices;
 mod error;
 mod execution;
 mod files;
-mod interrupt;
+pub mod interrupts;
 mod load;
 mod memory;
 mod mz;
@@ -194,7 +194,7 @@ impl<C: Clock> Dos<C> {
         let mut interrupts = Interrupts::new(cpu);
         let state = Rc::new(DosState::new(memory.clone().with_io(io), keyboard, exit));
         memory::reset(&mut memory.view());
-        interrupt::register_interrupts(&mut interrupts, Rc::clone(&state));
+        interrupts::register_interrupts(&mut interrupts, Rc::clone(&state));
         interrupts.install().await?;
         Ok(Self { state, pc })
     }

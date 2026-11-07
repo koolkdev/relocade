@@ -5,7 +5,7 @@ use relocade_machine::{real_mode_interrupt::interrupt, MemoryView};
 /// AH=48h allocates paragraphs and returns their segment.
 #[interrupt(context(memory), args(paragraphs = bx), returns {
     Ok(segment) => { ax = segment, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn allocate(
     memory: &mut MemoryView<'_>,
@@ -18,7 +18,7 @@ pub(super) fn allocate(
 /// AH=49h frees the block whose data begins at ES:0000.
 #[interrupt(context(memory), args(segment = es), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn free(memory: &mut MemoryView<'_>, segment: u16) -> Result<(), DosError> {
     memory::free(memory, segment)
@@ -27,7 +27,7 @@ pub(super) fn free(memory: &mut MemoryView<'_>, segment: u16) -> Result<(), DosE
 /// AH=4Ah resizes the block at ES:0000 to BX paragraphs.
 #[interrupt(context(memory), args(segment = es, paragraphs = bx), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn resize(
     memory: &mut MemoryView<'_>,

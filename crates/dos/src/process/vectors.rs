@@ -9,7 +9,7 @@ use std::ops::Range;
 const PSP_VECTORS: Range<usize> = 0x0a..0x16;
 const VECTOR_TABLE: FarPointer = FarPointer {
     segment: 0,
-    offset: 0x22 * 4,
+    offset: crate::interrupts::TERMINATION_ADDRESS as u16 * 4,
 };
 
 pub(super) fn save(memory: &MemoryView<'_>, psp: &mut [u8; PSP_BYTES]) {

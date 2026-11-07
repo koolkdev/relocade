@@ -7,7 +7,7 @@ use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 pub(super) mod io;
 pub(super) mod metadata;
 
-#[interrupt(returns { error => crate::interrupt::return_error(error) })]
+#[interrupt(returns { error => crate::interrupts::return_error(error) })]
 pub(super) fn long_filename() -> DosError {
     DosError::LongFilenameNotSupported
 }
@@ -15,7 +15,7 @@ pub(super) fn long_filename() -> DosError {
 /// AH=3Ch creates or truncates the path; AH=5Bh rejects an existing file.
 #[interrupt(context(memory), args(path = ptr(ds, dx), attributes = cx), returns {
     Ok(handle) => { ax = handle, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn create_or_truncate(
     memory: &MemoryView<'_>,
@@ -34,7 +34,7 @@ pub(super) fn create_or_truncate(
 
 #[interrupt(context(memory), args(path = ptr(ds, dx), attributes = cx), returns {
     Ok(handle) => { ax = handle, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn create_new(
     memory: &MemoryView<'_>,
@@ -62,7 +62,7 @@ fn create(
 /// AH=5Ah creates a temporary file and writes its path back into the input buffer.
 #[interrupt(context(memory), args(directory = ptr(ds, dx), attributes = cx), returns {
     Ok(handle) => { ax = handle, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn create_temporary(
     memory: &mut MemoryView<'_>,
@@ -85,7 +85,7 @@ pub(super) fn create_temporary(
 
 #[interrupt(context(memory), args(path = ptr(ds, dx), mode = al), returns {
     Ok(handle) => { ax = handle, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn open(
     memory: &MemoryView<'_>,
@@ -102,7 +102,7 @@ pub(super) fn open(
 
 #[interrupt(args(handle = bx), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn close(services: &Services<'_>, handle: u16) -> Result<(), DosError> {
     services
@@ -114,7 +114,7 @@ pub(super) fn close(services: &Services<'_>, handle: u16) -> Result<(), DosError
 /// Both commit entry points return AH=68h without closing or seeking the handle.
 #[interrupt(args(handle = bx), returns {
     Ok(()) => { ah = 0x68u8, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn commit(services: &Services<'_>, handle: u16) -> Result<(), DosError> {
     services
@@ -125,7 +125,7 @@ pub(super) fn commit(services: &Services<'_>, handle: u16) -> Result<(), DosErro
 
 #[interrupt(args(handle = bx), returns {
     Ok(()) => { ah = 0x68u8, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn commit_alias(services: &Services<'_>, handle: u16) -> Result<(), DosError> {
     commit(services, handle)
@@ -133,7 +133,7 @@ pub(super) fn commit_alias(services: &Services<'_>, handle: u16) -> Result<(), D
 
 #[interrupt(args(source = bx), returns {
     Ok(handle) => { ax = handle, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn duplicate(services: &Services<'_>, source: u16) -> Result<u16, DosError> {
     services.process.files().duplicate(source)
@@ -141,7 +141,7 @@ pub(super) fn duplicate(services: &Services<'_>, source: u16) -> Result<u16, Dos
 
 #[interrupt(args(source = bx, destination = cx), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn force_duplicate(
     services: &Services<'_>,
@@ -156,7 +156,7 @@ pub(super) fn force_duplicate(
 
 #[interrupt(args(handle = bx, origin = al, offset = (cx, dx)), returns {
     Ok(position) => { (dx, ax) = position, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn seek(
     services: &Services<'_>,

@@ -8,7 +8,6 @@ use relocade_machine::{
 };
 use relocade_x86::Segment;
 
-const BREAK_INTERRUPT: u8 = 0x23;
 const CALLBACK_CLEARED_FLAGS: u32 = (1 << 10) | (1 << 9) | 1; // CLD, CLI, CLC.
 
 /// Owns the caller state and DOS entry scope across I/O and nested interrupts.
@@ -64,7 +63,7 @@ impl<'call> Request<'call> {
         self.stack.restore();
         call.cpu
             .set_eflags(call.cpu.eflags() & !CALLBACK_CLEARED_FLAGS);
-        call.call_interrupt(BREAK_INTERRUPT).await;
+        call.call_interrupt(crate::interrupts::CONTROL_BREAK).await;
 
         // IRET restores SP and ignores carry. RETF leaves the saved FLAGS word
         // on the stack and uses live carry to request termination.
