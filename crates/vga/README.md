@@ -921,9 +921,10 @@ numbers (0101h, 0103h and 0105h) belong to firmware.
 
 The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
 `4F01h` information for the three indexed modes, `4F02h`/`4F03h` mode control,
-`4F05h` bank control, `4F06h` logical scanline control and `4F07h` display-start
-control, using the VBE 1.2 register and 256-byte buffer layouts with selected
-VBE 2.0 extensions. It reports the 4 MiB adapter, a terminated ROM mode list, one readable
+`4F05h` bank control, `4F06h` logical scanline control, `4F07h` display-start
+control and `4F08h` DAC-format control, using the VBE 1.2 register and 256-byte
+buffer layouts with selected VBE 2.0 extensions. It reports the 4 MiB adapter,
+a terminated ROM mode list, one readable
 and writable 64 KiB window at A000h, and the number of additional complete display
 pages at the reported pitch. No callable bank function or BIOS output functions
 are advertised for these modes. These services are an incremental subset,
@@ -937,6 +938,13 @@ pixels make the byte and pixel lengths identical. Requests below the visible
 width round up; changes that invalidate the current viewport fail. Successful
 calls return the actual stride and number of complete rows in VRAM. `4F01h`
 reports the active mode's current pitch and other modes' default pitches.
+
+DAC-format service `4F08h` reports the device's fixed six-bit color components.
+Set requests of six bits or more select six, following VBE's next-lower-width
+rule; requests below six and unsupported selectors fail without changing the
+palette or an in-progress DAC transfer. The controller capability bit remains
+clear. Legacy palette services and direct port access share the same colors and
+pixel mask in both VGA and packed SVGA modes.
 
 Display-start control supports immediate updates, position queries and BL=80h
 retrace synchronization. Requests validate the whole visible rectangle;

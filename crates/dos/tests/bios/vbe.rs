@@ -2,6 +2,8 @@
 mod layout;
 #[path = "vbe/modes.rs"]
 mod modes;
+#[path = "vbe/palette.rs"]
+mod palette;
 
 use super::video::{video, PROGRAM};
 use crate::common;
