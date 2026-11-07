@@ -1,6 +1,6 @@
 //! INT 10h/AH=1Ch: IBM component buffers, separate from display captures.
 mod dac;
-mod firmware;
+pub(in crate::video) mod firmware;
 mod hardware;
 
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, IoBus, MemoryView};

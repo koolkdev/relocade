@@ -2,7 +2,7 @@
 use crate::information::{DISPLAY_MASK, EQUIPMENT};
 use relocade_machine::MemoryView;
 
-pub(super) const SIZE: usize = 0x3a;
+pub(in crate::video) const SIZE: usize = 0x3a;
 
 // Physical address, buffer offset, byte count. Equipment bits are merged separately.
 const FIELDS: [(u32, usize, usize); 7] = [
@@ -15,7 +15,7 @@ const FIELDS: [(u32, usize, usize); 7] = [
     (0x10c, 0x36, 4), // INT 43h.
 ];
 
-pub(super) fn save(memory: &MemoryView<'_>) -> [u8; SIZE] {
+pub(in crate::video) fn save(memory: &MemoryView<'_>) -> [u8; SIZE] {
     let mut bytes = [0; SIZE];
     bytes[0] = memory.read_u8(EQUIPMENT.address()).expect("equipment byte") & DISPLAY_MASK;
     for (address, offset, count) in FIELDS {
@@ -26,7 +26,7 @@ pub(super) fn save(memory: &MemoryView<'_>) -> [u8; SIZE] {
     bytes
 }
 
-pub(super) fn restore(memory: &mut MemoryView<'_>, bytes: &[u8; SIZE]) {
+pub(in crate::video) fn restore(memory: &mut MemoryView<'_>, bytes: &[u8; SIZE]) {
     let equipment = memory.read_u8(EQUIPMENT.address()).expect("equipment byte");
     memory
         .write_u8(
