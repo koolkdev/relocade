@@ -7,9 +7,9 @@ use relocade_x86::{Segment, SegmentRegister};
 const DIRECTION_FLAG: u32 = 1 << 10;
 
 pub(crate) async fn interrupt(call: &mut CpuContext<'_>, keyboard: &Keyboard) {
-    // A guest hook may read port 60h before chaining, clearing OBF. IRQ1 still
-    // reads the controller's output latch, which retains the last byte read.
-    let byte = call.io.read_port(relocade_at_keyboard::DATA_PORT, 1) as u8;
+    let Some(byte) = relocade_ps2::read_keyboard_latch(call.io) else {
+        return;
+    };
     if keyboard.scan_code(byte) != Scan::ControlBreak {
         return;
     }

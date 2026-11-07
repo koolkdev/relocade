@@ -146,7 +146,7 @@ fn raw_scan_sets_controller_translation_and_special_sequences_are_distinct() {
 fn keyboard_commands_acknowledge_parameters_and_restore_scanning_after_reset() {
     let (mut controller, _) = controller();
     controller.command(0x20);
-    assert_eq!(drain(&mut controller), [0x45]);
+    assert_eq!(drain(&mut controller), [0x65]);
     controller.command(0xaa);
     assert_eq!(drain(&mut controller), [0x55]);
     controller.command(0xab);
@@ -326,14 +326,14 @@ fn input_register_stays_busy_until_firmware_consumes_the_accepted_byte() {
     assert_ne!(controller.status() & INPUT_BUFFER_FULL, 0);
     controller.settle();
     assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
-    assert_eq!(controller.read_unpolled(), 0x45);
+    assert_eq!(controller.read_unpolled(), 0x65);
     assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
     controller.settle();
     assert!(drain(&mut controller).is_empty());
 
     controller.command(0x60); // A new controller command replaces its option wait.
     controller.command(0x20);
-    assert_eq!(drain(&mut controller), [0x45]);
+    assert_eq!(drain(&mut controller), [0x65]);
     controller.data(0xee);
     assert_eq!(drain(&mut controller), [0xee]);
 }
@@ -433,4 +433,19 @@ fn a_reset_replaced_before_its_ack_preserves_the_programmed_scan_set() {
     assert_eq!(drain(&mut controller), [0xfa]);
     controller.data(0);
     assert_eq!(drain(&mut controller), [0xfa, 1]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn an_unattached_auxiliary_port_does_not_block_keyboard_commands() {
+    let (mut controller, _) = controller();
+    for byte in [0xff, 0xf2, 0xf4] {
+        controller.command(0xd4);
+        controller.data(byte);
+        assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
+    }
+    controller.data(0xee);
+    assert_eq!(drain(&mut controller), [0xee]);
+    controller.command(0x20);
+    assert_eq!(drain(&mut controller), [0x65]);
 }

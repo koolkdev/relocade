@@ -34,9 +34,7 @@ fn with_hardware(check: impl AsyncFnOnce(&KeyboardRunner, KeyboardDos) + Send + 
 
 async fn wait_status(io: &IoBus, flag: u8, set: bool) {
     for _ in 0..64 {
-        if (io.read_port(relocade_at_keyboard::STATUS_COMMAND_PORT, 1) & u32::from(flag) != 0)
-            == set
-        {
+        if (io.read_port(relocade_ps2::STATUS_COMMAND_PORT, 1) & u32::from(flag) != 0) == set {
             return;
         }
         relocade_machine::yield_now().await;
@@ -45,9 +43,7 @@ async fn wait_status(io: &IoBus, flag: u8, set: bool) {
 }
 
 async fn inject_scan(io: &IoBus, byte: u8) {
-    use relocade_at_keyboard::{
-        DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
-    };
+    use relocade_ps2::{DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT};
     // Observe IBF for both writes, then wait for firmware to publish OBF/IRQ1.
     wait_status(io, INPUT_BUFFER_FULL, false).await;
     io.write_port(STATUS_COMMAND_PORT, 1, 0xd2);
@@ -270,8 +266,7 @@ fn bios_translates_a_scan_already_read_by_a_guest_irq1_hook() {
             guest_returns(&mut dos).await;
             assert_eq!(memory.view().read_u8(base + 0x300).unwrap(), scan);
             assert_eq!(
-                memory.view().read_u8(base + 0x301).unwrap()
-                    & relocade_at_keyboard::OUTPUT_BUFFER_FULL,
+                memory.view().read_u8(base + 0x301).unwrap() & relocade_ps2::OUTPUT_BUFFER_FULL,
                 0,
                 "BIOS is entered after the guest cleared OBF"
             );
@@ -280,6 +275,35 @@ fn bios_translates_a_scan_already_read_by_a_guest_irq1_hook() {
             assert_eq!(state.sp(), stack);
             assert!(state.interrupts_enabled());
         }
+    });
+}
+
+#[test]
+fn pending_irq1_does_not_consume_auxiliary_output() {
+    use relocade_ps2::{
+        AUXILIARY_OUTPUT, DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
+    };
+
+    with_hardware(async |_, mut dos| {
+        dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
+        dos.cpu().cpu_state().set_eflags(0x202);
+        let io = dos.cpu().context().io.clone();
+        inject_scan(&io, 0x30).await;
+        // IRQ1 remains pending after a reader acknowledges the keyboard byte.
+        assert_eq!(io.read_port(DATA_PORT, 1), 0x30);
+        wait_status(&io, INPUT_BUFFER_FULL, false).await;
+        io.write_port(STATUS_COMMAND_PORT, 1, 0xd3);
+        wait_status(&io, INPUT_BUFFER_FULL, false).await;
+        io.write_port(DATA_PORT, 1, 0x1e); // Valid scan code if the source is ignored.
+        wait_status(&io, OUTPUT_BUFFER_FULL, true).await;
+        guest_returns(&mut dos).await;
+        assert_eq!(dos.keyboard().peek_key(KeyMode::Enhanced), None);
+        assert_eq!(
+            io.read_port(STATUS_COMMAND_PORT, 1) & u32::from(OUTPUT_BUFFER_FULL | AUXILIARY_OUTPUT),
+            u32::from(OUTPUT_BUFFER_FULL | AUXILIARY_OUTPUT),
+            "IRQ1 must leave auxiliary output available to its owner"
+        );
+        assert_eq!(io.read_port(DATA_PORT, 1), 0x1e);
     });
 }
 

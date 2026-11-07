@@ -1,9 +1,11 @@
-use relocade_at_keyboard::{connect, read_scan_code, DATA_PORT};
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
 use relocade_machine::{worker::wake_connection, Clock, CpuStorage, IoBus, Runner};
 use relocade_pic::{end_of_interrupt, Pic, KEYBOARD_IRQ, PORT_RANGE};
+use relocade_ps2::{
+    connect, read_keyboard_latch, DATA_PORT, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
+};
 use std::{
     cell::{Cell, RefCell},
     future::{pending, poll_fn},
@@ -68,7 +70,7 @@ fn key(code: KeyCode, repeat: bool) -> KeyboardEvent {
 async fn next_byte(io: &IoBus) -> u8 {
     for _ in 0..32 {
         if io.poll_interrupt(&mut Context::from_waker(Waker::noop())) == Poll::Ready(9) {
-            let byte = read_scan_code(io).expect("IRQ1 must expose an output byte");
+            let byte = read_keyboard_latch(io).expect("IRQ1 must expose a keyboard byte");
             end_of_interrupt(io);
             return byte;
         }
@@ -82,7 +84,10 @@ async fn no_output(io: &IoBus) {
     for _ in 0..4 {
         relocade_machine::yield_now().await;
     }
-    assert_eq!(read_scan_code(io), None);
+    assert_eq!(
+        io.read_port(STATUS_COMMAND_PORT, 1) & u32::from(OUTPUT_BUFFER_FULL),
+        0
+    );
     assert_eq!(
         io.poll_interrupt(&mut Context::from_waker(Waker::noop())),
         Poll::Pending
