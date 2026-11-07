@@ -2,6 +2,7 @@
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 mod fixture;
+mod mouse;
 use super::*;
 use fixture::Fixture;
 use relocade_frontend::keyboard::{
@@ -433,19 +434,4 @@ fn a_reset_replaced_before_its_ack_preserves_the_programmed_scan_set() {
     assert_eq!(drain(&mut controller), [0xfa]);
     controller.data(0);
     assert_eq!(drain(&mut controller), [0xfa, 1]);
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn an_unattached_auxiliary_port_does_not_block_keyboard_commands() {
-    let (mut controller, _) = controller();
-    for byte in [0xff, 0xf2, 0xf4] {
-        controller.command(0xd4);
-        controller.data(byte);
-        assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
-    }
-    controller.data(0xee);
-    assert_eq!(drain(&mut controller), [0xee]);
-    controller.command(0x20);
-    assert_eq!(drain(&mut controller), [0x65]);
 }

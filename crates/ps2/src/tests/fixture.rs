@@ -57,15 +57,17 @@ pub(super) struct Fixture {
     clock: ManualClock,
     notified: Arc<Notified>,
     input: Option<KeyboardInput>,
+    mouse_input: Option<MouseInput>,
 }
 
 impl Fixture {
     pub fn new(pic: &Pic) -> Self {
         let clock = ManualClock::default();
         let (input, events) = frontend::channel();
+        let (mouse_input, mouse_events) = relocade_frontend::mouse::channel();
         let device = Rc::new(RefCell::new(Ps2Controller {
-            controller: Rc::new(Controller::new(pic, [controller::Port::Keyboard])),
-            startup: Some((clock.clone(), events)),
+            controller: Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary])),
+            startup: Some((clock.clone(), events, mouse_events)),
         }));
         let mut fixture = Self {
             activity: Box::pin(Ps2Controller::run(device.clone())),
@@ -73,6 +75,7 @@ impl Fixture {
             clock,
             notified: Arc::default(),
             input: Some(input),
+            mouse_input: Some(mouse_input),
         };
         fixture.settle();
         fixture
@@ -143,6 +146,25 @@ impl Fixture {
     pub fn disconnect(&mut self) {
         self.input.take();
         self.settle();
+    }
+
+    pub fn mouse_event(&mut self, event: relocade_frontend::mouse::MouseEvent) {
+        self.mouse_input
+            .as_ref()
+            .unwrap()
+            .unbounded_send(event)
+            .unwrap();
+        self.settle();
+    }
+
+    pub fn disconnect_mouse(&mut self) {
+        self.mouse_input.take();
+        self.settle();
+    }
+
+    pub fn mouse_command(&mut self, value: u8) {
+        self.command(0xd4);
+        self.data(value);
     }
 
     pub fn advance(&mut self, now: Duration) {
