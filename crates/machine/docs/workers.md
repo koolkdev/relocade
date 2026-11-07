@@ -101,6 +101,49 @@ Receiving a posted resource still needs a browser event-loop turn. A Rust
 readiness notification can interrupt guest execution, but cannot itself deliver
 the engine handle. Resource transport does not choose execution scheduling.
 
+## Persistent compilation
+
+Start one `CompilerWorker` for shared guest memory and an execution target.
+Startup transfers the existing `Memory` handle and a resource endpoint together
+through `ThreadExt::run_resource`; it does not reconstruct memory in the caller.
+Pairs of `WorkerResource` handles compose their existing transfers.
+
+```rust,ignore
+let mut compiler = CompilerWorker::start(&memory, target).await?;
+let code = compiler.compile_blocks(vec![BlockRequest {
+    address: 0x1100,       // Guest physical address before mapping and A20.
+    start_eip: 0x100,     // CS-relative export entry.
+    byte_len: 32,
+    instruction_limit: 8,
+}]).await?;
+compiler.shutdown().await?;
+cpu.install_compiled_module(&code.module, &[DispatchEntry {
+    address: 0x1100,      // Linear dispatch address, CS.base + EIP.
+    export: &code.entries[0].export,
+}]).await?;
+```
+
+Requests carry bounded ranges, not instruction bytes. The worker reads mapped
+RAM/ROM locally; MMIO, unmapped ranges and overflowing bounds are rejected before
+allocation. Writes made before a request are visible through the shared backing.
+The requested code and mappings must remain stable until receipt. This is not an
+atomic snapshot of concurrently changing code. The caller continues to maintain
+code validity after installation; invalidation and automatic discovery are separate.
+
+`CompiledCode` contains a prepared module, its exported entries and required
+execution target. Installation uses the CPU's existing imports, dispatch table
+and hook replacement rules, and requires the same stopped state as
+`install_module`. The caller supplies compatible execution state and addresses.
+The compiler owns no CPU and can outlive individual execution owners.
+
+Dropping a request waiter abandons that result without stopping the worker.
+Request IDs keep late posted modules separate from later results. Compilation
+errors fail that request and leave the worker available. `shutdown().await`
+closes submission and waits for the persistent loop to release its resources.
+Keep the owner alive until shutdown completes. On a browser, call this API from
+a responsive owner; receiving modules alongside busy guest execution needs an
+explicit host-turn policy.
+
 ## Browser build and lifetime
 
 Browser runtime builds use one threaded Rust configuration throughout: atomics,

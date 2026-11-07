@@ -7,6 +7,37 @@ fn allocate(map: PhysicalMemoryMap) -> Memory {
 }
 
 #[test]
+fn ram_rom_reads_check_ranges_before_allocating() {
+    let memory = allocate(
+        PhysicalMemoryMap::new([
+            (
+                0..=0xfff,
+                PhysicalMapping::Ram {
+                    backing_offset: 0x1000,
+                },
+            ),
+            (0x1000..=0x1fff, PhysicalMapping::Rom { backing_offset: 0 }),
+            (0x3000..=0x3fff, PhysicalMapping::Mmio),
+        ])
+        .unwrap(),
+    );
+    let mut view = memory.view();
+    view.write_backing(0, &[3, 4]).unwrap();
+    view.write(0xffe, &[1, 2]).unwrap();
+    assert_eq!(view.read_ram_rom(0xffe, 4).unwrap(), [1, 2, 3, 4]);
+    for address in [0x1ffe, 0x3000] {
+        assert_eq!(
+            view.read_ram_rom(address, 4),
+            Err(MemoryError::UnbackedRange)
+        );
+    }
+    assert_eq!(
+        view.read_ram_rom(2, usize::MAX),
+        Err(MemoryError::AddressRange)
+    );
+}
+
+#[test]
 fn transfers_cross_pages_with_their_guest_access_policy() {
     let map = PhysicalMemoryMap::new([
         (

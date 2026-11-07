@@ -65,6 +65,28 @@ pub trait WorkerResource: Sized + 'static {
     ) -> ResourceTransfer<Self::Posted, impl FnOnce(Self::Posted) -> Self + Send + 'static>;
 }
 
+/// Combines resources for one worker startup without exposing their storage.
+impl<A: WorkerResource, B: WorkerResource> WorkerResource for (A, B)
+where
+    (A::Posted, B::Posted): Post,
+{
+    type Posted = (A::Posted, B::Posted);
+
+    fn prepare(
+        self,
+    ) -> ResourceTransfer<Self::Posted, impl FnOnce(Self::Posted) -> Self + Send + 'static> {
+        let ResourceTransfer {
+            posted: a,
+            rebuild: rebuild_a,
+        } = self.0.prepare();
+        let ResourceTransfer {
+            posted: b,
+            rebuild: rebuild_b,
+        } = self.1.prepare();
+        ResourceTransfer::new((a, b), move |(a, b)| (rebuild_a(a), rebuild_b(b)))
+    }
+}
+
 /// A resource and its reconstruction operation, consumed by [`ThreadExt::run_resource`].
 /// Private fields keep a capability's underlying storage inaccessible to callers.
 pub struct ResourceTransfer<P, R> {
