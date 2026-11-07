@@ -8,7 +8,7 @@ use relocade_frontend::keyboard::{
 use relocade_machine::Clock;
 use std::{
     collections::{BTreeSet, VecDeque},
-    future::pending,
+    future::{pending, Future},
     time::Duration,
 };
 
@@ -23,9 +23,14 @@ const DEFAULTS: u8 = 0xf6;
 const ACK: u8 = 0xfa;
 const RESEND: u8 = 0xfe;
 const RESET: u8 = 0xff;
+const SELF_TEST_PASSED: u8 = 0xaa;
+// IBM 101/102-key keyboard: at least 500 us of host release accepts reset ACK;
+// BAT takes 300–500 ms. Use the midpoint as this model's nominal duration.
+const RESET_ACK_RELEASE: Duration = Duration::from_micros(500);
+const SELF_TEST_DURATION: Duration = Duration::from_millis(400);
 
 pub(super) async fn run<C: Clock>(
-    clock: C,
+    clock: &C,
     events: KeyboardEvents,
     controller: &Controller,
     commands: async_channel::Receiver<u8>,
@@ -51,7 +56,7 @@ pub(super) async fn run<C: Clock>(
 }
 
 struct Keyboard<'a, C> {
-    clock: C,
+    clock: &'a C,
     events: Option<KeyboardEvents>,
     controller: &'a Controller,
     commands: async_channel::Receiver<u8>,
@@ -106,16 +111,49 @@ impl<C: Clock> Keyboard<'_, C> {
                 self.defaults(command != DEFAULT_DISABLE);
                 self.reply(ACK).await?;
             }
-            RESET => {
-                self.pause();
-                self.reply(ACK).await?;
-                self.defaults(true);
-                self.reply(0xaa).await?;
-            }
+            RESET => self.reset().await?,
             RESEND => self.reply(self.last_sent).await?,
             _ => self.reply(RESEND).await?,
         }
         Ok(())
+    }
+
+    async fn reset(&mut self) -> Result<(), CommandReplaced> {
+        self.pause();
+        self.reply(ACK).await?;
+        let clock = self.clock;
+        self.wait_for(self.controller.released_for(clock, RESET_ACK_RELEASE))
+            .await?;
+        self.defaults(false);
+        let completed = clock.now().saturating_add(SELF_TEST_DURATION);
+        // The keyboard ignores commands during BAT. Continue observing physical
+        // state so its first scan after the test reports keys that remain held.
+        while self.wait_for(clock.wait_until(completed)).await.is_err() {}
+        while self.commands.try_recv().is_ok() {}
+        // BAT succeeded even if a new command replaces its pending completion
+        // byte. Keep scanning paused until that reply or command takeover ends.
+        self.scanning = true;
+        self.paused = Some(BTreeSet::new());
+        self.reply(SELF_TEST_PASSED).await?;
+        Ok(())
+    }
+
+    async fn wait_for(&mut self, ready: impl Future<Output = ()>) -> Result<(), CommandReplaced> {
+        let ready = ready.fuse();
+        pin_mut!(ready);
+        loop {
+            let event = {
+                let command = self.commands.recv().fuse();
+                let event = next_event(&mut self.events).fuse();
+                pin_mut!(command, event);
+                select_biased! {
+                    () = ready => return Ok(()),
+                    command = command => return Err(CommandReplaced(command.expect("controller service lives with keyboard"))),
+                    event = event => event,
+                }
+            };
+            self.event(event);
+        }
     }
 
     /// A new command replaces the unfinished option exchange. RESEND leaves it
@@ -180,19 +218,13 @@ impl<C: Clock> Keyboard<'_, C> {
                 let command = self.commands.recv().fuse();
                 let output = async {
                     if let Some(byte) = outgoing {
-                        self.controller.send_keyboard(byte, &self.clock).await;
+                        self.controller.send_keyboard(byte, self.clock).await;
                     } else {
                         pending::<()>().await;
                     }
                 }
                 .fuse();
-                let event = async {
-                    match self.events.as_mut() {
-                        Some(events) => events.recv().await.ok(),
-                        None => pending().await,
-                    }
-                }
-                .fuse();
+                let event = next_event(&mut self.events).fuse();
                 let timer = async {
                     if let Some(repeat) = self.repeat {
                         self.clock.wait_until(repeat.deadline).await;
@@ -221,21 +253,19 @@ impl<C: Clock> Keyboard<'_, C> {
                     }
                     return Ok(());
                 }
-                Wake::Event(event) => {
-                    if event.is_none() {
-                        self.events = None;
-                    }
-                    self.event(event.unwrap_or(KeyboardEvent::FocusLost));
-                }
+                Wake::Event(event) => self.event(event),
                 Wake::Repeat => self.repeat(),
             }
         }
     }
 
-    fn event(&mut self, event: KeyboardEvent) {
+    fn event(&mut self, event: Option<KeyboardEvent>) {
+        if event.is_none() {
+            self.events = None;
+        }
         use KeyCode::*;
         let now = self.clock.now();
-        match event {
+        match event.unwrap_or(KeyboardEvent::FocusLost) {
             KeyboardEvent::Key {
                 physical_key: PhysicalKey::Code(key),
                 state,
@@ -380,6 +410,13 @@ impl<C: Clock> Keyboard<'_, C> {
 }
 
 struct CommandReplaced(u8);
+
+async fn next_event(events: &mut Option<KeyboardEvents>) -> Option<KeyboardEvent> {
+    match events {
+        Some(events) => events.recv().await.ok(),
+        None => pending().await,
+    }
+}
 
 enum Wake {
     Command(u8),
