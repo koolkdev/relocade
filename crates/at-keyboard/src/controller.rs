@@ -58,6 +58,7 @@ pub(super) struct Controller {
     changed: Event,
     irq: IrqLine,
     transmission: Cell<Option<Transmission>>,
+    host_transmitting: Cell<bool>,
 }
 
 impl Controller {
@@ -80,6 +81,7 @@ impl Controller {
             changed: Event::new(),
             irq: pic.irq(KEYBOARD_IRQ, false),
             transmission: Cell::new(None),
+            host_transmitting: Cell::new(false),
         }
     }
 
@@ -138,10 +140,12 @@ impl Controller {
 
     pub fn inhibited(&self) -> bool {
         let registers = self.registers.borrow();
-        registers.output_full || registers.command_byte & INTERFACE_DISABLED != 0
+        registers.output_full
+            || registers.command_byte & INTERFACE_DISABLED != 0
+            || self.host_transmitting.get()
     }
 
-    pub async fn run(&self, keyboard: async_channel::Sender<u8>) {
+    pub async fn run(&self, clock: &impl Clock, keyboard: async_channel::Sender<u8>) {
         // Retain one deferred response separately from the unread output latch.
         // A later reply-producing command replaces it; the unread latch stays intact.
         let mut reply = None;
@@ -151,10 +155,15 @@ impl Controller {
                 Input::Data(value) => {
                     // A host request takes the wire from an unfinished scan or reply.
                     self.transmission.set(None);
+                    self.host_transmitting.set(true);
+                    self.changed.notify(usize::MAX);
+                    clock.sleep(SERIAL_FRAME_TIME).await;
                     keyboard
                         .send(value)
                         .await
                         .expect("keyboard service lives with controller");
+                    self.host_transmitting.set(false);
+                    self.changed.notify(usize::MAX);
                     continue;
                 }
             };
@@ -264,6 +273,29 @@ impl Controller {
             }
             futures_util::future::select(
                 std::pin::pin!(clock.wait_until(transmission.deadline)),
+                std::pin::pin!(changed),
+            )
+            .await;
+        }
+    }
+
+    /// Reset acceptance requires the host to release the interface continuously
+    /// after reading ACK. Other notifications do not restart the quiet interval.
+    pub async fn released_for(&self, clock: &impl Clock, duration: Duration) {
+        let mut deadline = None;
+        loop {
+            let changed = self.changed.listen();
+            if self.inhibited() {
+                deadline = None;
+                changed.await;
+                continue;
+            }
+            let deadline = *deadline.get_or_insert_with(|| clock.now().saturating_add(duration));
+            if clock.now() >= deadline {
+                return;
+            }
+            futures_util::future::select(
+                std::pin::pin!(clock.wait_until(deadline)),
                 std::pin::pin!(changed),
             )
             .await;

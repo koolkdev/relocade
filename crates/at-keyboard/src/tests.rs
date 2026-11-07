@@ -221,7 +221,10 @@ fn keyboard_commands_acknowledge_parameters_and_restore_scanning_after_reset() {
     controller.data(0);
     assert_eq!(drain(&mut controller), [0xfa, 0x41]);
     controller.data(0xff);
-    assert_eq!(drain(&mut controller), [0xfa, 0xaa]);
+    assert_eq!(drain(&mut controller), [0xfa]);
+    controller.advance(controller.now() + Duration::from_millis(400));
+    controller.finish_transfers();
+    assert_eq!(drain(&mut controller), [0xaa]);
     event(&mut controller, key(KeyCode::KeyB, true));
     event(&mut controller, key(KeyCode::KeyB, false));
     assert_eq!(drain(&mut controller), [0x30, 0xb0]);
@@ -307,7 +310,10 @@ fn commands_abort_pending_options_and_resend_preserves_them() {
     controller.data(0xed);
     assert_eq!(drain(&mut controller), [0xfa]);
     controller.data(0xff);
-    assert_eq!(drain(&mut controller), [0xfa, 0xaa]);
+    assert_eq!(drain(&mut controller), [0xfa]);
+    controller.advance(controller.now() + Duration::from_millis(400));
+    controller.finish_transfers();
+    assert_eq!(drain(&mut controller), [0xaa]);
     controller.data(0xf3);
     assert_eq!(drain(&mut controller), [0xfa]);
     controller.data(0xf4);

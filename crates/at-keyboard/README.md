@@ -36,8 +36,11 @@ pp. 20–21 and 56–57.
 
 Keyboard bytes use the runner's clock with a nominal 12.5 kHz serial clock:
 eleven bits take 880 microseconds. Every raw byte takes a frame, including F0
-break prefixes consumed by set-2 translation. Reading the output register makes
-space for the next frame; it does not publish the next byte immediately. The
+break prefixes consumed by set-2 translation. Host commands and their parameters
+also take a frame before reaching the keyboard, holding off keyboard output
+during that transfer. IBF clearing means the controller accepted a write; the
+keyboard response follows its separate wire transfer. Reading the output register
+makes space for the next frame; it does not publish the next byte immediately. The
 controller retains the active byte and deadline across unrelated input and
 canceled Rust waits. Interface inhibition restarts any frame not yet published
 to OBF after release, and host keyboard commands take priority over that output.
@@ -61,9 +64,19 @@ unsupported keyboard commands/scan sets return RESEND. Set-2 translation also
 applies to keyboard replies, including the identification and scan-set bytes.
 Command exchanges await their parameters directly. A new command replaces an
 unfinished exchange or untransmitted reply. RESEND retries the initial ACK while
-the keyboard keeps waiting for the option byte. Reset applies defaults after its ACK
-is transmitted. Option and ID exchanges pause scanning, then rescan held keys so
-releases during the wait cannot leave modifiers stuck in the guest.
+the keyboard keeps waiting for the option byte. Option and ID exchanges pause
+scanning, then rescan held keys so releases during the wait cannot leave
+modifiers stuck in the guest.
+
+Reset waits for its ACK to be read and the interface to remain released for
+500 microseconds before applying defaults and starting the basic assurance test
+(BAT). Another command can replace reset before that acceptance. During BAT,
+commands are ignored and physical state is tracked without emitting scans.
+The nominal test duration is 400 milliseconds, within the IBM 101/102-key
+keyboard's documented 300–500 millisecond interval (Technical Reference,
+pages 4-39 and 4-42). Completion sends AAh through the timed output path, then
+scanning resumes with any keys still held. The session starts after keyboard
+power-on testing; it does not simulate the power supply's startup interval.
 
 Make/break sequences include extended keys, Print Screen and Pause. Modifier
 snapshots reconcile keys already held at attachment; focus loss emits releases.
