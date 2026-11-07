@@ -32,7 +32,7 @@ pub struct Pc<C = TimerHandle> {
     vga: Rc<RefCell<Vga<C>>>,
     speaker: Rc<RefCell<Speaker<C>>>,
     keyboard: Keyboard,
-    keyboard_input: KeyboardInput,
+    inputs: relocade_ps2::Inputs,
 }
 
 impl<C: Clock> Pc<C> {
@@ -47,7 +47,7 @@ impl<C: Clock> Pc<C> {
         let (pic, pic_device) = Pic::initialize(runner).await;
         let (pit, pit_device) = Pit::initialize(runner, &pic).await;
         let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
-        let (keyboard_input, keyboard_device) = relocade_ps2::connect(runner, &pic).await;
+        let (inputs, keyboard_device) = relocade_ps2::connect(runner, &pic).await;
         let io = IoBus::new([
             pic_device,
             pit_device,
@@ -80,7 +80,7 @@ impl<C: Clock> Pc<C> {
             vga,
             speaker,
             keyboard,
-            keyboard_input,
+            inputs,
         })
     }
 
@@ -96,7 +96,7 @@ impl<C: Clock> Pc<C> {
 
     /// Thread-safe physical input routed through the AT controller and IRQ1.
     pub fn keyboard_input(&self) -> KeyboardInput {
-        self.keyboard_input.clone()
+        self.inputs.keyboard.clone()
     }
 
     /// Immutable display captures for rendering on another worker.

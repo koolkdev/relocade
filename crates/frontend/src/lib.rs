@@ -8,3 +8,6 @@ pub mod display;
 
 #[cfg(feature = "keyboard")]
 pub mod keyboard;
+
+#[cfg(feature = "mouse")]
+pub mod mouse;

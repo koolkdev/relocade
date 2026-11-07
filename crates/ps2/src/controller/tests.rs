@@ -185,3 +185,23 @@ fn commands_route_to_separate_ports_and_injected_output_is_source_tagged() {
     );
     assert_eq!(controller.read_data(), 0);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn an_unattached_auxiliary_port_does_not_block_other_commands() {
+    let controller = Controller::new(&Pic::default(), [Port::Keyboard]);
+    let mut firmware = pin!(controller.run());
+    let mut cx = Context::from_waker(Waker::noop());
+    for byte in [0xff, 0xf2, 0xf4] {
+        write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xd4);
+        write(&controller, firmware.as_mut(), DATA_PORT, byte);
+        assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
+    }
+    write(&controller, firmware.as_mut(), DATA_PORT, 0xee);
+    assert_eq!(
+        pin!(controller.receive_device(Port::Keyboard)).poll(&mut cx),
+        Poll::Ready(0xee)
+    );
+    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0x20);
+    assert_eq!(controller.read_data(), 0x65);
+}
