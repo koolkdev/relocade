@@ -2,6 +2,73 @@ use super::*;
 use relocade_bios::KeyStroke;
 
 #[test]
+fn keyboard_stays_inhibited_during_the_break_callback_and_resumes_afterward() {
+    use relocade_at_keyboard::{
+        write_controller_command, DATA_PORT, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
+    };
+    use relocade_machine::{real_mode_interrupt::write_vector, FarPointer};
+    const INTERFACE_INHIBITED: u8 = 1 << 4;
+
+    with_hardware(async |runner, mut dos| {
+        dos.launch_com(&[0xeb, 0], Default::default()).unwrap();
+        let segment = dos.process().unwrap().psp_segment();
+        let base = u32::from(segment) << 4;
+        let memory = dos.cpu().memory();
+        let io = dos.cpu().context().io.clone();
+        let exit = dos.cpu().exit_handle();
+        dos.cpu()
+            .install([relocade_machine::Hook::host(
+                base + 0x102,
+                async move || {
+                    exit.request();
+                },
+            )])
+            .await
+            .unwrap();
+        write_vector(
+            &mut memory.view(),
+            relocade_bios::interrupts::CONTROL_BREAK,
+            FarPointer {
+                segment,
+                offset: 0x180,
+            },
+        );
+        memory
+            .view()
+            .write(
+                base + 0x180,
+                &[
+                    0x50, // Save AX.
+                    0xb0, 0x20, 0xe6, 0x64, // Request the controller command byte.
+                    0xe4, 0x64, 0xa8, 1, 0x74, 0xfa, // Wait for output.
+                    0xe4, 0x60, 0x2e, 0xa2, 0, 3, // Save command byte at CS:0300h.
+                    0x58, 0xcf, // Restore AX; IRET.
+                ],
+            )
+            .unwrap();
+        dos.cpu().cpu_state().set_eflags(0x202);
+        for byte in [0x1d, 0xe0, 0x46] {
+            dos.cpu().cpu_state().set_eip(0x100);
+            inject_scan(&io, byte).await;
+            assert_eq!(
+                runner.run_cpu(dos.cpu()).await,
+                ExecutionExit::Host(relocade_x86::HostExit::Return)
+            );
+        }
+        assert_ne!(
+            memory.view().read_u8(base + 0x300).unwrap() & INTERFACE_INHIBITED,
+            0
+        );
+        write_controller_command(&io, 0x20).await;
+        io.wait_port(STATUS_COMMAND_PORT, 1, |status| {
+            status & u32::from(OUTPUT_BUFFER_FULL) != 0
+        })
+        .await;
+        assert_eq!(io.read_port(DATA_PORT, 1) as u8 & INTERFACE_INHIBITED, 0);
+    });
+}
+
+#[test]
 fn control_break_flushes_before_int1b_and_inserts_its_dummy_key_after_return() {
     with_hardware(async |_, mut dos| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
@@ -90,7 +157,7 @@ fn default_break_callback_returns_and_wakes_a_bios_read() {
         common::assert_pending(common::run_until(dos.cpu(), 0x102));
         for byte in [0x1d, 0xe0] {
             inject_scan(&io, byte).await;
-            common::assert_pending(common::run_until(dos.cpu(), 0x102));
+            pending_read_after_irq(&mut dos, &io, 0x102).await;
         }
         inject_scan(&io, 0x46).await;
         assert_eq!(
@@ -127,7 +194,7 @@ fn physical_control_break_reaches_dos_while_a_checked_read_is_pending() {
             common::assert_pending(common::run_until(dos.cpu(), after_read));
             for byte in [0x1d, 0xe0] {
                 inject_scan(&io, byte).await;
-                common::assert_pending(common::run_until(dos.cpu(), after_read));
+                pending_read_after_irq(&mut dos, &io, after_read).await;
             }
             inject_scan(&io, 0x46).await;
             assert_eq!(
