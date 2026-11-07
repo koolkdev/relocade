@@ -221,6 +221,69 @@ fn a_guest_irq1_hook_chains_to_bios_and_wakes_both_input_services() {
 }
 
 #[test]
+fn bios_translates_a_scan_already_read_by_a_guest_irq1_hook() {
+    use relocade_bios::interrupts::KEYBOARD_IRQ;
+    use relocade_machine::{
+        real_mode_interrupt::{read_vector, write_vector},
+        FarPointer,
+    };
+
+    with_hardware(async |_, mut dos| {
+        dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
+        let segment = dos.process().unwrap().psp_segment();
+        let base = u32::from(segment) << 4;
+        let memory = dos.cpu().memory();
+        let io = dos.cpu().context().io.clone();
+        let original = read_vector(&memory.view(), KEYBOARD_IRQ);
+        let mut handler = vec![
+            0x50, // Preserve AX across the hook.
+            0xe4, 0x60, 0x2e, 0xa2, 0, 3, // Read and record the scan byte.
+            0xe4, 0x64, 0x2e, 0xa2, 1, 3, // Record status after consuming it.
+            0x58, 0xea, // Restore AX; JMP FAR saved BIOS handler.
+        ];
+        handler.extend(original.packed().to_le_bytes());
+        memory.view().write(base + 0x180, &handler).unwrap();
+        write_vector(
+            &mut memory.view(),
+            KEYBOARD_IRQ,
+            FarPointer {
+                segment,
+                offset: 0x180,
+            },
+        );
+        let state = dos.cpu().cpu_state();
+        state.set_eflags(0x202);
+        let stack = state.sp();
+        let keyboard = dos.keyboard();
+
+        for (scan, expected) in [
+            (
+                0x1e,
+                Some(relocade_bios::KeyStroke {
+                    character: b'a',
+                    scan_code: 0x1e,
+                }),
+            ),
+            (0x9e, None),
+        ] {
+            inject_scan(&io, scan).await;
+            guest_returns(&mut dos).await;
+            assert_eq!(memory.view().read_u8(base + 0x300).unwrap(), scan);
+            assert_eq!(
+                memory.view().read_u8(base + 0x301).unwrap()
+                    & relocade_at_keyboard::OUTPUT_BUFFER_FULL,
+                0,
+                "BIOS is entered after the guest cleared OBF"
+            );
+            assert_eq!(keyboard.try_read_key(KeyMode::Enhanced), expected);
+            assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
+            assert_eq!(state.sp(), stack);
+            assert!(state.interrupts_enabled());
+        }
+    });
+}
+
+#[test]
 fn reading_then_chaining_irq1_preserves_extended_key_make_and_break() {
     use relocade_frontend::keyboard::{
         ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, NativeKey,
