@@ -13,6 +13,8 @@ const SHIFT_FLAGS: FarPointer = BDA.wrapping_add(0x17);
 const HELD_KEYS: FarPointer = BDA.wrapping_add(0x18);
 const HEAD: FarPointer = BDA.wrapping_add(0x1a);
 const TAIL: FarPointer = BDA.wrapping_add(0x1c);
+const BREAK_FLAG: FarPointer = BDA.wrapping_add(0x71);
+const BREAK_DETECTED: u8 = 1 << 7;
 const BUFFER_START: FarPointer = BDA.wrapping_add(0x80);
 const BUFFER_END: FarPointer = BDA.wrapping_add(0x82);
 const KEYBOARD_STATUS: FarPointer = BDA.wrapping_add(0x96);
@@ -81,6 +83,8 @@ impl DataArea {
                 .expect("BIOS keyboard flags");
             view.write_u8(HELD_KEYS.address(), 0)
                 .expect("BIOS keyboard flags");
+            view.write_u8(BREAK_FLAG.address(), 0)
+                .expect("BIOS break flag");
             view.write_u8(
                 KEYBOARD_STATUS.address(),
                 KeyboardStatus::ENHANCED_KEYBOARD.bits(),
@@ -158,6 +162,19 @@ impl DataArea {
         memory
             .write_u16(HEAD.address(), tail)
             .expect("BIOS keyboard head");
+    }
+
+    /// Ctrl-Break empties the ring before invoking INT 1Bh. Its dummy key is
+    /// inserted only after the callback returns, through ordinary buffer input.
+    pub fn control_break(&self) {
+        let mut memory = self.0.view();
+        let head = memory.read_u16(HEAD.address()).expect("BIOS keyboard head");
+        memory
+            .write_u16(TAIL.address(), head)
+            .expect("BIOS keyboard tail");
+        memory
+            .write_u8(BREAK_FLAG.address(), BREAK_DETECTED)
+            .expect("BIOS break flag");
     }
 
     pub fn flags(&self) -> Flags {

@@ -41,6 +41,10 @@ const KEYBOARD_IRQ_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xff40,
 };
+const BREAK_CALLBACK_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xffa0,
+};
 
 /// Registers BIOS vectors and their handlers alongside an environment's interrupts.
 /// The keyboard is retained by its handler and may be shared with console input.
@@ -54,10 +58,9 @@ pub fn register_interrupts<C: Clock + 'static>(
 ) {
     let irq_keyboard = keyboard.clone();
     register_irq(interrupts, 0x09, KEYBOARD_IRQ_ENTRY, async move |call| {
-        if let Some(byte) = relocade_at_keyboard::read_scan_code(call.io) {
-            irq_keyboard.scan_code(byte);
-        }
+        keyboard::interrupt(call, &irq_keyboard).await;
     });
+    interrupts.register_interrupt(0x1b, BREAK_CALLBACK_ENTRY, async |_| {});
     register_irq(interrupts, 0x08, TIMER_ENTRY, clock::timer);
     interrupts.register_interrupt(0x1c, TIMER_CALLBACK_ENTRY, async |_| {});
     register_service(

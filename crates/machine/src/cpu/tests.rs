@@ -67,6 +67,43 @@ fn register_access_is_live_and_preserves_aliases() {
 }
 
 #[test]
+fn saved_registers_restore_only_the_named_views() {
+    use super::registers as reg;
+
+    let config = configuration();
+    let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+    cpu.set_eax(0x1234_5678);
+    cpu.set_ebx(0x1122_3344);
+    cpu.set_ecx(0x5566_7788);
+    let ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
+    cpu.set_segment(Segment::Ds, ds);
+    let saved = cpu.save_registers([reg::ax, reg::bh, reg::ecx, reg::segment(Segment::Ds)]);
+    assert_eq!(
+        cpu.reads
+            .borrow()
+            .iter()
+            .map(|&(_, bytes)| bytes)
+            .collect::<Vec<_>>(),
+        [2, 1, 4, size_of::<SegmentRegister>()]
+    );
+
+    cpu.set_eax(0xaabb_ccdd);
+    cpu.set_ebx(0x99aa_bbcc);
+    cpu.set_ecx(0xdead_beef);
+    cpu.set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0xabcd));
+    cpu.set_eflags(0x647);
+    cpu.set_eip(0x3210);
+    cpu.set_instruction_count(99);
+    let mut expected = cpu.snapshot();
+    expected.registers.eax = 0xaabb_5678;
+    expected.registers.ebx = 0x99aa_33cc;
+    expected.registers.ecx = 0x5566_7788;
+    expected.segments.ds = ds;
+    saved.restore();
+    assert_eq!(cpu.snapshot(), expected);
+}
+
+#[test]
 fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
     let config = configuration();
     let storage = cpu_memory(&config);

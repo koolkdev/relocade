@@ -1,5 +1,5 @@
 use super::{cpu, pending, Input, Irq, Operation};
-use relocade_machine::{real_mode_interrupt, Hook};
+use relocade_machine::{real_mode_interrupt, registers as reg, Hook};
 use relocade_x86::{ExecutionExit, HostExit};
 use std::{
     cell::{Cell, RefCell},
@@ -73,12 +73,17 @@ async fn explicit_abandonment() {
     let input = Rc::new(Input::default());
     let drops = Rc::new(Cell::new(0));
     let state = runner.cpu_state();
+    state.set_ax(0x1234);
     runner
         .install(real_mode_interrupt::hook(0x200, runner.cpu_state(), {
             let (source, dropped, cpu) = (input.clone(), drops.clone(), state.clone());
             async move || {
                 let _operation = Operation(dropped.clone());
-                real_mode_interrupt::with_interrupts_enabled(&cpu, source.read()).await;
+                cpu.with_saved_registers([reg::ax], async {
+                    cpu.set_ax(0x5678);
+                    real_mode_interrupt::with_interrupts_enabled(&cpu, source.read()).await;
+                })
+                .await;
                 panic!("abandoned service cannot finish");
             }
         }))
@@ -102,6 +107,7 @@ async fn explicit_abandonment() {
         "redirection alone leaves work parked"
     );
     state.set_interrupts_enabled(true);
+    assert_eq!(state.ax(), 0x5678);
     let before = state.snapshot();
     runner.abandon_suspended_calls();
     assert_eq!(drops.get(), 1);

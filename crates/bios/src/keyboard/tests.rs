@@ -18,6 +18,26 @@ fn scans(keyboard: &Keyboard, bytes: &[u8]) {
 }
 
 #[test]
+fn control_break_requires_control_and_an_extended_make_code() {
+    let (keyboard, _) = keyboard();
+    scans(&keyboard, &[0xe0]);
+    assert!(keyboard.scan_code(0x46) == Scan::None);
+    scans(&keyboard, &[0x1d]);
+    assert!(keyboard.scan_code(0x46) == Scan::None);
+    assert!(keyboard.shift_state().scroll_lock);
+    scans(&keyboard, &[0xe0]);
+    assert!(keyboard.scan_code(0x46) == Scan::ControlBreak);
+    scans(&keyboard, &[0xe0]);
+    assert!(keyboard.scan_code(0xc6) == Scan::None);
+    scans(&keyboard, &[0x38, 0xe0]);
+    assert!(
+        keyboard.scan_code(0x46) == Scan::None,
+        "Alt takes precedence"
+    );
+    assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
+}
+
+#[test]
 fn guest_ring_and_shift_edits_are_authoritative() {
     let (keyboard, memory) = keyboard();
     scans(&keyboard, &[0x1e, 0x9e]);
