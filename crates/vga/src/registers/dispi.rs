@@ -57,7 +57,7 @@ pub(crate) enum WriteEffect {
 
 /// Geometry writes stage a request while disabled. Only a supported complete
 /// request can enable the packed aperture; active geometry writes are ignored.
-#[derive(Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Dispi {
     index: u16,
     width: u16,
@@ -67,12 +67,68 @@ pub(crate) struct Dispi {
     bank: u16,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ActiveMode {
     layout: SvgaLayout,
     flags: u16,
 }
 
 impl Dispi {
+    pub fn to_state_bytes(&self) -> [u8; 18] {
+        let layout = self.display_layout();
+        let [x, y] = layout.map_or([0, 0], SvgaLayout::origin);
+        let words = [
+            self.index,
+            self.width,
+            self.height,
+            self.bits_per_pixel,
+            self.active.as_ref().map_or(0, |active| active.flags),
+            self.bank,
+            layout.map_or(0, |layout| layout.pitch() as u16),
+            x as u16,
+            y as u16,
+        ];
+        let mut bytes = [0; 18];
+        for (target, word) in bytes.as_chunks_mut::<2>().0.iter_mut().zip(words) {
+            *target = word.to_le_bytes();
+        }
+        bytes
+    }
+
+    pub fn from_state_bytes(bytes: &[u8; 18]) -> Option<Self> {
+        let words = std::array::from_fn(|index| {
+            u16::from_le_bytes([bytes[index * 2], bytes[index * 2 + 1]])
+        });
+        let [index, width, height, bits_per_pixel, flags, bank, pitch, x, y] = words;
+        if u32::from(bank) >= VIDEO_MEMORY_BYTES / BANK_BYTES {
+            return None;
+        }
+        let active = if flags == DISABLED {
+            // Geometry staging is deliberately unrestricted while disabled.
+            if [pitch, x, y] != [0; 3] {
+                return None;
+            }
+            None
+        } else {
+            if flags & !NO_CLEAR_MEMORY != ENABLED {
+                return None;
+            }
+            let layout = SvgaMode::from_registers(width, height, bits_per_pixel)?
+                .layout()
+                .with_pitch(u32::from(pitch))?
+                .with_origin([u32::from(x), u32::from(y)])?;
+            Some(ActiveMode { layout, flags })
+        };
+        Some(Self {
+            index,
+            width,
+            height,
+            bits_per_pixel,
+            active,
+            bank,
+        })
+    }
+
     fn enabled(&self) -> bool {
         self.active.is_some()
     }

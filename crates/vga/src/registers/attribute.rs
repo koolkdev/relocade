@@ -37,6 +37,10 @@ impl Attribute {
         self.address
     }
 
+    pub(crate) fn data_next(&self) -> bool {
+        self.data_next
+    }
+
     fn register(&self, index: u8) -> u8 {
         self.values[usize::from(index)]
     }

@@ -566,6 +566,20 @@ normal ports, and restores register indices and display enable. Display-start ch
 still latch at vertical retrace. BIOS-only restore changes metadata and vectors
 without setting a mode; DAC restore bypasses grayscale and default-palette policy.
 
+Firmware can also save complete device programming through `core_state()`,
+`dac_state()` and `dispi_state()`. Their `VgaCoreState`, `DacState` and `DispiState`
+values own fixed byte encodings with validated `from_bytes` constructors. VGA core
+state includes sequencer reset, register access phases, the latched CRTC display start,
+adapter decoding and CPU latches. DAC state includes the exact RGB transfer
+position and Color Select; DISPI state includes staged geometry, active layout,
+enable flags, bank and register index. These values contain no framebuffer bytes.
+`restore_state(core, dac, dispi)` applies selected components together after
+servicing elapsed captures. It preserves VRAM and unselected components, and uses
+the same timing reconciliation as port programming. DAC-only restoration leaves
+raster timing intact. These encodings describe Relocade's current adapter;
+firmware owns the surrounding guest buffer format and version. They are not
+vendor BIOS save formats. The fixed IBM AH=1Ch buffer above remains independent.
+
 At the start of vertical retrace the device captures a complete `DisplaySnapshot`
 for the following active display: shared physical memory blocks, the active
 scanout settings, and DAC colors and mask. VGA first latches its display start
