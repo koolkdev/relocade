@@ -1,6 +1,9 @@
 //! Keyboard commands, physical scanning, bounded buffering and typematic timing.
 
-use crate::{controller::Controller, scancodes};
+use crate::{
+    controller::{Controller, Port},
+    scancodes,
+};
 use futures_util::{pin_mut, select_biased, FutureExt};
 use relocade_frontend::keyboard::{
     ElementState, KeyCode, KeyboardEvent, KeyboardEvents, PhysicalKey,
@@ -24,17 +27,11 @@ const ACK: u8 = 0xfa;
 const RESEND: u8 = 0xfe;
 const RESET: u8 = 0xff;
 
-pub(super) async fn run<C: Clock>(
-    clock: C,
-    events: KeyboardEvents,
-    controller: &Controller,
-    commands: async_channel::Receiver<u8>,
-) {
+pub(super) async fn run<C: Clock>(clock: C, events: KeyboardEvents, controller: &Controller) {
     Keyboard {
         clock,
         events: Some(events),
         controller,
-        commands,
         last_sent: RESEND,
         held: BTreeSet::new(),
         scans: VecDeque::new(),
@@ -54,7 +51,6 @@ struct Keyboard<'a, C> {
     clock: C,
     events: Option<KeyboardEvents>,
     controller: &'a Controller,
-    commands: async_channel::Receiver<u8>,
     last_sent: u8,
     held: BTreeSet<KeyCode>,
     scans: VecDeque<u8>,
@@ -177,10 +173,10 @@ impl<C: Clock> Keyboard<'_, C> {
                 None => None,
             };
             let wake = {
-                let command = self.commands.recv().fuse();
+                let command = self.controller.receive_device(Port::Keyboard).fuse();
                 let output = async {
                     if let Some(byte) = outgoing {
-                        self.controller.send_keyboard(byte).await;
+                        self.controller.send(Port::Keyboard, byte).await;
                     } else {
                         pending::<()>().await;
                     }
@@ -203,7 +199,7 @@ impl<C: Clock> Keyboard<'_, C> {
                 .fuse();
                 pin_mut!(command, output, event, timer);
                 select_biased! {
-                    value = command => Wake::Command(value.expect("controller service lives with keyboard")),
+                    value = command => Wake::Command(value),
                     () = output => Wake::Sent,
                     event = event => Wake::Event(event),
                     () = timer => Wake::Repeat,
@@ -338,7 +334,7 @@ impl<C: Clock> Keyboard<'_, C> {
     fn repeat(&mut self) {
         let now = self.clock.now();
         if let Some(repeat) = self.repeat.filter(|repeat| now >= repeat.deadline) {
-            if !self.controller.inhibited() {
+            if !self.controller.inhibited(Port::Keyboard) {
                 self.emit(repeat.key, true);
             }
             // Rate = 240 / ((8 + A) * 2^B) Hz, per the keyboard command.

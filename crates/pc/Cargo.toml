@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-relocade-at-keyboard = { path = "../at-keyboard" }
+relocade-ps2 = { path = "../ps2" }
 relocade-bios = { path = "../bios" }
 relocade-frontend = { path = "../frontend", features = ["keyboard"] }
 relocade-machine = { path = "../machine" }

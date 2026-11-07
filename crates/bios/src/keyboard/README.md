@@ -7,7 +7,8 @@ sends PIC EOI.
 A guest may replace that vector to consume port 60h itself or chain the original
 handler. Like the IBM AT BIOS (KYBD listing, page 5-129), the handler reads port 60h
 without checking OBF: a guest hook may already have read the byte and cleared OBF
-before chaining. Physical input does not enter the BIOS queue by any other route.
+before chaining. Auxiliary output is left for IRQ12 rather than translated as a
+scan byte. Physical input does not enter the BIOS queue by any other route.
 
 INT 16h/AH=00h/01h/02h/05h/10h/11h/12h and DOS console reads use the same BIOS data area:
 
