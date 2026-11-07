@@ -219,3 +219,90 @@ fn a_guest_irq1_hook_chains_to_bios_and_wakes_both_input_services() {
         assert_eq!(dos.keyboard().peek_key(KeyMode::Enhanced), None);
     });
 }
+
+#[test]
+fn reading_then_chaining_irq1_preserves_extended_key_make_and_break() {
+    use relocade_frontend::keyboard::{
+        ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, NativeKey,
+    };
+    use relocade_machine::Hook;
+
+    with_hardware(async |runner, mut dos| {
+        // Wait for the requested number of IRQs before reaching the stop hook.
+        let program = [
+            0xa1, 0, 3, // AX = IRQ count.
+            0x3b, 0x06, 0x20, 3, // CMP AX,[0320h].
+            0x72, 0xf7, // JB 0100h.
+            0xeb, 0, // Dispatch the stop hook.
+        ];
+        dos.launch_com(&program, Default::default()).unwrap();
+        let segment = dos.process().unwrap().psp_segment();
+        let base = u32::from(segment) << 4;
+        let memory = dos.cpu().memory();
+        let original = memory.view().read_u32(9 * 4).unwrap();
+        let mut handler = vec![
+            0x50, 0x53, 0x1e, 0x0e, 0x1f, // Save AX/BX/DS; DS=CS.
+            0xe4, 0x60, // Read the scan before chaining to BIOS.
+            0x8b, 0x1e, 0, 3, // BX = IRQ count.
+            0x88, 0x87, 2, 3, // Log AL at [0302h+BX].
+            0xff, 0x06, 0, 3, // Increment IRQ count.
+            0x88, 0xc3, 0x81, 0xe3, 0x7f, 0, 0xd1, 0xe3, // BX=(scan&7Fh)*2.
+            0x25, 0x80, 0, 0xc1, 0xe8, 7, 0x35, 1, 0, // AX=make?1:0.
+            0x89, 0x87, 0, 4, // Store held state in the 128-word table at 0400h.
+            0xb8, 0x40, 0, 0x8e, 0xd8, // DS=BDA.
+            0xa1, 0x1a, 0, 0xa3, 0x1c, 0, // Clear the BIOS ring.
+            0x9c, 0x9a, // PUSHF; CALL FAR saved BIOS handler.
+        ];
+        handler.extend(original.to_le_bytes());
+        handler.extend([
+            0xb0, 0x20, 0xe6, 0x20, // EOI.
+            0x1f, 0x5b, 0x58, 0xcf, // Restore DS/BX/AX; IRET.
+        ]);
+        memory.view().write(base + 0x180, &handler).unwrap();
+        memory
+            .view()
+            .write_u32(9 * 4, (u32::from(segment) << 16) | 0x180)
+            .unwrap();
+        let exit = dos.cpu().exit_handle();
+        dos.cpu()
+            .install([Hook::host(
+                base + 0x100 + program.len() as u32,
+                async move || {
+                    exit.request();
+                },
+            )])
+            .await
+            .unwrap();
+        let state = dos.cpu().cpu_state();
+        state.set_eflags(0x202);
+        let stack = state.sp();
+
+        for (transition, count, held) in [
+            (ElementState::Pressed, 2, 1),
+            (ElementState::Released, 4, 0),
+        ] {
+            memory.view().write_u16(base + 0x320, count).unwrap();
+            state.set_eip(0x100);
+            dos.keyboard_input()
+                .unbounded_send(KeyboardEvent::Key {
+                    physical_key: KeyCode::ArrowRight.into(),
+                    logical_key: Key::Unidentified(NativeKey::Unidentified),
+                    location: KeyLocation::Standard,
+                    text: None,
+                    state: transition,
+                    repeat: false,
+                })
+                .unwrap();
+            assert_eq!(
+                runner.run_cpu(dos.cpu()).await,
+                ExecutionExit::Host(relocade_x86::HostExit::Return)
+            );
+            assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), count);
+            assert_eq!(memory.view().read_u16(base + 0x49a).unwrap(), held);
+            assert_eq!(state.sp(), stack, "both interrupt frames returned");
+        }
+        let mut scans = [0; 4];
+        memory.view().read(base + 0x302, &mut scans).unwrap();
+        assert_eq!(scans, [0xe0, 0x4d, 0xe0, 0xcd]);
+    });
+}

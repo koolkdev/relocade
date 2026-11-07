@@ -28,7 +28,8 @@ enum Input {
 
 struct Registers {
     input: Option<Input>,
-    output: Option<u8>,
+    output: u8,
+    output_full: bool,
     command_byte: u8,
     last_command: bool,
     break_prefix: bool,
@@ -45,7 +46,10 @@ impl Controller {
         Self {
             registers: RefCell::new(Registers {
                 input: None,
-                output: None,
+                // Deterministic emulator startup value; the initial latch
+                // contents are not specified by the hardware.
+                output: 0xff,
+                output_full: false,
                 command_byte: IRQ_ENABLED | SYSTEM_INITIALIZED | TRANSLATE_SET_2,
                 last_command: false,
                 break_prefix: false,
@@ -69,7 +73,7 @@ impl Controller {
             } else {
                 0
             }
-            | if registers.output.is_some() {
+            | if registers.output_full {
                 OUTPUT_BUFFER_FULL
             } else {
                 0
@@ -77,7 +81,13 @@ impl Controller {
     }
 
     pub fn read_data(&self) -> u8 {
-        let byte = self.registers.borrow_mut().output.take().unwrap_or(0xff);
+        let byte = {
+            let mut registers = self.registers.borrow_mut();
+            // Reading acknowledges the output; the data latch keeps its value
+            // until firmware writes another byte, including across IRQ chains.
+            registers.output_full = false;
+            registers.output
+        };
         self.irq.set_level(false);
         self.changed.notify(usize::MAX);
         byte
@@ -104,7 +114,7 @@ impl Controller {
 
     pub fn inhibited(&self) -> bool {
         let registers = self.registers.borrow();
-        registers.output.is_some() || registers.command_byte & INTERFACE_DISABLED != 0
+        registers.output_full || registers.command_byte & INTERFACE_DISABLED != 0
     }
 
     pub async fn run(&self, keyboard: async_channel::Sender<u8>) {
@@ -166,7 +176,7 @@ impl Controller {
     fn update_irq(&self) {
         let registers = self.registers.borrow();
         self.irq
-            .set_level(registers.output.is_some() && registers.command_byte & IRQ_ENABLED != 0);
+            .set_level(registers.output_full && registers.command_byte & IRQ_ENABLED != 0);
     }
 
     async fn receive(&self) -> Input {
@@ -188,7 +198,7 @@ impl Controller {
             let changed = self.changed.listen();
             {
                 let mut registers = self.registers.borrow_mut();
-                if registers.output.is_none()
+                if !registers.output_full
                     && (matches!(source, Source::Controller)
                         || registers.command_byte & INTERFACE_DISABLED == 0)
                 {
@@ -204,7 +214,8 @@ impl Controller {
                             byte |= 0x80;
                         }
                     }
-                    registers.output = Some(byte);
+                    registers.output = byte;
+                    registers.output_full = true;
                     drop(registers);
                     self.update_irq();
                     return;
