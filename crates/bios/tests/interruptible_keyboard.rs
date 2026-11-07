@@ -70,7 +70,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let keyboard = Keyboard::new(memory.clone());
     let (clock, _timers) = relocade_machine::timer_service();
-    let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock))));
+    let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock.clone()))));
     let io = IoBus::new([
         DeviceConnection {
             device: vga.clone(),
@@ -101,7 +101,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>
         },
     );
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga.clone());
+    relocade_bios::register_interrupts(&mut interrupts, clock, keyboard.clone(), vga.clone());
     interrupts.install().await.unwrap();
     memory.view().write(8 * 4, &[0, 3, 0, 0]).unwrap();
     // INT 16h; save AX; INT 1Ah/AH=00h; save DX; loop.
@@ -255,7 +255,8 @@ async fn bios_timer_rollover() {
     let (mut cpu, keyboard, vga) = machine(&timer).await;
     // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga);
+    let (clock, _timers) = relocade_machine::timer_service();
+    relocade_bios::register_interrupts(&mut interrupts, clock, keyboard.clone(), vga);
     interrupts.install().await.unwrap();
     let memory = cpu.memory();
     memory.view().write(0x46c, &[0xaf, 0, 0x18, 0, 1]).unwrap();

@@ -20,6 +20,9 @@ command/data and system status. Port callbacks access the registers synchronousl
 firmware consumes writes asynchronously. Software must wait for
 `INPUT_BUFFER_FULL` to clear before writing either port. Writes while busy are
 ignored instead of replacing the accepted byte.
+`write_controller_command` waits for input space and command acceptance through
+`IoBus::wait_port`. Status subscriptions wake on input consumption, output
+production, reads and command changes; polling does not drive the firmware.
 
 Reading 60h clears `OUTPUT_BUFFER_FULL` and lowers IRQ1. The data latch retains
 its value until firmware writes another byte, so another read can return the same
@@ -33,7 +36,12 @@ pp. 20–21 and 56–57.
 
 Supported controller commands are command-byte read/write (20h/60h), self/interface
 test (AAh/ABh), interface disable/enable (ADh/AEh), and output injection (D2h).
-Controller replies wait for an empty output register.
+Controller replies wait for an empty output register while firmware continues
+accepting commands and their parameters. Interface disable/enable can therefore
+complete before BIOS drains an unread scan. The model retains one pending reply;
+a later reply-producing command replaces that pending byte, preserving the
+unread output latch. This replacement rule is the emulator's policy for overlapping
+replies; the hardware reference does not specify a reply queue.
 Keyboard commands include LEDs, echo, scan sets 1/2, ID, typematic, enable,
 default-disable, defaults, resend and reset. Commands and parameters return ACK;
 unsupported keyboard commands/scan sets return RESEND. Set-2 translation also

@@ -79,8 +79,10 @@ const EXCEPTION_ENTRIES: FarPointer = FarPointer {
 /// Video retains the same VGA device connected to the CPU's I/O bus.
 /// BIOS services and IRQ handlers enable live IF while their work runs. IRQ
 /// completion disables IF and acknowledges the PIC before returning through IRET.
+/// The supplied clock shares the PC devices' timebase and bounds controller waits.
 pub fn register_interrupts<C: Clock + 'static>(
     interrupts: &mut Interrupts<'_>,
+    clock: C,
     keyboard: Keyboard,
     vga: Rc<RefCell<Vga<C>>>,
 ) {
@@ -98,16 +100,13 @@ pub fn register_interrupts<C: Clock + 'static>(
         );
     }
     let irq_keyboard = keyboard.clone();
-    register_irq(
-        interrupts,
-        KEYBOARD_IRQ,
-        KEYBOARD_IRQ_ENTRY,
-        async move |call| {
-            keyboard::interrupt(call, &irq_keyboard).await;
-        },
-    );
+    interrupts.register_interrupt(KEYBOARD_IRQ, KEYBOARD_IRQ_ENTRY, async move |call| {
+        keyboard::interrupt(call, &irq_keyboard, &clock).await;
+    });
     interrupts.register_interrupt(CONTROL_BREAK, BREAK_CALLBACK_ENTRY, async |_| {});
-    register_irq(interrupts, TIMER_IRQ, TIMER_ENTRY, clock::timer);
+    interrupts.register_interrupt(TIMER_IRQ, TIMER_ENTRY, async |call| {
+        handle_irq(call, clock::timer).await;
+    });
     interrupts.register_interrupt(TIMER_TICK, TIMER_CALLBACK_ENTRY, async |_| {});
     register_service(
         interrupts,
@@ -142,17 +141,15 @@ pub fn register_interrupts<C: Clock + 'static>(
 }
 
 /// Completes a BIOS IRQ only after its handler and any guest callbacks return.
-fn register_irq<F>(interrupts: &mut Interrupts<'_>, vector: u8, entry: FarPointer, handler: F)
+pub(crate) async fn handle_irq<F>(call: &mut CpuContext<'_>, handler: F)
 where
-    F: AsyncFn(&mut CpuContext<'_>) + 'static,
+    F: AsyncFnOnce(&mut CpuContext<'_>),
 {
-    interrupts.register_interrupt(vector, entry, async move |call| {
-        real_mode_interrupt::with_interrupts_enabled(call.cpu, handler(call)).await;
-        // Guest handlers can chain to the BIOS with IF set. Keep IRQ completion
-        // masked until the ordinary IRET restores the interrupted caller's flags.
-        call.cpu.set_interrupts_enabled(false);
-        relocade_pic::end_of_interrupt(call.io);
-    });
+    real_mode_interrupt::with_interrupts_enabled(call.cpu, handler(call)).await;
+    // Guest handlers can chain to the BIOS with IF set. Keep IRQ completion
+    // masked until the ordinary IRET restores the interrupted caller's flags.
+    call.cpu.set_interrupts_enabled(false);
+    relocade_pic::end_of_interrupt(call.io);
 }
 
 fn register_service<F>(interrupts: &mut Interrupts<'_>, vector: u8, entry: FarPointer, handler: F)
