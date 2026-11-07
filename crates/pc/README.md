@@ -2,7 +2,7 @@
 
 `Pc::new(runner).await` creates a BIOS-initialized real-mode PC independently of
 DOS. It owns the CPU, memory map and device wiring, while the individual crates
-implement BIOS services and PIC, PIT, AT keyboard, VGA and speaker behavior.
+implement BIOS services and PIC, PIT, PS/2 keyboard/mouse, VGA and speaker behavior.
 
 The fixed map contains 640 KiB of conventional RAM, the VGA MMIO aperture and
 identity-backed ROM at F0000–FFFFF. Initialization installs BIOS video, keyboard
@@ -34,6 +34,13 @@ retains the BIOS keyboard backed by guest RAM for translated/scripted input.
 `frame_source()` provides immutable display captures; `vga()` and `speaker()`
 retain devices on the execution owner. Platform windows, rendering and audio
 outputs remain with the embedding application.
+
+`mouse_input()` accepts relative motion, three-button transitions and focus/capture
+loss through the same execution-owned PS/2 activity. `Dos::mouse_input()` forwards
+the handle from its PC. Guest software must enable the auxiliary interface and
+reporting, install INT 74h, and unmask master IRQ2 plus slave IRQ12. BIOS mouse
+services and a resident INT 33h driver are not installed. Window capture and
+pointer-lock policy remain with the embedding application.
 
 DOS builds on this PC through `Dos::from_pc(pc).await`. It initializes its MCB
 allocator, character devices, filesystems and INT 20h/21h services while retaining
