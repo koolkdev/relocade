@@ -1,6 +1,8 @@
-//! Shared time and timer notifications from a separately driven host task.
+//! Shared clock interfaces, host timer notifications and adaptive time estimation.
 
+mod adaptive;
 mod driver;
+pub use adaptive::{AdaptiveTime, ClockProgress};
 pub use driver::TimerDriver;
 
 use futures_channel::{mpsc, oneshot};
