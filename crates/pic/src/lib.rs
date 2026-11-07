@@ -1,8 +1,10 @@
-//! PC master 8259A interrupt arbitration, independent of CPU interrupt entry.
+//! PC cascaded 8259A interrupt arbitration, independent of CPU interrupt entry.
 
 mod controller;
+mod pair;
 
-use controller::{Controller, IRQ_COUNT, OCW2_EOI};
+use controller::{IRQ_COUNT, OCW2_EOI};
+use pair::Pair;
 use relocade_machine::{Clock, Device, DeviceConnection, IoBus, Runner};
 use std::{
     cell::RefCell,
@@ -14,51 +16,61 @@ use std::{
 pub const COMMAND_PORT: u16 = 0x20;
 pub const MASK_PORT: u16 = 0x21;
 pub const PORT_RANGE: RangeInclusive<u16> = COMMAND_PORT..=MASK_PORT;
-/// PC master interrupt wiring.
+pub const SLAVE_COMMAND_PORT: u16 = 0xa0;
+pub const SLAVE_MASK_PORT: u16 = 0xa1;
+pub const PORTS: [RangeInclusive<u16>; 2] = [PORT_RANGE, SLAVE_COMMAND_PORT..=SLAVE_MASK_PORT];
+/// PC interrupt wiring.
 pub const TIMER_IRQ: u8 = 0;
 pub const KEYBOARD_IRQ: u8 = 1;
-const BIOS_VECTOR_BASE: u8 = 0x08;
+pub const CASCADE_IRQ: u8 = 2;
+pub const MOUSE_IRQ: u8 = 12;
 
-/// Finishes the highest-priority active interrupt through the guest device bus.
+/// Finishes the highest-priority active master interrupt through the guest bus.
 pub fn end_of_interrupt(io: &IoBus) {
     io.write_port(COMMAND_PORT, 1, u32::from(OCW2_EOI));
 }
 
-/// One execution-owned master PIC with eight interrupt inputs. Clones share
+/// One execution-owned master/slave PIC pair with sixteen interrupt inputs. Clones share
 /// arbitration and guest-visible registers. The machine polls only this device;
 /// peripherals signal [`IrqLine`] handles instead of supplying CPU vectors.
 #[derive(Clone)]
-pub struct Pic(Rc<RefCell<Controller>>);
+pub struct Pic(Rc<RefCell<Pair>>);
 
 impl Default for Pic {
-    /// BIOS-initialized PC master vector base, with every IRQ masked.
+    /// BIOS-initialized PC vector bases (08h/70h), with every IRQ masked.
     fn default() -> Self {
-        Self::new(BIOS_VECTOR_BASE)
+        Self::new(0x08, 0x70)
     }
 }
 
 impl Pic {
-    /// Creates the BIOS-configured master and registers its ports with the runner.
+    /// Creates the BIOS-configured pair and registers both chips with the runner.
     /// Returns a shared controller handle and its connection for the CPU bus.
     pub async fn initialize<C: Clock>(runner: &Runner<C>) -> (Self, DeviceConnection) {
         let pic = Self::default();
         let connection = runner
-            .connect(Rc::new(RefCell::new(pic.clone())), [], [PORT_RANGE])
+            .connect(Rc::new(RefCell::new(pic.clone())), [], PORTS)
             .await;
         (pic, connection)
     }
 
-    /// Starts in 8086 edge-triggered mode, with all inputs masked. The vector base
-    /// must be aligned to eight; DOS uses 08h and unmasks its connected devices.
-    pub fn new(vector_base: u8) -> Self {
-        assert_eq!(vector_base % IRQ_COUNT, 0, "PIC vector base alignment");
-        Self(Rc::new(RefCell::new(Controller::new(vector_base))))
+    /// Starts in 8086 edge-triggered mode, with all inputs masked and the slave
+    /// wired to master IRQ2. Each vector base must be aligned to eight.
+    pub fn new(master_vector_base: u8, slave_vector_base: u8) -> Self {
+        for base in [master_vector_base, slave_vector_base] {
+            assert_eq!(base % IRQ_COUNT, 0, "PIC vector base alignment");
+        }
+        Self(Rc::new(RefCell::new(Pair::new(
+            master_vector_base,
+            slave_vector_base,
+        ))))
     }
 
-    /// Enables delivery on a connected line without dropping pending requests.
+    /// Enables a line without dropping requests. Slave delivery also requires
+    /// unmasking the master cascade input, just as with guest mask writes.
     pub fn unmask_irq(&self, number: u8) {
-        assert!(number < IRQ_COUNT, "master PIC IRQ number");
-        self.update(|state| state.mask &= !(1 << number));
+        assert!(number < 2 * IRQ_COUNT, "PC IRQ number");
+        self.update(|state| state.chip(number).mask &= !(1 << (number % IRQ_COUNT)));
     }
 
     /// Connects a peripheral's IRQ line at its starting output level without
@@ -66,23 +78,31 @@ impl Pic {
     /// eligible in level-triggered mode. Reuse or clone the returned line for
     /// runtime transitions.
     pub fn irq(&self, number: u8, initial_high: bool) -> IrqLine {
-        assert!(number < IRQ_COUNT, "master PIC IRQ number");
-        self.update(|state| state.record_level(number, initial_high));
+        assert!(number < 2 * IRQ_COUNT, "PC IRQ number");
+        assert_ne!(number, CASCADE_IRQ, "IRQ2 is wired to the slave PIC");
+        self.update(|state| {
+            state
+                .chip(number)
+                .record_level(number % IRQ_COUNT, initial_high)
+        });
         IrqLine {
             pic: self.clone(),
             number,
         }
     }
 
-    fn update(&self, change: impl FnOnce(&mut Controller)) {
-        let waker = {
+    fn update<T>(&self, change: impl FnOnce(&mut Pair) -> T) -> T {
+        let (result, waker) = {
             let mut state = self.0.borrow_mut();
-            change(&mut state);
-            state.next_irq().and_then(|_| state.waker.take())
+            let result = change(&mut state);
+            state.refresh_cascade();
+            let waker = state.master.next_irq().and_then(|_| state.waker.take());
+            (result, waker)
         };
         if let Some(waker) = waker {
             waker.wake();
         }
+        result
     }
 }
 
@@ -97,7 +117,11 @@ pub struct IrqLine {
 
 impl IrqLine {
     pub fn set_level(&self, high: bool) {
-        self.pic.update(|state| state.set_level(self.number, high));
+        self.pic.update(|state| {
+            state
+                .chip(self.number)
+                .set_level(self.number % IRQ_COUNT, high);
+        });
     }
 
     /// Produces one low/high/low pulse, coalescing with an already pending edge.
@@ -113,32 +137,21 @@ impl Device for Pic {
         if bytes != 1 {
             return u32::MAX;
         }
-        let mut state = self.0.borrow_mut();
-        match port {
-            COMMAND_PORT => state.read_command().into(),
-            MASK_PORT => state.mask.into(),
-            _ => u32::MAX,
-        }
+        self.update(|state| state.read_port(port))
     }
 
     fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
-        if bytes != 1 {
-            return;
+        if bytes == 1 {
+            self.update(|state| state.write_port(port, value as u8));
         }
-        self.update(|state| match port {
-            COMMAND_PORT => state.command(value as u8),
-            MASK_PORT => state.data(value as u8),
-            _ => {}
-        });
     }
 
     fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
         let mut state = self.0.borrow_mut();
         state.waker = Some(cx.waker().clone());
-        match state.acknowledge() {
-            Some(irq) => Poll::Ready(state.vector_base | irq),
-            None => Poll::Pending,
-        }
+        let vector = state.acknowledge();
+        state.refresh_cascade();
+        vector.map_or(Poll::Pending, Poll::Ready)
     }
 }
 

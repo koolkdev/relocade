@@ -17,7 +17,7 @@ fn poll(pic: &mut Pic) -> Poll<u8> {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn masking_preserves_edges_and_eoi_releases_lower_priority_requests() {
-    let mut pic = Pic::new(8);
+    let mut pic = Pic::new(8, 0x70);
     let irq1 = pic.irq(1, false);
     irq1.pulse();
     let irq0 = pic.irq(0, true);
@@ -47,7 +47,7 @@ fn masking_preserves_edges_and_eoi_releases_lower_priority_requests() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn edge_inputs_require_a_new_rising_transition_and_coalesce() {
-    let mut pic = Pic::new(8);
+    let mut pic = Pic::new(8, 0x70);
     pic.write_port(MASK_PORT, 1, 0xfd); // Unmask IRQ1.
     let line = pic.irq(1, true);
     assert_eq!(poll(&mut pic), Poll::Pending);
@@ -73,7 +73,7 @@ fn edge_inputs_require_a_new_rising_transition_and_coalesce() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn initialization_remaps_vectors_and_auto_eoi_releases_service() {
-    let mut pic = Pic::new(8);
+    let mut pic = Pic::new(8, 0x70);
     let irq1 = pic.irq(1, false);
     pic.write_port(COMMAND_PORT, 1, 0x11); // ICW1: cascaded, edge-triggered, ICW4 follows.
     pic.write_port(MASK_PORT, 1, 0x20); // ICW2: vector base 20h.
@@ -95,7 +95,7 @@ fn initialization_remaps_vectors_and_auto_eoi_releases_service() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn level_requests_remain_asserted_until_the_device_lowers_them() {
-    let mut pic = Pic::new(8);
+    let mut pic = Pic::new(8, 0x70);
     let line = pic.irq(1, true);
     for (port, value) in [
         (COMMAND_PORT, 0x1b), // ICW1: level-triggered, single, ICW4 follows.
@@ -139,7 +139,7 @@ fn level_requests_remain_asserted_until_the_device_lowers_them() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn rotation_polling_and_special_mask_use_the_same_arbitration() {
-    let mut pic = Pic::new(8);
+    let mut pic = Pic::new(8, 0x70);
     let irq1 = pic.irq(1, false);
     let irq0 = pic.irq(0, false);
     pic.write_port(MASK_PORT, 1, 0);
@@ -182,7 +182,7 @@ impl Wake for Wakes {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn masked_input_wakes_a_waiting_cpu_when_unmasked() {
-    let mut pic = Pic::new(8);
+    let mut pic = Pic::new(8, 0x70);
     let irq1 = pic.irq(1, false);
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
@@ -199,5 +199,116 @@ fn masked_input_wakes_a_waiting_cpu_when_unmasked() {
         .poll_interrupt(&mut Context::from_waker(&waker))
         .is_pending());
     pic.write_port(COMMAND_PORT, 1, 0x20); // OCW2: non-specific EOI.
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn slave_irq_requires_both_masks_and_both_eois() {
+    let mut pic = Pic::default();
+    let mouse = pic.irq(MOUSE_IRQ, false);
+    let timer = pic.irq(TIMER_IRQ, false);
+    mouse.pulse();
+    pic.unmask_irq(MOUSE_IRQ);
+    assert_eq!(poll(&mut pic), Poll::Pending);
+    assert_eq!(pic.read_port(COMMAND_PORT, 1), 4);
+    pic.unmask_irq(CASCADE_IRQ);
+    assert_eq!(poll(&mut pic), Poll::Ready(0x74));
+    for port in [COMMAND_PORT, SLAVE_COMMAND_PORT] {
+        pic.write_port(port, 1, 0x0b);
+    }
+    assert_eq!(pic.read_port(COMMAND_PORT, 1), 4);
+    assert_eq!(pic.read_port(SLAVE_COMMAND_PORT, 1), 0x10);
+    pic.unmask_irq(TIMER_IRQ);
+    timer.pulse();
+    assert_eq!(
+        poll(&mut pic),
+        Poll::Ready(8),
+        "timer can preempt the cascade"
+    );
+    pic.write_port(COMMAND_PORT, 1, 0x60); // Specific EOI for timer only.
+    mouse.pulse();
+    pic.write_port(SLAVE_COMMAND_PORT, 1, 0x20);
+    assert_eq!(poll(&mut pic), Poll::Pending, "master ISR2 still blocks");
+    pic.write_port(COMMAND_PORT, 1, 0x20);
+    assert_eq!(poll(&mut pic), Poll::Ready(0x74));
+    mouse.pulse();
+    pic.write_port(COMMAND_PORT, 1, 0x20);
+    assert_eq!(poll(&mut pic), Poll::Pending, "slave ISR4 still blocks");
+    pic.write_port(SLAVE_COMMAND_PORT, 1, 0x20);
+    assert_eq!(poll(&mut pic), Poll::Ready(0x74));
+}
+
+fn initialize_chip(pic: &mut Pic, command: u16, base: u8, cascade: u8, mode: u8) {
+    pic.write_port(command, 1, 0x11);
+    for value in [base, cascade, mode] {
+        pic.write_port(command + 1, 1, value.into());
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn slave_remapping_auto_eoi_and_polling_share_chip_arbitration() {
+    let mut pic = Pic::default();
+    initialize_chip(&mut pic, COMMAND_PORT, 0x20, 4, 3);
+    initialize_chip(&mut pic, SLAVE_COMMAND_PORT, 0x28, 2, 3);
+    pic.irq(12, false).pulse();
+    pic.irq(13, false).pulse();
+    assert_eq!(poll(&mut pic), Poll::Ready(0x2c));
+    assert_eq!(poll(&mut pic), Poll::Ready(0x2d), "INTA rearms the cascade");
+    assert_eq!(poll(&mut pic), Poll::Pending);
+
+    initialize_chip(&mut pic, COMMAND_PORT, 8, 4, 1);
+    initialize_chip(&mut pic, SLAVE_COMMAND_PORT, 0x70, 2, 1);
+    pic.irq(12, false).pulse();
+    pic.write_port(COMMAND_PORT, 1, 0x0c);
+    assert_eq!(pic.read_port(COMMAND_PORT, 1), 0x82);
+    pic.write_port(SLAVE_COMMAND_PORT, 1, 0x0c);
+    assert_eq!(pic.read_port(SLAVE_COMMAND_PORT, 1), 0x84);
+    pic.write_port(SLAVE_COMMAND_PORT, 1, 0x0b);
+    assert_eq!(pic.read_port(SLAVE_COMMAND_PORT, 1), 0x10);
+    assert_eq!(poll(&mut pic), Poll::Pending);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn masking_a_latched_slave_request_produces_spurious_irq15() {
+    let mut pic = Pic::default();
+    pic.unmask_irq(CASCADE_IRQ);
+    pic.unmask_irq(MOUSE_IRQ);
+    pic.irq(MOUSE_IRQ, false).pulse();
+    pic.write_port(SLAVE_MASK_PORT, 1, 0xff);
+    assert_eq!(poll(&mut pic), Poll::Ready(0x77));
+    pic.write_port(SLAVE_COMMAND_PORT, 1, 0x0b);
+    assert_eq!(pic.read_port(SLAVE_COMMAND_PORT, 1), 0);
+    pic.write_port(COMMAND_PORT, 1, 0x20);
+    pic.unmask_irq(MOUSE_IRQ);
+    assert_eq!(
+        poll(&mut pic),
+        Poll::Ready(0x74),
+        "masking retained the real request"
+    );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn slave_unmask_and_eoi_wake_the_waiting_cpu() {
+    let mut pic = Pic::default();
+    pic.unmask_irq(CASCADE_IRQ);
+    let mouse = pic.irq(MOUSE_IRQ, false);
+    let wakes = Arc::new(Wakes::default());
+    let waker = Waker::from(wakes.clone());
+    let mut cx = Context::from_waker(&waker);
+    assert!(pic.poll_interrupt(&mut cx).is_pending());
+    mouse.pulse();
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
+    pic.unmask_irq(MOUSE_IRQ);
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
+    assert_eq!(pic.poll_interrupt(&mut cx), Poll::Ready(0x74));
+    mouse.pulse();
+    assert!(pic.poll_interrupt(&mut cx).is_pending());
+    pic.write_port(SLAVE_COMMAND_PORT, 1, 0x20);
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
+    pic.write_port(COMMAND_PORT, 1, 0x20);
     assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
 }
