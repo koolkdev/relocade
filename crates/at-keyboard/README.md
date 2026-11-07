@@ -21,10 +21,15 @@ firmware consumes writes asynchronously. Software must wait for
 `INPUT_BUFFER_FULL` to clear before writing either port. Writes while busy are
 ignored instead of replacing the accepted byte.
 
-Reading 60h consumes one output byte and lowers IRQ1. It wakes pending transmission,
-which fills the register and raises a new edge when the device activity runs.
-Unread output is preserved. `read_scan_code(io)` tests `OUTPUT_BUFFER_FULL` and
-consumes one available byte. The PIC owns masking, acknowledgement and EOI.
+Reading 60h clears `OUTPUT_BUFFER_FULL` and lowers IRQ1. The data latch retains
+its value until firmware writes another byte, so another read can return the same
+value with the full flag clear. This matters when a guest IRQ1 handler reads the
+register and then chains to BIOS. Reads wake pending transmission, which fills the
+register and raises a new edge when the device activity runs. Unread output is
+preserved. `read_scan_code(io)` tests `OUTPUT_BUFFER_FULL` and consumes one available
+byte. The PIC owns masking, acknowledgement and EOI. The register and flag behavior
+follows Intel's [UPI-41A/41AH/42/42AH User's Manual](https://www.ceibo.com/eng/datasheets/Intel-8041-Manual.pdf),
+pp. 20–21 and 56–57.
 
 Supported controller commands are command-byte read/write (20h/60h), self/interface
 test (AAh/ABh), interface disable/enable (ADh/AEh), and output injection (D2h).
