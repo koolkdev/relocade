@@ -899,6 +899,9 @@ path.
 The device implements a restricted eight-bit subset of the
 [Bochs DISPI display interface](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
 The ID1 register subset uses the modern 01CEh index and 01CFh data ports.
+The ID is fixed: ID writes are ignored, so this subset does not support the
+ID negotiation used by stock Bochs VGABIOS or SeaBIOS. It is not a drop-in
+Bochs/QEMU device or an emulation of a historical SVGA chipset.
 Both ports require word transfers: a word at 01CEh selects one complete register
 index, rather than writing two adjacent byte registers. Byte/dword reads return
 all ones and writes are ignored. Unknown register reads return FFFFh; unknown
@@ -906,7 +909,7 @@ register writes and unsupported requests leave the state unchanged.
 
 | Register | Readback and accepted writes |
 | --- | --- |
-| 0: ID | B0C1h; newer IDs are unsupported |
+| 0: ID | Fixed B0C1h; writes are ignored |
 | 1–3: X, Y, bits per pixel | Stage a mode while disabled; active writes are ignored |
 | 4: Enable | 0 disables; 1 or 81h enables a complete supported indexed mode |
 | 5: Bank | 0–63 selects a 64-KiB bank in 4 MiB; out-of-range writes are ignored |
@@ -933,25 +936,41 @@ are ignored. Each retrace captures the layout in effect at that boundary.
 default `SvgaLayout`. BIOS metadata uses the same geometry; only the VESA mode
 numbers (0101h, 0103h and 0105h) belong to firmware.
 
-The BIOS `video::vbe` module provides `INT 10h/4F00h` controller discovery and
-`4F01h` information for the three indexed modes, `4F02h`/`4F03h` mode control,
+### Banked VBE profile
+
+The BIOS reports VBE 1.2. Its `video::vbe` module provides `INT 10h/4F00h`
+controller discovery and `4F01h` information for the three indexed modes,
+`4F02h`/`4F03h` mode control,
 `4F04h` state save/restore, `4F05h` bank control, `4F06h` logical scanline control,
-`4F07h` display-start control and `4F08h` DAC-format control, using the VBE 1.2 register and 256-byte
-buffer layouts with selected VBE 2.0 extensions. It reports the 4 MiB adapter,
-a terminated ROM mode list, one readable
-and writable 64 KiB window at A000h, and the number of additional complete display
-pages at the reported pitch. No callable bank function or BIOS output functions
+`4F07h` display-start control and `4F08h` DAC-format control, using the VBE 1.2
+register and 256-byte buffer layouts with selected VBE 2.0 extensions. It reports
+the 4 MiB adapter, a terminated ROM mode list, one readable and writable 64 KiB
+window at A000h, and the number of additional complete display pages at the
+reported pitch. No callable bank function or BIOS output functions
 are advertised for these modes. Unimplemented functions return AL != 4Fh, while
 failed supported requests return AX=014Fh (or AX=024Fh for an excessively wide
 scanline). All VBE results preserve flags.
+
+| VESA mode | Indexed resolution | Default pitch | Additional image pages |
+| --- | --- | --- | --- |
+| 0101h | 640×480×8 | 640 bytes | 12 |
+| 0103h | 800×600×8 | 800 bytes | 7 |
+| 0105h | 1024×768×8 | 1024 bytes | 4 |
+
+The OEM string and mode list reside in ROM and remain valid across mode changes,
+query-buffer reuse and guest exit. A null `WinFuncPtr` selects INT 10h/4F05h bank
+control. Controller information remains the 256-byte 1.x structure even when
+the caller supplies a `VBE2` signature. Capability bits advertise VGA compatibility
+and a fixed six-bit DAC. True-color modes, eight-bit DAC components, linear
+framebuffer access and protected-mode VBE entry points are not advertised.
 
 State service `4F04h` selects hardware, BIOS data, DAC and SVGA through CX bits
 0–3. DL=0 reports the required allocation in 64-byte blocks; DL=1 saves to ES:BX
 and DL=2 restores from it. The opaque buffer uses Relocade's versioned format,
 not the byte layout of a vendor BIOS. Relative offsets support relocation and
-subset restoration; guest offsets wrap within ES. It
-contains no framebuffer bytes. All requested device components are validated
-before restoration; invalid buffers, missing classes, empty or reserved masks,
+subset restoration; guest offsets wrap within ES. It contains no framebuffer
+bytes. All requested device components are validated before restoration;
+invalid buffers, missing classes, empty or reserved masks,
 and unsupported operations fail without applying state. Capture and restore
 preserve unselected classes and never use scratch VRAM or clear the framebuffer.
 The BIOS-data component shares the existing IBM metadata/vector implementation.
