@@ -14,7 +14,7 @@ async fn check_indexed_resolutions() {
     let mut renderer = VgaRenderer::new(&device).unwrap();
     for (width, height) in [(800, 600), (1024, 768)] {
         let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
-        svga::set_mode(&mut vga, width, height);
+        svga::set_mode(&mut vga, width, height, 8);
         palette(&mut vga, 0, [0, 0, 0]);
         palette(&mut vga, 1, [63, 0, 0]);
         let [width, height] = [u32::from(width), u32::from(height)];
@@ -312,4 +312,115 @@ fn display_connection_handles_skipped_packed_captures_and_recovers_after_device_
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn display_connection_handles_skipped_packed_captures_and_recovers_after_device_drop() {
     check_published_display().await;
+}
+
+async fn check_direct_color() {
+    let adapter = wgpu::Instance::default()
+        .request_adapter(&Default::default())
+        .await
+        .unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let mut renderer = VgaRenderer::new(&device).unwrap();
+    for (bits, pitch, rows, values, colors) in [
+        (
+            16,
+            2048,
+            2048,
+            [0x001fu32, 0x8410, 0x07e0, 0xf800],
+            [
+                [0, 0, 255, 255],
+                [132, 130, 132, 255],
+                [0, 255, 0, 255],
+                [255, 0, 0, 255],
+            ],
+        ),
+        (
+            32,
+            4096,
+            1024,
+            [0x0000_00ff, 0x0033_2211, 0xa533_2211, 0xa5ff_0000],
+            [
+                [0, 0, 255, 255],
+                [51, 34, 17, 255],
+                [51, 34, 17, 255],
+                [255, 0, 0, 255],
+            ],
+        ),
+    ] {
+        let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+        svga::set_mode(&mut vga, 640, 480, bits);
+        svga::set(&mut vga, 6, 1024);
+        svga::set(&mut vga, 8, 384);
+        svga::set(&mut vga, 9, rows - 480);
+        let pixel_bytes = u32::from(bits / 8);
+        let start = u32::from(rows - 480) * pitch + 384 * pixel_bytes;
+        let boundary_row = 65536 / pitch;
+        let points = [
+            (0, 0, 0),
+            (1, 0, 1),
+            (639, boundary_row - 1, 2),
+            (0, boundary_row, 1),
+            (639, 479, 3),
+        ];
+        for (x, y, color) in points {
+            let address = start + y * pitch + x * pixel_bytes;
+            for (byte, value) in values[color].to_le_bytes()[..pixel_bytes as usize]
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                svga::write_byte(&mut vga, address + byte as u32, value);
+            }
+        }
+        let original = common::fixture::capture(&vga);
+        assert_eq!(
+            original.display.vram_byte(4 * 1024 * 1024 - 1),
+            Some(if bits == 16 { 0xf8 } else { 0xa5 })
+        );
+        assert!(renderer.upload(&queue, &original));
+        palette(&mut vga, 0, [63, 63, 63]);
+        vga.write_port(0x3c6, 1, 0);
+        let recolored = common::fixture::capture(&vga);
+        assert!(!renderer.upload(&queue, &recolored));
+        svga::set(&mut vga, 8, 0);
+        svga::set(&mut vga, 9, 0);
+        let panned = common::fixture::capture(&vga);
+        svga::enable(&mut vga);
+        svga::write_byte(&mut vga, 0, 1);
+        let indexed = common::fixture::capture(&vga);
+        drop(vga);
+        // The indexed capture must upload the DAC changes skipped in direct color.
+        for (capture, visible, background) in [
+            (&recolored, true, [0, 0, 0, 255]),
+            (&panned, false, [0, 0, 0, 255]),
+            (&original, true, [0, 0, 0, 255]),
+            (&indexed, false, [255; 4]),
+        ] {
+            renderer.upload(&queue, capture);
+            let mut encoder = device.create_command_encoder(&Default::default());
+            let image = renderer.encode(&mut encoder).unwrap().image;
+            queue.submit([encoder.finish()]);
+            assert_eq!(image.size(), [640, 480]);
+            let pixels = read_pixels(&device, &queue, image.texture()).await;
+            for (index, actual) in pixels.as_chunks::<4>().0.iter().enumerate() {
+                let expected = points
+                    .iter()
+                    .find(|&&(x, y, _)| visible && y * 640 + x == index as u32)
+                    .map_or(background, |&(_, _, color)| colors[color]);
+                assert_eq!(*actual, expected, "{bits}-bit pixel {index}");
+            }
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn direct_color_pixels_pan_and_retain_without_palette_or_alpha_effects() {
+    pollster::block_on(check_direct_color());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn direct_color_pixels_pan_and_retain_without_palette_or_alpha_effects() {
+    check_direct_color().await;
 }

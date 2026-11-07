@@ -201,3 +201,39 @@ fn malformed_component_bytes_are_rejected_before_restoration() {
         assert!(DispiState::from_bytes(&bytes).is_none());
     }
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn direct_color_state_keeps_byte_pitch_and_same_resolution_raster_phase() {
+    for (bits, pitch, rows) in [(16, 2048u16, 2048), (32, 4096u16, 1024)] {
+        let clock = Rc::new(ManualClock::default());
+        let mut vga = Vga::with_clock(clock.clone());
+        svga::set_mode(&mut vga, 640, 480, bits);
+        svga::set(&mut vga, 6, 1024);
+        svga::set(&mut vga, 8, 384);
+        svga::set(&mut vga, 9, rows - 480);
+        svga::write_byte(&mut vga, 4 * 1024 * 1024 - 1, 0xa5);
+        let retained = vga.snapshot();
+        assert_eq!(retained.vram_byte(4 * 1024 * 1024 - 1), Some(0xa5));
+        let state = vga.dispi_state();
+        let mut bytes = state.to_bytes();
+        assert_eq!(&bytes[12..14], &pitch.to_le_bytes());
+        let decoded = DispiState::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded, state);
+        bytes[12..14].copy_from_slice(&(pitch + 1).to_le_bytes());
+        assert!(DispiState::from_bytes(&bytes).is_none());
+        svga::enable(&mut vga);
+        clock.set(Duration::from_millis(1));
+        vga.restore_state(None, None, Some(decoded));
+        assert_eq!(vga.dispi_state(), state);
+        assert_eq!(svga::get(&mut vga, 6), 1024);
+        assert_eq!(svga::get(&mut vga, 7), u32::from(rows));
+        let mut wait = pin!(vga.wait_for_retrace().unwrap());
+        assert!(wait
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending());
+        assert_eq!(clock.deadline.get(), Some(svga_boundary(1)));
+        assert_eq!(retained.vram_byte(4 * 1024 * 1024 - 1), Some(0xa5));
+    }
+}
