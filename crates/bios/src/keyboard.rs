@@ -7,7 +7,7 @@ mod layout;
 mod physical;
 mod scan;
 pub use encoding::{KeyMode, KeyStroke};
-pub(crate) use irq::interrupt;
+pub(crate) use irq::{process_scan, with_keyboard_inhibited};
 pub use physical::PhysicalKeyboard;
 
 use data::{DataArea, HeldKeys, KeyboardStatus, ShiftFlags};

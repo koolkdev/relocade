@@ -20,6 +20,17 @@ pub const PORTS: [RangeInclusive<u16>; 2] = [
 pub const OUTPUT_BUFFER_FULL: u8 = 1;
 /// Port 64h: firmware has not yet consumed the guest's last port write.
 pub const INPUT_BUFFER_FULL: u8 = 1 << 1;
+/// Controller commands that inhibit or release keyboard transmission.
+pub const DISABLE_INTERFACE: u8 = 0xad;
+pub const ENABLE_INTERFACE: u8 = 0xae;
+
+/// Issues a controller command and waits for its input register to be consumed.
+pub async fn write_controller_command(io: &IoBus, command: u8) {
+    let ready = |status| status & u32::from(INPUT_BUFFER_FULL) == 0;
+    io.wait_port(STATUS_COMMAND_PORT, 1, ready).await;
+    io.write_port(STATUS_COMMAND_PORT, 1, u32::from(command));
+    io.wait_port(STATUS_COMMAND_PORT, 1, ready).await;
+}
 
 /// Consumes one controller output byte when available, through the guest bus.
 pub fn read_scan_code(io: &IoBus) -> Option<u8> {
@@ -49,6 +60,14 @@ struct KeyboardController<C> {
 }
 
 impl<C: Clock> Device for KeyboardController<C> {
+    fn port_changed(&mut self, port: u16) -> futures_util::future::LocalBoxFuture<'static, ()> {
+        if port == STATUS_COMMAND_PORT {
+            Box::pin(self.controller.changed())
+        } else {
+            Box::pin(std::future::pending())
+        }
+    }
+
     async fn run(device: Rc<RefCell<Self>>) {
         let (controller, clock, events) = {
             let mut device = device.borrow_mut();

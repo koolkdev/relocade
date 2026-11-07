@@ -41,6 +41,10 @@
 //! AH=00h/01h/02h, enhanced AH=10h/11h/12h, and AH=05h buffer insertion. DOS console
 //! input uses enhanced reads from that same ring and modifier flags. Guest IRQ1 handlers
 //! may replace or chain the default handler; port reads consume its input bytes.
+//! IRQ1 inhibits the controller through scan processing and PIC EOI, then enables
+//! it before IRET. Controller readiness and acceptance share a 500 ms command
+//! deadline on the PC clock; timeout still permits the latch read and IRQ return.
+//! This is a nominal bound for the AT BIOS's CPU-dependent polling loops.
 //! Ctrl-Break empties the ring, sets bit 7 at 0040:0071, and awaits INT 1Bh.
 //! After that callback returns, the BIOS inserts a zero keystroke and completes
 //! IRQ1. The default callback returns without taking action.

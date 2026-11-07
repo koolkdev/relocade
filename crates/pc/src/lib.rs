@@ -71,7 +71,12 @@ impl<C: Clock> Pc<C> {
             );
         }
         let mut interrupts = Interrupts::new(&mut cpu);
-        relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga.clone());
+        relocade_bios::register_interrupts(
+            &mut interrupts,
+            runner.clock().clone(),
+            keyboard.clone(),
+            vga.clone(),
+        );
         interrupts.install().await?;
         pic.unmask_irq(TIMER_IRQ);
         pic.unmask_irq(KEYBOARD_IRQ);

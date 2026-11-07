@@ -2219,6 +2219,7 @@ name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
  "bitflags 2.13.1",
+ "futures-util",
  "pollster",
  "relocade-at-keyboard",
  "relocade-frontend",

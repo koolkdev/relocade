@@ -112,6 +112,55 @@ fn disabling_irq_retains_pollable_data_and_interface_disable_buffers_keys() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn controller_inhibition_progresses_while_a_reply_waits_for_output_space() {
+    let (mut controller, _) = controller();
+    event(&mut controller, key(KeyCode::KeyA, true));
+    controller.command(0x20); // Read command byte behind the unread scan.
+    controller.command(DISABLE_INTERFACE);
+    assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
+    assert_eq!(controller.read_data(), 0x1e, "the scan remains intact");
+    assert_eq!(
+        controller.read_data(),
+        0x45,
+        "the earlier reply is retained"
+    );
+    controller.command(0x20);
+    assert_eq!(controller.read_data(), 0x55, "inhibition took effect");
+    event(&mut controller, key(KeyCode::KeyA, false));
+    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+    controller.command(ENABLE_INTERFACE);
+    assert_eq!(controller.read_data(), 0x9e);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn controller_reply_progresses_while_waiting_for_a_command_parameter() {
+    let (mut controller, _) = controller();
+    event(&mut controller, key(KeyCode::KeyA, true));
+    controller.command(0x20); // Read command byte.
+    controller.command(0x60); // Await a new command byte without blocking output.
+    assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
+    assert_eq!(controller.read_data(), 0x1e);
+    assert_eq!(controller.read_data(), 0x45);
+    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+    controller.data(0x55);
+    controller.command(0x20);
+    assert_eq!(controller.read_data(), 0x55);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn a_new_controller_reply_replaces_only_the_pending_reply() {
+    let (mut controller, _) = controller();
+    event(&mut controller, key(KeyCode::KeyA, true));
+    controller.command(0x20); // Pending command-byte reply.
+    controller.command(0xaa); // Replace it with the controller self-test result.
+    assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
+    assert_eq!(drain(&mut controller), [0x1e, 0x55]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn raw_scan_sets_controller_translation_and_special_sequences_are_distinct() {
     let (mut controller, _) = controller();
     for (code, expected) in [

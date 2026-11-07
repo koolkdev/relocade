@@ -93,6 +93,64 @@ async fn guest_returns(dos: &mut KeyboardDos) {
 }
 
 #[test]
+fn bios_irq1_completes_with_a_controller_reply_waiting_behind_the_scan() {
+    use std::{future::poll_fn, future::Future, pin::pin, task::Poll};
+
+    with_hardware(async |runner, mut dos| {
+        dos.launch_com(
+            &[
+                0xb0, 0x20, 0xe6, 0x64, // Request command byte while OBF holds a scan.
+                0xfb, 0x90, // STI; NOP: deliver pending IRQ1.
+                0x31, 0xc0, 0xcd, 0x16, // Read the translated key.
+                0xa3, 0, 3, // Save AX.
+                0xb8, 0, 0x4c, 0xcd, 0x21, // Exit.
+            ],
+            Default::default(),
+        )
+        .unwrap();
+        dos.cpu().cpu_state().set_eflags(2);
+        let memory = dos.cpu().memory();
+        let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
+        let io = dos.cpu().context().io.clone();
+        inject_scan(&io, 0x1e).await;
+        let mut execution = pin!(dos.run(runner));
+        for _ in 0..64 {
+            if let Poll::Ready(result) =
+                poll_fn(|cx| Poll::Ready(execution.as_mut().poll(cx))).await
+            {
+                assert_eq!(result, Ok(0));
+                assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 0x1e61);
+                return;
+            }
+            relocade_machine::yield_now().await;
+        }
+        panic!("IRQ1 blocked behind a controller response");
+    });
+}
+
+// An input service can stay pending after IRQ1 finishes. Drive that service
+// through the controller handshake before injecting another controller command.
+async fn pending_read_after_irq(dos: &mut KeyboardDos, io: &IoBus, ip: u32) {
+    let stack = dos.cpu().cpu_state().sp();
+    for _ in 0..64 {
+        common::assert_pending(common::run_until(dos.cpu(), ip));
+        let status = io.read_port(relocade_at_keyboard::STATUS_COMMAND_PORT, 1);
+        if dos.cpu().cpu_state().sp() == stack
+            && status
+                & u32::from(
+                    relocade_at_keyboard::INPUT_BUFFER_FULL
+                        | relocade_at_keyboard::OUTPUT_BUFFER_FULL,
+                )
+                == 0
+        {
+            return;
+        }
+        relocade_machine::yield_now().await;
+    }
+    panic!("IRQ1 did not return to the pending input service");
+}
+
+#[test]
 fn replacing_irq1_owns_scan_consumption_and_guest_eoi_releases_the_next_irq() {
     with_hardware(async |_, mut dos| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();

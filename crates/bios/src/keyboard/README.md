@@ -7,7 +7,14 @@ sends PIC EOI.
 A guest may replace that vector to consume port 60h itself or chain the original
 handler. Like the IBM AT BIOS (KYBD listing, page 5-129), the handler reads port 60h
 without checking OBF: a guest hook may already have read the byte and cleared OBF
-before chaining. Physical input does not enter the BIOS queue by any other route.
+before chaining. The handler inhibits the interface with ADh and awaits command
+acceptance before reading. It sends PIC EOI with IF clear, then releases the
+interface with AEh before IRET. Port-status waits sleep on device notifications.
+Readiness and acceptance share a 500 ms per-command deadline on the PC clock,
+a nominal bound for the AT BIOS's CPU-dependent polling loops. On timeout, BIOS
+still reads the latch, completes EOI, attempts to enable the interface within
+another bounded command, and returns through IRET.
+Physical input does not enter the BIOS queue by any other route.
 
 INT 16h/AH=00h/01h/02h/05h/10h/11h/12h and DOS console reads use the same BIOS data area:
 

@@ -1,4 +1,7 @@
-use relocade_at_keyboard::{connect, read_scan_code, DATA_PORT};
+use relocade_at_keyboard::{
+    connect, read_scan_code, write_controller_command, DATA_PORT, DISABLE_INTERFACE,
+    ENABLE_INTERFACE, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
+};
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
@@ -66,15 +69,17 @@ fn key(code: KeyCode, repeat: bool) -> KeyboardEvent {
 }
 
 async fn next_byte(io: &IoBus) -> u8 {
-    for _ in 0..32 {
-        if io.poll_interrupt(&mut Context::from_waker(Waker::noop())) == Poll::Ready(9) {
-            let byte = read_scan_code(io).expect("IRQ1 must expose an output byte");
-            end_of_interrupt(io);
-            return byte;
-        }
-        relocade_machine::yield_now().await;
-    }
-    panic!("keyboard activity did not publish an IRQ byte");
+    io.wait_port(STATUS_COMMAND_PORT, 1, |status| {
+        status & u32::from(OUTPUT_BUFFER_FULL) != 0
+    })
+    .await;
+    assert_eq!(
+        io.poll_interrupt(&mut Context::from_waker(Waker::noop())),
+        Poll::Ready(9)
+    );
+    let byte = read_scan_code(io).expect("IRQ1 must expose an output byte");
+    end_of_interrupt(io);
+    byte
 }
 
 async fn no_output(io: &IoBus) {
@@ -103,6 +108,12 @@ async fn connected_activity() {
                 .connect(Rc::new(RefCell::new(pic)), [], [PORT_RANGE])
                 .await;
             let io = IoBus::new([pic, keyboard]);
+            write_controller_command(&io, DISABLE_INTERFACE).await;
+            write_controller_command(&io, 0x60).await; // Wait while firmware awaits the option.
+            io.write_port(DATA_PORT, 1, 0x55); // Preserve inhibition and IRQ/translation.
+            write_controller_command(&io, 0x20).await; // Read command byte.
+            assert_eq!(next_byte(&io).await, 0x55, "interface is inhibited");
+            write_controller_command(&io, ENABLE_INTERFACE).await;
             io.write_port(DATA_PORT, 1, 0xf3); // Program typematic delay/rate.
             assert_eq!(next_byte(&io).await, 0xfa);
             io.write_port(DATA_PORT, 1, 0); // 250ms delay, 30Hz.

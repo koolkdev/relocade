@@ -1,3 +1,5 @@
+#[path = "runtime_io/port_waits.rs"]
+mod port_waits;
 mod support;
 
 use relocade_machine::{Cpu, Device, DeviceConnection, DispatchEntry, FarPointer, IoBus, Memory};

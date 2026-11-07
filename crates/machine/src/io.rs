@@ -1,5 +1,6 @@
 //! Device connections local to guest execution and its host services.
 
+use futures_util::future::LocalBoxFuture;
 use std::{
     cell::RefCell,
     future::{ready, Future},
@@ -41,6 +42,14 @@ pub trait Device {
     }
 
     fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {}
+
+    /// Subscribes to changes that may affect a subsequent port read. Register
+    /// the subscription now, before returning the future, so a read followed by
+    /// awaiting it cannot miss a change. Spurious notifications are allowed.
+    /// The default describes a device whose port values never change on their own.
+    fn port_changed(&mut self, _port: u16) -> LocalBoxFuture<'static, ()> {
+        Box::pin(std::future::pending())
+    }
 
     /// Supplies and acknowledges one pending maskable interrupt vector.
     /// Retain requests until polled. Return Pending and register the waker when a
@@ -158,6 +167,23 @@ impl IoBus {
             device
                 .borrow_mut()
                 .write_port(port, bytes, value & (u32::MAX >> ((4 - bytes) * 8)));
+        }
+    }
+
+    /// Reads a status port until the predicate holds, sleeping on device
+    /// notifications between reads. Use this for registers safe to read again;
+    /// each observation is an ordinary bus read, including its side effects.
+    pub async fn wait_port(&self, port: u16, bytes: u8, mut ready: impl FnMut(u32) -> bool) -> u32 {
+        loop {
+            let changed = self.port_device(port).map_or_else(
+                || Box::pin(std::future::pending()) as LocalBoxFuture<'static, ()>,
+                |device| device.borrow_mut().port_changed(port),
+            );
+            let value = self.read_port(port, bytes);
+            if ready(value) {
+                return value;
+            }
+            changed.await;
         }
     }
 

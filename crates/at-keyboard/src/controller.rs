@@ -1,9 +1,13 @@
 //! 8042 registers, command handling and keyboard wire translation.
 
-use crate::{scancodes, DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT};
+use crate::{
+    scancodes, DATA_PORT, DISABLE_INTERFACE, ENABLE_INTERFACE, INPUT_BUFFER_FULL,
+    OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
+};
 use event_listener::Event;
+use futures_util::future::{select, Either};
 use relocade_pic::{IrqLine, Pic, KEYBOARD_IRQ};
-use std::cell::RefCell;
+use std::{cell::RefCell, pin::pin};
 
 const IRQ_ENABLED: u8 = 1;
 const SYSTEM_INITIALIZED: u8 = 1 << 2;
@@ -16,8 +20,6 @@ const READ_COMMAND_BYTE: u8 = 0x20;
 const WRITE_COMMAND_BYTE: u8 = 0x60;
 const SELF_TEST: u8 = 0xaa;
 const INTERFACE_TEST: u8 = 0xab;
-const DISABLE_INTERFACE: u8 = 0xad;
-const ENABLE_INTERFACE: u8 = 0xae;
 const WRITE_OUTPUT_BUFFER: u8 = 0xd2;
 
 #[derive(Clone, Copy)]
@@ -42,6 +44,10 @@ pub(super) struct Controller {
 }
 
 impl Controller {
+    pub fn changed(&self) -> event_listener::EventListener {
+        self.changed.listen()
+    }
+
     pub fn new(pic: &Pic) -> Self {
         Self {
             registers: RefCell::new(Registers {
@@ -118,8 +124,11 @@ impl Controller {
     }
 
     pub async fn run(&self, keyboard: async_channel::Sender<u8>) {
+        // Retain one deferred response separately from the unread output latch.
+        // A later reply-producing command replaces it; the unread latch stays intact.
+        let mut reply = None;
         loop {
-            let mut command = match self.receive().await {
+            let mut command = match self.receive(&mut reply).await {
                 Input::Command(command) => command,
                 Input::Data(value) => {
                     keyboard
@@ -133,10 +142,10 @@ impl Controller {
                 match command {
                     READ_COMMAND_BYTE => {
                         let value = self.registers.borrow().command_byte;
-                        self.send(value, Source::Controller).await;
+                        reply = Some(value);
                     }
                     WRITE_COMMAND_BYTE | WRITE_OUTPUT_BUFFER => {
-                        let value = match self.receive().await {
+                        let value = match self.receive(&mut reply).await {
                             Input::Data(value) => value,
                             Input::Command(replacement) => {
                                 command = replacement;
@@ -150,14 +159,14 @@ impl Controller {
                             }
                             registers.command_byte = value;
                         } else {
-                            self.send(value, Source::Controller).await;
+                            reply = Some(value);
                         }
                     }
                     SELF_TEST => {
                         self.registers.borrow_mut().command_byte |= SYSTEM_INITIALIZED;
-                        self.send(0x55, Source::Controller).await;
+                        reply = Some(0x55);
                     }
-                    INTERFACE_TEST => self.send(0, Source::Controller).await,
+                    INTERFACE_TEST => reply = Some(0),
                     DISABLE_INTERFACE => {
                         self.registers.borrow_mut().command_byte |= INTERFACE_DISABLED
                     }
@@ -179,10 +188,28 @@ impl Controller {
             .set_level(registers.output_full && registers.command_byte & IRQ_ENABLED != 0);
     }
 
-    async fn receive(&self) -> Input {
+    async fn receive(&self, reply: &mut Option<u8>) -> Input {
+        while let Some(byte) = *reply {
+            // Input commands remain live while output is occupied, including
+            // BIOS inhibition and the parameter phase of a controller command.
+            match select(
+                pin!(self.receive_input()),
+                pin!(self.send(byte, Source::Controller)),
+            )
+            .await
+            {
+                Either::Left((input, _)) => return input,
+                Either::Right(((), _)) => *reply = None,
+            }
+        }
+        self.receive_input().await
+    }
+
+    async fn receive_input(&self) -> Input {
         loop {
             let changed = self.changed.listen();
             if let Some(input) = self.registers.borrow_mut().input.take() {
+                self.changed.notify(usize::MAX);
                 return input;
             }
             changed.await;
@@ -218,6 +245,7 @@ impl Controller {
                     registers.output_full = true;
                     drop(registers);
                     self.update_irq();
+                    self.changed.notify(usize::MAX);
                     return;
                 }
             }
