@@ -34,9 +34,7 @@ fn with_hardware(check: impl AsyncFnOnce(&KeyboardRunner, KeyboardDos) + Send + 
 
 async fn wait_status(io: &IoBus, flag: u8, set: bool) {
     for _ in 0..64 {
-        if (io.read_port(relocade_at_keyboard::STATUS_COMMAND_PORT, 1) & u32::from(flag) != 0)
-            == set
-        {
+        if (io.read_port(relocade_ps2::STATUS_COMMAND_PORT, 1) & u32::from(flag) != 0) == set {
             return;
         }
         relocade_machine::yield_now().await;
@@ -45,9 +43,7 @@ async fn wait_status(io: &IoBus, flag: u8, set: bool) {
 }
 
 async fn inject_scan(io: &IoBus, byte: u8) {
-    use relocade_at_keyboard::{
-        DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
-    };
+    use relocade_ps2::{DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT};
     // Observe IBF for both writes, then wait for firmware to publish OBF/IRQ1.
     wait_status(io, INPUT_BUFFER_FULL, false).await;
     io.write_port(STATUS_COMMAND_PORT, 1, 0xd2);

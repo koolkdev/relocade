@@ -1,9 +1,9 @@
-use relocade_at_keyboard::{connect, read_scan_code, DATA_PORT};
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
 use relocade_machine::{worker::wake_connection, Clock, CpuStorage, IoBus, Runner};
 use relocade_pic::{end_of_interrupt, Pic, KEYBOARD_IRQ, PORT_RANGE};
+use relocade_ps2::{connect, read_scan_code, DATA_PORT};
 use std::{
     cell::{Cell, RefCell},
     future::{pending, poll_fn},

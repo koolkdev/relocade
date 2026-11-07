@@ -7,7 +7,7 @@ use relocade_x86::{Segment, SegmentRegister};
 const DIRECTION_FLAG: u32 = 1 << 10;
 
 pub(crate) async fn interrupt(call: &mut CpuContext<'_>, keyboard: &Keyboard) {
-    let Some(byte) = relocade_at_keyboard::read_scan_code(call.io) else {
+    let Some(byte) = relocade_ps2::read_scan_code(call.io) else {
         return;
     };
     if keyboard.scan_code(byte) != Scan::ControlBreak {

@@ -2201,7 +2201,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "relocade-at-keyboard"
+name = "relocade-ps2"
 version = "0.0.0"
 dependencies = [
  "async-channel",
@@ -2220,7 +2220,7 @@ version = "0.0.0"
 dependencies = [
  "bitflags 2.13.1",
  "pollster",
- "relocade-at-keyboard",
+ "relocade-ps2",
  "relocade-frontend",
  "relocade-machine",
  "relocade-pic",
@@ -2281,7 +2281,7 @@ dependencies = [
  "futures-channel",
  "futures-timer",
  "pollster",
- "relocade-at-keyboard",
+ "relocade-ps2",
  "relocade-bios",
  "relocade-frontend",
  "relocade-machine",
@@ -2356,7 +2356,7 @@ version = "0.0.0"
 dependencies = [
  "futures-timer",
  "pollster",
- "relocade-at-keyboard",
+ "relocade-ps2",
  "relocade-bios",
  "relocade-frontend",
  "relocade-machine",
