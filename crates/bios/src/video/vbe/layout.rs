@@ -16,7 +16,7 @@ pub(super) fn active(io: &IoBus) -> Option<SvgaLayout> {
     Mode::active(io)?
         .display
         .layout()
-        .with_pitch(u32::from(read_register(io, dispi::VIRTUAL_WIDTH)))?
+        .with_virtual_width(u32::from(read_register(io, dispi::VIRTUAL_WIDTH)))?
         .with_origin([
             u32::from(read_register(io, dispi::X_OFFSET)),
             u32::from(read_register(io, dispi::Y_OFFSET)),

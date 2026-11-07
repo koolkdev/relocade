@@ -159,7 +159,7 @@ impl Dispi {
                 BANK => self.bank,
                 VIRTUAL_WIDTH => self
                     .display_layout()
-                    .map_or(0, |layout| layout.pitch() as u16),
+                    .map_or(0, |layout| layout.virtual_width() as u16),
                 VIRTUAL_HEIGHT => self
                     .display_layout()
                     .map_or(0, |layout| layout.virtual_height() as u16),
@@ -214,7 +214,7 @@ impl Dispi {
                     let layout = active.layout;
                     let value = u32::from(value);
                     let next = match self.index {
-                        VIRTUAL_WIDTH => layout.with_pitch(value),
+                        VIRTUAL_WIDTH => layout.with_virtual_width(value),
                         X_OFFSET => layout.with_origin([value, layout.origin()[1]]),
                         Y_OFFSET => layout.with_origin([layout.origin()[0], value]),
                         _ => unreachable!(),

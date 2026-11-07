@@ -1,7 +1,7 @@
 mod common;
 use common::{crtc, dots, support::svga, svga_boundary, ManualClock};
 use relocade_machine::Device;
-use relocade_vga::{DacState, DispiState, RetraceEvent, Scanout, SvgaMode, Vga, VgaCoreState};
+use relocade_vga::{DacState, DispiState, PixelFormat, RetraceEvent, Scanout, Vga, VgaCoreState};
 use std::{
     future::Future,
     pin::pin,
@@ -140,9 +140,8 @@ fn dispi_restore_recovers_exact_flags_layout_bank_and_disabled_staging() {
     vga.restore_state(None, None, Some(staged.clone()));
     assert_eq!(vga.dispi_state(), staged);
     assert!(matches!(vga.snapshot().scanout(), Scanout::Vga(_)));
-    assert!(
-        matches!(retained.scanout(), Scanout::Svga(layout) if layout.mode() == SvgaMode::Indexed800x600)
-    );
+    assert!(matches!(retained.scanout(), Scanout::Svga(layout)
+        if layout.size() == [800, 600] && layout.format() == PixelFormat::Indexed8));
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -171,9 +170,8 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
         Poll::Ready(RetraceEvent::Reprogrammed)
     );
     let old = frames.current_capture().unwrap();
-    assert!(
-        matches!(old.display.scanout(), Scanout::Svga(layout) if layout.mode() == SvgaMode::Indexed640x480)
-    );
+    assert!(matches!(old.display.scanout(), Scanout::Svga(layout)
+        if layout.size() == [640, 480] && layout.format() == PixelFormat::Indexed8));
     let mut next = pin!(vga.wait_for_retrace().unwrap());
     assert!(next.as_mut().poll(&mut cx).is_pending());
     assert_eq!(

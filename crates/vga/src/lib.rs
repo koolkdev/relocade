@@ -42,7 +42,7 @@ use snapshot::MemoryChanges;
 pub use snapshot::{DacSnapshot, DisplaySnapshot};
 pub use state::{DacState, DispiState, VgaCoreState};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
-pub use svga::{SvgaLayout, SvgaMode};
+pub use svga::{PixelFormat, SvgaLayout, SvgaMode, SvgaResolution};
 use timing::Timing;
 
 /// The color text aperture selected by the BIOS text preset.

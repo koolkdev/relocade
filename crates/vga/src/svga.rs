@@ -2,51 +2,106 @@
 //! DISPI, BIOS services and scanout consume these device values.
 use crate::{DisplayGeometry, VIDEO_MEMORY_BYTES};
 
-/// Supported device modes. VESA BIOS numbers belong to firmware.
+/// Pixel interpretation in packed VRAM, independent of resolution and CPU banking.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SvgaMode {
-    Indexed640x480,
-    Indexed800x600,
-    Indexed1024x768,
+pub enum PixelFormat {
+    Indexed8,
+    /// Little-endian red 5, green 6, blue 5 bits.
+    Rgb565,
+    /// Blue, green, red, unused bytes; display output is always opaque.
+    Bgrx8888,
+}
+
+impl PixelFormat {
+    pub const fn bits_per_pixel(self) -> u8 {
+        match self {
+            Self::Indexed8 => 8,
+            Self::Rgb565 => 16,
+            Self::Bgrx8888 => 32,
+        }
+    }
+
+    pub const fn bytes_per_pixel(self) -> u32 {
+        self.bits_per_pixel() as u32 / 8
+    }
+}
+
+/// Supported device resolutions, each with a fixed DMT raster.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SvgaResolution {
+    R640x480,
+    R800x600,
+    R1024x768,
+}
+
+impl SvgaResolution {
+    pub const fn size(self) -> [u32; 2] {
+        match self {
+            Self::R640x480 => [640, 480],
+            Self::R800x600 => [800, 600],
+            Self::R1024x768 => [1024, 768],
+        }
+    }
+}
+
+/// A device resolution and pixel format. VESA BIOS numbers belong to firmware.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SvgaMode {
+    resolution: SvgaResolution,
+    format: PixelFormat,
 }
 
 impl SvgaMode {
+    pub const fn new(resolution: SvgaResolution, format: PixelFormat) -> Self {
+        Self { resolution, format }
+    }
+
     pub fn from_registers(width: u16, height: u16, bits_per_pixel: u16) -> Option<Self> {
-        match (width, height, bits_per_pixel) {
-            (640, 480, 8) => Some(Self::Indexed640x480),
-            (800, 600, 8) => Some(Self::Indexed800x600),
-            (1024, 768, 8) => Some(Self::Indexed1024x768),
-            _ => None,
-        }
+        let resolution = match (width, height) {
+            (640, 480) => SvgaResolution::R640x480,
+            (800, 600) => SvgaResolution::R800x600,
+            (1024, 768) => SvgaResolution::R1024x768,
+            _ => return None,
+        };
+        let format = match bits_per_pixel {
+            8 => PixelFormat::Indexed8,
+            _ => return None,
+        };
+        Some(Self::new(resolution, format))
+    }
+
+    pub fn resolution(self) -> SvgaResolution {
+        self.resolution
+    }
+
+    pub fn format(self) -> PixelFormat {
+        self.format
     }
 
     pub fn size(self) -> [u32; 2] {
-        match self {
-            Self::Indexed640x480 => [640, 480],
-            Self::Indexed800x600 => [800, 600],
-            Self::Indexed1024x768 => [1024, 768],
-        }
+        self.resolution.size()
     }
 
     pub fn bits_per_pixel(self) -> u8 {
-        8
+        self.format.bits_per_pixel()
     }
 
-    /// Largest byte stride that still accommodates the visible height.
+    /// Largest whole-pixel byte stride that accommodates the visible height.
     pub fn max_pitch(self) -> u32 {
-        crate::VIDEO_MEMORY_BYTES / self.size()[1]
+        let pixel_bytes = self.format.bytes_per_pixel();
+        VIDEO_MEMORY_BYTES / self.size()[1] / pixel_bytes * pixel_bytes
     }
 
     pub fn layout(self) -> SvgaLayout {
         SvgaLayout {
             mode: self,
-            pitch: self.size()[0],
+            pitch: self.size()[0] * self.format.bytes_per_pixel(),
             origin: [0, 0],
         }
     }
 }
 
-/// A supported packed indexed layout. Its private fields keep
+/// A packed pixel layout. Its private fields keep
 /// the visible image within captured VRAM and the renderer's supported sizes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SvgaLayout {
@@ -64,6 +119,10 @@ impl SvgaLayout {
         self.mode.size()
     }
 
+    pub fn format(self) -> PixelFormat {
+        self.mode.format()
+    }
+
     /// Bytes between successive image rows.
     pub fn pitch(self) -> u32 {
         self.pitch
@@ -71,7 +130,7 @@ impl SvgaLayout {
 
     /// Physical VRAM byte containing the top-left pixel, independent of the CPU bank.
     pub fn display_start(self) -> u32 {
-        self.origin[1] * self.pitch + self.origin[0]
+        self.origin[1] * self.pitch + self.origin[0] * self.format().bytes_per_pixel()
     }
 
     /// Top-left viewport coordinates [x, y], in pixels.
@@ -83,6 +142,11 @@ impl SvgaLayout {
         VIDEO_MEMORY_BYTES / self.pitch
     }
 
+    /// Pixels in a complete logical row, including horizontal padding.
+    pub fn virtual_width(self) -> u32 {
+        self.pitch / self.format().bytes_per_pixel()
+    }
+
     /// Complete display pages, including the first page, independent of origin.
     pub fn image_pages(self) -> u32 {
         self.virtual_height() / self.size()[1]
@@ -91,15 +155,23 @@ impl SvgaLayout {
     /// Changes the byte stride while retaining the visible pixel coordinates.
     /// The full logical rows and the current viewport must still fit in VRAM.
     pub fn with_pitch(self, pitch: u32) -> Option<Self> {
-        if !(self.size()[0]..=self.mode.max_pitch()).contains(&pitch) {
+        let pixel_bytes = self.format().bytes_per_pixel();
+        if !pitch.is_multiple_of(pixel_bytes)
+            || !(self.size()[0] * pixel_bytes..=self.mode.max_pitch()).contains(&pitch)
+        {
             return None;
         }
         Self { pitch, ..self }.with_origin(self.origin)
     }
 
+    /// Changes the logical row width in pixels, retaining the viewport origin.
+    pub fn with_virtual_width(self, pixels: u32) -> Option<Self> {
+        self.with_pitch(pixels.checked_mul(self.format().bytes_per_pixel())?)
+    }
+
     /// Places the viewport within complete logical rows, without memory wrapping.
     pub fn with_origin(self, origin: [u32; 2]) -> Option<Self> {
-        (origin[0] <= self.pitch - self.size()[0]
+        (origin[0] <= self.virtual_width() - self.size()[0]
             && origin[1] <= self.virtual_height() - self.size()[1])
             .then_some(Self { origin, ..self })
     }
@@ -112,6 +184,8 @@ impl SvgaLayout {
     }
 
     pub(crate) fn memory_bytes(self) -> u32 {
-        self.display_start() + (self.size()[1] - 1) * self.pitch + self.size()[0]
+        self.display_start()
+            + (self.size()[1] - 1) * self.pitch
+            + self.size()[0] * self.format().bytes_per_pixel()
     }
 }

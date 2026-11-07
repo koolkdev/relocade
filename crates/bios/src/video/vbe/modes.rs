@@ -7,7 +7,7 @@ use crate::video::{
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 use relocade_vga::{
     registers::{dispi, MISC_OUTPUT_READ_PORT, MISC_OUTPUT_WRITE_PORT},
-    SvgaMode, VIDEO_MEMORY_BYTES,
+    PixelFormat, SvgaMode, SvgaResolution, VIDEO_MEMORY_BYTES,
 };
 
 // Outside the supported legacy modes: their output/font paths reject this marker.
@@ -24,15 +24,15 @@ impl Mode {
     pub(super) const ALL: [Self; 3] = [
         Self {
             number: 0x101,
-            display: SvgaMode::Indexed640x480,
+            display: SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Indexed8),
         },
         Self {
             number: 0x103,
-            display: SvgaMode::Indexed800x600,
+            display: SvgaMode::new(SvgaResolution::R800x600, PixelFormat::Indexed8),
         },
         Self {
             number: 0x105,
-            display: SvgaMode::Indexed1024x768,
+            display: SvgaMode::new(SvgaResolution::R1024x768, PixelFormat::Indexed8),
         },
     ];
 
