@@ -16,7 +16,7 @@ pub struct CursorState {
 /// Queries a text or graphics page's cursor. Invalid pages return None.
 #[interrupt(context(memory), args(page = bh), returns {
     Some(cursor) => { cx = cursor.shape, dh = cursor.row, dl = cursor.column },
-    None => crate::interrupt::unsupported,
+    None => crate::interrupts::unsupported,
 })]
 pub fn cursor(memory: &MemoryView<'_>, page: u8) -> Option<CursorState> {
     if !screen::valid_page(memory, page) {
@@ -34,7 +34,7 @@ pub fn cursor(memory: &MemoryView<'_>, page: u8) -> Option<CursorState> {
 /// Coordinates remain guest values, even outside the visible grid.
 #[interrupt(
     context(memory, io), args(page = bh, row = dh, column = dl),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub fn set_cursor(
     memory: &mut MemoryView<'_>,
@@ -54,7 +54,7 @@ pub fn set_cursor(
 /// Graphics modes return None without changing the stored shape.
 #[interrupt(
     context(memory, io), args(shape = cx),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub fn set_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u16) -> Option<()> {
     if !screen::is_text_mode(memory) {
@@ -67,7 +67,7 @@ pub fn set_cursor_shape(memory: &mut MemoryView<'_>, io: &IoBus, shape: u16) -> 
 /// Selects a valid text or graphics page, preserving each page's stored cursor.
 #[interrupt(
     context(memory, io), args(page = al),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub fn select_page(memory: &mut MemoryView<'_>, io: &IoBus, page: u8) -> Option<()> {
     if !screen::valid_page(memory, page) {

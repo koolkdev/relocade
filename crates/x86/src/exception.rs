@@ -40,6 +40,8 @@ pub enum Exception {
 #[repr(u8)]
 pub enum ExceptionVector {
     DivideError = 0,
+    Breakpoint = 3,
+    Overflow = 4,
     BoundRangeExceeded = 5,
     InvalidOpcode = 6,
     SegmentNotPresent = 11,

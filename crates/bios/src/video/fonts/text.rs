@@ -23,7 +23,7 @@ enum FontSource {
 /// Loads glyphs without changing the current text geometry.
 #[interrupt(context(memory, io),
     args(bank = bl, font = GuestFont { source: ptr(es, bp), height: bh, first: dx, count: cx }),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn load_font(
     memory: &mut MemoryView<'_>,
@@ -37,7 +37,7 @@ pub(in crate::video) fn load_font(
 /// Loads glyphs and adjusts text geometry to the supplied character height.
 #[interrupt(context(memory, io),
     args(bank = bl, font = GuestFont { source: ptr(es, bp), height: bh, first: dx, count: cx }),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn set_font(
     memory: &mut MemoryView<'_>,
@@ -48,43 +48,43 @@ pub(in crate::video) fn set_font(
     load(memory, io, bank, FontSource::Guest(font), true)
 }
 
-#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupt::unsupported })]
+#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupts::unsupported })]
 pub(in crate::video) fn load_8x14(memory: &mut MemoryView<'_>, io: &IoBus, bank: u8) -> Option<()> {
     let font = FontSource::Builtin(rom::for_height(14));
     load(memory, io, bank, font, false)
 }
 
-#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupt::unsupported })]
+#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupts::unsupported })]
 pub(in crate::video) fn load_8x8(memory: &mut MemoryView<'_>, io: &IoBus, bank: u8) -> Option<()> {
     let font = FontSource::Builtin(rom::for_height(8));
     load(memory, io, bank, font, false)
 }
 
-#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupt::unsupported })]
+#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupts::unsupported })]
 pub(in crate::video) fn load_8x16(memory: &mut MemoryView<'_>, io: &IoBus, bank: u8) -> Option<()> {
     let font = FontSource::Builtin(rom::for_height(16));
     load(memory, io, bank, font, false)
 }
 
-#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupt::unsupported })]
+#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupts::unsupported })]
 pub(in crate::video) fn set_8x14(memory: &mut MemoryView<'_>, io: &IoBus, bank: u8) -> Option<()> {
     let font = FontSource::Builtin(rom::for_height(14));
     load(memory, io, bank, font, true)
 }
 
-#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupt::unsupported })]
+#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupts::unsupported })]
 pub(in crate::video) fn set_8x8(memory: &mut MemoryView<'_>, io: &IoBus, bank: u8) -> Option<()> {
     let font = FontSource::Builtin(rom::for_height(8));
     load(memory, io, bank, font, true)
 }
 
-#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupt::unsupported })]
+#[interrupt(context(memory, io), args(bank = bl), returns { Some(()) => {}, None => crate::interrupts::unsupported })]
 pub(in crate::video) fn set_8x16(memory: &mut MemoryView<'_>, io: &IoBus, bank: u8) -> Option<()> {
     let font = FontSource::Builtin(rom::for_height(16));
     load(memory, io, bank, font, true)
 }
 
-#[interrupt(context(memory, io), args(maps = bl), returns { Some(()) => {}, None => crate::interrupt::unsupported })]
+#[interrupt(context(memory, io), args(maps = bl), returns { Some(()) => {}, None => crate::interrupts::unsupported })]
 pub(in crate::video) fn select_maps(memory: &MemoryView<'_>, io: &IoBus, maps: u8) -> Option<()> {
     if !screen::is_text_mode(memory) {
         return None;

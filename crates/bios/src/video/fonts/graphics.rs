@@ -20,7 +20,7 @@ pub(in crate::video) fn set_high_font(memory: &mut MemoryView<'_>, source: FarPo
 
 #[interrupt(context(memory),
     args(source = ptr(es, bp), height = cx, rows = Rows { selection: bl, custom: dl }),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn set_font(
     memory: &mut MemoryView<'_>,
@@ -32,21 +32,21 @@ pub(in crate::video) fn set_font(
 }
 
 #[interrupt(context(memory), args(rows = Rows { selection: bl, custom: dl }),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn set_8x14(memory: &mut MemoryView<'_>, rows: Rows) -> Option<()> {
     select(memory, rom::for_height(14).pointer(), 14, rows)
 }
 
 #[interrupt(context(memory), args(rows = Rows { selection: bl, custom: dl }),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn set_8x8(memory: &mut MemoryView<'_>, rows: Rows) -> Option<()> {
     select(memory, rom::for_height(8).pointer(), 8, rows)
 }
 
 #[interrupt(context(memory), args(rows = Rows { selection: bl, custom: dl }),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported },
+    returns { Some(()) => {}, None => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn set_8x16(memory: &mut MemoryView<'_>, rows: Rows) -> Option<()> {
     select(memory, rom::for_height(16).pointer(), 16, rows)

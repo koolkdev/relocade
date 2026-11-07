@@ -44,7 +44,7 @@ pub(crate) async fn dispatch<C: Clock + 'static>(
             0x1b => information::write_report,
             0x1c => state_services,
             0x4f => vbe::dispatch(vga),
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }
@@ -58,7 +58,7 @@ async fn string_output(call: &mut CpuContext<'_>, function: u8) {
             0x01 => strings::write_text_and_move_cursor,
             0x02 => strings::write_cells,
             0x03 => strings::write_cells_and_move_cursor,
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }
@@ -97,7 +97,7 @@ async fn palette_services(call: &mut CpuContext<'_>, function: u8) {
             0x19 => palette::dac::mask,
             0x1a => palette::paging::paging,
             0x1b => palette::dac::grayscale_range,
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }
@@ -109,7 +109,7 @@ async fn palette_paging(call: &mut CpuContext<'_>, function: u8) {
         match function {
             0x00 => palette::paging::set_mode,
             0x01 => palette::paging::select_page,
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }
@@ -134,7 +134,7 @@ async fn font_services(call: &mut CpuContext<'_>, function: u8) {
             0x23 => fonts::graphics::set_8x8,
             0x24 => fonts::graphics::set_8x16,
             0x30 => fonts::information,
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }
@@ -158,7 +158,7 @@ async fn display_combination(call: &mut CpuContext<'_>, function: u8) {
         match function {
             0x00 => adapter::display_codes,
             0x01 => adapter::set_display_codes,
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }
@@ -175,7 +175,7 @@ async fn configuration(call: &mut CpuContext<'_>, function: u8) {
             0x33 => palette::load::set_grayscale_summing,
             0x34 => screen::set_cursor_emulation,
             0x36 => control::set_screen_output,
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }

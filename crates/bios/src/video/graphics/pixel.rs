@@ -12,7 +12,7 @@ struct Pixel {
 /// Reads a graphics pixel without changing guest VGA access settings.
 #[interrupt(context(memory, io), args(page = bh, x = cx, y = dx), returns {
     Some(color) => { al = color },
-    None => crate::interrupt::unsupported,
+    None => crate::interrupts::unsupported,
 })]
 pub fn read_pixel(memory: &MemoryView<'_>, io: &IoBus, page: u8, x: u16, y: u16) -> Option<u8> {
     Some(Pixel::locate(memory, page, x, y)?.read(memory, io))
@@ -20,7 +20,7 @@ pub fn read_pixel(memory: &MemoryView<'_>, io: &IoBus, page: u8, x: u16, y: u16)
 
 /// Writes a graphics pixel, including the mode's existing XOR/color rules.
 #[interrupt(context(memory, io), args(page = bh, x = cx, y = dx, color = al),
-    returns { Some(()) => {}, None => crate::interrupt::unsupported }
+    returns { Some(()) => {}, None => crate::interrupts::unsupported }
 )]
 pub fn write_pixel(
     memory: &mut MemoryView<'_>,

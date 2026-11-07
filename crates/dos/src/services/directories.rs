@@ -14,7 +14,7 @@ pub(super) fn get_drive(services: &Services<'_>) -> u8 {
 
 #[interrupt(context(memory), args(path = ptr(ds, dx)), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn create_directory(
     memory: &MemoryView<'_>,
@@ -27,7 +27,7 @@ pub(super) fn create_directory(
 
 #[interrupt(context(memory), args(path = ptr(ds, dx)), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn remove_directory(
     memory: &MemoryView<'_>,
@@ -40,7 +40,7 @@ pub(super) fn remove_directory(
 
 #[interrupt(context(memory), args(path = ptr(ds, dx)), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn change_directory(
     memory: &MemoryView<'_>,
@@ -54,7 +54,7 @@ pub(super) fn change_directory(
 /// AH=47h writes a directory without a drive prefix or leading slash.
 #[interrupt(context(memory), args(drive = dl, destination = ptr(ds, si)), returns {
     Ok(()) => { ax = 0x0100u16, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn get_directory(
     memory: &mut MemoryView<'_>,

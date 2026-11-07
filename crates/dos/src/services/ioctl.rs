@@ -23,7 +23,7 @@ pub(super) async fn dispatch(call: &mut CpuContext<'_>, services: &Services<'_>,
 
 #[interrupt(args(handle = bx), returns {
     Ok(info) => { dx = info, ax = info, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 fn device_information(services: &Services<'_>, handle: u16) -> Result<u16, DosError> {
     services.process.files().device_information(handle)
@@ -31,7 +31,7 @@ fn device_information(services: &Services<'_>, handle: u16) -> Result<u16, DosEr
 
 #[interrupt(args(handle = bx, info = dx), returns {
     Ok(previous) => { al = previous, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 fn set_device_information(services: &Services<'_>, handle: u16, info: u16) -> Result<u8, DosError> {
     services
@@ -42,7 +42,7 @@ fn set_device_information(services: &Services<'_>, handle: u16, info: u16) -> Re
 
 #[interrupt(args(handle = bx), returns {
     Ok(status) => { al = status, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 async fn input_status(services: &Services<'_>, handle: u16) -> Result<u8, DosError> {
     let handle = services.process.files().handle(handle)?.clone();
@@ -55,7 +55,7 @@ async fn input_status(services: &Services<'_>, handle: u16) -> Result<u8, DosErr
 
 #[interrupt(args(handle = bx), returns {
     Ok(status) => { al = status, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 async fn output_status(services: &Services<'_>, handle: u16) -> Result<u8, DosError> {
     let handle = services.process.files().handle(handle)?.clone();
@@ -66,7 +66,7 @@ async fn output_status(services: &Services<'_>, handle: u16) -> Result<u8, DosEr
     })
 }
 
-#[interrupt(returns { error => crate::interrupt::return_error(error) })]
+#[interrupt(returns { error => crate::interrupts::return_error(error) })]
 fn unsupported() -> DosError {
     DosError::InvalidFunction
 }

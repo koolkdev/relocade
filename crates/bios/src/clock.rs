@@ -9,7 +9,6 @@ use relocade_x86::{Segment, SegmentRegister};
 const CLOCK_TICKS: u32 = 0x46c;
 const MIDNIGHT_ROLLOVER: u32 = 0x470;
 const TICKS_PER_DAY: u32 = 0x18_00b0;
-const TIMER_CALLBACK: u8 = 0x1c;
 const BIOS_DATA_SEGMENT: u16 = 0x40;
 
 pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
@@ -26,7 +25,7 @@ pub(crate) async fn timer(call: &mut CpuContext<'_>) {
                 SegmentRegister::real_mode(Segment::Ds, BIOS_DATA_SEGMENT),
             );
             tick(&mut call.memory);
-            call.call_interrupt(TIMER_CALLBACK).await;
+            call.call_interrupt(crate::interrupts::TIMER_TICK).await;
         })
         .await;
 }
@@ -81,7 +80,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
         call,
         match function {
             0x00 => read_clock,
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }

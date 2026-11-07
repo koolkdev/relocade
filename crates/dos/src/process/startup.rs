@@ -43,7 +43,7 @@ pub(crate) fn allocate(
         .expect("process environment");
     let mut psp = [0; PSP_BYTES];
     // PSP:0000 contains INT 20h, the process termination instruction.
-    psp[..2].copy_from_slice(&[0xcd, 0x20]);
+    psp[..2].copy_from_slice(&[0xcd, crate::interrupts::TERMINATE]);
     // PSP:0002 stores the first paragraph beyond the process allocation.
     psp[2..4].copy_from_slice(&(segment + paragraphs).to_le_bytes());
     super::vectors::save(memory, &mut psp);

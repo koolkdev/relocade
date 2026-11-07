@@ -10,7 +10,7 @@ pub(in crate::video) struct Paging {
 }
 
 #[interrupt(context(memory, io), args(mode = bh),
-    returns { true => {}, false => crate::interrupt::unsupported },
+    returns { true => {}, false => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn set_mode(memory: &MemoryView<'_>, io: &IoBus, mode: u8) -> bool {
     if mode > 1 || memory.read_u8(MODE).expect("video mode") == modes::GRAPHICS_320X200_256 {
@@ -26,7 +26,7 @@ pub(in crate::video) fn set_mode(memory: &MemoryView<'_>, io: &IoBus, mode: u8) 
 }
 
 #[interrupt(context(memory, io), args(page = bh),
-    returns { true => {}, false => crate::interrupt::unsupported },
+    returns { true => {}, false => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn select_page(memory: &MemoryView<'_>, io: &IoBus, page: u8) -> bool {
     if memory.read_u8(MODE).expect("video mode") == modes::GRAPHICS_320X200_256 {

@@ -61,7 +61,7 @@ pub fn mode(memory: &MemoryView<'_>) -> ModeInfo {
 
 /// Returns the mode-set AL result, or leaves the device untouched if unsupported.
 #[relocade_machine::real_mode_interrupt::interrupt(context(memory, io), args(request = al),
-    returns { Some(value) => { al = value }, None => crate::interrupt::unsupported }
+    returns { Some(value) => { al = value }, None => crate::interrupts::unsupported }
 )]
 pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
     let mode = request & 0x7f;
@@ -140,7 +140,7 @@ pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<
 /// AH=12h/BL=30h selects a profile for a later mode set; it does not touch VGA.
 /// Returns whether the profile is supported.
 #[relocade_machine::real_mode_interrupt::interrupt(context(memory), args(selection = al),
-    returns { true => { al = 0x12 }, false => crate::interrupt::unsupported }
+    returns { true => { al = 0x12 }, false => crate::interrupts::unsupported }
 )]
 pub(super) fn select_scanlines(memory: &mut MemoryView<'_>, selection: u8) -> bool {
     let (control_bits, switches) = match selection {

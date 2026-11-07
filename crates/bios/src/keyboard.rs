@@ -227,7 +227,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, keyboard: &Keyboard, fun
             0x10 => keyboard.read_key(KeyMode::Enhanced),
             0x11 => keyboard.peek_key(KeyMode::Enhanced),
             0x12 => keyboard.enhanced_shift_state,
-            _ => crate::interrupt::unsupported,
+            _ => crate::interrupts::unsupported,
         }
     );
 }

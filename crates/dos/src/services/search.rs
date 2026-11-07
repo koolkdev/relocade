@@ -14,7 +14,7 @@ pub(super) fn get_dta(services: &Services<'_>) -> FarPointer {
 
 #[interrupt(context(memory), args(pattern = ptr(ds, dx), attributes = cx), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn find_first(
     memory: &mut MemoryView<'_>,
@@ -34,7 +34,7 @@ pub(super) fn find_first(
 
 #[interrupt(context(memory), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(super) fn find_next(
     memory: &mut MemoryView<'_>,

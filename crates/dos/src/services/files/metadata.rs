@@ -25,7 +25,7 @@ pub(in crate::services) async fn attributes(
 
 #[interrupt(context(memory), args(path = ptr(ds, dx)), returns {
     Ok(attributes) => { cx = attributes, cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 fn get_attributes(
     memory: &MemoryView<'_>,
@@ -38,7 +38,7 @@ fn get_attributes(
 
 #[interrupt(context(memory), args(path = ptr(ds, dx), attributes = cx), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 fn set_attributes(
     memory: &MemoryView<'_>,
@@ -50,14 +50,14 @@ fn set_attributes(
     services.dos.filesystem().set_attributes(&path, attributes)
 }
 
-#[interrupt(returns { error => crate::interrupt::return_error(error) })]
+#[interrupt(returns { error => crate::interrupts::return_error(error) })]
 fn unsupported() -> DosError {
     DosError::InvalidFunction
 }
 
 #[interrupt(context(memory), args(path = ptr(ds, dx)), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(in crate::services) fn delete(
     memory: &MemoryView<'_>,
@@ -73,7 +73,7 @@ pub(in crate::services) fn delete(
 
 #[interrupt(context(memory), args(source = ptr(ds, dx), destination = ptr(es, di)), returns {
     Ok(()) => { cf = false },
-    Err(error) => crate::interrupt::return_error(error),
+    Err(error) => crate::interrupts::return_error(error),
 })]
 pub(in crate::services) fn rename(
     memory: &MemoryView<'_>,

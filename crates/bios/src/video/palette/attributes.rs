@@ -7,7 +7,7 @@ use relocade_machine::{
 use relocade_vga::registers::{attribute, ATTRIBUTE_ADDRESS_PORT, ATTRIBUTE_DATA_READ_PORT};
 
 #[interrupt(context(memory, io), args(index = bl, value = bh),
-    returns { true => {}, false => crate::interrupt::unsupported },
+    returns { true => {}, false => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn set_register(
     memory: &mut MemoryView<'_>,
@@ -23,7 +23,7 @@ pub(in crate::video) fn set_register(
 }
 
 #[interrupt(context(io), args(index = bl), returns {
-    Some(value) => { bh = value }, None => crate::interrupt::unsupported,
+    Some(value) => { bh = value }, None => crate::interrupts::unsupported,
 })]
 pub(in crate::video) fn register(io: &IoBus, index: u8) -> Option<u8> {
     (index <= attribute::COLOR_SELECT).then(|| read_attribute(io, index))
@@ -112,7 +112,7 @@ pub(in crate::video) fn write_attribute(
 }
 
 #[interrupt(context(io), args(selection = bl),
-    returns { true => {}, false => crate::interrupt::unsupported },
+    returns { true => {}, false => crate::interrupts::unsupported },
 )]
 pub(in crate::video) fn set_blink(io: &IoBus, selection: u8) -> bool {
     if selection > 1 {
