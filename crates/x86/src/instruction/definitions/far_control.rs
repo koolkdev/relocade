@@ -14,7 +14,7 @@ use crate::{
     execution::CodeTarget,
     flags::{image, Flag},
     register::RegisterType,
-    ExecutionProfile, Segment,
+    ExecutionProfile,
 };
 
 instruction_families! {
@@ -114,7 +114,7 @@ where
 {
     let offset = offset.read(execution)?;
     let selector = selector.read(execution)?;
-    call_far(execution, offset, selector, fallthrough)
+    execution.call_far(offset, selector, fallthrough, 0)
 }
 
 fn call_far_indirect<T: RegisterType>(
@@ -127,35 +127,7 @@ where
     I32: AtLeast<T>,
 {
     let (offset, selector) = execution.read_far_pointer::<T>(source)?;
-    call_far(execution, offset, selector, fallthrough)
-}
-
-fn call_far<T: RegisterType>(
-    execution: &mut ExecutionBuilder<'_, '_>,
-    offset: Val<T>,
-    selector: Val<I16>,
-    fallthrough: Val<I32>,
-) -> Result<Val<I32>, BuildError>
-where
-    I32: AtLeast<T>,
-{
-    let target = CodeTarget::resolve(execution, offset, &selector)?;
-    // Real-mode CALL checks the transferred offset and selector. A dword
-    // selector slot still reserves four bytes, but its high word is untouched.
-    let checked_bytes = match execution.profile() {
-        ExecutionProfile::Real16 => T::BYTES + 2,
-        ExecutionProfile::Protected(_) => 2 * T::BYTES,
-    };
-    let frame = execution.push_frame(2 * T::BYTES, checked_bytes)?;
-    target.check_limit(execution)?;
-    // Prove both fields in push order before writing either of them.
-    let selector_slot = frame.field::<I16>(execution, T::BYTES)?;
-    let offset_slot = frame.field::<T>(execution, 0)?;
-    let old_cs = execution.read_segment_selector(Segment::Cs)?;
-    selector_slot.write(execution, &old_cs)?;
-    offset_slot.write(execution, &fallthrough.truncate::<T>())?;
-    frame.commit(execution, 0)?;
-    target.commit(execution)
+    execution.call_far(offset, selector, fallthrough, 0)
 }
 
 fn return_far<T: RegisterType>(

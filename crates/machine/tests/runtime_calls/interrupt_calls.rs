@@ -14,7 +14,7 @@ const SERVICE: FarPointer = FarPointer {
     offset: 0x200,
 };
 
-async fn nested_calls() {
+async fn nested_calls(far: bool) {
     for abandon in [false, true] {
         let irq = Rc::new(RefCell::new(Irq::default()));
         let mut runner = cpu(&irq, 0x300).await;
@@ -26,12 +26,20 @@ async fn nested_calls() {
             .write(
                 0x400,
                 &[
-                    0x8b, 0x0e, 0,
+                    0x9c,
+                    0x5f, // PUSHF; POP DI records entry flags.
+                    0x8b,
+                    0x0e,
+                    0,
                     5, // Record the IRQ count before entering the inner service.
-                    0xcd, 0x22, 0x40, 0xcf, // INT 22h; INC AX; IRET.
+                    0xcd,
+                    0x22,
+                    0x40,
+                    if far { 0xcb } else { 0xcf }, // INT 22h; INC AX; return.
                 ],
             )
             .unwrap();
+        memory.view().write(0x700, &[0x43, 0xcb]).unwrap(); // INC BX; RETF.
         let input = Rc::new(Input::default());
         let finished = Rc::new(RefCell::new(Vec::new()));
         let dropped = Rc::new(Cell::new(0));
@@ -42,7 +50,18 @@ async fn nested_calls() {
                 let _operation = Operation(dropped.clone());
                 call.cpu.set_interrupts_enabled(true);
                 irq.borrow_mut().raise();
-                call.call_interrupt(0x61).await;
+                if far {
+                    call.call_far(
+                        FarPointer {
+                            segment: 0x10,
+                            offset: 0x300,
+                        },
+                        &[0x1122, 0x3344],
+                    )
+                    .await;
+                } else {
+                    call.call_interrupt(0x61).await;
+                }
                 finished.borrow_mut().push("outer");
             }
         });
@@ -52,7 +71,18 @@ async fn nested_calls() {
                 let _operation = Operation(dropped.clone());
                 call.cpu.set_interrupts_enabled(true);
                 input.read().await;
-                call.call_interrupt(0x62).await;
+                if far {
+                    call.call_far(
+                        FarPointer {
+                            segment: 0,
+                            offset: 0x700,
+                        },
+                        &[0xaabb, 0xccdd, 0xeeff],
+                    )
+                    .await;
+                } else {
+                    call.call_interrupt(0x62).await;
+                }
                 finished.borrow_mut().push("inner");
                 call.cpu.set_interrupts_enabled(false);
             }
@@ -73,6 +103,7 @@ async fn nested_calls() {
         pending(runner.run());
         assert_eq!(irq.borrow().acknowledged, 1);
         assert_eq!(memory.view().read_u16(0x500).unwrap(), 1);
+        assert_eq!(state.di() & 0x200, if far { 0x200 } else { 0 });
         assert_eq!(
             state.cx(),
             0,
@@ -87,9 +118,15 @@ async fn nested_calls() {
 
         if abandon {
             state.set_ax(0x1234);
+            let live = state.snapshot();
             runner.exit_handle().request();
             assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
             assert!(finished.borrow().is_empty());
+            assert_eq!(
+                state.snapshot(),
+                live,
+                "abandonment must not clean up arguments"
+            );
             assert_eq!(
                 state.ax(),
                 0x1234,
@@ -104,11 +141,26 @@ async fn nested_calls() {
             assert_eq!(*finished.borrow(), ["inner", "outer"]);
             assert_eq!(state.ax(), 1);
             assert_eq!(state.bx(), 1);
+            if far {
+                assert_eq!(memory.view().read_u16(0x7ff6).unwrap(), 0x3344);
+                assert_eq!(memory.view().read_u16(0x7ff8).unwrap(), 0x1122);
+                assert_eq!(memory.view().read_u16(0x7fe6).unwrap(), 0xeeff);
+                assert_eq!(memory.view().read_u16(0x7fe8).unwrap(), 0xccdd);
+                assert_eq!(memory.view().read_u16(0x7fea).unwrap(), 0xaabb);
+            }
             assert_eq!(state.sp(), 0x8000);
             assert_eq!(state.eflags(), 0x243);
         }
         assert_eq!(dropped.get(), 2);
     }
+}
+
+async fn nested_interrupt_calls() {
+    nested_calls(false).await;
+}
+
+async fn nested_far_calls() {
+    nested_calls(true).await;
 }
 
 async fn faults() {
@@ -209,7 +261,11 @@ async fn canceled_requests() {
 
 test_backends!(
     interrupt_calls_nest_across_irqs_waiter_replacement_and_abandonment,
-    nested_calls
+    nested_interrupt_calls
+);
+test_backends!(
+    far_calls_nest_across_interrupt_calls_irqs_waiter_replacement_and_abandonment,
+    nested_far_calls
 );
 test_backends!(interrupt_call_faults_retain_the_waiting_handler, faults);
 test_backends!(

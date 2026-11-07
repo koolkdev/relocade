@@ -44,12 +44,4 @@ impl ExecutionModule {
     ) -> Result<ExecutionBuilder<'body, '_>, BuildError> {
         ExecutionBuilder::new(body, self, start)
     }
-
-    /// External IRQs use the same entry helper as instruction faults.
-    pub(crate) fn export_interrupt(&self, program: &mut Program) -> Result<(), BuildError> {
-        if let Some(interrupt) = self.interrupt {
-            abi::INTERRUPT.export(program, interrupt)?;
-        }
-        Ok(())
-    }
 }

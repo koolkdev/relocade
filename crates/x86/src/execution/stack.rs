@@ -16,10 +16,10 @@ use super::ExecutionBuilder;
 /// Paging may follow other architectural checks, such as a far CALL target limit.
 pub(crate) struct StackFrame {
     linear: Val<I32>,
-    checked_bytes: u32,
+    checked_bytes: Val<I32>,
     intent: Intent,
     pointer: StackPointer,
-    adjustment: i32,
+    adjustment: Val<I32>,
 }
 
 impl StackFrame {
@@ -31,7 +31,9 @@ impl StackFrame {
         execution: &mut ExecutionBuilder<'_, 'module>,
         offset: u32,
     ) -> Result<StackField<'module, T>, BuildError> {
-        assert!(offset <= self.checked_bytes && T::BYTES <= self.checked_bytes - offset);
+        if let Some(bytes) = execution.body.constant_bits(&self.checked_bytes)? {
+            assert!(u64::from(offset) + u64::from(T::BYTES) <= bytes);
+        }
         let memory = execution.accesses.memory();
         let access = execution.resolve_access(&self.linear.add(offset), T::BYTES, self.intent)?;
         Ok(StackField {
@@ -42,7 +44,7 @@ impl StackFrame {
     }
 
     pub(crate) fn next_pointer(&self) -> StackPointer {
-        self.pointer.advance(self.adjustment)
+        self.pointer.advance(&self.adjustment)
     }
 
     /// Extra discarded bytes are neither accessed nor checked against SS.limit.
@@ -52,7 +54,7 @@ impl StackFrame {
         discard_bytes: impl Into<Val<I32>>,
     ) -> Result<(), BuildError> {
         self.pointer
-            .advance(discard_bytes.into().add(self.adjustment))
+            .advance(discard_bytes.into().add(&self.adjustment))
             .commit(execution)
     }
 }
@@ -137,13 +139,14 @@ impl StackPointer {
     pub(crate) fn push_frame(
         self,
         execution: &mut ExecutionBuilder<'_, '_>,
-        slot_bytes: u32,
-        checked_bytes: u32,
+        slot_bytes: impl Into<Val<I32>>,
+        checked_bytes: impl Into<Val<I32>>,
     ) -> Result<StackFrame, BuildError> {
-        let adjustment = -(slot_bytes as i32);
-        let offset = self.advance(adjustment).offset();
+        let adjustment = Val::<I32>::from(0).sub(slot_bytes);
+        let checked_bytes = execution.body.value(checked_bytes)?;
+        let offset = self.advance(&adjustment).offset();
         let intent = Intent::Write;
-        let linear = execution.translate(&Segment::Ss.into(), &offset, checked_bytes, intent)?;
+        let linear = execution.translate(&Segment::Ss.into(), &offset, &checked_bytes, intent)?;
         Ok(StackFrame {
             linear,
             checked_bytes,
@@ -158,18 +161,19 @@ impl StackPointer {
     pub(crate) fn pop_frame(
         self,
         execution: &mut ExecutionBuilder<'_, '_>,
-        slot_bytes: u32,
-        checked_bytes: u32,
+        slot_bytes: impl Into<Val<I32>>,
+        checked_bytes: impl Into<Val<I32>>,
     ) -> Result<StackFrame, BuildError> {
         let offset = self.offset();
+        let checked_bytes = execution.body.value(checked_bytes)?;
         let intent = Intent::Read;
-        let linear = execution.translate(&Segment::Ss.into(), &offset, checked_bytes, intent)?;
+        let linear = execution.translate(&Segment::Ss.into(), &offset, &checked_bytes, intent)?;
         Ok(StackFrame {
             linear,
             checked_bytes,
             intent,
             pointer: self,
-            adjustment: slot_bytes as i32,
+            adjustment: slot_bytes.into(),
         })
     }
 }
@@ -186,8 +190,8 @@ impl ExecutionBuilder<'_, '_> {
 
     pub(crate) fn push_frame(
         &mut self,
-        slot_bytes: u32,
-        checked_bytes: u32,
+        slot_bytes: impl Into<Val<I32>>,
+        checked_bytes: impl Into<Val<I32>>,
     ) -> Result<StackFrame, BuildError> {
         self.stack_pointer()?
             .push_frame(self, slot_bytes, checked_bytes)
@@ -195,8 +199,8 @@ impl ExecutionBuilder<'_, '_> {
 
     pub(crate) fn pop_frame(
         &mut self,
-        slot_bytes: u32,
-        checked_bytes: u32,
+        slot_bytes: impl Into<Val<I32>>,
+        checked_bytes: impl Into<Val<I32>>,
     ) -> Result<StackFrame, BuildError> {
         self.stack_pointer()?
             .pop_frame(self, slot_bytes, checked_bytes)

@@ -1,13 +1,13 @@
 //! Borrowed resource access while guest instructions are not executing.
 
-use super::execution::InterruptCalls;
-use crate::{CpuStateAccess, IoBus, MemoryView};
+use super::execution::{GuestCall, GuestCalls};
+use crate::{CpuStateAccess, FarPointer, IoBus, MemoryView};
 
 /// Resource access for embeddings and host services.
 /// The fields borrow separate handles and apply writes immediately. A context
 /// obtained from a runner excludes another mutable borrow of that runner.
 /// Registered interrupt handlers receive these resources together with access
-/// to [`Self::call_interrupt`] for awaiting other interrupt handlers.
+/// to [`Self::call_interrupt`] and [`Self::call_far`] for awaiting guest code.
 ///
 /// A live view excludes another run:
 /// ```compile_fail
@@ -26,7 +26,7 @@ pub struct CpuContext<'a> {
     pub memory: MemoryView<'a>,
     /// The same device bus used by guest port and MMIO instructions.
     pub io: &'a IoBus,
-    pub(super) interrupt_calls: Option<&'a InterruptCalls>,
+    pub(super) guest_calls: Option<&'a GuestCalls>,
 }
 
 impl CpuContext<'_> {
@@ -46,14 +46,42 @@ impl CpuContext<'_> {
     /// # Panics
     /// Panics outside a registered interrupt handler or outside real mode.
     pub async fn call_interrupt(&mut self, vector: u8) {
+        self.invoke(GuestCall::Interrupt(vector)).await;
+    }
+
+    /// Calls a real-mode guest procedure and awaits its RETF through the current
+    /// service's resume entry. Words are supplied in push order, followed by CS
+    /// and IP. Entry checks the complete frame before writing it and leaves FLAGS
+    /// unchanged. The frame must fit contiguously within SS, including arguments.
+    /// After RETF, this method discards the argument words from the live
+    /// stack. The callee must not pop them. Register preservation belongs to the caller.
+    ///
+    /// Uses the same nesting, fault recovery and cancellation lifecycle as
+    /// [`Self::call_interrupt`], including device IRQs while the callee runs.
+    /// Panics outside a registered interrupt handler or outside real mode.
+    /// Panics if the argument bytes exceed the 16-bit stack's addressable size.
+    pub async fn call_far(&mut self, target: FarPointer, arguments: &[u16]) {
+        let stack_bytes = u16::try_from(size_of_val(arguments))
+            .expect("far-call arguments must fit a 16-bit stack");
+        self.invoke(GuestCall::Far {
+            target,
+            arguments: arguments.into(),
+        })
+        .await;
+        // RETF consumed only the return address. Cleanup uses the current stack,
+        // including any entry-fault repair, and never runs on abandonment.
+        self.cpu.set_sp(self.cpu.sp().wrapping_add(stack_bytes));
+    }
+
+    async fn invoke(&mut self, target: GuestCall) {
         assert_eq!(
             self.cpu.execution_target().profile,
             relocade_x86::ExecutionProfile::Real16,
-            "interrupt calls require real mode"
+            "guest calls require real mode"
         );
-        self.interrupt_calls
-            .expect("interrupts must be called inside an interrupt handler")
-            .call(vector)
+        self.guest_calls
+            .expect("guest code must be called inside an interrupt handler")
+            .call(target)
             .await;
     }
 }

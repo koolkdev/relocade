@@ -325,3 +325,6 @@ mod lifecycle;
 
 #[path = "runtime_calls/interrupt_calls.rs"]
 mod interrupt_calls;
+
+#[path = "runtime_calls/far_calls.rs"]
+mod far_calls;

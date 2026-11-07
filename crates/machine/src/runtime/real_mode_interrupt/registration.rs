@@ -69,14 +69,14 @@ impl<'cpu> Interrupts<'cpu> {
 
         let cpu = self.cpu.cpu_state();
         let memory = memory.with_io(self.cpu.machine.io.clone());
-        let interrupt_calls = self.cpu.interrupt_calls.clone();
+        let guest_calls = self.cpu.guest_calls.clone();
         self.hooks
             .extend(hook(entry.address(), cpu.clone(), async move || {
                 handler(&mut CpuContext {
                     cpu: &cpu,
                     memory: memory.view(),
                     io: memory.io(),
-                    interrupt_calls: Some(&interrupt_calls),
+                    guest_calls: Some(&guest_calls),
                 })
                 .await
             }));

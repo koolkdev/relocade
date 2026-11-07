@@ -17,7 +17,7 @@ impl Machine {
             cpu: &self.bindings.cpu,
             memory: self.bindings.guest.view().with_io(&self.io),
             io: &self.io,
-            interrupt_calls: None,
+            guest_calls: None,
         }
     }
 

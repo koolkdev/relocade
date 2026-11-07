@@ -105,7 +105,7 @@ impl Compiler {
         let profile = self.target.profile;
         let mut program = Program::new();
         let execution = ExecutionModule::declare(&mut program, self.target);
-        execution.export_interrupt(&mut program)?;
+        execution.export_entries(&mut program)?;
         let before_cpu = execution.cpu.clone();
         let decoder = RuntimeDecoder::new(
             &mut program,

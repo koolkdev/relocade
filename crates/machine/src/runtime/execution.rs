@@ -1,11 +1,14 @@
 //! The driver alternates guest execution with polling retained host services.
 
-mod interrupts;
+mod entry;
+mod guest_call;
+mod requests;
 mod suspended;
 
 use super::{call::Call, Cpu};
-pub(super) use interrupts::InterruptCalls;
+pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
+pub(super) use requests::GuestCalls;
 use std::{cell::Cell, future::poll_fn, rc::Rc, task::Poll};
 pub(super) use suspended::SuspendedCall;
 
@@ -67,7 +70,7 @@ impl Cpu {
     /// an unhandled-exception exit from a default handler releases parked calls.
     /// Guest IF-enabling instructions return to this same IRQ polling loop, so a
     /// request queued while masked needs no later notification to become eligible.
-    /// Awaited Rust interrupt calls use the same entry and resume machinery,
+    /// Awaited guest interrupt and far calls use the same entry and resume machinery,
     /// taking precedence over device IRQ polling and entering regardless of IF.
     pub async fn run(&mut self) -> ExecutionExit {
         let exit = poll_fn(|cx| {
@@ -79,11 +82,11 @@ impl Cpu {
                 self.pending = call.poll(cx);
             }
             loop {
-                let interrupt_delivered = match self.try_deliver_interrupt(cx) {
+                let guest_entered = match self.try_enter_guest(cx) {
                     Ok(delivered) => delivered,
                     Err(exit) => return Poll::Ready(exit),
                 };
-                if !interrupt_delivered && self.pending.is_some() {
+                if !guest_entered && self.pending.is_some() {
                     return Poll::Pending;
                 }
 
@@ -101,7 +104,8 @@ impl Cpu {
                     },
                     ExecutionExit::StepComplete
                     | ExecutionExit::InterruptsEnabled
-                    | ExecutionExit::InterruptEntered => continue,
+                    | ExecutionExit::InterruptEntered
+                    | ExecutionExit::FarCallEntered => continue,
                     exit => return Poll::Ready(exit),
                 };
             }

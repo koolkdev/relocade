@@ -6,7 +6,7 @@ use crate::{
     exception::Exception,
     execution::{segments::ResolvedSegment, ExecutionBuilder},
     register::RegisterType,
-    Segment,
+    ExecutionProfile, Segment,
 };
 
 /// A resolved CS and offset. Callers must validate its limit before commitment,
@@ -49,5 +49,40 @@ impl CodeTarget {
     ) -> Result<Val<I32>, BuildError> {
         self.segment.commit(execution)?;
         Ok(self.offset)
+    }
+}
+
+impl ExecutionBuilder<'_, '_> {
+    /// Reserves optional host argument space above the ordinary return address.
+    pub(crate) fn call_far<T: RegisterType>(
+        &mut self,
+        offset: Val<T>,
+        selector: Val<I16>,
+        return_ip: Val<I32>,
+        stack_bytes: impl Into<Val<I32>>,
+    ) -> Result<Val<I32>, BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        let stack_bytes = stack_bytes.into();
+        let target = CodeTarget::resolve(self, offset, &selector)?;
+        // Real-mode CALL transfers a word selector even in a dword-sized slot.
+        let checked_bytes = match self.profile() {
+            ExecutionProfile::Real16 => T::BYTES + 2,
+            ExecutionProfile::Protected(_) => 2 * T::BYTES,
+        };
+        let frame = self.push_frame(
+            stack_bytes.add(2 * T::BYTES),
+            stack_bytes.add(checked_bytes),
+        )?;
+        target.check_limit(self)?;
+        // Prove both return fields in push order before writing either of them.
+        let selector = frame.field::<I16>(self, T::BYTES)?;
+        let offset = frame.field::<T>(self, 0)?;
+        let old_cs = self.read_segment_selector(Segment::Cs)?;
+        selector.write(self, &old_cs)?;
+        offset.write(self, &return_ip.truncate::<T>())?;
+        frame.commit(self, 0)?;
+        target.commit(self)
     }
 }
