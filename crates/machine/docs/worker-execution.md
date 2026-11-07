@@ -20,7 +20,9 @@ let execution = ExecutionWorker::spawn(clock, async move |runner| {
     wait_for_next_program().await;
     Ok::<(), Error>(())
 });
-futures_util::future::join(timers.run(), execution.join()).await;
+let timers = timers.spawn_with_peer(execution.wake_peer());
+let result = execution.join().await;
+timers.stop().await?;
 ```
 
 `connect(...).await` registers the device's ordinary async `Device::run` future
