@@ -1,6 +1,9 @@
 //! Guest-readable firmware fonts and their real-mode pointers.
 use crate::BIOS_SEGMENT;
-use relocade_machine::{real_mode_interrupt::FarPointer, MemoryView};
+use relocade_machine::{
+    real_mode_interrupt::{read_vector, write_vector, FarPointer},
+    MemoryView,
+};
 use relocade_vga::registers::text_mode;
 
 pub(super) struct Font {
@@ -54,19 +57,17 @@ pub(in crate::video) fn initialize(memory: &mut MemoryView<'_>) {
     memory
         .write_backing(base + u32::from(REPLACEMENTS_14), &[0, 0])
         .expect("BIOS font replacement tables");
-    memory
-        .write_u32(0x1f * 4, far_pointer(FONT_8.offset + 128 * 8).packed())
-        .expect("high character font vector");
+    write_vector(
+        memory,
+        crate::interrupts::HIGH_FONT,
+        far_pointer(FONT_8.offset + 128 * 8),
+    );
 }
 
 pub(super) fn query(memory: &MemoryView<'_>, selector: u8) -> Option<FarPointer> {
     Some(match selector {
-        0 => FarPointer::from_packed(
-            memory
-                .read_u32(0x1f * 4)
-                .expect("high character font vector"),
-        ),
-        1 => FarPointer::from_packed(memory.read_u32(0x43 * 4).expect("graphics font vector")),
+        0 => read_vector(memory, crate::interrupts::HIGH_FONT),
+        1 => read_vector(memory, crate::interrupts::GRAPHICS_FONT),
         2 => FONT_14.pointer(),
         3 => FONT_8.pointer(),
         4 => far_pointer(FONT_8.offset + 128 * 8),

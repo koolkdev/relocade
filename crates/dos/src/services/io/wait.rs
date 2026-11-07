@@ -2,9 +2,9 @@
 
 use crate::{
     interrupts::{IDLE, IDLE_ENTRY},
-    services::{control::Request, system::get_vector},
+    services::control::Request,
 };
-use relocade_machine::CpuContext;
+use relocade_machine::{real_mode_interrupt::read_vector, CpuContext};
 use std::{
     future::{poll_fn, Future},
     pin::pin,
@@ -26,7 +26,7 @@ pub(super) async fn wait_for_input<F: Future>(
             Poll::Ready(value) => Poll::Ready(Some(value)),
             Poll::Pending
                 if may_notify(request)
-                    && get_vector(&call.memory, IDLE).address() != IDLE_ENTRY.address() =>
+                    && read_vector(&call.memory, IDLE).address() != IDLE_ENTRY.address() =>
             {
                 Poll::Ready(None)
             }

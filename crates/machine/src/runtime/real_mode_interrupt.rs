@@ -16,6 +16,7 @@ pub use crate::cpu::registers;
 pub use crate::FarPointer;
 pub use bindings::{interrupt, interrupt_dispatch, interrupt_handler};
 pub use registration::Interrupts;
+pub use relocade_x86::real_mode::{vector_address, InterruptFrame};
 #[doc(hidden)]
 pub use relocade_x86::{Segment, SegmentRegister};
 
@@ -75,6 +76,32 @@ pub async fn with_interrupts_enabled<F: Future>(cpu: &CpuStateAccess, future: F)
     result
 }
 
+/// Reads the live conventional IVT used by BIOS and DOS vector services.
+pub fn read_vector(memory: &MemoryView<'_>, vector: u8) -> FarPointer {
+    FarPointer::from_packed(
+        memory
+            .read_u32(vector_address(vector).address())
+            .expect("interrupt vector table"),
+    )
+}
+
+/// Changes a conventional IVT destination without replacing its old handler.
+pub fn write_vector(memory: &mut MemoryView<'_>, vector: u8, destination: FarPointer) {
+    memory
+        .write_u32(vector_address(vector).address(), destination.packed())
+        .expect("interrupt vector table");
+}
+
+/// Reads a 16-bit interrupt frame at the current SS:SP.
+pub fn read_frame(cpu: &CpuStateAccess, memory: &MemoryView<'_>) -> InterruptFrame {
+    let mut bytes = [0; InterruptFrame::BYTE_LEN];
+    let address = cpu.segment(Segment::Ss).base + u32::from(cpu.sp());
+    memory
+        .read(address, &mut bytes)
+        .expect("real-mode interrupt frame");
+    InterruptFrame::from_bytes(bytes)
+}
+
 /// Changes carry in the saved FLAGS, preserving every other flag.
 /// The current SS:SP must point to the IP pushed by a 16-bit real-mode interrupt.
 pub fn set_carry(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, carry: bool) {
@@ -89,7 +116,8 @@ pub fn set_zero(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, zero: bool) {
 
 fn set_flag(cpu: &CpuStateAccess, memory: &mut MemoryView<'_>, mask: u8, value: bool) {
     // INT pushed FLAGS, CS, IP. Updating live flags would be undone by IRET.
-    let address = cpu.segment(Segment::Ss).base + u32::from(cpu.sp().wrapping_add(4));
+    let address = cpu.segment(Segment::Ss).base
+        + u32::from(cpu.sp().wrapping_add(InterruptFrame::FLAGS_OFFSET as u16));
     let mut flags = [0];
     memory
         .read(address, &mut flags)

@@ -1,4 +1,4 @@
-use super::{hook, HOOK_STUB};
+use super::{hook, vector_address, write_vector, HOOK_STUB};
 use crate::{Cpu, CpuContext, FarPointer, Hook, Result};
 use relocade_x86::PhysicalMapping;
 
@@ -44,7 +44,7 @@ impl<'cpu> Interrupts<'cpu> {
             "interrupt stub must fit in its code segment"
         );
         let memory = self.cpu.memory();
-        let vector_address = u32::from(vector) * 4;
+        let vector_address = vector_address(vector).address();
         assert!(
             matches!(
                 memory.configuration().memory_map().get(vector_address),
@@ -64,8 +64,7 @@ impl<'cpu> Interrupts<'cpu> {
                 view.write_backing(backing, &[byte])
                     .expect("interrupt stub backing");
             }
-            view.write_u32(vector_address, entry.packed())
-                .expect("interrupt vector");
+            write_vector(&mut view, vector, entry);
         }
 
         let cpu = self.cpu.cpu_state();

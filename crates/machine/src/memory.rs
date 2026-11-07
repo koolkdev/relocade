@@ -1,6 +1,5 @@
-mod pointer;
 mod view;
-pub use pointer::FarPointer;
+pub use relocade_x86::real_mode::FarPointer;
 pub use view::{MemoryError, MemoryView};
 
 use crate::{IoBus, MachineConfig, Result};

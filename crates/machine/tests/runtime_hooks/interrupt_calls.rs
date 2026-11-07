@@ -44,6 +44,15 @@ async fn check_interrupt_call() {
     let observed = calls.clone();
     let mut interrupts = Interrupts::new(&mut cpu);
     interrupts.register_interrupt(0x60, entry, async move |call| {
+        let frame = relocade_machine::real_mode_interrupt::read_frame(call.cpu, &call.memory);
+        assert_eq!(
+            frame.return_address,
+            FarPointer {
+                segment: 0,
+                offset: 0x102
+            }
+        );
+        assert_eq!(frame.flags, 0x643);
         assert_eq!(call.cpu.ax(), 0x1234);
         assert_eq!(observed.replace(1), 0);
         assert!(!call.cpu.interrupts_enabled());

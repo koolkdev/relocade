@@ -26,6 +26,10 @@ pub const TIME_OF_DAY: u8 = 0x1a;
 pub const CONTROL_BREAK: u8 = 0x1b;
 /// Timer callback invoked by the timer IRQ handler (INT 1Ch).
 pub const TIMER_TICK: u8 = 0x1c;
+/// IVT data pointer to the upper half of the 8x8 graphics font (INT 1Fh).
+pub const HIGH_FONT: u8 = 0x1f;
+/// IVT data pointer to the active graphics font (INT 43h).
+pub const GRAPHICS_FONT: u8 = 0x43;
 
 const CLOCK_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,

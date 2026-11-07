@@ -37,6 +37,7 @@ mod instruction;
 mod memory;
 mod processor;
 mod profile;
+pub mod real_mode;
 mod register;
 mod runtime;
 mod segment;

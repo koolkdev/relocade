@@ -3,6 +3,7 @@
 use super::{CodeTarget, ExecutionBuilder};
 use crate::{
     flags::{image, Flag},
+    real_mode::{FarPointer, InterruptFrame},
     ExecutionExitValues, ExecutionProfile, Segment,
 };
 use relocade_compiler::{BuildError, Val, I1, I16, I32, I8};
@@ -15,10 +16,11 @@ impl ExecutionBuilder<'_, '_> {
         return_ip: Val<I32>,
     ) -> Result<Val<I32>, BuildError> {
         // Real-mode entry always saves three words, including a prefixed INT.
-        let frame = self.push_frame(6, 6)?;
-        let flags_slot = frame.field::<I16>(self, 4)?;
-        let cs_slot = frame.field::<I16>(self, 2)?;
-        let ip_slot = frame.field::<I16>(self, 0)?;
+        let bytes = InterruptFrame::BYTE_LEN as u32;
+        let frame = self.push_frame(bytes, bytes)?;
+        let flags_slot = frame.field::<I16>(self, InterruptFrame::FLAGS_OFFSET)?;
+        let cs_slot = frame.field::<I16>(self, InterruptFrame::CS_OFFSET)?;
+        let ip_slot = frame.field::<I16>(self, InterruptFrame::IP_OFFSET)?;
         let flags = image::read_stack_image::<I16>(self)?;
         let cs = self.read_segment_selector(Segment::Cs)?;
         flags_slot.write(self, &flags)?;
@@ -29,8 +31,11 @@ impl ExecutionBuilder<'_, '_> {
         ip_slot.write(self, &return_ip.truncate::<I16>())?;
 
         // Read after the pushes: the stack may alias the conventional real IVT.
-        let address = vector.unsigned().extend::<I32>().shl(2);
-        let selector = self.read_linear_memory::<I16>(address.add(2))?;
+        let address = vector
+            .unsigned()
+            .extend::<I32>()
+            .mul(FarPointer::BYTE_LEN as u32);
+        let selector = self.read_linear_memory::<I16>(address.add(FarPointer::SEGMENT_OFFSET))?;
         let offset = self.read_linear_memory::<I16>(address)?;
         let target = CodeTarget::resolve(self, offset, &selector)?;
         target.check_limit(self)?;

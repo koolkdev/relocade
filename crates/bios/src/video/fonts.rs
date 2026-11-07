@@ -11,7 +11,7 @@ use super::{CHARACTER_HEIGHT, LAST_ROW};
 pub(crate) use glyph::Glyph;
 pub(super) use guest_tables::apply as apply_guest_tables;
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, FarPointer},
+    real_mode_interrupt::{interrupt, write_vector, FarPointer},
     IoBus, MemoryView,
 };
 pub(super) use rom::initialize;
@@ -37,9 +37,7 @@ pub(super) fn information(memory: &MemoryView<'_>, selector: u8) -> Option<FontI
 
 pub(super) fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, height: u8, text: bool) {
     let font = rom::for_height(height);
-    memory
-        .write_u32(0x43 * 4, font.pointer().packed())
-        .expect("graphics font vector");
+    write_vector(memory, crate::interrupts::GRAPHICS_FONT, font.pointer());
     if text {
         // Mode setting resets complete slots. AH=11h instead preserves all
         // bytes below each supplied glyph, even when loading a built-in font.
