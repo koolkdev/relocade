@@ -257,13 +257,11 @@ fn dos_and_bios_consume_one_queue_with_a_dos_extended_key_remainder() {
         assert_eq!(invoke(&mut dos, 0x104, 0x0700).registers.eax as u8, 0x4b);
         assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
 
-        // Byte-stream injection preserves literal zero and has no invented scan code.
+        // BIOS sees the 0000h dummy word unchanged; CON filters it before returning C.
         dos.stdin().write_all(&[0, b'C']).unwrap();
-        assert_eq!(invoke(&mut dos, 0x104, 0x0700).registers.eax as u8, 0);
-        assert_eq!(
-            invoke(&mut dos, 0x100, 0).registers.eax as u16,
-            u16::from(b'C')
-        );
+        assert_eq!(invoke(&mut dos, 0x100, 0x0100).registers.eax as u16, 0);
+        assert_eq!(invoke(&mut dos, 0x104, 0x0700).registers.eax as u8, b'C');
+        assert_ne!(invoke(&mut dos, 0x100, 0x0100).flags.eflags() & 0x40, 0);
 
         assert!(keyboard.store_key(KeyStroke {
             character: b'D',

@@ -60,7 +60,10 @@ fn blocking_read_resumes_the_existing_interrupt_frame() {
             .unwrap();
         assert_eq!(repeated_frame, frame);
 
-        dos.stdin().write_all(&[0, 0x48]).unwrap(); // Extended key prefix is data.
+        assert!(dos.keyboard().store_key(relocade_bios::KeyStroke {
+            character: 0,
+            scan_code: 0x48
+        }));
         assert_eq!(
             crate::common::run_until(dos.cpu(), 0x102).await,
             ExecutionExit::Interrupted

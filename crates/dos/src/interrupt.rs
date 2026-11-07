@@ -15,8 +15,25 @@ const INT21_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x110,
 };
+const INT23_ENTRY: FarPointer = FarPointer {
+    segment: 0xf000,
+    offset: 0x120,
+};
+const INT1B_ENTRY: FarPointer = FarPointer {
+    segment: 0xf000,
+    offset: 0x130,
+};
 
 pub(crate) fn register_interrupts(interrupts: &mut Interrupts<'_>, session: Rc<DosState>) {
+    let console = session.clone();
+    interrupts.register_interrupt(0x1b, INT1B_ENTRY, async move |_| {
+        console.control_break();
+    });
+    interrupts.register_interrupt(
+        0x23,
+        INT23_ENTRY,
+        for_process(session.clone(), services::int20),
+    );
     interrupts.register_interrupt(
         0x20,
         INT20_ENTRY,

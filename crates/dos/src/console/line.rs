@@ -3,23 +3,17 @@ pub(crate) async fn edit_line<E>(
     capacity: u8,
     write: impl AsyncFn(u8) -> Result<(), E>,
 ) -> Result<Vec<u8>, E> {
-    let mut editor = LineEditor {
-        bytes: Vec::new(),
-        capacity,
-        write,
-        extended_key: false,
-        first: true,
-    };
+    let mut editor = LineEditor::new(capacity, write);
     loop {
         let byte = read().await?;
         if editor.accept(byte).await? {
-            return Ok(editor.bytes);
+            return Ok(editor.finish());
         }
     }
 }
 
 /// A line being edited, including its final carriage return once complete.
-struct LineEditor<W> {
+pub(crate) struct LineEditor<W> {
     bytes: Vec<u8>,
     capacity: u8,
     write: W,
@@ -28,7 +22,21 @@ struct LineEditor<W> {
 }
 
 impl<W> LineEditor<W> {
-    async fn accept<E>(&mut self, byte: u8) -> Result<bool, E>
+    pub(crate) fn new(capacity: u8, write: W) -> Self {
+        Self {
+            bytes: Vec::new(),
+            capacity,
+            write,
+            extended_key: false,
+            first: true,
+        }
+    }
+
+    pub(crate) fn finish(self) -> Vec<u8> {
+        self.bytes
+    }
+
+    pub(crate) async fn accept<E>(&mut self, byte: u8) -> Result<bool, E>
     where
         W: AsyncFn(u8) -> Result<(), E>,
     {

@@ -82,7 +82,10 @@ fn console_status_queries_do_not_consume_input_or_change_buffered_reads() {
             assert_eq!(cpu.registers.ecx as u16, 0x5678);
             assert_eq!(cpu.registers.edx as u16, 0x9abc);
         }
-        dos.stdin().write_all(&[0, 0x48]).unwrap();
+        assert!(dos.keyboard().store_key(relocade_bios::KeyStroke {
+            character: 0,
+            scan_code: 0x48
+        }));
         for _ in 0..2 {
             dos.cpu().context().cpu.set_eflags(0x643);
             let cpu = service(&mut dos, 0x0b00, 0, 0, 0);
@@ -134,7 +137,7 @@ fn stdin_status_falls_back_to_the_console_when_stdin_is_closed() {
         let console = success(&service(&mut dos, 0x4500, 0, 0, 0));
         success(&service(&mut dos, 0x3e00, 0, 0, 0));
 
-        for (input, status) in [(b"".as_slice(), 0x00), (b"\0".as_slice(), 0xff)] {
+        for (input, status) in [(b"".as_slice(), 0x00), (b"K".as_slice(), 0xff)] {
             dos.stdin().write_all(input).unwrap();
             for flags in [0x602, 0x643] {
                 dos.cpu().context().cpu.set_eflags(flags);
@@ -151,9 +154,9 @@ fn stdin_status_falls_back_to_the_console_when_stdin_is_closed() {
             }
         }
 
-        // Neither the status checks nor the errors consumed the queued NUL.
+        // Neither the status checks nor the errors consumed the queued key.
         success(&service(&mut dos, 0x4600, console, 0, 0));
-        assert_eq!(service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u8, 0);
+        assert_eq!(service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u8, b'K');
         assert_eq!(service(&mut dos, 0x0b00, 0, 0, 0).registers.eax as u8, 0);
         assert!(common::output(dos.stdout()).is_empty());
     });

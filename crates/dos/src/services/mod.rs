@@ -1,8 +1,9 @@
 //! DOS interrupt dispatch and service handlers.
 
-use relocade_machine::{real_mode_interrupt::interrupt, MemoryView};
+use relocade_machine::MemoryView;
 
 pub(crate) mod console;
+mod control;
 mod directories;
 mod dispatch;
 pub(crate) use dispatch::{int20, int21_entry};
@@ -34,9 +35,4 @@ impl<'call> Services<'call> {
             .terminate(status, memory, &mut self.dos.filesystem());
         self.dos.request_exit();
     }
-}
-
-#[interrupt(context(memory))]
-fn fatal(memory: &mut MemoryView<'_>, services: &Services<'_>, error: ServiceError) {
-    services.exit(memory, Err(error));
 }

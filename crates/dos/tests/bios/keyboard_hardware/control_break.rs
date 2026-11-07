@@ -102,3 +102,43 @@ fn default_break_callback_returns_and_wakes_a_bios_read() {
         assert_eq!(dos.cpu().memory().view().read_u8(0x471).unwrap(), 0x80);
     });
 }
+
+#[test]
+fn physical_control_break_reaches_dos_while_a_checked_read_is_pending() {
+    for redirected in [false, true] {
+        with_hardware(async move |_, mut dos| {
+            let mut program = if redirected {
+                dos.mount_file("EMPTY", Vec::new(), relocade_dos::FileAccess::ReadOnly)
+                    .unwrap();
+                vec![
+                    0xb8, 0, 0x3d, 0xba, 0x80, 1, 0xcd, 0x21, // Open EMPTY.
+                    0x89, 0xc3, 0x31, 0xc9, 0xb4, 0x46, 0xcd, 0x21, // Redirect stdin.
+                    0xb4, 8, 0xcd, 0x21, 0xeb, 0xfe, // Checked read waits at EOF.
+                ]
+            } else {
+                vec![0xcd, 0x21, 0xeb, 0xfe]
+            };
+            program.resize(0x80, 0);
+            program.extend_from_slice(b"EMPTY\0");
+            dos.launch_com(&program, Default::default()).unwrap();
+            let after_read = if redirected { 0x114 } else { 0x102 };
+            let io = dos.cpu().context().io.clone();
+            dos.cpu().cpu_state().set_ax(0x0800);
+            common::assert_pending(common::run_until(dos.cpu(), after_read));
+            for byte in [0x1d, 0xe0] {
+                inject_scan(&io, byte).await;
+                common::assert_pending(common::run_until(dos.cpu(), after_read));
+            }
+            inject_scan(&io, 0x46).await;
+            assert_eq!(
+                common::run_until(dos.cpu(), after_read).await,
+                ExecutionExit::Host(relocade_x86::HostExit::Return)
+            );
+            assert_eq!(
+                dos.process().unwrap().status(),
+                relocade_dos::ProcessStatus::Exited(Ok(0))
+            );
+            assert_eq!(common::output(dos.stdout()), b"^C\r\n");
+        });
+    }
+}

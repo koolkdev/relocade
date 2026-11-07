@@ -81,9 +81,7 @@ impl Files {
     /// Resolves the current slot once; the returned record survives later slot changes.
     pub(crate) fn readable_handle(&self, number: u16) -> Result<Handle, DosError> {
         let handle = self.handle(number)?;
-        if !handle.access().can_read() {
-            return Err(DosError::AccessDenied);
-        }
+        handle.check_read_access()?;
         Ok(handle.clone())
     }
 
@@ -184,6 +182,14 @@ impl Files {
 }
 
 impl Handle {
+    pub(crate) fn check_read_access(&self) -> Result<(), DosError> {
+        if self.access().can_read() {
+            Ok(())
+        } else {
+            Err(DosError::AccessDenied)
+        }
+    }
+
     fn access(&self) -> AccessMode {
         match self {
             Self::File(file) => file.access(),

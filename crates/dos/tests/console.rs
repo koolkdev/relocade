@@ -276,8 +276,12 @@ async fn check_direct_console_io() {
     assert_eq!(cpu.flags.eflags(), 0x643); // Empty input sets ZF, preserving CF/IF/DF.
 
     // Raw input includes the extended-key prefix, Ctrl-C, Ctrl-Z and FFh.
-    dos.stdin().write_all(b"A\0").unwrap();
-    dos.stdin().write_all(&[0x48, 3, 0x1a, 0xff]).unwrap();
+    dos.stdin().write_all(b"A").unwrap();
+    assert!(dos.keyboard().store_key(relocade_bios::KeyStroke {
+        character: 0,
+        scan_code: 0x48
+    }));
+    dos.stdin().write_all(&[3, 0x1a, 0xff]).unwrap();
     for byte in [b'A', 0, 0x48, 3, 0x1a, 0xff] {
         dos.cpu().context().cpu.set_eflags(0x643);
         let cpu = service(&mut dos, 0x06aa, 0x1234, 0x5678, 0xff);

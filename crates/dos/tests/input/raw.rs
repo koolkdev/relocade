@@ -35,7 +35,7 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
         {
             let mut run = pin!(crate::common::run_until(dos.cpu(), 0x102));
             assert!(run.as_mut().poll(&mut cx).is_pending());
-            input.write_all(b"\0\r").unwrap();
+            input.write_all(b"\t\r").unwrap();
             assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
             assert!(run.as_mut().poll(&mut cx).is_pending()); // Four bytes, including Enter.
             assert!(common::output(output.clone()).is_empty());
@@ -51,7 +51,7 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
         assert_eq!(cpu.registers.esp as u16, 0xfffe);
         let mut bytes = [0; 5];
         dos.cpu().memory().view().read(0x10400, &mut bytes).unwrap();
-        assert_eq!(&bytes, b"\x1a\x08\0\rK");
+        assert_eq!(&bytes, b"\x1a\x08\t\rK");
         assert_eq!(success(&service(&mut dos, 0x3f00, handle, 1, 0x400)), 1);
         dos.cpu()
             .memory()

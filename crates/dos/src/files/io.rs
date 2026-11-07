@@ -7,6 +7,14 @@ use super::Handle;
 use crate::DosError;
 
 impl Handle {
+    /// Peeks without advancing a file cursor or consuming device input.
+    pub(crate) async fn peek_character(&self) -> Result<Option<u8>, DosError> {
+        match self {
+            Self::File(file) => file.peek_character(),
+            Self::Device(handle) => handle.device.peek_character().await,
+        }
+    }
+
     pub(crate) async fn read(&self, bytes: &mut [u8]) -> Result<usize, DosError> {
         let count = match self {
             Self::File(file) => file.read(bytes)?,

@@ -1,142 +1,137 @@
-use super::Services;
-use crate::{DosError, ServiceError};
+//! DOS character services. Arguments are captured before any I/O can suspend.
+
+use super::control::Request;
+use crate::{console::LineEditor, devices::CONTROL_C, DosError, ServiceError};
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext, FarPointer, MemoryView,
+    real_mode_interrupt::{interrupt, set_zero},
+    CpuContext, FarPointer,
 };
 
-pub(super) mod cooked;
-mod input;
 mod request;
-use request::capacity;
-pub(super) use request::Input;
+pub(super) use request::{check_console_break, Input};
 
-/// AH=0Ch flushes stdin, then invokes the input service selected by AL.
-#[interrupt(context(call), args(function = al))]
-pub(super) async fn flush_input(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
-    let stdin = services.process.files().handle(0).cloned();
-    let input = Input::new(services);
-    // A closed stdin or failed flush must not skip the selected operation.
-    if let Ok(stdin) = stdin {
-        let _ = stdin.flush_input().await;
-    }
-    interrupt_dispatch!(
-        call,
-        match function {
-            0x01 => read_character_echo(input),
-            0x06 => direct_io(input),
-            0x07 => read_character(input),
-            0x08 => read_character_check_break(input),
-            0x0a => read_buffered(input),
-            _ => no_input,
-        }
-    );
-}
-
-/// Other AL values request only a flush.
-#[interrupt(returns { () => { al = 0u8 } })]
-fn no_input() {}
-
-/// AH=0Bh reports stdin availability without consuming input or changing flags.
-#[interrupt(returns { status => { al = status } })]
-pub(super) async fn input_status(services: &Services<'_>) -> u8 {
-    let input = services.process.files().handle(0).cloned();
-    let available = match input {
-        Ok(handle) => handle.input_available().await,
-        Err(_) => services.dos.devices().console().input_available().await,
-    }
-    .unwrap_or(false);
-    if available {
-        0xff
-    } else {
-        0
-    }
-}
-
-// AH=06h polls stdin for DL=FFh; other values write a byte to stdout.
-#[interrupt(context(call), args(byte = dl))]
-pub(super) async fn direct_io(call: &mut CpuContext<'_>, input: Input<'_>, byte: u8) {
-    interrupt_dispatch!(
-        call,
-        match byte {
-            0xff => input.poll_character,
-            _ => input.write_raw,
-        }
-    );
-}
-
-/// AH=01h waits for a character and echoes it through the retained stdout.
-#[interrupt(returns {
-    Ok(byte) => { al = byte },
-    Err(error) => crate::interrupt::return_error(error),
-})]
-pub(super) async fn read_character_echo(input: Input<'_>) -> Result<u8, DosError> {
-    input.character(true).await
-}
-
-/// AH=07h waits for a character without echo.
-#[interrupt(returns {
-    Ok(byte) => { al = byte },
-    Err(error) => crate::interrupt::return_error(error),
-})]
-pub(super) async fn read_character(input: Input<'_>) -> Result<u8, DosError> {
-    input.character(false).await
-}
-
-/// AH=08h currently shares AH=07h behavior; DOS break handling is not implemented.
-#[interrupt(returns {
-    Ok(byte) => { al = byte },
-    Err(error) => crate::interrupt::return_error(error),
-})]
-pub(super) async fn read_character_check_break(input: Input<'_>) -> Result<u8, DosError> {
-    read_character(input).await
-}
-
-/// AH=02h writes through stdout and returns the last output byte.
-#[interrupt(args(byte = dl), returns { last => { al = last } })]
-pub(super) async fn write_character(services: &Services<'_>, byte: u8) -> u8 {
-    let _ = services.stdout().write_cooked(byte).await;
-    if byte == b'\t' {
-        b' '
-    } else {
-        byte
-    }
-}
-
-/// AH=0Ah edits a line; buffer capacity includes the final carriage return.
-#[interrupt(context(memory), args(buffer = ptr(ds, dx)), returns {
+#[interrupt(context(call), args(input_function = al, byte = dl, buffer = ptr(ds, dx)), returns {
     Ok(()) => {},
     Err(error) => crate::interrupt::return_error(error),
 })]
-pub(super) async fn read_buffered(
-    memory: &mut MemoryView<'_>,
-    input: Input<'_>,
+pub(super) async fn dispatch(
+    call: &mut CpuContext<'_>,
+    request: &mut Request<'_>,
+    input_function: u8,
+    byte: u8,
     buffer: FarPointer,
 ) -> Result<(), DosError> {
-    let capacity = capacity(memory, buffer);
-    input.buffered(memory, buffer, capacity).await
-}
-
-/// AH=09h outputs a '$'-terminated string and returns AL='$'.
-#[interrupt(context(memory), args(source = ptr(ds, dx)), returns {
-    Ok(byte) => { al = byte },
-    Err(error) => super::fatal(services, error),
-})]
-pub(super) async fn write_string(
-    memory: &mut MemoryView<'_>,
-    services: &Services<'_>,
-    source: FarPointer,
-) -> Result<u8, ServiceError> {
-    let output = services.stdout();
-    for index in 0..=u16::MAX {
-        let mut byte = [0];
-        memory
-            .read_wrapping(source.wrapping_add(usize::from(index)), &mut byte)
-            .expect("real-mode byte address");
-        if byte[0] == b'$' {
-            return Ok(b'$');
+    let cpu = call.cpu;
+    let function = request.function;
+    'operation: loop {
+        // A break starts a new attempt. Ordinary waits and IRQs keep these handles.
+        let input = Input::new(request.services);
+        let function = if function == 0x0c {
+            // AH=0Ch repeats its flush when INT23 restarts the operation. A failed
+            // flush still proceeds to the operation selected by AL.
+            let stdin = request.services.process.files().handle(0).cloned();
+            if let Ok(stdin) = stdin {
+                let _ = stdin.flush_input().await;
+            }
+            match input_function {
+                0x01 | 0x06 | 0x07 | 0x08 | 0x0a => input_function,
+                _ => {
+                    cpu.set_al(0);
+                    return Ok(());
+                }
+            }
+        } else {
+            function
+        };
+        match function {
+            0x01 | 0x07 | 0x08 => {
+                let checked = function != 0x07;
+                let byte = input.character(checked).await?;
+                if checked && byte == CONTROL_C {
+                    request.handle_break(call).await;
+                    continue;
+                }
+                if function == 0x01 {
+                    input.write(byte).await;
+                }
+                cpu.set_al(byte);
+            }
+            0x02 => {
+                if input.break_pending().await {
+                    request.handle_break(call).await;
+                    continue;
+                }
+                input.write(byte).await;
+                cpu.set_al(if byte == b'\t' { b' ' } else { byte });
+            }
+            0x06 if byte == 0xff => {
+                let byte = input.poll_character().await?;
+                cpu.set_al(byte.unwrap_or(0));
+                set_zero(cpu, &mut call.memory, byte.is_none());
+            }
+            0x06 => {
+                input.write_raw(byte).await;
+                cpu.set_al(byte);
+            }
+            0x09 => {
+                for index in 0..=u16::MAX {
+                    let mut byte = [0];
+                    call.memory
+                        .read_wrapping(buffer.wrapping_add(usize::from(index)), &mut byte)
+                        .unwrap();
+                    if byte[0] == b'$' {
+                        cpu.set_al(b'$');
+                        return Ok(());
+                    }
+                    if input.break_pending().await {
+                        request.handle_break(call).await;
+                        continue 'operation;
+                    }
+                    input.write(byte[0]).await;
+                }
+                request
+                    .services
+                    .exit(&mut call.memory, Err(ServiceError::UnterminatedString));
+            }
+            0x0a => {
+                let capacity = call.memory.read_u8(buffer.address()).unwrap();
+                if capacity != 0 {
+                    let mut editor = LineEditor::new(capacity, async |byte| {
+                        input.write(byte).await;
+                        Ok::<_, DosError>(())
+                    });
+                    loop {
+                        let byte = input.character(true).await?;
+                        if byte == CONTROL_C {
+                            request.handle_break(call).await;
+                            continue 'operation;
+                        }
+                        if editor.accept(byte).await? {
+                            break;
+                        }
+                    }
+                    let bytes = editor.finish();
+                    // DOS's capacity includes CR, but the returned count excludes it.
+                    call.memory
+                        .write_wrapping(buffer.wrapping_add(1), &[(bytes.len() - 1) as u8])
+                        .unwrap();
+                    call.memory
+                        .write_wrapping(buffer.wrapping_add(2), &bytes)
+                        .unwrap();
+                }
+            }
+            0x0b => {
+                if input.break_pending().await {
+                    request.handle_break(call).await;
+                    continue;
+                }
+                cpu.set_al(if input.status().await { 0xff } else { 0 });
+            }
+            _ => request.services.exit(
+                &mut call.memory,
+                Err(ServiceError::UnsupportedFunction(function)),
+            ),
         }
-        let _ = output.write_cooked(byte[0]).await;
+        return Ok(());
     }
-    Err(ServiceError::UnterminatedString)
 }
