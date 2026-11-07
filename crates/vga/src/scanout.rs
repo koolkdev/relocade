@@ -8,7 +8,7 @@ pub use vga::{VgaDisplayState, VgaGeometry};
 pub enum Scanout {
     /// Text or graphics interpreted through captured VGA display registers.
     Vga(VgaDisplayState),
-    /// Packed eight-bit indices interpreted through the shared DAC palette.
+    /// Packed pixels interpreted using the captured layout and pixel format.
     Svga(SvgaLayout),
 }
 

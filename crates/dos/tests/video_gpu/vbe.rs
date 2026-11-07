@@ -2,6 +2,9 @@ use super::{common, run, Gpu, TEXT_WITH_RED_BLOCK};
 use relocade_machine::FarPointer;
 use relocade_x86::{ExecutionExit, HostExit};
 
+#[path = "vbe/direct_color.rs"]
+mod direct_color;
+
 #[test]
 fn guest_pans_to_a_second_image_with_a_wider_logical_scanline() {
     pollster::block_on(async {
