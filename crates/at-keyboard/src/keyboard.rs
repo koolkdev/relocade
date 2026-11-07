@@ -180,7 +180,7 @@ impl<C: Clock> Keyboard<'_, C> {
                 let command = self.commands.recv().fuse();
                 let output = async {
                     if let Some(byte) = outgoing {
-                        self.controller.send_keyboard(byte).await;
+                        self.controller.send_keyboard(byte, &self.clock).await;
                     } else {
                         pending::<()>().await;
                     }

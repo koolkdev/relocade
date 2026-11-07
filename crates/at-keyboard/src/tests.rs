@@ -2,6 +2,7 @@
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 mod fixture;
+mod timing;
 use super::*;
 use fixture::Fixture;
 use relocade_frontend::keyboard::{
@@ -66,6 +67,7 @@ fn each_output_byte_has_an_irq_and_reads_preserve_the_data_latch() {
         );
         assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
         controller.settle();
+        controller.finish_transfers();
         assert_eq!(poll(&mut pic), Poll::Pending, "next byte waits for EOI");
         pic.write_port(relocade_pic::COMMAND_PORT, 1, 0x20); // Non-specific EOI.
     }
@@ -273,15 +275,18 @@ fn guest_typematic_programming_owns_repeat_delay_and_rate() {
     assert_eq!(drain(&mut controller), [0xfa]);
     controller.data(0);
     assert_eq!(drain(&mut controller), [0xfa]); // 250ms, 30Hz.
+    let pressed = controller.now();
     event(&mut controller, key(KeyCode::KeyA, true));
     assert_eq!(drain(&mut controller), [0x1e]);
-    controller.advance(Duration::from_millis(249));
+    controller.advance(pressed + Duration::from_millis(249));
     assert!(drain(&mut controller).is_empty());
-    controller.advance(Duration::from_millis(250));
+    controller.advance(pressed + Duration::from_millis(250));
+    controller.finish_transfers();
     assert_eq!(drain(&mut controller), [0x1e]);
-    controller.advance(Duration::from_nanos(283_333_333));
+    controller.advance(pressed + Duration::from_nanos(283_333_333));
     assert!(drain(&mut controller).is_empty());
-    controller.advance(Duration::from_nanos(283_333_334));
+    controller.advance(pressed + Duration::from_nanos(283_333_334));
+    controller.finish_transfers();
     assert_eq!(drain(&mut controller), [0x1e]);
     event(&mut controller, key(KeyCode::KeyA, false));
     assert_eq!(drain(&mut controller), [0x9e]);
@@ -331,6 +336,7 @@ fn inhibited_typematic_does_not_accumulate_a_burst_and_modifiers_repeat() {
         "full output inhibits repeat"
     );
     controller.advance(Duration::from_secs(22));
+    controller.finish_transfers();
     assert_eq!(
         drain(&mut controller),
         [0x2a],
@@ -339,6 +345,7 @@ fn inhibited_typematic_does_not_accumulate_a_burst_and_modifiers_repeat() {
     event(&mut controller, key(KeyCode::Pause, true));
     assert_eq!(drain(&mut controller), [0xe1, 0x1d, 0x45, 0xe1, 0x9d, 0xc5]);
     controller.advance(Duration::from_secs(23));
+    controller.finish_transfers();
     assert_eq!(
         drain(&mut controller),
         [0x2a],
