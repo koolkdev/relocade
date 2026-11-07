@@ -1,4 +1,6 @@
 use super::*;
+#[path = "../../../machine/tests/support/clock.rs"]
+mod clock;
 use relocade_machine::Device;
 use relocade_pic::{Pic, KEYBOARD_IRQ};
 use std::{
@@ -13,13 +15,18 @@ fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
     let mut pic = Pic::default();
     pic.unmask_irq(KEYBOARD_IRQ);
     let controller = Controller::new(&pic);
+    let clock = clock::ManualClock::default();
     let (commands, _incoming) = async_channel::bounded(1);
     let mut firmware = pin!(controller.run(commands));
     let mut cx = Context::from_waker(Waker::noop());
 
     // Supply keyboard bytes directly to the controller. Their arrival relative
     // to guest writes must not depend on how often the keyboard task is polled.
-    assert!(pin!(controller.send_keyboard(0xf0))
+    assert!(pin!(controller.send_keyboard(0xf0, &clock))
+        .poll(&mut cx)
+        .is_pending());
+    clock.advance(Duration::from_micros(880));
+    assert!(pin!(controller.send_keyboard(0xf0, &clock))
         .poll(&mut cx)
         .is_ready());
     assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
@@ -27,7 +34,11 @@ fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
     assert!(firmware.as_mut().poll(&mut cx).is_pending());
     controller.write(DATA_PORT, 0x44); // Disable IRQ1, retaining translation.
     assert!(firmware.as_mut().poll(&mut cx).is_pending());
-    assert!(pin!(controller.send_keyboard(0x1c))
+    assert!(pin!(controller.send_keyboard(0x1c, &clock))
+        .poll(&mut cx)
+        .is_pending());
+    clock.advance(Duration::from_micros(1760));
+    assert!(pin!(controller.send_keyboard(0x1c, &clock))
         .poll(&mut cx)
         .is_ready());
     assert_ne!(controller.status() & OUTPUT_BUFFER_FULL, 0);

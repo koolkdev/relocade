@@ -9,7 +9,8 @@ use relocade_machine::{worker::wake_connection, Clock, CpuStorage, IoBus, Runner
 use relocade_pic::{end_of_interrupt, Pic, KEYBOARD_IRQ, PORT_RANGE};
 use std::{
     cell::{Cell, RefCell},
-    future::{pending, poll_fn},
+    future::{pending, poll_fn, Future},
+    pin::pin,
     rc::Rc,
     task::{Context, Poll, Waker},
     time::Duration,
@@ -68,18 +69,27 @@ fn key(code: KeyCode, repeat: bool) -> KeyboardEvent {
     }
 }
 
-async fn next_byte(io: &IoBus) -> u8 {
-    io.wait_port(STATUS_COMMAND_PORT, 1, |status| {
+async fn next_byte(io: &IoBus, clock: &ManualClock) -> u8 {
+    let mut ready = pin!(io.wait_port(STATUS_COMMAND_PORT, 1, |status| {
         status & u32::from(OUTPUT_BUFFER_FULL) != 0
-    })
-    .await;
-    assert_eq!(
-        io.poll_interrupt(&mut Context::from_waker(Waker::noop())),
-        Poll::Ready(9)
-    );
-    let byte = read_scan_code(io).expect("IRQ1 must expose an output byte");
-    end_of_interrupt(io);
-    byte
+    }));
+    for _ in 0..32 {
+        if poll_fn(|cx| Poll::Ready(ready.as_mut().poll(cx)))
+            .await
+            .is_ready()
+        {
+            assert_eq!(
+                io.poll_interrupt(&mut Context::from_waker(Waker::noop())),
+                Poll::Ready(9)
+            );
+            let byte = read_scan_code(io).expect("IRQ1 must expose an output byte");
+            end_of_interrupt(io);
+            return byte;
+        }
+        clock.advance(clock.now().as_millis() as u64 + 1);
+        relocade_machine::yield_now().await;
+    }
+    panic!("keyboard did not complete a transfer");
 }
 
 async fn no_output(io: &IoBus) {
@@ -112,40 +122,45 @@ async fn connected_activity() {
             write_controller_command(&io, 0x60).await; // Wait while firmware awaits the option.
             io.write_port(DATA_PORT, 1, 0x55); // Preserve inhibition and IRQ/translation.
             write_controller_command(&io, 0x20).await; // Read command byte.
-            assert_eq!(next_byte(&io).await, 0x55, "interface is inhibited");
+            assert_eq!(next_byte(&io, &clock).await, 0x55, "interface is inhibited");
             write_controller_command(&io, ENABLE_INTERFACE).await;
             io.write_port(DATA_PORT, 1, 0xf3); // Program typematic delay/rate.
-            assert_eq!(next_byte(&io).await, 0xfa);
+            assert_eq!(next_byte(&io, &clock).await, 0xfa);
             io.write_port(DATA_PORT, 1, 0); // 250ms delay, 30Hz.
-            assert_eq!(next_byte(&io).await, 0xfa);
+            assert_eq!(next_byte(&io, &clock).await, 0xfa);
+            let pressed_at = clock.now().as_millis() as u64;
             input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
-            assert_eq!(next_byte(&io).await, 0x1e);
-            clock.advance(249);
+            assert_eq!(next_byte(&io, &clock).await, 0x1e);
+            clock.advance(pressed_at + 249);
             no_output(&io).await;
-            clock.advance(250);
-            assert_eq!(next_byte(&io).await, 0x1e);
+            clock.advance(pressed_at + 250);
+            assert_eq!(next_byte(&io, &clock).await, 0x1e);
             clock.advance(4000);
-            assert_eq!(next_byte(&io).await, 0x1e);
+            assert_eq!(next_byte(&io, &clock).await, 0x1e);
             no_output(&io).await; // Late scheduling produces one repeat, not a burst.
             input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
-            assert_eq!(next_byte(&io).await, 0x9e);
+            assert_eq!(next_byte(&io, &clock).await, 0x9e);
             clock.advance(5000);
             no_output(&io).await;
 
             input
                 .unbounded_send(KeyboardEvent::Modifiers(ModifiersState::SHIFT))
                 .unwrap();
-            assert_eq!(next_byte(&io).await, 0x2a);
+            assert_eq!(next_byte(&io, &clock).await, 0x2a);
             input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
-            assert_eq!(next_byte(&io).await, 0x1e);
+            assert_eq!(next_byte(&io, &clock).await, 0x1e);
             input.unbounded_send(key(KeyCode::KeyA, true)).unwrap();
             input.unbounded_send(key(KeyCode::KeyB, false)).unwrap();
-            assert_eq!(next_byte(&io).await, 0x30, "host repeat was suppressed");
+            assert_eq!(
+                next_byte(&io, &clock).await,
+                0x30,
+                "host repeat was suppressed"
+            );
             input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
             let mut releases = [
-                next_byte(&io).await,
-                next_byte(&io).await,
-                next_byte(&io).await,
+                next_byte(&io, &clock).await,
+                next_byte(&io, &clock).await,
+                next_byte(&io, &clock).await,
             ];
             releases.sort();
             assert_eq!(releases, [0x9e, 0xaa, 0xb0]);

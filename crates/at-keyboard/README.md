@@ -34,6 +34,19 @@ byte. The PIC owns masking, acknowledgement and EOI. The register and flag behav
 follows Intel's [UPI-41A/41AH/42/42AH User's Manual](https://www.ceibo.com/eng/datasheets/Intel-8041-Manual.pdf),
 pp. 20–21 and 56–57.
 
+Keyboard bytes use the runner's clock with a nominal 12.5 kHz serial clock:
+eleven bits take 880 microseconds. Every raw byte takes a frame, including F0
+break prefixes consumed by set-2 translation. Reading the output register makes
+space for the next frame; it does not publish the next byte immediately. The
+controller retains the active byte and deadline across unrelated input and
+canceled Rust waits. Interface inhibition restarts any frame not yet published
+to OBF after release, and host keyboard commands take priority over that output.
+This byte-boundary approximation includes elapsed but unpublished frames; it
+does not implement the IBM wire protocol's tenth-clock cutoff for interruption.
+The normal runner clock uses elapsed host time; device activity publishes
+completed transfers when it is polled. Electrical bit sampling and CPU-cycle
+timing are outside this model.
+
 Supported controller commands are command-byte read/write (20h/60h), self/interface
 test (AAh/ABh), interface disable/enable (ADh/AEh), and output injection (D2h).
 Controller replies wait for an empty output register while firmware continues
