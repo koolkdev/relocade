@@ -17,7 +17,7 @@ relocade-frontend = { path = "../frontend", features = ["keyboard"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 futures-timer = "=3.0.4"
-relocade-at-keyboard = { path = "../at-keyboard" }
+relocade-ps2 = { path = "../ps2" }
 relocade-pic = { path = "../pic" }
 pollster = "=1.0.1"
 relocade-vga = { path = "../vga", features = ["renderer"] }

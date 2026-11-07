@@ -52,7 +52,7 @@ impl Wake for Notified {
 }
 
 pub(super) struct Fixture {
-    device: Rc<RefCell<KeyboardController<ManualClock>>>,
+    device: Rc<RefCell<Ps2Controller<ManualClock>>>,
     activity: LocalBoxFuture<'static, ()>,
     clock: ManualClock,
     notified: Arc<Notified>,
@@ -63,12 +63,12 @@ impl Fixture {
     pub fn new(pic: &Pic) -> Self {
         let clock = ManualClock::default();
         let (input, events) = frontend::channel();
-        let device = Rc::new(RefCell::new(KeyboardController {
-            controller: Rc::new(Controller::new(pic)),
+        let device = Rc::new(RefCell::new(Ps2Controller {
+            controller: Rc::new(Controller::new(pic, [controller::Port::Keyboard])),
             startup: Some((clock.clone(), events)),
         }));
         let mut fixture = Self {
-            activity: Box::pin(KeyboardController::run(device.clone())),
+            activity: Box::pin(Ps2Controller::run(device.clone())),
             device,
             clock,
             notified: Arc::default(),
