@@ -50,6 +50,35 @@ fn dac_format_reports_fixed_width_without_disturbing_palette_transfers() {
 }
 
 #[test]
+fn direct_color_modes_preserve_the_dac_and_reject_format_control() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        {
+            let context = dos.cpu().context();
+            context.io.write_port(0x3c8, 1, 17);
+            context.io.write_port(0x3c9, 1, 42); // Leave the transfer at green.
+            context.io.write_port(0x3c6, 1, 0x5a);
+        }
+        let dac = dos.vga().borrow().dac_state();
+        for mode in [0x111, 0x114, 0x117, 0x142, 0x143, 0x144] {
+            assert_eq!(video(&mut dos, 0x4f02, mode, 0, 0).registers.eax, 0x4f);
+            assert_eq!(dos.vga().borrow().dac_state(), dac);
+            dos.cpu().context().io.write_port(0x1ce, 2, 0x1234);
+            for request in [1, 0x0600, 0x0800] {
+                let result = video(&mut dos, 0x4f08, request, 0x5678, 0x6789).registers;
+                assert_eq!(
+                    [result.eax, result.ebx, result.ecx, result.edx],
+                    [0x34f, u32::from(request), 0x5678, 0x6789]
+                );
+                assert_eq!(dos.vga().borrow().dac_state(), dac);
+                assert_eq!(dos.cpu().context().io.read_port(0x1ce, 2), 0x1234);
+            }
+        }
+    });
+}
+
+#[test]
 fn packed_modes_share_legacy_palette_colors_mask_and_wrapping_buffers() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

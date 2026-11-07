@@ -3,7 +3,7 @@
 use super::{available, layout, Mode};
 use crate::BIOS_SEGMENT;
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, IoBus, MemoryView};
-use relocade_vga::{registers::dispi, VIDEO_MEMORY_BYTES};
+use relocade_vga::{registers::dispi, PixelFormat, VIDEO_MEMORY_BYTES};
 
 // Follows the legacy video parameter table (F000:A700–AE3F).
 const OEM: FarPointer = FarPointer {
@@ -79,6 +79,17 @@ pub(super) fn mode(
     bytes[18..20].copy_from_slice(&width.to_le_bytes());
     bytes[20..22].copy_from_slice(&height.to_le_bytes());
     bytes[22..28].copy_from_slice(&[8, 16, 1, mode.display.bits_per_pixel(), 1, 4]);
+    let masks = match mode.display.format() {
+        PixelFormat::Indexed8 => None,
+        PixelFormat::Rgb565 => Some([5, 11, 6, 5, 5, 0, 0, 0, 0]),
+        PixelFormat::Bgrx8888 => Some([8, 16, 8, 8, 8, 0, 8, 24, 2]),
+    };
+    if let Some(masks) = masks {
+        // Direct color, with a fixed color ramp.
+        bytes[27] = 6;
+        // RGB and reserved masks, then DirectColorModeInfo: X is application storage.
+        bytes[31..40].copy_from_slice(&masks);
+    }
     // No interleaved scanline banks. VBE counts additional complete display pages.
     bytes[29] = (layout.image_pages() - 1) as u8;
     bytes[30] = 1; // VBE 1.2's reserved page-function byte.

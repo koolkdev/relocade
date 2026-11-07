@@ -47,6 +47,56 @@ fn logical_scanlines_report_actual_pitch_and_mode_information() {
 }
 
 #[test]
+fn direct_color_scanlines_distinguish_pixel_width_from_byte_pitch() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        for (mode, pixel_bytes, max_pitch, rounded_rows) in
+            [(0x111, 2u16, 8738, 2046), (0x142, 4, 8736, 1023)]
+        {
+            video(&mut dos, 0x4f02, mode, 0, 0);
+            let pitch = 1024 * pixel_bytes;
+            let rows = 4096 / pixel_bytes;
+            scanline(&mut dos, 0, 1024, [0x4f, pitch, 1024, rows]);
+            scanline(&mut dos, 1, 0, [0x4f, pitch, 1024, rows]);
+            let (_, bytes) = information(&mut dos, 1, mode, 0x200);
+            assert_eq!(&bytes[16..18], &pitch.to_le_bytes());
+            let (_, other) = information(&mut dos, 1, 0x101, 0x200);
+            assert_eq!(&other[16..18], &640u16.to_le_bytes());
+            scanline(
+                &mut dos,
+                2,
+                pitch + 1,
+                [0x4f, pitch + pixel_bytes, 1025, rounded_rows],
+            );
+            scanline(&mut dos, 0, 1024, [0x4f, pitch, 1024, rows]);
+            assert_eq!(request(&mut dos, 7, 0, 384, rows - 480).registers.eax, 0x4f);
+            video(&mut dos, 0x4f05, 0, 0, 63);
+            dos.cpu().context().memory.write_u8(0xaffff, 0xa5).unwrap();
+            scanline(&mut dos, 0, 640, [0x14f, 0, 640, 0xabcd]);
+            scanline(
+                &mut dos,
+                2,
+                max_pitch + 1,
+                [0x24f, 2, max_pitch + 1, 0xabcd],
+            );
+            scanline(&mut dos, 0, 0xffff, [0x24f, 0, 0xffff, 0xabcd]);
+            scanline(
+                &mut dos,
+                3,
+                0,
+                [0x4f, max_pitch, max_pitch / pixel_bytes, 480],
+            );
+            scanline(&mut dos, 1, 0, [0x4f, pitch, 1024, rows]);
+            let origin = request(&mut dos, 7, 1, 0, 0).registers;
+            assert_eq!((origin.ecx, origin.edx), (384, u32::from(rows - 480)));
+            assert_eq!(video(&mut dos, 0x4f05, 0x100, 0, 0).registers.edx, 63);
+            assert_eq!(dos.cpu().context().memory.read_u8(0xaffff).unwrap(), 0xa5);
+        }
+    });
+}
+
+#[test]
 fn rejected_scanlines_preserve_viewport_banking_and_memory() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
