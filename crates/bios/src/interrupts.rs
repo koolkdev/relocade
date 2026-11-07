@@ -6,6 +6,7 @@ use relocade_machine::{
     Clock, CpuContext, FarPointer,
 };
 use relocade_vga::Vga;
+use relocade_x86::Exception;
 use std::{cell::RefCell, rc::Rc};
 
 /// Default PC IRQ0 vector. Guest PIC remapping can select a different vector.
@@ -68,6 +69,10 @@ const BREAK_CALLBACK_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xffa0,
 };
+const EXCEPTION_ENTRIES: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xffb0,
+};
 
 /// Registers BIOS vectors and their handlers alongside an environment's interrupts.
 /// The keyboard is retained by its handler and may be shared with console input.
@@ -79,6 +84,19 @@ pub fn register_interrupts<C: Clock + 'static>(
     keyboard: Keyboard,
     vga: Rc<RefCell<Vga<C>>>,
 ) {
+    for (index, exception) in [
+        Exception::DivideError,
+        Exception::BoundRangeExceeded,
+        Exception::InvalidOpcode,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        interrupts.register_unhandled_exception(
+            exception,
+            EXCEPTION_ENTRIES.wrapping_add(index * real_mode_interrupt::HOOK_STUB.len()),
+        );
+    }
     let irq_keyboard = keyboard.clone();
     register_irq(
         interrupts,
