@@ -1,12 +1,36 @@
-//! Real-mode entry shared by software INT and acknowledged external requests.
+//! Real-mode entry shared by software INT, faults and acknowledged external requests.
 
 use super::{CodeTarget, ExecutionBuilder};
 use crate::{
     flags::{image, Flag},
     real_mode::{FarPointer, InterruptFrame},
-    ExecutionExitValues, ExecutionProfile, Segment,
+    ExceptionCase, ExceptionValues, ExceptionVector, ExecutionExitValues, ExecutionProfile,
+    Segment,
 };
-use relocade_compiler::{BuildError, Val, I1, I16, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, TypedFunc, Val, I1, I16, I32, I8};
+
+/// The caller has published the fault's restart boundary. Instruction faults
+/// tail-call the module's entry helper; entry failures and unsupported delivery
+/// return directly, without another attempt to enter a handler.
+pub(super) fn raise_exception(
+    mut body: BlockBuilder<'_>,
+    exception: ExceptionValues,
+    interrupt: Option<TypedFunc<crate::abi::InterruptSignature>>,
+) -> Result<(), BuildError> {
+    let Some(interrupt) = interrupt else {
+        return crate::state::exit::exception(body, exception);
+    };
+    exception.clone().match_(&mut body, |body, case| {
+        let vector = match case {
+            ExceptionCase::DivideError => ExceptionVector::DivideError,
+            ExceptionCase::BoundRangeExceeded => ExceptionVector::BoundRangeExceeded,
+            ExceptionCase::InvalidOpcode => ExceptionVector::InvalidOpcode,
+            _ => return crate::state::exit::exception(body, exception.clone()),
+        };
+        interrupt.tail_call(body, vector as u32)
+    })?;
+    body.trap()
+}
 
 impl ExecutionBuilder<'_, '_> {
     /// Software INT supplies its fallthrough; external entry saves the current IP.

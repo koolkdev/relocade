@@ -5,7 +5,7 @@ use crate::support::{
     step::{Event, TestModule},
 };
 
-fn interrupt_image(code: &[u8], vector: u8) -> Image {
+pub(super) fn interrupt_image(code: &[u8], vector: u8) -> Image {
     let mut image = image(code);
     image.cpu.flags.status_source.kind = 0;
     image.cpu.segments.ss = cache(Segment::Ss, 0x2000);
@@ -17,7 +17,10 @@ fn interrupt_image(code: &[u8], vector: u8) -> Image {
 }
 
 fn entered(image: &Image, length: usize) -> CpuState {
-    let mut cpu = retired(image, length);
+    handler_state(retired(image, length))
+}
+
+pub(super) fn handler_state(mut cpu: CpuState) -> CpuState {
     cpu.eip = 0xffff;
     cpu.segments.cs = cache(Segment::Cs, 0xffff);
     cpu.registers.esp -= 6;
@@ -26,6 +29,30 @@ fn entered(image: &Image, length: usize) -> CpuState {
     cpu.flags.bytes.ac = 0;
     cpu
 }
+
+fn faults(frontend: Frontend) {
+    let mut cases = sequences(frontend);
+    for (code, vector) in [
+        (&[0xf6, 0xf3][..], 0),       // DIV BL.
+        (&[0x62, 0x06, 0, 5][..], 5), // BOUND AX,[0500].
+        (&[0x0f, 0x0b][..], 6),       // UD2.
+    ] {
+        let mut image = interrupt_image(code, vector);
+        image.cpu.registers.eax = 1;
+        image.cpu.registers.ebx = 0;
+        cases.check(
+            "instruction faults save the faulting IP and enter without retirement",
+            code,
+            &image,
+            &[Step {
+                cpu: handler_state(image.cpu),
+                ram: &[(0x8000, &[0, 0x10, 0, 0, 0xd7, 0x5f])],
+                exit: Exit::Other(relocade_x86::ExecutionExit::InterruptEntered),
+            }],
+        );
+    }
+}
+test_frontends!(faults_enter_through_the_live_ivt, faults);
 
 fn frames(frontend: Frontend) {
     let mut cases = sequences(frontend);

@@ -120,8 +120,8 @@ async fn faults() {
         if !entry_fault {
             memory
                 .view()
-                .write(0x300, &[0x0f, 0x0b, 0x40, 0xcf])
-                .unwrap(); // UD2; INC AX; IRET.
+                .write(0x300, &[0x67, 0xa1, 0, 0, 1, 0, 0x40, 0xcf])
+                .unwrap(); // MOV AX,[10000] exceeds DS; INC AX; IRET.
         }
         let started = Rc::new(Cell::new(0));
         let finished = Rc::new(Cell::new(0));
@@ -141,7 +141,7 @@ async fn faults() {
         let exception = if entry_fault {
             Exception::StackFault { error_code: 0 }
         } else {
-            Exception::InvalidOpcode
+            Exception::GeneralProtection { error_code: 0 }
         };
         assert_eq!(runner.run().await, ExecutionExit::Exception(exception));
         assert_eq!(started.get(), 1);
@@ -151,7 +151,7 @@ async fn faults() {
             state.set_sp(0x7ffa);
         } else {
             assert_eq!(state.eip(), 0x300);
-            state.set_eip(0x302); // The embedding handles the guest fault and resumes after UD2.
+            state.set_eip(0x306); // Resume after the undelivered segment-limit fault.
         }
         assert_eq!(
             support::run_until(&mut runner, 0x102).await,

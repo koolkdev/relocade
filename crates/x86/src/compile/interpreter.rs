@@ -1,14 +1,8 @@
-use std::rc::Rc;
-
 use relocade_compiler::{abi::Function, BuildError, Program};
 
 use crate::{
-    decode::RuntimeDecoder,
-    execution::ExecutionBuilder,
-    memory::Memory,
-    runtime::Runtime,
-    state::{Cpu, State},
-    CompiledModule, ExecutionProfile,
+    decode::RuntimeDecoder, execution::ExecutionModule, state::State, CompiledModule,
+    ExecutionProfile,
 };
 
 use super::Compiler;
@@ -20,7 +14,8 @@ use super::Compiler;
 /// Real16 STI from IF=0 and MOV/POP SS instead return `InterruptInhibited`;
 /// the embedding must execute their protected successor through `step`.
 /// Conditional branches dispatch on both outcomes without fetching the successor.
-/// Guest faults and unsupported forms return directly with earlier work published.
+/// Supported Real16 faults enter their IVT handler and return `InterruptEntered`.
+/// Other faults and unsupported forms return directly with earlier work published.
 ///
 /// Each instruction reads live guest bytes and starts with fresh prefix state.
 /// The host must establish profile compatibility before entry, as described by
@@ -51,7 +46,9 @@ pub fn compile_interpreter(
 /// An inhibiting Real16 STI/MOV SS/POP SS instead returns `InterruptInhibited`,
 /// requesting another protected step before IRQ polling or an execution interrupt.
 /// Real16 POPF/IRET that enables IF returns `InterruptsEnabled`.
-/// Guest faults and unsupported forms return directly without retiring it.
+/// Supported Real16 faults enter their IVT handler and return `InterruptEntered`
+/// without executing the handler or retiring the faulting instruction.
+/// Other faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before returning and retains completed elements on a fault.
 /// This entry checks execution interrupts after retirement.
 ///
@@ -107,24 +104,13 @@ impl Compiler {
     fn compile_runtime(&self, entry: InterpreterEntry) -> Result<CompiledModule, BuildError> {
         let profile = self.target.profile;
         let mut program = Program::new();
-        let cpu = Rc::new(Cpu::declare(&mut program));
-        let memory = Rc::new(Memory::declare(&mut program, profile));
-        let runtime = Runtime::declare(&mut program);
-        let target = self.target;
-        if profile == ExecutionProfile::Real16 {
-            let cpu = cpu.clone();
-            let memory = memory.clone();
-            crate::abi::INTERRUPT.define(&mut program, move |mut body, (vector,)| {
-                let eip = cpu.read_eip(&mut body)?;
-                ExecutionBuilder::new(body, &cpu, &memory, runtime, eip, target)?
-                    .deliver_interrupt(vector)
-            })?;
-        }
-        let before_cpu = cpu.clone();
+        let execution = ExecutionModule::declare(&mut program, self.target);
+        execution.export_interrupt(&mut program)?;
+        let before_cpu = execution.cpu.clone();
         let decoder = RuntimeDecoder::new(
             &mut program,
-            cpu.clone(),
-            memory.clone(),
+            execution.cpu.clone(),
+            execution.memory.clone(),
             profile,
             move |body| {
                 let single_step = RuntimeDecoder::single_step(body)?;
@@ -137,10 +123,10 @@ impl Compiler {
             move |body, decoded, continuation| {
                 let single_step = RuntimeDecoder::single_step(&body)?;
                 let ends_block = decoded.instruction.ends_block();
-                let mut execution =
-                    ExecutionBuilder::new(body, &cpu, &memory, runtime, &decoded.eip, target)?
-                        .with_cpu_features_from_context()?
-                        .with_single_step(single_step);
+                let mut execution = execution
+                    .builder(body, &decoded.eip)?
+                    .with_cpu_features_from_context()?
+                    .with_single_step(single_step);
                 execution.execute(decoded)?;
                 if ends_block {
                     execution.dispatch()

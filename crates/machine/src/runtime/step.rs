@@ -7,6 +7,8 @@ impl Cpu {
     /// Executes the current instruction through the interpreter and publishes
     /// its state. Does not dispatch installed hooks or poll device IRQs. REP
     /// completes as one instruction; faults preserve its completed elements.
+    /// Supported Real16 faults enter the IVT handler and return `InterruptEntered`
+    /// without retiring the faulting instruction or executing the handler.
     ///
     /// STI and SS loads also execute their protected successor before returning,
     /// including another protected successor if that instruction inhibits IRQs.

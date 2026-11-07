@@ -4,18 +4,13 @@ use super::{
     decode::{self, DecodedBlock},
     BlockEntry, BlockSnapshot, CompiledBlocks, Compiler,
 };
-use crate::{
-    execution::ExecutionBuilder, memory::Memory, runtime::Runtime, state::Cpu, BlockError,
-};
+use crate::{execution::ExecutionModule, BlockError};
 use relocade_compiler::Program;
-use std::rc::Rc;
 
 pub(super) struct BlockModule<'a> {
     compiler: &'a Compiler,
     program: Program,
-    cpu: Rc<Cpu>,
-    memory: Rc<Memory>,
-    runtime: Runtime,
+    execution: ExecutionModule,
 }
 
 impl<'a> BlockModule<'a> {
@@ -38,37 +33,24 @@ impl<'a> BlockModule<'a> {
 
     fn new(compiler: &'a Compiler) -> Self {
         let mut program = Program::new();
-        let cpu = Rc::new(Cpu::declare(&mut program));
-        let memory = Rc::new(Memory::declare(&mut program, compiler.target.profile));
-        let runtime = Runtime::declare(&mut program);
+        let execution = ExecutionModule::declare(&mut program, compiler.target);
         Self {
             compiler,
             program,
-            cpu,
-            memory,
-            runtime,
+            execution,
         }
     }
 
     fn define_block(&mut self, block: DecodedBlock) -> Result<BlockEntry, BlockError> {
-        let cpu = self.cpu.clone();
-        let memory = self.memory.clone();
-        let runtime = self.runtime;
-        let target = self.compiler.target;
+        let module = self.execution.clone();
         let observed_cpu = self.compiler.observed_cpu;
         let function = self
             .program
             .function::<crate::abi::ExecutionSignature>(move |body, ()| {
-                let mut execution = ExecutionBuilder::new(
-                    body,
-                    &cpu,
-                    &memory,
-                    runtime,
-                    block.entry.start_eip,
-                    target,
-                )?
-                .with_interpreter_fallback()
-                .with_observed_cpu(observed_cpu.as_ref());
+                let mut execution = module
+                    .builder(body, block.entry.start_eip)?
+                    .with_interpreter_fallback()
+                    .with_observed_cpu(observed_cpu.as_ref());
                 execution.guard_fetch_span(block.entry.byte_len)?;
                 for instruction in block.instructions {
                     execution.execute(instruction)?;

@@ -16,13 +16,13 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
 pub enum ExecutionExit {
     /// A host entry or handler requested control outside guest execution.
     Host(HostExit),
+    /// An undelivered fault with CPU state at its restart boundary.
+    /// Real16 instruction entries deliver supported faults through the IVT;
+    /// other faults and failures during entry itself return this result.
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
-    UnsupportedInstruction {
-        eip: u32,
-        opcode: u8,
-    },
-    /// External interrupt entry completed without retiring an instruction.
+    UnsupportedInstruction { eip: u32, opcode: u8 },
+    /// Interrupt or exception entry completed without retiring an instruction.
     /// CPU state identifies the ISR; the caller may now dispatch guest execution.
     InterruptEntered,
     /// STI or an SS load completed with interrupt delivery inhibited. Execute
@@ -39,6 +39,9 @@ pub enum ExecutionExit {
     /// Real-mode POPF or IRET enabled interrupts. CPU state is published;
     /// poll pending device IRQs before continuing guest execution.
     InterruptsEnabled,
+    /// An installed default handler reported an exception to the embedding.
+    /// Architectural entry has completed; the fault location is in its saved frame.
+    UnhandledException(Exception),
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

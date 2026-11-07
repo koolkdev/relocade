@@ -71,6 +71,8 @@ Interpreter `step` executes one instruction, including all elements of a support
 REP instruction. After publishing state and checking execution controls, it returns
 `ExecutionExit::StepComplete` without dispatching or fetching the successor. This
 applies to taken and untaken branches, interrupt transfers and port operations too.
+Supported Real16 faults instead enter their IVT handler and return
+`ExecutionExit::InterruptEntered`, without retiring or executing the handler.
 
 ## Execution controls
 
@@ -133,7 +135,8 @@ compilation only.
 
 Interpreter STEP publishes one completed instruction and returns `StepComplete`
 without dispatching its successor. A pending execution interrupt takes precedence
-at that completed boundary. Faults retain their precise effects and exit reasons.
+at that completed boundary. Real16 #DE/#BR/#UD enter their IVT handler before
+returning `InterruptEntered`. Other faults retain their direct exit reasons.
 `relocade-machine::Cpu::step()` also completes any interrupt-inhibited successor
 chain before returning. It bypasses registered hooks and device IRQ polling and
 requires that no host calls remain active or suspended.
@@ -1095,10 +1098,22 @@ query rules for its code/data construction entries through the common packed
 
 ## Fault and host exits
 
-A guest fault returns directly without calling dispatch. Earlier completed
-instructions remain published; EIP identifies the faulting instruction, which
-does not retire. Its entry CPU state is preserved except for the partial progress
-described below.
+A guest fault publishes earlier completed instructions without retiring the
+faulting instruction. Real16 #DE, #BR and #UD then enter the live IVT handler,
+regardless of IF, using the same frame and flag operations as interrupt entry.
+Snapshot blocks, interpreter `run` and interpreter `step` all return
+`InterruptEntered` with the handler CS:IP published. The original faulting CS:IP
+and FLAGS are in the saved frame. Other faults return `Exception` directly,
+with EIP at the faulting instruction and the partial progress described below.
+
+Each Real16 module has one local interrupt-entry helper shared by its fault
+sites. The interpreter also exports that helper as `abi::INTERRUPT` for external
+IRQ entry. Fault delivery needs no additional execution entry point or host import.
+Entry failures return directly; nested-fault escalation is not implemented.
+
+An installed default handler can request `ExecutionExit::UnhandledException`
+through the CPU's exit handle. This terminal result releases pending and suspended
+Rust handlers. It does not cause another attempt at architectural entry.
 
 Architectural checks for a complete operand precede its writes. In protected mode
 this includes every page's write permission; Real16 transfers follow the physical
@@ -1228,9 +1243,10 @@ raised sticky exception flags; the instruction's XMM or EFLAGS destination is
 preserved. Existing sticky flags do not themselves trigger an exception.
 
 UD2 raises invalid opcode (#UD, architectural vector 6) after its complete encoding
-has been fetched. It preserves CPU state and memory, does not retire or dispatch,
-and leaves EIP at its first prefix or opcode byte. Snapshot compilation ends at
-UD2 without decoding subsequent bytes.
+has been fetched, without retiring. Real16 saves its first prefix or opcode address
+in the interrupt frame and enters vector 6. Protected profiles return the fault
+with CPU state and memory unchanged. Snapshot compilation ends at UD2 without
+decoding subsequent bytes.
 
 Page-fault error bit 0 means a present but denied page, bit 1 means a data write,
 and bit 4 means instruction fetch. Cached segment-access failures use #SS(0) for
@@ -1246,9 +1262,9 @@ construction reports `BlockError` for unsupported encodings; state-dependent
 unsupported paths remain
 runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
-Faults are reported to the host. Automatic delivery of guest faults, protected
-interrupt gates, privilege transitions, protected-mode external interrupts, debug
-delivery and mode transitions are not modeled. Native Wasm traps from broken
+Faults outside Real16 #DE/#BR/#UD are reported to the host. Protected interrupt
+gates, privilege transitions, protected-mode external interrupts, debug delivery
+and mode transitions are not modeled. Native Wasm traps from broken
 backing or internal arithmetic invariants are implementation errors, outside this
 guest-fault protocol.
 

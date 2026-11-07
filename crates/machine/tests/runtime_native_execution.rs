@@ -105,10 +105,11 @@ fn host_backing_access_respects_configured_capacity() {
 
 #[test]
 fn guest_exits_preserve_progress_and_live_code_can_be_replaced() {
-    let mut runtime = runtime(&[0x40, 0x0f, 0x0b]); // INC AX; UD2
+    // INC AX; MOV AX,[10000] exceeds the real-mode DS limit.
+    let mut runtime = runtime(&[0x40, 0x67, 0xa1, 0, 0, 1, 0]);
     assert_eq!(
         pollster::block_on(runtime.run()),
-        ExecutionExit::Exception(Exception::InvalidOpcode)
+        ExecutionExit::Exception(Exception::GeneralProtection { error_code: 0 })
     );
     assert_eq!(
         (
@@ -244,9 +245,22 @@ fn prepared_code_uses_configured_cpu_features() {
     let code = [0x0f, 0x44, 0xc0, 0xeb, 0]; // CMOVE AX,AX; JMP next
     enabled.context().memory.write(0x100, &code).unwrap();
     disabled.context().memory.write(0x100, &code).unwrap();
-    assert_eq!(enabled.step(), ExecutionExit::StepComplete);
-    assert_eq!(
-        disabled.step(),
-        ExecutionExit::Exception(Exception::InvalidOpcode)
+    disabled.cpu_state().set_sp(0x8000);
+    relocade_machine::real_mode_interrupt::write_vector(
+        &mut disabled.memory().view(),
+        Exception::InvalidOpcode.vector() as u8,
+        relocade_machine::FarPointer {
+            segment: 0,
+            offset: 0x600,
+        },
     );
+    assert_eq!(enabled.step(), ExecutionExit::StepComplete);
+    assert_eq!(disabled.step(), ExecutionExit::InterruptEntered);
+    assert_eq!(disabled.cpu_state().eip(), 0x600);
+    assert_eq!(disabled.cpu_state().instruction_count(), 0);
+    let frame = relocade_machine::real_mode_interrupt::read_frame(
+        &disabled.cpu_state(),
+        &disabled.memory().view(),
+    );
+    assert_eq!(frame.return_address.offset, 0x100);
 }

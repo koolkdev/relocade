@@ -24,6 +24,7 @@ fn exit_module() -> Vec<u8> {
         "host_return",
         "host_call",
         "host_resume",
+        "unhandled_exception",
     ] {
         Function::<fn(u32, u32) -> ExecutionExit>::new("test", name)
             .define(&mut program, move |body, (detail, address)| {
@@ -46,6 +47,11 @@ fn exit_module() -> Vec<u8> {
                     }
                     "host_resume" => {
                         return body.return_(ExecutionExitValues::host(HostExit::Resume))
+                    }
+                    "unhandled_exception" => {
+                        return body.return_(ExecutionExitValues::unhandled_exception(
+                            ExceptionValues::page_fault(address, detail),
+                        ))
                     }
                     "interrupt_entered" => {
                         return body.return_(ExecutionExitValues::interrupt_entered())
@@ -116,6 +122,13 @@ fn generated_exits_preserve_payloads() {
         ("host_return", ExecutionExit::Host(HostExit::Return)),
         ("host_resume", ExecutionExit::Host(HostExit::Resume)),
         (
+            "unhandled_exception",
+            ExecutionExit::UnhandledException(Exception::PageFault {
+                linear_address: address,
+                error_code: detail,
+            }),
+        ),
+        (
             "host_call",
             ExecutionExit::Host(HostExit::Call {
                 service_id: address,
@@ -164,6 +177,13 @@ fn execution_exits_share_four_wasm_values() {
                 service_id: address,
             }),
             (0, 1, address as i32, 0),
+        ),
+        (
+            ExecutionExit::UnhandledException(Exception::PageFault {
+                linear_address: address,
+                error_code,
+            }),
+            (8, 6, address as i32, error_code as i32),
         ),
         (ExecutionExit::InterruptEntered, (3, 0, 0, 0)),
         (ExecutionExit::InterruptInhibited, (4, 0, 0, 0)),

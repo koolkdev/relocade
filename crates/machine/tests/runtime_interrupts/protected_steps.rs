@@ -3,7 +3,7 @@ use relocade_machine::{Cpu, DispatchEntry, Hook};
 use relocade_x86::{Compiler, Exception, ExecutionExit, ExecutionProfile, HostExit};
 use std::{cell::RefCell, rc::Rc};
 
-async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) {
+pub(super) async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) {
     if compiled {
         let module = Compiler::new(ExecutionProfile::Real16)
             .compile_block(0x100, code, 1)

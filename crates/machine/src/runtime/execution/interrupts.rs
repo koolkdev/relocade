@@ -2,7 +2,7 @@
 
 use super::{Cpu, SuspendedCall};
 use futures_channel::oneshot;
-use relocade_x86::{ExecutionExit, ExecutionProfile, HostExit};
+use relocade_x86::{ExecutionExit, ExecutionProfile};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -54,8 +54,8 @@ impl Cpu {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Result<bool, ExecutionExit> {
-        if self.exit.0.get() {
-            return Err(ExecutionExit::Host(HostExit::Return));
+        if let Some(exit) = self.exit.0.get() {
+            return Err(exit);
         }
         let invocation = self.interrupt_calls.take();
         let interrupt = match &invocation {
@@ -63,8 +63,8 @@ impl Cpu {
             None => self.poll_irq(cx),
         };
         // Device callbacks can request an exit, including when no IRQ is ready.
-        if self.exit.0.get() {
-            return Err(ExecutionExit::Host(HostExit::Return));
+        if let Some(exit) = self.exit.0.get() {
+            return Err(exit);
         }
         let Poll::Ready(vector) = interrupt else {
             return Ok(false);
@@ -75,8 +75,8 @@ impl Cpu {
             .enter_interrupt(&mut self.machine.backend, vector);
         // Frame writes and IVT reads may also request an exit. Observe it before
         // parking a call or executing the ISR, even when IRQ entry faults.
-        if self.exit.0.get() {
-            return Err(ExecutionExit::Host(HostExit::Return));
+        if let Some(exit) = self.exit.0.get() {
+            return Err(exit);
         }
         if entered != ExecutionExit::InterruptEntered {
             // An entry fault leaves the caller waiting. Retry from that same
