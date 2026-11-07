@@ -38,7 +38,7 @@ async fn check_hello() {
     );
     assert!(common::output(dos.stdout()).is_empty()); // INT completed, before entering the hook.
     assert_eq!(
-        common::checkpoint(dos.cpu()).await,
+        common::run_until(dos.cpu(), 0x107).await,
         ExecutionExit::Interrupted
     );
     assert_eq!(common::output(dos.stdout()), b"Hello, DOS!\r\n");

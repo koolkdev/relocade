@@ -193,17 +193,33 @@ fn returning_break_handler_restarts_line_editing_and_repeats_the_requested_flush
         assert_eq!(line, [8, 2, b'\t', b'K', b'\r']);
         assert_eq!(common::output(dos.stdout()), b"ab^C\r\n        K\r");
 
-        start(&mut dos, 0x0c08);
-        common::assert_pending(dos.cpu().run());
-        dos.stdin().write_all(b"\x03K").unwrap();
-        common::assert_pending(dos.cpu().run());
-        // Restarting AH=0Ch repeats the flush, discarding K after the break.
-        dos.stdin().write_all(b"N").unwrap();
-        assert_eq!(
-            common::run_until(dos.cpu(), 0x102).await,
-            ExecutionExit::Interrupted
-        );
-        assert_eq!(dos.cpu().cpu_state().al(), b'N');
+        for function in [0x0c08, 0x0c0a] {
+            start(&mut dos, function);
+            common::assert_pending(dos.cpu().run());
+            dos.stdin()
+                .write_all(if function == 0x0c08 {
+                    b"\x03K"
+                } else {
+                    b"ab\x03K"
+                })
+                .unwrap();
+            common::assert_pending(dos.cpu().run());
+            // Both reads repeat AH=0Ch's flush, discarding K after the break.
+            dos.stdin()
+                .write_all(if function == 0x0c08 { b"N" } else { b"N\r" })
+                .unwrap();
+            assert_eq!(
+                common::run_until(dos.cpu(), 0x102).await,
+                ExecutionExit::Interrupted
+            );
+            if function == 0x0c08 {
+                assert_eq!(dos.cpu().cpu_state().al(), b'N');
+            } else {
+                let mut line = [0; 4];
+                dos.cpu().memory().view().read(0x10400, &mut line).unwrap();
+                assert_eq!(line, [8, 1, b'N', b'\r']);
+            }
+        }
     });
 }
 
