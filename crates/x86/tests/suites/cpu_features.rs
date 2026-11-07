@@ -41,20 +41,46 @@ fn disabled_forms(frontend: Frontend) {
                 }
                 image.cpu.flags.status_source.kind = 0;
                 image.cpu.flags.bytes.zf = 0; // Even an untaken CMOVE requires CMOV.
+                if profile == ExecutionProfile::Real16 {
+                    image.cpu.flags.set_eflags(0x202);
+                    image.cpu.registers.esp = 0x5555_5006;
+                    image.map(0, 0x7000, false);
+                    image.map(5, 0x8000, true);
+                    image.data(0x7018, &[0, 6, 0, 0]); // #UD vector -> 0000:0600.
+                }
                 let module = match frontend {
                     Frontend::Block => blocks.get_with_target(&image.cpu, &code, 8, target),
                     Frontend::Interpreter => TestModule::interpreter_with_target(target),
                 };
-                image.check_unchanged_exit(
-                    module,
-                    "disabled capability precedes register, flag and unmapped-memory access",
-                    Exit::InvalidOpcode,
-                );
+                if profile == ExecutionProfile::Real16 {
+                    let mut cpu = image.cpu;
+                    cpu.eip = 0x600;
+                    cpu.registers.esp -= 6;
+                    cpu.flags.set_eflags(2);
+                    assert_eq!(
+                        module.observe(&image.input(), 1),
+                        expected(
+                            &image,
+                            &[Step {
+                                cpu,
+                                ram: &[(0x8000, &[0, 0x10, 0, 0, 2, 2])],
+                                exit: Exit::Other(relocade_x86::ExecutionExit::InterruptEntered),
+                            }]
+                        ),
+                        "disabled capability enters #UD before operand access"
+                    );
+                } else {
+                    image.check_unchanged_exit(
+                        module,
+                        "disabled capability precedes register, flag and unmapped-memory access",
+                        Exit::InvalidOpcode,
+                    );
+                }
             }
         }
     }
 }
-test_frontends!(disabled_forms_preserve_state, disabled_forms);
+test_frontends!(disabled_forms_fault_before_operand_access, disabled_forms);
 
 fn restricted_compiler() -> Compiler {
     Compiler::new(SegmentProfile::Flat32)

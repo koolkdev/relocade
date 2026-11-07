@@ -3,6 +3,7 @@ mod control;
 mod interrupt;
 mod memory;
 mod mmx;
+mod module;
 mod operands;
 mod ports;
 mod processor;
@@ -16,18 +17,19 @@ mod x87;
 
 pub(crate) use control::CodeTarget;
 pub(crate) use memory::{MemoryOperand, OperandSpan};
+pub(crate) use module::ExecutionModule;
 pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 pub(crate) use x87::{X87MemoryFormat, X87Operand, X87Operands};
 
-use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, TypedFunc, Val, I1, I16, I32, I64, I8};
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
-use crate::memory::{Access, Accesses, Intent, Memory};
+use crate::memory::{Access, Accesses, Intent};
 use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
-use crate::state::{exit, Cpu, SegmentReads, State};
+use crate::state::{exit, SegmentReads, State};
 use crate::{
     address::AddressSize, exception::ExceptionValues, CpuState, ExecutionProfile, ExecutionTarget,
 };
@@ -47,6 +49,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     locked: bool,
     x87_opcode: Option<Val<I16>>,
     runtime: Runtime,
+    interrupt: Option<TypedFunc<crate::abi::InterruptSignature>>,
     single_step: Val<I1>,
     eip: Val<I32>,
     completed: u32,
@@ -55,27 +58,26 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
 }
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
-    pub(super) fn new(
+    fn new(
         body: BlockBuilder<'body>,
-        cpu: &'module Cpu,
-        memory: &'module Memory,
-        runtime: Runtime,
+        module: &'module ExecutionModule,
         start: impl Into<Val<I32>>,
-        target: ExecutionTarget,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
+        let target = module.target;
         Ok(Self {
             body,
-            state: State::new(cpu),
-            accesses: memory.accesses(),
-            segments: SegmentReads::new(cpu, target.profile),
+            state: State::new(&module.cpu),
+            accesses: module.memory.accesses(),
+            segments: SegmentReads::new(&module.cpu, target.profile),
             target,
             cpu_features: target.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
             locked: false,
             x87_opcode: None,
-            runtime,
+            runtime: module.runtime,
+            interrupt: module.interrupt,
             single_step: false.into(),
             eip,
             completed: 0,
@@ -250,9 +252,9 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         condition: impl Into<Val<I1>>,
         exception: impl Into<ExceptionValues>,
     ) -> Result<(), BuildError> {
-        self.body.if_(condition, |fault_body| {
-            self.state
-                .fault(fault_body, &self.eip, self.completed, exception.into())
+        self.body.if_(condition, |mut body| {
+            self.state.publish(&mut body, &self.eip, self.completed)?;
+            interrupt::raise_exception(body, exception.into(), self.interrupt)
         })
     }
 

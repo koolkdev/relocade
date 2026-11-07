@@ -1,6 +1,6 @@
 use super::{hook, vector_address, write_vector, HOOK_STUB};
 use crate::{Cpu, CpuContext, FarPointer, Hook, Result};
-use relocade_x86::PhysicalMapping;
+use relocade_x86::{Exception, PhysicalMapping};
 
 /// Registers real-mode interrupt handlers on one stopped CPU.
 ///
@@ -80,6 +80,16 @@ impl<'cpu> Interrupts<'cpu> {
                 })
                 .await
             }));
+    }
+
+    /// Installs a default handler that returns this exception to the host.
+    /// Guest IVT replacement works normally. The live CPU is already in the
+    /// handler when it reports the exception; the caller remains in its saved frame.
+    pub fn register_unhandled_exception(&mut self, exception: Exception, entry: FarPointer) {
+        let exit = self.cpu.exit_handle();
+        self.register_interrupt(exception.vector() as u8, entry, async move |_| {
+            exit.request_unhandled_exception(exception);
+        });
     }
 
     /// Publishes the registered handlers through the CPU's ordinary hook installer.

@@ -48,7 +48,8 @@ pub struct CompiledBlocks {
 /// unsupported or overlong instructions within that boundary return [`BlockError`].
 ///
 /// The generated `block_<hex start_eip>() -> ExecutionExit` entry executes the block and
-/// tail-calls host dispatch on success; guest faults return directly.
+/// tail-calls host dispatch on success. Supported Real16 faults enter their IVT
+/// handler and return `InterruptEntered`; other faults return directly.
 /// A failed guard publishes completed work and tail-calls
 /// `relocade.interpret` at the current instruction. The interpreter handoff abandons
 /// the captured suffix; its execution boundary belongs to the host's policy.

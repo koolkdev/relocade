@@ -171,6 +171,12 @@ fn entry_boundaries() {
         image.map(snapshot.start_eip >> 12, 0x3000, false);
         image.map((snapshot.start_eip >> 12) + 1, 0x4000, false);
         image.data(0x3000 + (snapshot.start_eip & 0xfff), snapshot.bytes);
+        if index == 2 {
+            image.cpu.registers.esp = 0x8006;
+            image.map(0, 0x7000, false);
+            image.map(8, 0x8000, true);
+            image.data(0x7018, &[0, 6, 0, 0]); // #UD vector -> 0000:0600.
+        }
         let mut after = image.cpu;
         let exit = match index {
             0 => {
@@ -185,7 +191,11 @@ fn entry_boundaries() {
                 after.instruction_count = 18;
                 Exit::Dispatch(0x1006)
             }
-            2 => Exit::InvalidOpcode,
+            2 => {
+                after.eip = 0x600;
+                after.registers.esp = 0x8000;
+                Exit::Other(crate::ExecutionExit::InterruptEntered)
+            }
             3 => Exit::Interpret,
             _ => unreachable!(),
         };
@@ -195,7 +205,11 @@ fn entry_boundaries() {
                 &image,
                 &[Step {
                     cpu: after,
-                    ram: &[],
+                    ram: if index == 2 {
+                        &[(0x8000, &[0, 0x20, 0, 0, 2, 0])]
+                    } else {
+                        &[]
+                    },
                     exit
                 }]
             ),

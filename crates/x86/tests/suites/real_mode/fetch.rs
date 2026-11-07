@@ -8,20 +8,31 @@ use crate::support::{
 
 fn availability(frontend: Frontend) {
     let mut blocks = BlockModules::default();
-    for (code, exit) in [
-        (&[0x63, 0x07][..], Exit::InvalidOpcode),
-        (&[0x0f, 0x02, 0x07][..], Exit::InvalidOpcode),
-        (&[0x0f, 0x03, 0x07][..], Exit::InvalidOpcode),
-        (&[0x0f, 0x00, 0x27][..], Exit::InvalidOpcode),
-        (&[0x0f, 0x00, 0x2f][..], Exit::InvalidOpcode),
+    for code in [
+        &[0x63, 0x07][..],
+        &[0x0f, 0x02, 0x07][..],
+        &[0x0f, 0x03, 0x07][..],
+        &[0x0f, 0x00, 0x27][..],
+        &[0x0f, 0x00, 0x2f][..],
     ] {
-        let image = image(code);
+        let image = super::interrupts::interrupt_image(code, 6);
         let module = match frontend {
             // A terminal mode restriction must stop decoding despite the larger limit.
             Frontend::Block => blocks.get(&image.cpu, code, 8, ExecutionProfile::Real16),
             Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
         };
-        image.check_unchanged_exit(module, "mode rejection precedes operands and stack", exit);
+        assert_eq!(
+            module.observe(&image.input(), 1),
+            expected(
+                &image,
+                &[Step {
+                    cpu: super::interrupts::handler_state(image.cpu),
+                    ram: &[(0x8000, &[0, 0x10, 0, 0, 0xd7, 0x5f])],
+                    exit: Exit::Other(relocade_x86::ExecutionExit::InterruptEntered),
+                }]
+            ),
+            "mode rejection enters #UD before accessing the instruction's operands"
+        );
     }
 }
 test_frontends!(mode_availability, availability);
@@ -214,7 +225,12 @@ fn runs() {
             0x1003,
         ),
     ] {
-        let image = image(code);
+        let faulting = matches!(exit, Exit::InvalidOpcode);
+        let image = if faulting {
+            super::interrupts::interrupt_image(code, 6)
+        } else {
+            image(code)
+        };
         let mut cpu = retired(&image, 3);
         cpu.registers.eax = 0x1111_1234;
         cpu.eip = next;
@@ -222,13 +238,21 @@ fn runs() {
             cpu.segments.ds = cache(Segment::Ds, 0x1234);
             cpu.instruction_count = 1;
         }
+        let frame = [3, 0x10, 0, 0, 0xd7, 0x5f];
+        let ram = [(0x8000, frame.as_slice())];
+        let exit = if faulting {
+            cpu = super::interrupts::handler_state(cpu);
+            Exit::Other(relocade_x86::ExecutionExit::InterruptEntered)
+        } else {
+            exit
+        };
         assert_eq!(
             module.observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
                     cpu,
-                    ram: &[],
+                    ram: if faulting { &ram } else { &[] },
                     exit
                 },]
             )

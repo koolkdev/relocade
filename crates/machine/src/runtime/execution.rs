@@ -5,20 +5,20 @@ mod suspended;
 
 use super::{call::Call, Cpu};
 pub(super) use interrupts::InterruptCalls;
-use relocade_x86::{ExecutionExit, HostExit};
+use relocade_x86::{Exception, ExecutionExit, HostExit};
 use std::{cell::Cell, future::poll_fn, rc::Rc, task::Poll};
 pub(super) use suspended::SuspendedCall;
 
 /// Requests a return to the embedding after the current guest dispatch or host poll.
 /// Capture this with a service's other resources, for example when DOS terminates
 /// a program. The driver releases pending work and consumes the request before
-/// returning `ExecutionExit::Host(HostExit::Return)`.
+/// returning the requested host exit.
 ///
 /// Requests remain pending until observed by a polled run. This handle
 /// does not wake suspended execution; session cancellation belongs to its owner.
-/// It retains only the request flag, independently of the CPU and backend.
+/// It retains only the requested result, independently of the CPU and backend.
 #[derive(Clone)]
-pub struct ExitHandle(Rc<Cell<bool>>);
+pub struct ExitHandle(Rc<Cell<Option<ExecutionExit>>>);
 
 impl ExitHandle {
     pub(super) fn new() -> Self {
@@ -27,7 +27,15 @@ impl ExitHandle {
 
     /// Requests an execution exit. The current host poll completes normally.
     pub fn request(&self) {
-        self.0.set(true);
+        self.0.set(Some(ExecutionExit::Host(HostExit::Return)));
+    }
+
+    /// Reports an exception from its installed default handler and ends execution.
+    /// The saved interrupt frame retains the original fault location. Pending
+    /// and suspended Rust handlers are released when the driver observes this exit.
+    pub fn request_unhandled_exception(&self, exception: Exception) {
+        self.0
+            .set(Some(ExecutionExit::UnhandledException(exception)));
     }
 }
 
@@ -46,7 +54,7 @@ impl Cpu {
     ///
     /// Dropping this waiter preserves active and parked calls and their locals.
     /// A subsequent run continues from the same call or guest position. An observed
-    /// exit request releases retained calls and returns `HostExit::Return`.
+    /// exit request releases retained calls and returns its requested host result.
     /// Dropping the CPU drops retained calls innermost first, before the machine.
     ///
     /// Real-mode device IRQs are delivered at stopped guest boundaries according
@@ -54,15 +62,17 @@ impl Cpu {
     /// before suspending with IF enabled. IRQ entry saves that CS:IP normally.
     /// A suspended service stays parked until guest reaches a resume entry, even
     /// when its input becomes ready. Reentry starts a separate invocation.
-    /// Execution interrupts, guest faults and replacement waiters preserve parked calls.
+    /// Execution interrupts, undelivered faults and replacement waiters preserve parked calls.
+    /// Real16 #DE/#BR/#UD enter their live guest vector before IRQ arbitration;
+    /// an unhandled-exception exit from a default handler releases parked calls.
     /// Guest IF-enabling instructions return to this same IRQ polling loop, so a
     /// request queued while masked needs no later notification to become eligible.
     /// Awaited Rust interrupt calls use the same entry and resume machinery,
     /// taking precedence over device IRQ polling and entering regardless of IF.
     pub async fn run(&mut self) -> ExecutionExit {
         let exit = poll_fn(|cx| {
-            if self.exit.0.get() {
-                return Poll::Ready(ExecutionExit::Host(HostExit::Return));
+            if let Some(exit) = self.exit.0.get() {
+                return Poll::Ready(exit);
             }
             // Poll active work once; guest entries below poll new or resumed calls.
             if let Some(call) = self.pending.take() {
@@ -78,7 +88,7 @@ impl Cpu {
                 }
 
                 let exit = self.run_guest();
-                if self.exit.0.get() {
+                if self.exit.0.get().is_some() {
                     continue;
                 }
                 self.pending = match exit {
@@ -89,17 +99,22 @@ impl Cpu {
                         Ok(call) => call,
                         Err(exit) => return Poll::Ready(exit),
                     },
-                    ExecutionExit::StepComplete | ExecutionExit::InterruptsEnabled => continue,
+                    ExecutionExit::StepComplete
+                    | ExecutionExit::InterruptsEnabled
+                    | ExecutionExit::InterruptEntered => continue,
                     exit => return Poll::Ready(exit),
                 };
             }
         })
         .await;
-        if exit == ExecutionExit::Host(HostExit::Return) {
+        if matches!(
+            exit,
+            ExecutionExit::Host(HostExit::Return) | ExecutionExit::UnhandledException(_)
+        ) {
             self.pending.take();
             self.abandon_suspended_calls();
             // Coalesce any requests made while destroying the retained work.
-            self.exit.0.set(false);
+            self.exit.0.set(None);
         }
         exit
     }
@@ -110,8 +125,9 @@ impl Cpu {
         let machine = &mut self.machine;
         let mut exit = machine.dispatch();
         // Finish protected successors before polling IRQs or returning for a
-        // checkpoint. STEP publishes its result without dispatching the target.
-        while exit == ExecutionExit::InterruptInhibited && !self.exit.0.get() {
+        // checkpoint. The execution step also delivers supported faults, then
+        // publishes its result without dispatching the target.
+        while exit == ExecutionExit::InterruptInhibited && self.exit.0.get().is_none() {
             exit = machine.dispatch.step(&mut machine.backend);
         }
         exit

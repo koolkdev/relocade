@@ -45,10 +45,25 @@ async fn runtime_executes_with_live_cpu_and_memory() {
     runtime.context().cpu.set_eax(1);
     support::steps(&mut runtime, 1);
     assert_eq!(runtime.context().cpu.edx(), 0x0788_8101);
-    let before = runtime.context().cpu.snapshot();
-    assert_eq!(
-        runtime.step(),
-        ExecutionExit::Exception(Exception::InvalidOpcode)
+    runtime.cpu_state().set_sp(0x8000);
+    relocade_machine::real_mode_interrupt::write_vector(
+        &mut runtime.memory().view(),
+        Exception::InvalidOpcode.vector() as u8,
+        relocade_machine::FarPointer {
+            segment: 0,
+            offset: 0x600,
+        },
     );
-    assert_eq!(runtime.context().cpu.snapshot(), before);
+    let before = runtime.cpu_state().snapshot();
+    assert_eq!(runtime.step(), ExecutionExit::InterruptEntered);
+    assert_eq!(runtime.cpu_state().eip(), 0x600);
+    assert_eq!(
+        runtime.cpu_state().instruction_count(),
+        before.instruction_count
+    );
+    let frame = relocade_machine::real_mode_interrupt::read_frame(
+        &runtime.cpu_state(),
+        &runtime.memory().view(),
+    );
+    assert_eq!(u32::from(frame.return_address.offset), before.eip);
 }

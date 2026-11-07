@@ -33,7 +33,7 @@ pub const DISPATCH: Function<ExecutionSignature> = Function::new("relocade", "di
 pub const INTERPRET: Function<ExecutionSignature> = Function::new("relocade", "interpret");
 pub const RUN: Function<ExecutionSignature> = Function::new("relocade", "run");
 pub const STEP: Function<ExecutionSignature> = Function::new("relocade", "step");
-/// Real16 external entry; success returns InterruptEntered before ISR dispatch.
+/// Real16 architectural entry; success returns InterruptEntered before ISR dispatch.
 /// The embedding owns maskable-interrupt eligibility and acknowledgement.
 pub const INTERRUPT: Function<InterruptSignature> = Function::new("relocade", "interrupt");
 
