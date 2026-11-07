@@ -618,8 +618,8 @@ whose `VgaGeometry` also records physical scanlines per output row.
 SVGA owns its square pixel aspect explicitly. All pixel interpretation uses
 captured display settings and VRAM directly in the shader.
 
-Snapshots share immutable 64-KiB blocks with the device: four for VGA, eight for
-the supported packed image. Capturing or cloning
+Snapshots share immutable 64-KiB blocks with the device: four for VGA, and enough
+blocks to cover the packed viewport's final byte for SVGA. Capturing or cloning
 a snapshot copies references and register values, not VRAM bytes. A guest write
 copies a shared block only when its final physical byte changes; VGA routing,
 write modes and masks apply before that comparison. Subsequent writes reuse the
@@ -655,7 +655,8 @@ queued GPU contents, otherwise it restores the affected block.
 `renderer/state` uploads mode-specific settings separately from the shared DAC.
 `renderer/pipelines` builds two cached pipelines with one explicit input layout;
 the uploaded scanout selects which decoder `encode` records, even when geometry
-and capture metadata stay the same. There is no per-pixel mode branch.
+and capture metadata stay the same. The packed pipeline selects pixel decoding
+from the captured format.
 Both shaders share physical VRAM reads, DAC lookup and fullscreen drawing.
 VGA alone owns raw register decoding, blink, blanking, fonts and row interpretation.
 Of the Attribute Controller's address byte, only display enable is captured.
@@ -667,8 +668,9 @@ frame-constant settings and the 16 attribute
 colors, passing them flat to fragments in the same draw. There is no preparation
 pass or intermediate GPU buffer. Further graphics decoders can read the same physical
 buffer without mode-specific upload tracking or application changes.
-`shaders/packed` reads eight-bit pixels using only pitch and display origin,
-then applies the shared DAC mask and palette. CPU bank selection does not scroll
+`shaders/packed` reads pixels using byte pitch, display origin and pixel format.
+Indexed pixels use the shared DAC mask and palette; RGB565 and BGRX decode their
+stored channels directly, with opaque output. CPU bank selection does not scroll
 the image, and legacy VGA blanking, panning and reset do not affect it.
 The generic `relocade-renderer` owns image storage and attachment drawing and knows
 nothing about VGA, BIOS or DOS.
@@ -942,7 +944,7 @@ BIOS metadata uses the same layouts; VESA mode numbers belong to firmware.
 ### Banked VBE profile
 
 The BIOS reports VBE 1.2. Its `video::vbe` module provides `INT 10h/4F00h`
-controller discovery and `4F01h` information for the three indexed modes,
+controller discovery and `4F01h` information for nine banked modes,
 `4F02h`/`4F03h` mode control,
 `4F04h` state save/restore, `4F05h` bank control, `4F06h` logical scanline control,
 `4F07h` display-start control and `4F08h` DAC-format control, using the VBE 1.2
@@ -951,20 +953,36 @@ the 4 MiB adapter, a terminated ROM mode list, one readable and writable 64 KiB
 window at A000h, and the number of additional complete display pages at the
 reported pitch. No callable bank function or BIOS output functions
 are advertised for these modes. Unimplemented functions return AL != 4Fh, while
-failed supported requests return AX=014Fh (or AX=024Fh for an excessively wide
-scanline). All VBE results preserve flags.
+failed supported requests return AX=014Fh, AX=024Fh for an excessively wide
+scanline, or AX=034Fh for DAC-format control in direct color. All VBE results
+preserve flags.
 
-| VESA mode | Indexed resolution | Default pitch | Additional image pages |
-| --- | --- | --- | --- |
-| 0101h | 640×480×8 | 640 bytes | 12 |
-| 0103h | 800×600×8 | 800 bytes | 7 |
-| 0105h | 1024×768×8 | 1024 bytes | 4 |
+| VBE mode | Resolution | Pixel format | Default pitch | Additional image pages |
+| --- | --- | --- | --- | --- |
+| 0101h | 640×480 | Indexed8 | 640 bytes | 12 |
+| 0103h | 800×600 | Indexed8 | 800 bytes | 7 |
+| 0105h | 1024×768 | Indexed8 | 1024 bytes | 4 |
+| 0111h | 640×480 | RGB565 | 1280 bytes | 5 |
+| 0114h | 800×600 | RGB565 | 1600 bytes | 3 |
+| 0117h | 1024×768 | RGB565 | 2048 bytes | 1 |
+| 0142h | 640×480 | BGRX8888 | 2560 bytes | 2 |
+| 0143h | 800×600 | BGRX8888 | 3200 bytes | 1 |
+| 0144h | 1024×768 | BGRX8888 | 4096 bytes | 0 |
+
+RGB565 stores a little-endian word with red at bits 11–15, green at 5–10 and
+blue at 0–4. BGRX stores blue, green, red and an unused byte in increasing byte
+addresses. That unused byte can hold application data and never controls alpha.
+Direct-color mode information reports memory model 6, the channel and reserved
+bit masks, and a fixed color ramp. The 32-bit mode numbers follow
+[Bochs VGABIOS's OEM assignments](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe.h);
+the common 24-bit numbers 0112h, 0115h and 0118h remain unsupported. Guests should
+enumerate the mode list and inspect mode information to choose a pixel format.
 
 The OEM string and mode list reside in ROM and remain valid across mode changes,
 query-buffer reuse and guest exit. A null `WinFuncPtr` selects INT 10h/4F05h bank
 control. Controller information remains the 256-byte 1.x structure even when
 the caller supplies a `VBE2` signature. Capability bits advertise VGA compatibility
-and a fixed six-bit DAC. True-color modes, eight-bit DAC components, linear
+and a fixed six-bit DAC. The 15-/24-bit formats, eight-bit DAC components, linear
 framebuffer access and protected-mode VBE entry points are not advertised.
 
 State service `4F04h` selects hardware, BIOS data, DAC and SVGA through CX bits
@@ -978,22 +996,34 @@ and unsupported operations fail without applying state. Capture and restore
 preserve unselected classes and never use scratch VRAM or clear the framebuffer.
 The BIOS-data component shares the existing IBM metadata/vector implementation.
 The hardware, DAC and SVGA components use `VgaCoreState`, `DacState` and
-`DispiState`, respectively. IBM AH=1Ch retains its separate fixed buffer format
-and behavior.
+`DispiState`, respectively. DISPI's saved pitch remains a byte count in every
+pixel format; the component encoding stays 18 bytes. IBM AH=1Ch retains its
+separate fixed buffer format and behavior.
 
 Logical scanlines support setting pixels or bytes, querying the current stride,
-and querying the maximum stride that accommodates the visible height. Eight-bit
-pixels make the byte and pixel lengths identical. Requests below the visible
-width round up; changes that invalidate the current viewport fail. Successful
-calls return the actual stride and number of complete rows in VRAM. `4F01h`
+and querying the maximum stride that accommodates the visible height. Byte
+requests round up to a whole pixel, and requests below the visible width round
+up to that width; changes that invalidate the current viewport fail. Successful
+calls return byte pitch in BX, pixel width in CX and complete rows in VRAM in DX.
+DISPI's virtual-width register likewise uses pixels. `4F01h`
 reports the active mode's current pitch and other modes' default pitches.
 
-DAC-format service `4F08h` reports the device's fixed six-bit color components.
+DAC-format service `4F08h` reports the device's fixed six-bit color components
+in legacy and indexed modes. Direct-color modes return AX=034Fh for this service.
 Set requests of six bits or more select six, following VBE's next-lower-width
 rule; requests below six and unsupported selectors fail without changing the
 palette or an in-progress DAC transfer. The controller capability bit remains
 clear. Legacy palette services and direct port access share the same colors and
-pixel mask in both VGA and packed SVGA modes.
+pixel mask in VGA and indexed SVGA. Direct-color mode entry preserves the DAC;
+subsequent DAC writes do not change its displayed colors. Returning to indexed
+rendering uploads palette changes that were skipped while displaying direct color.
+
+Native and browser GPU checks cover RGB565 channel scaling, BGRX padding and
+opacity, bank edges, panning to the final VRAM byte, and retained captures.
+A native DOS guest draws both formats through byte stores and VBE bank calls,
+pans with a wider scanline, saves and restores all state classes around an indexed
+mode change, then returns to usable text. Full image comparisons verify both
+restoration and retained output after the device is destroyed.
 
 Display-start control supports immediate updates, position queries and BL=80h
 retrace synchronization. Requests validate the whole visible rectangle;

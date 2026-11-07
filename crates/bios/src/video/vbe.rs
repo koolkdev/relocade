@@ -1,4 +1,4 @@
-//! Banked VESA BIOS services for the indexed VBE 1.2 baseline.
+//! Banked VESA BIOS services for indexed and direct-color modes.
 mod information;
 mod layout;
 mod modes;
