@@ -2474,6 +2474,7 @@ dependencies = [
  "wasm-bindgen-test",
  "wasm-encoder 0.254.0",
  "wasmtime",
+ "web-sys",
  "web-thread-select",
 ]
 

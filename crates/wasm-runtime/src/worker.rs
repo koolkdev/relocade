@@ -5,8 +5,10 @@ pub use web_thread::*;
 
 use std::future::Future;
 
+mod channel;
 mod executor;
 mod wake;
+pub use channel::{channel, Endpoint, Port};
 pub use executor::Executor;
 pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
