@@ -8,7 +8,7 @@ publish.workspace = true
 [dependencies]
 relocade-ps2 = { path = "../ps2" }
 relocade-bios = { path = "../bios" }
-relocade-frontend = { path = "../frontend", features = ["keyboard"] }
+relocade-frontend = { path = "../frontend", features = ["keyboard", "mouse"] }
 relocade-machine = { path = "../machine" }
 relocade-pc-speaker = { path = "../pc-speaker" }
 relocade-pic = { path = "../pic" }

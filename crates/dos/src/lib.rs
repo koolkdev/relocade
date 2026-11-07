@@ -358,6 +358,13 @@ impl<C: Clock> Dos<C> {
         self.pc.keyboard_input()
     }
 
+    /// Relative motion, buttons and focus-loss events for the PS/2 mouse.
+    /// The guest configures the auxiliary port and IRQ12 handler. This does not
+    /// install an INT 33h driver or provide BIOS INT 15h/C2h services.
+    pub fn mouse_input(&self) -> relocade_frontend::mouse::MouseInput {
+        self.pc.mouse_input()
+    }
+
     /// Opens a native prompt over application-owned physical input and BIOS video.
     /// It shares line editing and cooked output with DOS, but executes no guest
     /// code and uses neither DOS handles nor the guest keyboard queue. Drop the
