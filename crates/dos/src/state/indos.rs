@@ -4,11 +4,11 @@ use relocade_machine::{FarPointer, MemoryBus};
 
 // Resident DOS workspace, above the BIOS data area and below the process arena.
 // DOS 3.1+ reserves the preceding byte for its critical-error flag.
-const RESIDENT_DATA: FarPointer = FarPointer {
+const CRITICAL_ERROR: FarPointer = FarPointer {
     segment: 0x80,
     offset: 0,
 };
-pub(crate) const ADDRESS: FarPointer = RESIDENT_DATA.wrapping_add(1);
+pub(crate) const ADDRESS: FarPointer = CRITICAL_ERROR.wrapping_add(1);
 
 pub(crate) struct InDos(MemoryBus);
 
@@ -16,7 +16,7 @@ impl InDos {
     pub(crate) fn new(memory: MemoryBus) -> Self {
         memory
             .view()
-            .write(RESIDENT_DATA.address(), &[0; 2])
+            .write(CRITICAL_ERROR.address(), &[0; 2])
             .unwrap();
         Self(memory)
     }
@@ -28,6 +28,11 @@ impl InDos {
 
     pub(crate) fn count(&self) -> u8 {
         self.0.view().read_u8(ADDRESS.address()).unwrap()
+    }
+
+    /// Idle callbacks may reenter disk services, but not nested or critical-error I/O.
+    pub(crate) fn allows_idle(&self) -> bool {
+        self.count() == 1 && self.0.view().read_u8(CRITICAL_ERROR.address()).unwrap() == 0
     }
 
     fn add(&self, delta: i8) {

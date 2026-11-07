@@ -45,11 +45,11 @@ pub(in crate::services) async fn read(
                 if !stdio.has_buffered_line() {
                     let input = Input::console(services, source.clone());
                     let mut editor = LineEditor::new(LINE_CAPACITY, async |byte| {
-                        input.write(byte).await;
+                        input.echo(byte).await;
                         Ok::<_, DosError>(())
                     });
                     loop {
-                        let byte = input.character(true).await?;
+                        let byte = input.character(call, request, true).await?;
                         if byte == CONTROL_C {
                             request.handle_break(call).await;
                             continue 'operation;

@@ -40,6 +40,11 @@
 //! AH=0Ah reads a line with echo and backspace editing into DS:DX's DOS buffer.
 //! Its capacity includes the terminating CR; the returned count excludes it.
 //! Queued complete lines return immediately; incomplete lines await further input.
+//! Waiting character reads invoke the live INT 28h idle callback with InDOS set.
+//! Empty AH=06h/0Bh polls and checked output status checks invoke it once and keep
+//! their original status. Callbacks can use DOS functions above 0Ch; nested calls,
+//! critical-error mode and AH=3Fh handle waits do not generate idle callbacks.
+//! The default empty callback leaves input asleep until its source wakes it.
 //! AH=0Ch flushes queued console input, then invokes AL=01h/06h/07h/08h/0Ah.
 //! Other AL values only flush; redirected files and buffered handle lines are retained.
 //! AH=3Fh on a console handle defaults to cooked mode: it reads an edited line
