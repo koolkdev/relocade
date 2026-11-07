@@ -10,6 +10,7 @@ use relocade_machine::{
 
 #[interrupt(context(call), args(function = ah))]
 pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
+    let _in_dos = services.dos.indos().enter();
     interrupt_dispatch!(
         call,
         match function {
@@ -28,6 +29,7 @@ pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>, fu
             0x25 => system::set_vector,
             0x2f => search::get_dta(services),
             0x30 => system::version,
+            0x34 => system::indos,
             0x35 => system::get_vector,
             0x39 => directories::create_directory(services),
             0x3a => directories::remove_directory(services),
