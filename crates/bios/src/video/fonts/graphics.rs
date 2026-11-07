@@ -2,7 +2,7 @@
 use super::rom;
 use crate::video::{CHARACTER_HEIGHT, LAST_ROW};
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, FarPointer},
+    real_mode_interrupt::{interrupt, write_vector, FarPointer},
     MemoryView,
 };
 
@@ -13,9 +13,7 @@ pub(in crate::video) struct Rows {
 
 #[interrupt(context(memory), args(source = ptr(es, bp)))]
 pub(in crate::video) fn set_high_font(memory: &mut MemoryView<'_>, source: FarPointer) {
-    memory
-        .write_u32(0x1f * 4, source.packed())
-        .expect("high character font vector");
+    write_vector(memory, crate::interrupts::HIGH_FONT, source);
 }
 
 #[interrupt(context(memory),
@@ -63,9 +61,7 @@ fn select(memory: &mut MemoryView<'_>, pointer: FarPointer, height: u16, rows: R
         3 => 43,
         _ => 25, // IBM also treats row selectors above three as 25 rows.
     };
-    memory
-        .write_u32(0x43 * 4, pointer.packed())
-        .expect("graphics font vector");
+    write_vector(memory, crate::interrupts::GRAPHICS_FONT, pointer);
     memory
         .write_u16(CHARACTER_HEIGHT, height)
         .expect("font height");

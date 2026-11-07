@@ -3,14 +3,11 @@
 //! the live guest values on exit. See MS-DOS PROC.ASM's abort_inner.
 
 use super::PSP_BYTES;
-use relocade_machine::{FarPointer, MemoryView};
+use relocade_machine::{real_mode_interrupt::vector_address, FarPointer, MemoryView};
 use std::ops::Range;
 
 const PSP_VECTORS: Range<usize> = 0x0a..0x16;
-const VECTOR_TABLE: FarPointer = FarPointer {
-    segment: 0,
-    offset: crate::interrupts::TERMINATION_ADDRESS as u16 * 4,
-};
+const VECTOR_TABLE: FarPointer = vector_address(crate::interrupts::TERMINATION_ADDRESS);
 
 pub(super) fn save(memory: &MemoryView<'_>, psp: &mut [u8; PSP_BYTES]) {
     memory

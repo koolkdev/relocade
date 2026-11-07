@@ -1,6 +1,9 @@
 //! DOS version, resident data and interrupt-vector services.
 
-use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
+use relocade_machine::{
+    real_mode_interrupt::{interrupt, read_vector, write_vector},
+    FarPointer, MemoryView,
+};
 
 #[interrupt(returns { address => { ptr(es, bx) = address } })]
 pub(super) fn indos() -> FarPointer {
@@ -29,18 +32,12 @@ pub(super) fn version(request: u8) -> Version {
 
 #[interrupt(context(memory), args(vector = al, destination = ptr(ds, dx)))]
 pub(super) fn set_vector(memory: &mut MemoryView<'_>, vector: u8, destination: FarPointer) {
-    memory
-        .write_u32(u32::from(vector) * 4, destination.packed())
-        .expect("interrupt vector table");
+    write_vector(memory, vector, destination);
 }
 
 #[interrupt(context(memory), args(vector = al), returns {
     destination => { ptr(es, bx) = destination },
 })]
 pub(super) fn get_vector(memory: &MemoryView<'_>, vector: u8) -> FarPointer {
-    FarPointer::from_packed(
-        memory
-            .read_u32(u32::from(vector) * 4)
-            .expect("interrupt vector table"),
-    )
+    read_vector(memory, vector)
 }
