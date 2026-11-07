@@ -206,7 +206,7 @@ fn indexed_modes_publish_at_their_own_dmt_retrace_boundaries() {
     ] {
         let clock = Rc::new(common::ManualClock::default());
         let mut vga = Vga::with_clock(clock.clone());
-        common::support::svga::set_mode(&mut vga, width, height);
+        common::support::svga::set_mode(&mut vga, width, height, 8);
         let start = common::dots(line_dots * retrace_start, clock_hz);
         clock.set(start - std::time::Duration::from_nanos(1));
         assert_eq!(vga.read_port(0x3da, 1) & 8, 0);

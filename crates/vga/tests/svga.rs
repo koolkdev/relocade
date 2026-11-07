@@ -21,9 +21,9 @@ fn device() -> Vga<ManualClock> {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dispi_ports_accept_whole_words_and_keep_full_register_indices() {
     let mut vga = device();
-    assert_eq!(get(&mut vga, 0), 0xb0c1);
+    assert_eq!(get(&mut vga, 0), 0xb0c2);
     set(&mut vga, 0, 0xb0c5);
-    assert_eq!(get(&mut vga, 0), 0xb0c1);
+    assert_eq!(get(&mut vga, 0), 0xb0c2);
     set(&mut vga, 0x104, 1); // Must not alias the enable register.
     assert_eq!(vga.read_port(0x1ce, 2), 0x104);
     assert_eq!(vga.read_port(0x1cf, 2), 0xffff);
@@ -52,7 +52,7 @@ fn mode_enable_requires_supported_geometry_and_preserves_active_programming() {
     assert_eq!(get(&mut vga, 1), 641);
     assert_eq!(get(&mut vga, 4), 0);
     set(&mut vga, 1, 640);
-    set(&mut vga, 3, 16);
+    set(&mut vga, 3, 24);
     set(&mut vga, 4, 1);
     assert_eq!(get(&mut vga, 4), 0);
     set(&mut vga, 3, 8);
@@ -215,4 +215,33 @@ fn svga_uses_the_existing_dac_without_resetting_legacy_registers() {
     set(&mut vga, 4, 0);
     assert_eq!(vga.snapshot().dac.colors[42], [1, 2, 3]);
     assert_eq!(vga.registers().crtc, registers.crtc);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn direct_color_modes_preserve_partial_pixels_at_bank_edges() {
+    for (width, height) in [(640, 480), (800, 600), (1024, 768)] {
+        for bits in [16, 32] {
+            let mut vga = device();
+            common::support::svga::set_mode(&mut vga, width, height, bits);
+            assert_eq!(get(&mut vga, 6), u32::from(width));
+            assert_eq!(get(&mut vga, 3), u32::from(bits));
+            set(&mut vga, 5, 0);
+            vga.write_mmio(0xafffc, 4, 0x1122_3344);
+            vga.write_mmio(0xafffd, 1, 0xa5);
+            assert_eq!(vga.read_mmio(0xafffc, 4), 0x1122_a544);
+            vga.write_mmio(0xaffff, 2, 0xbbee); // The high byte is outside this window.
+            assert_eq!(vga.read_mmio(0xaffff, 2), 0xffee);
+            set(&mut vga, 5, 1);
+            assert_eq!(vga.read_mmio(0xa0000, 1), 0);
+            vga.write_mmio(0xa0000, 4, 0x8877_6655);
+            let capture = vga.snapshot();
+            for (offset, value) in [0x44, 0xa5, 0x22, 0xee, 0x55, 0x66, 0x77, 0x88]
+                .into_iter()
+                .enumerate()
+            {
+                assert_eq!(capture.vram_byte(65532 + offset as u32), Some(value));
+            }
+        }
+    }
 }

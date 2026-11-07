@@ -896,9 +896,9 @@ path.
 
 ## Banked SVGA device
 
-The device implements a restricted eight-bit subset of the
+The device implements a restricted banked subset of the
 [Bochs DISPI display interface](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
-The ID1 register subset uses the modern 01CEh index and 01CFh data ports.
+The ID2 register subset uses the 01CEh index and 01CFh data ports.
 The ID is fixed: ID writes are ignored, so this subset does not support the
 ID negotiation used by stock Bochs VGABIOS or SeaBIOS. It is not a drop-in
 Bochs/QEMU device or an emulation of a historical SVGA chipset.
@@ -909,20 +909,20 @@ register writes and unsupported requests leave the state unchanged.
 
 | Register | Readback and accepted writes |
 | --- | --- |
-| 0: ID | Fixed B0C1h; writes are ignored |
+| 0: ID | Fixed B0C2h; writes are ignored |
 | 1–3: X, Y, bits per pixel | Stage a mode while disabled; active writes are ignored |
-| 4: Enable | 0 disables; 1 or 81h enables a complete supported indexed mode |
+| 4: Enable | 0 disables; 1 or 81h enables a complete supported packed mode |
 | 5: Bank | 0–63 selects a 64-KiB bank in 4 MiB; out-of-range writes are ignored |
-| 6–7: Virtual width and height | Active byte stride; read-only full-row count in VRAM |
+| 6–7: Virtual width and height | Active logical width in pixels; read-only full-row count in VRAM |
 | 8–9: X and Y offsets | Active viewport origin in pixels; out-of-bounds writes are ignored |
 
 Entering a valid mode selects bank zero and clears all VRAM unless enable bit 7
 requests memory preservation. Readback retains the accepted enable word. Repeating enable
 while active preserves VRAM and the current bank. Disabling preserves VRAM,
 legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
-including LFB combined with no-clear, are ignored as a whole. No-clear is a
-selective ID2 extension; the interface reports ID1 with virtual layout support,
-while the linear aperture remains unsupported.
+including LFB combined with no-clear, are ignored as a whole. The restricted ID2
+profile supports 8-, 16- and 32-bit pixels and no-clear mode entry. The 15-/24-bit
+formats and linear aperture remain unsupported.
 
 `SvgaLayout::with_pitch` and `with_origin` validate immutable candidate layouts.
 Pitch changes retain pixel coordinates and fail if the viewport would no longer
@@ -934,8 +934,10 @@ are ignored. Each retrace captures the layout in effect at that boundary.
 `SvgaMode` combines a `SvgaResolution` with a `PixelFormat`; its default
 `SvgaLayout` and checked layout changes keep byte strides distinct from pixel
 coordinates. The three resolutions have fixed DMT rasters, independent of pixel
-format. DISPI currently accepts their indexed eight-bit modes. BIOS metadata uses
-the same layouts; VESA mode numbers belong to firmware.
+format. DISPI accepts indexed eight-bit, little-endian RGB565 and BGRX8888 modes
+at each resolution. The packed shader selects decoding from the captured format;
+direct colors bypass the DAC palette and mask, and BGRX output is opaque.
+BIOS metadata uses the same layouts; VESA mode numbers belong to firmware.
 
 ### Banked VBE profile
 

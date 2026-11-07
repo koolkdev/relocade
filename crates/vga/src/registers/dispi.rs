@@ -1,10 +1,11 @@
-//! Banked, eight-bit subset of the Bochs DISPI display interface.
+//! Banked subset of the Bochs DISPI display interface.
 //!
 //! Register numbers and word transfers follow the Bochs VBE Display API:
 //! https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt
-//! This adapter exposes the ID1 register subset at the modern 01CE/01CF ports.
-//! It accepts three indexed modes and the no-clear enable flag from ID2. Newer interface
-//! IDs, other enable flags and registers are unsupported. Invalid requests are ignored.
+//! This adapter exposes a fixed ID2 subset at the 01CE/01CF ports: three resolutions
+//! in indexed eight-bit, RGB565 and BGRX8888 formats, with the no-clear enable flag.
+//! Linear access, 15/24-bit modes, ID negotiation and newer flags are unsupported.
+//! Invalid requests are ignored.
 
 use crate::{SvgaLayout, SvgaMode, VIDEO_MEMORY_BYTES};
 use std::ops::RangeInclusive;
@@ -24,7 +25,7 @@ pub const VIRTUAL_HEIGHT: u16 = 7;
 pub const X_OFFSET: u16 = 8;
 pub const Y_OFFSET: u16 = 9;
 
-pub const INTERFACE_ID: u16 = 0xb0c1;
+pub const INTERFACE_ID: u16 = 0xb0c2;
 pub const DISABLED: u16 = 0;
 pub const ENABLED: u16 = 1;
 pub const NO_CLEAR_MEMORY: u16 = 0x80;

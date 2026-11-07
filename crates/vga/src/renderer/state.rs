@@ -1,7 +1,7 @@
 //! Shared GPU bindings for mode-specific settings, physical VRAM and the DAC.
-use crate::{DisplaySnapshot, Scanout};
+use crate::{DisplaySnapshot, PixelFormat, Scanout};
 
-// Settings fit the VGA banks and controls; packed scanout uses only two words.
+// Settings fit the VGA banks and controls; packed scanout uses only three words.
 const SETTINGS_BYTES: usize = 128;
 // WGSL aligns the palette's vec4 array after the DAC mask to 16 bytes.
 const PALETTE_OFFSET: usize = 16;
@@ -104,6 +104,11 @@ impl GpuState {
             queue.write_buffer(&self.settings, 0, &settings);
             self.previous_settings = Some(settings);
         }
+        if matches!(snapshot.scanout(), Scanout::Svga(layout)
+            if layout.format() != PixelFormat::Indexed8)
+        {
+            return settings_changed;
+        }
         let mask = snapshot.dac.mask;
         let mask_changed = self.previous_mask != Some(mask);
         if mask_changed {
@@ -146,6 +151,13 @@ fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {
         Scanout::Svga(layout) => {
             bytes[..4].copy_from_slice(&layout.pitch().to_le_bytes());
             bytes[4..8].copy_from_slice(&layout.display_start().to_le_bytes());
+            // Decoder tags shared with packed.wgsl; separate from storage width.
+            let format: u32 = match layout.format() {
+                PixelFormat::Indexed8 => 0,
+                PixelFormat::Rgb565 => 1,
+                PixelFormat::Bgrx8888 => 2,
+            };
+            bytes[8..12].copy_from_slice(&format.to_le_bytes());
         }
     }
     bytes

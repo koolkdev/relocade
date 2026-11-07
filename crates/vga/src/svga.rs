@@ -65,6 +65,8 @@ impl SvgaMode {
         };
         let format = match bits_per_pixel {
             8 => PixelFormat::Indexed8,
+            16 => PixelFormat::Rgb565,
+            32 => PixelFormat::Bgrx8888,
             _ => return None,
         };
         Some(Self::new(resolution, format))
