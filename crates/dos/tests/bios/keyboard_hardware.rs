@@ -7,29 +7,25 @@ use relocade_x86::ExecutionExit;
 #[path = "keyboard_hardware/control_break.rs"]
 mod control_break;
 
-// Freeze time so these tests isolate IRQ1 while the production runner drives
-// controller firmware, keyboard firmware and guest execution.
-#[derive(Clone, Copy)]
-struct FrozenClock;
-
-impl relocade_machine::Clock for FrozenClock {
-    fn now(&self) -> std::time::Duration {
-        std::time::Duration::ZERO
-    }
-    async fn wait_until(&self, _: std::time::Duration) {
-        std::future::pending::<()>().await;
-    }
-}
-
-type KeyboardDos = Dos<FrozenClock>;
-type KeyboardRunner = relocade_machine::Runner<FrozenClock>;
+type KeyboardDos = Dos;
+type KeyboardRunner = relocade_machine::Runner;
 
 fn with_hardware(check: impl AsyncFnOnce(&KeyboardRunner, KeyboardDos) + Send + 'static) {
-    let worker = relocade_machine::ExecutionWorker::spawn(FrozenClock, async move |runner| {
-        let dos = Dos::new(runner).await.unwrap();
+    let (clock, timers) = relocade_machine::timer_service();
+    let worker = relocade_machine::ExecutionWorker::spawn(clock, async move |runner| {
+        let mut dos = Dos::new(runner).await.unwrap();
+        // Use production transfer timing while isolating keyboard interrupts.
+        let io = dos.cpu().context().io;
+        let mask = io.read_port(relocade_pic::MASK_PORT, 1);
+        io.write_port(
+            relocade_pic::MASK_PORT,
+            1,
+            mask | (1 << relocade_pic::TIMER_IRQ),
+        );
         check(runner, dos).await;
     });
-    assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
+    let (result, ()) = pollster::block_on(futures_util::future::join(worker.join(), timers.run()));
+    assert_eq!(result.unwrap(), Some(()));
 }
 
 async fn wait_status(io: &IoBus, flag: u8, set: bool) {

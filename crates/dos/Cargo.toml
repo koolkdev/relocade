@@ -16,6 +16,7 @@ relocade-vga = { path = "../vga" }
 relocade-frontend = { path = "../frontend", features = ["keyboard"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 futures-timer = "=3.0.4"
 relocade-at-keyboard = { path = "../at-keyboard" }
 relocade-pic = { path = "../pic" }

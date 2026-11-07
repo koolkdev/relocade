@@ -6,8 +6,24 @@ use crate::{
 };
 use event_listener::Event;
 use futures_util::future::{select, Either};
+use relocade_machine::Clock;
 use relocade_pic::{IrqLine, Pic, KEYBOARD_IRQ};
-use std::{cell::RefCell, pin::pin};
+use std::{
+    cell::{Cell, RefCell},
+    pin::pin,
+    time::Duration,
+};
+
+// Nominal 12.5 kHz keyboard clock: start, eight data, parity and stop bits.
+// A pending byte keeps its deadline across polls of the keyboard activity.
+const SERIAL_BIT_TIME: Duration = Duration::from_micros(80);
+const SERIAL_FRAME_TIME: Duration = SERIAL_BIT_TIME.saturating_mul(11);
+
+#[derive(Clone, Copy)]
+struct Transmission {
+    byte: u8,
+    deadline: Duration,
+}
 
 const IRQ_ENABLED: u8 = 1;
 const SYSTEM_INITIALIZED: u8 = 1 << 2;
@@ -41,6 +57,7 @@ pub(super) struct Controller {
     registers: RefCell<Registers>,
     changed: Event,
     irq: IrqLine,
+    transmission: Cell<Option<Transmission>>,
 }
 
 impl Controller {
@@ -62,6 +79,7 @@ impl Controller {
             }),
             changed: Event::new(),
             irq: pic.irq(KEYBOARD_IRQ, false),
+            transmission: Cell::new(None),
         }
     }
 
@@ -131,6 +149,8 @@ impl Controller {
             let mut command = match self.receive(&mut reply).await {
                 Input::Command(command) => command,
                 Input::Data(value) => {
+                    // A host request takes the wire from an unfinished scan or reply.
+                    self.transmission.set(None);
                     keyboard
                         .send(value)
                         .await
@@ -158,6 +178,9 @@ impl Controller {
                                 registers.break_prefix = false;
                             }
                             registers.command_byte = value;
+                            if value & INTERFACE_DISABLED != 0 {
+                                self.transmission.set(None);
+                            }
                         } else {
                             reply = Some(value);
                         }
@@ -168,7 +191,8 @@ impl Controller {
                     }
                     INTERFACE_TEST => reply = Some(0),
                     DISABLE_INTERFACE => {
-                        self.registers.borrow_mut().command_byte |= INTERFACE_DISABLED
+                        self.registers.borrow_mut().command_byte |= INTERFACE_DISABLED;
+                        self.transmission.set(None);
                     }
                     ENABLE_INTERFACE => {
                         self.registers.borrow_mut().command_byte &= !INTERFACE_DISABLED
@@ -216,8 +240,34 @@ impl Controller {
         }
     }
 
-    pub async fn send_keyboard(&self, byte: u8) {
-        self.send(byte, Source::Keyboard).await;
+    pub async fn send_keyboard(&self, byte: u8, clock: &impl Clock) {
+        loop {
+            let changed = self.changed.listen();
+            if self.inhibited() {
+                self.transmission.set(None);
+                changed.await;
+                continue;
+            }
+            let transmission = self.transmission.get().unwrap_or_else(|| {
+                let transmission = Transmission {
+                    byte,
+                    deadline: clock.now().saturating_add(SERIAL_FRAME_TIME),
+                };
+                self.transmission.set(Some(transmission));
+                transmission
+            });
+            assert_eq!(transmission.byte, byte, "one keyboard transmitter");
+            if clock.now() >= transmission.deadline {
+                self.transmission.set(None);
+                self.send(byte, Source::Keyboard).await;
+                return;
+            }
+            futures_util::future::select(
+                std::pin::pin!(clock.wait_until(transmission.deadline)),
+                std::pin::pin!(changed),
+            )
+            .await;
+        }
     }
 
     async fn send(&self, mut byte: u8, source: Source) {
@@ -243,6 +293,9 @@ impl Controller {
                     }
                     registers.output = byte;
                     registers.output_full = true;
+                    if matches!(source, Source::Controller) {
+                        self.transmission.set(None);
+                    }
                     drop(registers);
                     self.update_irq();
                     self.changed.notify(usize::MAX);

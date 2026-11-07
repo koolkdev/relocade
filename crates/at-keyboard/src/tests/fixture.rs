@@ -3,6 +3,7 @@ use futures_util::future::LocalBoxFuture;
 use relocade_frontend::keyboard::KeyboardEvent;
 use std::{
     cell::Cell,
+    collections::BTreeMap,
     future::poll_fn,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -18,7 +19,16 @@ struct ManualClock(Rc<Time>);
 #[derive(Default)]
 struct Time {
     now: Cell<Duration>,
-    waiter: RefCell<Option<Waker>>,
+    next_waiter: Cell<usize>,
+    waiters: RefCell<BTreeMap<usize, (Duration, Waker)>>,
+}
+
+struct Waiter(Rc<Time>, usize);
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        self.0.waiters.borrow_mut().remove(&self.1);
+    }
 }
 
 impl Clock for ManualClock {
@@ -27,11 +37,17 @@ impl Clock for ManualClock {
     }
 
     async fn wait_until(&self, deadline: Duration) {
+        let id = self.0.next_waiter.get();
+        self.0.next_waiter.set(id + 1);
+        let _waiter = Waiter(self.0.clone(), id);
         poll_fn(|cx| {
             if self.now() >= deadline {
                 Poll::Ready(())
             } else {
-                *self.0.waiter.borrow_mut() = Some(cx.waker().clone());
+                self.0
+                    .waiters
+                    .borrow_mut()
+                    .insert(id, (deadline, cx.waker().clone()));
                 Poll::Pending
             }
         })
@@ -112,6 +128,7 @@ impl Fixture {
         self.write_unpolled(port, value);
         assert_ne!(self.status() & INPUT_BUFFER_FULL, 0);
         self.settle();
+        self.finish_transfers();
     }
 
     pub fn command(&mut self, value: u8) {
@@ -128,12 +145,14 @@ impl Fixture {
     pub fn read_data(&mut self) -> u8 {
         let byte = self.read_unpolled();
         self.settle();
+        self.finish_transfers();
         byte
     }
 
     pub fn event(&mut self, event: KeyboardEvent) {
         self.queue_event(event);
         self.settle();
+        self.finish_transfers();
     }
 
     pub fn queue_event(&self, event: KeyboardEvent) {
@@ -143,14 +162,48 @@ impl Fixture {
     pub fn disconnect(&mut self) {
         self.input.take();
         self.settle();
+        self.finish_transfers();
     }
 
     pub fn advance(&mut self, now: Duration) {
         assert!(now >= self.clock.now());
         self.clock.0.now.set(now);
-        if let Some(waiter) = self.clock.0.waiter.borrow_mut().take() {
+        let waiters: Vec<_> = self
+            .clock
+            .0
+            .waiters
+            .borrow()
+            .values()
+            .map(|(_, waker)| waker.clone())
+            .collect();
+        for waiter in waiters {
             waiter.wake();
         }
         self.settle();
+    }
+
+    pub fn now(&self) -> Duration {
+        self.clock.now()
+    }
+
+    // Protocol tests can finish short wire transfers while leaving typematic
+    // deadlines under their explicit control. Timing tests use advance directly.
+    pub fn finish_transfers(&mut self) {
+        let limit = self.now() + Duration::from_millis(10);
+        for _ in 0..64 {
+            let deadline = self
+                .clock
+                .0
+                .waiters
+                .borrow()
+                .values()
+                .map(|(deadline, _)| *deadline)
+                .min();
+            let Some(deadline) = deadline.filter(|deadline| *deadline <= limit) else {
+                return;
+            };
+            self.advance(deadline);
+        }
+        panic!("keyboard short transfers did not finish");
     }
 }
