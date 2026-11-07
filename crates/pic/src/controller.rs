@@ -1,5 +1,3 @@
-use std::task::Waker;
-
 pub(super) const IRQ_COUNT: u8 = 8;
 const IRQ_NUMBER_MASK: u8 = IRQ_COUNT - 1;
 
@@ -50,13 +48,14 @@ pub(super) struct Controller {
     rotate_on_auto_eoi: bool,
     special_mask: bool,
     read_in_service: bool,
-    poll_pending: bool,
+    pub poll_pending: bool,
+    pub cascade: u8,
+    pub single: bool,
     initialization: Initialization,
-    pub waker: Option<Waker>,
 }
 
 impl Controller {
-    pub fn new(vector_base: u8) -> Self {
+    pub fn new(vector_base: u8, cascade: u8) -> Self {
         Self {
             vector_base,
             mask: u8::MAX,
@@ -71,7 +70,8 @@ impl Controller {
             read_in_service: false,
             poll_pending: false,
             initialization: Initialization::Ready,
-            waker: None,
+            cascade,
+            single: false,
         }
     }
 
@@ -170,10 +170,9 @@ impl Controller {
     }
 
     fn initialize(&mut self, value: u8) {
-        let waker = self.waker.take();
         let levels = self.levels;
-        *self = Self::new(0);
-        self.waker = waker;
+        *self = Self::new(0, 7);
+        self.single = value & ICW1_SINGLE_CONTROLLER != 0;
         self.levels = levels;
         self.mask = 0;
         self.level_triggered = value & ICW1_LEVEL_TRIGGERED != 0;
@@ -236,9 +235,8 @@ impl Controller {
                     Ready
                 }
             }
-            // The cascade wiring is accepted for standard PC initialization;
-            // only the master's eight inputs are connected by this device.
             Cascade { needs_icw4 } => {
+                self.cascade = value;
                 if needs_icw4 {
                     Mode
                 } else {
