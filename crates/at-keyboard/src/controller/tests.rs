@@ -17,7 +17,7 @@ fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
     let controller = Controller::new(&pic);
     let clock = clock::ManualClock::default();
     let (commands, _incoming) = async_channel::bounded(1);
-    let mut firmware = pin!(controller.run(commands));
+    let mut firmware = pin!(controller.run(&clock, commands));
     let mut cx = Context::from_waker(Waker::noop());
 
     // Supply keyboard bytes directly to the controller. Their arrival relative

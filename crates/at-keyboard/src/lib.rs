@@ -76,8 +76,8 @@ impl<C: Clock> Device for KeyboardController<C> {
         };
         let (commands, incoming) = async_channel::bounded(1);
         futures_util::future::join(
-            controller.run(commands),
-            keyboard::run(clock, events, &controller, incoming),
+            controller.run(&clock, commands),
+            keyboard::run(&clock, events, &controller, incoming),
         )
         .await;
     }
