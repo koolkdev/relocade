@@ -12,9 +12,11 @@ Development prioritizes missing P4 instructions and architectural behavior.
 
 The implementation currently covers part of the 16/32-bit protected-mode user
 instruction set and ordinary real-mode execution. Real mode supports segment
-loads, FLAGS stack transfers, near/far transfers and software interrupts with
-interrupt returns. External interrupt delivery and mode transitions remain outside
-that subset. The project is under development; the crates are not published.
+loads, FLAGS stack transfers, near/far transfers, software interrupts, device IRQs
+and interrupt returns. Full real-mode execution delivers divide errors, BOUND
+violations and invalid opcodes through the guest IVT. Other exception delivery
+and mode transitions remain outside that subset. The project is under development;
+the crates are not published.
 
 | Crate | Responsibility |
 | --- | --- |

@@ -14,6 +14,21 @@ The caller supplies guest code and CPU entry state through `pc.cpu()`, then runs
 it with `runner.run_cpu(pc.cpu()).await`. This starts from initialized firmware
 state; reset-ROM execution, POST and disk booting are not implemented.
 
+The x86 execution entries deliver real-mode divide errors (#DE), BOUND violations
+(#BR) and invalid opcodes (#UD) through the live IVT, even with IF clear. BIOS
+installs ordinary default handlers that return `ExecutionExit::UnhandledException`
+to the host. Guest software can replace those vectors or chain to their previous
+destinations. On a default-handler exit, the CPU is in the handler and
+`real_mode_interrupt::read_frame` reads the original faulting CS:IP and FLAGS
+from the guest stack. DOS inherits these defaults and exposes the result through
+`RunError::Execution`, leaving the process available for inspection.
+
+JIT blocks, interpreter execution and `Cpu::step` all deliver these faults.
+`Cpu::step` returns `InterruptEntered` before executing the handler; `Cpu::run`
+continues at the handler. Other faults, protected-mode exception delivery and
+relocated interrupt tables remain outside the automatic delivery support.
+Failures during exception entry return directly to the host.
+
 `keyboard_input()` feeds physical key events through the controller. `keyboard()`
 retains the BIOS keyboard backed by guest RAM for translated/scripted input.
 `frame_source()` provides immutable display captures; `vga()` and `speaker()`

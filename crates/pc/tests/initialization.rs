@@ -3,9 +3,13 @@ mod clock;
 
 use clock::ManualClock;
 use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
-use relocade_machine::{worker::wake_connection, CpuStorage, Hook, Runner};
+use relocade_machine::{
+    real_mode_interrupt::{read_frame, read_vector},
+    worker::wake_connection,
+    CpuStorage, FarPointer, Hook, Runner,
+};
 use relocade_pc::Pc;
-use relocade_x86::{ExecutionExit, HostExit};
+use relocade_x86::{Exception, ExecutionExit, HostExit, Segment, SegmentRegister};
 use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
@@ -72,6 +76,53 @@ async fn bios_without_dos() {
         .expect("PC guest timed out");
 }
 
+async fn default_exceptions() {
+    let clock = ManualClock::default();
+    let storage = CpuStorage::new().unwrap();
+    let (_host, endpoint) = wake_connection(storage.interrupt_handle());
+    let runner = Runner::new(clock, storage, endpoint);
+    runner
+        .run(
+            futures_timer::Delay::new(Duration::from_secs(30)),
+            async |runner| {
+                let mut pc = Pc::new(runner).await.unwrap();
+                let memory = pc.cpu().memory();
+                for (code, exception) in [
+                    (&[0xf6, 0xf3][..], Exception::DivideError), // DIV BL.
+                    (&[0x62, 0x06, 0, 5][..], Exception::BoundRangeExceeded), // BOUND AX,[0500].
+                    (&[0x0f, 0x0b][..], Exception::InvalidOpcode), // UD2.
+                ] {
+                    memory.view().write(0x1000, code).unwrap();
+                    let state = pc.cpu().cpu_state();
+                    state.set_segment(Segment::Cs, SegmentRegister::real_mode(Segment::Cs, 0));
+                    state.set_eip(0x1000);
+                    state.set_sp(0x8000);
+                    state.set_ax(1);
+                    state.set_bx(0);
+                    state.set_eflags(2);
+                    let handler = read_vector(&memory.view(), exception.vector() as u8);
+                    assert_eq!(handler.segment, 0xf000, "default entry is in BIOS ROM");
+                    assert_eq!(
+                        runner.run_cpu(pc.cpu()).await,
+                        ExecutionExit::UnhandledException(exception)
+                    );
+                    assert_eq!(state.segment(Segment::Cs).selector, handler.segment);
+                    let frame = read_frame(&state, &memory.view());
+                    assert_eq!(
+                        frame.return_address,
+                        FarPointer {
+                            segment: 0,
+                            offset: 0x1000
+                        }
+                    );
+                    assert_eq!(frame.flags, 2);
+                }
+            },
+        )
+        .await
+        .expect("PC guest timed out");
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn pc_runs_bios_video_keyboard_and_timer_without_dos() {
@@ -82,4 +133,16 @@ fn pc_runs_bios_video_keyboard_and_timer_without_dos() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pc_runs_bios_video_keyboard_and_timer_without_dos() {
     bios_without_dos().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pc_installs_default_exception_handlers() {
+    pollster::block_on(default_exceptions());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn pc_installs_default_exception_handlers() {
+    default_exceptions().await;
 }
