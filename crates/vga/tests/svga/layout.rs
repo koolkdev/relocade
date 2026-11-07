@@ -3,13 +3,16 @@ use crate::common::{
     ManualClock,
 };
 use relocade_machine::Device;
-use relocade_vga::{SvgaMode, Vga};
+use relocade_vga::{PixelFormat, SvgaMode, SvgaResolution, Vga};
 use std::rc::Rc;
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn layout_bounds_keep_coordinates_and_full_logical_rows_in_vram() {
-    let layout = SvgaMode::Indexed640x480.layout().with_pitch(1024).unwrap();
+    let layout = SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Indexed8)
+        .layout()
+        .with_pitch(1024)
+        .unwrap();
     assert_eq!(layout.virtual_height(), 4096);
     assert_eq!(layout.image_pages(), 8);
     let corner = layout.with_origin([384, 3616]).unwrap();
@@ -35,6 +38,38 @@ fn layout_bounds_keep_coordinates_and_full_logical_rows_in_vram() {
     assert_eq!(partial_row.virtual_height(), 3276);
     assert!(partial_row.with_origin([0, 2796]).is_some());
     assert!(partial_row.with_origin([0, 2797]).is_none());
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn direct_color_layouts_separate_pixel_coordinates_from_byte_offsets() {
+    for (format, pitch, rows, start, max_pitch) in [
+        (PixelFormat::Rgb565, 2048, 2048, 3_212_032, 8738),
+        (PixelFormat::Bgrx8888, 4096, 1024, 2_229_760, 8736),
+    ] {
+        let mode = SvgaMode::new(SvgaResolution::R640x480, format);
+        let layout = mode.layout().with_virtual_width(1024).unwrap();
+        assert_eq!(layout.pitch(), pitch);
+        assert_eq!(layout.virtual_width(), 1024);
+        assert_eq!(layout.virtual_height(), rows);
+        assert_eq!(mode.max_pitch(), max_pitch);
+        let corner = layout.with_origin([384, rows - 480]).unwrap();
+        assert_eq!(corner.display_start(), start);
+        assert_eq!(
+            corner.display_start() + 479 * pitch + 640 * format.bytes_per_pixel(),
+            4 * 1024 * 1024
+        );
+        assert!(layout.with_origin([385, rows - 480]).is_none());
+        assert!(layout.with_origin([384, rows - 479]).is_none());
+        assert!(layout.with_pitch(pitch + 1).is_none());
+        assert!(layout.with_pitch(max_pitch).is_some());
+        assert!(layout
+            .with_pitch(max_pitch + format.bytes_per_pixel())
+            .is_none());
+        assert!(layout.with_virtual_width(639).is_none());
+        assert!(layout.with_virtual_width(u32::MAX).is_none());
+        assert!(corner.with_virtual_width(1023).is_none());
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

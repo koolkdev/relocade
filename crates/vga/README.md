@@ -931,10 +931,11 @@ not clear VRAM, change the CPU bank or restart raster timing. Mode entry resets
 to the default pitch and origin. Inactive layout reads return zero and writes
 are ignored. Each retrace captures the layout in effect at that boundary.
 
-`SvgaMode` defines the supported device geometries: 640×480×8, 800×600×8 and
-1024×768×8. DISPI validates against these descriptions, and each mode creates its
-default `SvgaLayout`. BIOS metadata uses the same geometry; only the VESA mode
-numbers (0101h, 0103h and 0105h) belong to firmware.
+`SvgaMode` combines a `SvgaResolution` with a `PixelFormat`; its default
+`SvgaLayout` and checked layout changes keep byte strides distinct from pixel
+coordinates. The three resolutions have fixed DMT rasters, independent of pixel
+format. DISPI currently accepts their indexed eight-bit modes. BIOS metadata uses
+the same layouts; VESA mode numbers belong to firmware.
 
 ### Banked VBE profile
 
