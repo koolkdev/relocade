@@ -10,12 +10,19 @@ export class DeadlineTimer {
             if (!pending || pending.id !== id) return;
             // Queueing the message must count toward the original deadline.
             const remaining = Math.max(0, pending.deadline - performance.now());
-            // Bound long waits to the timer API's signed 32-bit millisecond range.
-            pending.timeout = setTimeout(() => {
+            const complete = () => {
                 if (this.pending !== pending) return;
                 this.pending = null;
                 pending.resolve();
-            }, Math.min(remaining, 0x7fffffff));
+            };
+            if (remaining === 0) {
+                complete();
+                return;
+            }
+            // The API truncates to integer milliseconds. Round up so a positive
+            // remainder cannot become zero and repeatedly wake before the deadline.
+            // Bound long waits to the timer API's signed 32-bit millisecond range.
+            pending.timeout = setTimeout(complete, Math.min(Math.ceil(remaining), 0x7fffffff));
         };
     }
 
