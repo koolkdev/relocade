@@ -21,9 +21,9 @@ The shared host owns the canvas.
 
 The application entrypoint connects existing owners. One execution worker owns
 DOS/keyboard/VGA/speaker and the Rust command loop. It sends the native console's
-input sender and `dos.frame_source()` through a startup channel. Main attaches those endpoints to
-its `AppHost` while driving the application and timer service; the graphics worker
-constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
+input sender, `dos.mouse_input()` and `dos.frame_source()` through a startup
+channel. Main attaches those endpoints to its `AppHost` while driving the
+application and timer service; the graphics worker constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
 a pending console read, and waits for execution and graphics cleanup. Execution
 errors remain visible even when startup ends before the endpoints arrive.
 
@@ -39,6 +39,14 @@ activation. CPAL retains that request through worklet setup. If opening or
 starting output fails, the console still runs with silent speaker ports.
 Closing the window drops output before waiting for execution
 cleanup, closing any pending PCM submission. No extra synthesis worker is created.
+
+Click the window or canvas to capture the mouse; press Escape to release it.
+The capture click is consumed. Focus loss releases held buttons and restores host
+interaction. Native windows use pointer locking or confinement; browsers require
+pointer-lock permission. Relative motion is independent of window size and is
+scaled by the DOS driver. The built-in driver stays available across launches;
+programs initialize it with INT 33h and explicitly show their cursor. The native
+command prompt itself does not display a mouse cursor.
 
 ## Console
 

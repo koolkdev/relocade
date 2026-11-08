@@ -64,6 +64,13 @@ export async function testApplication(config) {
         await displayedGlyph(session, 0, promptRow, prompt);
         await assertWaitingForActivation(session);
         await page.locator("#screen").click();
+        await page.waitForFunction(() => document.pointerLockElement === document.querySelector("#screen"));
+        await observe(session, () => document.querySelector("#screen").blur());
+        await page.waitForFunction(() => document.pointerLockElement === null);
+        await page.locator("#screen").click();
+        await page.waitForFunction(() => document.pointerLockElement === document.querySelector("#screen"));
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.pointerLockElement === null);
         await page.waitForFunction(() => audioContexts.at(-1)?.state === "running");
         await page.keyboard.type("echo xy");
         await page.keyboard.press("Backspace");
@@ -87,7 +94,7 @@ export async function testApplication(config) {
         await page.keyboard.press("y");
         assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
         assert.deepEqual(errors, []);
-        console.log("DOS console: audio activation, keyboard editing, displayed echo and resize passed");
+        console.log("DOS console: mouse capture/release, audio activation, keyboard editing, displayed echo and resize passed");
     } finally {
         await browser?.close();
         await server.close();

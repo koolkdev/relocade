@@ -1,4 +1,5 @@
 use super::*;
+mod guest_mouse;
 use futures_channel::{mpsc, oneshot};
 use relocade_frontend::{
     display::DisplayRenderer,
@@ -69,6 +70,7 @@ async fn wait_for(condition: impl Fn() -> bool) {
 #[derive(Clone, Copy)]
 enum Startup {
     Ready,
+    MouseGuest,
     DisplayError,
     CloseBeforeAttach,
 }
@@ -228,6 +230,11 @@ fn fixture(
         events.clone(),
         attributes,
         move |mut host| async move {
+            if matches!(startup, Startup::MouseGuest) {
+                let result = guest_mouse::run(host, events, requests).await;
+                cleaned.set(true);
+                return result;
+            }
             // This Rc and the thread ID must remain on the winit owner across awaits.
             let main = Rc::new(std::thread::current().id());
             let main_id = *main;
@@ -487,6 +494,7 @@ fn main_hosts_display_and_awaits_cleanup() {
         .unwrap();
     for startup in [
         Startup::Ready,
+        Startup::MouseGuest,
         Startup::DisplayError,
         Startup::CloseBeforeAttach,
     ] {
@@ -521,6 +529,7 @@ async fn main_hosts_display_and_awaits_cleanup() {
     use winit::platform::web::WindowAttributesExtWebSys;
     for startup in [
         Startup::Ready,
+        Startup::MouseGuest,
         Startup::DisplayError,
         Startup::CloseBeforeAttach,
     ] {
