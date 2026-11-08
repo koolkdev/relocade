@@ -1,11 +1,13 @@
 //! The driver alternates guest execution with polling retained host services.
 
+mod budget;
 mod entry;
 mod guest_call;
 mod requests;
 mod suspended;
 
 use super::{call::Call, Cpu};
+use budget::RunBudget;
 pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
 pub(super) use requests::GuestCalls;
@@ -73,6 +75,19 @@ impl Cpu {
     /// Awaited guest interrupt and far calls use the same entry and resume machinery,
     /// taking precedence over device IRQ polling and entering regardless of IF.
     pub async fn run(&mut self) -> ExecutionExit {
+        self.run_with_budget(0).await
+    }
+
+    /// Like [`Self::run`], with a soft instruction allowance. Zero is unlimited.
+    /// Returns [`ExecutionExit::BudgetExhausted`] at a checkpoint, which may overshoot.
+    /// The allowance spans service waits and clears on completion or drop. Preserve
+    /// the retirement count while a budget is active.
+    ///
+    /// # Panics
+    /// Panics if the allowance exceeds `i64::MAX`, or is nonzero when this CPU's
+    /// execution target disables instruction budgets.
+    pub async fn run_with_budget(&mut self, instruction_budget: u64) -> ExecutionExit {
+        let _budget = RunBudget::new(&self.machine.bindings, instruction_budget);
         let exit = poll_fn(|cx| {
             if let Some(exit) = self.exit.0.get() {
                 return Poll::Ready(exit);

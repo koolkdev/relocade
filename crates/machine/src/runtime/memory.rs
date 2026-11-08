@@ -3,7 +3,7 @@
 use super::{CpuStorage, ExecutionInterrupt, Result};
 use crate::{CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
-use relocade_wasm_runtime::{Import, Memory, WasmBackend, WasmMemoryAccess};
+use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::abi;
 
 /// Retained CPU and guest storage, plus private mapping storage.
@@ -11,6 +11,8 @@ use relocade_x86::abi;
 pub(super) struct RuntimeMemory {
     pub(crate) config: CpuConfig,
     pub(crate) context: Memory,
+    /// Retained backing for execution controls whose cleanup outlives a Wasm call.
+    pub(crate) context_backing: SharedMemory,
     pub(crate) cpu: CpuStateAccess,
     pub(crate) interrupt: ExecutionInterrupt,
     pub(crate) guest: GuestMemory,
@@ -31,7 +33,7 @@ impl RuntimeMemory {
         let storage = storage.initialize(&config);
         let context = backend.import_shared_memory(&storage);
         let interrupt = ExecutionInterrupt::new(storage.clone());
-        let cpu = CpuStateAccess::new(&config, storage);
+        let cpu = CpuStateAccess::new(&config, storage.clone());
         let guest_import = backend.import_shared_memory(guest.backing());
         let mapping_bytes = guest.configuration().memory_map().to_bytes();
         let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
@@ -44,6 +46,7 @@ impl RuntimeMemory {
         Ok(Self {
             config,
             context,
+            context_backing: storage,
             cpu,
             interrupt,
             guest,
