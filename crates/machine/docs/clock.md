@@ -26,23 +26,36 @@ before waiting is retained, so the request cannot be lost. Dropping a wait
 wakes the worker to remove its timer. The timer list is small and local to the
 worker; producers share only the request channel and response channels.
 
-On Windows, the worker waits on a high-resolution waitable timer and an auto-reset
-event. The timer supplies the deadline; the event interrupts it for new requests,
+On native Windows, the worker waits on a high-resolution waitable timer and an
+auto-reset event. The timer supplies the deadline; the event interrupts it for new requests,
 cancellation and shutdown. Idle waits use only the event. This avoids the coarse
 `WaitOnAddress` timeout used by Rust's timed parking without requesting a process
 timer-resolution change. If these handles cannot be created, including on Windows
 versions before 10 version 1803, the worker falls back to ordinary Rust parking.
-Other platforms also use Rust parking. The platform wait mechanism is private to
-`clock/driver/wait`; timer handles and worker lifecycle APIs are unchanged.
+Other native platforms also use Rust parking. The platform wait mechanism is private
+to `clock/driver/wait`; timer handles and worker lifecycle APIs are unchanged.
 
-The threaded browser build's standard library implements `park` and
+By default, the threaded browser build's standard library implements `park` and
 `park_timeout` with Wasm `memory.atomic.wait32`, and `unpark` with
-`memory.atomic.notify`. There are no JavaScript timeout callbacks or integer
-millisecond conversions in deadline delivery. `Clock::now()` still reads the
-host's monotonic clock (`performance.now()` in the browser). Every wake rechecks
-that clock; requested sleep duration is never treated as elapsed time. Atomic
-waits still depend on the browser and OS timeout implementation; avoiding JavaScript
-callbacks does not guarantee that millisecond deadlines wake on time.
+`memory.atomic.notify`. This remains the path on macOS, Linux and unrecognized
+browser environments. Chromium on Windows uses a worker-local `MessageChannel`
+task to arm each `setTimeout` instead: measured atomic waits there can round a
+1–2 ms deadline up to about 15 ms. A fresh message task breaks the nested-timer
+chain that otherwise clamps repeated timeouts to at least 4 ms. Platform selection
+is isolated in `wait/browser/environment.rs` and requires no embedding options.
+
+The browser backend yields to the timer worker's own event loop. Its message
+handler recomputes remaining time from an absolute deadline; queueing the message
+does not extend the wait. Requests, cancellation and shutdown use a retained Rust
+notification and an `AtomicWaker`; they carry no JavaScript handles across threads.
+Cancelling a deadline invalidates queued message work, clears any armed timeout
+and settles its promise so Rust callbacks can be released. Worker shutdown closes
+both message ports. The peer binding stays alive throughout the async driver.
+
+`Clock::now()` reads the host's monotonic clock (`performance.now()` in the browser).
+Every wake rechecks that clock; requested sleep duration is never treated as
+elapsed time. All backends remain subject to host scheduling and browser throttling;
+none guarantees millisecond deadlines or replays missed interrupts.
 
 For a busy execution worker, bind its notification resource on the timer worker:
 

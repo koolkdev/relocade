@@ -34,7 +34,7 @@ impl TimerDriver {
     /// Starts a timer worker with explicit stop and join operations.
     pub fn spawn(self) -> CancellableWorker<()> {
         CancellableWorker::spawn(|thread, stopped| {
-            thread.run_send((), move |()| async move { self.drive(stopped) })
+            thread.run_send((), move |()| self.drive(stopped))
         })
     }
 
@@ -47,14 +47,15 @@ impl TimerDriver {
         CancellableWorker::spawn(|thread, stopped| {
             thread.run_resource(peer, move |peer| async move {
                 let _binding = peer.bind();
-                self.drive(stopped);
+                self.drive(stopped).await;
             })
         })
     }
 
-    fn drive(mut self, mut stopped: oneshot::Receiver<()>) {
-        let wait = wait::Wait::new();
-        let mut context = Context::from_waker(wait.waker());
+    async fn drive(mut self, mut stopped: oneshot::Receiver<()>) {
+        let mut wait = wait::Wait::new();
+        let waker = wait.waker().clone();
+        let mut context = Context::from_waker(&waker);
         let mut timers: Vec<Request> = Vec::new();
         let mut closed = false;
         loop {
@@ -79,7 +80,8 @@ impl TimerDriver {
             }
             // Requests, cancellation and shutdown share a retained notification,
             // including notifications that arrive between polling and waiting.
-            wait.until(timers.iter().map(|timer| timer.deadline).min());
+            wait.until(timers.iter().map(|timer| timer.deadline).min())
+                .await;
         }
     }
 }
