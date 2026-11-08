@@ -10,25 +10,11 @@ clock.sleep_until(deadline).await;
 clock.sleep(Duration::from_millis(2)).await;
 ```
 
-`Instant` and `SystemTime` are re-exported from `web_time`, which uses the
-standard library types on native targets. `Instant` is monotonic; `Duration` is
+`Instant` is re-exported from `web_time`, which uses the standard library type
+on native targets. `Instant` is monotonic; `Duration` is
 an interval. Host clocks use the host's absolute monotonic timebase. Instruction
 timelines start at an explicitly supplied instant, then progress independently.
 An aligned origin does not imply that instruction time stays paced to host time.
-
-Calendar conversion is separate from clocks and sleeps. A `TimeOrigin` maps an
-instant to the calendar reading captured at its anchor, including instants before
-the anchor. Replacing the anchor can follow host calendar corrections without
-changing monotonic deadlines:
-
-```rust,ignore
-let origin = TimeOrigin::now();
-let timeline = InstructionTimeline::new(origin.instant(), instructions_per_second);
-let calendar_now = origin.to_system_time(timeline.clock().now());
-```
-
-`TimeOrigin::new(instant, system_time)` accepts an explicit anchor. Mappings use
-that snapshot; they do not automatically follow later host clock corrections.
 
 `Sleep` owns its source without retaining a device borrow. Relative sleeps capture
 their deadline when constructed; both forms register on first poll. Dropping a

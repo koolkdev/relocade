@@ -3,12 +3,10 @@
 mod driver;
 mod host;
 mod instruction;
-pub use instruction::InstructionTimeline;
-mod origin;
 pub use driver::HostTimerDriver;
 pub use host::{timer_service, TimerHandle};
-pub use origin::TimeOrigin;
-pub use web_time::{Instant, SystemTime};
+pub use instruction::InstructionTimeline;
+pub use web_time::Instant;
 
 use std::{
     future::Future,
