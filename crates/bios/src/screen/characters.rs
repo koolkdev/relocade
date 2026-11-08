@@ -24,7 +24,11 @@ pub(crate) fn read_cell(memory: &MemoryView<'_>, io: &IoBus, page: u8) -> Option
     let geometry = Geometry::read(memory);
     let position = CursorPosition::from_bios(cursor_position(memory, page));
     if is_text_mode(memory) {
-        return Some(read_cell_at(memory, &geometry, page, position));
+        return Some(
+            geometry
+                .read_cell(memory, page, position.row, position.column)
+                .unwrap_or([0; 2]),
+        );
     }
     if !geometry.contains(position.row, position.column) {
         return Some([0; 2]);
@@ -37,24 +41,6 @@ pub(crate) fn read_cell(memory: &MemoryView<'_>, io: &IoBus, page: u8) -> Option
         geometry.font_height,
     );
     Some([character, 0])
-}
-
-fn read_cell_at(
-    memory: &MemoryView<'_>,
-    geometry: &Geometry,
-    page: u8,
-    position: CursorPosition,
-) -> [u8; 2] {
-    let mut cell = [0; 2];
-    if geometry.contains(position.row, position.column) {
-        memory
-            .read(
-                geometry.cell_address(page, position.row, position.column),
-                &mut cell,
-            )
-            .expect("text cell");
-    }
-    cell
 }
 
 #[derive(Clone, Copy)]
@@ -206,7 +192,9 @@ impl<'a, 'memory> Output<'a, 'memory> {
             // Text scrolling takes the attribute after cursor advance; graphics
             // scrolling always exposes black pixels, regardless of the foreground.
             let fill = if is_text_mode(self.memory) {
-                read_cell_at(self.memory, &self.geometry, self.page, position)[1]
+                self.geometry
+                    .read_cell(self.memory, self.page, position.row, position.column)
+                    .unwrap_or([0; 2])[1]
             } else {
                 0
             };

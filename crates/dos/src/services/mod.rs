@@ -33,7 +33,7 @@ impl<'call> Services<'call> {
 
     #[interrupt(context(memory))]
     fn exit(&self, memory: &mut MemoryView<'_>, status: Result<u8, ServiceError>) {
-        self.dos.mouse.retire_callback();
+        self.dos.mouse.end_process(memory);
         self.process
             .terminate(status, memory, &mut self.dos.filesystem());
         self.dos.request_exit();

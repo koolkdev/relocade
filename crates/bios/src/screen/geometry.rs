@@ -5,6 +5,7 @@ use crate::video::{
 use relocade_machine::MemoryView;
 use relocade_vga::TEXT_MEMORY_BYTES;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct Geometry {
     pub columns: u16,
     pub rows: u16,
@@ -56,6 +57,40 @@ impl Geometry {
 
     pub fn cell_address(&self, page: u8, row: u16, column: u16) -> u32 {
         self.text_address(self.cell_offset(page, row, column))
+    }
+
+    pub fn read_cell(
+        &self,
+        memory: &MemoryView<'_>,
+        page: u8,
+        row: u16,
+        column: u16,
+    ) -> Option<[u8; 2]> {
+        if !self.contains(row, column) {
+            return None;
+        }
+        let mut cell = [0; 2];
+        memory
+            .read(self.cell_address(page, row, column), &mut cell)
+            .expect("text cell");
+        Some(cell)
+    }
+
+    pub fn write_cell(
+        &self,
+        memory: &mut MemoryView<'_>,
+        page: u8,
+        row: u16,
+        column: u16,
+        cell: [u8; 2],
+    ) -> Option<()> {
+        if !self.contains(row, column) {
+            return None;
+        }
+        memory
+            .write(self.cell_address(page, row, column), &cell)
+            .expect("text cell");
+        Some(())
     }
 
     pub fn text_address(&self, offset: u16) -> u32 {

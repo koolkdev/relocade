@@ -3,7 +3,7 @@
 use crate::screen;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 
-/// Character at a page's stored cursor. Graphics reads return attribute zero.
+/// A character and its text attribute. Graphics reads return attribute zero.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CharacterCell {
     pub character: u8,
