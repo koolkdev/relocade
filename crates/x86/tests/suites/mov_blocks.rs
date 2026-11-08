@@ -1,5 +1,8 @@
 use crate::support::step;
-use relocade_x86::{compile_block_from_bytes, BlockError, CompiledModule, CpuState, Registers};
+use relocade_x86::{
+    compile_block_from_bytes, BlockError, CompiledModule, Compiler, CpuState, Registers,
+    SegmentProfile,
+};
 use step::{Event, Input, Observation, Snapshot, TestModule};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
 
@@ -60,8 +63,12 @@ fn instruction_limit_excludes_valid_partial_and_unsupported_suffixes() {
 }
 
 #[test]
-fn completed_state_is_published_once_in_first_write_order_before_tail_dispatch() {
-    let block = compile_block_from_bytes(0x1000, FIRST_WRITE_ORDER, 3).unwrap();
+fn budgetless_blocks_publish_once_in_first_write_order_before_tail_dispatch() {
+    // Check publication and dispatch without the optional budget checkpoint.
+    let block = Compiler::new(SegmentProfile::Flat32)
+        .with_instruction_budgets(false)
+        .compile_block(0x1000, FIRST_WRITE_ORDER, 3)
+        .unwrap();
     Validator::new().validate_all(&block.bytes).unwrap();
     assert_eq!(block.entry, "block_1000");
     let mut types = Vec::new();
@@ -359,7 +366,11 @@ fn register_mov_requires_its_modrm_byte() {
 #[test]
 fn register_copies_forward_values_and_omit_redundant_backing_accesses() {
     fn accesses(bytes: &[u8], instructions: u32) -> (Vec<u64>, Vec<u64>) {
-        let module = compile_block_from_bytes(0x1000, bytes, instructions).unwrap();
+        // Budget checks own separate control loads; this test owns register forwarding.
+        let module = Compiler::new(SegmentProfile::Flat32)
+            .with_instruction_budgets(false)
+            .compile_block(0x1000, bytes, instructions)
+            .unwrap();
         Validator::new().validate_all(&module.bytes).unwrap();
         let mut loads = Vec::new();
         let mut stores = Vec::new();

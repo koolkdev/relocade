@@ -1,7 +1,7 @@
 //! Packed chains retain architectural publication and precise guest faults.
 
 use super::*;
-use relocade_x86::compile_block_from_bytes;
+use relocade_x86::{compile_block_from_bytes, Compiler};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 const MIXED: [u8; 12] = [
@@ -101,7 +101,11 @@ fn operators(bytes: &[u8]) -> Vec<Operator<'_>> {
 fn packed_add_chains_use_vector_memory_without_scalar_conversions() {
     let code = [0x0f, 0xfd, 0xc1].repeat(8);
     let inputs = 2;
-    let module = compile_block_from_bytes(0x1000, &code, (code.len() / 3) as u32).unwrap();
+    // Budget checks use scalar control loads independently of MMX transfers.
+    let module = Compiler::new(SegmentProfile::Flat32)
+        .with_instruction_budgets(false)
+        .compile_block(0x1000, &code, (code.len() / 3) as u32)
+        .unwrap();
     let cpu_memory = Parser::new(0)
         .parse_all(&module.bytes)
         .filter_map(|payload| match payload.unwrap() {
