@@ -54,8 +54,8 @@
 //! EOF is cleared through AH=40h or AX=4401h, or a program load replaces the handles.
 //! AX=4401h switches device handles between cooked and raw mode. Raw transfers
 //! report the driver's actual byte count. Built-in CON reads await the requested
-//! count, limited by the segment boundary, without editing, echo, CRLF insertion
-//! or interpreting Ctrl-Z as EOF. Raw writes preserve tabs and control bytes.
+//! count without editing, echo, CRLF insertion or interpreting Ctrl-Z as EOF.
+//! Raw writes preserve tabs and control bytes.
 //! Duplicates share mode and EOF changes; separate opens
 //! keep their own state. Switching modes preserves the buffered cooked-line remainder.
 //! Dropping a run waiter preserves an active read and its local state. A later

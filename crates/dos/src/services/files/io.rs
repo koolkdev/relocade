@@ -1,4 +1,5 @@
-//! DOS handle transfers retain arguments and buffers across ordinary I/O waits.
+//! DOS handle transfers advance linearly from DS:DX, including across 64 KiB.
+//! Arguments and buffers survive ordinary I/O waits.
 
 use crate::{
     services::{control::Request, io},
@@ -6,11 +7,6 @@ use crate::{
 };
 use relocade_machine::{real_mode_interrupt::interrupt, CpuContext, FarPointer};
 use std::ops::ControlFlow;
-
-/// AH=3Fh/40h stop at the segment end instead of wrapping a file transfer buffer.
-fn transfer_count(buffer: FarPointer, count: u16) -> usize {
-    usize::from(count).min(0x10000 - usize::from(buffer.offset))
-}
 
 #[interrupt(context(call), args(handle = bx, buffer = ptr(ds, dx), count = cx), returns {
     Ok(count) => { ax = count, cf = false },
@@ -23,7 +19,7 @@ pub(in crate::services) async fn read(
     buffer: FarPointer,
     count: u16,
 ) -> Result<u16, DosError> {
-    let count = transfer_count(buffer, count);
+    let count = usize::from(count);
     let services = request.services;
     loop {
         let source = services.process.files().readable_handle(handle)?;
@@ -32,7 +28,7 @@ pub(in crate::services) async fn read(
             continue;
         };
         call.memory
-            .write_wrapping(buffer, &bytes)
+            .write(buffer.address(), &bytes)
             .expect("real-mode read buffer");
         return Ok(bytes.len() as u16);
     }
@@ -50,13 +46,13 @@ pub(in crate::services) async fn write(
     buffer: FarPointer,
     count: u16,
 ) -> Result<u16, DosError> {
-    let count = transfer_count(buffer, count);
+    let count = usize::from(count);
     let services = request.services;
     loop {
         // INT23 may change guest memory or redirection before restarting the call.
         let mut bytes = vec![0; count];
         call.memory
-            .read_wrapping(buffer, &mut bytes)
+            .read(buffer.address(), &mut bytes)
             .expect("real-mode write buffer");
         let destination = services.process.files().writable_handle(handle)?;
         let ControlFlow::Continue(count) =
