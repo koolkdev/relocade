@@ -38,8 +38,6 @@ pub(in crate::video) const MONO_TEXT_350: Preset = Preset {
 pub(in crate::video) const MONO_TEXT_400: Preset = Preset {
     character_height: 16,
     miscellaneous: 0x66,
-    crtc: text::TEXT_400
-        .crtc
-        .with(&[(crtc::UNDERLINE_LOCATION, 15)]),
+    crtc: text::TEXT_400.crtc.with(&[(crtc::UNDERLINE_LOCATION, 15)]),
     ..MONO_TEXT_350
 };

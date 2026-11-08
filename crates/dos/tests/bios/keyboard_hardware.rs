@@ -9,26 +9,17 @@ mod control_break;
 
 // Freeze time so these tests isolate IRQ1 while the production runner drives
 // controller firmware, keyboard firmware and guest execution.
-#[derive(Clone, Copy)]
-struct FrozenClock;
-
-impl relocade_machine::Clock for FrozenClock {
-    fn now(&self) -> std::time::Duration {
-        std::time::Duration::ZERO
-    }
-    async fn wait_until(&self, _: std::time::Duration) {
-        std::future::pending::<()>().await;
-    }
-}
-
-type KeyboardDos = Dos<FrozenClock>;
-type KeyboardRunner = relocade_machine::Runner<FrozenClock>;
+type KeyboardDos = Dos;
+type KeyboardRunner = relocade_machine::Runner;
 
 fn with_hardware(check: impl AsyncFnOnce(&KeyboardRunner, KeyboardDos) + Send + 'static) {
-    let worker = relocade_machine::ExecutionWorker::spawn(FrozenClock, async move |runner| {
-        let dos = Dos::new(runner).await.unwrap();
-        check(runner, dos).await;
-    });
+    let worker = relocade_machine::ExecutionWorker::spawn_with_clock(
+        || relocade_clock_test_support::ManualClock::new().clock(),
+        async move |runner| {
+            let dos = Dos::new(runner).await.unwrap();
+            check(runner, dos).await;
+        },
+    );
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
 }
 

@@ -1,11 +1,11 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 mod common;
-use common::{crtc, dots, support::svga, svga_boundary, ManualClock};
+use common::{crtc, dots, support::svga, svga_boundary};
 use relocade_machine::Device;
 use relocade_vga::{DacState, DispiState, PixelFormat, RetraceEvent, Scanout, Vga, VgaCoreState};
 use std::{
     future::Future,
     pin::pin,
-    rc::Rc,
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -16,7 +16,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn vga_core_restore_preserves_vram_and_recovers_latches_reset_and_access_phases() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     vga.write_port(0x3c4, 2, 0x0604);
     vga.write_port(0x3ce, 2, 0x0406);
     vga.write_port(0x3ce, 2, 0x0005);
@@ -65,7 +65,7 @@ fn vga_core_restore_preserves_vram_and_recovers_latches_reset_and_access_phases(
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dac_restore_continues_partial_transfers_and_preserves_other_state_classes() {
     for reading in [false, true] {
-        let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+        let mut vga = Vga::with_clock(ManualClock::new().clock());
         svga::enable(&mut vga);
         vga.write_port(0x3c8, 1, 255);
         for value in [10, 20, 30] {
@@ -108,7 +108,7 @@ fn dac_restore_continues_partial_transfers_and_preserves_other_state_classes() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dispi_restore_recovers_exact_flags_layout_bank_and_disabled_staging() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     for (register, value) in [
         (1, 800),
         (2, 600),
@@ -147,8 +147,8 @@ fn dispi_restore_recovers_exact_flags_layout_bank_and_disabled_staging() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn restored_programming_services_old_capture_and_replaces_only_changed_timing() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     svga::enable(&mut vga);
     let original = vga.dispi_state();
     for (register, value) in [(4, 0), (1, 800), (2, 600), (4, 0x81)] {
@@ -160,10 +160,10 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
     let mut wait = pin!(vga.wait_for_retrace().unwrap());
     let mut cx = Context::from_waker(Waker::noop());
     assert!(wait.as_mut().poll(&mut cx).is_pending());
-    clock.set(Duration::from_millis(1));
+    clock.advance_to(clock_origin() + Duration::from_millis(1));
     vga.restore_state(None, Some(vga.dac_state()), None);
     assert!(wait.as_mut().poll(&mut cx).is_pending());
-    clock.set(svga_boundary(1));
+    clock.advance_to(clock_origin() + svga_boundary(1));
     vga.restore_state(None, None, Some(larger));
     assert_eq!(
         wait.as_mut().poll(&mut cx),
@@ -175,7 +175,9 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
     let mut next = pin!(vga.wait_for_retrace().unwrap());
     assert!(next.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
-        clock.deadline.get(),
+        clock
+            .next_deadline()
+            .map(|at| at.duration_since(clock_origin())),
         Some(svga_boundary(1) + dots(601 * 1056, 40_000_000))
     );
 }
@@ -183,7 +185,7 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn malformed_component_bytes_are_rejected_before_restoration() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     for (offset, value) in [(3, 2), (4, 8), (8, 2), (15, 4)] {
         let mut bytes = vga.core_state().to_bytes();
         bytes[offset] = value;
@@ -206,8 +208,8 @@ fn malformed_component_bytes_are_rejected_before_restoration() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn direct_color_state_keeps_byte_pitch_and_same_resolution_raster_phase() {
     for (bits, pitch, rows) in [(16, 2048u16, 2048), (32, 4096u16, 1024)] {
-        let clock = Rc::new(ManualClock::default());
-        let mut vga = Vga::with_clock(clock.clone());
+        let clock = ManualClock::default();
+        let mut vga = Vga::with_clock(clock.clock());
         svga::set_mode(&mut vga, 640, 480, bits);
         svga::set(&mut vga, 6, 1024);
         svga::set(&mut vga, 8, 384);
@@ -223,7 +225,7 @@ fn direct_color_state_keeps_byte_pitch_and_same_resolution_raster_phase() {
         bytes[12..14].copy_from_slice(&(pitch + 1).to_le_bytes());
         assert!(DispiState::from_bytes(&bytes).is_none());
         svga::enable(&mut vga);
-        clock.set(Duration::from_millis(1));
+        clock.advance_to(clock_origin() + Duration::from_millis(1));
         vga.restore_state(None, None, Some(decoded));
         assert_eq!(vga.dispi_state(), state);
         assert_eq!(svga::get(&mut vga, 6), 1024);
@@ -233,7 +235,12 @@ fn direct_color_state_keeps_byte_pitch_and_same_resolution_raster_phase() {
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
             .is_pending());
-        assert_eq!(clock.deadline.get(), Some(svga_boundary(1)));
+        assert_eq!(
+            clock
+                .next_deadline()
+                .map(|at| at.duration_since(clock_origin())),
+            Some(svga_boundary(1))
+        );
         assert_eq!(retained.vram_byte(4 * 1024 * 1024 - 1), Some(0xa5));
     }
 }

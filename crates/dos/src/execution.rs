@@ -1,5 +1,5 @@
 use crate::{Dos, ProcessStatus, ServiceError};
-use relocade_machine::{Clock, Runner};
+use relocade_machine::Runner;
 use relocade_x86::ExecutionExit;
 use std::fmt;
 
@@ -31,7 +31,7 @@ impl std::error::Error for RunError {
     }
 }
 
-impl<C: Clock> Dos<C> {
+impl Dos {
     /// Runs the current program and interprets its DOS termination status.
     /// A completed process is not executed again; another launch reuses the same
     /// environment and video output. Unexpected CPU exits leave the process active
@@ -40,7 +40,7 @@ impl<C: Clock> Dos<C> {
     /// Process completion leaves the environment alive. Keep the main session
     /// alive to capture the program's final writes and advance idle video.
     /// Session shutdown uses the execution worker's separate `stop().await`.
-    pub async fn run(&mut self, runner: &Runner<C>) -> Result<u8, RunError> {
+    pub async fn run(&mut self, runner: &Runner) -> Result<u8, RunError> {
         let process = self.process().ok_or(RunError::NoProcess)?;
         if let ProcessStatus::Exited(result) = process.status() {
             return result.map_err(RunError::Service);

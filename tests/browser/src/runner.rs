@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    Clock, CpuConfig, Device, ExecutionWorker, Hook, IoBus, MachineConfig, Memory, TimerHandle,
+    Clock, CpuConfig, Device, ExecutionWorker, Hook, IoBus, MachineConfig, Memory,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -27,7 +27,7 @@ impl Drop for DropProbe {
 }
 
 struct ProgressDevice {
-    clock: TimerHandle,
+    clock: Clock,
     memory: Memory,
     progressed: Option<oneshot::Sender<u16>>,
     dropped: Option<oneshot::Sender<()>>,

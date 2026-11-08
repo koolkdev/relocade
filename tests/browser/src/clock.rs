@@ -12,8 +12,9 @@ pub async fn timer_workers() -> Result<(), String> {
     let (clock, timers) = timer_service();
     let worker = Thread::new();
     let execution = worker.run_send((), move |()| async move {
+        let clock = Clock::from(clock);
         let deadline = clock.now() + Duration::from_millis(10);
-        let mut sleep = pin!(clock.wait_until(deadline));
+        let mut sleep = pin!(clock.sleep_until(deadline));
         let mut pending = 0;
         // Continuously ready Rust work never returns to this worker's browser
         // event loop. The host's timer must still deliver its channel completion.

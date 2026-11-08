@@ -21,16 +21,16 @@ const COMMAND_REPLY: u8 =
 const DISABLED: u8 = COMMAND_REPLY | controller::AUXILIARY_DISABLED;
 const REPORTING: u8 = COMMAND_REPLY | controller::AUXILIARY_IRQ_ENABLED;
 
-pub(super) struct Interface<C> {
-    clock: C,
+pub(super) struct Interface {
+    clock: Clock,
     controller: Rc<Controller>,
     busy: Cell<bool>,
     enabled: Cell<bool>,
     packet: RefCell<Packet>,
 }
 
-impl<C: Clock> Interface<C> {
-    pub fn new(clock: C, controller: Rc<Controller>) -> Self {
+impl Interface {
+    pub fn new(clock: Clock, controller: Rc<Controller>) -> Self {
         Self {
             clock,
             controller,

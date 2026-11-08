@@ -1,43 +1,15 @@
 use super::super::*;
 use futures_util::future::LocalBoxFuture;
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::keyboard::KeyboardEvent;
 use std::{
-    cell::Cell,
-    future::poll_fn,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    task::{Context, Poll, Wake, Waker},
+    task::{Context, Wake, Waker},
     time::Duration,
 };
-
-#[derive(Clone, Default)]
-struct ManualClock(Rc<Time>);
-
-#[derive(Default)]
-struct Time {
-    now: Cell<Duration>,
-    waiter: RefCell<Option<Waker>>,
-}
-
-impl Clock for ManualClock {
-    fn now(&self) -> Duration {
-        self.0.now.get()
-    }
-
-    async fn wait_until(&self, deadline: Duration) {
-        poll_fn(|cx| {
-            if self.now() >= deadline {
-                Poll::Ready(())
-            } else {
-                *self.0.waiter.borrow_mut() = Some(cx.waker().clone());
-                Poll::Pending
-            }
-        })
-        .await;
-    }
-}
 
 #[derive(Default)]
 struct Notified(AtomicBool);
@@ -52,7 +24,7 @@ impl Wake for Notified {
 }
 
 pub(super) struct Fixture {
-    device: Rc<RefCell<Ps2Controller<ManualClock>>>,
+    device: Rc<RefCell<Ps2Controller>>,
     activity: LocalBoxFuture<'static, ()>,
     clock: ManualClock,
     notified: Arc<Notified>,
@@ -67,7 +39,7 @@ impl Fixture {
         let (mouse_input, mouse_events) = relocade_frontend::mouse::channel();
         let device = Rc::new(RefCell::new(Ps2Controller {
             controller: Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary])),
-            startup: Some((clock.clone(), events, mouse_events)),
+            startup: Some((clock.clock(), events, mouse_events)),
         }));
         let mut fixture = Self {
             activity: Box::pin(Ps2Controller::run(device.clone())),
@@ -168,11 +140,7 @@ impl Fixture {
     }
 
     pub fn advance(&mut self, now: Duration) {
-        assert!(now >= self.clock.now());
-        self.clock.0.now.set(now);
-        if let Some(waiter) = self.clock.0.waiter.borrow_mut().take() {
-            waiter.wake();
-        }
+        self.clock.advance_to(clock_origin() + now);
         self.settle();
     }
 }

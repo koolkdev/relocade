@@ -1,5 +1,6 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 mod common;
-use common::{boundary, poll_video, ManualClock};
+use common::{boundary, poll_video};
 use relocade_machine::Device;
 use relocade_vga::Vga;
 use std::{cell::RefCell, rc::Rc, sync::Arc, task::Context, task::Waker};
@@ -10,7 +11,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn disabled_addressing_preserves_registers_memory_and_access_phases() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     vga.write_mmio(0xb8000, 4, 0x2f42_0741);
     vga.write_port(0x3c8, 1, 4);
     vga.write_port(0x3c9, 1, 12); // Leave the DAC expecting green.
@@ -54,7 +55,7 @@ fn disabled_addressing_preserves_registers_memory_and_access_phases() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn setup_selects_the_sleep_bit_without_enabling_normal_access() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     vga.write_mmio(0xb8000, 2, 0x0741);
     let miscellaneous = vga.read_port(0x3cc, 1);
     assert_eq!(vga.read_port(0x102, 1), 0xff);
@@ -98,23 +99,23 @@ fn setup_selects_the_sleep_bit_without_enabling_normal_access() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
-    let clock = Rc::new(ManualClock::default());
-    let vga = Rc::new(RefCell::new(common::text_vga(clock.clone())));
+    let clock = ManualClock::default();
+    let vga = Rc::new(RefCell::new(common::text_vga(clock.clock())));
     vga.borrow_mut().write_mmio(0xb8000, 2, 0x0741);
     let source = vga.borrow().frame_source();
     let mut video = std::pin::pin!(Vga::run(vga.clone()));
     let mut cx = Context::from_waker(Waker::noop());
-    clock.set(boundary(1));
+    clock.advance_to(clock_origin() + boundary(1));
     poll_video(video.as_mut(), &mut cx);
     let first = source.current_capture().unwrap();
     let registers = vga.borrow().registers().clone();
     vga.borrow_mut().write_port(0x46e8, 1, 0);
-    clock.set(boundary(2));
+    clock.advance_to(clock_origin() + boundary(2));
     poll_video(video.as_mut(), &mut cx);
     assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
 
     // Blink and capture timing keep running while CPU access is blocked.
-    clock.set(boundary(16));
+    clock.advance_to(clock_origin() + boundary(16));
     poll_video(video.as_mut(), &mut cx);
     let blinking = source.current_capture().unwrap();
     assert_eq!(blinking.sequence, 16);

@@ -1,9 +1,9 @@
+use relocade_clock_test_support::ManualClock;
 mod common;
 
-use common::{crtc, ManualClock};
+use common::crtc;
 use relocade_machine::Device;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -11,7 +11,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dimensions_follow_captured_crtc_and_character_clock() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     let preset = vga.snapshot();
     assert_eq!(preset.geometry().size, [640, 200]);
     assert_eq!(preset.geometry().pixel_aspect_ratio(), (5, 12));
@@ -34,7 +34,7 @@ fn dimensions_follow_captured_crtc_and_character_clock() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn doubled_rows_share_storage_unless_a_split_separates_them() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     for (index, value) in [(0x11, 0), (7, 0), (9, 0x81), (0x12, 3)] {
         crtc(&mut vga, index, value);
     }
@@ -53,7 +53,7 @@ fn doubled_rows_share_storage_unless_a_split_separates_them() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn graphics_geometry_preserves_partial_repeats_and_row_address_changes() {
     for shift in [0, 0x20, 0x40] {
-        let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+        let mut vga = Vga::with_clock(ManualClock::new().clock());
         if shift == 0x40 {
             common::support::indexed256::program(&mut vga);
         } else {
@@ -89,7 +89,7 @@ fn graphics_geometry_preserves_partial_repeats_and_row_address_changes() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn planar_geometry_uses_character_clocks_and_double_scanning() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     common::support::planar16::program(&mut vga);
     assert_eq!(vga.snapshot().geometry().size, [640, 480]);
     assert_eq!(vga.snapshot().geometry().pixel_aspect_ratio(), (1, 1));

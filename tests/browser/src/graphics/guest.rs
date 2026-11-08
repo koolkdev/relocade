@@ -27,9 +27,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     let progress = Arc::new(AtomicUsize::new(0));
     let cpu_progress = progress.clone();
     let execution = ExecutionWorker::spawn(clock, async move |runner| {
-        let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
-            runner.clock().clone(),
-        ))));
+        let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         send_source.send(vga.borrow().frame_source()).ok().unwrap();
         let config = MachineConfig::new(

@@ -16,11 +16,11 @@ pub(super) struct Request {
 }
 
 /// Starts the worker that owns pending timers and notifies their waiters.
-pub struct TimerDriver {
+pub struct HostTimerDriver {
     requests: mpsc::UnboundedReceiver<Request>,
 }
 
-impl TimerDriver {
+impl HostTimerDriver {
     pub(super) fn new(requests: mpsc::UnboundedReceiver<Request>) -> Self {
         Self { requests }
     }

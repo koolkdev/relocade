@@ -1,5 +1,5 @@
 use crate::timing::Timing;
-use std::time::Duration;
+use relocade_machine::Instant;
 
 const DISPLAY_DISABLED: u8 = 1 << 0;
 const VERTICAL_RETRACE: u8 = 1 << 3;
@@ -8,7 +8,7 @@ const VERTICAL_RETRACE: u8 = 1 << 3;
 /// before reconfiguring, so programming cannot retime completed frames.
 pub(super) struct Raster {
     timing: Timing,
-    updated: Duration,
+    updated: Instant,
     dot: u64,
     /// Fractional dot position in the units maintained by `Timing`.
     dot_remainder: u64,
@@ -16,7 +16,7 @@ pub(super) struct Raster {
 }
 
 impl Raster {
-    pub fn new(now: Duration, timing: Timing) -> Self {
+    pub fn new(now: Instant, timing: Timing) -> Self {
         Self {
             timing,
             updated: now,
@@ -28,9 +28,9 @@ impl Raster {
 
     /// Update counters to `now`, returning the latest crossed retrace time.
     /// Multiple missed retraces contribute to the count without a per-frame loop.
-    pub fn update_to(&mut self, now: Duration) -> Option<Duration> {
+    pub fn update_to(&mut self, now: Instant) -> Option<Instant> {
         let timing = self.timing;
-        let elapsed = now.saturating_sub(self.updated);
+        let elapsed = now.duration_since(self.updated);
         self.updated = now;
         if !timing.clock_running() {
             return None;
@@ -92,15 +92,15 @@ impl Raster {
         self.dot_remainder = 0;
     }
 
-    pub fn next_retrace_at(&self) -> Option<Duration> {
+    pub fn next_retrace_at(&self) -> Option<Instant> {
         self.next_dot_at(self.timing.retrace_dot()?)
     }
 
-    pub fn next_retrace_pulse_at(&self) -> Option<Duration> {
+    pub fn next_retrace_pulse_at(&self) -> Option<Instant> {
         self.next_dot_at(self.timing.retrace_pulse_dot()?)
     }
 
-    fn next_dot_at(&self, boundary: u64) -> Option<Duration> {
+    fn next_dot_at(&self, boundary: u64) -> Option<Instant> {
         let total = self.timing.frame_dots();
         let mut dots = (boundary + total - self.dot) % total;
         if dots == 0 {

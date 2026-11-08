@@ -23,3 +23,6 @@ pollster = "=1.0.1"
 relocade-vga = { path = "../vga", features = ["renderer"] }
 wgpu.workspace = true
 futures-channel = "=0.3.34"
+
+[dev-dependencies]
+relocade-clock-test-support = { path = "../../tests/clock-support" }

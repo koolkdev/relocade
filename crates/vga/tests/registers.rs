@@ -1,8 +1,8 @@
+use relocade_clock_test_support::ManualClock;
 mod common;
-use common::ManualClock;
+
 use relocade_machine::Device;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -10,7 +10,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn attribute_access_alternates_writes_and_only_active_status_resets_it() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     vga.write_port(0x3c0, 1, 2);
     assert_eq!(vga.read_port(0x3c0, 1) & 0x3f, 2);
     assert_eq!(vga.read_port(0x3c1, 1) & 0x3f, 2);
@@ -42,7 +42,7 @@ fn attribute_access_alternates_writes_and_only_active_status_resets_it() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dac_cycles_mask_channels_wrap_addresses_and_restart_partial_transfers() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     vga.write_port(0x3c8, 1, 255);
     for value in [0xff, 0x21, 0x02, 0x03, 0x04, 0x05] {
         vga.write_port(0x3c9, 1, value);
@@ -77,7 +77,7 @@ fn dac_cycles_mask_channels_wrap_addresses_and_restart_partial_transfers() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn graphics_and_remaining_crtc_registers_read_back_the_defined_fields() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     for (index, mask, expected) in [
         (0, 0x0f, 5),
         (1, 0x0f, 5),

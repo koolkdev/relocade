@@ -3,15 +3,16 @@
 use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT};
 use event_listener::Event;
 use futures_lite::future::or;
-use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Runner, TimerHandle};
+use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Instant, Runner};
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{cell::RefCell, rc::Rc};
 
 /// Execution-owned PIT registers and programmable channel-0 interrupt.
 /// Channel 2 shares its gate and output with the PC speaker.
-pub struct Pit<C = TimerHandle> {
-    clock: Rc<C>,
-    at: Duration,
+pub struct Pit {
+    clock: Clock,
+    origin: Instant,
+    at: Instant,
     channel0: Counter,
     channel2: Counter,
     channel2_update: Option<Counter>,
@@ -19,23 +20,17 @@ pub struct Pit<C = TimerHandle> {
     changed: Event,
 }
 
-impl<C: Clock> Pit<C> {
+impl Pit {
     /// Creates the timer on the runner's clock, connects IRQ0 and starts its activity.
     /// Returns the shared PIT and its register connection for the CPU bus.
-    pub async fn initialize(runner: &Runner<C>, pic: &Pic) -> (Rc<RefCell<Self>>, DeviceConnection)
-    where
-        C: Clone + 'static,
-    {
-        let pit = Rc::new(RefCell::new(Self::with_clock(
-            Rc::new(runner.clock().clone()),
-            pic,
-        )));
+    pub async fn initialize(runner: &Runner, pic: &Pic) -> (Rc<RefCell<Self>>, DeviceConnection) {
+        let pit = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone(), pic)));
         let connection = runner.connect(pit.clone(), [], [crate::PORT_RANGE]).await;
         (pit, connection)
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
-    pub fn with_clock(clock: Rc<C>, pic: &Pic) -> Self {
+    pub fn with_clock(clock: Clock, pic: &Pic) -> Self {
         let mut channel0 = Counter::default();
         channel0.set_gate(true);
         channel0.control(0x36);
@@ -43,8 +38,10 @@ impl<C: Clock> Pit<C> {
         channel0.write(0);
         channel0.advance(1); // BIOS initialization has already loaded the divisor.
         let irq = pic.irq(TIMER_IRQ, channel0.output());
+        let origin = clock.now();
         Self {
-            at: clock.now(),
+            origin,
+            at: origin,
             clock,
             channel0,
             channel2: Counter::default(),
@@ -80,7 +77,8 @@ impl<C: Clock> Pit<C> {
 
     fn sync_to_clock(&mut self) {
         let now = self.clock.now();
-        let clocks = clocks_at(now) - clocks_at(self.at);
+        let clocks = clocks_at(now.duration_since(self.origin))
+            - clocks_at(self.at.duration_since(self.origin));
         if self
             .channel0
             .next_rising_edge()
@@ -97,7 +95,7 @@ impl<C: Clock> Pit<C> {
     }
 }
 
-impl<C: Clock> Device for Pit<C> {
+impl Device for Pit {
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
         device.borrow_mut().sync_to_clock();
@@ -105,15 +103,15 @@ impl<C: Clock> Device for Pit<C> {
             let (deadline, changed) = {
                 let device = device.borrow();
                 (
-                    device
-                        .channel0
-                        .next_transition()
-                        .map(|clocks| time_at(clocks_at(device.at) + clocks)),
+                    device.channel0.next_transition().map(|clocks| {
+                        device.origin
+                            + time_at(clocks_at(device.at.duration_since(device.origin)) + clocks)
+                    }),
                     device.changed.listen(),
                 )
             };
             if let Some(deadline) = deadline {
-                or(clock.wait_until(deadline), changed).await;
+                or(clock.sleep_until(deadline), changed).await;
             } else {
                 changed.await;
             }

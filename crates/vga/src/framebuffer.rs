@@ -2,7 +2,7 @@
 mod addressing;
 mod location;
 
-use crate::{memory::VideoMemory, Clock, PixelFormat, Scanout, Vga, VgaDisplayState};
+use crate::{memory::VideoMemory, PixelFormat, Scanout, Vga, VgaDisplayState};
 use addressing::Addressing;
 use location::Location;
 
@@ -19,7 +19,7 @@ pub trait FramebufferAccess {
     fn framebuffer(&mut self) -> Framebuffer<'_>;
 }
 
-impl<C: Clock> FramebufferAccess for Vga<C> {
+impl FramebufferAccess for Vga {
     fn framebuffer(&mut self) -> Framebuffer<'_> {
         self.sync_to_clock();
         let scanout = match self.dispi.display_layout() {

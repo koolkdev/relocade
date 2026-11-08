@@ -2,19 +2,14 @@ use super::*;
 use relocade_bios::video;
 use relocade_machine::{FarPointer, IoBus, MemoryBus};
 
-fn graphics(dos: &mut MouseDos) -> (MemoryBus, IoBus) {
+fn graphics(dos: &mut Dos) -> (MemoryBus, IoBus) {
     let io = dos.cpu().context().io.clone();
     let memory = dos.cpu().memory().with_io(io.clone());
     video::set_mode(&mut memory.view(), &io, 0x13).unwrap();
     (memory, io)
 }
 
-pub(super) async fn shape(
-    dos: &mut MouseDos,
-    hotspot: [i16; 2],
-    screen: [u16; 16],
-    cursor: [u16; 16],
-) {
+pub(super) async fn shape(dos: &mut Dos, hotspot: [i16; 2], screen: [u16; 16], cursor: [u16; 16]) {
     // The 64-byte ABI buffer crosses the real-mode offset boundary.
     let source = FarPointer {
         segment: 0x2200,
@@ -86,7 +81,7 @@ fn mode13_masks_preserve_palette_bits_and_restore_on_move_hide_and_shape_change(
 
 #[test]
 fn guest_copies_include_the_cursor_and_overdrawing_lasts_until_a_mouse_update() {
-    with_mouse(async |runner, mut dos| {
+    with_mouse(async |clock, mut dos| {
         let (memory, io) = graphics(&mut dos);
         memory.view().write_u8(0xa0000, 0x2f).unwrap();
         memory.view().write_u8(0xa0001, 0x36).unwrap();
@@ -102,7 +97,7 @@ fn guest_copies_include_the_cursor_and_overdrawing_lasts_until_a_mouse_update() 
         memory.view().write_u8(0xa0100, copied).unwrap();
 
         memory.view().write_u8(0xa0000, 0x47).unwrap();
-        runner.clock().advance(Duration::from_millis(33));
+        clock.advance_by(Duration::from_millis(33));
         io.read_port(0x3da, 1); // Publish the next frame without repainting the cursor.
         call(&mut dos, 3, 0, 0, 0).await;
         assert_eq!(memory.view().read_u8(0xa0000).unwrap(), 0x47);

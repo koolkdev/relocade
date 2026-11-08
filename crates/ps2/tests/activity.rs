@@ -1,14 +1,15 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
-use relocade_machine::{worker::wake_connection, Clock, CpuStorage, IoBus, Runner};
+use relocade_machine::{worker::wake_connection, CpuStorage, IoBus, Runner};
 use relocade_pic::{end_of_interrupt, Pic, KEYBOARD_IRQ, PORT_RANGE};
 use relocade_ps2::{
     connect, read_keyboard_latch, DATA_PORT, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
 };
 use std::{
-    cell::{Cell, RefCell},
-    future::{pending, poll_fn},
+    cell::RefCell,
+    future::pending,
     rc::Rc,
     task::{Context, Poll, Waker},
     time::Duration,
@@ -16,45 +17,6 @@ use std::{
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-#[derive(Clone, Default)]
-struct ManualClock(Rc<Time>);
-
-#[derive(Default)]
-struct Time {
-    now: Cell<Duration>,
-    waiter: RefCell<Option<Waker>>,
-}
-
-impl ManualClock {
-    fn advance(&self, millis: u64) {
-        let now = Duration::from_millis(millis);
-        assert!(now >= self.now());
-        self.0.now.set(now);
-        let waiter = self.0.waiter.borrow_mut().take();
-        if let Some(waiter) = waiter {
-            waiter.wake();
-        }
-    }
-}
-
-impl Clock for ManualClock {
-    fn now(&self) -> Duration {
-        self.0.now.get()
-    }
-
-    async fn wait_until(&self, deadline: Duration) {
-        poll_fn(|cx| {
-            if self.now() >= deadline {
-                Poll::Ready(())
-            } else {
-                *self.0.waiter.borrow_mut() = Some(cx.waker().clone());
-                Poll::Pending
-            }
-        })
-        .await
-    }
-}
 
 fn key(code: KeyCode, repeat: bool) -> KeyboardEvent {
     KeyboardEvent::Key {
@@ -98,7 +60,7 @@ async fn connected_activity() {
     let clock = ManualClock::default();
     let storage = CpuStorage::new().unwrap();
     let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock.clone(), storage, endpoint);
+    let runner = Runner::new(clock.clock(), storage, endpoint);
     let result = runner
         .run(pending::<()>(), async |runner| {
             let pic = Pic::default();
@@ -115,16 +77,16 @@ async fn connected_activity() {
             assert_eq!(next_byte(&io).await, 0xfa);
             input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
-            clock.advance(249);
+            clock.advance_to(clock_origin() + Duration::from_millis(249));
             no_output(&io).await;
-            clock.advance(250);
+            clock.advance_to(clock_origin() + Duration::from_millis(250));
             assert_eq!(next_byte(&io).await, 0x1e);
-            clock.advance(4000);
+            clock.advance_to(clock_origin() + Duration::from_millis(4000));
             assert_eq!(next_byte(&io).await, 0x1e);
             no_output(&io).await; // Late scheduling produces one repeat, not a burst.
             input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
             assert_eq!(next_byte(&io).await, 0x9e);
-            clock.advance(5000);
+            clock.advance_to(clock_origin() + Duration::from_millis(5000));
             no_output(&io).await;
 
             input

@@ -9,7 +9,7 @@ use futures_util::{pin_mut, select_biased, FutureExt};
 use relocade_frontend::keyboard::{
     ElementState, KeyCode, KeyboardEvent, KeyboardEvents, PhysicalKey,
 };
-use relocade_machine::Clock;
+use relocade_machine::{Clock, Instant};
 use std::{
     collections::{BTreeSet, VecDeque},
     future::pending,
@@ -26,7 +26,7 @@ const DEFAULT_DISABLE: u8 = 0xf5;
 const DEFAULTS: u8 = 0xf6;
 const RESET: u8 = 0xff;
 
-pub(super) async fn run<C: Clock>(clock: C, events: KeyboardEvents, controller: &Controller) {
+pub(super) async fn run(clock: Clock, events: KeyboardEvents, controller: &Controller) {
     Keyboard {
         clock,
         events: Some(events),
@@ -46,8 +46,8 @@ pub(super) async fn run<C: Clock>(clock: C, events: KeyboardEvents, controller: 
     .await;
 }
 
-struct Keyboard<'a, C> {
-    clock: C,
+struct Keyboard<'a> {
+    clock: Clock,
     events: Option<KeyboardEvents>,
     controller: &'a Controller,
     last_sent: u8,
@@ -66,10 +66,10 @@ struct Keyboard<'a, C> {
 #[derive(Clone, Copy)]
 struct Repeat {
     key: KeyCode,
-    deadline: Duration,
+    deadline: Instant,
 }
 
-impl<C: Clock> Keyboard<'_, C> {
+impl Keyboard<'_> {
     async fn run(mut self) {
         let mut command = self.receive().await;
         loop {
@@ -190,7 +190,7 @@ impl<C: Clock> Keyboard<'_, C> {
                 .fuse();
                 let timer = async {
                     if let Some(repeat) = self.repeat {
-                        self.clock.wait_until(repeat.deadline).await;
+                        self.clock.sleep_until(repeat.deadline).await;
                     } else {
                         pending::<()>().await;
                     }
@@ -262,7 +262,7 @@ impl<C: Clock> Keyboard<'_, C> {
         }
     }
 
-    fn key(&mut self, key: KeyCode, pressed: bool, now: Duration) {
+    fn key(&mut self, key: KeyCode, pressed: bool, now: Instant) {
         if !scancodes::supported(key) {
             return;
         }
@@ -282,12 +282,12 @@ impl<C: Clock> Keyboard<'_, C> {
         }
     }
 
-    fn scan(&mut self, key: KeyCode, pressed: bool, now: Duration) {
+    fn scan(&mut self, key: KeyCode, pressed: bool, now: Instant) {
         self.emit(key, pressed);
         if pressed && scancodes::repeatable(key) {
             self.repeat = Some(Repeat {
                 key,
-                deadline: now.saturating_add(self.delay()),
+                deadline: now + self.delay(),
             });
         }
     }
@@ -340,7 +340,7 @@ impl<C: Clock> Keyboard<'_, C> {
             let clocks = u64::from(8 + (self.typematic & 7)) << ((self.typematic >> 3) & 3);
             let period = Duration::from_nanos((clocks * 1_000_000_000).div_ceil(240));
             self.repeat = Some(Repeat {
-                deadline: now.saturating_add(period),
+                deadline: now + period,
                 ..repeat
             });
         }

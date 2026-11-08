@@ -3,6 +3,7 @@ use super::{
     common, success, wait_status, with_mouse, write,
 };
 use relocade_bios::{KeyMode, KeyStroke};
+use relocade_clock_test_support::origin as clock_origin;
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
@@ -12,7 +13,7 @@ use std::time::Duration;
 
 #[test]
 fn host_motion_reaches_bios_callback_through_sampled_ps2_and_irq12() {
-    with_mouse(async |runner, mut dos| {
+    with_mouse(async |clock, mut dos| {
         install(&mut dos).await;
         let state = dos.cpu().cpu_state();
         state.set_interrupts_enabled(true);
@@ -32,7 +33,7 @@ fn host_motion_reaches_bios_callback_through_sampled_ps2_and_irq12() {
         for _ in 0..4 {
             relocade_machine::yield_now().await;
         }
-        runner.clock().advance(Duration::from_millis(10));
+        clock.advance_to(clock_origin() + Duration::from_millis(10));
         let memory = dos.cpu().memory();
         let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
         for _ in 0..64 {
@@ -254,7 +255,7 @@ fn abandoning_a_mouse_callback_does_not_restore_suspended_bios_state() {
 
 #[test]
 fn a_blocked_keyboard_latch_times_out_mouse_commands_and_restores_pic_masks() {
-    with_mouse(async |runner, mut dos| {
+    with_mouse(async |clock, mut dos| {
         install(&mut dos).await;
         let io = dos.cpu().context().io.clone();
         let master = io.read_port(0x21, 1);
@@ -272,7 +273,7 @@ fn a_blocked_keyboard_latch_times_out_mouse_commands_and_restores_pic_masks() {
             relocade_machine::yield_now().await;
         }
         assert_eq!(io.read_port(0x64, 1) & 0x23, 1);
-        runner.clock().advance(Duration::from_millis(100));
+        clock.advance_to(clock_origin() + Duration::from_millis(100));
         assert_eq!(
             common::run_until(dos.cpu(), 0x102).await,
             ExecutionExit::Interrupted

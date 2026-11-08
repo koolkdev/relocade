@@ -1,9 +1,9 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 mod common;
 
-use common::{boundary, ManualClock};
+use common::boundary;
 use relocade_machine::Device;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -23,7 +23,7 @@ fn font_access(vga: &mut impl Device) {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn snapshots_own_fonts_palette_and_programmed_geometry_after_device_destruction() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     font_access(&mut vga);
     vga.write_mmio(0xae821, 1, 0xa5); // A glyph row in the last font bank.
     indexed(&mut vga, 0x3c4, 3, 0x35);
@@ -65,7 +65,7 @@ fn snapshots_own_fonts_palette_and_programmed_geometry_after_device_destruction(
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     let source = vga.frame_source();
     font_access(&mut vga);
     vga.write_mmio(0xa0010, 1, 0x5a);
@@ -94,20 +94,20 @@ fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn newest_capture_contains_changes_from_skipped_frames() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let source = vga.frame_source();
     font_access(&mut vga);
     vga.write_mmio(0xa0100, 1, 0x12);
-    clock.set(boundary(1));
+    clock.advance_to(clock_origin() + boundary(1));
     vga.read_port(0x3da, 1);
     let first = source.current_capture().unwrap();
     vga.write_mmio(0xa0200, 1, 0x34);
-    clock.set(boundary(2));
+    clock.advance_to(clock_origin() + boundary(2));
     vga.read_port(0x3da, 1);
     let second = source.clone().current_capture().unwrap(); // An independent reader.
     vga.write_mmio(0xa0300, 1, 0x56);
-    clock.set(boundary(3));
+    clock.advance_to(clock_origin() + boundary(3));
     vga.read_port(0x3da, 1);
     let newest = source.current_capture().unwrap();
     drop(vga);
@@ -123,7 +123,7 @@ fn newest_capture_contains_changes_from_skipped_frames() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn snapshots_share_planes_until_a_final_physical_byte_changes() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     font_access(&mut vga);
     indexed(&mut vga, 0x3c4, 2, 0x0f);
     indexed(&mut vga, 0x3c4, 4, 0x0e); // Chain four selects plane one below.
@@ -160,7 +160,7 @@ fn packed_snapshots_retain_pixels_palette_and_layout_across_mode_changes() {
     use common::support::{registers::palette, svga};
     use relocade_vga::Scanout;
 
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     svga::enable(&mut vga);
     for (address, value) in [
         (0, 1),

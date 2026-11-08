@@ -11,7 +11,7 @@ use relocade_frontend::mouse::{MouseEvent, MouseEvents};
 use relocade_machine::Clock;
 use std::future::pending;
 
-pub(super) async fn run<C: Clock>(clock: C, events: MouseEvents, controller: &Controller) {
+pub(super) async fn run(clock: Clock, events: MouseEvents, controller: &Controller) {
     let mut protocol = Protocol::new(clock.now());
     let mut events = Some(events);
     let mut turns = 0;
@@ -41,7 +41,7 @@ pub(super) async fn run<C: Clock>(clock: C, events: MouseEvents, controller: &Co
             .fuse();
             let timer = async {
                 if let Some(deadline) = protocol.deadline() {
-                    clock.wait_until(deadline).await;
+                    clock.sleep_until(deadline).await;
                 } else {
                     pending::<()>().await;
                 }

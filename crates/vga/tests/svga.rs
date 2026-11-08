@@ -1,3 +1,4 @@
+use relocade_clock_test_support::ManualClock;
 mod common;
 #[path = "svga/frames.rs"]
 mod frames;
@@ -5,16 +6,15 @@ mod frames;
 mod layout;
 
 use common::support::svga::{enable, get, set};
-use common::ManualClock;
+
 use relocade_machine::Device;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn device() -> Vga<ManualClock> {
-    Vga::with_clock(Rc::new(ManualClock::default()))
+fn device() -> Vga {
+    Vga::with_clock(ManualClock::new().clock())
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

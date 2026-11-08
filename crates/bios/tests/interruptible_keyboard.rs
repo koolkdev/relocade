@@ -70,7 +70,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let keyboard = Keyboard::new(memory.clone());
     let (clock, _timers) = relocade_machine::timer_service();
-    let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock))));
+    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.into())));
     let io = IoBus::new([
         DeviceConnection {
             device: vga.clone(),

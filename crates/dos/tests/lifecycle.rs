@@ -20,7 +20,7 @@ fn installing_dos_preserves_the_existing_pc_and_bios() {
 
     pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let (runner, _host) = common::runner(clock.clone());
+        let (runner, _host) = common::runner(clock.clock());
         runner
             .run(
                 futures_timer::Delay::new(std::time::Duration::from_secs(30)),

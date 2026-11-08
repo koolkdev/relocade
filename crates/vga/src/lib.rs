@@ -34,7 +34,7 @@ use memory::{VideoMemory, VramAccess};
 use raster::Raster;
 use registers::{dispi, setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
-use relocade_machine::{Clock, Device, DeviceConnection, Runner, TimerHandle};
+use relocade_machine::{Clock, Device, DeviceConnection, Instant, Runner};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
 pub use retrace::RetraceEvent;
@@ -61,27 +61,23 @@ pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;
 /// Registers and video memory are ordinary mutable state. Other workers receive
 /// immutable display captures through [`FrameSource`], without accessing the live device.
 /// New video memory is zeroed. The BIOS initializes its font memory, text pages and registers.
-pub struct Vga<C = TimerHandle> {
+pub struct Vga {
     memory: VideoMemory,
     registers: Registers,
     setup: Setup,
     dispi: dispi::Dispi,
-    clock: Rc<C>,
+    clock: Clock,
+    origin: Instant,
     raster: Raster,
     programming_changed: Event,
     frames: FrameSource,
 }
 
-impl<C: Clock> Vga<C> {
+impl Vga {
     /// Creates VGA on the runner's clock and starts display capture.
     /// Returns the device handle and its memory/port connection for the CPU bus.
-    pub async fn initialize(runner: &Runner<C>) -> (Rc<RefCell<Self>>, DeviceConnection)
-    where
-        C: Clone + 'static,
-    {
-        let vga = Rc::new(RefCell::new(Self::with_clock(Rc::new(
-            runner.clock().clone(),
-        ))));
+    pub async fn initialize(runner: &Runner) -> (Rc<RefCell<Self>>, DeviceConnection) {
+        let vga = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone())));
         let connection = runner
             .connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)
             .await;
@@ -89,15 +85,17 @@ impl<C: Clock> Vga<C> {
     }
 
     /// Uses the same timebase for guest status reads and asynchronous scanout.
-    pub fn with_clock(clock: Rc<C>) -> Self {
+    pub fn with_clock(clock: Clock) -> Self {
         let registers = Registers::default();
-        let raster = Raster::new(clock.now(), Timing::vga(&registers));
+        let origin = clock.now();
+        let raster = Raster::new(origin, Timing::vga(&registers));
         Self {
             memory: VideoMemory::default(),
             registers,
             setup: Setup::default(),
             dispi: dispi::Dispi::default(),
             clock,
+            origin,
             raster,
             programming_changed: Event::new(),
             frames: FrameSource::new(),
@@ -166,14 +164,14 @@ impl<C: Clock> Vga<C> {
             self.memory.clear_changes();
             self.frames.publish(CapturedFrame {
                 display,
-                time,
+                time: time.duration_since(self.origin),
                 sequence: self.raster.retrace_count,
             });
         }
     }
 }
 
-impl<C: Clock + 'static> Device for Vga<C> {
+impl Device for Vga {
     /// Capture display inputs while the CPU is busy, idle, or awaiting a service.
     /// The runner polls this activity alongside CPU execution. No device borrow
     /// spans a wait. Late service coalesces missed retraces before preparing the
@@ -249,7 +247,7 @@ impl<C: Clock + 'static> Device for Vga<C> {
     }
 }
 
-impl<C> Drop for Vga<C> {
+impl Drop for Vga {
     fn drop(&mut self) {
         self.programming_changed.notify(usize::MAX);
         self.frames.close();

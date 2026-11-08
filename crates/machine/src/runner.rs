@@ -6,7 +6,7 @@ pub use worker::ExecutionWorker;
 use crate::worker::{Executor, WakeEndpoint, WakePeer};
 use crate::{
     Clock, Cpu, CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory,
-    Result, TimerHandle,
+    Result,
 };
 use futures_channel::{mpsc, oneshot};
 use futures_lite::future::poll_once;
@@ -23,19 +23,23 @@ use std::{cell::RefCell, future::Future, ops::RangeInclusive, pin::pin, rc::Rc};
 /// Owns a worker's execution session, including its CPU storage and device activities.
 /// [`ExecutionWorker`] prepares the resources before starting the owner thread.
 /// Notifications interrupt guest execution so ready Rust activities can run.
-pub struct Runner<C = TimerHandle> {
-    clock: C,
+pub struct Runner {
+    clock: Clock,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
     storage: RefCell<Option<CpuStorage>>,
 }
 
-impl<C: Clock> Runner<C> {
+impl Runner {
     /// Binds prepared CPU storage and its wake endpoint on the execution owner.
     /// Normally called by [`ExecutionWorker`]. The endpoint must come from a
     /// connection created for this storage; retain its host until the session ends.
-    pub fn new(clock: C, storage: CpuStorage, endpoint: WakeEndpoint<ExecutionInterrupt>) -> Self {
+    pub fn new(
+        clock: Clock,
+        storage: CpuStorage,
+        endpoint: WakeEndpoint<ExecutionInterrupt>,
+    ) -> Self {
         let (activities, pending) = mpsc::unbounded();
         let executor = Rc::new(Executor::new(endpoint.bind(storage.interrupt_handle())));
         Self {
@@ -64,7 +68,7 @@ impl<C: Clock> Runner<C> {
         Ok(cpu)
     }
 
-    pub fn clock(&self) -> &C {
+    pub fn clock(&self) -> &Clock {
         &self.clock
     }
 

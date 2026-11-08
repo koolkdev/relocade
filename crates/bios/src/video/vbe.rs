@@ -7,7 +7,7 @@ mod state;
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    Clock, CpuContext, IoBus,
+    CpuContext, IoBus,
 };
 use relocade_vga::{registers::dispi, Vga};
 use std::cell::RefCell;
@@ -16,11 +16,7 @@ pub(super) use information::initialize;
 use modes::Mode;
 
 #[interrupt(context(call), args(function = al))]
-pub(super) async fn dispatch<C: Clock + 'static>(
-    call: &mut CpuContext<'_>,
-    vga: &RefCell<Vga<C>>,
-    function: u8,
-) {
+pub(super) async fn dispatch(call: &mut CpuContext<'_>, vga: &RefCell<Vga>, function: u8) {
     interrupt_dispatch!(
         call,
         match function {

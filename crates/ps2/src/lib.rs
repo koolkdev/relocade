@@ -53,10 +53,7 @@ pub struct Inputs {
 /// Registers the shared controller, keyboard and three-button mouse firmware.
 /// Host text is ignored: physical positions become scan bytes, with guest repeat.
 /// IRQ1/IRQ12 start low; the auxiliary interface and mouse reporting start disabled.
-pub async fn connect<C: Clock + Clone + 'static>(
-    runner: &Runner<C>,
-    pic: &Pic,
-) -> (Inputs, Rc<Controller>, DeviceConnection) {
+pub async fn connect(runner: &Runner, pic: &Pic) -> (Inputs, Rc<Controller>, DeviceConnection) {
     let (keyboard, events) = frontend::channel();
     let (mouse, mouse_events) = relocade_frontend::mouse::channel();
     let controller = Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary]));
@@ -72,12 +69,12 @@ pub async fn connect<C: Clock + Clone + 'static>(
 }
 
 /// Port callbacks touch registers only. All firmware tasks run on the same owner.
-struct Ps2Controller<C> {
+struct Ps2Controller {
     controller: Rc<Controller>,
-    startup: Option<(C, KeyboardEvents, MouseEvents)>,
+    startup: Option<(Clock, KeyboardEvents, MouseEvents)>,
 }
 
-impl<C: Clock + Clone> Device for Ps2Controller<C> {
+impl Device for Ps2Controller {
     async fn run(device: Rc<RefCell<Self>>) {
         let (controller, clock, events, mouse_events) = {
             let mut device = device.borrow_mut();

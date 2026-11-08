@@ -1,6 +1,7 @@
 use super::*;
+use relocade_clock_test_support::origin as clock_origin;
 
-async fn install(dos: &mut MouseDos) -> u32 {
+async fn install(dos: &mut Dos) -> u32 {
     let segment = dos.process().unwrap().psp_segment();
     let base = u32::from(segment) << 4;
     dos.cpu()
@@ -31,7 +32,7 @@ async fn install(dos: &mut MouseDos) -> u32 {
 
 #[test]
 fn callbacks_use_registers_nest_guest_services_and_are_retired_on_process_exit() {
-    with_mouse(async |runner, mut dos| {
+    with_mouse(async |clock, mut dos| {
         let base = install(&mut dos).await;
         let memory = dos.cpu().memory();
         let state = dos.cpu().cpu_state();
@@ -57,7 +58,7 @@ fn callbacks_use_registers_nest_guest_services_and_are_retired_on_process_exit()
         for _ in 0..4 {
             relocade_machine::yield_now().await;
         }
-        runner.clock().advance(Duration::from_millis(10));
+        clock.advance_to(clock_origin() + Duration::from_millis(10));
         for _ in 0..64 {
             common::run_until(dos.cpu(), 0x102).await;
             if memory.view().read_u16(base + 0x50c).unwrap() == 1 {

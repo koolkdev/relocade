@@ -2207,6 +2207,7 @@ dependencies = [
  "bitflags 2.13.1",
  "futures-util",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-frontend",
  "relocade-machine",
  "relocade-pic",
@@ -2225,6 +2226,7 @@ dependencies = [
  "futures-util",
  "js-sys",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-compiler",
  "relocade-dos",
  "relocade-machine",
@@ -2236,6 +2238,14 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
+]
+
+[[package]]
+name = "relocade-clock-test-support"
+version = "0.0.0"
+dependencies = [
+ "futures-channel",
+ "relocade-machine",
 ]
 
 [[package]]
@@ -2269,6 +2279,7 @@ dependencies = [
  "futures-timer",
  "pollster",
  "relocade-bios",
+ "relocade-clock-test-support",
  "relocade-frontend",
  "relocade-machine",
  "relocade-pc",
@@ -2329,6 +2340,7 @@ dependencies = [
  "futures-util",
  "js-sys",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-compiler",
  "relocade-derive",
  "relocade-interpreter",
@@ -2348,6 +2360,7 @@ dependencies = [
  "futures-timer",
  "pollster",
  "relocade-bios",
+ "relocade-clock-test-support",
  "relocade-frontend",
  "relocade-machine",
  "relocade-pc-speaker",
@@ -2368,6 +2381,7 @@ dependencies = [
  "futures-lite",
  "futures-timer",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-machine",
  "relocade-pic",
  "relocade-pit",
@@ -2391,6 +2405,7 @@ dependencies = [
  "futures-channel",
  "futures-lite",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-machine",
  "relocade-pic",
  "relocade-x86",
@@ -2405,6 +2420,7 @@ dependencies = [
  "event-listener",
  "futures-util",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-frontend",
  "relocade-machine",
  "relocade-pic",
@@ -2417,6 +2433,7 @@ version = "0.0.0"
 dependencies = [
  "futures-channel",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-machine",
  "relocade-vga",
  "wasm-bindgen-test",
@@ -2445,6 +2462,7 @@ dependencies = [
  "futures-lite",
  "futures-util",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-frontend",
  "relocade-machine",
  "relocade-renderer",

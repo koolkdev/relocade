@@ -6,21 +6,21 @@ use common::support::{
     planar16::{program, write_pixels},
     registers::{attribute, indexed},
 };
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_machine::Device;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
 async fn check_pixels() {
     let mut gpu = Gpu::new().await;
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     program(&mut vga);
     load_palette(&mut vga);
     let mut indices: Vec<u8> = (0..480)
         .flat_map(|y| (0..640).map(move |x| ((x ^ (x / 16) ^ (y * 3)) & 15) as u8))
         .collect();
     write_pixels(&mut vga, &indices);
-    clock.set(common::dots(490 * 800, 25_175_000)); // 640×480 retrace.
+    clock.advance_to(clock_origin() + common::dots(490 * 800, 25_175_000)); // 640×480 retrace.
     vga.read_port(0x3da, 1);
     let source = vga.frame_source();
     let first = source.current_capture().unwrap();
@@ -34,7 +34,7 @@ async fn check_pixels() {
     vga.read_mmio(0xa0000 + 12345, 1);
     vga.write_mmio(0xa0000 + 12345, 1, 3);
     indices[12345 * 8 + 2] = 3;
-    clock.set(common::dots((490 + 525) * 800, 25_175_000));
+    clock.advance_to(clock_origin() + common::dots((490 + 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     gpu.expect(
         &source.current_capture().unwrap(),
@@ -65,11 +65,11 @@ async fn check_pixels() {
 
 async fn check_addressing() {
     let mut gpu = Gpu::new().await;
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     program(&mut vga);
     indexed(&mut vga, 0x3d4, 13, 1);
-    clock.set(common::dots(490 * 800, 25_175_000));
+    clock.advance_to(clock_origin() + common::dots(490 * 800, 25_175_000));
     vga.read_port(0x3da, 1); // Latch the start before changing the viewport.
     load_palette(&mut vga);
     // A 16-pixel window into rows with a 32-pixel stride; two scanlines per row.

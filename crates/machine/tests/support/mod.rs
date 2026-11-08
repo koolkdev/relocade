@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-pub mod clock;
 use relocade_machine::{CpuConfig, MachineConfig};
 
 /// Initial state for a test's machine and its first CPU.

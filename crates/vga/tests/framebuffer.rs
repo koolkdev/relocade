@@ -1,9 +1,9 @@
 mod support;
 
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
 use relocade_vga::{FramebufferAccess, FramebufferGeometry, PixelFormat, Vga};
-use std::rc::Rc;
-use support::{fixture::StaticClock, indexed256, planar16, registers::indexed, svga};
+use support::{indexed256, planar16, registers::indexed, svga};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -11,7 +11,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn planar_drawing_preserves_cpu_access_state_neighbors_and_retained_captures() {
-    let mut vga = Vga::with_clock(Rc::new(StaticClock));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     planar16::program(&mut vga);
     let address = 2 * 80 + 1;
     let originals = [0x5a, 0x6c, 0xa5, 0xc3];
@@ -66,7 +66,7 @@ fn planar_drawing_preserves_cpu_access_state_neighbors_and_retained_captures() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn mode13_writes_the_cpu_framebuffer_bytes_above_the_first_plane_quarter() {
-    let mut vga = Vga::with_clock(Rc::new(StaticClock));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     indexed256::program(&mut vga);
     vga.write_mmio(0xa0000 + 199 * 320 + 319, 1, 0xa5);
     let pixel = vga.framebuffer().pixel(319, 199).unwrap();
@@ -83,7 +83,7 @@ fn mode13_writes_the_cpu_framebuffer_bytes_above_the_first_plane_quarter() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn mode_x_uses_programmed_geometry_stride_and_page_but_keeps_restore_locations() {
-    let mut vga = Vga::with_clock(Rc::new(StaticClock));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     indexed256::program(&mut vga);
     indexed256::unchain(&mut vga);
     for (register, value) in [
@@ -150,7 +150,7 @@ fn svga_pixels_use_virtual_stride_and_origin_without_changing_cpu_bank_or_state(
         (16, 0xa55a, 0xffff, PixelFormat::Rgb565),
         (32, 0xa5123456, 0xffffff, PixelFormat::Bgrx8888),
     ] {
-        let mut vga = Vga::with_clock(Rc::new(StaticClock));
+        let mut vga = Vga::with_clock(ManualClock::new().clock());
         svga::set_mode(&mut vga, 640, 480, bits);
         svga::set(&mut vga, 6, 800);
         svga::set(&mut vga, 8, 5);
@@ -185,7 +185,7 @@ fn svga_pixels_use_virtual_stride_and_origin_without_changing_cpu_bank_or_state(
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cga_interleaved_pixels_preserve_packed_neighbors_in_the_odd_scanline_bank() {
-    let mut vga = Vga::with_clock(Rc::new(StaticClock));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     indexed256::program(&mut vga);
     for (port, register, value) in [
         (0x3c4, 1, 9),
@@ -227,7 +227,7 @@ fn cga_interleaved_pixels_preserve_packed_neighbors_in_the_odd_scanline_bank() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn serializer_rotation_is_inverted_for_native_planar_and_indexed_writes() {
-    let mut vga = Vga::with_clock(Rc::new(StaticClock));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     planar16::program(&mut vga);
     indexed(&mut vga, 0x3c4, 2, 1);
     vga.write_mmio(0xa0000, 1, 0x80);

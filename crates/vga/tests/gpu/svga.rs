@@ -1,9 +1,9 @@
 use super::{common, pixel, read_pixels};
 use common::support::{planar16, registers::palette, svga};
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
 use relocade_vga::{Vga, VgaDisplay, VgaRenderer};
-use std::rc::Rc;
 
 async fn check_indexed_resolutions() {
     let adapter = wgpu::Instance::default()
@@ -13,7 +13,7 @@ async fn check_indexed_resolutions() {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
     for (width, height) in [(800, 600), (1024, 768)] {
-        let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+        let mut vga = Vga::with_clock(ManualClock::new().clock());
         svga::set_mode(&mut vga, width, height, 8);
         palette(&mut vga, 0, [0, 0, 0]);
         palette(&mut vga, 1, [63, 0, 0]);
@@ -62,7 +62,7 @@ async fn check_virtual_layout() {
         .unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     svga::enable(&mut vga);
     palette(&mut vga, 0, [0, 0, 0]);
     palette(&mut vga, 1, [63, 0, 0]);
@@ -116,7 +116,7 @@ async fn check_packed_pixels() {
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     svga::enable(&mut vga);
     for (index, rgb) in [
         (0, [0, 0, 0]),
@@ -194,7 +194,7 @@ async fn check_packed_pixels() {
 
     // The uploaded scanout selects the decoder even when geometry and metadata
     // are identical. VGA also captures fewer VRAM blocks than packed scanout.
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     planar16::program(&mut vga);
     for (index, rgb) in [(0, [0, 0, 0]), (1, [0, 63, 0]), (2, [63, 0, 0])] {
         palette(&mut vga, index, rgb);
@@ -246,14 +246,14 @@ async fn check_published_display() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = common::text_vga(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = common::text_vga(clock.clock());
     common::crtc(&mut vga, 0x0a, 0x20);
     common::fixture::set_cell(&mut vga, 0, 0xdb, 4);
     let source = vga.frame_source();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
     let entered = common::boundary(1);
-    clock.set(entered);
+    clock.advance_to(clock_origin() + entered);
     vga.read_port(0x3da, 1);
     let mut encoder = device.create_command_encoder(&Default::default());
     let legacy = display.encode_image(&queue, &mut encoder).unwrap().clone();
@@ -264,14 +264,14 @@ async fn check_published_display() {
     palette(&mut vga, 6, [42, 21, 0]);
     svga::write_byte(&mut vga, 0, 4);
     svga::write_byte(&mut vga, 0x40000, 1);
-    clock.set(entered + common::svga_boundary(1));
+    clock.advance_to(clock_origin() + entered + common::svga_boundary(1));
     vga.read_port(0x3da, 1);
     // Let two more publications pass without any service or GPU work.
     svga::write_byte(&mut vga, 0x40000, 5);
-    clock.set(entered + common::svga_boundary(2));
+    clock.advance_to(clock_origin() + entered + common::svga_boundary(2));
     vga.read_port(0x3da, 1);
     svga::write_byte(&mut vga, 307199, 6);
-    clock.set(entered + common::svga_boundary(3));
+    clock.advance_to(clock_origin() + entered + common::svga_boundary(3));
     vga.read_port(0x3da, 1);
     assert_eq!(source.current_capture().unwrap().sequence, 4);
     assert_eq!(display.service(&queue).await, Some(true));
@@ -347,7 +347,7 @@ async fn check_direct_color() {
             ],
         ),
     ] {
-        let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+        let mut vga = Vga::with_clock(ManualClock::new().clock());
         svga::set_mode(&mut vga, 640, 480, bits);
         svga::set(&mut vga, 6, 1024);
         svga::set(&mut vga, 8, 384);

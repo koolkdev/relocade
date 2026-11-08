@@ -1,9 +1,10 @@
+use relocade_clock_test_support::ManualClock;
 #[path = "../../tests/common/mod.rs"]
 mod common;
 
 use crate::{Speaker, PORT_RANGE, SPEAKER_CONTROL_PORT};
 use async_channel::Receiver;
-use common::ManualClock;
+
 use relocade_machine::{Device, IoBus};
 use relocade_pit::{CHANNEL_2_PORT, CONTROL_PORT as PIT_CONTROL_PORT};
 use std::{
@@ -18,7 +19,7 @@ use std::{
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 struct Playback {
-    speaker: Rc<RefCell<Speaker<ManualClock>>>,
+    speaker: Rc<RefCell<Speaker>>,
     io: IoBus,
     clock: ManualClock,
     output: Receiver<Vec<f32>>,
@@ -44,7 +45,7 @@ impl Playback {
     fn new(config: cpal::StreamConfig) -> Self {
         let (samples, output) = async_channel::bounded(1);
         let clock = ManualClock::default();
-        let (io, speaker) = common::hardware(Rc::new(clock.clone()));
+        let (io, speaker) = common::hardware(clock.clock());
         speaker.borrow_mut().attach_audio(config, samples).unwrap();
         Self {
             task: Box::pin(Speaker::run(speaker.clone())),
@@ -159,7 +160,9 @@ fn reads_and_latches_preserve_playback_phase() {
     // Hardware can advance after programming but before playback takes the update.
     program(&reference.io);
     program(&playback.io);
-    playback.clock.0.set(std::time::Duration::from_micros(200));
+    playback
+        .clock
+        .advance_by(std::time::Duration::from_micros(200));
     playback.io.write_port(PIT_CONTROL_PORT, 1, 0x80);
     playback.io.read_port(CHANNEL_2_PORT, 1);
     playback.io.read_port(CHANNEL_2_PORT, 1);
@@ -195,11 +198,11 @@ fn backpressure_bounds_submission_and_output_close_ends_the_activity() {
 fn invalid_configuration_and_unbounded_output_are_rejected() {
     for config in [config(0, 1, 128), config(48_000, 0, 128)] {
         let (samples, _output) = async_channel::bounded(1);
-        let (_io, speaker) = common::hardware(Rc::new(ManualClock::default()));
+        let (_io, speaker) = common::hardware(ManualClock::new().clock());
         assert!(speaker.borrow_mut().attach_audio(config, samples).is_err());
     }
     let (samples, _output) = async_channel::unbounded();
-    let (_io, speaker) = common::hardware(Rc::new(ManualClock::default()));
+    let (_io, speaker) = common::hardware(ManualClock::new().clock());
     assert!(speaker
         .borrow_mut()
         .attach_audio(config(48_000, 1, 128), samples)
@@ -220,7 +223,7 @@ fn attaching_output_wakes_an_already_running_device() {
         }
     }
 
-    let (io, speaker) = common::hardware(Rc::new(ManualClock::default()));
+    let (io, speaker) = common::hardware(ManualClock::new().clock());
     let mut task = std::pin::pin!(Speaker::run(speaker.clone()));
     let woken = Arc::new(Woken(AtomicBool::new(false)));
     let waker = Waker::from(woken.clone());

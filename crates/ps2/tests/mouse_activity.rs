@@ -1,7 +1,4 @@
-#[path = "../../machine/tests/support/clock.rs"]
-mod clock;
-
-use clock::ManualClock;
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
@@ -65,7 +62,7 @@ async fn connected_mouse_and_keyboard() {
     let clock = ManualClock::default();
     let storage = CpuStorage::new().unwrap();
     let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock.clone(), storage, endpoint);
+    let runner = Runner::new(clock.clock(), storage, endpoint);
     let result = runner
         .run(pending::<()>(), async |runner| {
             let (pic, pic_device) = Pic::initialize(runner).await;
@@ -107,7 +104,7 @@ async fn connected_mouse_and_keyboard() {
             for _ in 0..4 {
                 relocade_machine::yield_now().await;
             }
-            clock.advance(Duration::from_millis(10));
+            clock.advance_to(clock_origin() + Duration::from_millis(10));
             for (packet, key) in [([9, 2, 3], 0x1e), ([8, 0, 0], 0x9e)] {
                 let mut mouse = Vec::new();
                 let mut keyboard = Vec::new();
@@ -129,7 +126,7 @@ async fn connected_mouse_and_keyboard() {
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
-                clock.advance(Duration::from_millis(20));
+                clock.advance_to(clock_origin() + Duration::from_millis(20));
             }
             assert_eq!(
                 io.poll_interrupt(&mut Context::from_waker(Waker::noop())),

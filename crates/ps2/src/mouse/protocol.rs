@@ -3,6 +3,7 @@
 use super::{motion::Motion, transmission::Transmission};
 use crate::protocol::{mouse::*, RESEND};
 use relocade_frontend::mouse::MouseEvent;
+use relocade_machine::Instant;
 use std::time::Duration;
 
 #[derive(Clone, Copy)]
@@ -21,12 +22,12 @@ pub(super) struct Protocol {
     wrapped: bool,
     parameter: Option<Parameter>,
     invalid_inputs: u8,
-    sampled_at: Duration,
+    sampled_at: Instant,
     transmission: Transmission,
 }
 
 impl Protocol {
-    pub fn new(now: Duration) -> Self {
+    pub fn new(now: Instant) -> Self {
         Self {
             motion: Motion::default(),
             resolution: 2,
@@ -54,7 +55,7 @@ impl Protocol {
         self.transmission.byte(&self.motion)
     }
 
-    pub fn sent(&mut self, now: Duration) {
+    pub fn sent(&mut self, now: Instant) {
         // Start the interval when a movement packet's header reaches the controller.
         if self.transmission.sent(&mut self.motion) {
             self.sampled_at = now;
@@ -70,7 +71,7 @@ impl Protocol {
         });
     }
 
-    pub fn command(&mut self, byte: u8, now: Duration) {
+    pub fn command(&mut self, byte: u8, now: Instant) {
         // BAT and device ID complete reset before another command is accepted.
         if self.transmission.resetting() {
             return;
@@ -192,15 +193,14 @@ impl Protocol {
         self.invalid_inputs = 0;
     }
 
-    pub fn deadline(&self) -> Option<Duration> {
+    pub fn deadline(&self) -> Option<Instant> {
         (self.streaming() && self.transmission.idle() && self.motion.pending()).then(|| {
-            self.sampled_at.saturating_add(Duration::from_nanos(
-                1_000_000_000_u64.div_ceil(u64::from(self.sample_rate)),
-            ))
+            self.sampled_at
+                + Duration::from_nanos(1_000_000_000_u64.div_ceil(u64::from(self.sample_rate)))
         })
     }
 
-    pub fn sample(&mut self, now: Duration) {
+    pub fn sample(&mut self, now: Instant) {
         if self.deadline().is_some_and(|deadline| now >= deadline) {
             self.transmission.stream(self.scaling);
         }
