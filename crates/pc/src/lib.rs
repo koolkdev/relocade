@@ -109,8 +109,9 @@ impl<C: Clock> Pc<C> {
     }
 
     /// Thread-safe relative mouse input routed through the PS/2 auxiliary port.
-    /// Guest software enables reporting, installs INT 74h and unmasks IRQ2/IRQ12.
-    /// INT 15h/C2h configures the device; an INT 33h driver is not installed.
+    /// INT 15h/C2h configures reporting and guest far callbacks through BIOS IRQ12.
+    /// Raw drivers can instead own INT 74h and controller/PIC programming.
+    /// An INT 33h driver is not installed.
     pub fn mouse_input(&self) -> MouseInput {
         self.inputs.mouse.clone()
     }

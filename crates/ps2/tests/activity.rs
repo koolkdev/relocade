@@ -71,7 +71,7 @@ async fn next_byte(io: &IoBus) -> u8 {
     for _ in 0..32 {
         if io.poll_interrupt(&mut Context::from_waker(Waker::noop())) == Poll::Ready(9) {
             let byte = read_keyboard_latch(io).expect("IRQ1 must expose a keyboard byte");
-            end_of_interrupt(io);
+            end_of_interrupt(io, relocade_pic::KEYBOARD_IRQ);
             return byte;
         }
         relocade_machine::yield_now().await;

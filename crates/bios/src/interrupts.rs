@@ -13,6 +13,8 @@ use std::{cell::RefCell, rc::Rc};
 pub const TIMER_IRQ: u8 = 0x08;
 /// Default PC IRQ1 vector. Guest PIC remapping can select a different vector.
 pub const KEYBOARD_IRQ: u8 = 0x09;
+/// Default PC IRQ12 vector.
+pub const MOUSE_IRQ: u8 = 0x74;
 /// Video services (INT 10h).
 pub const VIDEO: u8 = 0x10;
 /// Installed equipment (INT 11h).
@@ -57,6 +59,10 @@ const TIMER_CALLBACK_ENTRY: FarPointer = FarPointer {
 const SYSTEM_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xff60,
+};
+const MOUSE_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xff70,
 };
 const EQUIPMENT_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
@@ -106,6 +112,17 @@ pub fn register_interrupts<C: Clock + 'static>(
         );
     }
     if let Some(mouse) = mouse {
+        let mouse = Rc::new(mouse);
+        let irq_mouse = mouse.clone();
+        register_irq(
+            interrupts,
+            MOUSE_IRQ,
+            relocade_pic::MOUSE_IRQ,
+            MOUSE_ENTRY,
+            async move |call| {
+                irq_mouse.interrupt(call).await;
+            },
+        );
         register_service(
             interrupts,
             SYSTEM,
@@ -124,13 +141,20 @@ pub fn register_interrupts<C: Clock + 'static>(
     register_irq(
         interrupts,
         KEYBOARD_IRQ,
+        relocade_pic::KEYBOARD_IRQ,
         KEYBOARD_IRQ_ENTRY,
         async move |call| {
             keyboard::interrupt(call, &irq_keyboard).await;
         },
     );
     interrupts.register_interrupt(CONTROL_BREAK, BREAK_CALLBACK_ENTRY, async |_| {});
-    register_irq(interrupts, TIMER_IRQ, TIMER_ENTRY, clock::timer);
+    register_irq(
+        interrupts,
+        TIMER_IRQ,
+        relocade_pic::TIMER_IRQ,
+        TIMER_ENTRY,
+        clock::timer,
+    );
     interrupts.register_interrupt(TIMER_TICK, TIMER_CALLBACK_ENTRY, async |_| {});
     register_service(
         interrupts,
@@ -165,8 +189,13 @@ pub fn register_interrupts<C: Clock + 'static>(
 }
 
 /// Completes a BIOS IRQ only after its handler and any guest callbacks return.
-fn register_irq<F>(interrupts: &mut Interrupts<'_>, vector: u8, entry: FarPointer, handler: F)
-where
+fn register_irq<F>(
+    interrupts: &mut Interrupts<'_>,
+    vector: u8,
+    irq: u8,
+    entry: FarPointer,
+    handler: F,
+) where
     F: AsyncFn(&mut CpuContext<'_>) + 'static,
 {
     interrupts.register_interrupt(vector, entry, async move |call| {
@@ -174,7 +203,7 @@ where
         // Guest handlers can chain to the BIOS with IF set. Keep IRQ completion
         // masked until the ordinary IRET restores the interrupted caller's flags.
         call.cpu.set_interrupts_enabled(false);
-        relocade_pic::end_of_interrupt(call.io);
+        relocade_pic::end_of_interrupt(call.io, irq);
     });
 }
 

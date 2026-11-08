@@ -359,8 +359,9 @@ impl<C: Clock> Dos<C> {
     }
 
     /// Relative motion, buttons and focus-loss events for the PS/2 mouse.
-    /// The guest configures the auxiliary port and IRQ12 handler. This does not
-    /// install an INT 33h driver or provide BIOS INT 15h/C2h services.
+    /// Guests can use BIOS INT 15h/C2h configuration and packet callbacks, or
+    /// configure the auxiliary port and IRQ12 handler directly. No INT 33h driver
+    /// is installed.
     pub fn mouse_input(&self) -> relocade_frontend::mouse::MouseInput {
         self.pc.mouse_input()
     }
