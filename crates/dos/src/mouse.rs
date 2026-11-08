@@ -9,7 +9,7 @@ mod state;
 use crate::state::DosState;
 use relocade_machine::{
     real_mode_interrupt::{interrupt_handler, Interrupts},
-    Clock, FarPointer, MemoryView,
+    Clock, FarPointer, IoBus, MemoryView,
 };
 use state::State;
 use std::{cell::RefCell, rc::Rc};
@@ -35,14 +35,14 @@ impl Mouse {
         self.state.borrow_mut().callback = state::Callback::default();
     }
 
-    pub(crate) fn end_process(&self, memory: &mut MemoryView<'_>) {
+    pub(crate) fn end_process(&self, memory: &mut MemoryView<'_>, io: &IoBus) {
         self.retire_callback();
-        self.cursor.borrow_mut().reset(memory);
+        self.cursor.borrow_mut().reset(memory, io);
     }
 
-    fn update_cursor(&self, memory: &mut MemoryView<'_>) {
+    fn update_cursor(&self, memory: &mut MemoryView<'_>, io: &IoBus) {
         let position = self.state.borrow().position(memory);
-        self.cursor.borrow_mut().update(memory, position);
+        self.cursor.borrow_mut().update(memory, io, position);
     }
 }
 
