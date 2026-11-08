@@ -1,9 +1,12 @@
 use super::{keyboard, Application, Event, Phase};
 use crate::Window;
-use relocade_frontend::keyboard::KeyboardEvent;
+use relocade_frontend::mouse::MouseEvent;
 use winit::{
-    application::ApplicationHandler, dpi::PhysicalSize, event::WindowEvent,
-    event_loop::ActiveEventLoop, window::WindowId,
+    application::ApplicationHandler,
+    dpi::PhysicalSize,
+    event::{DeviceEvent, DeviceId, WindowEvent},
+    event_loop::ActiveEventLoop,
+    window::WindowId,
 };
 
 impl ApplicationHandler<Event> for Application {
@@ -15,13 +18,18 @@ impl ApplicationHandler<Event> for Application {
                 Err(error) => self.close(Err(error.to_string())),
             }
         }
+        self.focused = self
+            .window
+            .as_ref()
+            .is_some_and(|window| window.winit().has_focus());
         self.request_redraw();
         self.poll(event_loop);
     }
 
     fn suspended(&mut self, _: &ActiveEventLoop) {
         self.suspended = true;
-        self.host.borrow_mut().send_key(KeyboardEvent::FocusLost);
+        self.focused = false;
+        self.host.borrow_mut().release_input();
         if let Some(graphics) = &mut self.graphics {
             graphics.request_redraw(PhysicalSize::new(0, 0));
         }
@@ -35,11 +43,27 @@ impl ApplicationHandler<Event> for Application {
             return;
         }
         let state = window.state();
+        if let WindowEvent::Focused(focused) = event {
+            self.focused = focused;
+        }
         if self.host.borrow().phase == Phase::Running && !state.close_requested {
+            if matches!(
+                event,
+                WindowEvent::Focused(false) | WindowEvent::Occluded(true)
+            ) {
+                self.host.borrow_mut().release_input();
+            }
             #[cfg(feature = "audio")]
             crate::platform::application::window_event(&mut self.host.borrow_mut().audio);
             if let Some(event) = keyboard::translate(&event) {
                 self.host.borrow_mut().send_key(event);
+            }
+            if self.focused && !self.suspended && !state.occluded {
+                if let WindowEvent::MouseInput { button, state, .. } = event {
+                    self.host
+                        .borrow_mut()
+                        .send_mouse(MouseEvent::Button { button, state });
+                }
             }
         }
         if state.close_requested {
@@ -65,6 +89,26 @@ impl ApplicationHandler<Event> for Application {
                     self.request_redraw();
                 }
                 _ => {}
+            }
+        }
+    }
+
+    fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
+        if self.focused
+            && !self.suspended
+            && self
+                .window
+                .as_ref()
+                .is_some_and(|window| !window.state().occluded)
+            && self.host.borrow().phase == Phase::Running
+        {
+            if let DeviceEvent::MouseMotion {
+                delta: (delta_x, delta_y),
+            } = event
+            {
+                self.host
+                    .borrow_mut()
+                    .send_mouse(MouseEvent::Motion { delta_x, delta_y });
             }
         }
     }

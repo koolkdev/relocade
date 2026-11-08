@@ -16,7 +16,6 @@ pub(super) fn translate(event: &WindowEvent) -> Option<KeyboardEvent> {
             repeat: event.repeat,
         },
         WindowEvent::ModifiersChanged(modifiers) => KeyboardEvent::Modifiers(modifiers.state()),
-        WindowEvent::Focused(false) => KeyboardEvent::FocusLost,
         _ => return None,
     })
 }

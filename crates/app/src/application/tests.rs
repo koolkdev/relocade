@@ -3,6 +3,7 @@ use futures_channel::{mpsc, oneshot};
 use relocade_frontend::{
     display::DisplayRenderer,
     keyboard::{self, KeyboardEvent, ModifiersState},
+    mouse::{self, MouseEvent},
 };
 use relocade_renderer::Image;
 use std::{
@@ -14,7 +15,11 @@ use std::{
 };
 #[cfg(target_os = "linux")]
 use winit::dpi::PhysicalSize;
-use winit::{application::ApplicationHandler, event::WindowEvent, window::WindowId};
+use winit::{
+    application::ApplicationHandler,
+    event::{DeviceEvent, DeviceId, ElementState, MouseButton, WindowEvent},
+    window::WindowId,
+};
 
 #[derive(Default)]
 struct Counts {
@@ -73,7 +78,10 @@ enum Action {
     Resize,
     Close,
     Modifiers,
-    FocusLost,
+    Focus(bool),
+    Suspend(bool),
+    Motion(f64, f64),
+    Button(ElementState),
 }
 type Actions = Rc<RefCell<VecDeque<(Action, oneshot::Sender<()>)>>>;
 
@@ -112,10 +120,31 @@ impl ApplicationHandler<Event> for Fixture {
                     id,
                     WindowEvent::ModifiersChanged(winit::keyboard::ModifiersState::CONTROL.into()),
                 ),
-                Action::FocusLost => {
+                Action::Focus(focused) => {
                     self.application
-                        .window_event(events, id, WindowEvent::Focused(false))
+                        .window_event(events, id, WindowEvent::Focused(focused))
                 }
+                Action::Suspend(suspended) => {
+                    if suspended {
+                        self.application.suspended(events);
+                    } else {
+                        self.application.resumed(events);
+                    }
+                }
+                Action::Motion(x, y) => self.application.device_event(
+                    events,
+                    DeviceId::dummy(),
+                    DeviceEvent::MouseMotion { delta: (x, y) },
+                ),
+                Action::Button(state) => self.application.window_event(
+                    events,
+                    id,
+                    WindowEvent::MouseInput {
+                        device_id: DeviceId::dummy(),
+                        button: MouseButton::Left,
+                        state,
+                    },
+                ),
                 Action::Resize => {
                     #[cfg(not(target_arch = "wasm32"))]
                     let _ = window
@@ -164,10 +193,10 @@ fn fixture(
             // A held modifier must survive keyboard attachment after startup.
             action(Action::Modifiers).await;
             let connector = crate::worker::Thread::new();
-            let (input, mut keys) = connector
+            let ((input, mut keys), (mouse, mut pointer)) = connector
                 .run_send((), move |()| async move {
                     assert_ne!(main_id, std::thread::current().id());
-                    keyboard::channel()
+                    (keyboard::channel(), mouse::channel())
                 })
                 .await
                 .map_err(|error| error.to_string())?;
@@ -176,6 +205,7 @@ fn fixture(
                 action(Action::Close).await;
                 host.closing().await?;
                 assert!(host.attach_keyboard(input).is_err());
+                assert!(host.attach_mouse(mouse).is_err());
                 assert!(host
                     .attach_display::<Display>(|_, _| panic!("closed window cannot start graphics"))
                     .is_err());
@@ -191,6 +221,8 @@ fn fixture(
             #[cfg(all(feature = "audio", target_arch = "wasm32"))]
             let (_, samples) = host.open_audio()?;
             host.attach_keyboard(input)?;
+            host.attach_mouse(mouse.clone())?;
+            assert!(host.attach_mouse(mouse).is_err());
             host.attach_display(move |device, queue| {
                 assert_ne!(main_id, std::thread::current().id());
                 if matches!(startup, Startup::DisplayError) {
@@ -228,11 +260,41 @@ fn fixture(
                 keys.recv().await.unwrap(),
                 KeyboardEvent::Modifiers(ModifiersState::CONTROL)
             );
-            action(Action::FocusLost).await;
+            action(Action::Focus(false)).await;
+            assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+            action(Action::Motion(9.0, 9.0)).await;
+            action(Action::Button(ElementState::Pressed)).await;
+            assert!(futures_lite::future::poll_once(pointer.recv())
+                .await
+                .is_none());
             assert_eq!(keys.recv().await.unwrap(), KeyboardEvent::FocusLost);
             wait_for(|| counts.draws.load(SeqCst) > 0).await;
+            // Input reaches execution even while the graphics worker is held.
+            action(Action::Focus(true)).await;
+            action(Action::Motion(1.25, -0.5)).await;
+            assert_eq!(
+                pointer.recv().await.unwrap(),
+                MouseEvent::Motion {
+                    delta_x: 1.25,
+                    delta_y: -0.5
+                }
+            );
+            action(Action::Button(ElementState::Pressed)).await;
+            assert_eq!(
+                pointer.recv().await.unwrap(),
+                MouseEvent::Button {
+                    button: MouseButton::Left,
+                    state: ElementState::Pressed
+                }
+            );
             // Main handles events and timers while the graphics worker is held.
             action(Action::Hide(true)).await;
+            assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+            action(Action::Motion(9.0, 9.0)).await;
+            action(Action::Button(ElementState::Pressed)).await;
+            assert!(futures_lite::future::poll_once(pointer.recv())
+                .await
+                .is_none());
             futures_timer::Delay::new(Duration::from_millis(20)).await;
             counts.release.store(true, SeqCst);
             futures_timer::Delay::new(Duration::from_millis(40)).await;
@@ -258,9 +320,27 @@ fn fixture(
                 20,
                 "resize needs no source update"
             );
+            action(Action::Motion(1.25, -0.5)).await;
+            assert_eq!(
+                pointer.recv().await.unwrap(),
+                MouseEvent::Motion {
+                    delta_x: 1.25,
+                    delta_y: -0.5
+                }
+            );
+            action(Action::Suspend(true)).await;
+            assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+            action(Action::Motion(9.0, 9.0)).await;
+            action(Action::Button(ElementState::Pressed)).await;
+            assert!(futures_lite::future::poll_once(pointer.recv())
+                .await
+                .is_none());
+            action(Action::Suspend(false)).await;
             drop(updates);
             action(Action::Close).await;
             host.closing().await?;
+            assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+            assert!(pointer.recv().await.is_err());
             #[cfg(all(feature = "audio", target_arch = "wasm32"))]
             assert!(samples.is_closed(), "audio closes before lifecycle cleanup");
             // The callback has not released the window while lifecycle cleanup awaits.

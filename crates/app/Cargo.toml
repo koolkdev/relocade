@@ -7,7 +7,7 @@ publish.workspace = true
 
 [features]
 audio = ["dep:cpal", "dep:async-channel"]
-graphics = ["dep:wgpu", "dep:web-thread", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys", "dep:futures-channel", "dep:async-channel", "dep:futures-lite", "dep:futures-timer", "dep:relocade-renderer", "dep:relocade-frontend", "relocade-frontend/display", "relocade-frontend/keyboard"]
+graphics = ["dep:wgpu", "dep:web-thread", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys", "dep:futures-channel", "dep:async-channel", "dep:futures-lite", "dep:futures-timer", "dep:relocade-renderer", "dep:relocade-frontend", "relocade-frontend/display", "relocade-frontend/keyboard", "relocade-frontend/mouse"]
 
 [dependencies]
 winit = "=0.30.13"
