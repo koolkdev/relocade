@@ -82,9 +82,15 @@ lifecycle future on main. `AppHost` stays on main and accepts one display factor
 and keyboard and mouse input for its window. Execution returns ordinary endpoints
 over a channel; the application attaches them. Display factories run on graphics;
 keyboard interpretation and mouse sensitivity belong to the execution-side adapters.
-`host.attach_mouse(input)` forwards relative winit motion and button events while
-the window has focus, independently of display updates. It preserves fractional
-host units; resizing and pixel aspect ratio do not rescale motion. Focus loss,
+`host.attach_mouse(input)` enables click-to-capture relative mouse input. The first
+left click captures the pointer; Escape, focus loss, occlusion, suspension and
+shutdown release it. The capture click is consumed. Native capture hides the host
+cursor and prefers a locked pointer, falling back to confinement (needed by X11).
+Browser input starts only after the document grants pointer lock; denial leaves
+ordinary host interaction available, and a later click may retry.
+
+Motion and buttons reach execution independently of display updates. Fractional
+host units are preserved; resizing and pixel aspect ratio do not rescale motion. Focus loss,
 occlusion, suspension and closing release transient input state; hidden and
 suspended windows do not forward mouse input.
 
