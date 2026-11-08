@@ -28,6 +28,16 @@ pub(super) struct VideoMemory {
 }
 
 impl VideoMemory {
+    /// Native video operations address the same physical bytes as the CPU aperture,
+    /// without loading the CPU's read latches or applying its write registers.
+    pub fn read_physical(&self, address: u32) -> u8 {
+        self.storage.read(address)
+    }
+
+    pub fn write_physical(&mut self, address: u32, value: u8) {
+        self.storage.write(address, value);
+    }
+
     pub fn latches(&self) -> [u8; 4] {
         self.latches
     }

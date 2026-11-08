@@ -9,6 +9,7 @@
 mod capture;
 #[cfg(feature = "renderer")]
 mod display;
+mod framebuffer;
 mod geometry;
 mod memory;
 mod raster;
@@ -26,6 +27,7 @@ pub use capture::{CapturedFrame, FrameSource};
 #[cfg(feature = "renderer")]
 pub use display::VgaDisplay;
 use event_listener::Event;
+pub use framebuffer::{Framebuffer, FramebufferAccess, FramebufferGeometry, Pixel, TextCell};
 pub use geometry::DisplayGeometry;
 pub use memory::VIDEO_MEMORY_BYTES;
 use memory::{VideoMemory, VramAccess};
