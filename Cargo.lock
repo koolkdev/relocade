@@ -2226,6 +2226,7 @@ dependencies = [
  "futures-util",
  "js-sys",
  "pollster",
+ "relocade-clock-test-support",
  "relocade-compiler",
  "relocade-dos",
  "relocade-machine",
