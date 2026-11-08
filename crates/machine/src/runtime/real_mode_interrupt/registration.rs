@@ -2,9 +2,12 @@ use super::{hook, vector_address, write_vector, HOOK_STUB};
 use crate::{Cpu, CpuContext, FarPointer, Hook, Result};
 use relocade_x86::{Exception, PhysicalMapping};
 
-/// Registers real-mode interrupt handlers on one stopped CPU.
+// Entry, resume and the ordinary far return interpreted on completion.
+const FAR_PROCEDURE_STUB: [u8; 3] = [0x90, 0x90, 0xcb];
+
+/// Registers real-mode interrupt handlers and far procedures on one stopped CPU.
 ///
-/// Each registration writes the IVT destination and initializes its guest stub.
+/// Interrupt registration writes the IVT destination; both kinds initialize a guest stub.
 /// [`Self::install`] publishes the handlers together. Guest INT instructions still
 /// follow the IVT, so guest code can replace a vector and chain to its old target.
 pub struct Interrupts<'cpu> {
@@ -39,10 +42,6 @@ impl<'cpu> Interrupts<'cpu> {
     where
         F: AsyncFn(&mut CpuContext<'_>) + 'static,
     {
-        assert!(
-            usize::from(entry.offset) + HOOK_STUB.len() <= 0x10000,
-            "interrupt stub must fit in its code segment"
-        );
         let memory = self.cpu.memory();
         let vector_address = vector_address(vector).address();
         assert!(
@@ -52,19 +51,43 @@ impl<'cpu> Interrupts<'cpu> {
             ),
             "interrupt vector table must be writable RAM"
         );
+        self.register_entry(entry, &HOOK_STUB, handler);
+        write_vector(&mut memory.view(), vector, entry);
+    }
+
+    /// Binds a far procedure to an ordinary async handler without changing the IVT.
+    /// The handler shares interrupt suspension and guest-call resumption. Normal
+    /// completion executes RETF; argument cleanup belongs to the caller. This
+    /// entry has no saved interrupt FLAGS and does not change live IF.
+    /// The three-byte stub has the same memory requirements as an interrupt entry.
+    pub fn register_far_procedure<F>(&mut self, entry: FarPointer, handler: F)
+    where
+        F: AsyncFn(&mut CpuContext<'_>) + 'static,
+    {
+        self.register_entry(entry, &FAR_PROCEDURE_STUB, handler);
+    }
+
+    fn register_entry<F>(&mut self, entry: FarPointer, stub: &[u8; 3], handler: F)
+    where
+        F: AsyncFn(&mut CpuContext<'_>) + 'static,
+    {
+        assert!(
+            usize::from(entry.offset) + stub.len() <= 0x10000,
+            "service stub must fit in its code segment"
+        );
+        let memory = self.cpu.memory();
         {
             let mut view = memory.view();
-            for (offset, &byte) in HOOK_STUB.iter().enumerate() {
+            for (offset, &byte) in stub.iter().enumerate() {
                 let address = entry.address() + offset as u32;
                 let backing = match memory.configuration().memory_map().get(address) {
                     PhysicalMapping::Ram { backing_offset }
                     | PhysicalMapping::Rom { backing_offset } => backing_offset,
-                    _ => panic!("interrupt stub must be backed by RAM or ROM"),
+                    _ => panic!("service stub must be backed by RAM or ROM"),
                 };
                 view.write_backing(backing, &[byte])
-                    .expect("interrupt stub backing");
+                    .expect("service stub backing");
             }
-            write_vector(&mut view, vector, entry);
         }
 
         let cpu = self.cpu.cpu_state();

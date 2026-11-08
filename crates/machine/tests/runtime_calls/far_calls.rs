@@ -17,6 +17,52 @@ const TARGET: FarPointer = FarPointer {
     offset: 0x300,
 };
 
+async fn registered_procedure() {
+    let irq = Rc::new(RefCell::new(Irq::default()));
+    let mut runner = cpu(&irq, 0x300).await;
+    let memory = runner.memory();
+    memory.view().write_u32(0x61 * 4, 0x600).unwrap();
+    // A guest interrupt called by the Rust far procedure pauses before IRET.
+    memory.view().write(0x600, &[0x43, 0xeb, 0, 0xcf]).unwrap();
+    let mut entries = Interrupts::new(&mut runner);
+    entries.register_interrupt(
+        0x21,
+        FarPointer {
+            segment: 0,
+            offset: 0x200,
+        },
+        async |call| {
+            call.cpu.set_eflags(0x643);
+            call.call_far(TARGET, &[0x1122, 0x3344]).await;
+            assert_eq!(call.cpu.sp(), 0x7ffa);
+            assert_eq!(call.cpu.eflags(), 0x643);
+            assert_eq!(call.cpu.ax(), 7);
+        },
+    );
+    entries.register_far_procedure(TARGET, async |call| {
+        let stack = call.cpu.segment(Segment::Ss);
+        let mut frame = [0; 8];
+        call.memory
+            .read_segment(&stack, u32::from(call.cpu.sp()), &mut frame)
+            .unwrap();
+        assert_eq!(frame, [1, 2, 0, 0, 0x44, 0x33, 0x22, 0x11]);
+        assert_eq!(call.cpu.eflags(), 0x643);
+        call.call_interrupt(0x61).await;
+        call.cpu.set_ax(7);
+    });
+    entries.install().await.unwrap();
+    assert_eq!(
+        support::run_until(&mut runner, 0x603).await,
+        ExecutionExit::Interrupted
+    );
+    assert_eq!(
+        support::run_until(&mut runner, 0x102).await,
+        ExecutionExit::Interrupted
+    );
+    assert_eq!(runner.cpu_state().sp(), 0x8000);
+    assert_eq!(runner.cpu_state().ax(), 7);
+}
+
 async fn frame_and_fault_recovery() {
     for arguments in [
         &[][..],
@@ -214,6 +260,10 @@ async fn mapped_arguments() {
     assert_eq!(arguments, [0x66, 0x55, 0x44, 0x33, 0x22, 0x11]);
 }
 
+test_backends!(
+    registered_far_procedures_share_interrupt_resumption,
+    registered_procedure
+);
 test_backends!(
     far_calls_preserve_flags_and_retry_stack_faults_before_retf,
     frame_and_fault_recovery
