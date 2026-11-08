@@ -71,7 +71,9 @@ async fn timer_interrupts() -> Result<(), String> {
             samples: Vec::with_capacity(INTERRUPTS),
             exit: None,
         }));
-        let connection = runner.connect(reports.clone(), [], [0x80..=0x81]).await;
+        let connection = runner
+            .connect(reports.clone(), [], std::iter::once(0x80..=0x81))
+            .await;
         let memory = Memory::new(
             MachineConfig::new(
                 0x1000,
