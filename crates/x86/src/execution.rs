@@ -1,5 +1,6 @@
 mod address;
 mod control;
+mod entry;
 mod interrupt;
 mod memory;
 mod mmx;
@@ -297,7 +298,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         &mut self,
         segment: &SegmentSelection,
         offset: &Val<I32>,
-        bytes: u32,
+        bytes: impl Into<Val<I32>>,
         intent: Intent,
     ) -> Result<Val<I32>, BuildError> {
         self.segments.translate(

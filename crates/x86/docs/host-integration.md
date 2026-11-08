@@ -969,6 +969,21 @@ IVT, flag and segment rules, but saves the current IP and retires no instruction
 retain their ordinary architectural exit. The embedding then calls dispatch.
 Protected-mode delivery, NMIs and debug delivery remain unsupported.
 
+The Real16 interpreter also exports `abi::FAR_CALL`,
+`fn(segment: u16, offset: u16, stack_bytes: u16) -> ExecutionExit`. Entry shares
+ordinary far CALL's checked-frame and destination machinery. It reserves the
+requested bytes above the saved CS:IP, leaves flags unchanged and retires no
+instruction. The complete frame must fit contiguously within SS; it cannot wrap
+between pushes. `FarCallEntered` returns before executing the target, so the Rust
+adapter can fill the reserved words directly through `MemoryView`. Stack faults
+retain the caller's restart boundary without writing arguments or a return address.
+A guest RETF returns to the saved continuation.
+`CpuContext::call_far(target, &[word, ...])` awaits this through the same
+suspended-call owner as `call_interrupt`. Words are supplied in push order and
+remain owned by the request until entry succeeds. After RETF the Rust adapter
+discards arguments from the live SP; the guest must not pop them. Abandonment does
+not change the stack. Register preservation belongs to the service.
+
 These rules follow Intel SDM [Volume 2B, STI/MOV/POP](https://cdrdv2.intel.com/v1/dl/getContent/671241)
 and [Volume 3A, section 7.8](https://cdrdv2.intel.com/v1/dl/getContent/671190).
 

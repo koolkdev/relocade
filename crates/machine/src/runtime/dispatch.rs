@@ -4,7 +4,7 @@ mod hooks;
 mod table;
 
 use super::{code, hooks::Handler, Backend, Hook, RuntimeMemory};
-use crate::Result;
+use crate::{FarPointer, Result};
 use hooks::Hooks;
 use relocade_wasm_runtime::{Function, Import, Module, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionProfile};
@@ -25,6 +25,7 @@ pub(crate) struct Dispatch {
     interpret: Function<Backend, abi::ExecutionSignature>,
     step: Function<Backend, abi::ExecutionSignature>,
     interrupt: Option<Function<Backend, abi::InterruptSignature>>,
+    far_call: Option<Function<Backend, abi::FarCallSignature>>,
     table: DispatchTable<Backend>,
     hooks: Hooks,
     host_imports: Vec<Import<'static, Backend>>,
@@ -63,6 +64,11 @@ impl Dispatch {
             } else {
                 None
             },
+            far_call: if target.profile == ExecutionProfile::Real16 {
+                Some(backend.function(&instance, abi::FAR_CALL)?)
+            } else {
+                None
+            },
             table,
             hooks: Hooks::default(),
             host_imports,
@@ -78,6 +84,18 @@ impl Dispatch {
             .as_ref()
             .expect("real-mode interrupt entry")
             .call(backend, (vector,))
+    }
+
+    pub(crate) fn enter_far_call(
+        &self,
+        backend: &mut Backend,
+        target: FarPointer,
+        stack_bytes: u16,
+    ) -> ExecutionExit {
+        self.far_call
+            .as_ref()
+            .expect("real-mode far-call entry")
+            .call(backend, (target.segment, target.offset, stack_bytes))
     }
 
     #[cold]

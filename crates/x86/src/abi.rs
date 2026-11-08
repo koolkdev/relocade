@@ -26,6 +26,7 @@ pub const PAGE_TABLE: Memory = Memory::new(
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
 pub type ExecutionSignature = fn() -> crate::ExecutionExit;
 pub type InterruptSignature = fn(vector: u8) -> crate::ExecutionExit;
+pub type FarCallSignature = fn(segment: u16, offset: u16, stack_bytes: u16) -> crate::ExecutionExit;
 pub const EXECUTION_FUNCTIONS: Table<ExecutionSignature> =
     Table::new("relocade", "executionFunctions", 2);
 
@@ -36,6 +37,10 @@ pub const STEP: Function<ExecutionSignature> = Function::new("relocade", "step")
 /// Real16 architectural entry; success returns InterruptEntered before ISR dispatch.
 /// The embedding owns maskable-interrupt eligibility and acknowledgement.
 pub const INTERRUPT: Function<InterruptSignature> = Function::new("relocade", "interrupt");
+/// Real16 far-call entry; success returns FarCallEntered before guest dispatch.
+/// Reserves stack_bytes above the saved CS:IP, checking the complete frame.
+/// The host fills the reserved bytes before dispatch; flags remain unchanged.
+pub const FAR_CALL: Function<FarCallSignature> = Function::new("relocade", "farCall");
 
 pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "readPort");
 pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");

@@ -59,7 +59,7 @@ use dispatch::Dispatch;
 pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
 pub use execution::ExitHandle;
-use execution::{InterruptCalls, SuspendedCall};
+use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
 use machine::Machine;
@@ -72,7 +72,7 @@ type Backend = relocade_wasm_runtime::Backend<IoBus>;
 pub struct Cpu {
     pending: Option<Call>,
     suspended: Vec<SuspendedCall>,
-    interrupt_calls: InterruptCalls,
+    guest_calls: GuestCalls,
     machine: Machine,
     exit: ExitHandle,
     // Identifies the owning session once at run entry, never during hooks.
@@ -106,7 +106,7 @@ impl Cpu {
         Ok(Self {
             pending: None,
             suspended: Vec::new(),
-            interrupt_calls: InterruptCalls::default(),
+            guest_calls: GuestCalls::default(),
             machine,
             exit: ExitHandle::new(),
             executor: std::rc::Weak::new(),

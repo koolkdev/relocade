@@ -17,6 +17,7 @@ fn exit_module() -> Vec<u8> {
         "simd_floating_point",
         "unsupported",
         "interrupt_entered",
+        "far_call_entered",
         "interrupt_inhibited",
         "interrupted",
         "step_complete",
@@ -55,6 +56,9 @@ fn exit_module() -> Vec<u8> {
                     }
                     "interrupt_entered" => {
                         return body.return_(ExecutionExitValues::interrupt_entered())
+                    }
+                    "far_call_entered" => {
+                        return body.return_(ExecutionExitValues::far_call_entered())
                     }
                     "interrupt_inhibited" => {
                         return body.return_(ExecutionExitValues::interrupt_inhibited())
@@ -115,6 +119,7 @@ fn generated_exits_preserve_payloads() {
             },
         ),
         ("interrupt_entered", ExecutionExit::InterruptEntered),
+        ("far_call_entered", ExecutionExit::FarCallEntered),
         ("interrupt_inhibited", ExecutionExit::InterruptInhibited),
         ("interrupted", ExecutionExit::Interrupted),
         ("step_complete", ExecutionExit::StepComplete),
@@ -186,6 +191,7 @@ fn execution_exits_share_four_wasm_values() {
             (8, 6, address as i32, error_code as i32),
         ),
         (ExecutionExit::InterruptEntered, (3, 0, 0, 0)),
+        (ExecutionExit::FarCallEntered, (9, 0, 0, 0)),
         (ExecutionExit::InterruptInhibited, (4, 0, 0, 0)),
         (ExecutionExit::Interrupted, (5, 0, 0, 0)),
         (ExecutionExit::StepComplete, (6, 0, 0, 0)),

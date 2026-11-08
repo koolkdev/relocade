@@ -42,6 +42,9 @@ pub enum ExecutionExit {
     /// An installed default handler reported an exception to the embedding.
     /// Architectural entry has completed; the fault location is in its saved frame.
     UnhandledException(Exception),
+    /// A host-requested far call saved CS:IP without retiring an instruction.
+    /// CPU state identifies the callee; RETF returns to the saved continuation.
+    FarCallEntered,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].
