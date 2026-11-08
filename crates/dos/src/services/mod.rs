@@ -1,6 +1,6 @@
 //! DOS interrupt dispatch and service handlers.
 
-use relocade_machine::{real_mode_interrupt::interrupt, CpuContext};
+use relocade_machine::{real_mode_interrupt::interrupt, MemoryView};
 
 pub(crate) mod console;
 mod control;
@@ -31,11 +31,11 @@ impl<'call> Services<'call> {
         )
     }
 
-    #[interrupt(context(call))]
-    fn exit(&self, call: &mut CpuContext<'_>, status: Result<u8, ServiceError>) {
-        self.dos.mouse.end_process(&mut call.memory, call.io);
+    #[interrupt(context(memory))]
+    fn exit(&self, memory: &mut MemoryView<'_>, status: Result<u8, ServiceError>) {
+        self.dos.mouse.end_process();
         self.process
-            .terminate(status, &mut call.memory, &mut self.dos.filesystem());
+            .terminate(status, memory, &mut self.dos.filesystem());
         self.dos.request_exit();
     }
 }

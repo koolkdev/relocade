@@ -65,15 +65,18 @@ pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
 
 #[interrupt(context(call), args(code = al))]
 fn terminate_process(call: &mut CpuContext<'_>, services: &Services<'_>, code: u8) {
-    services.exit(call, Ok(code));
+    services.exit(&mut call.memory, Ok(code));
 }
 
 #[interrupt(context(call), args(function = ah))]
 fn unsupported(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
-    services.exit(call, Err(ServiceError::UnsupportedFunction(function)));
+    services.exit(
+        &mut call.memory,
+        Err(ServiceError::UnsupportedFunction(function)),
+    );
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
 pub(crate) async fn int20(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    services.exit(call, Ok(0));
+    services.exit(&mut call.memory, Ok(0));
 }

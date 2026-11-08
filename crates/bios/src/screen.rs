@@ -3,7 +3,6 @@ mod characters;
 mod cursor;
 mod geometry;
 mod scroll;
-mod text_page;
 
 use crate::video::graphics::Page as GraphicsPage;
 pub use characters::write_text;
@@ -15,7 +14,6 @@ pub(super) use cursor::{
 use geometry::Geometry;
 pub(super) use scroll::Scroll;
 pub use scroll::{ScrollDirection, Window};
-pub use text_page::TextPage;
 
 use crate::video::{text_memory_start, write_crtc_word, ACTIVE_PAGE, MODE, PAGE_OFFSET};
 use relocade_machine::{IoBus, MemoryView};

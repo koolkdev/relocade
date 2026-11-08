@@ -196,12 +196,18 @@ impl<C: Clock> Dos<C> {
     {
         let clock = pc.clock().clone();
         let keyboard = pc.keyboard();
+        let mouse = mouse::Mouse::new(pc.vga());
         let cpu = pc.cpu();
         let memory = cpu.memory();
         let io = cpu.context().io.clone();
         let exit = cpu.exit_handle();
         let mut interrupts = Interrupts::new(cpu);
-        let state = Rc::new(DosState::new(memory.clone().with_io(io), keyboard, exit));
+        let state = Rc::new(DosState::new(
+            memory.clone().with_io(io),
+            keyboard,
+            exit,
+            mouse,
+        ));
         memory::reset(&mut memory.view());
         interrupts::register_interrupts(&mut interrupts, Rc::clone(&state));
         mouse::register(&mut interrupts, Rc::clone(&state), clock);

@@ -9,7 +9,12 @@ fn graphics(dos: &mut MouseDos) -> (MemoryBus, IoBus) {
     (memory, io)
 }
 
-async fn shape(dos: &mut MouseDos, hotspot: [i16; 2], screen: [u16; 16], cursor: [u16; 16]) {
+pub(super) async fn shape(
+    dos: &mut MouseDos,
+    hotspot: [i16; 2],
+    screen: [u16; 16],
+    cursor: [u16; 16],
+) {
     // The 64-byte ABI buffer crosses the real-mode offset boundary.
     let source = FarPointer {
         segment: 0x2200,
