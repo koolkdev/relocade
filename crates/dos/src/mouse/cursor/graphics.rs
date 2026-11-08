@@ -1,8 +1,7 @@
-//! Standard 16×16 graphics masks, with Mode 13h pixel access owned by BIOS.
+//! Standard 16×16 graphics masks over device-owned pixel locations.
 
-use super::Point;
-use relocade_bios::video;
-use relocade_machine::{FarPointer, IoBus, MemoryView};
+use relocade_machine::{FarPointer, MemoryView};
+use relocade_vga::{Framebuffer, Pixel, PixelFormat};
 
 pub(super) struct Shape {
     hotspot: [i16; 2],
@@ -13,12 +12,6 @@ pub(super) struct Shape {
 pub(super) struct Background {
     // Only pixels changed by the 16×16 mask are retained; at most 256 entries.
     pixels: Vec<Pixel>,
-}
-
-struct Pixel {
-    x: u16,
-    y: u16,
-    color: u8,
 }
 
 impl Default for Shape {
@@ -53,29 +46,37 @@ impl Shape {
         }
     }
 
-    pub fn draw(&self, memory: &mut MemoryView<'_>, io: &IoBus, position: Point) -> Background {
-        // Mode 13h has a 640-unit logical X range and a 320-pixel display.
-        let left = i32::from(position.x as i16) / 2 - i32::from(self.hotspot[0]);
-        let top = i32::from(position.y as i16) - i32::from(self.hotspot[1]);
+    pub fn draw(&self, frame: &mut Framebuffer<'_>, position: [i32; 2]) -> Background {
+        let left = position[0] - i32::from(self.hotspot[0]);
+        let top = position[1] - i32::from(self.hotspot[1]);
         let mut pixels = Vec::new();
         for row in 0..16 {
             for column in 0..16 {
-                let x = left + column;
-                let y = top + row as i32;
-                if !(0..320).contains(&x) || !(0..200).contains(&y) {
-                    continue;
-                }
                 let bit = 0x8000 >> column;
-                let screen = if self.screen[row] & bit != 0 { 0xff } else { 0 };
-                // White is palette index 15; XOR retains the background's upper nibble.
-                let cursor = if self.cursor[row] & bit != 0 { 0x0f } else { 0 };
-                if screen == 0xff && cursor == 0 {
+                let preserve = self.screen[row] & bit != 0;
+                let invert = self.cursor[row] & bit != 0;
+                if preserve && !invert {
                     continue;
                 }
-                let (x, y) = (x as u16, y as u16);
-                let color = video::read_pixel(memory, io, 0, x, y).expect("Mode 13h pixel");
-                video::write_pixel(memory, io, 0, x, y, (color & screen) ^ cursor);
-                pixels.push(Pixel { x, y, color });
+                let (Ok(x), Ok(y)) = ((left + column).try_into(), (top + row as i32).try_into())
+                else {
+                    continue;
+                };
+                let Some(pixel) = frame.pixel(x, y) else {
+                    continue;
+                };
+                let screen = if preserve {
+                    u32::MAX
+                } else {
+                    !pixel.color_mask()
+                };
+                let white = match pixel.format() {
+                    PixelFormat::Indexed8 => pixel.color_mask().min(15),
+                    PixelFormat::Rgb565 | PixelFormat::Bgrx8888 => pixel.color_mask(),
+                };
+                let cursor = if invert { white } else { 0 };
+                frame.write_pixel(&pixel, (pixel.value() & screen) ^ cursor);
+                pixels.push(pixel);
             }
         }
         Background { pixels }
@@ -83,12 +84,11 @@ impl Shape {
 }
 
 impl Background {
-    pub fn restore(self, memory: &mut MemoryView<'_>, io: &IoBus) {
-        if video::mode(memory).mode & 0x7f != 0x13 {
-            return;
-        }
-        for pixel in self.pixels {
-            video::write_pixel(memory, io, 0, pixel.x, pixel.y, pixel.color);
+    pub fn restore(self, frame: &mut Framebuffer<'_>) {
+        // CRTC counting and split layouts can alias pixels. Reverse the writes so
+        // an alias cannot restore a value sampled after another cursor write.
+        for pixel in self.pixels.into_iter().rev() {
+            frame.write_pixel(&pixel, pixel.value());
         }
     }
 }

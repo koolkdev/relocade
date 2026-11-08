@@ -54,8 +54,8 @@
 //! EOF is cleared through AH=40h or AX=4401h, or a program load replaces the handles.
 //! AX=4401h switches device handles between cooked and raw mode. Raw transfers
 //! report the driver's actual byte count. Built-in CON reads await the requested
-//! count, limited by the segment boundary, without editing, echo, CRLF insertion
-//! or interpreting Ctrl-Z as EOF. Raw writes preserve tabs and control bytes.
+//! count without editing, echo, CRLF insertion or interpreting Ctrl-Z as EOF.
+//! Raw writes preserve tabs and control bytes.
 //! Duplicates share mode and EOF changes; separate opens
 //! keep their own state. Switching modes preserves the buffered cooked-line remainder.
 //! Dropping a run waiter preserves an active read and its local state. A later
@@ -78,6 +78,10 @@
 //! AH=0Eh/19h select/query the current drive; AH=3Bh/47h change/query a drive's directory.
 //! AH=39h/3Ah create directories or remove empty ones, excluding root and current.
 //! Guest relative paths use the selected drive's directory; both persist across loads.
+//! ASCII pathname components use DOS 8.3 translation: names and extensions are
+//! uppercased, truncated to eight and three bytes, and compared as padded fields.
+//! Embedded spaces are significant; trailing field spaces are padding.
+//! Files, directories, device lookup and search masks share this translation.
 //! AH=1Ah/2Fh select/query the DTA; AH=4Eh/4Fh find matching 8.3 names.
 //! Search dates are initially fixed at 1980-01-01; long-name aliases are not generated.
 //! AH=30h reports DOS 5.00; AH=25h/35h set/query the real interrupt vector table.
@@ -184,12 +188,18 @@ impl Dos {
     pub async fn from_pc(mut pc: Pc) -> relocade_machine::Result<Self> {
         let clock = pc.clock().clone();
         let keyboard = pc.keyboard();
+        let mouse = mouse::Mouse::new(pc.vga());
         let cpu = pc.cpu();
         let memory = cpu.memory();
         let io = cpu.context().io.clone();
         let exit = cpu.exit_handle();
         let mut interrupts = Interrupts::new(cpu);
-        let state = Rc::new(DosState::new(memory.clone().with_io(io), keyboard, exit));
+        let state = Rc::new(DosState::new(
+            memory.clone().with_io(io),
+            keyboard,
+            exit,
+            mouse,
+        ));
         memory::reset(&mut memory.view());
         interrupts::register_interrupts(&mut interrupts, Rc::clone(&state));
         mouse::register(&mut interrupts, Rc::clone(&state), clock);
@@ -246,7 +256,8 @@ impl Dos {
     }
 
     /// Mounts a filesystem at A: through Z:, replacing any previous mount.
-    /// Filesystem paths use uppercase ASCII names and '/' separators for DOS.
+    /// Filesystem paths must use uppercase, unpadded ASCII 8.3 names and '/' separators.
+    /// Entries with other spellings are not assigned short-name aliases.
     /// Files larger than u32::MAX bytes cannot be opened or listed by DOS.
     /// Resets that drive's current directory to its root and discards its DOS
     /// attributes and searches. Open handles continue to access their original files.
@@ -268,7 +279,8 @@ impl Dos {
 
     /// Supplies bytes at an ASCII path on a mounted drive with an initial read-only attribute.
     /// DOS AH=43h may change that attribute; existing handles keep their access rights.
-    /// Paths are case-insensitive; relative paths start at the drive root.
+    /// Paths use DOS 8.3 translation, including case folding and field truncation;
+    /// relative paths start at the drive root.
     /// An omitted drive defaults to C:, independently of the guest's current drive.
     /// Files persist across program loads.
     /// Replacing a mounted path leaves existing open handles on the previous bytes.
@@ -282,7 +294,7 @@ impl Dos {
     }
 
     /// Copies a file's current contents for the host to save or export.
-    /// Like mount_file, relative paths start at the root and default to C:.
+    /// Like mount_file, paths use DOS 8.3 translation, start at the root and default to C:.
     /// Returns None for invalid paths or files that do not exist.
     pub fn read_file(&self, path: &str) -> Option<Vec<u8>> {
         self.state.filesystem().read_file(path)

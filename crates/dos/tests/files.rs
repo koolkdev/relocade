@@ -65,6 +65,31 @@ fn buffer(dos: &mut Dos) -> [u8; 8] {
     bytes
 }
 
+#[test]
+fn padded_short_names_open_and_create_the_same_files() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.mount_file("DATA/DDFNT2.CAR", b"font".to_vec(), FileAccess::ReadOnly)
+            .unwrap();
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        let handle = success(&open(&mut dos, b"c:\\data    \\ddfnt2  .car", 0));
+        assert_eq!(success(&service(&mut dos, 0x3f00, handle, 8, 0x200)), 4);
+        assert_eq!(&buffer(&mut dos)[..4], b"font");
+        success(&service(&mut dos, 0x3e00, handle, 0, 0));
+
+        for (padded, canonical) in [
+            (b"DATA/SAVE    .X  ".as_slice(), "DATA/SAVE.X"),
+            (b"DATA/PLAIN   .   ", "DATA/PLAIN"),
+        ] {
+            let handle = success(&create(&mut dos, padded, 0));
+            success(&service(&mut dos, 0x3e00, handle, 0, 0));
+            assert_eq!(dos.read_file(canonical), Some(vec![]));
+            let handle = success(&open(&mut dos, canonical.as_bytes(), 0));
+            success(&service(&mut dos, 0x3e00, handle, 0, 0));
+        }
+    });
+}
+
 async fn check_handles() {
     let mut dos = common::dos().await;
     for path in ["", "C:\\", r"D:\X.BIN", "X?.BIN", "X\0.BIN", "é.bin"] {

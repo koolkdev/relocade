@@ -65,7 +65,7 @@ fn raw_console_read_awaits_the_full_count_without_editing_or_echo() {
 }
 
 #[test]
-fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
+fn raw_reads_preserve_cooked_remainders_and_eof_across_the_segment_end() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
@@ -90,24 +90,20 @@ fn raw_reads_preserve_cooked_remainders_and_respect_eof_and_segment_end() {
         assert!(common::output(dos.stdout()).is_empty());
 
         success(&service(&mut dos, 0x4401, 0, 0, 0xa3)); // Raw, with EOF set.
-        dos.stdin().write_all(b"XYZ").unwrap();
+        dos.stdin().write_all(b"XYZQ").unwrap();
         assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 0);
         success(&service(&mut dos, 0x4401, 0, 0, 0xe3)); // Clear EOF.
-        dos.cpu().memory().view().write(0x1ffff, b"??").unwrap();
-        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 3, 0xffff)), 1);
+        dos.cpu().memory().view().write(0x1ffff, b"????").unwrap();
+        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 3, 0xffff)), 3);
+        dos.cpu().memory().view().read(0x1ffff, &mut bytes).unwrap();
+        assert_eq!(&bytes, b"XYZ?");
+        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 1, 0x400)), 1);
         dos.cpu()
             .memory()
             .view()
-            .read(0x1ffff, &mut bytes[..2])
+            .read(0x10400, &mut bytes[..1])
             .unwrap();
-        assert_eq!(&bytes[..2], b"X?");
-        assert_eq!(success(&service(&mut dos, 0x3f00, 0, 2, 0x400)), 2);
-        dos.cpu()
-            .memory()
-            .view()
-            .read(0x10400, &mut bytes[..2])
-            .unwrap();
-        assert_eq!(&bytes[..2], b"YZ");
+        assert_eq!(bytes[0], b'Q');
         assert!(common::output(dos.stdout()).is_empty());
     });
 }

@@ -96,7 +96,7 @@ async fn check_drive_services() {
         assert_eq!(cpu.flags.eflags() & 1, 1);
         assert_eq!(service(&mut dos, 0x1900, 0, 0, 0).registers.eax as u8, 2);
     }
-    let longest = "A".repeat(63);
+    let longest = ["AAAAAAA"; 8].join("\\"); // 63 bytes with valid 8.3 components.
     dos.mount_file(&format!("{longest}/X"), vec![], FileAccess::ReadOnly)
         .unwrap();
     success(&path_service(&mut dos, longest.as_bytes(), 0x3b00, 0));

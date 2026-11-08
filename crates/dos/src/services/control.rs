@@ -70,7 +70,7 @@ impl<'call> Request<'call> {
         let terminate = call.cpu.sp() != self.sp && call.cpu.carry();
         self.stack.restore();
         if terminate {
-            self.services.exit(call, Ok(0));
+            self.services.exit(&mut call.memory, Ok(0));
             std::future::pending::<()>().await;
         }
         self.in_dos = Some(self.services.dos.indos().enter());

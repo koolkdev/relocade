@@ -12,8 +12,9 @@ const Y_NEGATIVE: u8 = 1 << 5;
 
 impl Mouse {
     pub(super) async fn initialize(&self, call: &mut CpuContext<'_>) -> bool {
-        self.cursor.borrow_mut().reset(&mut call.memory, call.io);
-        *self.state.borrow_mut() = super::state::State::default();
+        self.end_process();
+        let coordinates = self.coordinates();
+        *self.state.borrow_mut() = super::state::State::new(coordinates);
         call.cpu
             .with_saved_registers(
                 [
@@ -67,14 +68,15 @@ impl Mouse {
         let [_, _, y, _, x, _, status, _] = arguments;
         let x = signed_count(x, status & X_NEGATIVE != 0);
         let y = -signed_count(y, status & Y_NEGATIVE != 0);
+        let coordinates = self.coordinates();
         let (event, callback) = {
             let mut state = self.state.borrow_mut();
             (
-                state.packet(&call.memory, now, u16::from(status & 7), x, y),
+                state.packet(coordinates, now, u16::from(status & 7), x, y),
                 state.callback,
             )
         };
-        self.update_cursor(&mut call.memory, call.io);
+        self.update_cursor();
         if event.mask & callback.mask != 0 && callback.target.packed() != 0 {
             // BIOS already owns preservation of the interrupted registers. Its
             // scope also covers this user's callback, including nested services.

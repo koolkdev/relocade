@@ -27,8 +27,11 @@ Hardware text cursor selection is not implemented.
 Unknown functions leave registers and flags unchanged.
 
 Physical motion, logical position, and cursor drawing coordinates are distinct.
-Text positions use a 640×200 logical grid, reported at cell boundaries; Mode 13h
-uses two logical X units per display pixel. Bounds constrain logical position,
+Reset derives the movement bounds and center from the programmed video geometry.
+Text uses eight logical Y units per row and eight X units per column (sixteen in
+40-column modes). Graphics uses two logical X units per pixel at 320 pixels wide,
+and one unit per pixel otherwise. Reported positions follow that grid; finer
+internal motion is retained. Bounds constrain logical position,
 not raw mickeys. Button counts wrap at 16 bits, and reading one count consumes
 only that button's selected transition count. Raw motion wraps at signed 16 bits
 and is consumed only by 000Bh. Callback SI/DI observe these accumulated counters
@@ -50,24 +53,37 @@ requires an active process or enters DOS's InDOS scope. Process exit restores an
 hides the cursor. Reset starts with one outstanding hide and text masks
 FFFFh/7700h, preserving the cell's intensity and blink bits while inverting colors.
 
-Text drawing uses the BIOS `TextPage` geometry owner and mapped video memory,
-without moving the BIOS output cursor. It saves the original cell and restores
-that page before movement, hiding, mask changes or reset. Applications must hide
-the cursor before changing video modes or drawing in its saved area. Comparing
-layouts cannot detect a same-mode screen clear. Full mode-transition handling,
-additional text geometries and arbitrary VGA programming belong to the following
-video milestone.
+Cursor drawing uses VGA's native `Framebuffer` scope, which writes the same
+physical bytes accessed by the guest and captured by the renderer. It leaves VGA
+register indices, read latches, access masks and VBE bank selection untouched.
+`Coordinates` owns DOS logical units; VGA owns programmed geometry, viewport
+addressing and pixel formats. The driver supports 40/80-column color and mono
+text with the programmed font height, CGA packed pixels, planar VGA, Mode 13h,
+programmed Mode X, and banked VBE indexed/RGB565/BGRX layouts.
 
-Mode 13h uses the same visibility and restoration owner, with a separate graphics
-shape/drawing module. Mask bit 15 is the leftmost pixel. Drawing clips the 16×16
-area after converting logical X to display pixels and subtracting the hotspot.
-The pixel policy is `(old & (screen_bit ? FFh : 00h)) ^ (cursor_bit ? 0Fh : 00h)`,
-matching CuteMouse and DOSBox-X: white is palette index 15, and inversion preserves
-the upper index bits. The default arrow is visible with the BIOS palette. Pixels
-are read and written through BIOS's mapped VGA access; transparent pixels are
-untouched, and saved background is bounded to 256 pixels. This does not yet
-support CGA, planar graphics, Mode X, VBE or cursor drawing across arbitrary VGA
-register programming. Hide before changing modes, including same-mode clears.
+The cursor saves the original physical pixel or character/attribute locations,
+so restoration does not reinterpret old coordinates through a newly selected
+page. Background storage is bounded to one text cell or 256 graphics pixels.
+Graphics writes are undone in reverse order because CRTC layouts can alias pixels.
+
+Redrawing happens after complete mouse packets and cursor-affecting INT 33h calls.
+Video register changes and display captures do not redraw a stationary cursor.
+The next mouse update restores its saved physical locations and draws using the
+current viewport. Applications should hide around mode, page and layout changes,
+including same-mode clears, and reset after changing modes to recalculate bounds.
+
+Guest reads and screen copies include the drawn cursor. Guest drawing can overwrite
+it; the next move or hide restores the background saved before drawing the cursor,
+which can erase newer drawing. Applications must hide the cursor before drawing
+beneath it. No video-layout observer or renderer-specific cursor state is involved.
+
+Graphics mask bit 15 is the leftmost pixel. Drawing clips the 16×16 area after
+logical-coordinate conversion and signed hotspot subtraction. A screen-mask bit
+preserves color; a cursor-mask bit XORs conventional white. Indexed modes use
+index 15 (limited to enabled color planes), so 256-color inversion preserves the
+upper index bits. Direct-color modes use all RGB bits for white and inversion.
+Black, white and inversion preserve BGRX's reserved byte. Transparent pixels are
+untouched. Shapes and visibility use the same policy across all video families.
 
 References:
 

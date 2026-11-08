@@ -93,8 +93,10 @@ impl Files {
         } else {
             name
         };
-        let stem = name.split(|&byte| byte == b'.').next().unwrap();
-        let Some(device) = self.devices.find(stem) else {
+        let Some(name) = path::ShortName::parse(name) else {
+            return Ok(None);
+        };
+        let Some(device) = self.devices.find(name.stem()) else {
             return Ok(None);
         };
         let path = filesystem.file_path(path)?;

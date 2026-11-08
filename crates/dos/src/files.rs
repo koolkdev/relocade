@@ -18,7 +18,6 @@ mod handles;
 mod io;
 mod mounts;
 mod search;
-mod short_name;
 #[cfg(test)]
 mod tests;
 pub(crate) use create::CreateMode;

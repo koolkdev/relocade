@@ -113,7 +113,8 @@ fn temporary_file_errors_preserve_the_buffer_and_do_not_create_files() {
         let mut dos = common::dos().await;
         dos.mount_file("DATA/KEEP.BIN", b"keep".to_vec(), FileAccess::ReadWrite)
             .unwrap();
-        let long_directory = "A".repeat(119); // Adding a separator and name exceeds 127 bytes.
+        // A 119-byte path of valid 8.3 components; adding a name exceeds 127 bytes.
+        let long_directory = format!("{}AA", "ABCDEFGH/".repeat(13));
         dos.mount_file(
             &format!("{long_directory}/F"),
             vec![],
