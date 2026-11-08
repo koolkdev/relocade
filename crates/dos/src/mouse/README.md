@@ -21,7 +21,9 @@ position (0004h), press/release counts (0005h/0006h), horizontal/vertical bounds
 mickey ratios (000Fh), double-speed threshold (0013h), and sensitivity
 set/query (001Ah/001Bh). Cursor show/hide (0001h/0002h) is nested; software text
 cursor masks (000Ah, BX=0) apply `(cell & screen_mask) ^ cursor_mask` to the guest's
-character/attribute word. Hardware text cursor selection is not implemented.
+character/attribute word. Graphics cursor definition (0009h) reads 16 screen-mask
+words followed by 16 cursor-mask words from ES:DX, with signed BX/CX hotspots.
+Hardware text cursor selection is not implemented.
 Unknown functions leave registers and flags unchanged.
 
 Physical motion, logical position, and cursor drawing coordinates are distinct.
@@ -56,8 +58,21 @@ layouts cannot detect a same-mode screen clear. Full mode-transition handling,
 additional text geometries and arbitrary VGA programming belong to the following
 video milestone.
 
+Mode 13h uses the same visibility and restoration owner, with a separate graphics
+shape/drawing module. Mask bit 15 is the leftmost pixel. Drawing clips the 16×16
+area after converting logical X to display pixels and subtracting the hotspot.
+The pixel policy is `(old & (screen_bit ? FFh : 00h)) ^ (cursor_bit ? 0Fh : 00h)`,
+matching CuteMouse and DOSBox-X: white is palette index 15, and inversion preserves
+the upper index bits. The default arrow is visible with the BIOS palette. Pixels
+are read and written through BIOS's mapped VGA access; transparent pixels are
+untouched, and saved background is bounded to 256 pixels. This does not yet
+support CGA, planar graphics, Mode X, VBE or cursor drawing across arbitrary VGA
+register programming. Hide before changing modes, including same-mode clears.
+
 References:
 
 - [Microsoft Mouse Programmer's Reference, second edition (1991)](https://www.bitsavers.org/pdf/microsoft/mouse/Microsoft_-_Microsoft_Mouse_Programmers_Reference_2nd_1991.pdf)
 - [Microsoft KB Q70180, sensitivity and acceleration](https://helparchive.huntertur.net/document/21273)
 - [INT 33h ABI reference](https://github.com/FDOS/mouse/blob/master/int33.lst)
+- [CuteMouse Mode 13h mask behavior](https://github.com/FDOS/mouse/blob/master/ctmouse.asm#L1902-L1922)
+- [DOSBox-X Mode 13h mask behavior](https://github.com/joncampbell123/dosbox-x/blob/master/src/ints/mouse.cpp#L795-L804)

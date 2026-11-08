@@ -1,37 +1,38 @@
-//! Cursor visibility, shape and restoration of the guest's video memory.
+//! Cursor visibility and ownership of the background saved by each drawing mode.
+
+mod graphics;
+mod text;
 
 use super::state::Point;
-use relocade_bios::video::{self, CharacterCell, TextPage};
-use relocade_machine::MemoryView;
+use relocade_bios::video;
+use relocade_machine::{FarPointer, IoBus, MemoryView};
 
 pub(super) struct Cursor {
     visibility: i16,
-    screen_mask: u16,
-    cursor_mask: u16,
-    saved: Option<SavedText>,
+    text: text::Shape,
+    graphics: graphics::Shape,
+    saved: Option<Background>,
 }
 
-struct SavedText {
-    page: TextPage,
-    row: u16,
-    column: u16,
-    cell: CharacterCell,
+enum Background {
+    Text(text::Background),
+    Graphics(graphics::Background),
 }
 
 impl Default for Cursor {
     fn default() -> Self {
         Self {
             visibility: -1,
-            screen_mask: 0xffff,
-            cursor_mask: 0x7700,
+            text: text::Shape::default(),
+            graphics: graphics::Shape::default(),
             saved: None,
         }
     }
 }
 
 impl Cursor {
-    pub fn reset(&mut self, memory: &mut MemoryView<'_>) {
-        self.restore(memory);
+    pub fn reset(&mut self, memory: &mut MemoryView<'_>, io: &IoBus) {
+        self.restore(memory, io);
         *self = Self::default();
     }
 
@@ -44,53 +45,37 @@ impl Cursor {
     }
 
     pub fn set_text_mask(&mut self, screen: u16, cursor: u16) {
-        self.screen_mask = screen;
-        self.cursor_mask = cursor;
+        self.text = text::Shape { screen, cursor };
     }
 
-    pub fn update(&mut self, memory: &mut MemoryView<'_>, position: Point) {
-        self.restore(memory);
+    pub fn set_graphics_mask(
+        &mut self,
+        memory: &MemoryView<'_>,
+        source: FarPointer,
+        hotspot: [i16; 2],
+    ) {
+        self.graphics = graphics::Shape::read(memory, source, hotspot);
+    }
+
+    pub fn update(&mut self, memory: &mut MemoryView<'_>, io: &IoBus, position: Point) {
+        self.restore(memory, io);
         if self.visibility != 0 {
             return;
         }
-        let mode = video::mode(memory);
-        let Some(page) = TextPage::locate(memory, mode.page) else {
-            return;
+        self.saved = if video::mode(memory).mode & 0x7f == 0x13 {
+            Some(Background::Graphics(
+                self.graphics.draw(memory, io, position),
+            ))
+        } else {
+            self.text.draw(memory, position).map(Background::Text)
         };
-        let column = position.x / if page.columns() == 40 { 16 } else { 8 };
-        let row = position.y / 8;
-        let Some(cell) = page.read_cell(memory, row, column) else {
-            return;
-        };
-        let word = u16::from_le_bytes([cell.character, cell.attribute]);
-        let [character, attribute] = ((word & self.screen_mask) ^ self.cursor_mask).to_le_bytes();
-        page.write_cell(
-            memory,
-            row,
-            column,
-            CharacterCell {
-                character,
-                attribute,
-            },
-        );
-        self.saved = Some(SavedText {
-            page,
-            row,
-            column,
-            cell,
-        });
     }
 
-    fn restore(&mut self, memory: &mut MemoryView<'_>) {
-        if let Some(saved) = self.saved.take() {
-            // Restore the original page, not whichever page is currently active.
-            // A matching layout is not evidence that a same-mode clear did not occur:
-            // guests must hide before changing video modes or drawing under the cursor.
-            if saved.page.matches_layout(memory) {
-                saved
-                    .page
-                    .write_cell(memory, saved.row, saved.column, saved.cell);
-            }
+    fn restore(&mut self, memory: &mut MemoryView<'_>, io: &IoBus) {
+        match self.saved.take() {
+            Some(Background::Text(saved)) => saved.restore(memory),
+            Some(Background::Graphics(saved)) => saved.restore(memory, io),
+            None => {}
         }
     }
 }

@@ -4,7 +4,7 @@ use super::{console, control, directories, files, ioctl, memory, search, system,
 use crate::ServiceError;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext, MemoryView,
+    CpuContext,
 };
 
 #[interrupt(context(call))]
@@ -63,17 +63,17 @@ pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
     );
 }
 
-#[interrupt(context(memory), args(code = al))]
-fn terminate_process(memory: &mut MemoryView<'_>, services: &Services<'_>, code: u8) {
-    services.exit(memory, Ok(code));
+#[interrupt(context(call), args(code = al))]
+fn terminate_process(call: &mut CpuContext<'_>, services: &Services<'_>, code: u8) {
+    services.exit(call, Ok(code));
 }
 
-#[interrupt(context(memory), args(function = ah))]
-fn unsupported(memory: &mut MemoryView<'_>, services: &Services<'_>, function: u8) {
-    services.exit(memory, Err(ServiceError::UnsupportedFunction(function)));
+#[interrupt(context(call), args(function = ah))]
+fn unsupported(call: &mut CpuContext<'_>, services: &Services<'_>, function: u8) {
+    services.exit(call, Err(ServiceError::UnsupportedFunction(function)));
 }
 
 /// INT 20h terminates without an exit code, including a COM program's initial RET.
 pub(crate) async fn int20(call: &mut CpuContext<'_>, services: &Services<'_>) {
-    services.exit(&mut call.memory, Ok(0));
+    services.exit(call, Ok(0));
 }

@@ -6,7 +6,7 @@ use super::{
 };
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext, FarPointer, MemoryView,
+    CpuContext, FarPointer, IoBus, MemoryView,
 };
 
 impl Mouse {
@@ -24,6 +24,7 @@ impl Mouse {
                 0x0006 => self.button_counter(false),
                 0x0007 => self.set_bounds(true),
                 0x0008 => self.set_bounds(false),
+                0x0009 => self.set_graphics_cursor,
                 0x000a => self.set_text_cursor,
                 0x000b => self.motion,
                 0x000c => self.set_callback,
@@ -50,14 +51,14 @@ impl Mouse {
         (state.buttons, state.position(memory))
     }
 
-    #[interrupt(context(memory), args(x = cx, y = dx))]
-    fn set_position(&self, memory: &mut MemoryView<'_>, x: u16, y: u16) {
+    #[interrupt(context(memory, io), args(x = cx, y = dx))]
+    fn set_position(&self, memory: &mut MemoryView<'_>, io: &IoBus, x: u16, y: u16) {
         {
             let mut state = self.state.borrow_mut();
             state.x.set_position(i32::from(x as i16));
             state.y.set_position(i32::from(y as i16));
         }
-        self.update_cursor(memory);
+        self.update_cursor(memory, io);
     }
 
     #[interrupt(args(button = bx), returns { (buttons, counter) => {
@@ -68,8 +69,15 @@ impl Mouse {
         (state.buttons, state.take_counter(button, pressed))
     }
 
-    #[interrupt(context(memory), args(first = cx, last = dx))]
-    fn set_bounds(&self, memory: &mut MemoryView<'_>, horizontal: bool, first: u16, last: u16) {
+    #[interrupt(context(memory, io), args(first = cx, last = dx))]
+    fn set_bounds(
+        &self,
+        memory: &mut MemoryView<'_>,
+        io: &IoBus,
+        horizontal: bool,
+        first: u16,
+        last: u16,
+    ) {
         {
             let mut state = self.state.borrow_mut();
             let axis = if horizontal {
@@ -79,21 +87,43 @@ impl Mouse {
             };
             axis.set_bounds(first as i16, last as i16);
         }
-        self.update_cursor(memory);
+        self.update_cursor(memory, io);
     }
 
-    #[interrupt(context(memory))]
-    fn visibility(&self, memory: &mut MemoryView<'_>, show: bool) {
+    #[interrupt(context(memory, io))]
+    fn visibility(&self, memory: &mut MemoryView<'_>, io: &IoBus, show: bool) {
         self.cursor.borrow_mut().visibility(show);
-        self.update_cursor(memory);
+        self.update_cursor(memory, io);
     }
 
-    #[interrupt(context(memory), args(kind = bx, screen = cx, cursor = dx))]
-    fn set_text_cursor(&self, memory: &mut MemoryView<'_>, kind: u16, screen: u16, cursor: u16) {
+    #[interrupt(context(memory, io), args(kind = bx, screen = cx, cursor = dx))]
+    fn set_text_cursor(
+        &self,
+        memory: &mut MemoryView<'_>,
+        io: &IoBus,
+        kind: u16,
+        screen: u16,
+        cursor: u16,
+    ) {
         if kind == 0 {
             self.cursor.borrow_mut().set_text_mask(screen, cursor);
-            self.update_cursor(memory);
+            self.update_cursor(memory, io);
         }
+    }
+
+    #[interrupt(context(memory, io), args(x = bx, y = cx, source = ptr(es, dx)))]
+    fn set_graphics_cursor(
+        &self,
+        memory: &mut MemoryView<'_>,
+        io: &IoBus,
+        x: u16,
+        y: u16,
+        source: FarPointer,
+    ) {
+        self.cursor
+            .borrow_mut()
+            .set_graphics_mask(memory, source, [x as i16, y as i16]);
+        self.update_cursor(memory, io);
     }
 
     #[interrupt(returns { [x, y] => { cx = x as u16, dx = y as u16 } })]
