@@ -66,6 +66,28 @@ timeline.bind_cpu(cpu.cpu_state());
 let sleep = guest_clock.sleep(Duration::from_millis(2));
 ```
 
+## Instruction-driven execution
+
+`ExecutionWorker::spawn_instruction_driven(rate, quantum, session)` constructs an
+instruction timeline and a `Runner` on the execution owner. Devices receive its
+guest `Clock`; `Runner::create_cpu` binds retirement automatically. The lower-level
+`Runner::instruction_driven` accepts prepared CPU storage and its wake endpoint.
+
+The scheduler chooses the earlier device deadline or absolute quantum boundary,
+uses the existing soft instruction budget, and charges actual retirement including
+checkpoint overshoot. It polls ready activities before idle advancement, retains
+suspended CPU services, and flushes due deadlines at final exit. The private
+`runner::instruction` module owns this execution policy; timeline subscriptions
+detach when a run completes or is cancelled.
+
+Host waits use a separate host `Clock` constructed from `TimerHandle` on the
+execution owner. `HostTimerDriver::spawn_with_peer` binds direct notifications so
+host deadlines can wake services while guest execution stays runnable. COM and MZ
+loads preserve the retirement counter across successive programs.
+
+This mode advances guest time without real-time pacing. Host pacing and changes
+to checkpoint placement or REP retirement accounting remain separate work.
+
 ## Host timers
 
 `timer_service()` returns a `TimerHandle` and a `HostTimerDriver`. The driver starts

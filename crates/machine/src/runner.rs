@@ -1,12 +1,14 @@
 //! CPU execution and registered device activities on one owner.
 
+mod instruction;
 mod worker;
+use instruction::{InstructionSchedule, RunProgress};
 pub use worker::ExecutionWorker;
 
 use crate::worker::{Executor, WakeEndpoint, WakePeer};
 use crate::{
-    Clock, Cpu, CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory,
-    Result,
+    Clock, Cpu, CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt,
+    InstructionTimeline, IoBus, Memory, Result,
 };
 use futures_channel::{mpsc, oneshot};
 use futures_lite::future::poll_once;
@@ -18,7 +20,15 @@ use futures_util::{
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
-use std::{cell::RefCell, future::Future, ops::RangeInclusive, pin::pin, rc::Rc};
+use std::{
+    cell::RefCell,
+    future::{poll_fn, Future},
+    num::NonZeroU64,
+    ops::RangeInclusive,
+    pin::pin,
+    rc::Rc,
+    time::Duration,
+};
 
 /// Owns a worker's execution session, including its CPU storage and device activities.
 /// [`ExecutionWorker`] prepares the resources before starting the owner thread.
@@ -29,6 +39,7 @@ pub struct Runner {
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
     storage: RefCell<Option<CpuStorage>>,
+    instruction_schedule: Option<InstructionSchedule>,
 }
 
 impl Runner {
@@ -48,6 +59,7 @@ impl Runner {
             pending: Some(pending),
             executor,
             storage: RefCell::new(Some(storage)),
+            instruction_schedule: None,
         }
     }
 
@@ -65,6 +77,9 @@ impl Runner {
             .expect("session CPU storage already consumed");
         let mut cpu = storage.into_cpu(memory, config, io).await?;
         cpu.executor = Rc::downgrade(&self.executor);
+        if let Some(schedule) = &self.instruction_schedule {
+            schedule.timeline.bind_cpu(cpu.cpu_state());
+        }
         Ok(cpu)
     }
 
@@ -146,14 +161,50 @@ impl Runner {
             std::ptr::eq(cpu.executor.as_ptr(), Rc::as_ptr(&self.executor)),
             "construct the session CPU with runner.create_cpu"
         );
+        let _schedule = self
+            .instruction_schedule
+            .as_ref()
+            .map(InstructionSchedule::enter);
         // Let siblings in CPU-first async composition register their waits.
         // Device activities were already started by connect().await.
         self.executor.yield_now().await;
         loop {
-            match cpu.run().await {
-                ExecutionExit::Interrupted => self.executor.yield_now().await,
-                exit => return exit,
+            let progress = if let Some(schedule) = &self.instruction_schedule {
+                poll_fn(|cx| schedule.poll_cpu(cpu, cx)).await
+            } else {
+                match cpu.run().await {
+                    ExecutionExit::Interrupted => RunProgress::Yield,
+                    exit => RunProgress::Exit(exit),
+                }
+            };
+            match progress {
+                RunProgress::Yield => self.executor.yield_now().await,
+                RunProgress::Exit(exit) => {
+                    if let Some(schedule) = &self.instruction_schedule {
+                        schedule.timeline.notify_due();
+                        self.executor.yield_now().await;
+                    }
+                    return exit;
+                }
             }
         }
+    }
+
+    /// Enables fixed-rate instruction scheduling without host-time pacing.
+    /// CPU creation binds the clock automatically. Runs stop at the earlier
+    /// quantum boundary or device deadline, allowing checkpoint overshoot.
+    /// Pending CPU services advance idle time to the next registered wait;
+    /// time pauses between calls to [`Self::run_cpu`]. `quantum` must be positive.
+    pub fn instruction_driven(
+        instructions_per_second: NonZeroU64,
+        quantum: Duration,
+        storage: CpuStorage,
+        endpoint: WakeEndpoint<ExecutionInterrupt>,
+    ) -> Self {
+        let timeline = InstructionTimeline::new(instructions_per_second);
+        let schedule = InstructionSchedule::new(timeline.clone(), quantum);
+        let mut runner = Self::new(timeline.clock(), storage, endpoint);
+        runner.instruction_schedule = Some(schedule);
+        runner
     }
 }

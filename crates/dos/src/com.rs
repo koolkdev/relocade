@@ -35,7 +35,7 @@ pub(crate) fn load(
         .write_u16(psp_address + u32::from(STACK_OFFSET), 0)
         .expect("COM initial return address");
 
-    let mut cpu = process::initial_cpu(psp_segment);
+    let mut cpu = process::initial_cpu(psp_segment, machine.cpu);
     cpu.registers.esp = u32::from(STACK_OFFSET);
     cpu.eip = process::PSP_BYTES as u32;
     machine

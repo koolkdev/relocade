@@ -210,6 +210,7 @@ impl Dos {
     /// Preserves RAM outside the PSP, environment, allocation metadata, image and
     /// initial return word.
     /// Successful launches create a new active process and preserve console I/O.
+    /// Instruction retirement remains cumulative across session launches.
     /// Rejected launches leave the previous program and session state unchanged.
     pub fn launch_com(
         &mut self,

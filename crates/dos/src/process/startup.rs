@@ -1,7 +1,7 @@
 //! Initialization shared by the COM and MZ loaders.
 
 use crate::{memory, LoadError, LoadOptions};
-use relocade_machine::MemoryView;
+use relocade_machine::{CpuStateAccess, MemoryView};
 use relocade_x86::{CpuState, FlagsState, Segment, SegmentRegister, Segments};
 
 pub(crate) const COMMAND_TAIL_OFFSET: u16 = 0x80;
@@ -66,7 +66,7 @@ pub(crate) fn allocate(
     })
 }
 
-pub(crate) fn initial_cpu(psp_segment: u16) -> CpuState {
+pub(crate) fn initial_cpu(psp_segment: u16, current: &CpuStateAccess) -> CpuState {
     let mut segments = Segments::real_mode();
     for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
         segments[segment] = SegmentRegister::real_mode(segment, psp_segment);
@@ -76,6 +76,7 @@ pub(crate) fn initial_cpu(psp_segment: u16) -> CpuState {
     CpuState {
         segments,
         flags,
+        instruction_count: current.instruction_count(),
         ..CpuState::default()
     }
 }

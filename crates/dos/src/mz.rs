@@ -112,7 +112,7 @@ pub(crate) fn load(
         .memory
         .write(u32::from(load_segment) * memory::PARAGRAPH_BYTES, &module)
         .expect("allocated MZ module");
-    let mut cpu = process::initial_cpu(psp_segment);
+    let mut cpu = process::initial_cpu(psp_segment, machine.cpu);
     cpu.segments[Segment::Cs] =
         SegmentRegister::real_mode(Segment::Cs, load_segment.wrapping_add(image.cs));
     cpu.segments[Segment::Ss] =

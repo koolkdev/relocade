@@ -1,9 +1,18 @@
 //! Execution-local time estimated from published instruction retirement.
 
+#[cfg(test)]
+mod tests;
+
 use super::{Clock, Sleep, Source, Timestamp};
 use crate::CpuStateAccess;
 use futures_channel::oneshot;
-use std::{cell::RefCell, num::NonZeroU64, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    num::NonZeroU64,
+    rc::Rc,
+    task::{Context, Waker},
+    time::Duration,
+};
 
 /// A fixed-rate guest clock shared by devices on one execution owner.
 /// Time starts at zero. Bind the session CPU after device setup and before running
@@ -23,6 +32,7 @@ struct State {
     now: Timestamp,
     remainder: u64,
     waits: Vec<Wait>,
+    scheduler: Option<Waker>,
 }
 
 struct Wait {
@@ -39,6 +49,7 @@ impl InstructionTimeline {
             now: Timestamp::ZERO,
             remainder: 0,
             waits: Vec::new(),
+            scheduler: None,
         })))
     }
 
@@ -91,6 +102,51 @@ impl InstructionTimeline {
         }
         self.notify_due();
     }
+
+    /// Work until the next device deadline or absolute quantum boundary.
+    /// Zero means due work must be polled before entering the CPU.
+    pub(crate) fn instruction_budget(&self, quantum: Duration) -> u64 {
+        let deadline = self.next_deadline();
+        let mut state = self.0.borrow_mut();
+        let now = state.observe();
+        let quantum = quantum.as_nanos();
+        let until_sync = quantum - now.duration_since(Timestamp::ZERO).as_nanos() % quantum;
+        let remaining = deadline
+            .map(|deadline| deadline.duration_since(now).as_nanos())
+            .unwrap_or(until_sync)
+            .min(until_sync);
+        if remaining == 0 {
+            return 0;
+        }
+        // Round up only after subtracting fractional time already earned. The
+        // next sample charges actual retirement, including checkpoint overshoot.
+        let scaled = remaining
+            .saturating_mul(u128::from(state.rate))
+            .saturating_sub(u128::from(state.remainder));
+        scaled.div_ceil(1_000_000_000).min(i64::MAX as u128) as u64
+    }
+
+    pub(crate) fn watch_deadlines(&self, cx: &mut Context<'_>) {
+        let mut state = self.0.borrow_mut();
+        match &mut state.scheduler {
+            Some(waker) => waker.clone_from(cx.waker()),
+            None => state.scheduler = Some(cx.waker().clone()),
+        }
+        state
+            .waits
+            .retain_mut(|wait| wait.complete.poll_canceled(cx).is_pending());
+    }
+
+    pub(crate) fn unwatch_deadlines(&self) {
+        let mut state = self.0.borrow_mut();
+        state.scheduler = None;
+        // Pending senders also retain the cancellation subscriber. Release it
+        // when this run ends, even if a device keeps its wait for the next run.
+        let mut cx = Context::from_waker(Waker::noop());
+        state
+            .waits
+            .retain_mut(|wait| wait.complete.poll_canceled(&mut cx).is_pending());
+    }
 }
 
 impl Source for InstructionTimeline {
@@ -105,11 +161,14 @@ impl Source for InstructionTimeline {
                 return;
             }
             let (complete, completed) = oneshot::channel();
-            timeline
-                .0
-                .borrow_mut()
-                .waits
-                .push(Wait { deadline, complete });
+            let scheduler = {
+                let mut state = timeline.0.borrow_mut();
+                state.waits.push(Wait { deadline, complete });
+                state.scheduler.clone()
+            };
+            if let Some(scheduler) = scheduler {
+                scheduler.wake();
+            }
             completed
                 .await
                 .expect("instruction timeline owns pending sleeps");
