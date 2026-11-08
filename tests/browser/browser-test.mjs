@@ -51,6 +51,15 @@ export async function withBrowser(consume) {
             page = await context.newPage();
             page.on("console", message => console.log(message.text()));
             page.on("pageerror", error => console.error(error));
+            // Playwright omits worker log entries, including AudioWorklet
+            // constructor exceptions that leave the node producing silence.
+            const diagnostics = await context.newCDPSession(page);
+            diagnostics.on("Log.entryAdded", ({ entry }) => {
+                if (entry.source !== "worker" || entry.level !== "error") return;
+                const location = entry.url ? ` (${entry.url}:${(entry.lineNumber ?? 0) + 1})` : "";
+                console.error(`${entry.text}${location}`);
+            });
+            await diagnostics.send("Log.enable");
             await page.goto(new URL(url, server.resolvedUrls.local[0]).href);
             if (activation) {
                 await page.waitForFunction(() => window.ready === true);
