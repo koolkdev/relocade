@@ -44,6 +44,13 @@
 //! Ctrl-Break empties the ring, sets bit 7 at 0040:0071, and awaits INT 1Bh.
 //! After that callback returns, the BIOS inserts a zero keystroke and completes
 //! IRQ1. The default callback returns without taking action.
+//! INT 15h/C2h resets, identifies and configures the PS/2 pointing device over
+//! the same controller ports used by guest drivers. It supports three-byte packets,
+//! sample rate, resolution, scaling and status. The BIOS equipment word advertises
+//! the pointing device when configured by the PC. These firmware services own
+//! auxiliary delivery policy and restore the standard translated keyboard with
+//! IRQ1 enabled. A driver that owns raw controller programming must also own
+//! mouse IRQ delivery; arbitrary controller policy is not preserved by BIOS calls.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
 //! Timer hardware supplies vector 08h. After advancing the clock, the BIOS invokes
@@ -59,12 +66,14 @@ pub mod clock;
 mod information;
 pub mod interrupts;
 mod keyboard;
+mod mouse;
 mod screen;
 pub mod video;
 
 pub use information::Configuration;
 pub use interrupts::register_interrupts;
 pub use keyboard::{KeyMode, KeyStroke, Keyboard, PhysicalKeyboard, ShiftState};
+pub use mouse::Mouse;
 use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;
 

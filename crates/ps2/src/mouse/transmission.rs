@@ -1,8 +1,7 @@
 //! Pending packets, resend and publication to the shared controller latch.
 
 use super::motion::{Motion, Sample};
-
-const ACK: u8 = 0xfa;
+use crate::protocol::{mouse::DEVICE_ID, ACK, RESEND, SELF_TEST_PASSED};
 
 pub(super) struct Transmission {
     pending: Option<Packet>,
@@ -60,7 +59,7 @@ impl Transmission {
         Self {
             pending: None,
             replay: None,
-            last_payload: vec![0xfe],
+            last_payload: vec![RESEND],
         }
     }
 
@@ -131,7 +130,11 @@ impl Transmission {
     }
 
     pub fn reset(&mut self) {
-        self.replace(Packet::new(true, &[0xaa, 0], PacketKind::Reset));
+        self.replace(Packet::new(
+            true,
+            &[SELF_TEST_PASSED, DEVICE_ID],
+            PacketKind::Reset,
+        ));
     }
 
     pub fn stream(&mut self, scaling: bool) {

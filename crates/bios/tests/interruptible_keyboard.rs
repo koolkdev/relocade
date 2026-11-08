@@ -98,10 +98,11 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>
         relocade_bios::Configuration {
             conventional_memory_kib: 640,
             math_coprocessor: true,
+            pointing_device: false,
         },
     );
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga.clone());
+    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga.clone(), None);
     interrupts.install().await.unwrap();
     memory.view().write(8 * 4, &[0, 3, 0, 0]).unwrap();
     // INT 16h; save AX; INT 1Ah/AH=00h; save DX; loop.
@@ -255,7 +256,7 @@ async fn bios_timer_rollover() {
     let (mut cpu, keyboard, vga) = machine(&timer).await;
     // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga);
+    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga, None);
     interrupts.install().await.unwrap();
     let memory = cpu.memory();
     memory.view().write(0x46c, &[0xaf, 0, 0x18, 0, 1]).unwrap();

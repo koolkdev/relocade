@@ -2,6 +2,7 @@
 
 use crate::{
     controller::{Controller, Port},
+    protocol::{ACK, RESEND, SELF_TEST_PASSED},
     scancodes,
 };
 use futures_util::{pin_mut, select_biased, FutureExt};
@@ -23,8 +24,6 @@ const SET_TYPEMATIC: u8 = 0xf3;
 const ENABLE_SCANNING: u8 = 0xf4;
 const DEFAULT_DISABLE: u8 = 0xf5;
 const DEFAULTS: u8 = 0xf6;
-const ACK: u8 = 0xfa;
-const RESEND: u8 = 0xfe;
 const RESET: u8 = 0xff;
 
 pub(super) async fn run<C: Clock>(clock: C, events: KeyboardEvents, controller: &Controller) {
@@ -106,7 +105,7 @@ impl<C: Clock> Keyboard<'_, C> {
                 self.pause();
                 self.reply(ACK).await?;
                 self.defaults(true);
-                self.reply(0xaa).await?;
+                self.reply(SELF_TEST_PASSED).await?;
             }
             RESEND => self.reply(self.last_sent).await?,
             _ => self.reply(RESEND).await?,

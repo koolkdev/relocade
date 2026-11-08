@@ -1,25 +1,9 @@
 //! Standard three-button PS/2 commands and sample scheduling.
 
 use super::{motion::Motion, transmission::Transmission};
+use crate::protocol::{mouse::*, RESEND};
 use relocade_frontend::mouse::MouseEvent;
 use std::time::Duration;
-
-const RESEND: u8 = 0xfe;
-const RESET: u8 = 0xff;
-const SET_DEFAULTS: u8 = 0xf6;
-const DISABLE: u8 = 0xf5;
-const ENABLE: u8 = 0xf4;
-const SET_SAMPLE_RATE: u8 = 0xf3;
-const IDENTIFY: u8 = 0xf2;
-const SET_REMOTE_MODE: u8 = 0xf0;
-const SET_WRAP_MODE: u8 = 0xee;
-const RESET_WRAP_MODE: u8 = 0xec;
-const READ_DATA: u8 = 0xeb;
-const SET_STREAM_MODE: u8 = 0xea;
-const STATUS: u8 = 0xe9;
-const SET_RESOLUTION: u8 = 0xe8;
-const SET_SCALING: u8 = 0xe7;
-const RESET_SCALING: u8 = 0xe6;
 
 #[derive(Clone, Copy)]
 enum Parameter {
@@ -82,7 +66,7 @@ impl Protocol {
         self.transmission.invalid(if self.invalid_inputs == 1 {
             RESEND
         } else {
-            0xfc
+            ERROR
         });
     }
 
@@ -100,7 +84,7 @@ impl Protocol {
             return;
         }
         if let Some(parameter) = self.parameter {
-            if byte < RESET_SCALING {
+            if byte < SCALING_1_TO_1 {
                 let valid = match parameter {
                     Parameter::Resolution if byte <= 3 => {
                         self.resolution = byte;
@@ -148,11 +132,11 @@ impl Protocol {
                     self.transmission.reply(true, &[]);
                 }
             }
-            DISABLE => {
+            DISABLE_REPORTING => {
                 self.enabled = false;
                 self.transmission.reply(true, &[]);
             }
-            ENABLE => {
+            ENABLE_REPORTING => {
                 self.enabled = true;
                 self.sampled_at = now;
                 self.transmission.reply(true, &[]);
@@ -165,7 +149,7 @@ impl Protocol {
                 });
                 self.transmission.reply(true, &[]);
             }
-            IDENTIFY => self.transmission.reply(true, &[0]),
+            IDENTIFY => self.transmission.reply(true, &[DEVICE_ID]),
             SET_REMOTE_MODE => {
                 self.remote = true;
                 self.transmission.reply(true, &[]);
@@ -195,8 +179,8 @@ impl Protocol {
                 self.transmission
                     .reply(true, &[status, self.resolution, self.sample_rate]);
             }
-            RESET_SCALING | SET_SCALING => {
-                self.scaling = byte == SET_SCALING;
+            SCALING_1_TO_1 | SCALING_2_TO_1 => {
+                self.scaling = byte == SCALING_2_TO_1;
                 self.transmission.reply(true, &[]);
             }
             _ => {

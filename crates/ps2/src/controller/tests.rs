@@ -205,3 +205,70 @@ fn an_unattached_auxiliary_port_does_not_block_other_commands() {
     write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0x20);
     assert_eq!(controller.read_data(), 0x65);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn readiness_waits_sleep_until_register_changes_and_keep_keyboard_output() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use std::task::Wake;
+
+    #[derive(Default)]
+    struct Wakes(AtomicUsize);
+    impl Wake for Wakes {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let wakes = Arc::new(Wakes::default());
+    let waker = Waker::from(wakes.clone());
+    let mut cx = Context::from_waker(&waker);
+    let controller = Controller::new(&Pic::default(), []);
+    let mut firmware = pin!(controller.run());
+
+    controller.write(STATUS_COMMAND_PORT, 0xd2);
+    let mut input = pin!(controller.wait_input_ready());
+    assert!(input.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(
+        wakes.0.load(Ordering::SeqCst),
+        0,
+        "a wait must not wake itself"
+    );
+    assert!(firmware
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+    assert!(
+        wakes.0.swap(0, Ordering::SeqCst) > 0,
+        "IBF clearing wakes the writer"
+    );
+    assert!(input.as_mut().poll(&mut cx).is_ready());
+
+    let mut auxiliary = pin!(controller.wait_auxiliary_output());
+    assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
+    assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
+    write(&controller, firmware.as_mut(), DATA_PORT, 0x1e);
+    assert!(wakes.0.swap(0, Ordering::SeqCst) > 0);
+    assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL);
+    assert_eq!(
+        controller.read_data(),
+        0x1e,
+        "readiness must not consume a keyboard byte"
+    );
+    assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
+    wakes.0.store(0, Ordering::SeqCst);
+    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xd3);
+    assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
+    wakes.0.store(0, Ordering::SeqCst);
+    write(&controller, firmware.as_mut(), DATA_PORT, 0xfa);
+    assert!(
+        wakes.0.load(Ordering::SeqCst) > 0,
+        "output publication wakes the reader"
+    );
+    assert!(auxiliary.as_mut().poll(&mut cx).is_ready());
+    assert_eq!(controller.read_data(), 0xfa);
+}

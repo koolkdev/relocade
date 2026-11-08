@@ -1,6 +1,6 @@
 //! BIOS interrupt registration and shared return handling.
 
-use crate::{clock, information, keyboard, video, Keyboard, BIOS_SEGMENT};
+use crate::{clock, information, keyboard, mouse::Mouse, video, Keyboard, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
     Clock, CpuContext, FarPointer,
@@ -19,6 +19,8 @@ pub const VIDEO: u8 = 0x10;
 pub const EQUIPMENT: u8 = 0x11;
 /// Conventional memory size (INT 12h).
 pub const MEMORY_SIZE: u8 = 0x12;
+/// System services, including the PS/2 pointing device (INT 15h/C2h).
+pub const SYSTEM: u8 = 0x15;
 /// Keyboard services (INT 16h).
 pub const KEYBOARD: u8 = 0x16;
 /// Time-of-day services (INT 1Ah).
@@ -52,6 +54,10 @@ const TIMER_CALLBACK_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xff50,
 };
+const SYSTEM_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xff60,
+};
 const EQUIPMENT_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xff80,
@@ -77,12 +83,14 @@ const EXCEPTION_ENTRIES: FarPointer = FarPointer {
 /// Registers BIOS vectors and their handlers alongside an environment's interrupts.
 /// The keyboard is retained by its handler and may be shared with console input.
 /// Video retains the same VGA device connected to the CPU's I/O bus.
+/// An optional mouse owns BIOS state and waits on the connected PS/2 controller.
 /// BIOS services and IRQ handlers enable live IF while their work runs. IRQ
 /// completion disables IF and acknowledges the PIC before returning through IRET.
 pub fn register_interrupts<C: Clock + 'static>(
     interrupts: &mut Interrupts<'_>,
     keyboard: Keyboard,
     vga: Rc<RefCell<Vga<C>>>,
+    mouse: Option<Mouse<C>>,
 ) {
     for (index, exception) in [
         Exception::DivideError,
@@ -95,6 +103,21 @@ pub fn register_interrupts<C: Clock + 'static>(
         interrupts.register_unhandled_exception(
             exception,
             EXCEPTION_ENTRIES.wrapping_add(index * real_mode_interrupt::HOOK_STUB.len()),
+        );
+    }
+    if let Some(mouse) = mouse {
+        register_service(
+            interrupts,
+            SYSTEM,
+            SYSTEM_ENTRY,
+            interrupt_handler!(mouse.dispatch),
+        );
+    } else {
+        register_service(
+            interrupts,
+            SYSTEM,
+            SYSTEM_ENTRY,
+            interrupt_handler!(unsupported),
         );
     }
     let irq_keyboard = keyboard.clone();
