@@ -51,8 +51,9 @@
 //! The handler returns with RETF; BIOS removes the arguments and preserves registers.
 //! The equipment word advertises the pointing device when configured by the PC.
 //! These firmware services own auxiliary delivery policy and restore the standard
-//! translated keyboard with IRQ1 enabled. A driver that owns raw controller programming must also own
-//! mouse IRQ delivery; arbitrary controller policy is not preserved by BIOS calls.
+//! translated keyboard with IRQ1 enabled. A driver that owns raw controller
+//! programming must also own mouse IRQ delivery; arbitrary controller policy is
+//! not preserved by BIOS calls.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
 //! Timer hardware supplies vector 08h. After advancing the clock, the BIOS invokes

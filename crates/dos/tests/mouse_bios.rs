@@ -3,25 +3,19 @@
 #[path = "mouse_bios/callbacks.rs"]
 mod callbacks;
 mod common;
+#[path = "mouse_bios/integration.rs"]
+mod integration;
 use relocade_dos::Dos;
-use relocade_machine::{Clock, ExecutionWorker, IoBus, Runner};
+use relocade_machine::{ExecutionWorker, IoBus, Runner};
 use relocade_x86::{CpuState, ExecutionExit};
-use std::time::Duration;
 
-#[derive(Clone, Copy)]
-struct FrozenClock;
-impl Clock for FrozenClock {
-    fn now(&self) -> Duration {
-        Duration::ZERO
-    }
-    async fn wait_until(&self, _: Duration) {
-        std::future::pending::<()>().await;
-    }
-}
+#[path = "../../machine/tests/support/clock.rs"]
+mod clock;
+use clock::ManualClock;
 
-type MouseDos = Dos<FrozenClock>;
-fn with_mouse(check: impl AsyncFnOnce(&Runner<FrozenClock>, MouseDos) + Send + 'static) {
-    let worker = ExecutionWorker::spawn(FrozenClock, async move |runner| {
+type MouseDos = Dos<ManualClock>;
+fn with_mouse(check: impl AsyncFnOnce(&Runner<ManualClock>, MouseDos) + Send + 'static) {
+    let worker = ExecutionWorker::spawn(ManualClock::default(), async move |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
         dos.launch_com(&[0xcd, 0x15, 0xeb, 0xfe], Default::default())
             .unwrap();
