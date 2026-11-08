@@ -76,23 +76,6 @@ impl Geometry {
         Some(cell)
     }
 
-    pub fn write_cell(
-        &self,
-        memory: &mut MemoryView<'_>,
-        page: u8,
-        row: u16,
-        column: u16,
-        cell: [u8; 2],
-    ) -> Option<()> {
-        if !self.contains(row, column) {
-            return None;
-        }
-        memory
-            .write(self.cell_address(page, row, column), &cell)
-            .expect("text cell");
-        Some(())
-    }
-
     pub fn text_address(&self, offset: u16) -> u32 {
         self.text_base.expect("text video mode") + u32::from(offset)
     }

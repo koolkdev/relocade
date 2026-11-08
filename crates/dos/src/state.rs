@@ -31,6 +31,7 @@ impl DosState {
         memory: MemoryBus,
         keyboard: relocade_bios::Keyboard,
         exit: ExitHandle,
+        mouse: crate::mouse::Mouse,
     ) -> Self {
         let devices = DeviceChain::default();
         let console_input = ConsoleInput::new(keyboard.clone());
@@ -39,7 +40,7 @@ impl DosState {
         devices.install(BiosConsole::new(memory.clone(), console_input.clone()));
         devices.install(NullDevice);
         Self {
-            mouse: crate::mouse::Mouse::default(),
+            mouse,
             indos: indos::InDos::new(memory),
             check_break: Cell::new(false),
             console_input,

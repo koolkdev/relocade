@@ -52,6 +52,21 @@ async fn packet(dos: &mut MouseDos, bytes: [u8; 3]) {
     }
 }
 
+async fn video(dos: &mut MouseDos, ax: u16, bx: u16, cx: u16, dx: u16) {
+    let interrupt_byte = (u32::from(dos.process().unwrap().psp_segment()) << 4) + 0x101;
+    dos.cpu()
+        .context()
+        .memory
+        .write_u8(interrupt_byte, 0x10)
+        .unwrap();
+    call(dos, ax, bx, cx, dx).await;
+    dos.cpu()
+        .context()
+        .memory
+        .write_u8(interrupt_byte, 0x33)
+        .unwrap();
+}
+
 #[test]
 fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
     for mz in [false, true] {
@@ -167,3 +182,7 @@ mod callbacks;
 mod graphics_cursor;
 #[path = "mouse_dos/text_cursor.rs"]
 mod text_cursor;
+#[path = "mouse_dos/vbe_cursor.rs"]
+mod vbe_cursor;
+#[path = "mouse_dos/video_modes.rs"]
+mod video_modes;

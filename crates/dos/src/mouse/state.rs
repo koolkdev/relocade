@@ -1,7 +1,10 @@
 //! Sampled buttons, independently consumed counters and logical coordinates.
 
-use super::motion::{Acceleration, Axis};
-use relocade_machine::{FarPointer, MemoryView};
+use super::{
+    coordinates::Coordinates,
+    motion::{Acceleration, Axis},
+};
+use relocade_machine::FarPointer;
 use std::time::Duration;
 
 #[derive(Clone, Copy, Default)]
@@ -52,11 +55,11 @@ pub(super) struct State {
     pub callback: Callback,
 }
 
-impl Default for State {
-    fn default() -> Self {
+impl State {
+    pub fn new(coordinates: Coordinates) -> Self {
         Self {
-            x: Axis::new(639, 8),
-            y: Axis::new(199, 16),
+            x: Axis::new((coordinates.size[0] - 1).max(0), 8),
+            y: Axis::new((coordinates.size[1] - 1).max(0), 16),
             acceleration: Acceleration::default(),
             buttons: 0,
             pressed: [Counter::default(); 3],
@@ -65,17 +68,8 @@ impl Default for State {
             callback: Callback::default(),
         }
     }
-}
-
-impl State {
-    pub fn position(&self, memory: &MemoryView<'_>) -> Point {
-        let mode = relocade_bios::video::mode(memory);
-        let (x_grid, y_grid) = match mode.mode & 0x7f {
-            0 | 1 => (16, 8),
-            2 | 3 | 7 => (8, 8),
-            0x13 => (2, 1),
-            _ => (1, 1),
-        };
+    pub fn position(&self, coordinates: Coordinates) -> Point {
+        let [x_grid, y_grid] = coordinates.step;
         Point {
             x: (self.x.position.div_euclid(x_grid) * x_grid) as u16,
             y: (self.y.position.div_euclid(y_grid) * y_grid) as u16,
@@ -84,7 +78,7 @@ impl State {
 
     pub fn packet(
         &mut self,
-        memory: &MemoryView<'_>,
+        coordinates: Coordinates,
         now: Duration,
         buttons: u16,
         x: i16,
@@ -95,7 +89,7 @@ impl State {
         self.y.advance(y, doubled);
         self.motion[0] = self.motion[0].wrapping_add(x);
         self.motion[1] = self.motion[1].wrapping_add(y);
-        let position = self.position(memory);
+        let position = self.position(coordinates);
         let mut mask = u16::from(x != 0 || y != 0);
         for button in 0..3 {
             let bit = 1 << button;

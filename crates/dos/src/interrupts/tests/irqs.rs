@@ -80,6 +80,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
         memory.clone().with_io(io.clone()),
         keyboard.clone(),
         cpu.exit_handle(),
+        crate::mouse::Mouse::new(vga.clone()),
     ));
     crate::memory::reset(&mut cpu.context().memory);
     relocade_bios::initialize(

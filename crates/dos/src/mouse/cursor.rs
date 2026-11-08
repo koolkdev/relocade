@@ -3,9 +3,8 @@
 mod graphics;
 mod text;
 
-use super::state::Point;
-use relocade_bios::video;
-use relocade_machine::{FarPointer, IoBus, MemoryView};
+use relocade_machine::{FarPointer, MemoryView};
+use relocade_vga::{Framebuffer, FramebufferGeometry};
 
 pub(super) struct Cursor {
     visibility: i16,
@@ -31,8 +30,8 @@ impl Default for Cursor {
 }
 
 impl Cursor {
-    pub fn reset(&mut self, memory: &mut MemoryView<'_>, io: &IoBus) {
-        self.restore(memory, io);
+    pub fn reset(&mut self, frame: &mut Framebuffer<'_>) {
+        self.restore(frame);
         *self = Self::default();
     }
 
@@ -57,24 +56,26 @@ impl Cursor {
         self.graphics = graphics::Shape::read(memory, source, hotspot);
     }
 
-    pub fn update(&mut self, memory: &mut MemoryView<'_>, io: &IoBus, position: Point) {
-        self.restore(memory, io);
+    pub fn update(&mut self, frame: &mut Framebuffer<'_>, position: [i32; 2]) {
+        self.restore(frame);
         if self.visibility != 0 {
             return;
         }
-        self.saved = if video::mode(memory).mode & 0x7f == 0x13 {
-            Some(Background::Graphics(
-                self.graphics.draw(memory, io, position),
-            ))
-        } else {
-            self.text.draw(memory, position).map(Background::Text)
+        self.saved = match frame.geometry() {
+            Some(FramebufferGeometry::Graphics { .. }) => {
+                Some(Background::Graphics(self.graphics.draw(frame, position)))
+            }
+            Some(FramebufferGeometry::Text { .. }) => {
+                self.text.draw(frame, position).map(Background::Text)
+            }
+            None => None,
         };
     }
 
-    fn restore(&mut self, memory: &mut MemoryView<'_>, io: &IoBus) {
+    fn restore(&mut self, frame: &mut Framebuffer<'_>) {
         match self.saved.take() {
-            Some(Background::Text(saved)) => saved.restore(memory),
-            Some(Background::Graphics(saved)) => saved.restore(memory, io),
+            Some(Background::Text(saved)) => saved.restore(frame),
+            Some(Background::Graphics(saved)) => saved.restore(frame),
             None => {}
         }
     }
