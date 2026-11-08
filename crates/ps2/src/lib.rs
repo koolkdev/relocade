@@ -3,9 +3,11 @@
 mod controller;
 mod keyboard;
 mod mouse;
+pub mod protocol;
 mod scancodes;
 
-use controller::{Controller, Port};
+pub use controller::Controller;
+use controller::Port;
 use relocade_frontend::{
     keyboard::{self as frontend, KeyboardEvents, KeyboardInput},
     mouse::{MouseEvents, MouseInput},
@@ -34,6 +36,13 @@ pub fn read_keyboard_latch(io: &IoBus) -> Option<u8> {
     (status & AUXILIARY_OUTPUT == 0).then(|| io.read_port(DATA_PORT, 1) as u8)
 }
 
+/// Consumes an unread auxiliary byte, leaving keyboard data and an empty latch alone.
+pub fn read_auxiliary_byte(io: &IoBus) -> Option<u8> {
+    let status = io.read_port(STATUS_COMMAND_PORT, 1) as u8;
+    (status & (OUTPUT_BUFFER_FULL | AUXILIARY_OUTPUT) == OUTPUT_BUFFER_FULL | AUXILIARY_OUTPUT)
+        .then(|| io.read_port(DATA_PORT, 1) as u8)
+}
+
 /// Host senders for the two PS/2 devices. Clones can cross execution workers.
 #[derive(Clone)]
 pub struct Inputs {
@@ -47,15 +56,17 @@ pub struct Inputs {
 pub async fn connect<C: Clock + Clone + 'static>(
     runner: &Runner<C>,
     pic: &Pic,
-) -> (Inputs, DeviceConnection) {
+) -> (Inputs, Rc<Controller>, DeviceConnection) {
     let (keyboard, events) = frontend::channel();
     let (mouse, mouse_events) = relocade_frontend::mouse::channel();
+    let controller = Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary]));
     let device = Rc::new(RefCell::new(Ps2Controller {
-        controller: Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary])),
+        controller: controller.clone(),
         startup: Some((runner.clock().clone(), events, mouse_events)),
     }));
     (
         Inputs { keyboard, mouse },
+        controller,
         runner.connect(device, [], PORTS).await,
     )
 }

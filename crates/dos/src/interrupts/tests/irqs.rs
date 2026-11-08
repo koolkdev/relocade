@@ -88,11 +88,12 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
         relocade_bios::Configuration {
             conventional_memory_kib: 640,
             math_coprocessor: true,
+            pointing_device: false,
         },
     );
     let mut interrupts = relocade_machine::real_mode_interrupt::Interrupts::new(&mut cpu);
     crate::interrupts::register_interrupts(&mut interrupts, dos.clone());
-    relocade_bios::register_interrupts(&mut interrupts, keyboard, vga);
+    relocade_bios::register_interrupts(&mut interrupts, keyboard, vga, None);
     interrupts.install().await.unwrap();
     let psp = com::load(
         &mut cpu.context(),

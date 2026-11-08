@@ -15,20 +15,22 @@ pub(crate) const DISPLAY_MASK: u8 = 0x30;
 pub(crate) const MONOCHROME_DISPLAY: u8 = 0x30;
 
 /// Hardware facts supplied by the PC when initializing its BIOS.
-/// The video BIOS supplies VGA; diskette, serial, parallel and pointing devices
+/// The video BIOS supplies VGA; diskette, serial and parallel devices
 /// are not installed by this BIOS. Their equipment fields start clear.
 pub struct Configuration {
     pub conventional_memory_kib: u16,
     pub math_coprocessor: bool,
+    pub pointing_device: bool,
 }
 
 pub(crate) fn initialize(memory: &mut MemoryView<'_>, configuration: Configuration) {
     // Display bits 00 identify EGA/VGA. An x87 is independent of peripheral IRQs.
-    let equipment = if configuration.math_coprocessor {
-        MATH_COPROCESSOR
-    } else {
-        0
-    };
+    let equipment = (u16::from(configuration.pointing_device) << 2)
+        | if configuration.math_coprocessor {
+            MATH_COPROCESSOR
+        } else {
+            0
+        };
     memory
         .write_u16(EQUIPMENT.address(), equipment)
         .expect("BIOS equipment word");

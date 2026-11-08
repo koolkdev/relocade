@@ -8,8 +8,8 @@ fn equipment_and_memory_queries_read_the_live_bios_data_area() {
         let memory = dos.cpu().memory();
         assert_eq!(
             memory.view().read_u16(0x410).unwrap(),
-            2,
-            "x87 and VGA, without diskette, serial, parallel or mouse hardware"
+            6,
+            "x87, VGA and pointing device; no diskette, serial or parallel ports"
         );
         assert_eq!(memory.view().read_u16(0x413).unwrap(), 640);
         assert_eq!(relocade_pc::CONVENTIONAL_MEMORY_SIZE, 640 * 1024);

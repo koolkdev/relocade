@@ -1,30 +1,15 @@
 //! Shared 8042 registers, command routing and keyboard wire translation.
 
 use crate::{
-    scancodes, AUXILIARY_OUTPUT, DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL,
-    STATUS_COMMAND_PORT,
+    protocol::controller::*, scancodes, AUXILIARY_OUTPUT, DATA_PORT, INPUT_BUFFER_FULL,
+    OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
 };
 use event_listener::Event;
 use relocade_pic::{IrqLine, Pic, KEYBOARD_IRQ, MOUSE_IRQ};
 use std::cell::RefCell;
 
-const SYSTEM_INITIALIZED: u8 = 1 << 2;
 const COMMAND_INPUT: u8 = 1 << 3;
 const KEYBOARD_UNLOCKED: u8 = 1 << 4;
-const TRANSLATE_SET_2: u8 = 1 << 6;
-
-const READ_COMMAND_BYTE: u8 = 0x20;
-const WRITE_COMMAND_BYTE: u8 = 0x60;
-const SELF_TEST: u8 = 0xaa;
-const KEYBOARD_TEST: u8 = 0xab;
-const DISABLE_KEYBOARD: u8 = 0xad;
-const ENABLE_KEYBOARD: u8 = 0xae;
-const DISABLE_AUXILIARY: u8 = 0xa7;
-const ENABLE_AUXILIARY: u8 = 0xa8;
-const AUXILIARY_TEST: u8 = 0xa9;
-const WRITE_KEYBOARD_OUTPUT: u8 = 0xd2;
-const WRITE_AUXILIARY_OUTPUT: u8 = 0xd3;
-const WRITE_AUXILIARY: u8 = 0xd4;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Port {
@@ -34,10 +19,16 @@ pub(super) enum Port {
 
 impl Port {
     fn irq_enabled(self) -> u8 {
-        1 << (self as u8)
+        match self {
+            Self::Keyboard => KEYBOARD_IRQ_ENABLED,
+            Self::Auxiliary => AUXILIARY_IRQ_ENABLED,
+        }
     }
     fn disabled(self) -> u8 {
-        0x10 << (self as u8)
+        match self {
+            Self::Keyboard => KEYBOARD_DISABLED,
+            Self::Auxiliary => AUXILIARY_DISABLED,
+        }
     }
     fn other(self) -> Self {
         match self {
@@ -69,7 +60,9 @@ struct Registers {
     last_device: Port,
 }
 
-pub(super) struct Controller {
+/// Shared controller state and readiness notifications for firmware on this worker.
+/// Guest and BIOS transfers still use the connected port registers.
+pub struct Controller {
     registers: RefCell<Registers>,
     changed: Event,
     irqs: [IrqLine; 2],
@@ -77,7 +70,7 @@ pub(super) struct Controller {
 }
 
 impl Controller {
-    pub fn new(pic: &Pic, connected: impl IntoIterator<Item = Port>) -> Self {
+    pub(super) fn new(pic: &Pic, connected: impl IntoIterator<Item = Port>) -> Self {
         let mut commands = [None, None];
         for port in connected {
             commands[port as usize] = Some(async_channel::bounded(1));
@@ -106,7 +99,28 @@ impl Controller {
         }
     }
 
-    pub fn status(&self) -> u8 {
+    /// Waits until the controller can accept another port write.
+    pub async fn wait_input_ready(&self) {
+        self.wait_status(INPUT_BUFFER_FULL, 0).await;
+    }
+
+    /// Waits for an unread auxiliary byte without consuming keyboard data.
+    pub async fn wait_auxiliary_output(&self) {
+        let mask = OUTPUT_BUFFER_FULL | AUXILIARY_OUTPUT;
+        self.wait_status(mask, mask).await;
+    }
+
+    async fn wait_status(&self, mask: u8, value: u8) {
+        loop {
+            let changed = self.changed.listen();
+            if self.status() & mask == value {
+                return;
+            }
+            changed.await;
+        }
+    }
+
+    pub(super) fn status(&self) -> u8 {
         let registers = self.registers.borrow();
         KEYBOARD_UNLOCKED
             | (registers.command_byte & SYSTEM_INITIALIZED)
@@ -132,7 +146,7 @@ impl Controller {
             }
     }
 
-    pub fn read_data(&self) -> u8 {
+    pub(super) fn read_data(&self) -> u8 {
         let byte = {
             let mut registers = self.registers.borrow_mut();
             // A read acknowledges output without erasing the data latch.
@@ -144,7 +158,7 @@ impl Controller {
         byte
     }
 
-    pub fn write(&self, port: u16, value: u8) {
+    pub(super) fn write(&self, port: u16, value: u8) {
         let input = match port {
             DATA_PORT => Input::Data(value),
             STATUS_COMMAND_PORT => Input::Command(value),
@@ -162,12 +176,12 @@ impl Controller {
         self.changed.notify(usize::MAX);
     }
 
-    pub fn inhibited(&self, port: Port) -> bool {
+    pub(super) fn inhibited(&self, port: Port) -> bool {
         let registers = self.registers.borrow();
         registers.output_full || registers.command_byte & port.disabled() != 0
     }
 
-    pub async fn receive_device(&self, port: Port) -> u8 {
+    pub(super) async fn receive_device(&self, port: Port) -> u8 {
         self.commands[port as usize]
             .as_ref()
             .expect("device must be connected")
@@ -188,7 +202,7 @@ impl Controller {
         }
     }
 
-    pub async fn run(&self) {
+    pub(super) async fn run(&self) {
         loop {
             let mut command = match self.receive().await {
                 Input::Command(command) => command,
@@ -279,14 +293,16 @@ impl Controller {
     async fn receive(&self) -> Input {
         loop {
             let changed = self.changed.listen();
-            if let Some(input) = self.registers.borrow_mut().input.take() {
+            let input = self.registers.borrow_mut().input.take();
+            if let Some(input) = input {
+                self.changed.notify(usize::MAX);
                 return input;
             }
             changed.await;
         }
     }
 
-    pub async fn send(&self, port: Port, byte: u8) {
+    pub(super) async fn send(&self, port: Port, byte: u8) {
         self.send_output(byte, Source::Device(port)).await;
     }
 
@@ -337,6 +353,7 @@ impl Controller {
                     }
                     drop(registers);
                     self.update_irq();
+                    self.changed.notify(usize::MAX);
                     return;
                 }
             }

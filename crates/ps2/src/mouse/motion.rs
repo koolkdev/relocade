@@ -1,5 +1,6 @@
 //! Relative counters and sampled button latches, independent of transport.
 
+use crate::protocol::mouse::PACKET_HEADER;
 use relocade_frontend::mouse::{ElementState, MouseButton, MouseEvent};
 
 #[derive(Default)]
@@ -151,7 +152,8 @@ impl Sample {
         let (x, x_sign, x_overflow) = self.x.report(scaling);
         let (y, y_sign, y_overflow) = self.y.report(scaling);
         [
-            8 | self.buttons
+            PACKET_HEADER
+                | self.buttons
                 | (u8::from(x_sign) << 4)
                 | (u8::from(y_sign) << 5)
                 | (u8::from(x_overflow) << 6)

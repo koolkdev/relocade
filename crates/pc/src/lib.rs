@@ -47,7 +47,7 @@ impl<C: Clock> Pc<C> {
         let (pic, pic_device) = Pic::initialize(runner).await;
         let (pit, pit_device) = Pit::initialize(runner, &pic).await;
         let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
-        let (inputs, ps2_device) = relocade_ps2::connect(runner, &pic).await;
+        let (inputs, controller, ps2_device) = relocade_ps2::connect(runner, &pic).await;
         let io = IoBus::new([
             pic_device,
             pit_device,
@@ -67,11 +67,20 @@ impl<C: Clock> Pc<C> {
                 relocade_bios::Configuration {
                     conventional_memory_kib: (CONVENTIONAL_MEMORY_SIZE / 1024) as u16,
                     math_coprocessor: cpu_model.supports(CpuFeature::Fpu),
+                    pointing_device: true,
                 },
             );
         }
         let mut interrupts = Interrupts::new(&mut cpu);
-        relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga.clone());
+        relocade_bios::register_interrupts(
+            &mut interrupts,
+            keyboard.clone(),
+            vga.clone(),
+            Some(relocade_bios::Mouse::new(
+                runner.clock().clone(),
+                controller,
+            )),
+        );
         interrupts.install().await?;
         pic.unmask_irq(TIMER_IRQ);
         pic.unmask_irq(KEYBOARD_IRQ);
@@ -101,7 +110,7 @@ impl<C: Clock> Pc<C> {
 
     /// Thread-safe relative mouse input routed through the PS/2 auxiliary port.
     /// Guest software enables reporting, installs INT 74h and unmasks IRQ2/IRQ12.
-    /// No BIOS mouse service or INT 33h driver is installed yet.
+    /// INT 15h/C2h configures the device; an INT 33h driver is not installed.
     pub fn mouse_input(&self) -> MouseInput {
         self.inputs.mouse.clone()
     }
