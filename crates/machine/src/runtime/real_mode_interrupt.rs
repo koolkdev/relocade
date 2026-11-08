@@ -1,10 +1,11 @@
-//! Helpers for hooks entered through a 16-bit real-mode interrupt frame.
+//! Real-mode service registration and interrupt-frame helpers.
 //!
-//! [`Interrupts`] registers vectors, guest stubs and their handlers together.
+//! [`Interrupts`] registers vectors, guest stubs and their handlers together,
+//! including far procedures that return with RETF.
 //! Low-level adapters can place [`HOOK_STUB`] and install entries from [`hook`].
-//! When the async handler returns, the adapter advances to the guest IRET,
-//! which restores IP, CS and FLAGS. Handlers can update saved flags with
-//! [`set_carry`] or [`set_zero`] before returning.
+//! When an interrupt handler returns, the adapter advances to the guest IRET,
+//! which restores IP, CS and FLAGS. Far procedures instead complete through RETF.
+//! Interrupt handlers can update saved flags with [`set_carry`] or [`set_zero`].
 //!
 //! The second byte resumes the top suspended host call after a device IRQ or an
 //! awaited [`crate::CpuContext::call_interrupt`] handler returns.
@@ -30,12 +31,12 @@ use std::future::Future;
 /// entry uses the existing interpreter to execute the live guest IRET byte.
 pub const HOOK_STUB: [u8; 3] = [0x90, 0x90, 0xcf];
 
-/// Adapts an ordinary async handler to the real-mode interrupt return convention.
+/// Adapts an ordinary async handler to a real-mode service entry.
 /// Entry advances IP to the resume position before polling the handler. The
-/// handler must preserve that continuation and the interrupt frame, apart from
-/// intended frame edits. Completion advances the live IP once more to IRET;
+/// handler must preserve that continuation and the return frame, apart from
+/// intended frame edits. Completion advances the live IP to the return instruction;
 /// dropping a pending handler leaves the CPU untouched. The stub must fit in the
-/// entering code segment. Redirected resumes must also have IRET immediately after
+/// entering code segment. Redirected resumes must have the matching return immediately after
 /// the live resume position; completion follows that position through the live CS.
 /// IRQ entry saves the live resume position; the driver resumes the retained
 /// future without restoring any CPU state.
@@ -43,15 +44,15 @@ pub fn hook<F>(address: u32, cpu: CpuStateAccess, handler: F) -> [Hook; 3]
 where
     F: AsyncFn() + 'static,
 {
-    let resume = address.checked_add(1).expect("interrupt stub address");
-    let iret = resume.checked_add(1).expect("interrupt stub address");
+    let resume = address.checked_add(1).expect("service stub address");
+    let return_entry = resume.checked_add(1).expect("service stub address");
     [
         Hook::host(address, async move || {
             let resume_ip = (cpu.eip() as u16).wrapping_add(1);
             cpu.set_eip(u32::from(resume_ip));
             handler().await;
-            let iret_ip = (cpu.eip() as u16).wrapping_add(1);
-            cpu.set_eip(u32::from(iret_ip));
+            let return_ip = (cpu.eip() as u16).wrapping_add(1);
+            cpu.set_eip(u32::from(return_ip));
         }),
         Hook::block(resume, |program| {
             program
@@ -60,7 +61,9 @@ where
                 })
                 .into()
         }),
-        Hook::block(iret, |program| program.import_function(abi::INTERPRET)),
+        Hook::block(return_entry, |program| {
+            program.import_function(abi::INTERPRET)
+        }),
     ]
 }
 
