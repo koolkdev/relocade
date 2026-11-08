@@ -20,9 +20,7 @@ pub async fn vga_workers() -> Result<(), String> {
     let (clock, timers) = timer_service();
     let display = Thread::new();
     let cpu_task = ExecutionWorker::spawn(clock, async move |runner| {
-        let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(
-            runner.clock().clone(),
-        ))));
+        let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         assert!(source.send(vga.borrow().frame_source()).is_ok());
         let config = MachineConfig::new(
