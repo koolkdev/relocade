@@ -65,8 +65,17 @@ The cursor saves the original physical pixel or character/attribute locations,
 so restoration does not reinterpret old coordinates through a newly selected
 page. Background storage is bounded to one text cell or 256 graphics pixels.
 Graphics writes are undone in reverse order because CRTC layouts can alias pixels.
-Applications must still hide before changing modes, including same-mode clears,
-or drawing beneath the cursor.
+
+Redrawing happens after complete mouse packets and cursor-affecting INT 33h calls.
+Video register changes and display captures do not redraw a stationary cursor.
+The next mouse update restores its saved physical locations and draws using the
+current viewport. Applications should hide around mode, page and layout changes,
+including same-mode clears, and reset after changing modes to recalculate bounds.
+
+Guest reads and screen copies include the drawn cursor. Guest drawing can overwrite
+it; the next move or hide restores the background saved before drawing the cursor,
+which can erase newer drawing. Applications must hide the cursor before drawing
+beneath it. No video-layout observer or renderer-specific cursor state is involved.
 
 Graphics mask bit 15 is the leftmost pixel. Drawing clips the 16×16 area after
 logical-coordinate conversion and signed hotspot subtraction. A screen-mask bit

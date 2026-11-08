@@ -85,6 +85,38 @@ fn mode13_masks_preserve_palette_bits_and_restore_on_move_hide_and_shape_change(
 }
 
 #[test]
+fn guest_copies_include_the_cursor_and_overdrawing_lasts_until_a_mouse_update() {
+    with_mouse(async |runner, mut dos| {
+        let (memory, io) = graphics(&mut dos);
+        memory.view().write_u8(0xa0000, 0x2f).unwrap();
+        memory.view().write_u8(0xa0001, 0x36).unwrap();
+        call(&mut dos, 4, 0, 0, 0).await;
+        let mut screen = [0xffff; 16];
+        let mut cursor = [0; 16];
+        screen[0] = 0x7fff;
+        cursor[0] = 0x8000;
+        shape(&mut dos, [0, 0], screen, cursor).await;
+        call(&mut dos, 1, 0, 0, 0).await;
+        let copied = memory.view().read_u8(0xa0000).unwrap();
+        assert_eq!(copied, 15);
+        memory.view().write_u8(0xa0100, copied).unwrap();
+
+        memory.view().write_u8(0xa0000, 0x47).unwrap();
+        runner.clock().advance(Duration::from_millis(33));
+        io.read_port(0x3da, 1); // Publish the next frame without repainting the cursor.
+        call(&mut dos, 3, 0, 0, 0).await;
+        assert_eq!(memory.view().read_u8(0xa0000).unwrap(), 0x47);
+
+        packet(&mut dos, [8, 2, 0]).await;
+        assert_eq!(memory.view().read_u8(0xa0000).unwrap(), 0x2f);
+        assert_eq!(memory.view().read_u8(0xa0001).unwrap(), 15);
+        call(&mut dos, 2, 0, 0, 0).await;
+        assert_eq!(memory.view().read_u8(0xa0001).unwrap(), 0x36);
+        assert_eq!(memory.view().read_u8(0xa0100).unwrap(), 15);
+    });
+}
+
+#[test]
 fn mode13_hotspots_clip_at_both_edges_without_touching_adjacent_rows() {
     with_mouse(async |_, mut dos| {
         let (memory, io) = graphics(&mut dos);

@@ -147,3 +147,70 @@ fn mode_x_cursor_uses_programmed_height_stride_page_and_reverse_alias_restoratio
         assert_eq!(memory.view().read_u8(0xa4000).unwrap(), 0x96);
     });
 }
+
+#[test]
+fn mode_x_cursor_uses_page_stride_and_restored_state_on_the_next_mouse_update() {
+    with_mouse(async |_, mut dos| {
+        video(&mut dos, 0x13, 0, 0, 0).await;
+        let io = dos.cpu().context().io.clone();
+        let memory = dos.cpu().memory().with_io(io.clone());
+        indexed(&io, 0x3c4, 4, 6);
+        indexed(&io, 0x3d4, 0x14, 0);
+        indexed(&io, 0x3d4, 0x17, 0xe3);
+        indexed(&io, 0x3c4, 2, 1);
+        indexed(&io, 0x3ce, 4, 0);
+        for (offset, value) in [(80, 0x5a), (0x4000 + 80, 0x6b), (0x4000 + 96, 0x7c)] {
+            memory.view().write_u8(0xa0000 + offset, value).unwrap();
+        }
+        call(&mut dos, 4, 0, 0, 1).await;
+        let mut screen = [0xffff; 16];
+        let mut cursor = [0; 16];
+        screen[0] = 0x7fff;
+        cursor[0] = 0x8000;
+        super::graphics_cursor::shape(&mut dos, [0, 0], screen, cursor).await;
+        call(&mut dos, 1, 0, 0, 0).await;
+        let core = dos.vga().borrow().core_state();
+        indexed(&io, 0x3d4, 12, 0x40);
+        indexed(&io, 0x3d4, 0x13, 48);
+        assert_eq!(memory.view().read_u8(0xa0050).unwrap(), 15);
+        assert_eq!(memory.view().read_u8(0xa4050).unwrap(), 0x6b);
+        assert_eq!(memory.view().read_u8(0xa4060).unwrap(), 0x7c);
+
+        call(&mut dos, 4, 0, 0, 1).await;
+        assert_eq!(memory.view().read_u8(0xa0050).unwrap(), 0x5a);
+        assert_eq!(memory.view().read_u8(0xa4050).unwrap(), 0x6b);
+        assert_eq!(memory.view().read_u8(0xa4060).unwrap(), 15);
+        dos.vga()
+            .borrow_mut()
+            .restore_state(Some(core.clone()), None, None);
+        assert_eq!(dos.vga().borrow().core_state(), core);
+        assert_eq!(memory.view().read_u8(0xa0050).unwrap(), 0x5a);
+        assert_eq!(memory.view().read_u8(0xa4060).unwrap(), 15);
+
+        packet(&mut dos, [8, 0, 0]).await;
+        assert_eq!(memory.view().read_u8(0xa4060).unwrap(), 0x7c);
+        assert_eq!(memory.view().read_u8(0xa0050).unwrap(), 15);
+        call(&mut dos, 2, 0, 0, 0).await;
+        assert_eq!(memory.view().read_u8(0xa0050).unwrap(), 0x5a);
+    });
+}
+
+#[test]
+fn text_cursor_uses_new_font_geometry_on_the_next_mouse_update() {
+    with_mouse(async |_, mut dos| {
+        let io = dos.cpu().context().io.clone();
+        let memory = dos.cpu().memory().with_io(io);
+        let cell = 0xb8000 + 30 * 80 * 2;
+        memory.view().write_u16(cell, 0x1e41).unwrap();
+        call(&mut dos, 8, 0, 0, 399).await;
+        call(&mut dos, 4, 0, 0, 240).await;
+        call(&mut dos, 1, 0, 0, 0).await;
+        assert_eq!(memory.view().read_u16(cell).unwrap(), 0x1e41);
+        video(&mut dos, 0x1112, 0, 0, 0).await;
+        assert_eq!(memory.view().read_u16(cell).unwrap(), 0x1e41);
+        packet(&mut dos, [8, 0, 0]).await;
+        assert_eq!(memory.view().read_u16(cell).unwrap(), 0x6941);
+        call(&mut dos, 2, 0, 0, 0).await;
+        assert_eq!(memory.view().read_u16(cell).unwrap(), 0x1e41);
+    });
+}
