@@ -11,8 +11,9 @@ use relocade_wasm_runtime::{Load, MemoryValue, SharedMemory, Store, WasmSharedMe
 /// Operations copy values and apply writes immediately; no references into Wasm
 /// storage escape. The execution driver serializes guest execution and service
 /// polling. Generated entries may cache fields until they publish state on exit;
-/// use this resource at stopped host boundaries, not from synchronous guest
-/// device callbacks. Clones share state and remain usable after the runner is dropped.
+/// use this resource at stopped host boundaries. [`Self::instruction_count`] also
+/// permits approximate progress observations from synchronous device callbacks.
+/// Clones share state and remain usable after the runner is dropped.
 /// The handle stays on the execution thread even when its backing supports sharing.
 ///
 /// ```compile_fail
@@ -62,6 +63,8 @@ impl CpuStateAccess {
         self.store(offset_of!(CpuState, eip), value);
     }
 
+    /// Published retirement count. During a synchronous device callback this can
+    /// omit progress cached by generated execution until its next publication.
     #[inline]
     pub fn instruction_count(&self) -> u64 {
         self.load(offset_of!(CpuState, instruction_count))

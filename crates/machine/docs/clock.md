@@ -40,6 +40,32 @@ let guest_clock = guest.clock();
 guest.advance_by(Duration::from_millis(2)); // Host time stays unchanged.
 ```
 
+## Instruction-driven time
+
+`InstructionTimeline::new(instructions_per_second)` owns guest time estimated from
+published CPU retirement at a fixed `NonZeroU64` rate. Its `clock()` supplies the
+same consumer API as host and manual clocks. Construct the timeline on the CPU's
+execution owner, then call `bind_cpu(cpu.cpu_state())` before guest execution.
+Binding anchors the existing instruction count without charging earlier work.
+
+Reads preserve fractional nanoseconds and handle counter wrap. The CPU retirement
+count must remain cumulative across register restoration and program loads.
+Synchronous device callbacks can observe a count that lags current execution;
+the timeline reads published progress and does not force additional checkpoints.
+
+The controller exposes `next_deadline()`, `notify_due()`, and `advance_to(timestamp)`.
+Reading a clock does not wake activities inside a CPU callback. The scheduler
+notifies due waits at execution boundaries and can advance time while the guest is
+idle. Cancelled waits do not constrain the next deadline. CPU budgets and host
+pacing remain separate from this timebase.
+
+```rust,ignore
+let timeline = InstructionTimeline::new(instructions_per_second);
+let guest_clock = timeline.clock();
+timeline.bind_cpu(cpu.cpu_state());
+let sleep = guest_clock.sleep(Duration::from_millis(2));
+```
+
 ## Host timers
 
 `timer_service()` returns a `TimerHandle` and a `HostTimerDriver`. The driver starts

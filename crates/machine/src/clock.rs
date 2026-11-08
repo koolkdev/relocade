@@ -2,6 +2,8 @@
 
 mod driver;
 mod host;
+mod instruction;
+pub use instruction::InstructionTimeline;
 mod manual;
 mod timestamp;
 pub use driver::HostTimerDriver;
