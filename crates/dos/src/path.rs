@@ -1,5 +1,8 @@
 //! DOS path normalization; mounted filesystems receive root-relative VFS paths.
 
+mod short_name;
+pub(crate) use short_name::{search_pattern, ShortName};
+
 pub(crate) const MAX_PATH_BYTES: usize = 128; // Includes the terminating NUL.
 
 /// A resolved name retains its drive across later changes to the current drive.
@@ -49,6 +52,7 @@ pub(crate) fn resolve(path: &[u8], current_directory: &str) -> Option<String> {
         current_directory
             .split('/')
             .filter(|part| !part.is_empty())
+            .map(str::to_owned)
             .collect()
     };
     for component in path.split(['\\', '/']) {
@@ -58,15 +62,10 @@ pub(crate) fn resolve(path: &[u8], current_directory: &str) -> Option<String> {
                 components.pop();
             }
             _ => {
-                if component.bytes().any(|byte| {
-                    byte < 0x20 || matches!(byte, b':' | b'"' | b'<' | b'>' | b'|' | b'*' | b'?')
-                }) {
-                    return None;
-                }
-                components.push(component);
+                components.push(ShortName::parse(component.as_bytes())?.to_dotted());
             }
         }
     }
-    let path = components.join("/").to_ascii_uppercase();
+    let path = components.join("/");
     (path.len() < MAX_PATH_BYTES).then_some(path)
 }

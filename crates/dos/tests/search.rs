@@ -2,6 +2,7 @@ mod common;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_dos::{Dos, FileAccess, ProcessStatus};
+use relocade_vfs::MemoryFileSystem;
 use relocade_x86::{ExecutionExit, HostExit, Segment, SegmentRegister};
 
 fn dta(dos: &mut Dos, address: u32) -> [u8; 43] {
@@ -27,8 +28,72 @@ fn names(dos: &mut Dos, pattern: &[u8], attributes: u16) -> Vec<String> {
     names
 }
 
+#[test]
+fn padded_search_fields_match_short_names_and_wildcards() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        for name in ["DATA/DDFNT2.CAR", "DATA/A.X", "DATA/AB.X", "DATA/PLAIN"] {
+            dos.mount_file(name, vec![], FileAccess::ReadOnly).unwrap();
+        }
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        assert_eq!(names(&mut dos, b"data    /ddfnt2  .car", 0), ["DDFNT2.CAR"]);
+        assert_eq!(names(&mut dos, b"DATA/A?      .X  ", 0), ["A.X", "AB.X"]);
+        assert_eq!(names(&mut dos, b"DATA/PLAIN   .   ", 0), ["PLAIN"]);
+        assert_eq!(names(&mut dos, b"DATA/DDFNT2   .CAR", 0), ["DDFNT2.CAR"]);
+    });
+}
+
+#[test]
+fn created_short_names_can_be_found_and_reopened() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.mount_file("directorylong/HOST.BIN", vec![], FileAccess::ReadOnly)
+            .unwrap();
+        assert_eq!(dos.read_file("DIRECTOR/HOST.BIN"), Some(vec![]));
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        success(&path_service(&mut dos, b"directorylong", 0x3b00, 0));
+        for (input, canonical) in [
+            (b"abcdefghi.jklm".as_slice(), "ABCDEFGH.JKL"),
+            (b"ab cd   .x  ", "AB CD.X"),
+        ] {
+            let handle = success(&path_service(&mut dos, input, 0x5b00, 0));
+            dos.cpu().context().memory.write(0x10400, b"saved").unwrap();
+            assert_eq!(success(&service(&mut dos, 0x4000, handle, 5, 0x400)), 5);
+            success(&service(&mut dos, 0x3e00, handle, 0, 0));
+            error(&path_service(&mut dos, canonical.as_bytes(), 0x5b00, 0), 80);
+
+            success(&path_service(&mut dos, input, 0x4e00, 0));
+            let data = dta(&mut dos, 0x10080);
+            assert_eq!(found_name(&data), canonical);
+            let handle = success(&path_service(
+                &mut dos,
+                found_name(&data).as_bytes(),
+                0x3d00,
+                0,
+            ));
+            dos.cpu().context().memory.write(0x10400, &[0; 8]).unwrap();
+            assert_eq!(success(&service(&mut dos, 0x3f00, handle, 8, 0x400)), 5);
+            let mut bytes = [0; 5];
+            dos.cpu()
+                .context()
+                .memory
+                .read(0x10400, &mut bytes)
+                .unwrap();
+            assert_eq!(&bytes, b"saved");
+            success(&service(&mut dos, 0x3e00, handle, 0, 0));
+            success(&path_service(&mut dos, input, 0x4100, 0));
+            assert!(names(&mut dos, canonical.as_bytes(), 0).is_empty());
+        }
+    });
+}
+
 async fn check_searches() {
     let mut dos = common::dos().await;
+    // Whole-filesystem mounts expose existing DOS names, without long-name aliases.
+    let mut disk = MemoryFileSystem::new();
+    disk.create_dir("DATA").unwrap();
+    disk.replace_file("DATA/TOO-LONG-NAME.DAT", vec![]).unwrap();
+    dos.mount('C', disk).unwrap();
     for name in [
         "DATA/A.DAT",
         "DATA/AB.DAT",
@@ -36,7 +101,6 @@ async fn check_searches() {
         "DATA/PLAIN",
         "DATA/SUB/CHILD.DAT",
         "ROOT.DAT",
-        "DATA/TOO-LONG-NAME.DAT",
     ] {
         dos.mount_file(name, vec![1, 2, 3], FileAccess::ReadOnly)
             .unwrap();
