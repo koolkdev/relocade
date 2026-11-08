@@ -37,10 +37,11 @@ outputs remain with the embedding application.
 
 `mouse_input()` accepts relative motion, three-button transitions and focus/capture
 loss through the same execution-owned PS/2 activity. `Dos::mouse_input()` forwards
-the handle from its PC. Guest software must enable the auxiliary interface and
-reporting, install INT 74h, and unmask master IRQ2 plus slave IRQ12. BIOS mouse
-services and a resident INT 33h driver are not installed. Window capture and
-pointer-lock policy remain with the embedding application.
+the handle from its PC. BIOS INT 15h/C2h configures the device, installs a guest
+far callback and enables reporting through INT 74h and IRQ2/IRQ12. A raw driver
+can instead own the controller and interrupt programming. A resident INT 33h
+driver is not installed. Window capture and pointer-lock policy remain with the
+embedding application.
 
 DOS builds on this PC through `Dos::from_pc(pc).await`. It initializes its MCB
 allocator, character devices, filesystems and INT 20h/21h services while retaining

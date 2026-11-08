@@ -46,10 +46,12 @@
 //! IRQ1. The default callback returns without taking action.
 //! INT 15h/C2h resets, identifies and configures the PS/2 pointing device over
 //! the same controller ports used by guest drivers. It supports three-byte packets,
-//! sample rate, resolution, scaling and status. The BIOS equipment word advertises
-//! the pointing device when configured by the PC. These firmware services own
-//! auxiliary delivery policy and restore the standard translated keyboard with
-//! IRQ1 enabled. A driver that owns raw controller programming must also own
+//! sample rate, resolution, scaling and status. IRQ12 collects packets and far-calls
+//! the registered guest handler with zero-extended status/X/Y/Z words; Z is zero.
+//! The handler returns with RETF; BIOS removes the arguments and preserves registers.
+//! The equipment word advertises the pointing device when configured by the PC.
+//! These firmware services own auxiliary delivery policy and restore the standard
+//! translated keyboard with IRQ1 enabled. A driver that owns raw controller programming must also own
 //! mouse IRQ delivery; arbitrary controller policy is not preserved by BIOS calls.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.

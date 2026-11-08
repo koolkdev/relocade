@@ -6,7 +6,8 @@ to the CPU bus. A peripheral creates its `IrqLine` through `pic.irq(number, init
 Its `set_level` models a level transition; `pulse` produces a timer edge. The PIC
 alone supplies vectors through the existing machine `Device::poll_interrupt` API.
 Both initial masks are FFh. PC setup calls `pic.unmask_irq(TIMER_IRQ)` to enable
-the timer; the BIOS IRQ0 handler uses `end_of_interrupt(io)` to send EOI through the device bus.
+the timer; the BIOS IRQ0 handler uses `end_of_interrupt(io, TIMER_IRQ)` to send
+EOI through the device bus. Slave IRQ completion acknowledges both controllers.
 
 Connection establishes the physical level without latching an edge or clearing
 pending requests. Level-triggered requests reflect the supplied level immediately.

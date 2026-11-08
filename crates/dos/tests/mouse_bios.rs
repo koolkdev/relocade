@@ -1,5 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+#[path = "mouse_bios/callbacks.rs"]
+mod callbacks;
 mod common;
 use relocade_dos::Dos;
 use relocade_machine::{Clock, ExecutionWorker, IoBus, Runner};

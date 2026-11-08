@@ -3,8 +3,9 @@
 use super::{Error, Mouse};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    Clock, CpuContext, IoBus,
+    Clock, CpuContext, FarPointer, IoBus,
 };
+use relocade_pic::{CASCADE_IRQ, MOUSE_IRQ};
 use relocade_ps2::protocol::{mouse, SELF_TEST_PASSED};
 
 impl<C: Clock> Mouse<C> {
@@ -20,6 +21,7 @@ impl<C: Clock> Mouse<C> {
                 0xc204 => self.identify,
                 0xc205 => self.initialize,
                 0xc206 => self.extended,
+                0xc207 => self.set_callback,
                 0xc200..=0xc2ff => invalid_function,
                 _ => crate::interrupts::unsupported,
             }
@@ -37,7 +39,23 @@ impl<C: Clock> Mouse<C> {
                     .command::<0>(io, &[mouse::DISABLE_REPORTING])
                     .await?;
             }
-            1 => return Err(Error::NoHandler), // Reporting requires an installed callback.
+            1 => {
+                if self.callback.get().is_none() {
+                    return Err(Error::NoHandler);
+                }
+                self.interface
+                    .command::<0>(io, &[mouse::ENABLE_REPORTING])
+                    .await?;
+                // Enable both parts of the fixed PC mouse interrupt route.
+                let mask = io.read_port(relocade_pic::SLAVE_MASK_PORT, 1);
+                io.write_port(
+                    relocade_pic::SLAVE_MASK_PORT,
+                    1,
+                    mask & !(1 << (MOUSE_IRQ - 8)),
+                );
+                let mask = io.read_port(relocade_pic::MASK_PORT, 1);
+                io.write_port(relocade_pic::MASK_PORT, 1, mask & !(1 << CASCADE_IRQ));
+            }
             _ => return Err(Error::InvalidParameter),
         };
         Ok(())
@@ -104,6 +122,7 @@ impl<C: Clock> Mouse<C> {
             });
         }
         self.reset(io).await?;
+        self.callback.set(None);
         Ok(())
     }
 
@@ -141,6 +160,22 @@ impl<C: Clock> Mouse<C> {
             mouse::SCALING_1_TO_1
         };
         self.interface.command::<0>(io, &[command]).await?;
+        Ok(())
+    }
+
+    #[interrupt(context(io), args(target = ptr(es, bx)), returns {
+        Ok(()) => { ah = 0, cf = false },
+        Err(error) => { ah = error as u8, cf = true },
+    })]
+    async fn set_callback(&self, io: &IoBus, target: FarPointer) -> Result<(), Error> {
+        if target.packed() == 0 {
+            self.interface
+                .command::<0>(io, &[mouse::DISABLE_REPORTING])
+                .await?;
+            self.callback.set(None);
+        } else {
+            self.callback.set(Some(target));
+        }
         Ok(())
     }
 }

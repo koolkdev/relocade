@@ -25,8 +25,13 @@ pub const KEYBOARD_IRQ: u8 = 1;
 pub const CASCADE_IRQ: u8 = 2;
 pub const MOUSE_IRQ: u8 = 12;
 
-/// Finishes the highest-priority active master interrupt through the guest bus.
-pub fn end_of_interrupt(io: &IoBus) {
+/// Completes an IRQ through the guest bus, acknowledging a slave before its master.
+/// The IRQ number identifies the PC wire, independently of guest vector remapping.
+pub fn end_of_interrupt(io: &IoBus, irq: u8) {
+    assert!(irq < 16, "PC IRQ number");
+    if irq >= 8 {
+        io.write_port(SLAVE_COMMAND_PORT, 1, u32::from(OCW2_EOI));
+    }
     io.write_port(COMMAND_PORT, 1, u32::from(OCW2_EOI));
 }
 

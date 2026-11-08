@@ -6,7 +6,13 @@ use relocade_machine::{Clock, IoBus};
 use relocade_pic::{CASCADE_IRQ, MASK_PORT, MOUSE_IRQ, SLAVE_MASK_PORT};
 use relocade_ps2::protocol::{controller, mouse, ACK, RESEND};
 use relocade_ps2::{read_auxiliary_byte, Controller, DATA_PORT, STATUS_COMMAND_PORT};
-use std::{cell::Cell, future::Future, pin::pin, rc::Rc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    future::Future,
+    pin::pin,
+    rc::Rc,
+    time::Duration,
+};
 
 // BIOS owns the normal PC controller policy: translated keyboard with IRQ1.
 // Auxiliary output is inhibited between commands while mouse reporting is off.
@@ -20,6 +26,7 @@ pub(super) struct Interface<C> {
     controller: Rc<Controller>,
     busy: Cell<bool>,
     enabled: Cell<bool>,
+    packet: RefCell<Packet>,
 }
 
 impl<C: Clock> Interface<C> {
@@ -29,6 +36,7 @@ impl<C: Clock> Interface<C> {
             controller,
             busy: Cell::new(false),
             enabled: Cell::new(false),
+            packet: RefCell::new(Packet::default()),
         }
     }
 
@@ -41,6 +49,7 @@ impl<C: Clock> Interface<C> {
             return Err(Error::Interface);
         }
         let _busy = Busy(&self.busy);
+        self.packet.borrow_mut().len = 0;
         let master_mask = io.read_port(MASK_PORT, 1);
         let mask = io.read_port(SLAVE_MASK_PORT, 1);
         // Mask the cascade first: withdrawing a slave request while master IRQ2
@@ -73,6 +82,31 @@ impl<C: Clock> Interface<C> {
         io.write_port(MASK_PORT, 1, master_mask);
         restored?;
         result
+    }
+
+    /// Each hardware IRQ owns at most one unread auxiliary byte. Command replies
+    /// belong to the exchange above; only enabled movement reaches a callback.
+    pub fn packet(&self, io: &IoBus) -> Option<[u8; 3]> {
+        if self.busy.get() {
+            return None;
+        }
+        let byte = read_auxiliary_byte(io)?;
+        if !self.enabled.get() {
+            return None;
+        }
+        let mut packet = self.packet.borrow_mut();
+        if packet.len == 0 && byte & mouse::PACKET_HEADER == 0 {
+            return None;
+        }
+        let index = packet.len;
+        packet.bytes[index] = byte;
+        packet.len += 1;
+        if packet.len == packet.bytes.len() {
+            packet.len = 0;
+            Some(packet.bytes)
+        } else {
+            None
+        }
     }
 
     async fn exchange<const N: usize>(&self, io: &IoBus, bytes: &[u8]) -> Result<[u8; N], Error> {
@@ -134,6 +168,12 @@ impl<C: Clock> Interface<C> {
         // Read synchronously after readiness; no other task can consume the latch.
         Ok(read_auxiliary_byte(io).expect("auxiliary output is ready"))
     }
+}
+
+#[derive(Default)]
+struct Packet {
+    bytes: [u8; 3],
+    len: usize,
 }
 
 struct Busy<'a>(&'a Cell<bool>);

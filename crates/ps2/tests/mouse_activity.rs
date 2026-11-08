@@ -46,10 +46,14 @@ async fn next(io: &IoBus) -> (bool, u8) {
             } else {
                 read_keyboard_latch(io).unwrap()
             };
-            if auxiliary {
-                io.write_port(relocade_pic::SLAVE_COMMAND_PORT, 1, 0x20);
-            }
-            relocade_pic::end_of_interrupt(io);
+            relocade_pic::end_of_interrupt(
+                io,
+                if auxiliary {
+                    relocade_pic::MOUSE_IRQ
+                } else {
+                    relocade_pic::KEYBOARD_IRQ
+                },
+            );
             return (auxiliary, byte);
         }
         relocade_machine::yield_now().await;
