@@ -1,7 +1,8 @@
-use super::{
-    short_name, FileSystem, Files, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, SYSTEM_ATTRIBUTE,
+use super::{FileSystem, Files, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, SYSTEM_ATTRIBUTE};
+use crate::{
+    error::DosError,
+    path::{search_pattern, ResolvedPath, ShortName},
 };
-use crate::{error::DosError, path::ResolvedPath};
 
 pub(crate) const FIND_DATA_BYTES: usize = 43;
 const VOLUME_ATTRIBUTE: u8 = 0x08;
@@ -46,7 +47,7 @@ impl Files {
         if !drive.is_dir(&directory.relative) {
             return Err(DosError::PathNotFound);
         }
-        let pattern = short_name::pattern(&specification[split..]).ok_or(DosError::NoMoreFiles)?;
+        let pattern = search_pattern(&specification[split..]).ok_or(DosError::NoMoreFiles)?;
         let names: Vec<_> = drive
             .read_dir(&directory.relative)
             .expect("existing directory")
@@ -136,7 +137,7 @@ impl Files {
             .enumerate()
             .skip(search.next_entry as usize)
         {
-            let Some(short_name) = short_name::name(name.as_bytes()) else {
+            let Some(short_name) = ShortName::from_entry(name) else {
                 continue;
             };
             let (attributes, len) = if matches!(name, "." | "..") {
@@ -166,13 +167,11 @@ impl Files {
             };
             let special = attributes
                 & (HIDDEN_ATTRIBUTE as u8 | SYSTEM_ATTRIBUTE as u8 | DIRECTORY_ATTRIBUTE);
-            if special & !search.attributes != 0
-                || !short_name::matches(&search.pattern, &short_name)
-            {
+            if special & !search.attributes != 0 || !short_name.matches(&search.pattern) {
                 continue;
             }
             search.next_entry = (index + 1) as u32;
-            return Ok(search.result(name, attributes, len));
+            return Ok(search.result(short_name, attributes, len));
         }
         Err(DosError::NoMoreFiles)
     }
@@ -191,7 +190,7 @@ impl Files {
 }
 
 impl Search {
-    fn result(&self, name: &str, attributes: u8, len: u32) -> [u8; FIND_DATA_BYTES] {
+    fn result(&self, name: ShortName, attributes: u8, len: u32) -> [u8; FIND_DATA_BYTES] {
         let mut data = [0; FIND_DATA_BYTES];
         data[0] = SEARCH_MARKER;
         data[1..5].copy_from_slice(&self.directory.to_le_bytes());
@@ -203,6 +202,7 @@ impl Search {
         // No clock or file timestamps yet: midnight on 1980-01-01 in DOS format.
         data[DATE_OFFSET..SIZE_OFFSET].copy_from_slice(&0x0021u16.to_le_bytes());
         data[SIZE_OFFSET..NAME_OFFSET].copy_from_slice(&len.to_le_bytes());
+        let name = name.to_dotted();
         data[NAME_OFFSET..NAME_OFFSET + name.len()].copy_from_slice(name.as_bytes());
         data
     }
