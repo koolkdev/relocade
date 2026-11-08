@@ -1,4 +1,5 @@
 use super::{common, success, wait_status, with_mouse, write, MouseDos};
+use relocade_machine::IoBus;
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 
 pub(super) async fn install(dos: &mut MouseDos) {
@@ -35,16 +36,16 @@ pub(super) async fn install(dos: &mut MouseDos) {
     success(dos, 0, 0x0100).await;
 }
 
-pub(super) async fn inject(dos: &mut MouseDos, byte: u8) {
-    let io = dos.cpu().context().io.clone();
-    write(&io, 0x64, 0xd3).await;
-    write(&io, 0x60, byte).await;
-    wait_status(&io, 0x21, 0x21).await;
+pub(super) async fn inject(io: &IoBus, byte: u8) {
+    write(io, 0x64, 0xd3).await;
+    write(io, 0x60, byte).await;
+    wait_status(io, 0x21, 0x21).await;
 }
 
 pub(super) async fn deliver(dos: &mut MouseDos, packet: [u8; 3]) {
+    let io = dos.cpu().context().io.clone();
     for byte in packet {
-        inject(dos, byte).await;
+        inject(&io, byte).await;
         assert_eq!(
             common::run_until(dos.cpu(), 0x102).await,
             ExecutionExit::Interrupted
@@ -56,6 +57,7 @@ pub(super) async fn deliver(dos: &mut MouseDos, packet: [u8; 3]) {
 fn irq12_far_callback_observes_ibm_stack_and_preserves_interrupted_registers() {
     with_mouse(async |_, mut dos| {
         install(&mut dos).await;
+        let io = dos.cpu().context().io.clone();
         let status = success(&mut dos, 6, 0).await;
         assert_eq!(
             status.registers.ebx as u16, 0x20,
@@ -73,14 +75,14 @@ fn irq12_far_callback_observes_ibm_stack_and_preserves_interrupted_registers() {
         let memory = dos.cpu().memory();
         let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
         // A byte without the header marker does not start a packet.
-        inject(&mut dos, 0).await;
+        inject(&io, 0).await;
         common::run_until(dos.cpu(), 0x102).await;
         for byte in [0x2d, 0xf8] {
-            inject(&mut dos, byte).await;
+            inject(&io, byte).await;
             common::run_until(dos.cpu(), 0x102).await;
             assert_eq!(memory.view().read_u16(base + 0x508).unwrap(), 0);
         }
-        inject(&mut dos, 0xfd).await;
+        inject(&io, 0xfd).await;
         common::run_until(dos.cpu(), 0x102).await;
         let mut arguments = [0; 8];
         memory.view().read(base + 0x500, &mut arguments).unwrap();
@@ -104,10 +106,11 @@ fn irq12_far_callback_observes_ibm_stack_and_preserves_interrupted_registers() {
 fn disable_and_callback_removal_drop_partial_packets() {
     with_mouse(async |_, mut dos| {
         install(&mut dos).await;
+        let io = dos.cpu().context().io.clone();
         let memory = dos.cpu().memory();
         let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
         dos.cpu().cpu_state().set_interrupts_enabled(true);
-        inject(&mut dos, 0x29).await;
+        inject(&io, 0x29).await;
         common::run_until(dos.cpu(), 0x102).await;
         success(&mut dos, 0, 0).await;
         success(&mut dos, 0, 0x0100).await;
