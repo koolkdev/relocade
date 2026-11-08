@@ -41,6 +41,8 @@ fn text_cursor_clips_offscreen_positions_and_restores_the_original_page_on_exit(
         assert_eq!(memory.view().read_u16(0xb8000).unwrap(), 0x6941);
         // Selecting another page does not change the layout of the saved page.
         relocade_bios::video::select_page(&mut memory.view(), &io, 1).unwrap();
+        assert_eq!(memory.view().read_u16(0xb8000).unwrap(), 0x6941);
+        assert_eq!(memory.view().read_u16(0xb9000).unwrap(), 0x2f42);
         call(&mut dos, 4, 0, 0, 0).await;
         assert_eq!(memory.view().read_u16(0xb8000).unwrap(), 0x1e41);
         assert_eq!(memory.view().read_u16(0xb9000).unwrap(), 0x5842);
