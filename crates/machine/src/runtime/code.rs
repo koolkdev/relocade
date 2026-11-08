@@ -6,7 +6,9 @@ pub(super) async fn dispatcher<B: WasmBackend>(
     backend: &B,
     target: ExecutionTarget,
 ) -> Result<B::Module> {
-    let compiler = Compiler::new(target.profile).with_cpu_model(target.cpu_model);
+    let compiler = Compiler::new(target.profile)
+        .with_cpu_model(target.cpu_model)
+        .with_instruction_budgets(target.instruction_budgets);
     let dispatcher = compiler.compile_dispatcher()?;
     Ok(backend.compiler().compile(&dispatcher.bytes).await?)
 }

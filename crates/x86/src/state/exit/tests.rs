@@ -20,6 +20,7 @@ fn exit_module() -> Vec<u8> {
         "far_call_entered",
         "interrupt_inhibited",
         "interrupted",
+        "budget_exhausted",
         "step_complete",
         "interrupts_enabled",
         "host_return",
@@ -64,6 +65,9 @@ fn exit_module() -> Vec<u8> {
                         return body.return_(ExecutionExitValues::interrupt_inhibited())
                     }
                     "interrupted" => return body.return_(ExecutionExitValues::interrupted()),
+                    "budget_exhausted" => {
+                        return body.return_(ExecutionExitValues::budget_exhausted())
+                    }
                     "interrupts_enabled" => {
                         return body.return_(ExecutionExitValues::interrupts_enabled())
                     }
@@ -122,6 +126,7 @@ fn generated_exits_preserve_payloads() {
         ("far_call_entered", ExecutionExit::FarCallEntered),
         ("interrupt_inhibited", ExecutionExit::InterruptInhibited),
         ("interrupted", ExecutionExit::Interrupted),
+        ("budget_exhausted", ExecutionExit::BudgetExhausted),
         ("step_complete", ExecutionExit::StepComplete),
         ("interrupts_enabled", ExecutionExit::InterruptsEnabled),
         ("host_return", ExecutionExit::Host(HostExit::Return)),
@@ -194,6 +199,7 @@ fn execution_exits_share_four_wasm_values() {
         (ExecutionExit::FarCallEntered, (9, 0, 0, 0)),
         (ExecutionExit::InterruptInhibited, (4, 0, 0, 0)),
         (ExecutionExit::Interrupted, (5, 0, 0, 0)),
+        (ExecutionExit::BudgetExhausted, (10, 0, 0, 0)),
         (ExecutionExit::StepComplete, (6, 0, 0, 0)),
         (ExecutionExit::InterruptsEnabled, (7, 0, 0, 0)),
         (

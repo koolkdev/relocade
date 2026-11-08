@@ -14,6 +14,7 @@ fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
             cpu: *cpu.cpu(),
             cpu_model: cpu.execution_target().cpu_model,
             interrupt_requested: 1,
+            ..ExecutionContext::default()
         }
         .to_bytes(),
     );

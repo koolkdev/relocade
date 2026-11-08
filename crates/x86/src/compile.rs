@@ -38,6 +38,7 @@ impl Compiler {
             target: ExecutionTarget {
                 profile: profile.into(),
                 cpu_model: CpuModel::default(),
+                instruction_budgets: true,
             },
             observed_cpu: None,
         }
@@ -57,6 +58,16 @@ impl Compiler {
     #[must_use]
     pub fn with_cpu_model(mut self, cpu_model: CpuModel) -> Self {
         self.target.cpu_model = cpu_model;
+        self
+    }
+
+    /// Declares whether this execution target permits instruction budgets.
+    /// Disabling them removes budget code from snapshot blocks. The execution
+    /// owner must keep the live budget zero for the lifetime of this target.
+    /// Interpreters retain runtime checks so their modules remain shared.
+    #[must_use]
+    pub fn with_instruction_budgets(mut self, enabled: bool) -> Self {
+        self.target.instruction_budgets = enabled;
         self
     }
 

@@ -68,7 +68,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         let target = module.target;
         Ok(Self {
             body,
-            state: State::new(&module.cpu),
+            state: State::new(&module.cpu).with_instruction_budgets(target.instruction_budgets),
             accesses: module.memory.accesses(),
             segments: SegmentReads::new(&module.cpu, target.profile),
             target,
@@ -87,9 +87,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         })
     }
 
-    /// Reuses the decoder's entry mode for successful block-ending instructions.
-    pub(super) fn with_single_step(mut self, single_step: Val<I1>) -> Self {
+    /// Shares runtime controls across both interpreter entry modes and target policies.
+    pub(super) fn with_interpreter_controls(mut self, single_step: Val<I1>) -> Self {
         self.single_step = single_step;
+        self.state = self.state.with_instruction_budgets(true);
         self
     }
 

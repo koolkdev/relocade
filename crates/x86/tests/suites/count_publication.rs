@@ -4,7 +4,7 @@ use crate::support::{
     step,
 };
 
-use relocade_x86::{compile_block_from_bytes, CpuState, Gpr32};
+use relocade_x86::{compile_block_from_bytes, Compiler, CpuState, Gpr32, SegmentProfile};
 use step::{CallPatches, Event, Input, Observation, Snapshot, TestModule};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
@@ -15,8 +15,12 @@ const READS: &[u8] = &[
 ];
 
 #[test]
-fn only_exits_with_progress_read_and_write_instruction_count() {
-    let module = compile_block_from_bytes(0x1000, READS, 3).unwrap();
+fn budgetless_exits_read_and_write_instruction_count_only_to_publish_progress() {
+    // Isolate retirement publication from the budget checkpoint's counter read.
+    let module = Compiler::new(SegmentProfile::Flat32)
+        .with_instruction_budgets(false)
+        .compile_block(0x1000, READS, 3)
+        .unwrap();
     Validator::new().validate_all(&module.bytes).unwrap();
     let mut cpu_memory = None;
     let mut memory_index = 0;
