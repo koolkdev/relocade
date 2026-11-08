@@ -1,5 +1,5 @@
 use futures_util::future::join;
-use relocade_machine::{timer_service, Clock};
+use relocade_machine::{timer_service, Clock, ExecutionWorker};
 use std::{
     future::Future,
     pin::pin,
@@ -28,33 +28,91 @@ async fn clock_waits() {
 
 async fn delayed_driver() {
     let (clock, timers) = timer_service();
-    let mut driver = pin!(timers.run());
     let mut cx = Context::from_waker(Waker::noop());
+    let worker;
     {
         let deadline = clock.now() + Duration::from_millis(1);
         let mut sleep = pin!(clock.wait_until(deadline));
         assert!(sleep.as_mut().poll(&mut cx).is_pending());
         // Delivery time is part of the wait, not an extension to its deadline.
         futures_timer::Delay::new(Duration::from_millis(10)).await;
-        assert!(driver.as_mut().poll(&mut cx).is_pending());
+        worker = timers.spawn();
+        // A later request observes the worker processing the already overdue one.
+        clock.sleep(Duration::ZERO).await;
         assert!(sleep.as_mut().poll(&mut cx).is_ready());
     }
     drop(clock);
-    driver.await;
+    worker.join().await.unwrap();
 }
 
 async fn cancelled_wait() {
     let (clock, timers) = timer_service();
-    let mut driver = pin!(timers.run());
+    let worker = timers.spawn();
     let mut cx = Context::from_waker(Waker::noop());
     {
         let mut sleep = pin!(clock.sleep(Duration::from_secs(3600)));
         assert!(sleep.as_mut().poll(&mut cx).is_pending());
-        assert!(driver.as_mut().poll(&mut cx).is_pending());
+        clock.sleep(Duration::ZERO).await;
     }
     // Cancellation removes the active timer without waiting for its deadline.
     drop(clock);
-    assert!(driver.as_mut().poll(&mut cx).is_ready());
+    worker.join().await.unwrap();
+}
+
+async fn earlier_deadline() {
+    let (clock, timers) = timer_service();
+    let worker = timers.spawn();
+    {
+        let mut later = pin!(clock.sleep(Duration::from_secs(3600)));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(later.as_mut().poll(&mut cx).is_pending());
+        clock.sleep(Duration::ZERO).await;
+        // Let the timer thread park on the long deadline before inserting a new one.
+        futures_timer::Delay::new(Duration::from_millis(10)).await;
+        let deadline = clock.now() + Duration::from_micros(500);
+        clock.wait_until(deadline).await;
+        assert!(clock.now() >= deadline);
+        assert!(later.as_mut().poll(&mut cx).is_pending());
+    }
+    drop(clock);
+    worker.join().await.unwrap();
+}
+
+async fn idle_worker() {
+    let (clock, timers) = timer_service();
+    let worker = timers.spawn();
+    // Completing the only request leaves the worker parked without a deadline.
+    clock.sleep(Duration::ZERO).await;
+    futures_timer::Delay::new(Duration::from_millis(10)).await;
+    clock.sleep(Duration::from_millis(1)).await;
+    // Explicit stop does not depend on releasing every cloned clock handle.
+    worker.stop().await.unwrap();
+    drop(clock);
+}
+
+async fn session_shutdown() {
+    let clock = ExecutionWorker::run_until(std::future::pending::<()>(), async |runner| {
+        runner.clock().sleep(Duration::from_millis(1)).await;
+        runner.clock().clone()
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    // A result retaining a clock must not keep the session's timer worker alive.
+    drop(clock);
+
+    let (armed, stop) = futures_channel::oneshot::channel();
+    let result = ExecutionWorker::run_until(stop, async move |runner| {
+        let mut wait = pin!(runner.clock().sleep(Duration::from_secs(3600)));
+        assert!(futures_lite::future::poll_once(wait.as_mut())
+            .await
+            .is_none());
+        armed.send(()).unwrap();
+        wait.await;
+    })
+    .await
+    .unwrap();
+    assert_eq!(result, None);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -89,4 +147,37 @@ async fn queued_time_counts_toward_the_deadline() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn cancelling_a_wait_releases_its_timer_and_driver() {
     cancelled_wait().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_new_earlier_deadline_interrupts_the_current_wait() {
+    pollster::block_on(earlier_deadline());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn a_new_earlier_deadline_interrupts_the_current_wait() {
+    earlier_deadline().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn an_idle_worker_accepts_requests_and_stops_with_surviving_handles() {
+    pollster::block_on(idle_worker());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn an_idle_worker_accepts_requests_and_stops_with_surviving_handles() {
+    idle_worker().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn session_completion_and_cancellation_stop_their_timer_workers() {
+    pollster::block_on(session_shutdown());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn session_completion_and_cancellation_stop_their_timer_workers() {
+    session_shutdown().await;
 }

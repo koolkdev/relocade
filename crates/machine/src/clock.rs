@@ -1,4 +1,4 @@
-//! Shared time and timer notifications from a separately driven host task.
+//! Shared time and deadline notifications from a dedicated timer worker.
 
 mod driver;
 pub use driver::TimerDriver;
@@ -20,16 +20,16 @@ pub trait Clock {
 
 /// A clonable handle to the host timer service.
 /// [`Clock::now`] reads elapsed real time; waits arrive through Rust channels.
-/// The timer driver must run on a responsive host, outside a continuously busy
-/// emulation worker. Clones preserve their time origin, including across workers.
+/// The timer driver starts a dedicated worker. Clones preserve their time origin,
+/// including across workers.
 #[derive(Clone)]
 pub struct TimerHandle {
     start: Instant,
     requests: mpsc::UnboundedSender<driver::Request>,
 }
 
-/// Creates a timer service handle and its host-side driver.
-/// Poll [`TimerDriver::run`] on the host while execution owns the timer handles.
+/// Creates a timer service handle and its worker driver.
+/// Start [`TimerDriver::run`] or [`TimerDriver::spawn`] alongside execution.
 /// Dropping a wait cancels its timer; dropping all handles lets the driver finish.
 pub fn timer_service() -> (TimerHandle, TimerDriver) {
     let (requests, receiver) = mpsc::unbounded();
@@ -54,9 +54,9 @@ impl Clock for TimerHandle {
                 deadline: self.start + deadline,
                 complete,
             })
-            .expect("timer driver must outlive its clock handles");
+            .expect("timer service must outlive its clock handles");
         completed
             .await
-            .expect("timer driver must remain active while a wait is pending");
+            .expect("timer service must remain active while a wait is pending");
     }
 }

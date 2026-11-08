@@ -35,7 +35,10 @@ impl Device for InputDevice {
             entered.send(()).unwrap();
             // Keep this first guest block in progress until the host publishes
             // its ordinary Rust notification. No test calls interrupt.request().
-            for _ in 0..50_000_000 {
+            // Timer-worker startup is asynchronous. Bound this fixture by elapsed
+            // time rather than a spin count whose speed differs across engines.
+            let deadline = web_time::Instant::now() + Duration::from_secs(5);
+            while web_time::Instant::now() < deadline {
                 if self.sent.load(Ordering::SeqCst) {
                     return;
                 }
@@ -68,6 +71,7 @@ async fn connected_input() {
         for source in [InputSource::Host, InputSource::Timer, InputSource::Peer] {
             let timed = matches!(source, InputSource::Timer);
             let (clock, timers) = timer_service();
+            let delivery = clock.clone();
             let (entered, running) = oneshot::channel();
             let sent = Arc::new(AtomicBool::new(false));
             let worker_sent = sent.clone();
@@ -134,13 +138,11 @@ async fn connected_input() {
             // latency is independent of notification delivery at a checkpoint.
             start.send(()).unwrap();
             running.await.unwrap();
-            let mut timers = std::pin::pin!(timers.run());
+            let timers = timers.spawn_with_peer(worker.wake_peer());
             if timed {
-                // The device's zero-duration wait is already registered. Driving
-                // the real host timer service delivers its oneshot synchronously.
-                assert!(futures_lite::future::poll_once(timers.as_mut())
-                    .await
-                    .is_none());
+                // This later request completes after the device's queued timer.
+                // Keep guest dispatch held until its notification has arrived.
+                delivery.sleep(Duration::ZERO).await;
             } else if let Some((publish, task)) = peer_task {
                 publish.send(()).unwrap();
                 task.await.unwrap();
@@ -151,7 +153,9 @@ async fn connected_input() {
                 send.unbounded_send(9).unwrap();
             }
             sent.store(true, Ordering::SeqCst);
-            let (result, ()) = join(worker.join(), timers).await;
+            drop(delivery);
+            let (result, timers) = join(worker.join(), timers.join()).await;
+            timers.unwrap();
             assert_eq!(
                 result.unwrap(),
                 Some((1, if timed { vec![7] } else { vec![4, 9] })),
